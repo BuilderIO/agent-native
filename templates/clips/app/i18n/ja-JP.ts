@@ -2,6 +2,67 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
+  lookbackContext: {
+    includeLast: "直前を含める",
+    whatIsThis: "これは何ですか？",
+    off: "オフ",
+    custom: "カスタム…",
+    customLabel: "カスタムの長さ",
+    customAmount: "長さ",
+    customUnit: "単位",
+    unitSeconds: "秒",
+    unitMinutes: "分",
+    customSave: "この長さを使う",
+    customErrorEmpty: "長さを入力してください。",
+    customErrorInvalid: "秒または分の整数で入力してください。",
+    customErrorTooLong: "5分以内にしてください。",
+    turnOnRewind: "Rewindをオンにする",
+    rewindOffTitle: "Rewindをオンにする",
+    rewindOffBody:
+      "Rewindは画面のローカル履歴を保持するため、録画前の直近数分間を含めることができます。映像は、含めることを選んだか承認した場合にのみアップロードされます。",
+    requestFailed:
+      "録画前の画面を含められませんでした。録画はそのまま続きます。",
+    localOnlyUnavailable:
+      "ローカルのみの録画では、録画前の画面は保存されません。",
+    saving: "録画前の{{window}}を保存中…",
+    ready: "録画前の{{window}}を含む",
+    failed: "録画前の画面を保存できませんでした",
+    unreadable: "録画前の画面を確認できませんでした",
+    edit: "編集",
+    editTitle: "録画前の画面",
+    editSave: "保存",
+    editFailed: "範囲を保存できませんでした。もう一度お試しください。",
+    previewPreparing: "プレビューを準備中…",
+    previewFailed: "プレビューを準備できませんでした。",
+    previewLabel: "録画前の画面のプレビュー",
+    retry: "再試行",
+    playSelection: "選択範囲を再生",
+    removeFailed: "破棄した録画の録画前の画面を削除できませんでした。",
+    removeFailedAction:
+      "録画前の画面を削除できませんでした。もう一度お試しください。",
+    removeAction: "録画前の画面を削除",
+    removeConfirmTitle: "録画前の画面を削除しますか？",
+    removeConfirmBody:
+      "映像はゴミ箱に移動され、このクリップには含まれなくなります。",
+    removeConfirm: "削除",
+    removed: "録画前の画面を削除しました",
+    scrubberFromBefore: "{{offset}}前から",
+    scrubberFromStart: "録画開始から",
+    scrubberToBefore: "{{offset}}前まで",
+    scrubberToStart: "録画開始まで",
+    scrubberLength: "長さ",
+    scrubberStartHandle: "範囲の開始",
+    scrubberEndHandle: "範囲の終了",
+    tab: "コンテキスト",
+    label: "録画前の画面",
+    window: "録画開始前 {{start}}–{{end}}",
+    savingEarlierTime: "録画前の画面を保存中…",
+    loadFailed: "録画前の画面を読み込めませんでした。",
+    empty: "このクリップには録画前の画面が添付されていません。",
+    larger: "拡大",
+    editHint: "範囲は Clips Desktop で編集します。",
+    waitingOtherDevice: "このクリップを録画したデバイスを待機中",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Builder.io を使う",
@@ -346,7 +407,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "エージェントが読み取り可能なクリップ コンテキスト",
     agentInstructions:
-      "トランスクリプトのagentContextUrlとJPEGフレームURLsを取得します。フレーム URLs をフェッチして、トランスクリプトを読むだけでなく、画面を確認します。",
+      "最初にagentContextUrlを開きます。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。",
     untitledClip: "無題のクリップ",
     incorrectPassword: "パスワードが間違っています",
     passwordProtected: "このクリップはパスワードで保護されています",
@@ -610,7 +671,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:
@@ -767,6 +828,8 @@ const messages = {
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
+    mountError:
+      "Clips のワークスペース内のパスを特定できませんでした。ワークスペース管理者にアプリのマウント設定を確認してもらってください。",
     heroDescription:
       "画面、カメラ、画面+カメラのメニューバーレコーダー。ワンクリックで開始、ドラッグ可能なカメラバブル、停止時のインスタント共有リンク。",
     versionReleased: "バージョン {{version}} — リリースされた {{date}}",
@@ -829,6 +892,9 @@ const messages = {
     labWisprFlow: "音声入力",
     labWisprFlowDescription:
       "Clips Desktop の音声入力を表示または非表示にします。",
+    labLookbackContext: "以前の画面時間を含める",
+    labLookbackContextDescription:
+      "録画の前の最大5分間の画面時間を、自動で取得される補足コンテキストとして添付します。",
     uploadWorkspaceTitle: "アクティブなワークスペース",
     uploadWorkspaceDescription:
       "デスクトップからのアップロードを含む新しい Clips 録画で使用するワークスペースを選択します。",
@@ -2185,21 +2251,6 @@ const messages = {
     guideStartTitle: "Click Start notes (ローカライズ済み)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (ローカライズ済み)",
-  },
-  rewindExtension: {
-    title: "直前の出来事を追加",
-    description:
-      "ローカルのRewindから指定した時間範囲を選び、このクリップの先頭に追加します。自動では追加されません。",
-    progressLabel: "Rewind履歴の処理状況",
-    privateFirstTitle: "先にこのクリップを非公開にする",
-    privateFirstDescription:
-      "ローカルのRewind履歴には録画開始前の情報が含まれる場合があります。この操作でクリップは非公開になります。直接アクセスできる人がいる場合は、先に共有画面で削除できるようClipsが停止します。",
-    makePrivateContinue: "非公開にして続行",
-    add30Seconds: "直前の30秒を追加",
-    add5Minutes: "直前の5分を追加",
-    add5MinutesDescription: "長い説明の導入部分を復元するのに便利です。",
-    privateReady:
-      "このクリップは非公開です。ローカルのRewind履歴を追加できます。",
   },
   browserDiagnostics: {
     debug: "デバッグ",

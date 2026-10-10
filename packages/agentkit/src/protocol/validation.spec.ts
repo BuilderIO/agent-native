@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AGENTKIT_PROTOCOL_VERSION,
   AgentProtocolValidationError,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
   createAgentProtocolEnvelope,
   isAgentEvent,
   parseAgentCapabilities,
@@ -20,6 +22,8 @@ import {
   parseResumeRunInput,
   parseAgentThreadSnapshot,
   parseStartRunInput,
+  persistableFilePart,
+  isPersistableAttachmentUrl,
 } from "./index.js";
 
 const event = {
@@ -396,6 +400,184 @@ describe("AgentKit protocol validation", () => {
     ).toThrow(AgentProtocolValidationError);
   });
 
+  it("keeps inline image bytes request-only and allows URL references in queues", () => {
+    const inlineAttachment = {
+      type: "image",
+      name: "reference.png",
+      contentType: "image/png",
+      data: "data:image/png;base64,iVBORw==",
+      referenceUrl: "https://files.example.test/original.png",
+    } as const;
+    expect(
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: "Describe this" }],
+          },
+        ],
+        requestAttachments: [inlineAttachment],
+      }).requestAttachments,
+    ).toEqual([inlineAttachment]);
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Describe this",
+        requestAttachments: [inlineAttachment],
+      }),
+    ).toThrow("inline image data cannot be persisted in a queue");
+    expect(
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Describe this",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            contentType: "image/png",
+            url: "https://files.example.test/optimized.png",
+            referenceUrl: "https://files.example.test/original.png",
+          },
+        ],
+      }).requestAttachments,
+    ).toHaveLength(1);
+  });
+
+  it("rejects data URLs in durable queue attachment references", () => {
+    const dataUrl = "data:image/png;base64,iVBORw==";
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        requestAttachments: [
+          { type: "image", name: "screen.png", url: dataUrl },
+        ],
+      }),
+    ).toThrow("queueMessage.requestAttachments[0].url");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            url: "https://files.example.test/screen.png",
+            referenceUrl: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("queueMessage.requestAttachments[0].referenceUrl");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        attachments: [{ type: "file", name: "screen.png", url: dataUrl }],
+      }),
+    ).toThrow("queueMessage.attachments[0].url");
+    expect(() =>
+      parseAgentQueuedMessage({
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Inspect this",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        attachments: [{ type: "file", name: "screen.png", url: dataUrl }],
+      }),
+    ).toThrow("queuedMessage.attachments[0].url");
+    expect(() =>
+      parseAgentQueuedMessage({
+        id: "queued-2",
+        threadId: "thread-1",
+        text: "Inspect this",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        requestAttachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            url: "https://files.example.test/screen.png",
+            referenceUrl: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("queuedMessage.requestAttachments[0].referenceUrl");
+    expect(() =>
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        text: "Inspect this",
+        attachments: [
+          {
+            type: "file",
+            name: "screen.png",
+            fileId: "file-1",
+            data: dataUrl,
+          },
+        ],
+      }),
+    ).toThrow("inline file data cannot be persisted in a queue");
+  });
+
+  it("bounds request attachment count and aggregate inline image data", () => {
+    const requestAttachment = (index: number) => ({
+      type: "image",
+      name: `image-${index}.png`,
+      url: `https://files.example.test/image-${index}.png`,
+    });
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        requestAttachments: Array.from(
+          { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+          (_, index) => requestAttachment(index),
+        ),
+      }),
+    ).toThrow("expected at most");
+
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        requestAttachments: Array.from({ length: 3 }, (_, index) => ({
+          type: "image",
+          name: `image-${index}.png`,
+          data: `data:image/png;base64,${"A".repeat(
+            Math.ceil(MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS / 3),
+          )}`,
+        })),
+      }),
+    ).toThrow("aggregate inline image data exceeds");
+  });
+
+  it("keeps reading legacy queued messages with more attachments than current writes allow", () => {
+    const attachments = Array.from(
+      { length: MAX_AGENT_REQUEST_ATTACHMENTS + 1 },
+      (_, index) => ({
+        type: "file",
+        name: `file-${index}.pdf`,
+        url: `https://files.example.test/file-${index}.pdf`,
+      }),
+    );
+    const queued = {
+      id: "queued-legacy-many-attachments",
+      threadId: "thread-1",
+      text: "Read these files",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      attachments,
+      requestAttachments: attachments.map((attachment) => ({
+        type: "image",
+        name: attachment.name,
+        url: attachment.url,
+      })),
+    };
+
+    expect(parseAgentQueuedMessage(queued).attachments).toHaveLength(
+      MAX_AGENT_REQUEST_ATTACHMENTS + 1,
+    );
+    expect(() => parseQueueMessageInput(queued)).toThrow("expected at most");
+  });
+
   it("validates optional feedback trace identifiers and sequence numbers", () => {
     expect(
       parseSubmitFeedbackInput({
@@ -415,6 +597,162 @@ describe("AgentKit protocol validation", () => {
         value: "positive",
       }),
     ).toThrow("submitFeedback.messageSeq");
+  });
+
+  it("stores inline file bytes only as a named omission marker", () => {
+    const marker = persistableFilePart({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      url: "data:image/png;base64,SGVsbG8=",
+    });
+    expect(marker).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "data:image/png;base64,SGVsbG8=",
+        fileId: "file-1",
+      }),
+    ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
+    for (const fileId of [
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      "_9j_4AAQSkZJRgABAQAAAQABAAD",
+      "AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYx",
+      "77u/PHN2Zy8+",
+    ]) {
+      expect(
+        persistableFilePart({
+          type: "file",
+          name: "photo.png",
+          mediaType: "image/png",
+          fileId,
+        }),
+      ).toEqual({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        omitted: "inline-bytes",
+      });
+    }
+    for (const fileId of [
+      "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+      "AbCDef0123456789_-AbCDef0123456789",
+    ]) {
+      expect(
+        persistableFilePart({ type: "file", name: "photo.png", fileId }),
+      ).toEqual({ type: "file", name: "photo.png", fileId });
+    }
+    const durable = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "https://storage.example.test/photo.png",
+    };
+    expect(persistableFilePart(durable)).toEqual(durable);
+    expect(
+      persistableFilePart({
+        ...durable,
+        data: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toEqual(durable);
+
+    expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
+    expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    const localS3 = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "http://minio.example.test:9000/bucket/photo.png",
+    };
+    expect(persistableFilePart(localS3)).toEqual(localS3);
+    const signedReference = {
+      ...durable,
+      url: "https://storage.example.test/photo.png?signature=fake-signature",
+    };
+    expect(persistableFilePart(signedReference)).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        url: "AQID",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "https://storage.example.test/photo.png?token=secret",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+
+    const snapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [{ id: "message-1", role: "user", parts: [marker] }],
+    };
+    expect(parseAgentThreadSnapshot(snapshot).messages[0]?.parts).toEqual([
+      marker,
+    ]);
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [
+              persistableFilePart({
+                type: "file",
+                name: "photo.png",
+                url: "AQID",
+              }),
+            ],
+          },
+        ],
+      }).messages[0]?.parts,
+    ).toEqual([{ type: "file", name: "photo.png", omitted: "unsafe-url" }]);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ ...marker, omitted: "everything" }],
+          },
+        ],
+      }),
+    ).toThrow("unsupported omission marker");
   });
 
   it("validates rich snapshots as one internally consistent projection", () => {

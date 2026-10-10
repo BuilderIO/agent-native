@@ -124,6 +124,12 @@ function aiReference(draft: CommentAiDraft) {
   };
 }
 
+/** The composer position of a plain-text offset; each line is a paragraph. */
+function editorPosition(text: string, offset: number) {
+  const lines = text.slice(0, offset).split("\n");
+  return lines.reduce((position, line) => position + line.length + 2, -1);
+}
+
 function memberInitial(member: MentionMember) {
   return (mentionLabel(member)[0] ?? "?").toUpperCase();
 }
@@ -365,13 +371,22 @@ export const CommentComposer = forwardRef<
     if (!composerReady || value === lastEditorValue.current) return;
     lastEditorValue.current = value;
     hydratingControlledText.current = true;
-    composerRef.current?.setText(value);
     const currentAiDraft = aiDraftRef.current;
-    if (currentAiDraft) {
-      composerRef.current?.replaceReference(
-        AI_REFERENCE_TYPE,
-        aiReference(currentAiDraft),
-      );
+    const reference = currentAiDraft ? aiReference(currentAiDraft) : null;
+    // A restored draft keeps its AI chip as `@Label` text. Swap that text back
+    // for the chip in place; appending a chip would name the AI twice.
+    const label = reference ? `@${reference.label}` : "";
+    const at = label ? value.indexOf(label) : -1;
+    if (at < 0) {
+      composerRef.current?.setText(value);
+    } else {
+      const end =
+        at + label.length + (value[at + label.length] === " " ? 1 : 0);
+      composerRef.current?.setText(value.slice(0, at) + value.slice(end));
+      composerRef.current?.setSelection(editorPosition(value, at));
+    }
+    if (reference) {
+      composerRef.current?.replaceReference(AI_REFERENCE_TYPE, reference);
     }
     hydratingControlledText.current = false;
   }, [composerReady, value]);
@@ -611,7 +626,6 @@ export const CommentComposer = forwardRef<
         plusMenuMode="hidden"
         voiceEnabled={false}
         showModelSelector={false}
-        requireAgentEngine={false}
         modelStatusChecksEnabled={false}
         showAutoModelOption={false}
         layoutVariant="compact"

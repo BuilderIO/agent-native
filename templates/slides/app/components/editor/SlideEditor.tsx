@@ -12,7 +12,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -109,6 +108,7 @@ import {
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   normalizeImageObjectPosition,
+  serializeWithRestoredCropTransitionInlineOverrides,
   type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
@@ -148,7 +148,6 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { hasInlineHeight } from "./fit-text-object";
-import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -233,6 +232,9 @@ import {
   resolveSelectionOwnerId,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
+  captureSlideObjectAnimationState,
+  restoreSlideObjectAnimationState,
+  readEditableSlideObjectRotation,
   readSlideObjectClipboardId,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
@@ -260,12 +262,14 @@ import {
   resolveSlideSelectionAnchor,
   restoreSlideObjectStyle,
   restoreSlideObjectDomSnapshot,
+  restoreSlideObjectTransformSnapshots,
   keepAbsoluteDescendantsInPlace,
   MIN_SLIDE_OBJECT_SIZE,
   releaseSlideObjectFromLeftBoxes,
   removeSlideObjectLayoutSpacer,
   setSlideObjectDimension,
   setSlideObjectRotation,
+  slideObjectPaintsRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -280,6 +284,7 @@ import {
   type ResizeHandle,
   type SlideObjectGeometry,
   type SlideObjectGeometryPlan,
+  type SlideObjectAnimationSnapshot,
   type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
   type SlideObjectZOrderTarget,
@@ -295,6 +300,7 @@ import {
 } from "./slide-pointer-target";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
+  haveSameSlideStyleControls,
   mergeSlideStyleSnapshots,
   type SlideStylePatch,
   type SlideStyleSnapshot,
@@ -1113,12 +1119,6 @@ interface SlideEditorProps {
   comments?: CommentThread[];
   /** Opens the thread anchored to text the user clicked on the canvas. */
   onSelectCommentThread?: (threadId: string) => void;
-  /** MCP App widget only: every slide in the deck. The ones after this one are
-   *  stacked below it at the same width so a slide shorter than the pane is
-   *  followed by the next ones instead of an empty band. */
-  deckSlides?: readonly Slide[];
-  /** Makes a clicked following slide the current slide. */
-  onSelectFollowingSlide?: (slideId: string) => void;
   /** Objects the last Undo/Redo changed; selected once the slide shows them. */
   undoSelection?: UndoSelectionRequest | null;
   /** The editor is done with `undoSelection` (applied or not applicable). */
@@ -1693,6 +1693,14 @@ type ActiveImageCrop = {
   publishSelection: (element: HTMLElement) => void;
   restorePreviewStyles: () => void;
   restoreChrome: () => void;
+  resumeAnimations: () => void;
+  restoreTransitions: () => void;
+  cancelCopiedTransitions: (preserveOn?: HTMLElement) => void;
+  resumeCopiedTransitionOverrides: (element: HTMLElement) => void;
+  serializeWithoutCopiedTransitionOverrides: (
+    serialize: () => string | null,
+  ) => string | null;
+  restoreAnimations: () => void;
   hasChanges: () => boolean;
   cancel: () => HTMLElement | null;
 };
@@ -1715,8 +1723,6 @@ export default function SlideEditor({
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
-  deckSlides,
-  onSelectFollowingSlide,
   undoSelection,
   onUndoSelectionConsumed,
   slideIndex = 0,
@@ -1750,9 +1756,6 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const t = useT();
-  // The host pane owns every surface around the slide, so the widget shows the
-  // slide alone: top-aligned, filling the width, with no toolbar rows or notes.
-  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const layoutOverflowWarningEnabled = useLabState(
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
@@ -2046,7 +2049,6 @@ export default function SlideEditor({
         canvasHeight: dims.height,
         horizontalPadding,
         verticalPadding,
-        fillViewport: widgetEmbed,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -2074,14 +2076,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height, widgetEmbed]);
-
-  // The widget scrolls through the slides that follow this one, so a newly
-  // selected slide starts at the top of the pane.
-  useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (widgetEmbed && scrollContainer) scrollContainer.scrollTop = 0;
-  }, [slide.id, widgetEmbed]);
+  }, [dims.width, dims.height]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -2416,7 +2411,11 @@ export default function SlideEditor({
       crop.restoreChrome();
       writeImageCropPercentGeometry(crop.image, crop.viewport);
       preserveSlideObjectLayoutSpacer(crop.frame);
-      const html = readCurrentSlideContentHtmlRef.current();
+      crop.resumeAnimations();
+      crop.restoreTransitions();
+      const html = crop.serializeWithoutCopiedTransitionOverrides(() =>
+        readCurrentSlideContentHtmlRef.current(),
+      );
       if (html !== null) {
         if (crop.frozen.restoreMarkdownTree) {
           removeSlideObjectLayoutSpacer(crop.frame);
@@ -3385,7 +3384,9 @@ export default function SlideEditor({
         selector,
         getInlineTextStyleSnapshot(editingSurface, selection),
       );
-      setSelectedStyleSnapshot(snapshot);
+      setSelectedStyleSnapshot((current) =>
+        haveSameSlideStyleControls(current, snapshot) ? current : snapshot,
+      );
       syncSelectionToAppState(
         buildSelectionState("editing", [
           selectionItemForElement(
@@ -5095,7 +5096,7 @@ export default function SlideEditor({
       element: HTMLElement,
       { rotation, ...patch }: SlideStylePatch,
       range: Range | null = null,
-    ): Range | null => {
+    ): { styledRange: Range | null; rotationApplied: boolean } => {
       const inlinePatch = inlineInspectorStylePatch(patch);
       const hasInlinePatch = Object.keys(inlinePatch).length > 0;
       let styledRange: Range | null = null;
@@ -5120,12 +5121,15 @@ export default function SlideEditor({
         }
       }
 
+      let rotationApplied = rotation === undefined;
       const applyToElement = () => {
         if (!styledRange && hasInlinePatch) {
           applyDescendantTextStyle(element, inlinePatch);
         }
 
-        if (rotation !== undefined) setSlideObjectRotation(element, rotation);
+        if (rotation !== undefined) {
+          rotationApplied = setSlideObjectRotation(element, rotation);
+        }
         for (const [property, value] of Object.entries(patch)) {
           if (value === undefined) continue;
           if (
@@ -5156,7 +5160,7 @@ export default function SlideEditor({
       if (session) session.apply(applyToElement);
       else applyToElement();
 
-      return styledRange;
+      return { styledRange, rotationApplied };
     },
     [],
   );
@@ -5184,7 +5188,7 @@ export default function SlideEditor({
         snapshotEditableTextRange(editingSurface ?? editing))
       : null;
     const nextRange = editing
-      ? applyStylePatchToElement(editing, copied, savedRange)
+      ? applyStylePatchToElement(editing, copied, savedRange).styledRange
       : null;
     if (editing && nextRange) richTextSelectionRef.current = nextRange;
 
@@ -6655,7 +6659,11 @@ export default function SlideEditor({
                   startHeight: member.start.height,
                 });
                 if (plan.transform !== undefined) {
-                  member.element.style.transform = plan.transform;
+                  member.element.style.setProperty(
+                    "transform",
+                    plan.transform,
+                    member.element.style.getPropertyPriority("transform"),
+                  );
                 }
                 if (plan.transformOrigin !== undefined) {
                   member.element.style.transformOrigin = plan.transformOrigin;
@@ -7361,7 +7369,7 @@ export default function SlideEditor({
       const members: SlideObjectRotationMember[] = movable.map((member) => ({
         ...member,
         ...readSlideObjectTransformSnapshot(member.element),
-        rotation: readSlideObjectRotation(member.element),
+        rotation: readEditableSlideObjectRotation(member.element),
       }));
       const plan = rotateSlideObjectMembers(members, deltaDegrees);
       if (plan.size !== members.length) return false;
@@ -7373,7 +7381,11 @@ export default function SlideEditor({
           member.element,
           planSlideObjectGeometry(member.element, next.geometry),
         );
-        member.element.style.transform = next.transform;
+        member.element.style.setProperty(
+          "transform",
+          next.transform,
+          member.element.style.getPropertyPriority("transform"),
+        );
       }
 
       if (multiSelection.size > 0) {
@@ -7471,13 +7483,32 @@ export default function SlideEditor({
       // or written until the pointer travels past the drag threshold.
       let members: SlideObjectRotationMember[] = [];
       let originalStyles = new Map<string, string | null>();
+      let originalTransforms: Array<{
+        element: HTMLElement;
+        value: string;
+        priority: string;
+      }> = [];
       let began: "pending" | "ready" | "failed" = "pending";
       const beginRotation = () => {
         if (began !== "pending") return began === "ready";
         began = "failed";
         let targets = selectedObjects ?? [];
+        const inlineTransforms = new Map<
+          HTMLElement,
+          { value: string; priority: string }
+        >();
+        for (const target of targets) {
+          inlineTransforms.set(target, {
+            value: target.style.getPropertyValue("transform"),
+            priority: target.style.getPropertyPriority("transform"),
+          });
+        }
         if (promotionSource) {
           const element = promotionSource;
+          inlineTransforms.set(element, {
+            value: element.style.getPropertyValue("transform"),
+            priority: element.style.getPropertyPriority("transform"),
+          });
           promotion = {
             element,
             snapshot: {
@@ -7507,7 +7538,7 @@ export default function SlideEditor({
         members = movable.map((member) => ({
           ...member,
           ...readSlideObjectTransformSnapshot(member.element),
-          rotation: readSlideObjectRotation(member.element),
+          rotation: readEditableSlideObjectRotation(member.element),
         }));
         originalStyles = new Map(
           members.map((member) => [
@@ -7515,6 +7546,15 @@ export default function SlideEditor({
             member.element.getAttribute("style"),
           ]),
         );
+        originalTransforms = members.map((member) => {
+          const originalElement = promotionSource ?? member.element;
+          const originalTransform = inlineTransforms.get(originalElement) ??
+            inlineTransforms.get(member.element) ?? {
+              value: member.element.style.getPropertyValue("transform"),
+              priority: member.element.style.getPropertyPriority("transform"),
+            };
+          return { element: originalElement, ...originalTransform };
+        });
         began = "ready";
         return true;
       };
@@ -7531,6 +7571,11 @@ export default function SlideEditor({
       const applyDelta = (deltaDegrees: number) => {
         const plan = rotateSlideObjectMembers(members, deltaDegrees);
         if (plan.size !== members.length) return;
+        const transforms: Array<{
+          element: HTMLElement;
+          value: string;
+          priority: string;
+        }> = [];
         for (const member of members) {
           const next = plan.get(member.objectId);
           if (!next) continue;
@@ -7538,7 +7583,28 @@ export default function SlideEditor({
             member.element,
             planSlideObjectGeometry(member.element, next.geometry),
           );
-          member.element.style.transform = next.transform;
+          transforms.push({
+            element: member.element,
+            value: next.transform,
+            priority: member.element.style.getPropertyPriority("transform"),
+          });
+        }
+        restoreSlideObjectTransformSnapshots(transforms);
+        const everyRotationPainted = members.every((member) => {
+          const expected = plan.get(member.objectId)?.rotation;
+          const painted = readEditableSlideObjectRotation(member.element);
+          if (expected === undefined || painted === null) return false;
+          const difference = Math.abs(((painted - expected + 540) % 360) - 180);
+          return difference <= 0.1;
+        });
+        if (!everyRotationPainted) {
+          // A rule can begin matching the preview style and override the
+          // transform after the initial editability check. Never persist a
+          // rotation that the selected objects did not actually paint.
+          changed = false;
+          restore();
+          stop();
+          return;
         }
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
@@ -7570,6 +7636,7 @@ export default function SlideEditor({
             }
           }
         }
+        restoreSlideObjectTransformSnapshots(originalTransforms);
         if (multiSelection.size > 0) {
           refreshMultiSelectionRects(multiSelection);
         } else {
@@ -8647,17 +8714,25 @@ export default function SlideEditor({
       const originalFrame = frameIsPersistedImage
         ? (existingFrame!.cloneNode(true) as HTMLElement)
         : null;
-      const originalImage = frameIsPersistedImage
+      const originalImageAttributes = frameIsPersistedImage
         ? null
-        : (target.cloneNode(true) as HTMLImageElement);
-      const originalImageAttributes = originalImage
-        ? Array.from(
-            originalImage.attributes,
+        : Array.from(
+            target.attributes,
             ({ name, value }) => [name, value] as const,
-          )
-        : null;
+          );
+      const originalAnimationState: SlideObjectAnimationSnapshot =
+        captureSlideObjectAnimationState(
+          frameIsPersistedImage ? existingFrame! : target,
+        );
 
       let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
+      let resumeCropAnimations = () => {};
+      let restoreCropTransitions = () => {};
+      let cancelCropCopiedTransitions = (_preserveOn?: HTMLElement) => {};
+      let resumeCropCopiedTransitionOverrides = (_element: HTMLElement) => {};
+      let serializeWithoutCopiedTransitionOverrides = (
+        serialize: () => string | null,
+      ) => serialize();
       const frozen = freezeElementForFreeformSelection(frame);
       if (!frozen) return;
 
@@ -8666,6 +8741,8 @@ export default function SlideEditor({
         ".fmd-image-crop-viewport",
       );
       if (frameIsPersistedImage) {
+        serializeWithoutCopiedTransitionOverrides = (serialize) =>
+          serializeWithRestoredCropTransitionInlineOverrides(frame, serialize);
         image =
           viewport?.querySelector<HTMLImageElement>("img") ??
           frame.querySelector<HTMLImageElement>("img") ??
@@ -8712,6 +8789,13 @@ export default function SlideEditor({
         if (!wrapped) return;
         frame = wrapped.frame;
         viewport = wrapped.viewport;
+        resumeCropAnimations = wrapped.resumeAnimations;
+        restoreCropTransitions = wrapped.restoreTransitions;
+        cancelCropCopiedTransitions = wrapped.cancelCopiedTransitions;
+        resumeCropCopiedTransitionOverrides =
+          wrapped.resumeCopiedTransitionOverrides;
+        serializeWithoutCopiedTransitionOverrides =
+          wrapped.serializeWithoutCopiedTransitionOverrides;
         frame.setAttribute("data-builder-id", ensureBuilderId(frame));
       }
 
@@ -8755,6 +8839,21 @@ export default function SlideEditor({
       );
       frame.style.clipPath = "none";
       frame.style.borderRadius = "0";
+      const restoreOriginalImageStyleAttribute = () => {
+        if (!originalImageAttributes) return;
+        const originalStyle = originalImageAttributes.find(
+          ([name]) => name === "style",
+        );
+        if (originalStyle) image.setAttribute("style", originalStyle[1]);
+        else image.removeAttribute("style");
+      };
+      const restoreOriginalImageStyleAndTransitions = () => {
+        restoreOriginalImageStyleAttribute();
+        image.style.setProperty("transition", "none", "important");
+        window.getComputedStyle(image).getPropertyValue("transform");
+        restoreCropTransitions();
+        restoreOriginalImageStyleAttribute();
+      };
       const activeCrop: ActiveImageCrop = {
         slideId: slide.id,
         content: slide.content,
@@ -8774,6 +8873,16 @@ export default function SlideEditor({
           if (originalZIndex) frame.style.zIndex = originalZIndex;
           else frame.style.removeProperty("z-index");
         },
+        resumeAnimations: resumeCropAnimations,
+        restoreTransitions: restoreCropTransitions,
+        cancelCopiedTransitions: cancelCropCopiedTransitions,
+        resumeCopiedTransitionOverrides: resumeCropCopiedTransitionOverrides,
+        serializeWithoutCopiedTransitionOverrides,
+        restoreAnimations: () =>
+          restoreSlideObjectAnimationState(
+            frameIsPersistedImage ? originalFrame! : image,
+            originalAnimationState,
+          ),
         hasChanges: () =>
           [
             [frame.offsetLeft, cropStartGeometry.frame.x],
@@ -8786,6 +8895,7 @@ export default function SlideEditor({
             [image.offsetHeight, cropStartGeometry.image.height],
           ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
         cancel: () => {
+          activeCrop.cancelCopiedTransitions(image);
           removeSlideObjectLayoutSpacer(frame, slideContent);
           if (frozen.restoreMarkdownTree) {
             if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
@@ -8799,14 +8909,29 @@ export default function SlideEditor({
               }
             }
             frozen.restoreMarkdownTree();
+            restoreOriginalImageStyleAndTransitions();
+            activeCrop.resumeCopiedTransitionOverrides(image);
+            activeCrop.restoreAnimations();
             return frameIsPersistedImage ? originalFrame : image;
           }
           if (frameIsPersistedImage) {
             frame.replaceWith(originalFrame!);
+            activeCrop.restoreAnimations();
             return originalFrame;
           }
-          frame.replaceWith(originalImage!);
-          return originalImage;
+          frame.replaceWith(image);
+          if (originalImageAttributes) {
+            for (const attribute of Array.from(image.attributes)) {
+              image.removeAttribute(attribute.name);
+            }
+            for (const [name, value] of originalImageAttributes) {
+              image.setAttribute(name, value);
+            }
+          }
+          restoreOriginalImageStyleAndTransitions();
+          activeCrop.resumeCopiedTransitionOverrides(image);
+          activeCrop.restoreAnimations();
+          return image;
         },
       };
       imageCropRef.current = activeCrop;
@@ -9283,8 +9408,36 @@ export default function SlideEditor({
         );
         if (!currentSnapshot) return;
 
+        const originalTransforms =
+          patch.rotation === undefined
+            ? null
+            : new Map(
+                targets.map((target) => [
+                  target,
+                  [
+                    target.style.getPropertyValue("transform"),
+                    target.style.getPropertyPriority("transform"),
+                  ] as const,
+                ]),
+              );
+        let rotationApplied = true;
         for (const target of targets) {
-          applyStylePatchToElement(target, patch);
+          const result = applyStylePatchToElement(target, patch);
+          rotationApplied &&= result.rotationApplied;
+        }
+        if (patch.rotation !== undefined) {
+          rotationApplied &&= targets.every((target) =>
+            slideObjectPaintsRotation(target, patch.rotation!),
+          );
+          if (!rotationApplied && originalTransforms) {
+            restoreSlideObjectTransformSnapshots(
+              [...originalTransforms].map(([element, [value, priority]]) => ({
+                element,
+                value,
+                priority,
+              })),
+            );
+          }
         }
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
@@ -9295,7 +9448,7 @@ export default function SlideEditor({
         setSelectedStyleSnapshot(
           mergeSlideStyleSnapshots(targets.map(styleSnapshotForElement)),
         );
-        return;
+        return rotationApplied;
       }
 
       const editing = editingElRef.current;
@@ -9313,7 +9466,8 @@ export default function SlideEditor({
         (editing
           ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
           : null);
-      const nextRange = applyStylePatchToElement(element, patch, savedRange);
+      const result = applyStylePatchToElement(element, patch, savedRange);
+      const nextRange = result.styledRange;
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();
       }
@@ -9345,6 +9499,13 @@ export default function SlideEditor({
           ]),
         );
       }
+      // A rotation the object cannot be made to paint is refused, and the
+      // field that asked for it has to show what the object paints.
+      return (
+        patch.rotation === undefined ||
+        (result.rotationApplied &&
+          slideObjectPaintsRotation(element, patch.rotation))
+      );
     },
     [
       buildSelectionState,
@@ -10090,9 +10251,9 @@ export default function SlideEditor({
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
-  // to stay mounted or that background becomes uneditable. The widget has no
-  // toolbar row, so it never mounts these.
-  const showContextToolbars = !readOnly && !widgetEmbed;
+  // to stay mounted or that background becomes uneditable. Write access is
+  // supplied by the caller for both standalone and embedded editors.
+  const showContextToolbars = !readOnly;
   const contextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
@@ -10209,9 +10370,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--slides-editor-surface)] ${
-        widgetEmbed ? "" : "rounded-l-lg"
-      } ${animationsOpen || layersOpen ? "rounded-r-lg" : ""}`}
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
+        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+      }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -10267,11 +10428,7 @@ export default function SlideEditor({
               >
                 <div
                   ref={canvasTrackRef}
-                  className={`flex min-h-full w-max min-w-full justify-center ${
-                    widgetEmbed
-                      ? "flex-col items-center"
-                      : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
-                  }`}
+                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
                   <div
@@ -10313,11 +10470,7 @@ export default function SlideEditor({
                           <SlideRenderer
                             slide={slide}
                             slidePosition={slidePosition}
-                            className={
-                              widgetEmbed
-                                ? "rounded-none!"
-                                : "shadow-2xl shadow-black/40"
-                            }
+                            className="shadow-2xl shadow-black/40"
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
@@ -10448,16 +10601,6 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
-                  {widgetEmbed && deckSlides && onSelectFollowingSlide ? (
-                    <FollowingSlideStack
-                      slides={deckSlides}
-                      afterSlideId={slide.id}
-                      width={canvasWidth}
-                      aspectRatio={aspectRatio}
-                      designSystem={designSystem}
-                      onSelect={onSelectFollowingSlide}
-                    />
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -10470,13 +10613,11 @@ export default function SlideEditor({
           : null}
       </div>
 
-      {!widgetEmbed && (
-        <SpeakerNotesPanel
-          notes={slide.notes}
-          onChange={(notes) => onUpdateSlide({ notes })}
-          readOnly={readOnly}
-        />
-      )}
+      <SpeakerNotesPanel
+        notes={slide.notes}
+        onChange={(notes) => onUpdateSlide({ notes })}
+        readOnly={readOnly}
+      />
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline

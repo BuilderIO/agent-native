@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "en attente",
   "agent.completed": "a terminé",
   "agent.failed": "nécessite une attention particulière",
+  "agent.failureReason.failed": "Impossible de terminer",
+  "agent.failureReason.setup": "Configuration requise",
+  "agent.failureReason.auth": "Accès refusé",
+  "agent.failureReason.timeout": "Délai dépassé",
+  "agent.failureReason.budget": "Temps écoulé",
+  "agent.failureReason.response": "Résultat inutilisable",
   "agent.closed": "a fermé",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
@@ -88,6 +94,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Texte facultatif à rechercher dans la réponse…",
   "observability.promoteMustContainLabel":
     "Texte à vérifier dans la réponse de l’évaluation promue",
+  "observability.promoteReviewedPromptLabel":
+    "Prompt vérifié manuellement (jamais copié depuis la production)",
   "observability.promoteNeedsContains":
     "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir.",
   "observability.viewDetails": "Afficher les détails",
@@ -823,6 +831,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Échec de la copie",
   "recovery.continueUnavailable":
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
+  "errorMessages.invalidAttachmentNamed":
+    "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
   "recovery.deferredSubmissionFailed":
@@ -1152,8 +1163,21 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Télécharger le fichier de compétences",
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
+  "composer.fileTooLarge":
+    "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
+  "composer.sessionExpired":
+    "Votre session a expiré. Reconnectez-vous, puis renvoyez votre message.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
+  "composer.uploadUnavailable":
+    "L’envoi de fichiers est indisponible pour le moment. Réessayez dans un instant.",
+  "composer.uploadOffline":
+    "L’envoi n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.",
+  "composer.submissionNotReady":
+    "Le chat n’est pas encore prêt à envoyer. Patientez un instant, puis renvoyez.",
+  "composer.submissionScopeChanged":
+    "Ce chat a changé avant l’envoi de votre message. Renvoyez-le.",
+  "composer.attachmentNotSaved": "Non enregistré avec ce chat",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",
   "mentions.commands": "Commandes",
   "mentions.learnMore": "En savoir plus",
@@ -1314,6 +1338,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Vous êtes déconnecté, cette conversation ne peut donc pas suivre l’agent. Reconnectez-vous, puis rechargez.",
   "errorMessages.malformedRequestAttachment":
     "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
+  "errorMessages.invalidAttachment":
+    "Le fournisseur du modèle a rejeté cette pièce jointe en raison de son format ou de sa taille. Pour les images, exportez une version plus petite en PNG, JPEG, GIF ou WebP ; pour les documents, utilisez un format de fichier pris en charge ou collez le texte pertinent, puis joignez-le à nouveau.",
   "errorMessages.noProviderConnected":
     "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis utilisez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":

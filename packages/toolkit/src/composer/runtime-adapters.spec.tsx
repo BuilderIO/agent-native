@@ -44,6 +44,29 @@ describe("ComposerRuntimeAdaptersProvider", () => {
     expect(translated).toBe('"report.pdf" is 12.5 MB (max 10 MB)');
   });
 
+  it("fails closed when an opted-in prompt composer has no readiness adapter", async () => {
+    let state: string | undefined;
+    let fetchState:
+      | NonNullable<
+          ComposerRuntimeAdapters["models"]
+        >["fetchAgentEngineConfiguredState"]
+      | undefined;
+
+    function Consumer() {
+      const runtime = useComposerRuntimeAdapters();
+      state = runtime.models!.useAgentEngineConfigured!(true).state;
+      fetchState = runtime.models!.fetchAgentEngineConfiguredState;
+      return null;
+    }
+
+    act(() => root.render(<Consumer />));
+
+    expect(state).toBe("unknown");
+    await expect(fetchState!(true, { timeoutMs: 1000 })).resolves.toBe(
+      "unavailable",
+    );
+  });
+
   it("keeps the context value stable so consumer effects do not refire", () => {
     const readAppState = vi.fn(() => undefined);
     const adapters: ComposerRuntimeAdapters = { voice: { readAppState } };

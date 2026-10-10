@@ -112,7 +112,6 @@ export function renderEditorCanvasArea({
     activeTool,
     hoveredElement,
     runtimeStructureInsertRequest,
-    widgetEmbed,
     selectedElement,
     t,
     isVisualEditSurface,
@@ -143,7 +142,7 @@ export function renderEditorCanvasArea({
   } = editorGenerationAndAccess;
   const {
     layoutGrids,
-    publicVisualEditPreviewTokenQuery,
+    localhostPreviewTokenQuery,
     liveScreenSnapshotsById,
     files,
     overviewScreens,
@@ -282,12 +281,12 @@ export function renderEditorCanvasArea({
           ]
         : undefined) ??
       (activeOverviewScreen?.connectionId
-        ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+        ? localhostPreviewTokenQuery.data?.connections?.[
             activeOverviewScreen.connectionId
           ]?.liveEditRegistrationCapability
         : undefined) ??
       (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
-        ? publicVisualEditPreviewTokenQuery.data?.liveEditRegistrationCapability
+        ? localhostPreviewTokenQuery.data?.liveEditRegistrationCapability
         : undefined));
   const activeScreenExternalSnapshotHtml = activeFile?.id
     ? liveScreenSnapshotsById[activeFile.id]?.html
@@ -328,7 +327,7 @@ export function renderEditorCanvasArea({
   const chromeInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
-    widgetEmbed,
+    minimalUi,
   });
 
   const selectedLayerId =
@@ -424,9 +423,7 @@ export function renderEditorCanvasArea({
         (selectedElement || selectedScreenIds.length > 0),
       )}
       canDelete={Boolean(
-        (canEditDesign &&
-          (selectedElement ||
-            (selectedScreenIds.length > 0 && overviewScreens.length > 1))) ||
+        (canEditDesign && (selectedElement || selectedScreenIds.length > 0)) ||
         (!canEditDesign && canEditSelectedLiveLayer),
       )}
       canReorder={

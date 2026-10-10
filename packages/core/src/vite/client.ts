@@ -4832,8 +4832,11 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
-  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
-    userConfig.build ?? {};
+  const {
+    rollupOptions: _buildRollupOptionsAlias,
+    rolldownOptions: _buildRolldownOptions,
+    ...userBuild
+  } = userConfig.build ?? {};
   const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
     userConfig.optimizeDeps ?? {};
 
@@ -4977,6 +4980,12 @@ function createAgentNativeConfig(
     },
     build: {
       ...userBuild,
+      rolldownOptions: {
+        experimental: {
+          lazyBarrel:
+            userConfig.build?.rolldownOptions?.experimental?.lazyBarrel ?? true,
+        },
+      },
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       cssMinify: userConfig.build?.cssMinify ?? "esbuild",
       cssTarget: userConfig.build?.cssTarget ?? ["es2020", "safari18"],

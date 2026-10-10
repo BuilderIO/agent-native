@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { explicitCanvasDimensionsFromPrompt } from "./canvas-dimensions.js";
+import {
+  explicitCanvasDimensionsFromPrompt,
+  InvalidCanvasDimensionsError,
+  requestedCanvasDeviceVariants,
+  resolveCanvasIntent,
+} from "./canvas-dimensions.js";
 import {
   MAX_SANE_FRAME_ASPECT_RATIO,
   MAX_SANE_FRAME_DIMENSION_PX,
@@ -16,6 +21,9 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     ["Create a 1,200 x 675 pixel email banner", { width: 1200, height: 675 }],
     ["Create an email header at 1200x400", { width: 1200, height: 400 }],
     ["Create an Instagram post: 1080x1080", { width: 1080, height: 1080 }],
+    ["1200x627 LinkedIn ad", { width: 1200, height: 627 }],
+    ["1080x1350 Instagram post", { width: 1080, height: 1350 }],
+    ["ad variants at 1080x1350", { width: 1080, height: 1350 }],
     ["Make a banner, 728x90", { width: 728, height: 90 }],
     ["Create an image at 1080x1080", { width: 1080, height: 1080 }],
     ["Create an image of 1200x800", { width: 1200, height: 800 }],
@@ -45,6 +53,21 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
     expect(
       explicitCanvasDimensionsFromPrompt("Create a 120x120 card grid"),
     ).toBeUndefined();
+  });
+
+  it("does not treat copy counts as pixel dimensions", () => {
+    expect(
+      explicitCanvasDimensionsFromPrompt("Create a 3 x 5 poster pack"),
+    ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt("Create a poster at 3x5"),
+    ).toBeUndefined();
+    expect(
+      explicitCanvasDimensionsFromPrompt("Create a poster at 3x5px"),
+    ).toEqual({ width: 3, height: 5 });
+    expect(
+      explicitCanvasDimensionsFromPrompt("Use exact dimensions: 96 by 96"),
+    ).toEqual({ width: 96, height: 96 });
   });
 
   it("does not mistake an aspect ratio for pixel dimensions", () => {
@@ -297,11 +320,258 @@ describe("explicitCanvasDimensionsFromPrompt", () => {
       explicitCanvasDimensionsFromPrompt(
         "Create an image exactly 0x600 pixels",
       ),
-    ).toThrow("must be greater than zero");
+    ).toThrow(InvalidCanvasDimensionsError);
     expect(() =>
       explicitCanvasDimensionsFromPrompt(
         "Create an image exactly -300x250 pixels",
       ),
-    ).toThrow("must be greater than zero");
+    ).toThrow(InvalidCanvasDimensionsError);
+  });
+});
+
+describe("resolveCanvasIntent", () => {
+  it("types invalid exact sizes so the editor can report them before generation", () => {
+    expect(() =>
+      resolveCanvasIntent("Create a LinkedIn ad at exactly 0x600 pixels"),
+    ).toThrow(InvalidCanvasDimensionsError);
+  });
+
+  it.each([
+    [
+      "Create a LinkedIn single-image ad",
+      "LinkedIn Single Image Ad",
+      1200,
+      627,
+    ],
+    ["Create an ad for LinkedIn", "LinkedIn Single Image Ad", 1200, 627],
+    [
+      "Create a LinkedIn ad for LinkedIn",
+      "LinkedIn Single Image Ad",
+      1200,
+      627,
+    ],
+    ["Diseña un anuncio de LinkedIn", "LinkedIn Single Image Ad", 1200, 627],
+    ["Create a Meta feed ad", "Meta Feed Square Ad", 1080, 1080],
+    ["Create a landscape Meta feed ad", "Meta Feed Landscape Ad", 1200, 628],
+    ["Create an Instagram post", "Instagram Portrait Post", 1080, 1350],
+    ["Create a square Instagram post", "Instagram Post", 1080, 1080],
+    ["Design an Instagram story", "Instagram Story", 1080, 1920],
+    ["Create an OG image", "Open Graph Image", 1200, 630],
+    ["Create a YouTube thumbnail", "YouTube Thumbnail", 1280, 720],
+    ["Create a thumbnail for YouTube", "YouTube Thumbnail", 1280, 720],
+    ["Create a display ad", "Medium Rectangle", 300, 250],
+    ["Create a display leaderboard", "Leaderboard", 728, 90],
+    ["Create a leaderboard ad", "Leaderboard", 728, 90],
+    ["Create a leaderboard banner", "Leaderboard", 728, 90],
+    ["Create a mobile leaderboard", "Mobile Leaderboard", 320, 50],
+    ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
+    ["Create an email header", "Email Header", 600, 200],
+  ])("resolves %s to %s", (prompt, preset, width, height) => {
+    expect(resolveCanvasIntent(prompt)).toEqual({
+      kind: "fixed",
+      source: "preset",
+      preset,
+      dimensions: { width, height },
+    });
+  });
+
+  it.each([
+    ["Create a YouTube thumbnail for a LinkedIn ad campaign", 1280, 720],
+    [
+      "Create a LinkedIn ad using a YouTube thumbnail as inspiration",
+      1200,
+      627,
+    ],
+    [
+      "Create a poster at 700x1000 using a YouTube thumbnail as inspiration",
+      700,
+      1000,
+    ],
+  ])(
+    "prioritizes the requested output format in %s",
+    (prompt, width, height) => {
+      expect(resolveCanvasIntent(prompt)).toMatchObject({
+        kind: "fixed",
+        dimensions: { width, height },
+      });
+    },
+  );
+
+  it("keeps an unaliased fixed output when a reference names a preset format", () => {
+    expect(
+      resolveCanvasIntent(
+        "Create a poster using a YouTube thumbnail as inspiration",
+      ),
+    ).toEqual({ kind: "fixed", source: "fixed-output" });
+  });
+
+  it.each([
+    "Build a Google Ads dashboard",
+    "Build a Google Ads reporting tool",
+    "Design an ad campaign manager",
+    "Create a sales leaderboard",
+    "Create a mobile leaderboard app",
+    "Build a mobile leaderboard component",
+    "Create a display leaderboard editor",
+    "Create a display leaderboard screen",
+    "Design a Facebook ads reporting screen",
+    "Design an ad performance report screen",
+    "Design an ads manager",
+    "Build a social media scheduler",
+    "Create a leaderboard page for our game",
+    "Create a leaderboard screen for our game",
+    "Create a LinkedIn ad editor",
+    "Create a LinkedIn ads dashboard for LinkedIn",
+    "Create a social post scheduler app",
+    "Create a settings page with an avatar upload",
+    "Create a login screen with a logo",
+    "Create a pricing page with a logo cloud",
+    "Build a CRM with a banner of recent activity",
+    "Create a dashboard with a banner ad",
+    "Build a responsive landing page for our product",
+    "Create a mobile app that manages ad campaigns",
+    "Design a poster maker tool",
+    "Design a leaderboard page for our fitness app",
+    "Design an email header editor",
+    "Build a banner editor",
+    "Build a logo upload page",
+    "Build a CRM dashboard",
+    "Design a Google Ads dashboard",
+    "Make a settings page with an avatar upload",
+    "Create a reporting dashboard for Facebook ads",
+    "Create a sales leaderboard for our Facebook ads team",
+    "Show 3 options for a CRM dashboard for our ad agency",
+    "Design a Facebook ads dashboard UI",
+    "Create an email header editor UI",
+  ])("keeps app surfaces responsive in %s", (prompt) => {
+    expect(resolveCanvasIntent(prompt)).toEqual({ kind: "responsive" });
+  });
+
+  it.each([
+    "Twitter/X promo graphic",
+    "YouTube thumbnail",
+    "OG image",
+    "Make a flyer for the conference",
+    "Design a social post announcing our new landing page",
+    "Create a LinkedIn ad",
+    "Make a Twitter/X promo graphic",
+    "Design a poster for our event",
+    "1200x627 LinkedIn ad",
+    "Create a banner ad",
+    "Make an Instagram story",
+    "Create a YouTube thumbnail",
+    "Design an OG image",
+    "Make a newsletter header",
+    "Genera un anuncio para LinkedIn",
+    "Make a graphic for our LinkedIn ads",
+    "Explore 3 directions for a LinkedIn ad",
+    "Show 3 variations of a Facebook ad",
+  ])("recognizes fixed artwork in %s", (prompt) => {
+    expect(resolveCanvasIntent(prompt).kind).toBe("fixed");
+  });
+
+  it.each([
+    [
+      "Create a LinkedIn ad",
+      {
+        kind: "fixed",
+        source: "preset",
+        preset: "LinkedIn Single Image Ad",
+        dimensions: { width: 1200, height: 627 },
+      },
+    ],
+    [
+      "Design a poster for our event",
+      { kind: "fixed", source: "fixed-output" },
+    ],
+    [
+      "Make a Twitter/X promo graphic",
+      {
+        kind: "fixed",
+        source: "preset",
+        preset: "X Promo Graphic",
+        dimensions: { width: 1200, height: 675 },
+      },
+    ],
+  ])("keeps artwork outputs fixed in %s", (prompt, intent) => {
+    expect(resolveCanvasIntent(prompt)).toMatchObject(intent);
+  });
+
+  it("uses exact pixels before a platform preset", () => {
+    expect(
+      resolveCanvasIntent("Create a LinkedIn ad at 500x200 pixels"),
+    ).toEqual({
+      kind: "fixed",
+      source: "explicit-dimensions",
+      dimensions: { width: 500, height: 200 },
+    });
+  });
+
+  it("uses exact dimensions for an X promo graphic before its preset", () => {
+    expect(
+      resolveCanvasIntent("Create a Twitter/X promo graphic at 1000x400"),
+    ).toEqual({
+      kind: "fixed",
+      source: "explicit-dimensions",
+      dimensions: { width: 1000, height: 400 },
+    });
+  });
+
+  it("uses the square Instagram preset when square format follows the post", () => {
+    expect(
+      resolveCanvasIntent("Design an Instagram post in square format"),
+    ).toEqual({
+      kind: "fixed",
+      source: "preset",
+      preset: "Instagram Post",
+      dimensions: { width: 1080, height: 1080 },
+    });
+  });
+
+  it("uses a fixed canvas when the output is named without dimensions", () => {
+    expect(resolveCanvasIntent("Create a poster")).toEqual({
+      kind: "fixed",
+      source: "fixed-output",
+    });
+  });
+
+  it("keeps multiple exact-size outputs fixed without throwing during intake", () => {
+    expect(
+      resolveCanvasIntent("Create a 1080x1080 poster and a 1200x628 banner"),
+    ).toEqual({ kind: "fixed", source: "multiple-dimensions" });
+  });
+});
+
+describe("requestedCanvasDeviceVariants", () => {
+  it.each([
+    [
+      "Create a LinkedIn ad with desktop and mobile versions",
+      ["desktop", "mobile"],
+    ],
+    ["Make a mobile version of the existing ad", ["mobile"]],
+    [
+      "Create desktop, tablet, and mobile layouts",
+      ["desktop", "tablet", "mobile"],
+    ],
+  ] as const)("reads explicit variants from %s", (prompt, variants) => {
+    expect(requestedCanvasDeviceVariants(prompt)).toEqual(variants);
+  });
+
+  it("does not treat a device mention as a requested variant", () => {
+    expect(
+      requestedCanvasDeviceVariants("Create a mobile LinkedIn ad"),
+    ).toEqual([]);
+  });
+
+  it.each([
+    "Create a promo banner, no mobile version",
+    "Create a promo banner without a mobile version",
+    "Create a banner with no mobile or tablet versions",
+    "Create a banner without mobile and tablet versions",
+    "Create a desktop and mobile banner, excluding tablet variants",
+  ])("respects excluded device variants in %s", (prompt) => {
+    expect(requestedCanvasDeviceVariants(prompt)).toEqual(
+      prompt.includes("desktop and mobile") ? ["desktop", "mobile"] : [],
+    );
   });
 });

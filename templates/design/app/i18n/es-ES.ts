@@ -1,4 +1,80 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Referencia de sesión observada",
+    sessionsOfAll: "{count} sesiones · {percent} del total",
+    sessionsOfAppRoot:
+      "{count} sesiones · {percent} de la cohorte de {app} (n={rootCount})",
+    sessionsOfPrevious: "{count} sesiones · {percent} del paso anterior",
+    sessionsOfParent: "{count} sesiones · {percent} de {label}",
+    observedContinuation:
+      "Misma grabación · ejemplo {fromExample} → ejemplo {toExample}",
+    observedContinuationCompact: "Ej. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} sesiones · {percent} de este paso",
+    partialSample: "muestra parcial",
+    continuedOnUnpictured:
+      "Continuaron por rutas no mostradas: {count} · {percent} de este paso",
+    noLaterStepObserved: "No se observó ningún paso posterior",
+    examplePosition: "Galería {current} de {total}",
+    sourceExampleLabel: "Origen",
+    showExample: "Mostrar ejemplo de origen {current}",
+    screenshotExamples: "Ejemplos de capturas",
+    screenshotAlt:
+      "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
+    screenshotMissing: "No se capturó ninguna captura",
+    recordingUnavailable: "no disponible",
+    recordingGap: "Intervalo sin grabación",
+    recordingGapDuration: "Intervalo sin grabación · {duration}",
+    eventTime: "Hora del evento (UTC)",
+    generationCompletedEvent: "evento generation_completed (UTC)",
+    replayObservation: "Observación de reproducción",
+    utcTimestamp: "Marca de tiempo UTC",
+    recordingId: "ID de grabación",
+    replayOffset: "Desplazamiento de reproducción",
+    replayOffsetUnavailable: "no disponible",
+    replaySeek: "Búsqueda en la reproducción",
+    checkpointSeekTarget: "Destino de búsqueda del punto de control",
+    analyticsCheckpointOffset:
+      "Desplazamiento del punto de control de Analytics",
+    replayObserved: "Reproducción observada",
+    screenshotCaptured: "Captura realizada",
+    screenshotExportTimestamp: "Marca UTC de exportación de captura",
+    output: "Resultado",
+    outputTitle: "Título del resultado",
+    observedState: "Estado observado",
+    actorRecording: "Actor (grabación)",
+    actorSource: "Origen del actor",
+    recordingMetadata: "metadatos de grabación",
+    evidence: "Evidencia",
+    generationCompletedEvidence: "evento generation_completed",
+    renderedOutputEvidence:
+      "resultado renderizado observado; no se afirma un evento de finalización",
+    openFullPrompt: "Abrir el prompt completo",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (inglés)",
+    promptSource: "Prompt (origen)",
+    source: "Origen",
+    promptNotCaptured: "No se capturó el prompt",
+    actorUnavailable: "Actor no disponible",
+    replayDetails: "Detalles de reproducción y origen",
+    sourceApp: "Aplicación de origen",
+    route: "Ruta actual en la captura",
+    routeUnavailable: "no disponible",
+    captureSourceFingerprint: "Huella de la fuente de captura",
+    captureSourceUnavailable: "no proporcionada",
+    recordingStarted: "Grabación iniciada",
+    appBandHeading: "{app} · {count} sesiones",
+    journeyTitleSummary: "{app} · {from} a {to} · {count} sesiones{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} a {to} · cohortes separadas por aplicación{partial}",
+    sessionCount: "{count} sesiones",
+    otherPaths: "Otras rutas",
+    otherBranchesShown: "Se muestran {shown} de {total} ramas",
+    otherBranchDetailsUnavailable:
+      "Este árbol de recorrido no incluye el detalle de las ramas",
+    otherBranchSourceKey: "Clave del paso de origen: {key}",
+    htmlLanguage: "es-ES",
+  },
   composer: { menu: { integrations: "Integraciones" } },
   creativeContext: {
     title: "Biblioteca",
@@ -223,6 +299,18 @@ export default {
       exportSvg: "Exportar SVG",
       actionsPrefill: "Revisa y envía",
       retry: "Reintentar",
+      currentDesign: "el Diseño actual",
+      chooseDesign: "un Diseño (pregúntame cuál usar si hace falta)",
+      importFramePrompt:
+        "Importa este marco de Figma en {{destination}} e indica qué contenido no pudo conservar el importador: {{url}}",
+      importFilePrompt:
+        "Abre este archivo de Figma, enumera sus marcos de nivel superior y pregúntame cuál quiero importar: {{url}}",
+      inspectFramePrompt:
+        "Inspecciona este marco de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      inspectFilePrompt:
+        "Inspecciona este archivo de Figma y resume su estructura, componentes, estilos y tokens reutilizables: {{url}}",
+      exportSvgPrompt:
+        "Exporta la pantalla de Design actual como SVG para usarla en Figma e indica qué partes pasan a ser contenido SVG estático.",
     },
   },
   common: {
@@ -693,12 +781,15 @@ export default {
     },
     leftRail: {
       file: "Archivo",
-      agent: "Agente",
+      agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
       tools: "Herramientas",
       tokens: "Tokens de diseño",
       label: "Espacio de trabajo de diseño",
+      account: "Cuenta",
+      collapse: "Contraer barra lateral",
+      expand: "Expandir barra lateral",
     },
     breakpointBar: {
       base: "Base",
@@ -790,12 +881,10 @@ export default {
       "{{path}} cambió en el disco desde que se abrió. Recarga la pantalla e inténtalo de nuevo.",
     applyToSourceError: "No se pudo guardar en el código fuente: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importar tokens",
       importTitle: "Importar tokens",
       importHint:
@@ -807,6 +896,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importar tokens pegados",
       importedCount: "{{count}} tokens importados",
+      count: "{{count}} tokens",
+      search: "Buscar tokens",
+      noMatches: "No hay tokens coincidentes",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -853,6 +945,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
       figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
+      figmaPasteUploadImage: "Subir imagen",
+      figmaPasteUploadImageFor: "Subir “{{name}}”",
+      figmaPasteImageFallbackName: "Imagen {{index}}",
+      figmaPasteUploadImageSuccess: "Imagen añadida",
+      figmaPasteUploadImageInvalid:
+        "Elige un archivo de imagen, como SVG, PNG o JPG.",
+      figmaPasteUploadImageError: "No se pudo añadir esa imagen",
       figmaHydrationDialogTitle: "Conectar Figma para cargar imágenes",
       figmaHydrationDialogDescription:
         "Introduce tu token de acceso de Figma para cargar {{count}} imagen{{plural}} faltante{{plural}} en la pantalla{{screensPlural}} importada{{screensPlural}}.",
@@ -956,6 +1055,8 @@ export default {
       "La generación se detuvo antes de crear archivos. Inténtalo de nuevo para continuar desde el mismo prompt.",
     generationStoppedCheckAgent:
       "La generación se detuvo antes de crear archivos. Revisa el mensaje del agente o inténtalo de nuevo.",
+    invalidCanvasDimensions:
+      "El tamaño de lienzo solicitado no es compatible. Usa dimensiones en píxeles positivas dentro de los límites del editor.",
     notFound: "Diseño no encontrado",
     backToDesigns: "Volver a diseños",
     designNotFoundDescription: "Este diseño no existe o se ha eliminado.",
@@ -1527,6 +1628,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
       permissionPromptRetry: "Reintentar conexión",
+      previewCredentialsUnavailableTitle:
+        "Las credenciales de la vista previa local no están disponibles",
+      previewCredentialsUnavailableDescription:
+        "Vuelve a conectar la conexión localhost de esta pantalla en el inspector y vuelve a intentarlo.",
+      publicPreviewUnavailableDescription:
+        "Las vistas previas de localhost no se comparten con los visitantes públicos. Abre este diseño como colaborador para ver esta pantalla.",
+      previewCredentialsRetry: "Reintentar credenciales",
     },
   },
   multiScreenCanvas: {
@@ -1537,6 +1645,7 @@ export default {
     fork: "Bifurcar",
     fullView: "Vista completa",
     preview: "Vista previa",
+    focusScreen: "Enfocar pantalla",
     openAndDuplicate:
       "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
     openAndPreview:

@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
-import { BuilderBMark } from "@agent-native/core/client/builder-mark";
 import { formatClientFailureReport } from "@agent-native/core/client/failure-report";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -373,7 +372,6 @@ export function BuilderConnectCta({
               </>
             ) : (
               <>
-                <BuilderBMark className="size-3.5" />
                 {reconnect
                   ? t("agentChat.recovery.reconnectBuilder")
                   : t("agentChat.setup.connectBuilder")}
@@ -617,11 +615,13 @@ export function BuilderSetupCard({
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         attached && "agent-builder-setup-card--attached",
-        fullWidth
-          ? "w-full px-3 pb-2"
-          : sidebarLayout
-            ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
-            : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",
+        attached
+          ? "p-3"
+          : fullWidth
+            ? "w-full p-3"
+            : sidebarLayout
+              ? "mx-auto w-full max-w-[42rem] p-3"
+              : "mx-auto w-full max-w-[42rem] p-3 sm:w-fit",
       )}
     >
       <div
@@ -666,6 +666,8 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  onRetryWithoutAttachments,
+  onRetryWithoutAttachment,
   retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
@@ -677,6 +679,9 @@ export function RunErrorRecoveryCard({
   onContinue?: () => void;
   continueError?: string | null;
   onRetry: () => void;
+  /** Resends the rejected request without its attachments. */
+  onRetryWithoutAttachments?: () => void;
+  onRetryWithoutAttachment?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
@@ -694,7 +699,13 @@ export function RunErrorRecoveryCard({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
-  const canRecover = info.recoverable === true;
+  // Retrying or continuing sends the rejected attachment again.
+  const attachmentRejected = info.errorCode === "invalid_attachment";
+  const canRecover = info.recoverable === true && !attachmentRejected;
+  const retryWithoutAttachments =
+    onRetryWithoutAttachments ?? onRetryWithoutAttachment;
+  const canRetryWithoutAttachments =
+    attachmentRejected && retryWithoutAttachments;
   const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
@@ -835,14 +846,14 @@ export function RunErrorRecoveryCard({
 
   if (isBuilderCreditsLimit) {
     return (
-      <div className="@container min-w-0 rounded-lg border border-border bg-card p-3 text-sm">
+      <div className="@container relative min-w-0 rounded-lg border border-border bg-card p-3 pe-11 text-sm">
         <div className="flex min-w-0 flex-col gap-3 @md:flex-row @md:items-center">
           <p className="w-full min-w-0 font-medium text-foreground @md:flex-1 @md:w-auto">
             {t("agentChat.errorMessages.creditsLimitReached", {
               defaultValue: "You've reached your AI credits limit.",
             })}
           </p>
-          <div className="flex w-full items-center gap-3 @md:w-auto">
+          <div className="flex w-full items-center @md:w-auto">
             <Button asChild size="sm">
               <a href={builderSubscriptionUrl} target="_blank" rel="noreferrer">
                 {t("agentChat.errorMessages.addCreditsInBuilder", {
@@ -851,16 +862,16 @@ export function RunErrorRecoveryCard({
                 <IconArrowUpRight />
               </a>
             </Button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label={t("agentChat.common.dismiss")}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <IconX size={14} />
-            </button>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t("agentChat.common.dismiss")}
+          className="absolute end-2 top-2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <IconX size={14} />
+        </button>
         <BuilderReferralInviteRow className="mt-3 border-t border-border/70 pt-3" />
       </div>
     );
@@ -965,6 +976,18 @@ export function RunErrorRecoveryCard({
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
+          </button>
+        )}
+        {canRetryWithoutAttachments && (
+          <button
+            type="button"
+            onClick={retryWithoutAttachments}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconRefresh size={13} />
+            <span className="truncate">
+              {t("agentChat.recovery.retryWithoutAttachment")}
+            </span>
           </button>
         )}
         <div className="flex shrink-0 items-center gap-0.5">

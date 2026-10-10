@@ -36,6 +36,12 @@ const messages = {
   "agent.queued": "queued",
   "agent.completed": "finished",
   "agent.failed": "needs attention",
+  "agent.failureReason.failed": "Couldn't finish",
+  "agent.failureReason.setup": "Needs setup first",
+  "agent.failureReason.auth": "Access was rejected",
+  "agent.failureReason.timeout": "Took too long",
+  "agent.failureReason.budget": "Ran out of time",
+  "agent.failureReason.response": "No usable result",
   "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
@@ -82,6 +88,8 @@ const messages = {
     "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
     "Text to check for in the promoted eval reply",
+  "observability.promoteReviewedPromptLabel":
+    "Manually reviewed prompt (never copied from production)",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
@@ -501,7 +509,20 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.fileTooLarge":
+    "This file is larger than the {{size}} MB upload limit.",
+  "composer.sessionExpired":
+    "Your session expired. Sign in again, then send your message.",
   "composer.unsupportedFileType": "This file type isn't supported.",
+  "composer.uploadUnavailable":
+    "File uploads are unavailable right now. Try again in a moment.",
+  "composer.uploadOffline":
+    "The upload couldn't reach the server. Check your connection and try again.",
+  "composer.submissionNotReady":
+    "Chat isn't ready to send yet. Wait a moment, then send again.",
+  "composer.submissionScopeChanged":
+    "This chat changed before your message was sent. Send it again.",
+  "composer.attachmentNotSaved": "Not saved with this chat",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
@@ -648,6 +669,8 @@ const messages = {
     "You're signed out, so this chat can't follow the agent. Sign in again, then reload.",
   "errorMessages.malformedRequestAttachment":
     "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
+  "errorMessages.invalidAttachment":
+    "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
     "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
@@ -1142,6 +1165,9 @@ const messages = {
   "recovery.copyFailed": "Copy failed",
   "recovery.continueUnavailable":
     "This run can't be continued anymore. Send a message to keep going.",
+  "errorMessages.invalidAttachmentNamed":
+    "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":

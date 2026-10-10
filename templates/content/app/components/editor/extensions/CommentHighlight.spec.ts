@@ -11,6 +11,7 @@ const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
     paragraph: { group: "block", content: "text*" },
+    blockquote: { group: "block", content: "block+" },
     text: {},
   },
   marks: {},
@@ -77,5 +78,70 @@ describe("CommentHighlight", () => {
       selected: "comment-highlight comment-highlight--active",
       hovered: "comment-highlight",
     });
+  });
+
+  it("survives an identical document swap but not deletion of its text", () => {
+    let state = EditorState.create({
+      doc: doc("alpha beta"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 7, to: 11 }],
+      }),
+    );
+
+    const swapped = state.apply(
+      state.tr.replaceWith(
+        0,
+        state.doc.content.size,
+        doc("alpha beta").content,
+      ),
+    );
+    expect(commentHighlightKey.getState(swapped)!.specs).toEqual([
+      { threadId: "t1", from: 7, to: 11 },
+    ]);
+
+    const deleted = state.apply(state.tr.delete(6, 11));
+    expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+  });
+
+  it("drops a highlight whose word was deleted ahead of an identical one", () => {
+    let state = EditorState.create({
+      doc: doc("alpha alpha"),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 1, to: 6 }],
+      }),
+    );
+
+    const deleted = state.apply(state.tr.delete(1, 7));
+    expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
+  });
+
+  it("drops a highlight when a swap keeps the text but moves it into a quote", () => {
+    const paragraph = (text: string) =>
+      schema.node("paragraph", null, schema.text(text));
+    const quoted = (text: string) =>
+      schema.node("blockquote", null, [paragraph(text)]);
+    let state = EditorState.create({
+      doc: schema.node("doc", null, [paragraph("alpha"), quoted("beta")]),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 1, to: 6 }],
+      }),
+    );
+
+    const moved = state.apply(
+      state.tr.replaceWith(0, state.doc.content.size, [
+        quoted("alpha"),
+        paragraph("beta"),
+      ]),
+    );
+    expect(commentHighlightKey.getState(moved)!.specs).toEqual([]);
   });
 });

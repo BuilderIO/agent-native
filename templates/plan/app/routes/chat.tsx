@@ -1,3 +1,5 @@
+import { useParams } from "react-router";
+
 import { APP_TITLE } from "@/lib/app-config";
 import { PlanChatHydrateFallback, PlanChatPage } from "@/pages/PlanChatPage";
 
@@ -24,6 +26,10 @@ export function HydrateFallback() {
   return <PlanChatHydrateFallback />;
 }
 
+// `/chat` and `/chat/:threadId` (chat.$threadId.tsx re-exports this module)
+// must render this same component, so a submit that moves the URL does not
+// remount the chat.
 export default function ChatRoute() {
-  return <PlanChatPage />;
+  const { threadId } = useParams();
+  return <PlanChatPage threadId={threadId ?? null} />;
 }

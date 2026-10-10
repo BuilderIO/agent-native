@@ -1,7 +1,4 @@
-import {
-  isOpenAiMcpAppHost,
-  type AssistantChatHistoryVersion,
-} from "@agent-native/core/client/agent-chat";
+import type { AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
 import { isAssistantChatHistoryVersion } from "@agent-native/core/client/assistant-chat-history-version";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -29,6 +26,7 @@ import {
 import { useLocation, useNavigation } from "react-router";
 import { toast } from "sonner";
 
+import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
 import { Button } from "@/components/ui/button";
@@ -42,6 +40,11 @@ import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
+import { documentQueryFilter } from "@/lib/document-query";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
 import {
   readPageIconRowHint,
@@ -83,14 +86,47 @@ export function documentPageIdFromPathname(pathname: string) {
   return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
 }
 
+function PendingDocumentTransition({
+  created,
+  documentId,
+  search,
+  title,
+}: {
+  created: boolean;
+  documentId: string;
+  search: string;
+  title: string | null | undefined;
+}) {
+  const params = new URLSearchParams(search);
+  const fallback = (
+    <DocumentEditorSkeleton
+      title={title}
+      iconRow={readPageIconRowHint(documentId)}
+      shape={readPageShapeHint(documentId)}
+    />
+  );
+  if (!created) return fallback;
+
+  return (
+    <DocumentEditor
+      documentId={documentId}
+      databaseId={params.get("databaseId")}
+      databaseDocumentId={params.get("databaseDocumentId")}
+      viewId={params.get("viewId")}
+      foreground
+    />
+  );
+}
+
 interface LayoutProps {
   children: ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
-  const openAiWidget = isOpenAiMcpAppHost();
-  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
+  // An MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so its
+  // widget draws the app's own shell without the sidebar and agent panel.
+  const hostOwnsChrome = useIsMcpAppWidgetEmbed();
   const navigation = useNavigation();
   const pendingPathname = navigation.location?.pathname ?? null;
   const chromePathname = pendingPathname ?? location.pathname;
@@ -109,6 +145,44 @@ export function Layout({ children }: LayoutProps) {
   });
   const queryClient = useQueryClient();
   const pendingSearch = navigation.location?.search ?? "";
+  const activeDocument = activeDocumentId
+    ? queryClient
+        .getQueriesData<Document>(documentQueryFilter(activeDocumentId))
+        .find(([, document]) => document?.id === activeDocumentId)?.[1]
+    : undefined;
+  const activeDocumentWasCreated = Boolean(
+    activeDocument &&
+    (isDocumentCreationPending(queryClient, activeDocument) ||
+      isDocumentCreationConfirmed(queryClient, activeDocument)),
+  );
+  const createdDocumentTransitionIdRef = useRef<string | null>(null);
+  if (activeDocumentWasCreated && activeDocumentId) {
+    createdDocumentTransitionIdRef.current = activeDocumentId;
+  } else if (
+    !showPendingDocumentSkeleton &&
+    createdDocumentTransitionIdRef.current !== currentDocumentId
+  ) {
+    createdDocumentTransitionIdRef.current = null;
+  }
+  const activeDocumentTransitionWasCreated = Boolean(
+    activeDocumentWasCreated ||
+    createdDocumentTransitionIdRef.current === activeDocumentId,
+  );
+  const showPendingDocumentTransition = Boolean(
+    showPendingDocumentSkeleton && pendingDocumentId,
+  );
+  const showCurrentCreatedDocumentEditor = Boolean(
+    currentDocumentId &&
+    !showPendingDocumentTransition &&
+    activeDocumentTransitionWasCreated &&
+    createdDocumentTransitionIdRef.current === currentDocumentId,
+  );
+  const showDocumentTransition =
+    showPendingDocumentTransition || showCurrentCreatedDocumentEditor;
+  const transitionDocumentTitle = showPendingDocumentTransition
+    ? pendingDocumentTitle
+    : activeDocument?.title;
+  const transitionSearch = navigation.location?.search ?? location.search;
   useEffect(() => {
     if (!showPendingDocumentSkeleton || !pendingDocumentId) return;
     const search = new URLSearchParams(pendingSearch);
@@ -266,7 +340,7 @@ export function Layout({ children }: LayoutProps) {
   }, [shellLayout.sidebar]);
 
   const mobileSidebarTrigger =
-    isCompactLayout && !openAiWidget ? (
+    isCompactLayout && !hostOwnsChrome ? (
       <Button
         ref={sidebarTriggerRef}
         type="button"
@@ -282,10 +356,14 @@ export function Layout({ children }: LayoutProps) {
       </Button>
     ) : null;
   const contentSidebarWidth =
-    openAiWidget || isCompactLayout ? 0 : sidebarCollapsed ? 48 : sidebarWidth;
+    hostOwnsChrome || isCompactLayout
+      ? 0
+      : sidebarCollapsed
+        ? 48
+        : sidebarWidth;
 
   const sidebarSheet =
-    shellLayout.sidebar === "docked" || openAiWidget ? null : (
+    shellLayout.sidebar === "docked" ? null : (
       <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
         <SheetContent
           side="left"
@@ -320,32 +398,35 @@ export function Layout({ children }: LayoutProps) {
         </SheetContent>
       </Sheet>
     );
-  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
-  // widget gets no app chrome for any route.
-  if (mcpAppWidgetEmbed) {
-    return (
-      <HeaderActionsProvider>
-        <div className="agent-layout-shell flex h-dvh overflow-hidden bg-background">
-          <main
-            className="agent-native-app-main relative flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden"
-            style={{ "--content-sidebar-width": "0px" } as CSSProperties}
-          >
-            <SidebarTriggerContext.Provider value={null}>
-              {showPendingDocumentSkeleton && pendingDocumentId ? (
-                <DocumentEditorSkeleton
-                  title={pendingDocumentTitle}
-                  iconRow={readPageIconRowHint(pendingDocumentId)}
-                  shape={readPageShapeHint(pendingDocumentId)}
-                />
-              ) : (
-                children
-              )}
-            </SidebarTriggerContext.Provider>
-          </main>
-        </div>
-      </HeaderActionsProvider>
-    );
-  }
+  const page = (
+    <main
+      className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+      style={
+        {
+          "--content-sidebar-width": `${contentSidebarWidth}px`,
+        } as CSSProperties
+      }
+    >
+      {showHeader ? <Header sidebarTrigger={mobileSidebarTrigger} /> : null}
+      {hostOwnsChrome ? null : (
+        <InvitationBanner
+          className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+        />
+      )}
+      <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
+        {showDocumentTransition && activeDocumentId ? (
+          <PendingDocumentTransition
+            created={activeDocumentTransitionWasCreated}
+            documentId={activeDocumentId}
+            search={transitionSearch}
+            title={transitionDocumentTitle}
+          />
+        ) : (
+          children
+        )}
+      </SidebarTriggerContext.Provider>
+    </main>
+  );
 
   return (
     <HeaderActionsProvider>
@@ -353,86 +434,68 @@ export function Layout({ children }: LayoutProps) {
         ref={layoutShellRef}
         className="agent-layout-shell flex h-screen overflow-hidden bg-background"
       >
-        {sidebarSheet}
-        {isCompactLayout ? (
+        {hostOwnsChrome ? (
+          page
+        ) : (
           <>
-            {openAiWidget ||
-            showHeader ||
-            fullWidthSettings ||
-            documentPageIdFromPathname(chromePathname) ||
-            chromePathname.startsWith("/home") ? null : (
-              <button
-                type="button"
-                aria-label={t("navigation.openSidebar")}
-                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
-                onClick={() => setMobileSidebarOpen(true)}
-              >
-                <IconMenu2 size={18} />
-              </button>
-            )}
-          </>
-        ) : fullWidthSettings || openAiWidget ? null : (
-          <div className="agent-layout-left-drawer flex shrink-0">
-            <DocumentSidebar
-              activeDocumentId={activeDocumentId}
-              collapsed={sidebarCollapsed}
-              onToggleCollapsed={toggleDockedSidebar}
-              width={sidebarWidth}
-              minWidth={MIN_SIDEBAR_WIDTH}
-              maxWidth={MAX_SIDEBAR_WIDTH}
-              onResize={handleSidebarResize}
-            />
-          </div>
-        )}
-        <AgentSidebar
-          position="right"
-          forceOverlay={shellLayout.agentPanel === "overlay"}
-          defaultOpen={false}
-          agentPageHref="/settings/agent"
-          emptyStateText={t("chat.emptyState")}
-          suggestions={[
-            t("chat.suggestionPrd"),
-            t("chat.suggestionSummary"),
-            t("chat.suggestionNotion"),
-          ]}
-          scope={documentScope}
-          chatHistory={documentChatHistory}
-          browserTabId={getBrowserTabId()}
-          composerSlot={
-            creativeContextEnabled ? <CreativeContextComposerChip /> : undefined
-          }
-        >
-          <ContentLayoutContext.Provider value={shellLayout}>
-            <ContentUtilityRailContext.Provider value={holdUtilityRail}>
-              <main
-                className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
-                style={
-                  {
-                    "--content-sidebar-width": `${contentSidebarWidth}px`,
-                  } as CSSProperties
-                }
-              >
-                {showHeader ? (
-                  <Header sidebarTrigger={mobileSidebarTrigger} />
-                ) : null}
-                <InvitationBanner
-                  className={`${showHeader || fullWidthSettings || openAiWidget ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+            {sidebarSheet}
+            {isCompactLayout ? (
+              <>
+                {showHeader ||
+                fullWidthSettings ||
+                documentPageIdFromPathname(chromePathname) ||
+                chromePathname.startsWith("/home") ? null : (
+                  <button
+                    type="button"
+                    aria-label={t("navigation.openSidebar")}
+                    className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={() => setMobileSidebarOpen(true)}
+                  >
+                    <IconMenu2 size={18} />
+                  </button>
+                )}
+              </>
+            ) : fullWidthSettings ? null : (
+              <div className="agent-layout-left-drawer flex shrink-0">
+                <DocumentSidebar
+                  activeDocumentId={activeDocumentId}
+                  collapsed={sidebarCollapsed}
+                  onToggleCollapsed={toggleDockedSidebar}
+                  width={sidebarWidth}
+                  minWidth={MIN_SIDEBAR_WIDTH}
+                  maxWidth={MAX_SIDEBAR_WIDTH}
+                  onResize={handleSidebarResize}
                 />
-                <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-                  {showPendingDocumentSkeleton && pendingDocumentId ? (
-                    <DocumentEditorSkeleton
-                      title={pendingDocumentTitle}
-                      iconRow={readPageIconRowHint(pendingDocumentId)}
-                      shape={readPageShapeHint(pendingDocumentId)}
-                    />
-                  ) : (
-                    children
-                  )}
-                </SidebarTriggerContext.Provider>
-              </main>
-            </ContentUtilityRailContext.Provider>
-          </ContentLayoutContext.Provider>
-        </AgentSidebar>
+              </div>
+            )}
+            <AgentSidebar
+              position="right"
+              forceOverlay={shellLayout.agentPanel === "overlay"}
+              defaultOpen={false}
+              agentPageHref="/settings/agent"
+              emptyStateText={t("chat.emptyState")}
+              suggestions={[
+                t("chat.suggestionPrd"),
+                t("chat.suggestionSummary"),
+                t("chat.suggestionNotion"),
+              ]}
+              scope={documentScope}
+              chatHistory={documentChatHistory}
+              browserTabId={getBrowserTabId()}
+              composerSlot={
+                creativeContextEnabled ? (
+                  <CreativeContextComposerChip />
+                ) : undefined
+              }
+            >
+              <ContentLayoutContext.Provider value={shellLayout}>
+                <ContentUtilityRailContext.Provider value={holdUtilityRail}>
+                  {page}
+                </ContentUtilityRailContext.Provider>
+              </ContentLayoutContext.Provider>
+            </AgentSidebar>
+          </>
+        )}
       </div>
     </HeaderActionsProvider>
   );

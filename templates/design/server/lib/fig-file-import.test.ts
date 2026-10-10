@@ -31,6 +31,7 @@ import {
   convertDecodedFigToEditableHtml,
   importFigFileToEditableHtml,
 } from "./fig-file-import.js";
+import { BROWSER_FIG_LIMITS, SERVER_FIG_LIMITS } from "./fig-file-limits.js";
 import {
   collectTopLevelFrames,
   renderHtmlTemplates,
@@ -50,6 +51,79 @@ function kiwiContainer(chunks: Buffer[], version = 124): Buffer {
       return [length, compressed];
     }),
   ]);
+}
+
+function storedZip(entries: Array<[string, Buffer]>): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, data] of entries) {
+    const nameBytes = Buffer.from(name);
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, data);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(data.length, 20);
+    header.writeUInt32LE(data.length, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+function deflatedZip(
+  entries: Array<{ name: string; data: Buffer; declaredSize?: number }>,
+): Buffer {
+  const locals: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const { name, data, declaredSize = data.length } of entries) {
+    const nameBytes = Buffer.from(name);
+    const compressed = zlib.deflateRawSync(data);
+    const crc = zlib.crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(declaredSize, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, compressed);
+    const header = Buffer.alloc(46);
+    header.writeUInt32LE(0x02014b50, 0);
+    header.writeUInt16LE(8, 10);
+    header.writeUInt32LE(crc, 16);
+    header.writeUInt32LE(compressed.length, 20);
+    header.writeUInt32LE(declaredSize, 24);
+    header.writeUInt16LE(nameBytes.length, 28);
+    header.writeUInt32LE(offset, 42);
+    central.push(header, nameBytes);
+    offset += 30 + nameBytes.length + compressed.length;
+  }
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
 }
 
 function encodedHelloFig(extraChunks: Buffer[] = []): Buffer {
@@ -192,15 +266,116 @@ describe("bounded .fig decoding", () => {
     expect(decoded.decodeError).toMatch(/too much string data/i);
   });
 
-  it("lets browser-local decoding skip only the raw upload ceiling", () => {
+  it("applies the raw file ceiling from the limits profile", () => {
     const fig = encodedHelloFig();
+    const limits = { ...SERVER_FIG_LIMITS, fileBytes: fig.byteLength - 1 };
 
-    expect(() => decodeFig(fig, { maxFileBytes: fig.byteLength - 1 })).toThrow(
-      /too large/,
-    );
-    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+    expect(() => decodeFig(fig, { limits })).toThrow(/too large/);
+    expect(decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document).toEqual({
       hello: "world",
     });
+  });
+
+  it("caps each chunk by the remaining aggregate inflate budget", () => {
+    const fig = encodedHelloFig([Buffer.alloc(64 * 1024)]);
+    const limits = {
+      ...SERVER_FIG_LIMITS,
+      inflatedBytes: 4 * 1024,
+      inflatedChunkBytes: 1024 * 1024,
+    };
+
+    expect(() => decodeFig(fig, { limits })).toThrow(
+      /Decompressed .fig data is too large \(max 0 MB\)/,
+    );
+    expect(decodeFig(fig, { limits: SERVER_FIG_LIMITS }).document).toEqual({
+      hello: "world",
+    });
+  });
+
+  it("stops inflating a zip entry at its declared size", () => {
+    const canvas = encodedHelloFig();
+    const zip = deflatedZip([
+      { name: "canvas.fig", data: canvas },
+      { name: "images/a", data: Buffer.alloc(256 * 1024), declaredSize: 1024 },
+    ]);
+
+    expect(() => decodeFig(zip, { limits: BROWSER_FIG_LIMITS })).toThrow(
+      /Size mismatch for "images\/a": inflates past its declared 1024 bytes/,
+    );
+  });
+
+  it("shares one inflate budget between the zip and its canvas.fig", () => {
+    const canvas = encodedHelloFig([randomBytes(40 * 1024)]);
+    const zip = deflatedZip([{ name: "canvas.fig", data: canvas }]);
+    const limits = { ...SERVER_FIG_LIMITS, inflatedBytes: 64 * 1024 };
+
+    expect(canvas.length).toBeGreaterThan(32 * 1024);
+    expect(canvas.length).toBeLessThan(limits.inflatedBytes);
+    expect(() => decodeFig(zip, { limits })).toThrow(
+      /Decompressed .fig data is too large/,
+    );
+    expect(decodeFig(zip).document).toEqual({ hello: "world" });
+  });
+
+  it("keeps stored zip entries as views outside the inflate budget", () => {
+    const image = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const zipBytes = storedZip([
+      ["canvas.fig", encodedHelloFig()],
+      ["images/a", image],
+    ]);
+    const zip = new Uint8Array(
+      zipBytes.buffer,
+      zipBytes.byteOffset,
+      zipBytes.byteLength,
+    );
+    const limits = { ...BROWSER_FIG_LIMITS, inflatedBytes: 1024 };
+
+    const decoded = decodeFig(zip, { limits });
+
+    expect(decoded.format).toBe("zip");
+    expect(decoded.document).toEqual({ hello: "world" });
+    expect(decoded.images).toHaveLength(1);
+    expect(decoded.images[0]!.bytes.buffer).toBe(zip.buffer);
+    expect(() =>
+      decodeFig(zip, { limits: { ...limits, zipEntries: 1 } }),
+    ).toThrow(/too many entries \(max 1\)/);
+  });
+
+  it("rejects stored zip entries that alias the same bytes", () => {
+    const image = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const zip = storedZip([
+      ["canvas.fig", encodedHelloFig()],
+      ["images/a", image],
+    ]);
+    const directoryOffset = zip.readUInt32LE(zip.length - 6);
+    const firstHeaderLength = 46 + zip.readUInt16LE(directoryOffset + 28);
+    const imageHeader = zip.subarray(
+      directoryOffset + firstHeaderLength,
+      zip.length - 22,
+    );
+    const aliases = Array.from({ length: 8 }, () => imageHeader);
+    const end = Buffer.from(zip.subarray(zip.length - 22));
+    end.writeUInt16LE(2 + aliases.length, 8);
+    end.writeUInt16LE(2 + aliases.length, 10);
+    end.writeUInt32LE(
+      zip.length - 22 - directoryOffset + imageHeader.length * aliases.length,
+      12,
+    );
+    const aliased = Buffer.concat([
+      zip.subarray(0, zip.length - 22),
+      ...aliases,
+      end,
+    ]);
+
+    expect(() => decodeFig(aliased, { limits: BROWSER_FIG_LIMITS })).toThrow(
+      /Overlapping .fig zip entries/,
+    );
   });
 
   it("decodes valid browser-local containers above the server upload ceiling", () => {
@@ -211,7 +386,7 @@ describe("bounded .fig decoding", () => {
 
     expect(fig.byteLength).toBeGreaterThan(50 * 1024 * 1024);
     expect(() => decodeFig(fig)).toThrow(/too large/);
-    expect(decodeFig(fig, { maxFileBytes: null }).document).toEqual({
+    expect(decodeFig(fig, { limits: BROWSER_FIG_LIMITS }).document).toEqual({
       hello: "world",
     });
   }, 30_000);
@@ -272,7 +447,7 @@ describe("bounded .fig decoding", () => {
     expect(decoded.document).toBeNull();
   });
 
-  it("accepts current Figma schemas whose NodeChange message has 2000 fields", () => {
+  it("accepts a generated NodeChange schema with 2000 fields", () => {
     const fields = Array.from(
       { length: 2000 },
       (_, index) => `string field${index} = ${index + 1};`,
@@ -581,6 +756,28 @@ describe("editable .fig conversion", () => {
     expect(
       collectTopLevelFrames(page, childrenOf).map((frame) => frame.name),
     ).toEqual(["Rotated bounds frame", "Right frame"]);
+  });
+
+  it("bounds section traversal by the caller's node budget", () => {
+    const guid = (localID: number) => ({ sessionID: 1, localID });
+    const page: FigNode = { guid: guid(1), type: "CANVAS" };
+    const section: FigNode = { guid: guid(2), type: "SECTION" };
+    const shapes: FigNode[] = Array.from({ length: 8 }, (_, index) => ({
+      guid: guid(10 + index),
+      type: "RECTANGLE",
+    }));
+    const frame: FigNode = { guid: guid(3), type: "FRAME", name: "Frame" };
+    const childrenOf = new Map<string, FigNode[]>([
+      ["1:1", [section]],
+      ["1:2", [...shapes, frame]],
+    ]);
+
+    expect(() => collectTopLevelFrames(page, childrenOf, 5)).toThrow(
+      /section traversal exceeded its node budget/,
+    );
+    expect(
+      collectTopLevelFrames(page, childrenOf, 10).map((node) => node.name),
+    ).toEqual(["Frame"]);
   });
 
   it("imports all frames from the uploaded file", async () => {

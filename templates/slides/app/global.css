@@ -61,6 +61,18 @@
   .slides-home-mobile-toolbar .slides-home-import-label {
     display: none;
   }
+
+  .slides-home-mobile-toolbar .slides-home-import-status:not(:empty) {
+    display: inline;
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+  }
 }
 
 .deck-template-preview-frame {
@@ -364,12 +376,6 @@ button[title="Open agent sidebar"] {
       var(--agent-native-lower-surface, hsl(var(--background))) 65%
     );
   }
-}
-
-/* Inside a host-owned MCP App pane the area around the slide is the pane's own
- * background, not the darker editor well. */
-.deck-editor-shell[data-slides-widget="true"] {
-  --slides-editor-surface: hsl(var(--background));
 }
 
 .deck-editor-context-toolbar-host {

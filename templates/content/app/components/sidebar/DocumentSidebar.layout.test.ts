@@ -279,12 +279,12 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("const handleCreateDatabase = useCallback");
     expect(sidebar).toContain("newDocumentId: id");
     expect(sidebar).toContain("navigateToDocument(id)");
-    expect(sidebar).toContain(
-      "rollbackOptimisticCreatedDocument(\n          queryClient,\n          id",
+    expect(sidebar).toMatch(
+      /rollbackOptimisticCreatedDocument\(\s+queryClient,\s+id,/,
     );
     expect(sidebar).toContain("navigate(previousPath, {");
     expect(sidebar).toContain(
-      "if (window.location.pathname === `/page/${id}`)",
+      "if (locationRef.current.pathname === `/page/${id}`)",
     );
     expect(sidebar).toContain(
       "pendingOptimisticCreationIdsRef.current.add(id)",
@@ -334,19 +334,35 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
-  it("replaces an optimistic page with the persisted document before conversion", () => {
+  it("settles optimistic page and collection creation before the first read", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const collectionCreate = sidebar.slice(
+      sidebar.indexOf("const handleCreateDatabase = useCallback"),
+      sidebar.indexOf("const selectSpaceForCreation = useCallback"),
+    );
 
     expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
     expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
-    expect(sidebar).toContain("markDocumentCreationPending({");
-    expect(sidebar).toContain(
-      '["action", "get-document", { id: nextId }],\n          created',
+    expect(sidebar).toContain("markDocumentCreationPending(queryClient, {");
+    expect(sidebar).toMatch(
+      /const confirmed = markDocumentCreationConfirmed\(\s*queryClient,\s*created,\s*\);/,
+    );
+    expect(sidebar).toMatch(
+      /queryClient\.setQueryData\(\s*\[\s*"action",\s*"get-document",\s*\{\s*id:\s*nextId\s*\}\s*\],\s*confirmed,\s*\);/,
     );
     expect(sidebar).toContain(
       "return withDocumentsCacheShape(old, [...docs, tempDoc])",
     );
     expect(sidebar).toContain("rollbackOptimisticCreatedDocument(");
+    expect(collectionCreate).toContain(
+      "clearDocumentCreationPending(queryClient, { id });",
+    );
+    expect(collectionCreate).toContain(
+      "startPageOpenDocumentReads(queryClient, nextId);",
+    );
+    expect(
+      collectionCreate.indexOf("clearDocumentCreationPending"),
+    ).toBeLessThan(collectionCreate.indexOf("startPageOpenDocumentReads"));
   });
 
   it("restores deleted list and page snapshots before refetching on failure", () => {

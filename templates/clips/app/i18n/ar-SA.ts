@@ -2,6 +2,64 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
+  lookbackContext: {
+    includeLast: "تضمين آخر",
+    whatIsThis: "ما هذا؟",
+    off: "إيقاف",
+    custom: "مخصص…",
+    customLabel: "مدة مخصصة",
+    customAmount: "المدة",
+    customUnit: "الوحدة",
+    unitSeconds: "ثوانٍ",
+    unitMinutes: "دقائق",
+    customSave: "استخدام المدة",
+    customErrorEmpty: "أدخل مدة.",
+    customErrorInvalid: "أدخل عددًا صحيحًا من الثواني أو الدقائق.",
+    customErrorTooLong: "اجعلها 5 دقائق أو أقل.",
+    turnOnRewind: "تفعيل Rewind",
+    rewindOffTitle: "تفعيل Rewind",
+    rewindOffBody:
+      "يحتفظ Rewind بسجل محلي لشاشتك حتى تتمكن من تضمين الدقائق القليلة الأخيرة قبل التسجيل. لا تُرفع اللقطات إلا عندما تضمّنها أو توافق على رفعها.",
+    requestFailed: "تعذّر تضمين وقت الشاشة السابق. يستمر التسجيل بدونه.",
+    localOnlyUnavailable: "لا يُحفظ وقت الشاشة السابق للتسجيلات المحلية فقط.",
+    saving: "جارٍ حفظ {{window}} قبل…",
+    ready: "مع {{window}} قبل",
+    failed: "تعذّر حفظ وقت الشاشة السابق",
+    unreadable: "تعذّر التحقق من وقت الشاشة السابق",
+    edit: "تعديل",
+    editTitle: "وقت الشاشة السابق",
+    editSave: "حفظ",
+    editFailed: "تعذّر حفظ النافذة. حاول مرة أخرى.",
+    previewPreparing: "جارٍ تحضير المعاينة…",
+    previewFailed: "تعذّر تحضير المعاينة.",
+    previewLabel: "معاينة وقت الشاشة السابق",
+    retry: "إعادة المحاولة",
+    playSelection: "تشغيل التحديد",
+    removeFailed: "تعذّرت إزالة وقت الشاشة السابق للتسجيل الملغى.",
+    removeFailedAction: "تعذّرت إزالة وقت الشاشة السابق. حاول مرة أخرى.",
+    removeAction: "إزالة وقت الشاشة السابق",
+    removeConfirmTitle: "هل تريد إزالة وقت الشاشة السابق؟",
+    removeConfirmBody:
+      "يتم نقل اللقطات إلى المهملات، ولن يتضمنها المقطع بعد الآن.",
+    removeConfirm: "إزالة",
+    removed: "تمت إزالة وقت الشاشة السابق",
+    scrubberFromBefore: "من {{offset}} قبل",
+    scrubberFromStart: "من بداية التسجيل",
+    scrubberToBefore: "حتى {{offset}} قبل",
+    scrubberToStart: "حتى بداية التسجيل",
+    scrubberLength: "المدة",
+    scrubberStartHandle: "بداية النافذة",
+    scrubberEndHandle: "نهاية النافذة",
+    tab: "السياق",
+    label: "الشاشة قبل التسجيل",
+    window: "{{start}}–{{end}} قبل التسجيل",
+    savingEarlierTime: "جارٍ حفظ وقت الشاشة السابق…",
+    loadFailed: "تعذّر تحميل وقت الشاشة السابق.",
+    empty: "لا يوجد وقت شاشة سابق مرفق بهذا المقطع.",
+    larger: "تكبير",
+    editHint: "عدّل النافذة في Clips Desktop.",
+    waitingOtherDevice: "بانتظار الجهاز الذي سجّل هذا المقطع",
+  },
   agentChat: {
     setup: {
       connectBuilder: "استخدم Builder.io",
@@ -336,7 +394,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "سياق مقطع قابل للقراءة من قبل الوكيل",
     agentInstructions:
-      "جلب AgentContextUrl للنص وإطار JPEG URLs. قم بإحضار الإطار URLs لرؤية الشاشة، وليس مجرد قراءة النص.",
+      "افتح agentContextUrl أولاً. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد.",
     untitledClip: "مقطع بدون عنوان",
     incorrectPassword: "كلمة مرور غير صحيحة",
     passwordProtected: "هذا المقطع محمي بكلمة مرور",
@@ -599,7 +657,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
@@ -757,6 +815,8 @@ const messages = {
     switchToNightly: "التبديل إلى إصدارات Nightly",
     switchToStable: "التبديل إلى الإصدارات المستقرة",
     retry: "إعادة المحاولة",
+    mountError:
+      "تعذّر على Clips العثور على مساره في مساحة العمل. اطلب من مسؤول مساحة العمل التحقق من إعداد مسار التطبيق.",
     heroDescription:
       "مسجل شريط القوائم للشاشة والكاميرا والشاشة + الكاميرا. البدء بنقرة واحدة، فقاعة الكاميرا القابلة للسحب، رابط المشاركة الفورية عند التوقف.",
     versionReleased: "الإصدار {{version}} — صدر {{date}}",
@@ -816,6 +876,9 @@ const messages = {
     labMeetingsDescription: "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
     labWisprFlow: "الإملاء الصوتي",
     labWisprFlowDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
+    labLookbackContext: "تضمين وقت الشاشة السابق",
+    labLookbackContextDescription:
+      "أرفِق حتى خمس دقائق من وقت الشاشة السابق للتسجيل كسياق تلقائي.",
     uploadWorkspaceTitle: "مساحة العمل النشطة",
     uploadWorkspaceDescription:
       "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
@@ -2151,20 +2214,6 @@ const messages = {
     guideStartTitle: "Click Start notes (مترجم)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
-  },
-  rewindExtension: {
-    title: "إضافة ما حدث قبل التسجيل",
-    description:
-      "اختر فترة محددة من Rewind المحلي وأضفها إلى بداية هذا المقطع. لن تتم إضافة أي شيء تلقائيًا.",
-    progressLabel: "تقدم معالجة سجل Rewind",
-    privateFirstTitle: "اجعل هذا المقطع خاصًا أولًا",
-    privateFirstDescription:
-      "قد يتضمن سجل Rewind المحلي سياقًا من قبل بدء التسجيل. سيؤدي هذا إلى جعل المقطع خاصًا. إذا كان لدى أي شخص وصول مباشر، فسيتوقف Clips لتتمكن من إزالته أولًا من المشاركة.",
-    makePrivateContinue: "اجعله خاصًا وتابع",
-    add30Seconds: "إضافة الثلاثين ثانية السابقة",
-    add5Minutes: "إضافة الدقائق الخمس السابقة",
-    add5MinutesDescription: "مفيد لاستعادة بداية شرح أطول.",
-    privateReady: "أصبح هذا المقطع خاصًا. يمكنك الآن إضافة سجل Rewind المحلي.",
   },
   browserDiagnostics: {
     debug: "تصحيح الأخطاء",

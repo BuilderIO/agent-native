@@ -1,3 +1,5 @@
+import { decodeNamedCharacterReference } from "decode-named-character-reference";
+
 export type HtmlToken =
   | {
       type: "open";
@@ -26,52 +28,14 @@ export const HIDDEN_HTML_ELEMENTS = new Set([
  * shift every offset after it.
  */
 const RAW_TEXT_CLOSE = new Map([
-  ["script", /<\/script/gi],
-  ["style", /<\/style/gi],
+  ["script", /<\/script(?=[\t\n\f\r />])/gi],
+  ["style", /<\/style(?=[\t\n\f\r />])/gi],
 ]);
 
 const TOKEN_RE =
   /<!--[\s\S]*?(?:-->|$)|<![\s\S]*?(?:>|$)|<\?[\s\S]*?(?:\?>|$)|<\/([a-zA-Z][\w:-]*)\s*>|<([a-zA-Z][\w:-]*)((?:\s+[^\s"'<>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/g;
 const ATTR_RE =
   /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-  copy: "©",
-  reg: "®",
-  trade: "™",
-  hellip: "…",
-  mdash: "—",
-  ndash: "–",
-  lsquo: "‘",
-  rsquo: "’",
-  ldquo: "“",
-  rdquo: "”",
-  laquo: "«",
-  raquo: "»",
-  middot: "·",
-  bull: "•",
-  times: "×",
-  divide: "÷",
-  deg: "°",
-  plusmn: "±",
-  para: "¶",
-  sect: "§",
-  euro: "€",
-  pound: "£",
-  yen: "¥",
-  cent: "¢",
-  larr: "←",
-  rarr: "→",
-  uarr: "↑",
-  darr: "↓",
-  check: "✓",
-};
 
 export function decodeHtmlEntities(text: string): string {
   return text.replace(
@@ -86,7 +50,7 @@ export function decodeHtmlEntities(text: string): string {
           ? String.fromCodePoint(code)
           : match;
       }
-      return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+      return decodeNamedCharacterReference(entity) || match;
     },
   );
 }
@@ -109,16 +73,18 @@ export function tokenizeHtml(html: string): HtmlToken[] {
       tokens.push({ type: "close", name: match[1].toLowerCase() });
     } else if (match[2]) {
       const name = match[2].toLowerCase();
-      const selfClosing = match[4] === "/";
       tokens.push({
         type: "open",
         name,
         attrs: parseAttributes(match[3] ?? ""),
-        selfClosing,
+        // HTML ignores the slash on an element that isn't void, so
+        // `<template/>` still opens one, and everything up to its closing tag
+        // stays hidden.
+        selfClosing: match[4] === "/" && !HIDDEN_HTML_ELEMENTS.has(name),
       });
       // Script and style bodies are raw text: a `<` or `<!--` inside them
       // opens nothing, so the body runs to the element's own closing tag.
-      const rawTextClose = selfClosing ? undefined : RAW_TEXT_CLOSE.get(name);
+      const rawTextClose = RAW_TEXT_CLOSE.get(name);
       if (rawTextClose) {
         rawTextClose.lastIndex = last;
         const close = rawTextClose.exec(html);
@@ -138,16 +104,41 @@ export function tokenizeHtml(html: string): HtmlToken[] {
   return tokens;
 }
 
+/** A hidden element being skipped, with how many of its name are open. */
+export interface HiddenHtmlElement {
+  name: string;
+  depth: number;
+}
+
+/**
+ * The hidden element still open after `token`, or null once it closes. Only
+ * its own closing tag ends it, and a `<template>` can hold another, so each
+ * nested one of its name must close first.
+ */
+export function afterHiddenToken(
+  hidden: HiddenHtmlElement,
+  token: HtmlToken,
+): HiddenHtmlElement | null {
+  if (token.type === "open" && token.name === hidden.name) {
+    return { name: hidden.name, depth: hidden.depth + 1 };
+  }
+  if (token.type === "close" && token.name === hidden.name) {
+    return hidden.depth > 1
+      ? { name: hidden.name, depth: hidden.depth - 1 }
+      : null;
+  }
+  return hidden;
+}
+
 /** The text a reader sees when the fragment renders. */
 export function htmlVisibleText(html: string): string {
   const parts: string[] = [];
-  // A hidden element ends at its own closing tag; tags inside it don't count.
-  let hidden: string | null = null;
+  let hidden: HiddenHtmlElement | null = null;
   for (const token of tokenizeHtml(html)) {
     if (hidden) {
-      if (token.type === "close" && token.name === hidden) hidden = null;
+      hidden = afterHiddenToken(hidden, token);
     } else if (token.type === "open" && HIDDEN_HTML_ELEMENTS.has(token.name)) {
-      if (!token.selfClosing) hidden = token.name;
+      hidden = { name: token.name, depth: 1 };
     } else if (token.type === "text") {
       parts.push(token.text);
     } else if (token.type === "open" && token.name === "img") {

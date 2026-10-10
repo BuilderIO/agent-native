@@ -303,6 +303,7 @@ describe("DesignBottomToolbar file storage gate", () => {
   const renderToolbar = (
     modeProps: {
       showModeTabs?: boolean;
+      canComment?: boolean;
       onModeChange?: (mode: string) => void;
     } = {},
   ) =>
@@ -327,6 +328,7 @@ describe("DesignBottomToolbar file storage gate", () => {
         onScale={vi.fn()}
         onMediaFiles={vi.fn()}
         onCommentPin={vi.fn()}
+        canComment={modeProps.canComment ?? true}
         onModeChange={modeProps.onModeChange ?? vi.fn()}
         showModeTabs={modeProps.showModeTabs ?? false}
       />,
@@ -358,6 +360,31 @@ describe("DesignBottomToolbar file storage gate", () => {
     ).toBe("true");
     await act(async () => interact?.click());
     expect(onModeChange).toHaveBeenCalledWith("interact");
+  });
+
+  it("leaves out comments and annotation where a widget ticket cannot write them", async () => {
+    setUploadStatus();
+    const option = (key: string) =>
+      container.querySelector(`[data-option="${key}"]`);
+    const modeTab = (mode: string) =>
+      container.querySelector(
+        `button[aria-label="designEditor.modes.${mode}"]`,
+      );
+
+    await renderToolbar({ showModeTabs: true, canComment: true });
+    expect(option("comment")).toBeTruthy();
+    expect(option("draw")).toBeTruthy();
+    expect(modeTab("annotate")).toBeTruthy();
+
+    await renderToolbar({ showModeTabs: true, canComment: false });
+    expect(option("comment")).toBeNull();
+    expect(option("draw")).toBeNull();
+    expect(modeTab("annotate")).toBeNull();
+    for (const key of ["move", "frame", "rect", "pen", "text"]) {
+      expect(option(key), key).toBeTruthy();
+    }
+    expect(modeTab("edit")).toBeTruthy();
+    expect(modeTab("interact")).toBeTruthy();
   });
 
   async function openImageVideoGate() {

@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withContentRecoverySaveContext } from "./_content-save-outcomes.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 import {
   lockPreviewDocumentDraftSettlement,
@@ -727,7 +728,7 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          { ...ctx, caller: "frontend" },
+          withContentRecoverySaveContext({ ...ctx, caller: "frontend" }),
         );
         if ("conflict" in saved && saved.conflict === true) {
           const [winner] = await db
@@ -856,7 +857,10 @@ export default defineAction({
             preserveLeadingTitleHeading: true,
             reuseLabels: [],
           },
-          ctx,
+          withContentRecoverySaveContext({
+            ...ctx,
+            caller: ctx?.caller ?? "frontend",
+          }),
         );
       } catch (error) {
         const existing = await findExistingRecovery();

@@ -67,6 +67,10 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
+If the result has `creativeContextProjectionStatus: "pending"`, the Page is
+already committed. Retry the same arguments with the returned `id` to repair
+its Creative Context projection; do not create another Page.
+
 When a user asks for a Page in an interactive Content conversation, creation is
 not a complete handoff. After `create-document` succeeds, call `navigate` with
 the returned document `id`, then call `view-screen` and compare its document ID
@@ -93,6 +97,42 @@ the description. For a database, use its backing `documentId`, not its collectio
 `databaseId`. The saved description is returned in MCP `structuredContent`.
 Agent responses contain metadata only; `get-document` returns the body.
 This does not change the Markdown body; body edits use `edit-document`.
+
+### import-content
+
+Turn Markdown files the user hands over into new pages. Prefer it to
+`create-document` whenever the source is a file: it takes the title from
+frontmatter or the first heading, keeps the original file, uploads referenced
+images, records "Imported from <file>" in History, and names everything that
+did not come across.
+
+```bash
+pnpm action import-content --dryRun true --parentId abc123 --files '[{"name":"guide.md","text":"# Guide\n..."},{"name":"logo.png"}]'
+pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey guide-1 --files '[{"name":"guide.md","text":"..."},{"name":"logo.png","url":"https://..."}]'
+```
+
+Run the dry run first and tell the user each page's `status` and `notes`
+before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
+image named in `uploads` has a `url`; leave an image nobody can supply out of
+`files`, and its references become visible placeholders on the page. Other
+formats come back in `skipped` as not supported yet. Pass an
+`idempotencyKey` on every apply, and reuse it only to retry the same files,
+with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
+some pages landed before a failure: its `details` name the `importId` and
+created page ids (with `documentIdsComplete: false`, more may exist), and the
+same call again finishes the import. `IMPORT_PAGE_TRASHED` means the import
+was undone or its pages trashed; restore them, or import with a new key.
+
+`undo-content-import --importId <id>` moves the import's pages to Trash. It
+needs only editor access, not the admin access `delete-document` needs,
+because it moves only pages the caller imported that nobody has changed since.
+It refuses with `IMPORT_PAGE_CHANGED` when a page was edited, moved, or given
+child pages since; ask before using `delete-document` instead.
+`IMPORT_IN_PROGRESS` means the import is still adding pages; undo it again once
+it finishes. While the Import dialog is open,
+`view-screen` returns `contentImport` with its status, destination, file
+names, and counts, never file contents. `import-content-source` is unrelated:
+it syncs a connected local folder.
 
 ### edit-document
 
@@ -364,6 +404,7 @@ failures stop the run.
 | "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
 | "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.

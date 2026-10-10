@@ -4506,6 +4506,22 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(false);
   });
 
+  it.each([
+    "",
+    " \n\t ",
+    "<empty-block/>",
+    "<empty-block/>\n<empty-block/>",
+    " \n<empty-block/>\n\t\n<empty-block/> ",
+  ])("does not seed semantically empty SQL content: %s", (content) => {
+    expect(
+      shouldSeedCollaborativeContent({
+        content,
+        currentMarkdown: "",
+        fragmentLength: 0,
+      }),
+    ).toBe(false);
+  });
+
   it("hydrates a zero-child collaborative Toggle without an invalid TextSelection warning", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);

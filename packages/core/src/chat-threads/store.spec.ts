@@ -21,6 +21,7 @@ import {
   applySubmittedUserMessage,
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
@@ -272,6 +273,136 @@ describe("chat thread store", () => {
     expect(shareRows[0].role).toBe("editor");
   });
 
+  it("replaces inline image payloads with visible placeholders before persistence", async () => {
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "inline-image-save",
+            role: "user",
+            content: [{ type: "text", text: "Inspect this" }],
+            attachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                data: "A".repeat(128),
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await updateThreadData("thread-1", incoming, "Thread", "Inspect this", 1);
+
+    assertNoInlineImageBytes(row!.thread_data, "thread_data");
+    expect(row!.thread_data).toContain('"id":"inline-image-save"');
+    expect(row!.thread_data).toContain('"omitted":"inline-bytes"');
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("allows ordinary assistant and tool text containing image examples", async () => {
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "assistant-example",
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: `Example data URL: data:image/png;base64,${"A".repeat(128)}`,
+              },
+              {
+                type: "tool-call",
+                toolCallId: "tool-example",
+                toolName: "render_preview",
+                argsText: `data:image/png;base64,${"A".repeat(128)}`,
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await expect(
+      updateThreadData("thread-1", incoming, "Thread", "Example", 1),
+    ).resolves.toBe(true);
+    expect(row!.thread_data).toContain("Example data URL");
+  });
+
+  it("cleans legacy inline image bodies before saving a later chat turn", async () => {
+    const legacyImageUrl = "data:image/png;base64,LEGACY_INLINE_IMAGE_BYTES";
+    const legacyMessage = {
+      id: "legacy-image-user",
+      role: "user",
+      content: [
+        { type: "text", text: "Describe the older image" },
+        {
+          type: "image",
+          name: "reference.png",
+          data: legacyImageUrl,
+          url: legacyImageUrl,
+        },
+      ],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+    });
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            ...legacyMessage,
+            content: [
+              { type: "text", text: "Describe the older image" },
+              { type: "image", name: "reference.png" },
+            ],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "new-user-turn",
+            role: "user",
+            content: [{ type: "text", text: "Continue the design" }],
+          },
+          parentId: "legacy-image-user",
+        },
+      ],
+    });
+
+    await updateThreadData(
+      "thread-1",
+      incoming,
+      "Thread",
+      "Continue the design",
+      2,
+    );
+
+    const persisted = JSON.parse(row!.thread_data);
+    expect(JSON.stringify(persisted)).not.toContain("data:image/");
+    expect(JSON.stringify(persisted)).not.toContain(
+      "LEGACY_INLINE_IMAGE_BYTES",
+    );
+    expect(persisted.messages.map((entry: any) => entry.message.id)).toEqual([
+      "legacy-image-user",
+      "new-user-turn",
+    ]);
+    expect(persisted.messages[0].message.content).toContainEqual({
+      type: "text",
+      text: "Describe the older image",
+    });
+  });
+
   it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
     conflictOnce = () => {
       row = {
@@ -301,6 +432,123 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  describe("inline attachment bytes", () => {
+    const pixels = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    const uploaded =
+      "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fkept";
+    const imageMessage = {
+      id: "user-2",
+      role: "user",
+      content: [
+        { type: "text", text: `compare with ${pixels}` },
+        { type: "image", image: pixels },
+      ],
+      attachments: [
+        {
+          id: "a1",
+          type: "image",
+          name: "local.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+        },
+        {
+          id: "a2",
+          type: "image",
+          name: "kept.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+          metadata: { uploadUrl: uploaded },
+        },
+        {
+          id: "a3",
+          type: "file",
+          name: "spec.pdf",
+          content: [
+            {
+              type: "file",
+              data: "JVBERi0xLjQ=",
+              mimeType: "application/pdf",
+              filename: "spec.pdf",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("stores a client snapshot with upload URLs and visible placeholders, never bytes", async () => {
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [
+            { message: userMessage, parentId: null },
+            { message: imageMessage, parentId: "user-1" },
+          ],
+        }),
+        "Thread",
+        "make this slide better",
+        2,
+      );
+
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+      const stored = JSON.parse(row!.thread_data).messages[1].message;
+      expect(stored.content).toEqual([
+        { type: "text", text: "compare with [inline image/png data omitted]" },
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+      ]);
+      expect(stored.attachments.map((att: any) => att.content[0])).toEqual([
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+        { type: "image", image: uploaded },
+        {
+          type: "file",
+          mimeType: "application/pdf",
+          filename: "spec.pdf",
+          name: "spec.pdf",
+          mediaType: "application/pdf",
+          omitted: "inline-bytes",
+        },
+      ]);
+    });
+
+    it("scrubs bytes a legacy row already holds on its next write", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+        }),
+        "Thread",
+        "make this slide better",
+        1,
+      );
+
+      expect(row!.thread_data).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+    });
+
+    it("forks without copying the source's inline bytes", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+      let inserted: string | undefined;
+      const execute = executeMock.getMockImplementation()!;
+      executeMock.mockImplementation(async (query: any) => {
+        if (/INSERT INTO chat_threads/i.test(query.sql)) {
+          inserted = query.args[4];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return execute(query);
+      });
+
+      await forkThread("thread-1", "user@example.com", { id: "thread-fork" });
+
+      expect(inserted).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(inserted, "forked thread_data");
+    });
   });
 
   it("recounts delta history against the latest row after a CAS conflict", async () => {
@@ -1686,6 +1934,104 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(1);
   });
 
+  it("rejects data URLs before directly persisting a queued attachment", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-image",
+          text: "Use this image",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.requestAttachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a data URL in a queued file part before any SQL update", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-file-url",
+          text: "Use this image",
+          attachments: [
+            {
+              type: "file",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.attachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["a data URL", { image: "data:image/png;base64,aGVsbG8=" }],
+    [
+      "raw base64 image bytes",
+      {
+        image: {
+          type: "image",
+          source: { type: "base64", data: "aGVsbG8=" },
+        },
+      },
+    ],
+  ])(
+    "rejects queued message metadata containing %s before SQL",
+    async (_label, metadata) => {
+      const originalThreadData = row!.thread_data;
+
+      await expect(
+        mutateThreadQueuedMessages("thread-1", {
+          type: "append",
+          message: {
+            id: "queued-inline-metadata",
+            text: "Use this image",
+            metadata,
+          },
+        }),
+      ).rejects.toThrow("queuedMessage.metadata");
+
+      expect(row!.thread_data).toBe(originalThreadData);
+      expect(
+        executeMock.mock.calls.some(([query]) =>
+          /UPDATE chat_threads SET thread_data/i.test(
+            typeof query === "string" ? query : query.sql,
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("rechecks a queue claim after a cross-process CAS conflict", async () => {
     const queued = {
       id: "queued-claim-cas",
@@ -2588,10 +2934,25 @@ describe("chat thread store", () => {
     const staleRepo = {
       messages: [{ message: userMessage, parentId: null }],
     };
+    const legacyImageUrl = "data:image/png;base64,LEGACY_SNAPSHOT_IMAGE_BYTES";
+    const legacyImageMessage = {
+      id: "snapshot-user-image",
+      role: "user",
+      content: [
+        { type: "text", text: "Use this old image" },
+        {
+          type: "image",
+          name: "reference.png",
+          data: legacyImageUrl,
+          base64: "A".repeat(128),
+          url: legacyImageUrl,
+        },
+      ],
+    };
     const freshRepo = {
       messages: [
-        { message: userMessage, parentId: null },
-        { message: assistantMessage, parentId: "user-1" },
+        { message: legacyImageMessage, parentId: null },
+        { message: assistantMessage, parentId: "snapshot-user-image" },
       ],
     };
     const rows = new Map<string, ChatThreadRow>([
@@ -2666,9 +3027,18 @@ describe("chat thread store", () => {
     expect(forked?.id).toBe("thread-forked");
     expect(forked?.messageCount).toBe(2);
     expect(forked?.preview).toBe("fresher preview");
+    const forkedThreadData = rows.get("thread-forked")!.thread_data;
+    expect(JSON.parse(forkedThreadData).messages).toHaveLength(2);
+    assertNoInlineImageBytes(forkedThreadData, "forked thread_data");
+    expect(forkedThreadData).not.toContain("LEGACY_SNAPSHOT_IMAGE_BYTES");
     expect(
-      JSON.parse(rows.get("thread-forked")!.thread_data).messages,
-    ).toHaveLength(2);
+      JSON.parse(forkedThreadData).messages[0].message.content,
+    ).toContainEqual({
+      type: "file",
+      name: "reference.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
 
     const scopedFork = await forkThread("thread-stale", "user@example.com", {
       id: "thread-forked-scoped",
@@ -2768,6 +3138,81 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
     ).toHaveLength(2);
+  });
+
+  it("strips legacy inline image bytes before inserting a fork", async () => {
+    const inlineImageUrl = "data:image/png;base64,LEGACY_FORK_IMAGE_BYTES";
+    const inlineImageBase64 = "A".repeat(128);
+    const sourceRow: ChatThreadRow = {
+      id: "thread-with-legacy-image",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Describe this image",
+      thread_data: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "legacy-image-user",
+              role: "user",
+              content: [
+                { type: "text", text: "Describe this image" },
+                {
+                  type: "image",
+                  name: "reference.png",
+                  data: inlineImageUrl,
+                  base64: inlineImageBase64,
+                  url: inlineImageUrl,
+                },
+              ],
+            },
+            parentId: null,
+          },
+        ],
+      }),
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+    };
+    let insertedThreadData: string | undefined;
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return {
+          rows: args[0] === sourceRow.id ? [sourceRow] : [],
+          rowsAffected: 0,
+        };
+      }
+      if (/INSERT INTO chat_threads/i.test(sql)) {
+        insertedThreadData = args[4];
+        return { rows: [], rowsAffected: 1 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const forked = await forkThread(sourceRow.id, "user@example.com", {
+      id: "thread-forked-legacy-image",
+    });
+
+    expect(forked?.id).toBe("thread-forked-legacy-image");
+    expect(insertedThreadData).toBeDefined();
+    expect(insertedThreadData).not.toContain("data:image/");
+    expect(insertedThreadData).not.toContain("LEGACY_FORK_IMAGE_BYTES");
+    expect(insertedThreadData).not.toContain(inlineImageBase64);
+    expect(JSON.parse(insertedThreadData!).messages[0].message.content).toEqual(
+      [
+        { type: "text", text: "Describe this image" },
+        {
+          type: "file",
+          name: "reference.png",
+          mediaType: "image/png",
+          omitted: "inline-bytes",
+        },
+      ],
+    );
   });
 });
 

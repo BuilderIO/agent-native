@@ -41,6 +41,13 @@ let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
 let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
+let staleRecoveryRows: Array<{
+  thread_id: string;
+  turn_id: string | null;
+  dispatch_mode: string | null;
+  dispatch_payload: string | null;
+  started_at: number;
+}> = [];
 let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
@@ -184,6 +191,13 @@ const mockDb: any = {
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
     }
+    if (
+      /SELECT thread_id, turn_id, dispatch_mode, dispatch_payload, started_at\s+FROM agent_runs WHERE id/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: staleRecoveryRows, rowsAffected: 0 };
+    }
     if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
       return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
     }
@@ -272,6 +286,7 @@ const {
   RUN_STALE_MS,
   resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 let ledgerRows: Array<{
   result_summary: string;
@@ -279,6 +294,42 @@ let ledgerRows: Array<{
   result_is_string?: boolean | null;
   chat_ui_result_json?: string | null;
 }> = [];
+
+const inlineDispatchPayloads = [
+  [
+    "data URL",
+    JSON.stringify({
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      ],
+    }),
+  ],
+  [
+    "raw image bytes",
+    JSON.stringify({
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "iVBORw0KGgo=",
+          },
+        },
+      ],
+    }),
+  ],
+  [
+    "file bytes",
+    JSON.stringify({
+      content: [{ type: "file", file: { bytes: [37, 80, 68, 70] } }],
+    }),
+  ],
+] as const;
 
 describe("run store", () => {
   beforeEach(() => {
@@ -300,6 +351,7 @@ describe("run store", () => {
     turnInitiatorByRunRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
+    staleRecoveryRows = [];
     unclaimedBackgroundRunRows = [];
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
@@ -520,6 +572,28 @@ describe("run store", () => {
       '{"type":"thinking","text":"zombie"}',
       "run-terminal",
     ]);
+  });
+
+  it("stores run events without inline image bytes", async () => {
+    await insertRunEvent(
+      "run-image",
+      2,
+      JSON.stringify({
+        type: "tool_done",
+        result: "saved data:image/png;base64,iVBORw0KGgo=",
+        images: [{ data: "aW1hZ2U=", mediaType: "image/png", label: "shot" }],
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(JSON.parse(stored)).toMatchObject({
+      result: "saved [inline image/png data omitted]",
+      images: [{ label: "shot", omitted: "inline-bytes" }],
+    });
   });
 
   it("never lets an older progress write move the stored timestamp backward", async () => {
@@ -1031,6 +1105,38 @@ describe("run store", () => {
     ).toBe(true);
   });
 
+  it("tryClaimRunSlot persists a byte-free dispatch payload", async () => {
+    const dispatchPayload = JSON.stringify({
+      messages: [{ role: "user", content: "Create an ad" }],
+    });
+    await tryClaimRunSlot(
+      "thread-claim-payload",
+      "run-claim-payload",
+      undefined,
+      { dispatchPayload },
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.args).toContain(dispatchPayload);
+  });
+
+  it.each(inlineDispatchPayloads)(
+    "tryClaimRunSlot rejects %s before SQL",
+    async (_kind, dispatchPayload) => {
+      await expect(
+        tryClaimRunSlot("thread-inline", "run-inline", undefined, {
+          dispatchPayload,
+        }),
+      ).rejects.toThrow("dispatch_payload stores inline");
+
+      expect(
+        execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+      ).toBe(false);
+    },
+  );
+
   it("binds the initiator before inserting a claimed run", async () => {
     await tryClaimRunSlot("thread-bound", "run-first", undefined, {
       turnId: "turn-bound",
@@ -1337,6 +1443,34 @@ describe("run store", () => {
     expect(JSON.parse(insert?.args[3] as string)).toEqual(artifacts);
   });
 
+  it("writeLedgerEntry strips inline image bytes from every persisted payload", async () => {
+    const inlineImage = "data:image/png;base64,aW1hZ2UtYnl0ZXM=";
+    const toolImage = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: "aW1hZ2UtYnl0ZXM=",
+      },
+    };
+    await writeLedgerEntry(
+      "thread-image-ledger",
+      "image-tool:{}",
+      `Could not process ${inlineImage}`,
+      [toolImage as never],
+      undefined,
+      JSON.stringify({ attachment: toolImage }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    const persisted = JSON.stringify(insert?.args);
+    expect(persisted).not.toContain("data:image");
+    expect(persisted).not.toContain("aW1hZ2UtYnl0ZXM=");
+    expect(persisted).toContain("inline image/png data omitted");
+  });
+
   it("writeLedgerEntry caps result at 8 000 chars and appends truncation marker", async () => {
     const longResult = "X".repeat(8_500);
     await writeLedgerEntry("thread-cap", "tool:key", longResult);
@@ -1617,6 +1751,42 @@ describe("run store", () => {
       '{"messages":[]}',
       expect.any(Number),
     ]);
+  });
+
+  it.each(inlineDispatchPayloads)(
+    "insertRun rejects %s before SQL",
+    async (_kind, dispatchPayload) => {
+      await expect(
+        insertRun("run-inline-payload", "thread-inline", "turn-inline", {
+          dispatchPayload,
+        }),
+      ).rejects.toThrow("dispatch_payload stores inline");
+
+      expect(
+        execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+      ).toBe(false);
+    },
+  );
+
+  it("does not copy malformed legacy image payloads during stale recovery", async () => {
+    staleRecoveryRows = [
+      {
+        thread_id: "thread-legacy-image",
+        turn_id: "turn-legacy-image",
+        dispatch_mode: "background-processing",
+        dispatch_payload:
+          '{"message":"legacy payload data:image/png;base64,LEGACY_IMAGE_BYTES"',
+        started_at: 1,
+      },
+    ];
+
+    await expect(reapIfStale("run-legacy-image", 1)).resolves.toBe(true);
+
+    expect(
+      execCalls.some((call) =>
+        /INSERT INTO agent_runs[\s\S]*dispatch_payload/i.test(call.sql),
+      ),
+    ).toBe(false);
   });
 
   it("insertRun binds null dispatch_payload when no payload is given", async () => {

@@ -24,6 +24,7 @@ export type ActionCaller =
   | "http"
   | "frontend"
   | "mcp-widget"
+  | "mcp-widget-write"
   | "cli"
   | "mcp"
   | "webmcp"
@@ -65,6 +66,14 @@ export interface ActionRunContext {
   actionName?: string;
   /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
   mcpDirectoryWidgetReadOnly?: true;
+  /** Present only on frontend calls authorized by a scoped directory-widget capability: the resource IDs it is bound to. */
+  mcpDirectoryWidgetResourceIds?: Record<string, string>;
+  /** Present only on frontend mutations authorized by a scoped directory-widget write capability. */
+  mcpDirectoryWidgetWrite?: {
+    appId: string;
+    resourceIds: Record<string, string>;
+    actionNames: readonly string[];
+  };
   threadId?: string;
   runId?: string;
   turnId?: string;
@@ -417,6 +426,11 @@ interface DefineActionWithSchema<
    *  needs to see, such as telemetry. Defaults to publishing; read-only
    *  actions never publish. */
   changeEvents?: boolean;
+  /** `false` keeps this action's query results out of the browser's persisted
+   *  query cache, so a read that must not outlive the page (secrets, one-time
+   *  codes, private data) is never painted from disk on a revisit. Defaults to
+   *  persisting. */
+  persistInBrowser?: boolean;
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
@@ -504,6 +518,7 @@ interface DefineActionWithParams<
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
+  persistInBrowser?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
     result: TReturn,
@@ -551,6 +566,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
+  readonly persistInBrowser?: boolean;
   readonly changeResource?: (
     input: TInput,
     result: TReturn,
@@ -784,6 +800,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.changeEvents === "boolean"
       ? { changeEvents: options.changeEvents }
+      : {}),
+    ...(typeof options.persistInBrowser === "boolean"
+      ? { persistInBrowser: options.persistInBrowser }
       : {}),
     ...(typeof options.changeResource === "function"
       ? { changeResource: options.changeResource }

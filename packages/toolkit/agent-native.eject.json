@@ -655,11 +655,13 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/action-query-cache",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/route-warmup",
         "@agent-native/core/client/theme",
+        "@agent-native/core/client/use-agent-engine-configured",
         "@agent-native/core/client/use-after-paint",
         "@agent-native/core/client/use-poll-loop",
         "@agent-native/core/client/use-session",
@@ -815,6 +817,7 @@
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/application-state",
         "@agent-native/core/client/hooks",
+        "@agent-native/core/client/i18n",
         "@agent-native/core/db-admin"
       ]
     },
@@ -1126,6 +1129,7 @@
         "@agent-native/core/client/onboarding/use-onboarding",
         "@agent-native/core/client/onboarding/use-preview-mode",
         "@agent-native/core/client/use-dev-mode",
+        "@agent-native/core/client/use-session",
         "@agent-native/core/feature-flags/registry",
         "@agent-native/core/navigation",
         "@agent-native/core/onboarding/types",

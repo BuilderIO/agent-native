@@ -55,6 +55,7 @@ import {
   resizeSlideObjectMembers,
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
+  readEditableSlideObjectRotation,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
   resolveSlideObjectRotationDelta,
@@ -1368,7 +1369,7 @@ describe("slide object interactions", () => {
     ["s", { x: 100, y: 50, width: 200, height: 130 }],
     ["se", { x: 100, y: 50, width: 240, height: 130 }],
   ] as const)(
-    "resizes and anchors the opposite edge for the %s handle",
+    "resizes and anchors the opposite edge for the %s handle (oracle 10.1)",
     (handle, expected) => {
       expect(
         resizeSlideObject(
@@ -1400,7 +1401,7 @@ describe("slide object interactions", () => {
     },
   );
 
-  it("uses Shift aspect locking for corners and midpoint handles", () => {
+  it("uses Shift aspect locking for corners and midpoint handles (oracle 10.2)", () => {
     expect(
       resizeSlideObject(
         { x: 100, y: 50, width: 200, height: 100 },
@@ -1653,7 +1654,7 @@ describe("slide object interactions", () => {
     expect(root.children).toHaveLength(0);
   });
 
-  it("sends an object in front of every peer", () => {
+  it("sends an object in front of every peer (oracle 8.5)", () => {
     const container = document.createElement("div");
     const element = createFreeformObject("front-me", { zIndex: 0 });
     const peerA = createFreeformObject("peer-a", { zIndex: 2 });
@@ -1677,7 +1678,7 @@ describe("slide object interactions", () => {
     expect(source.style.zIndex).toBe("1");
   });
 
-  it("sends an object behind every peer when there is room below", () => {
+  it("sends an object behind every peer when there is room below (oracle 8.5)", () => {
     const container = document.createElement("div");
     const element = createFreeformObject("back-me", { zIndex: 5 });
     const peerA = createFreeformObject("peer-a", { zIndex: 2 });
@@ -1690,7 +1691,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("computes one-step freeform z-order changes while preserving peer order", () => {
+  it("computes one-step freeform z-order changes while preserving peer order (oracle 8.5)", () => {
     const container = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });
     const second = createFreeformObject("second", { zIndex: 1 });
@@ -2064,7 +2065,7 @@ describe("slide object interactions", () => {
     ).toEqual([label, fixed]);
   });
 
-  it("moves every member by the same delta relative to its own captured start", () => {
+  it("moves every member by the same delta relative to its own captured start (oracle 4.8)", () => {
     const objectA = createFreeformObject("a", { left: 10, top: 20 });
     const objectB = createFreeformObject("b", { left: 30, top: 40 });
     document.body.append(objectA, objectB);
@@ -2092,7 +2093,7 @@ describe("slide object interactions", () => {
     expect(applied.get("b")).toEqual({ x: 130, y: 30, width: 50, height: 50 });
   });
 
-  it("snaps object edges and centers to nearby peer anchors and returns guides", () => {
+  it("snaps object edges and centers to nearby peer anchors and returns guides (oracle 9.2, oracle 9.3)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 100, y: 160, width: 80, height: 40 },
       deltaX: 17,
@@ -2113,7 +2114,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl", () => {
+  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl (oracle 9.3, oracle 9.6)", () => {
     const snapped = snapSlideObjectMove({
       moving: { x: 4, y: 3, width: 80, height: 40 },
       deltaX: -4,
@@ -2300,7 +2301,7 @@ describe("isDeletableSlideElement", () => {
     expect(isDeletableSlideElement(rectangle)).toBe(true);
   });
 
-  it("removes the selected flow div without touching its sibling", () => {
+  it("removes the selected flow div without touching its sibling (oracle 9.10)", () => {
     const root = document.createElement("div");
     const rectangle = document.createElement("div");
     rectangle.className = "generated-rectangle";
@@ -2513,7 +2514,7 @@ describe("arrangeSlideLayerInParent", () => {
     expect(arrangeSlideLayerInParent(a, "front")).toBe(false);
   });
 
-  it("round-trips front and back across repeated presses", () => {
+  it("round-trips front and back across repeated presses (oracle 8.5)", () => {
     const slide = mountSlide(
       `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
     );
@@ -2555,7 +2556,7 @@ describe("arrangeSlideLayerInParent", () => {
     expect(Number(zOf(a))).toBeGreaterThanOrEqual(0);
   });
 
-  it("moves a layer one step forward and backward without changing layout order", () => {
+  it("moves a layer one step forward and backward without changing layout order (oracle 8.5)", () => {
     const slide = mountSlide(
       `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
     );
@@ -2644,7 +2645,7 @@ describe("slide object groups and rotation", () => {
     expect(resolveSelectionOwner(byId("loose"), root)).toBe(byId("loose"));
   });
 
-  it("groups absolute siblings into one durable wrapper and ungroups at its stack position", () => {
+  it("groups absolute siblings into one durable wrapper and ungroups at its stack position (oracle 7.8)", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });
     const second = createFreeformObject("second", { zIndex: 0 });
@@ -3223,7 +3224,7 @@ describe("slide object groups and rotation", () => {
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
   });
 
-  it("normalizes pointer rotation across the angle boundary and snaps only with Shift", () => {
+  it("normalizes pointer rotation across the angle boundary and snaps only with Shift (oracle 10.7)", () => {
     const center = { x: 0, y: 0 };
     const pointAt = (angle: number) => ({
       x: Math.cos((angle * Math.PI) / 180),
@@ -3598,7 +3599,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.1: the S handle changes nothing without a min-height", () => {
+  it("2.1: the S handle changes nothing without a min-height (oracle H.1)", () => {
     for (const dy of [80, -50]) {
       expect(resize("s", box, 0, dy)).toEqual({
         x: box.x,
@@ -3608,7 +3609,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.2: the N handle translates the box and leaves its width alone", () => {
+  it("2.2: the N handle translates the box and leaves its width alone (oracle H.2)", () => {
     expect(resize("n", box, 0, 31)).toEqual({
       x: box.x,
       y: box.y + 31,
@@ -3617,7 +3618,7 @@ describe("resolveFitTextBoxResize", () => {
     expect(resize("n", box, 0, -39).y).toBeCloseTo(195.6, 5);
   });
 
-  it("2.3: E keeps the left edge fixed", () => {
+  it("2.3: E keeps the left edge fixed (oracle H.3)", () => {
     const start = { ...box, x: 100, width: 576 };
     expect(resize("e", start, -149, 25)).toEqual({
       x: 100,
@@ -3627,21 +3628,21 @@ describe("resolveFitTextBoxResize", () => {
     expect(resize("e", { ...start, width: 427 }, 201, 0).width).toBe(628);
   });
 
-  it("2.4: W keeps the right edge fixed", () => {
+  it("2.4: W keeps the right edge fixed (oracle H.4)", () => {
     const next = resize("w", box, 100, -20);
     expect(next.width).toBe(528);
     expect(next.x + next.width).toBeCloseTo(box.x + box.width, 5);
     expect(next.y).toBe(box.y);
   });
 
-  it("2.5: south corners apply the horizontal component only", () => {
+  it("2.5: south corners apply the horizontal component only (oracle H.5)", () => {
     const start = { x: 0, y: 50, width: 586, height: 332 };
     expect(resize("se", start, 63, 40)).toEqual({ x: 0, y: 50, width: 649 });
     expect(resize("se", { ...start, width: 649 }, -79, -30).width).toBe(570);
     expect(resize("se", start, 63, 40).y).toBe(50);
   });
 
-  it("2.6: NE follows dx for width and dy for the top edge", () => {
+  it("2.6: NE follows dx for width and dy for the top edge (oracle H.6)", () => {
     const start = { x: 900, y: 226.6, width: 570, height: 332 };
     const next = resize("ne", start, 51, 61);
     expect(next.x).toBe(900);
@@ -3649,7 +3650,7 @@ describe("resolveFitTextBoxResize", () => {
     expect(next.width).toBe(621);
   });
 
-  it("2.7: SW ignores dy and NW also moves the top edge", () => {
+  it("2.7: SW ignores dy and NW also moves the top edge (oracle H.7)", () => {
     const start = { x: 100, y: 200, width: 600, height: 332 };
     const southWest = resize("sw", start, 71, 50);
     expect(southWest).toEqual({ x: 171, y: 200, width: 529 });
@@ -3659,7 +3660,7 @@ describe("resolveFitTextBoxResize", () => {
     expect(northWest.x + northWest.width).toBe(start.x + start.width);
   });
 
-  it("2.8/2.9: Shift changes nothing because there is no aspect to lock", () => {
+  it("2.8/2.9: Shift changes nothing because there is no aspect to lock (oracle H.9)", () => {
     for (const handle of ["se", "nw", "e", "n"] as const) {
       expect(resize(handle, box, 40, -30, { shift: true })).toEqual(
         resize(handle, box, 40, -30),
@@ -3667,7 +3668,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.10: Alt resizes width about the centre and moves the top edge", () => {
+  it("2.10: Alt resizes width about the centre and moves the top edge (oracle H.10, oracle 10.3)", () => {
     const start = { x: 899.1, y: 328.6, width: 530, height: 370 };
     const next = resize("se", start, 61, 41, { alt: true });
     expect(next.width).toBe(652);
@@ -3912,7 +3913,7 @@ describe("object interaction geometry hardening", () => {
     ).toBeNull();
   });
 
-  it("snaps within 4 screen px at any zoom", () => {
+  it("snaps within 4 screen px at any zoom (oracle 9.1)", () => {
     const snap = (deltaX: number, scale?: number) =>
       snapSlideObjectMove({
         moving: { x: 100, y: 0, width: 80, height: 40 },
@@ -3946,7 +3947,7 @@ describe("object interaction geometry hardening", () => {
     expect(snap(11).deltaX).toBe(11);
   });
 
-  it("snaps at 3 screen px and not at 4 (gs-truth 9.1)", () => {
+  it("snaps at 3 screen px and not at 4 (gs-truth 9.1; oracle 9.1)", () => {
     const snap = (deltaX: number) =>
       snapSlideObjectMove({
         moving: { x: 100, y: 0, width: 80, height: 40 },
@@ -3960,7 +3961,7 @@ describe("object interaction geometry hardening", () => {
     expect(snap(16).deltaX).toBe(16);
   });
 
-  it("spans an alignment guide across every object it aligns, and the slide for slide anchors (gs-truth 9.2)", () => {
+  it("spans an alignment guide across every object it aligns, and the slide for slide anchors (gs-truth 9.2; oracle 9.2, oracle 9.3)", () => {
     const canvas = { width: 1280, height: 720 };
     const result = snapSlideObjectMove({
       moving: { x: 300, y: 500, width: 80, height: 40 },
@@ -4009,7 +4010,7 @@ describe("object interaction geometry hardening", () => {
     ).toEqual([]);
   });
 
-  it("snaps to equal spacing and draws one blue guide per gap (gs-truth 9.4)", () => {
+  it("snaps to equal spacing and draws one blue guide per gap (gs-truth 9.4; oracle 9.4)", () => {
     const peers = [
       { x: 100, y: 100, width: 100, height: 60 },
       { x: 300, y: 100, width: 100, height: 60 },
@@ -4169,7 +4170,7 @@ describe("object interaction geometry hardening", () => {
     for (const guide of guides) expect(guide.position).toBe(504);
   });
 
-  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6)", () => {
+  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6; oracle 9.6)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 450, y: 115, width: 100, height: 40 },
       deltaX: 51,
@@ -4751,6 +4752,122 @@ describe("the effective transform of a slide object", () => {
       expect(element.style.transform).toBe("");
       expect(element.style.getPropertyValue("rotate")).toBe("x 20deg");
     });
+
+    it("leaves an object a stylesheet !important transform keeps painting as it was, and says so", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const element = mount({ transform: "rotate(10deg)" });
+        element.className = "pinned";
+        document.body.append(element);
+        try {
+          const style = element.getAttribute("style");
+
+          expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+          expect(element.getAttribute("style")).toBe(style);
+          expect(readSlideObjectRotation(element)).toBeCloseTo(50, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it.each([
+      ["with an inline transform", { transform: "rotate(10deg)" }],
+      ["with none", {}],
+    ])(
+      "leaves an object a stylesheet !important none keeps flat as it was, %s",
+      (_name, inline) => {
+        withStylesheet(".flat { transform: none !important; }", () => {
+          const element = mount(inline);
+          element.className = "flat";
+          document.body.append(element);
+          try {
+            const style = element.getAttribute("style");
+
+            expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+            expect(element.getAttribute("style")).toBe(style);
+            expect(readSlideObjectRotation(element)).toBeCloseTo(0, 6);
+            expect(readEditableSlideObjectRotation(element)).toBeNull();
+          } finally {
+            element.remove();
+          }
+        });
+      },
+    );
+
+    it("says so when the painted rotation is the one asked for, whichever declaration paints it", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const element = mount({ transform: "rotate(10deg)" });
+        element.className = "pinned";
+        document.body.append(element);
+        try {
+          expect(setSlideObjectRotation(element, 50)).toBe(true);
+
+          expect(readSlideObjectRotation(element)).toBeCloseTo(50, 6);
+        } finally {
+          element.remove();
+        }
+      });
+    });
+
+    it("restores the style when an animation the DOM cannot model keeps painting another rotation", () => {
+      const element = mount({ transform: "rotate(10deg)" });
+      const getComputedStyle = window.getComputedStyle;
+      const mock = vi
+        .spyOn(window, "getComputedStyle")
+        .mockImplementation((target, pseudoElement) =>
+          target === element
+            ? ({
+                transform:
+                  "matrix(0.642788, 0.766044, -0.766044, 0.642788, 0, 0)",
+                transformOrigin: "50px 10px",
+                getPropertyValue: () => "",
+              } as unknown as CSSStyleDeclaration)
+            : getComputedStyle.call(window, target, pseudoElement),
+        );
+      try {
+        const style = element.getAttribute("style");
+
+        expect(setSlideObjectRotation(element, 90)).toBe(false);
+
+        expect(element.getAttribute("style")).toBe(style);
+      } finally {
+        mock.mockRestore();
+      }
+    });
+
+    it("keeps the priority of the inline transform it replaces", () => {
+      const element = mount({});
+      element.style.setProperty("transform", "rotate(10deg)", "important");
+
+      expect(setSlideObjectRotation(element, 30)).toBe(true);
+
+      expect(element.style.getPropertyValue("transform")).toBe("rotate(30deg)");
+      expect(element.style.getPropertyPriority("transform")).toBe("important");
+    });
+
+    it("offers a rotation to edit only when an inline transform would paint", () => {
+      withStylesheet(".pinned { transform: rotate(50deg) !important; }", () => {
+        const pinned = mount({ transform: "rotate(10deg)" });
+        pinned.className = "pinned";
+        const free = mount({ transform: "rotate(10deg)" });
+        const collapsed = mount({ transform: "scale(0)" });
+        document.body.append(pinned, free, collapsed);
+        try {
+          const style = pinned.getAttribute("style");
+
+          expect(readEditableSlideObjectRotation(pinned)).toBeNull();
+          expect(readEditableSlideObjectRotation(free)).toBeCloseTo(10, 6);
+          expect(readEditableSlideObjectRotation(collapsed)).toBeNull();
+          expect(pinned.getAttribute("style")).toBe(style);
+        } finally {
+          pinned.remove();
+          free.remove();
+          collapsed.remove();
+        }
+      });
+    });
   });
 
   it("plans no rotation for a member whose rotation could not be read", () => {
@@ -4801,6 +4918,66 @@ describe("the effective transform of a slide object", () => {
       expect(group.isConnected).toBe(true);
     } finally {
       group.remove();
+    }
+  });
+
+  it("ungroups nothing when a member keeps a transform the ungrouping has to write", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = ".pinned { transform: rotate(10deg) !important; }";
+    document.head.append(sheet);
+    const group = document.createElement("div");
+    group.className = "fmd-slide-group";
+    group.setAttribute("data-slide-group", "true");
+    group.style.position = "absolute";
+    group.style.setProperty("rotate", "30deg");
+    const first = createFreeformObject("first");
+    first.className = "pinned";
+    const second = createFreeformObject("second");
+    group.append(first, second);
+    document.body.append(group);
+    const geometries = new Map<HTMLElement, SlideObjectGeometry>([
+      [group, { x: 100, y: 100, width: 200, height: 100 }],
+      [first, { x: 20, y: 20, width: 40, height: 20 }],
+      [second, { x: 120, y: 50, width: 30, height: 20 }],
+    ]);
+    const applied: HTMLElement[] = [];
+
+    try {
+      expect(
+        ungroupSlideObject(
+          group,
+          (element) => geometries.get(element)!,
+          (element) => applied.push(element),
+        ),
+      ).toBeNull();
+      expect(applied).toEqual([]);
+      expect(group.isConnected).toBe(true);
+      expect(first.parentElement).toBe(group);
+    } finally {
+      group.remove();
+      sheet.remove();
+    }
+  });
+
+  it("reads the origin a stylesheet !important declaration paints over an inline one", () => {
+    const sheet = document.createElement("style");
+    sheet.textContent = ".pinned { transform-origin: 100% 100% !important; }";
+    document.head.append(sheet);
+    const element = mount({
+      position: "absolute",
+      transform: "rotate(20deg)",
+      "transform-origin": "0 0",
+    });
+    element.className = "pinned";
+    document.body.append(element);
+
+    try {
+      expect(readSlideObjectTransformSnapshot(element).transformOrigin).toBe(
+        "100% 100%",
+      );
+    } finally {
+      element.remove();
+      sheet.remove();
     }
   });
 
@@ -5776,6 +5953,35 @@ describe("wrapping an image in its crop frame", () => {
     } finally {
       parent.remove();
     }
+  });
+
+  it("moves the transform a stylesheet !important rule paints, not the inline one it beats", () => {
+    withRule(".pinned { transform: rotate(50deg) !important; }", () => {
+      const { parent, image } = mountImage("pinned", "transform:rotate(20deg)");
+      try {
+        const { frame } = wrapImageInCropFrame(image)!;
+
+        expect(frame.style.transform).toBe("rotate(50deg)");
+        expect(image.style.getPropertyValue("transform")).toBe("none");
+        expect(image.style.getPropertyPriority("transform")).toBe("important");
+      } finally {
+        parent.remove();
+      }
+    });
+  });
+
+  it("moves no transform to the frame when an !important none switches the inline one off", () => {
+    withRule(".pinned { transform: none !important; }", () => {
+      const { parent, image } = mountImage("pinned", "transform:rotate(20deg)");
+      try {
+        const { frame } = wrapImageInCropFrame(image)!;
+
+        expect(frame.style.transform).toBe("");
+        expect(frame.style.transformOrigin).toBe("");
+      } finally {
+        parent.remove();
+      }
+    });
   });
 
   it("does not write a default transform origin for an image with no transform", () => {

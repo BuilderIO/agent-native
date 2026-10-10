@@ -597,11 +597,21 @@ function resolveObjectLabel(
   );
 }
 
+// A delegated participant's id is its call id; the app it runs is its origin,
+// and that is what a source reference names.
 function sourceObjectUnlessRepresented(
   source: AgentObjectReference | undefined,
+  thread: AgentThreadState,
   displayedAgentIds: readonly (string | undefined)[],
 ): AgentObjectReference | undefined {
-  if (source?.kind === "agent" && displayedAgentIds.includes(source.id)) {
+  if (
+    source?.kind === "agent" &&
+    displayedAgentIds.some(
+      (id) =>
+        id !== undefined &&
+        (id === source.id || thread.agents[id]?.origin?.id === source.id),
+    )
+  ) {
     return undefined;
   }
   return source;
@@ -887,7 +897,7 @@ export function AgentInteractionItem({
   );
   const object =
     interaction.object ??
-    sourceObjectUnlessRepresented(interaction.source, [
+    sourceObjectUnlessRepresented(interaction.source, thread, [
       interaction.agentId,
       interaction.targetAgentId,
     ]);
@@ -922,9 +932,8 @@ export function AgentInteractionItem({
           fallbackName={labels.assistant}
         />
       ) : null}
-      {object ? (
-        <ObjectRenderer value={object} threadId={threadId} />
-      ) : detail ? (
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail && (!object || interaction.kind === "failed") ? (
         <span
           {...(interaction.kind === "failed"
             ? SESSION_REPLAY_MASK_PROPS
@@ -973,7 +982,7 @@ export function AgentActivityItem({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
@@ -1149,7 +1158,7 @@ function RepeatedActivityCluster({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   return (
     <details
       className="agentkit-activity-cluster"
@@ -2106,7 +2115,7 @@ export function AgentTaskItem({
   const detail = readableText(task.detail);
   const object =
     task.object ??
-    sourceObjectUnlessRepresented(task.source, [task.assignedAgentId]);
+    sourceObjectUnlessRepresented(task.source, thread, [task.assignedAgentId]);
   const showAgent =
     task.assignedAgentId &&
     title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
@@ -2855,7 +2864,10 @@ export function AgentMessagePartView({
           <span>{part.name}</span>
         </a>
       ) : (
-        <span className="agentkit-file">
+        <span
+          className="agentkit-file"
+          title={part.omitted ? labels.attachmentNotSaved : undefined}
+        >
           <IconFile aria-hidden="true" className="agentkit-icon" />
           <span>{part.name}</span>
         </span>
@@ -3031,6 +3043,10 @@ async function forkAndResubmitMessage({
   if (previousMessage === null) {
     throw new Error(messageUnavailable);
   }
+  const engine = metadata?.engine ?? options?.metadata?.engine;
+  await controller.assertAiSetupReady({
+    engine: typeof engine === "string" ? engine : undefined,
+  });
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
@@ -3262,7 +3278,7 @@ export function AgentMessageActions({
       text: messageText(previousUserMessage),
       attachments: previousUserMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       ),
       options: messageRunOptions(previousUserMessage),
       metadata: previousUserMessage.metadata,
@@ -3723,6 +3739,7 @@ export function AgentMessageActions({
               onPress={() => void copyAction.execute().catch(() => undefined)}
             />
             {editContext?.enabled &&
+            message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
               <IconButton
@@ -4007,7 +4024,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
-    | "requireAgentEngine"
+    | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -4021,7 +4038,6 @@ export interface AgentKitComposerProps extends Omit<
     | "inlineTextAttachments"
     | "extraActionButton"
     | "onSubmit"
-    | "onBeforeSubmit"
     | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
@@ -4033,6 +4049,8 @@ export interface AgentKitComposerProps extends Omit<
 > {
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
+  requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
@@ -4096,7 +4114,8 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine,
+  requireAgentEngine = false,
+  showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -4106,7 +4125,6 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
-  onBeforeSubmit,
   onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -4300,6 +4318,11 @@ export function AgentKitComposer({
       options.onLocalSubmit?.();
     };
     if (!editingMessage && onSubmitOverride) {
+      const readinessEngine = options.engine ?? selectedEngine;
+      await controller.assertAiSetupReady({
+        engine:
+          typeof readinessEngine === "string" ? readinessEngine : undefined,
+      });
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -4358,6 +4381,10 @@ export function AgentKitComposer({
       if (previousMessage === null) {
         throw new Error(labels.messageUnavailable);
       }
+      const selectedEngine = metadata.engine ?? runOptions.metadata?.engine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const forkedThread = await controller.forkThread(
         threadId,
         previousMessage?.id,
@@ -4369,7 +4396,7 @@ export function AgentKitComposer({
         : [];
       const previousAttachments = editingMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       );
       const draft = createAgentKitComposerSubmission({
         threadId: forkedThread.id,
@@ -4454,14 +4481,13 @@ export function AgentKitComposer({
       queuedWhileRunActive: activeAtSubmit,
     });
   };
-  const prepareHostSubmit = async () => {
+  const prepareHostSubmit = () => {
     if (disabled) {
       onDisabledClick?.();
       return false;
     }
     if (submissionDisabled) return false;
-    if (editingMessage) return true;
-    return !onBeforeSubmit || (await onBeforeSubmit());
+    return true;
   };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] =
     !disabled && !submissionDisabled
@@ -4669,6 +4695,7 @@ export function AgentKitComposer({
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
         requireAgentEngine={requireAgentEngine}
+        showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -4676,7 +4703,6 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         sendButtonDisabled={submissionPending}
-        onBeforeSubmit={onBeforeSubmit}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately

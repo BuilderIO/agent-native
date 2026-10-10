@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "wartet",
   "agent.completed": "hat die Arbeit abgeschlossen",
   "agent.failed": "braucht Aufmerksamkeit",
+  "agent.failureReason.failed": "Nicht abgeschlossen",
+  "agent.failureReason.setup": "Einrichtung nötig",
+  "agent.failureReason.auth": "Zugriff abgelehnt",
+  "agent.failureReason.timeout": "Zeitüberschreitung",
+  "agent.failureReason.budget": "Zeit abgelaufen",
+  "agent.failureReason.response": "Kein brauchbares Ergebnis",
   "agent.closed": "wurde geschlossen",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
@@ -87,6 +93,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
     "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteReviewedPromptLabel":
+    "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
@@ -821,6 +829,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
   "recovery.continueUnavailable":
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
+  "errorMessages.invalidAttachmentNamed":
+    "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
   "recovery.deferredSubmissionFailed":
@@ -1150,7 +1161,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.fileTooLarge":
+    "Diese Datei ist größer als das Upload-Limit von {{size}} MB.",
+  "composer.sessionExpired":
+    "Deine Sitzung ist abgelaufen. Melde dich erneut an und sende deine Nachricht dann noch einmal.",
   "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
+  "composer.uploadUnavailable":
+    "Datei-Uploads sind gerade nicht verfügbar. Versuche es gleich noch einmal.",
+  "composer.uploadOffline":
+    "Der Upload hat den Server nicht erreicht. Prüfe deine Verbindung und versuche es erneut.",
+  "composer.submissionNotReady":
+    "Der Chat ist noch nicht sendebereit. Warte einen Moment und sende dann erneut.",
+  "composer.submissionScopeChanged":
+    "Dieser Chat hat sich geändert, bevor deine Nachricht gesendet wurde. Sende sie erneut.",
+  "composer.attachmentNotSaved": "Nicht mit diesem Chat gespeichert",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
   "mentions.learnMore": "Mehr erfahren",
@@ -1302,6 +1326,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Sie sind abgemeldet, daher kann dieser Chat dem Agenten nicht folgen. Melden Sie sich erneut an und laden Sie dann neu.",
   "errorMessages.malformedRequestAttachment":
     "Das Modell hat eine angehängte Datei abgelehnt, daher wurde diese Nachricht nie gesendet. Entfernen Sie den Anhang und versuchen Sie es erneut – eine PDF-, eine reine Textdatei oder ein JPEG-, PNG-, GIF- oder WebP-Bild wird direkt gelesen; andere Formate müssen hochgeladen und verlinkt werden.",
+  "errorMessages.invalidAttachment":
+    "Der Modellanbieter hat diesen Anhang wegen seines Formats oder seiner Größe abgelehnt. Exportieren Sie Bilder als kleinere PNG-, JPEG-, GIF- oder WebP-Datei; verwenden Sie für Dokumente ein unterstütztes Dateiformat oder fügen Sie den relevanten Text ein und hängen Sie ihn erneut an.",
   "errorMessages.noProviderConnected":
     "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und nutze dann Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":

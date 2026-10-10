@@ -135,6 +135,25 @@ describe("view-screen monitoring status-pages branch", () => {
     expect(getDashboard).not.toHaveBeenCalled();
   });
 
+  it("does not surface a stale dashboard selection on a saved Ask thread", async () => {
+    selectedObjectState.current = {
+      type: "dashboard",
+      id: "dash-1",
+      title: "Revenue",
+    };
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/ask/thread-1" },
+    );
+
+    const out = await runScreen();
+
+    expect(out.selectedObject).toBeUndefined();
+    expect(out.navigation).toEqual({ view: "ask" });
+    expect(out.dashboard).toBeUndefined();
+    expect(getDashboard).not.toHaveBeenCalled();
+  });
+
   it("does not let stale Ask navigation mask a dashboard URL", async () => {
     selectedObjectState.current = {
       type: "dashboard",
@@ -339,6 +358,29 @@ describe("view-screen Sessions context", () => {
         limit: 25,
       }),
     );
+  });
+
+  it("preserves the anonymous visitor filter in the bounded session view", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { visitorType: "anonymous" },
+      },
+    );
+
+    const out = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visitorType: "anonymous" }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({
+      filters: { visitorType: "anonymous" },
+      fullPageAction: {
+        args: { visitorType: "anonymous" },
+      },
+    });
   });
 
   it("keeps the UI page offset, filters, and full-page retrieval scope", async () => {

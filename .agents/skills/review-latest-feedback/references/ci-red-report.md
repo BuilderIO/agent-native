@@ -16,52 +16,70 @@ cases, the fingerprint is test-level; otherwise `job-step` is broader and
 requires logs or artifacts for case-level diagnosis. An incomplete or failed
 API query exits 2 and means **CI unavailable**, never an empty result.
 
-Keep every fingerprint in the recap, including its run count and run links.
-Classify each fingerprint as **product regression**, **stale spec**, **harness
-flake**, or **infrastructure**, then reproduce locally and fix the owning
-boundary.
+Keep every fingerprint and failed occurrence in the CI triage table in this
+sweep's recap, including its run count and links. Record the workflow, run ID and attempt,
+timestamp, failed job/step, exact fingerprint, and test name or shard when
+available. Classify each fingerprint as **product regression**, **stale spec**,
+**harness flake**, or **infrastructure**, then reproduce locally and fix the
+owning boundary.
 
-Search open PRs and tracking issues for every run id, workflow, or fingerprint.
-For non-E2E rows, keep one tracking issue per fingerprint and reuse it across
-runs. A run-ID-only match owns only that occurrence; keep other unowned run IDs
-actionable. Mark an item **Owned elsewhere** only when an open issue body names
-its exact fingerprint or its run URL/id together with the workflow; a workflow
-name alone does not cover every failure in it. Link the matching issue. Close
-an issue only when issue closure is explicitly authorized.
+Scheduled CI, production-health, and signup reporters publish grouped findings
+to `#qa-agent-native`, with a run link and an artifact containing the complete
+report. Read the full artifact; the channel message is the discovery index, not
+a replacement for the occurrence ledger. Search the channel and open PRs/tasks
+for each run ID, workflow, or fingerprint to find an active owner. A matching
+PR, task, or QA rollup covers only the exact failure-level evidence it names:
+a run-ID-only match owns only that occurrence, and a workflow name alone does
+not cover every failure in it. Record the matching PR, task, or Slack permalink
+and keep every unmatched occurrence actionable. Do not create or update GitHub
+issues for CI fingerprints. Legacy automated issue reports are not the
+reporting or recovery state; carry their evidence to the QA rollup and use the
+workflow's run artifacts for deduplication and recovery. If no active owner or
+canonical report can be verified, record the ownership gap and next action
+instead of opening a competing ticket.
 
-For E2E rows, first identify issue ownership. A workflow with a reporter-managed
-suite issue owns that issue's updates and recovery lifecycle. Verify and link
-its canonical issue as the owner; do not create a separate manual issue for
-those failures or fold another workflow's failures into it. If no canonical
-issue can be verified, report the ownership gap instead of creating a competing
-tracker. For workflows without a
-reporter-managed issue, keep one reusable manual aggregate per workflow/suite
-across its tests, shards, fingerprints, and runs. Keep test-level evidence and
-disposition for every fingerprint in the aggregate. Never create an issue per
-test, fingerprint, shard, or run.
+The `pnpm ci:red-report` sweep also uses `#qa-agent-native` as the discovery
+index. After matching its rows against existing channel rollups, tasks, and
+PRs at the exact run-ID and fingerprint level, post one grouped channel message
+for uncovered findings in that sweep. Group by workflow and fingerprint, and
+include every uncovered run link, attempt, run count, occurrence count, and the
+classification or next owner action. Do not post one message per finding or
+repeat unchanged occurrences already represented in a rollup. If the grouped
+message exceeds Slack's size limit, split it into workflow/fingerprint chunks
+in one thread. Keep the complete occurrence ledger in the feedback task
+transcript even when a finding is already covered. If Slack delivery fails,
+record that failure and keep the CI rows unresolved; never fall back to creating
+or updating GitHub issues.
 
-Reuse the same open manual aggregate on later reports, add every new or
-unmatched run and fingerprint, and preserve unresolved failures after they age
-out of the report's five-day window. A grouped row is covered only when the
-issue body lists every matching workflow, run ID/attempt, and failure-level
-evidence: the exact fingerprint and, when available, the test name, shard, and
-failed job/step. A run URL or ID with the workflow but without a failure-level
-identifier does not cover a failure; an exact occurrence match leaves every
-other occurrence in the grouped row actionable. A matching title alone is not
-enough. Add each unmatched fingerprint and occurrence before marking it owned.
-When only per-fingerprint issues are open for a manually tracked suite, reuse
-one as the aggregate and link the others; do not create another issue or close
-duplicates unless closure is explicitly authorized. For manual aggregates,
-mark a listed failure recovered only after a later passing run of the same
-workflow and test/fingerprint or a verified fix with a passing rerun; aging
-out of the report is not recovery. Mark the aggregate recovered only after
-every listed failure meets that evidence bar. Leave reporter-managed issue
-recovery and closure to its workflow.
+The durable cross-sweep ledger is the **CI failure ledger** section in the most
+recent `review-latest-feedback` Codex task transcript. At the start of a sweep,
+use `list_threads` to locate the latest prior feedback task; if it is archived,
+search `list_archived_threads` pages. Read the task with `read_thread` and copy
+its unresolved occurrences, exact fingerprints, evidence links, and dispositions
+before running the new report. Inspect the transcript itself; titles and
+summaries are not the ledger. At the end of the sweep, include the complete
+current ledger in the task recap. A ship recap and PR body carry a snapshot, but
+do not replace this cross-sweep source.
 
-Quarantine only with a named owner, expiry, and linked tracking issue. A green
-result produced by quarantine is a defect. Follow quarantined rows until fixed
-or restored. The recap records run count, fingerprint count, query status,
-classification, disposition, evidence, and any owner/issue.
+If there is no prior feedback task with a CI ledger, initialize from the current
+report. If task history cannot be listed or read, the transcript is truncated,
+or the prior ledger cannot be confirmed complete, record **prior CI ledger
+unavailable** and keep the missing carry-over state unresolved. Never turn an
+unreadable prior ledger into an empty table or claim those failures recovered.
+
+Preserve unresolved failures after they age out of the report's five-day
+window. A failure is recovered only after a later passing run of the same
+workflow and test/fingerprint, or a verified fix with a passing rerun; aging
+out of the report is not recovery. Carry unresolved rows from the prior task
+transcript into the current ledger and keep each occurrence's evidence and
+disposition even when several failures share one fingerprint.
+
+Quarantine only with a named owner and expiry, and use an existing authorized
+tracking record rather than creating an automated findings issue. A green
+result produced by quarantine is a defect. Follow
+quarantined rows until fixed or restored. The CI failure ledger records run count,
+fingerprint and occurrence counts, query status, classification, disposition,
+evidence, and owner/action.
 
 For deploy, release, and publish workflows, follow
 [deployment recovery](deployment-recovery.md). Keep the operational row active

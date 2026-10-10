@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
 
 /**
  * Regression guard for the bug fixed here: `network_error_count` was added to
@@ -30,6 +31,9 @@ const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
+// db.ts runs SOURCE_INDEX_RUNS_MIGRATION_SQL, so its DDL is migration history
+// even though db.ts does not spell the columns out.
+const migrationHistorySource = `${dbTsSource}\n${SOURCE_INDEX_RUNS_MIGRATION_SQL.join("\n")}`;
 
 interface DrizzleColumn {
   name: string;
@@ -66,7 +70,8 @@ describe("analytics db migrations cover every schema.ts column", () => {
       const missing = columns
         .map((c) => c.name)
         .filter(
-          (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
+          (columnName) =>
+            !new RegExp(`\\b${columnName}\\b`).test(migrationHistorySource),
         );
       expect(missing).toEqual([]);
     });
@@ -170,6 +175,22 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("preserves client replay start time and repairs its lookup index", () => {
+    expect(dbTsSource).toContain(
+      'name: "session-recordings-client-started-at"',
+    );
+    expect(dbTsSource).toContain(
+      "ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS client_started_at TEXT",
+    );
+    expect(dbTsSource).toContain(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_at_idx",
+    );
+    expect(dbTsSource).toContain(
+      'name: "session-recordings-client-started-at-index"',
+    );
+    expect(dbTsSource).toContain("run: repairAnalyticsReplayLinkIndexes");
+  });
+
   it("indexes the alert-rule sweep query by enabled status and evaluation time", () => {
     expect(dbTsSource).toMatch(
       /CREATE INDEX IF NOT EXISTS analytics_alert_rules_enabled_eval_idx ON analytics_alert_rules \(enabled, last_status, last_evaluated_at, created_at\)/,
@@ -247,7 +268,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("has a direct-endpoint repair for indexes interrupted by statement budgets", () => {
+  it("has a direct endpoint for repairing interrupted concurrent indexes", () => {
     const repairStart = dbTsSource.indexOf("version: 145,");
     const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
     const repairEntry = dbTsSource.slice(repairStart, repairEnd);
@@ -257,17 +278,17 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(repairEntry).toContain(
       'name: "analytics-events-backfill-filtered-cursor-index-direct-repair"',
     );
-    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(repairEntry).toContain("repairAnalyticsIndexes");
     expect(dbTsSource).toContain("pg_try_advisory_lock");
     expect(dbTsSource).toContain("deferMigration()");
     expect(repairEntry).toContain('postgres: "SELECT 1"');
     expect(dbTsSource).toContain(
-      "ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
+      "ANALYTICS_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
     );
     expect(dbTsSource).toContain("getAnalyticsMigrationDatabaseUrl()");
   });
 
-  it("indexes bounded purge inventory counts", () => {
+  it("repairs bounded purge inventory indexes", () => {
     const repairStart = dbTsSource.indexOf("version: 146,");
     const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
     const repairEntry = dbTsSource.slice(repairStart, repairEnd);
@@ -281,7 +302,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "analytics_event_daily_rollups_org_event_date_idx",
     );
     expect(dbTsSource).toContain("analytics_user_days_org_event_date_idx");
-    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(repairEntry).toContain("repairAnalyticsIndexes");
   });
 
   it("adds nullable dashboard creator provenance without rewriting existing rows", () => {

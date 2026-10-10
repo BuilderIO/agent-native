@@ -2017,8 +2017,11 @@ describe("AgentEngine registry", () => {
         readAppSecrets: readAppSecret,
       }));
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        detectEngineFromUserSecrets,
+        listAgentEngines,
+      } = await import("./registry.js");
       registerAgentEngine({
         name: "anthropic",
         label: "Anthropic",
@@ -2048,8 +2051,11 @@ describe("AgentEngine registry", () => {
         readAppSecrets,
       }));
 
-      const { registerAgentEngine, detectEngineFromUserSecrets } =
-        await import("./registry.js");
+      const {
+        registerAgentEngine,
+        detectEngineFromUserSecrets,
+        listAgentEngines,
+      } = await import("./registry.js");
       registerAgentEngine({
         name: "anthropic",
         label: "Anthropic",
@@ -3200,7 +3206,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
-        getRequestOrgId: () => undefined,
+        getRequestOrgId: () => "org-fixture",
       }));
       const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
         if (key === "BUILDER_PRIVATE_KEY") return { key, value: "p-key" };
@@ -3251,7 +3257,9 @@ describe("AgentEngine registry", () => {
         create: vi.fn() as any,
       });
 
-      const detected = await detectEngineFromUserSecrets();
+      const detected = await detectEngineFromUserSecrets(undefined, {
+        isBuilderConnectionUsable: async () => true,
+      });
       expect(detected?.name).toBe("builder");
 
       const providerBatches = readAppSecrets.mock.calls

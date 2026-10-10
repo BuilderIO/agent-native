@@ -17,5 +17,6 @@ export function isTopBarVisible({
   minimalUi: boolean;
   uiHidden: boolean;
 }): boolean {
-  return !embedded && !isVisualEditSurface && !minimalUi && !uiHidden;
+  if (uiHidden || isVisualEditSurface) return false;
+  return !embedded && !minimalUi;
 }

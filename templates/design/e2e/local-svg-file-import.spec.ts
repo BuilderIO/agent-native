@@ -6,7 +6,7 @@ import { appPath, enterDirectMode, gotoEditor } from "./helpers";
 
 const SVG_FIXTURE = path.resolve(
   import.meta.dirname,
-  "fixtures/sonora-play-button.svg",
+  "fixtures/play-button-icon.svg",
 );
 const SCREEN_HTML = `<!doctype html><html><body style="margin:0"><main style="position:relative;width:640px;height:480px"></main></body></html>`;
 
@@ -53,7 +53,8 @@ async function importedSvgFrame(page: Page): Promise<Frame> {
   );
 }
 
-test("imported local SVG remains editable and persists after reload", async ({
+// Covers local SVG editing and persistence after reopening the design.
+test("imported local SVG remains editable after reopening the design", async ({
   page,
 }) => {
   const created = await action(page, "create-design", {
@@ -125,7 +126,7 @@ test("imported local SVG remains editable and persists after reload", async ({
       .poll(async () => (await readImportedFile(page, designId))?.content ?? "")
       .toMatch(/fill=["']#3b82f6["']/i);
 
-    await page.reload();
+    await gotoEditor(page, designId);
     await enterDirectMode(page);
     const reloadedSvg = (await importedSvgFrame(page)).locator(
       'svg[data-agent-native-layer-name="Pasted SVG"]',

@@ -99,7 +99,6 @@ export function renderOverviewCanvas({
   const {
     overviewInteractScreenId,
     widgetEmbed,
-    readOnlyWidget,
     activeFileId,
     mode,
     hoveredElement,
@@ -184,6 +183,7 @@ export function renderOverviewCanvas({
     handleUpdatePenPath,
     handleBoardDrawPrimitive,
     handleOverviewScreenPick,
+    handleOverviewScreenGestureSelect,
   } = editorToolsAndVectors;
   const { handleIframeContextMenu } = editorSelectionAndStyles;
   const {
@@ -201,6 +201,7 @@ export function renderOverviewCanvas({
   } = editorClipboard;
   const {
     commentsHidden,
+    viewSettings: { pixelGrid, snapToPixelGrid, rulers },
     handleCrossScreenElementDrop,
     boardFrameGeometry,
     runtimeStructureRollbackRequest,
@@ -281,7 +282,7 @@ export function renderOverviewCanvas({
             ? (findDesignFileByScreenTarget(files, initialRouteScreenTarget)
                 ?.id ?? null)
             : undefined,
-          fillFocusedViewport: readOnlyWidget,
+          fitFocusedViewport: widgetEmbed,
           chromeInsetLeft,
           chromeInsetRight,
           visibleCanvasRectRef,
@@ -309,6 +310,9 @@ export function renderOverviewCanvas({
         hiddenScreenIds={hiddenLayerIds}
         lockedScreenIds={lockedLayerIds}
         fullViewScreenIds={fullViewScreenIds}
+        pixelGridEnabled={pixelGrid}
+        snapToPixelGrid={snapToPixelGrid}
+        showRulers={rulers}
         review={{
           pendingReviewScreenIds: pendingNodeRewriteScreenIds,
           onReviewPendingScreen: handleReviewPendingScreen,
@@ -477,6 +481,7 @@ export function renderOverviewCanvas({
         onDeleteSelection={handleDeleteOverviewSelection}
         screenRootComputedStylesById={screenRootComputedStylesById}
         onPick={handleOverviewScreenPick}
+        onSelectForGesture={handleOverviewScreenGestureSelect}
         onEdit={handleOverviewFrameAction}
         onDuplicate={handleDuplicateScreen}
         renderScreenContent={renderScreenContent}

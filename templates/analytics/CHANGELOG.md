@@ -3,18 +3,50 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
+- Onboarding journeys now show later activity within a chosen window, mark no-later results as right-censored, and identify when follow-up counts are incomplete.
+- You can add app origins to a public key's replay allowlist without replacing its existing origins.
+
+### Fixed
+
+- Existing chat threads keep the composer anchored at the bottom while their messages load.
+- Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
+- Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
+- Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
+- Session recordings keep their full history and performance insights across browser session changes and large replays.
+- Large onboarding journeys keep their step counts when follow-up coverage exceeds query limits
+
 ## 2026-10-08
 
 ### Added
 
+- Opted-in pre-auth recordings appear in Sessions as anonymous replays
 - Agents can build the onboarding journey tree with drop-off per step and render a screenshot of each step from session replays.
 
 ### Improved
 
+- Set a chart's time range from its options menu.
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+- Sessions can show playable anonymous recordings without labeling them as signup-page captures.
 - Session replay screenshots capture directly without requesting screen sharing.
 
 ### Fixed
 
+- Analytics journey paths group short resource IDs consistently across apps
+- Analytics keeps onboarding counts complete when only standalone setup events exceed the journey read limit.
+- Onboarding journey trees show Home chat setup choices in a separately counted tree and group equivalent artifact screens.
+- Agent-shared recording links now load across batched playback chunks
+- Fixed onboarding journey queries against BigQuery.
+- Session replay agent links can read their recording manifest and playback chunks.
+- Onboarding journey screenshots include dialogs at the recorded viewport. The
+  capture manifest discloses that remote assets were not fetched.
+- Onboarding journey replay links and screenshots now align with the selected step's recording timestamp.
+- Onboarding journeys preserve each skipped setup step
+- Onboarding journeys use the current Builder setup label
 - Analytics now reports uncertain storyboard saves without implying the export definitely failed.
 - Replay screenshot exports now report upload timeouts and incomplete cleanup.
 - Storyboard exports now ask you to check Design when Analytics cannot confirm a save.

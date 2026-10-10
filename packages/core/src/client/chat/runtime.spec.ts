@@ -1,6 +1,21 @@
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 
+import { isLlmCredentialError } from "../../agent/engine/credential-errors.js";
+import {
+  AgentChatAiSetupRequiredError,
+  agentEngineStatusUrlForChatApi,
+  requireAgentEngineConfiguredForDispatch,
+  resetAgentEngineReadinessForTests,
+} from "../agent-engine-readiness.js";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
@@ -8,8 +23,10 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
-  createAgentNativeChatRuntime,
+  AGENT_CALL_FAILURE_REASON_KEYS,
+  createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
+  loadedSkillSlugsFromMessages,
   type AgentChatRuntime,
   type AgentChatRuntimeEvent,
   type AgentChatRuntimeKnownEvent,
@@ -17,7 +34,16 @@ import {
   type AgentChatRuntimeToolCall,
   type AgentChatRuntimeTurn,
   type AgentChatRuntimeTurnInput,
+  type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
+
+const REJECTED_LLM_CREDENTIAL_CODES = [
+  "http_401",
+  "http_403",
+  "invalid_api_key",
+  "authentication_error",
+  "unauthorized",
+];
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
   yield {
@@ -62,6 +88,25 @@ function sseResponse(events: unknown[], runId = "run-runtime"): Response {
       },
     },
   );
+}
+
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify(data), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function createAgentNativeChatRuntime(
+  options: CreateAgentNativeChatRuntimeOptions = {},
+): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
+  const fetchImpl = options.fetch ?? fetch;
+  return createAgentNativeChatRuntimeImpl({
+    ...options,
+    fetch: async (input, init) =>
+      String(input).includes("/agent-engine/status")
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : fetchImpl(input, init),
+  });
 }
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -137,6 +182,19 @@ describe("AgentChatRuntime types", () => {
   it("exports the runtime contract from client barrels", () => {
     expectTypeOf<AgentChatRuntimeFromChatBarrel>().toEqualTypeOf<AgentChatRuntime>();
     expectTypeOf<AgentChatRuntimeFromClientBarrel>().toEqualTypeOf<AgentChatRuntime>();
+  });
+});
+
+describe("agentEngineStatusUrlForChatApi", () => {
+  it("preserves a public framework prefix from a rewritten chat URL", () => {
+    expect(
+      agentEngineStatusUrlForChatApi("/slides/_framework/agent-chat"),
+    ).toBe("/slides/_framework/agent-engine/status");
+    expect(
+      agentEngineStatusUrlForChatApi(
+        "https://api.example.test/slides/_agent-native/agent-chat",
+      ),
+    ).toBe("https://api.example.test/slides/_agent-native/agent-engine/status");
   });
 });
 
@@ -595,6 +653,94 @@ describe("createHttpAgentChatRuntime", () => {
 });
 
 describe("createAgentNativeChatRuntime", () => {
+  beforeEach(() => {
+    resetAgentEngineReadinessForTests();
+  });
+
+  afterEach(() => {
+    resetAgentEngineReadinessForTests();
+    vi.useRealTimers();
+  });
+
+  it("sends a continued turn's durable attachments when the turn is no longer in memory", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ threadId: "thread-reload" });
+    const attachment = {
+      type: "image",
+      name: "ad.png",
+      contentType: "image/png",
+      url: "https://files.example.test/ad.png",
+    };
+
+    const continuation = await session.continueTurn?.({
+      turnId: "turn-before-reload",
+      prompt: "Continue",
+      attachments: [attachment],
+    });
+    await drain(continuation!.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.attachments).toEqual([attachment]);
+  });
+
+  it("keeps the original request context when a run-timeout stream closes without done", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "auto_continue", reason: "run_timeout" }]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "done", reason: "complete" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-timeout-context",
+    });
+    const originalMessages: AgentChatRuntimeMessage[] = [
+      {
+        id: "prior-user",
+        role: "user",
+        content: [{ type: "text", text: "Earlier context" }],
+      },
+    ];
+    const first = await session.startTurn({
+      prompt: "Original request",
+      messages: originalMessages,
+      metadata: { source: "browser" },
+    });
+    const firstEvents = await drain(first.events);
+
+    expect(firstEvents).toMatchObject([{ type: "continuation" }]);
+    expect(firstEvents.some((event) => event.type === "done")).toBe(false);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Continue after the time limit",
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const continuationRequest = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationRequest).toMatchObject({
+      message: "Continue after the time limit",
+      threadId: "thread-timeout-context",
+      turnId: first.id,
+      history: [{ role: "user", content: "Earlier context" }],
+      metadata: { source: "browser" },
+    });
+  });
+
   it("sends the browser analytics session with agent-run requests", async () => {
     const storage = new Map<string, string>([
       ["agent-native.session_id", "browser-session-42"],
@@ -609,13 +755,18 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const apiUrl = "/_agent-native/agent-chat";
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/agent-engine/status")
+          ? jsonResponse({ configured: true, chatEligible: true })
+          : sseResponse([{ type: "done" }]),
+      );
       const runtime = createAgentNativeChatRuntime({
-        apiUrl: "/_agent-native/agent-chat",
+        apiUrl,
         fetch: fetchMock as typeof fetch,
       });
       const session = await runtime.createSession();
@@ -624,9 +775,10 @@ describe("createAgentNativeChatRuntime", () => {
       );
 
       expect(
-        new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
-          "x-agent-native-session-id",
-        ),
+        new Headers(
+          fetchMock.mock.calls.find(([input]) => String(input) === apiUrl)?.[1]
+            ?.headers,
+        ).get("x-agent-native-session-id"),
       ).toBe("browser-session-42");
     } finally {
       vi.unstubAllGlobals();
@@ -647,12 +799,16 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const apiUrl = "https://chat.example.test/_agent-native/agent-chat";
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/agent-engine/status")
+          ? jsonResponse({ configured: true, chatEligible: true })
+          : sseResponse([{ type: "done" }]),
+      );
       const runtime = createAgentNativeChatRuntime({
         apiUrl,
         fetch: fetchMock as typeof fetch,
@@ -671,6 +827,160 @@ describe("createAgentNativeChatRuntime", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("checks AI readiness before posting a new turn", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ configured: false, chatEligible: false });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-gate",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+
+    await expect(
+      session.startTurn({ prompt: "Blocked" }),
+    ).rejects.toBeInstanceOf(AgentChatAiSetupRequiredError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/_agent-native/agent-chat") &&
+          (init?.method ?? "GET") === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("waits for a pending readiness probe before posting a new turn", async () => {
+    resetAgentEngineReadinessForTests();
+    let resolveStatus!: (response: Response) => void;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        });
+      }
+      return Promise.resolve(sseResponse([{ type: "done" }]));
+    });
+    const apiUrl = "/_agent-native/agent-chat";
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl,
+      threadId: "thread-readiness-pending",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turnPromise = session.startTurn({ prompt: "Wait for setup" });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === apiUrl)).toBe(
+      false,
+    );
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    const turn = await turnPromise;
+    await drain(turn.events);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      expect.stringContaining("/_agent-native/agent-engine/status"),
+      apiUrl,
+    ]);
+  });
+
+  it("keeps asynchronous auth headers inside the runtime readiness deadline", async () => {
+    vi.useFakeTimers();
+    let resolveHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolveHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    const fetchMock = vi.fn(async () => sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-headers-timeout",
+      headers,
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = session.startTurn({ prompt: "Wait for auth headers" });
+    const blockedTurn = expect(turn).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await blockedTurn;
+
+    expect(headers).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    resolveHeaders({ Authorization: "Bearer test" });
+  });
+
+  it("blocks a new turn when the readiness route returns 503", async () => {
+    resetAgentEngineReadinessForTests();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return new Response("Unavailable", { status: 503 });
+      }
+      return sseResponse([{ type: "done" }]);
+    });
+    const runtime = createAgentNativeChatRuntimeImpl({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-readiness-unavailable",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+
+    await expect(
+      session.startTurn({ prompt: "Do not send while unavailable" }),
+    ).rejects.toMatchObject({
+      name: "AgentChatAiSetupRequiredError",
+      state: "unavailable",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("bounds asynchronous auth-header resolution and permits a later retry", async () => {
+    let resolvePendingHeaders!: (value: HeadersInit) => void;
+    const pendingHeaders = new Promise<HeadersInit>((resolve) => {
+      resolvePendingHeaders = resolve;
+    });
+    const headers = vi.fn(() => pendingHeaders);
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    const source = {
+      statusUrl: "/_agent-native/agent-engine/status",
+      fetch: fetchMock as typeof fetch,
+      headers,
+    };
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 20 }),
+    ).rejects.toMatchObject({
+      name: "AgentChatAiSetupRequiredError",
+      state: "unavailable",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    resolvePendingHeaders({ Authorization: "Bearer test" });
+    await requireAgentEngineConfiguredForDispatch({ source, timeoutMs: 100 });
+    expect(headers).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("sends prior tool activity as structured history without duplicating the current prompt", async () => {
@@ -1978,8 +2288,9 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
-  it("includes copied prior text and reasoning in the structured history byte cap", async () => {
-    const largeUserText = "u".repeat(140 * 1024);
+  it("keeps the initial ask over later text and excludes assistant reasoning", async () => {
+    const firstAsk = "a".repeat(100 * 1024);
+    const largeUserText = "u".repeat(160 * 1024);
     const largeAssistantReasoning = "r".repeat(140 * 1024);
     const fetchMock = vi
       .fn()
@@ -1994,6 +2305,11 @@ describe("createAgentNativeChatRuntime", () => {
     ).startTurn({
       prompt: "Continue",
       messages: [
+        {
+          id: "user-first",
+          role: "user",
+          content: [{ type: "text", text: firstAsk }],
+        },
         {
           id: "user-old",
           role: "user",
@@ -2065,9 +2381,452 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ],
     });
+    expect(parts).toContainEqual({ type: "text", text: firstAsk });
     expect(parts).not.toContainEqual(
       expect.objectContaining({ text: largeUserText }),
     );
+    expect(JSON.stringify(body)).not.toContain("rrrr");
+  });
+
+  it("resends attachments when the user explicitly continues a stopped run", async () => {
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,RESIZED_IMAGE_BYTES",
+      url: "https://files.example.test/reference-resized.png",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              input: {},
+            },
+            {
+              type: "approval_required",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              input: {},
+              approvalKey: "inspect-image:{}",
+              toolCallId: "call-continue-image",
+            },
+            {
+              type: "tool_done",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              result: "Awaiting approval.",
+            },
+            { type: "done" },
+          ],
+          "run-continue-attachment",
+        ),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          [
+            { type: "text", text: "I finished reviewing the image." },
+            { type: "done" },
+          ],
+          "run-continue-attachment-next",
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-continue-attachment",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-continue-attachment",
+      threadId: "thread-continue-attachment",
+    });
+    const first = await session.startTurn({
+      prompt: "Review this image",
+      attachments: [requestAttachment],
+    });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Continue reviewing the same image",
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(firstBody.attachments).toEqual([requestAttachment]);
+    expect(continuationBody.attachments).toEqual([requestAttachment]);
+    expect(continuationBody.message).toBe("Continue reviewing the same image");
+  });
+
+  it("pins initial and attachment-bearing prompts as bounded history stubs", async () => {
+    const initialPrompt = "Build the launch page from this brief.";
+    const attachmentPrompt = "Use these references and keep the layout calm.";
+    const privateImageBytes = "PRIVATE_HISTORY_IMAGE_BYTES";
+    const laterText = "Later note. ".repeat(6_000);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pinned-attachment-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "user-initial",
+          role: "user",
+          content: [{ type: "text", text: initialPrompt }],
+        },
+        {
+          id: "user-with-attachments",
+          role: "user",
+          content: [
+            { type: "text", text: attachmentPrompt },
+            {
+              type: "image",
+              alt: "reference.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: `data:image/png;base64,${privateImageBytes}`,
+            },
+            {
+              type: "file",
+              filename: "requirements.pdf",
+              mediaType: "application/pdf",
+              url: "https://files.example.test/requirements.pdf?token=private#download",
+            },
+          ],
+        },
+        {
+          id: "assistant-tool-call",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-history-stub",
+              toolName: "read_brief",
+              input: {},
+            },
+          ],
+        },
+        {
+          id: "user-tool-result",
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-history-stub",
+              toolName: "read_brief",
+              result: "Brief read.",
+            },
+          ],
+        },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `user-later-${index}`,
+          role: "user" as const,
+          content: [{ type: "text" as const, text: `${index}: ${laterText}` }],
+        })),
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const parts = structuredHistory.flatMap((message) => message.content);
+    const serializedHistory = JSON.stringify(body.structuredHistory);
+    const plainHistoryText = (body.history as Array<{ content: string }>)
+      .map((message) => message.content)
+      .join("\n");
+
+    expect(serializedHistory).toContain(initialPrompt);
+    expect(serializedHistory).toContain(attachmentPrompt);
+    expect(serializedHistory).toContain(
+      "[attached: reference.png image/png no durable URL available]",
+    );
+    expect(serializedHistory).toContain(
+      "[attached: requirements.pdf application/pdf https://files.example.test/requirements.pdf]",
+    );
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+    expect(serializedHistory).not.toContain("private");
+    expect(serializedHistory).toContain(
+      "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    );
+    expect(
+      parts.some((part) => part.type === "text" && part.text === "Continue"),
+    ).toBe(false);
+    expect(plainHistoryText).toContain(
+      "[attached: reference.png image/png no durable URL available]",
+    );
+    expect(plainHistoryText).not.toContain(privateImageBytes);
+  });
+
+  it("pins every attachment-bearing prompt across 45 prior user turns", async () => {
+    const initialAsk =
+      "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
+    const privateImageBytes = "PRIVATE_45_TURN_IMAGE_BYTES";
+    const messages = Array.from({ length: 45 }, (_, index) => ({
+      id: `user-turn-${index}`,
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text:
+            index === 0 ? initialAsk : `Update ${index} using this reference.`,
+        },
+        {
+          type: "image" as const,
+          alt: `reference-${index}.png`,
+          mediaType: "image/png",
+          data: `data:image/png;base64,${privateImageBytes}-${index}`,
+          url:
+            index === 17
+              ? `data:image/png;base64,${privateImageBytes}-17`
+              : index === 18
+                ? "not-a-valid-url"
+                : `https://files.example.test/reference-${index}.png?token=secret-${index}`,
+        },
+        ...(index % 5 === 0
+          ? [
+              {
+                type: "file" as const,
+                filename: `brief-${index}.pdf`,
+                mediaType: "application/pdf",
+                url: `https://files.example.test/brief-${index}.pdf?token=secret-${index}`,
+              },
+            ]
+          : []),
+      ],
+    }));
+    messages.push(
+      {
+        id: "assistant-history-tool-call",
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call-45-turn-history",
+            toolName: "read_brief",
+            input: {},
+          },
+        ],
+      },
+      {
+        id: "user-history-tool-result",
+        role: "user" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call-45-turn-history",
+            toolName: "read_brief",
+            result: "Brief read.",
+          },
+        ],
+      },
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-45-turn-attachments",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue from the original format brief.",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const serializedHistory = JSON.stringify(structuredHistory);
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(initialAsk);
+    for (let index = 0; index < 45; index++) {
+      const imageUrl =
+        index === 17 || index === 18
+          ? "no durable URL available"
+          : `https://files.example.test/reference-${index}.png`;
+      expect(historyText).toContain(
+        `[attached: reference-${index}.png image/png ${imageUrl}]`,
+      );
+      if (index % 5 === 0) {
+        expect(historyText).toContain(
+          `[attached: brief-${index}.pdf application/pdf https://files.example.test/brief-${index}.pdf]`,
+        );
+      }
+    }
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+    expect(serializedHistory).not.toContain("token=secret-");
+  });
+
+  it("reserves the original and latest asks before a long attachment history", async () => {
+    const initialAsk =
+      "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
+    const latestAsk = "Keep the fixed canvas and change the headline.";
+    const imageBytes = "PRIVATE_LONG_HISTORY_IMAGE_BYTES";
+    const messages = [
+      {
+        id: "original-brief",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: initialAsk }],
+      },
+      ...Array.from({ length: 130 }, (_, index) => ({
+        id: `attachment-turn-${index}`,
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `Update ${index} using this reference.`,
+          },
+          {
+            type: "image" as const,
+            alt: `reference-${index}.png`,
+            mediaType: "image/png",
+            data: `data:image/png;base64,${imageBytes}-${index}`,
+            url: `https://files.example.test/reference-${index}.png`,
+          },
+        ],
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `recent-note-${index}`,
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: `Recent working note ${index}` },
+        ],
+      })),
+      {
+        id: "latest-brief",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: latestAsk }],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-attachment-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue from those instructions.",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(initialAsk);
+    expect(historyText).toContain(latestAsk);
+    expect(historyText).toContain("Recent working note 4");
+    expect(historyText).toContain("Recent working note 11");
+    expect(historyText).toContain(
+      "[attached: reference-129.png image/png https://files.example.test/reference-129.png]",
+    );
+    expect(historyText).not.toContain("data:image/");
+    expect(historyText).not.toContain(imageBytes);
+  });
+
+  it("pins the first and latest prior asks across a long assistant tail", async () => {
+    const originalAsk =
+      "Create a LinkedIn ad at exactly 1200x627 with a fixed canvas.";
+    const latestPriorAsk = "Keep the format and make the headline more direct.";
+    const currentPrompt = "Use the shorter headline option.";
+    const assistantTail = Array.from({ length: 140 }, (_, index) => ({
+      id: `assistant-tail-${index}`,
+      role: "assistant" as const,
+      content: [
+        { type: "reasoning" as const, text: `Private scratch ${index}.` },
+        { type: "text" as const, text: `Working note ${index}.` },
+      ],
+    }));
+    const messages = [
+      {
+        id: "original-size-format-ask",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: originalAsk }],
+      },
+      {
+        id: "latest-prior-ask",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: latestPriorAsk }],
+      },
+      ...assistantTail,
+      {
+        id: "current-prompt",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: currentPrompt }],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pin-latest-prior-ask",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: currentPrompt, messages });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(originalAsk);
+    expect(historyText).toContain(latestPriorAsk);
+    expect(historyText).toContain("Working note 139.");
+    expect(historyText).not.toContain(currentPrompt);
+    expect(JSON.stringify(body)).not.toContain("Private scratch");
   });
 
   it("omits oversized tool-call and result identifiers and names", async () => {
@@ -2529,11 +3288,16 @@ describe("createAgentNativeChatRuntime", () => {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
       },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     });
     try {
       const fetchMock = vi.fn(
         async (input: RequestInfo | URL, init?: RequestInit) => {
           const url = String(input);
+          if (url.includes("/_agent-native/agent-engine/status")) {
+            return Response.json({ configured: true, chatEligible: true });
+          }
           if (url === `${apiUrl}/stream-token`) {
             return Response.json({ token: "short-lived-token" });
           }
@@ -2560,12 +3324,17 @@ describe("createAgentNativeChatRuntime", () => {
       });
       await drain((await session.startTurn({ prompt: "Stream this" })).events);
 
-      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
-        `${apiUrl}/stream-token`,
-        streamingUrl,
-      ]);
-      const tokenRequest = fetchMock.mock.calls[0]?.[1];
-      const streamRequest = fetchMock.mock.calls[1]?.[1];
+      expect(
+        fetchMock.mock.calls
+          .map(([input]) => String(input))
+          .filter((url) => !url.includes("/_agent-native/agent-engine/status")),
+      ).toEqual([`${apiUrl}/stream-token`, streamingUrl]);
+      const tokenRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === `${apiUrl}/stream-token`,
+      )?.[1];
+      const streamRequest = fetchMock.mock.calls.find(
+        ([input]) => String(input) === streamingUrl,
+      )?.[1];
       expect(tokenRequest).toMatchObject({
         method: "GET",
         credentials: "same-origin",
@@ -2828,18 +3597,40 @@ describe("createAgentNativeChatRuntime", () => {
       type: "activity",
       activity: {
         id: "agent-call-1:progress",
+        label: "processing",
         detail: "Reading the protocol contract",
         data: { state: "working", elapsedSeconds: 12 },
+      },
+    });
+    expect(events[5]).toMatchObject({
+      type: "interaction",
+      interaction: {
+        id: "agent-call-1:message:3",
+        kind: "messaged",
+        detail: "Found the runtime boundary.",
       },
     });
     expect(events[6]).toMatchObject({
       type: "activity",
       activity: {
         id: "agent-call-1:activity",
+        label: "processing",
         data: snapshot,
         metadata: { sequence: 4, durationMs: 1_500 },
       },
     });
+    // The participant chip names the app; no row label may repeat it.
+    const rowLabels = events.flatMap((event) =>
+      event.type === "interaction"
+        ? [event.interaction.label]
+        : event.type === "activity"
+          ? [event.activity.label]
+          : [],
+    );
+    expect(rowLabels).toHaveLength(5);
+    expect(rowLabels).not.toContain("Planck");
+    expect(rowLabels).not.toContain("working");
+    expect(events[5]).not.toHaveProperty("interaction.label");
     expect(events[7]).toMatchObject({
       type: "participant",
       operation: "update",
@@ -2849,6 +3640,234 @@ describe("createAgentNativeChatRuntime", () => {
       },
     });
     expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("maps a failed agent_call to a reason key instead of the app name or raw code", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "start",
+          agentCallId: "call-start",
+          seq: 1,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-precondition",
+          taskId: "remote-task-1",
+          terminalCode: "permanent_precondition",
+          seq: 2,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-auth",
+          terminalCode: "a2a_auth_rejected",
+          seq: 3,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-unknown",
+          terminalCode: "a2a_task_failed",
+          seq: 4,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-prototype",
+          terminalCode: "constructor",
+          seq: 5,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-no-code",
+          seq: 6,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-budget",
+          terminalCode: "run_budget_exhausted",
+          seq: 7,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-timeout",
+          terminalCode: "timeout_without_task",
+          seq: 8,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-response",
+          terminalCode: "a2a_response_too_large",
+          seq: 9,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "pending",
+          agentCallId: "call-pending",
+          terminalCode: "input_required",
+          seq: 10,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-setup",
+          terminalCode: "missing_credentials",
+          seq: 11,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-child-precondition",
+          terminalCode: "a2a_child_permanent_precondition",
+          seq: 12,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-blocked",
+          terminalCode: "a2a_target_blocked_this_turn",
+          seq: 13,
+        },
+        ...REJECTED_LLM_CREDENTIAL_CODES.map((terminalCode, index) => ({
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: `call-rejected-${terminalCode}`,
+          terminalCode,
+          seq: 14 + index,
+        })),
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Ask" }))
+        .events,
+    );
+    const interaction = (callId: string) =>
+      events.find(
+        (event) =>
+          event.type === "interaction" &&
+          event.interaction.participantId === callId,
+      );
+    const reasonKey = (callId: string) => {
+      const event = interaction(callId);
+      return event?.type === "interaction"
+        ? event.interaction.metadata?.failureReasonKey
+        : undefined;
+    };
+
+    expect(reasonKey("call-setup")).toBe("agentChat.agent.failureReason.setup");
+    expect(reasonKey("call-auth")).toBe("agentChat.agent.failureReason.auth");
+    // A rejected LLM key renders like any other rejected credential, not as the
+    // generic failure its terminal code would otherwise fall back to.
+    for (const terminalCode of REJECTED_LLM_CREDENTIAL_CODES) {
+      expect(isLlmCredentialError(undefined, terminalCode)).toBe(true);
+      expect(reasonKey(`call-rejected-${terminalCode}`)).toBe(
+        "agentChat.agent.failureReason.auth",
+      );
+    }
+    expect(reasonKey("call-budget")).toBe(
+      "agentChat.agent.failureReason.budget",
+    );
+    expect(reasonKey("call-timeout")).toBe(
+      "agentChat.agent.failureReason.timeout",
+    );
+    expect(reasonKey("call-response")).toBe(
+      "agentChat.agent.failureReason.response",
+    );
+    // permanent_precondition also stops attachment, SSRF, and plan-mode
+    // failures, so it must not claim a setup step would fix the call.
+    for (const callId of [
+      "call-precondition",
+      "call-child-precondition",
+      "call-blocked",
+      "call-unknown",
+      "call-prototype",
+      "call-no-code",
+    ]) {
+      expect(reasonKey(callId)).toBe("agentChat.agent.failureReason.failed");
+    }
+    expect(reasonKey("call-start")).toBeUndefined();
+    expect(reasonKey("call-pending")).toBeUndefined();
+    expect(AGENT_CALL_FAILURE_REASON_KEYS).toEqual(
+      expect.arrayContaining(
+        events.flatMap((event) =>
+          event.type === "interaction" &&
+          typeof event.interaction.metadata?.failureReasonKey === "string"
+            ? [event.interaction.metadata.failureReasonKey]
+            : [],
+        ),
+      ),
+    );
+
+    for (const callId of [
+      "call-start",
+      "call-setup",
+      "call-precondition",
+      "call-child-precondition",
+      "call-blocked",
+      "call-auth",
+      "call-unknown",
+      "call-prototype",
+      "call-no-code",
+      "call-budget",
+      "call-timeout",
+      "call-response",
+      "call-pending",
+    ]) {
+      const event = interaction(callId);
+      if (event?.type !== "interaction") throw new Error(callId);
+      expect(event.interaction.label).toBeUndefined();
+      expect(event.interaction.object).toBeUndefined();
+      expect(event.interaction.detail).toBeUndefined();
+    }
+
+    expect(interaction("call-precondition")).toMatchObject({
+      interaction: { kind: "failed" },
+    });
+    expect(
+      events.find(
+        (event) =>
+          event.type === "participant" &&
+          event.participant.id === "call-precondition",
+      ),
+    ).toMatchObject({
+      participant: {
+        status: "failed",
+        metadata: { terminalCode: "permanent_precondition" },
+      },
+    });
+    expect(events.find((event) => event.type === "task")).toMatchObject({
+      task: {
+        id: "remote-task-1",
+        status: "failed",
+        metadata: { terminalCode: "permanent_precondition" },
+      },
+    });
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {
@@ -3256,6 +4275,196 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("preserves the original brief in bounded history without assistant reasoning", async () => {
+    const originalBrief =
+      "Create a LinkedIn ad at exactly 1200x627. Keep it on one static canvas.";
+    const laterContext = Array.from({ length: 140 }, (_, index) => ({
+      id: `assistant-context-${index}`,
+      role: "assistant" as const,
+      content: [
+        { type: "reasoning" as const, text: `Private scratch ${index}.` },
+        { type: "text" as const, text: `Prior design context ${index}.` },
+      ],
+    }));
+    const currentFollowUp = "Make it more vivid.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-preserve-original-brief",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: currentFollowUp,
+      messages: [
+        {
+          id: "user-original-brief",
+          role: "user",
+          content: [{ type: "text", text: originalBrief }],
+        },
+        ...laterContext,
+        {
+          id: "user-current-follow-up",
+          role: "user",
+          content: [{ type: "text", text: currentFollowUp }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const parts = history.flatMap((message) => message.content);
+    const visibleText = parts
+      .filter(
+        (part) =>
+          part.type === "text" &&
+          part.text !==
+            "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+      )
+      .map((part) => part.text);
+    const historyBytes = new TextEncoder().encode(
+      JSON.stringify(body.structuredHistory),
+    ).byteLength;
+    const plainHistoryText = (body.history as Array<{ content: string }>)
+      .map((message) => message.content)
+      .join("\n");
+
+    expect(visibleText).toEqual([
+      originalBrief,
+      ...laterContext.slice(-127).map((message) => message.content[1]!.text),
+    ]);
+    expect(visibleText).toHaveLength(128);
+    expect(visibleText).not.toContain(currentFollowUp);
+    expect(JSON.stringify(body)).not.toContain("Private scratch");
+    expect(plainHistoryText).toContain(originalBrief);
+    expect(plainHistoryText).not.toContain(currentFollowUp);
+    expect(plainHistoryText).not.toContain("Private scratch");
+    expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(parts).toContainEqual({
+      type: "text",
+      text: "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    });
+  });
+
+  it("keeps the first ask and earlier attachments through a 45-turn agentic thread", async () => {
+    const firstAsk = "LinkedIn ad 1200x627 PNG";
+    const messages: AgentChatRuntimeMessage[] = [
+      {
+        id: "user-0",
+        role: "user",
+        content: [
+          { type: "text", text: firstAsk },
+          {
+            type: "file",
+            filename: "brand.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/brand.png",
+          },
+          {
+            type: "image",
+            alt: "inline.png",
+            mediaType: "image/png",
+            data: "data:image/png;base64,SGVsbG8=",
+          },
+        ],
+      },
+    ];
+    for (let turn = 1; turn < 45; turn++) {
+      messages.push(
+        {
+          id: `user-${turn}`,
+          role: "user",
+          content: [
+            { type: "text", text: `Follow-up ${turn}` },
+            ...(turn === 20
+              ? [
+                  {
+                    type: "file" as const,
+                    filename: "logo.svg",
+                    mediaType: "image/svg+xml",
+                    url: "https://files.example.test/logo.svg",
+                  },
+                ]
+              : []),
+          ],
+        },
+        {
+          id: `assistant-${turn}`,
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: `Scratch ${turn}` },
+            ...Array.from({ length: 12 }, (_, call) => [
+              {
+                type: "tool-call" as const,
+                toolCallId: `call-${turn}-${call}`,
+                toolName: "edit-design",
+                input: { step: call },
+              },
+              {
+                type: "tool-result" as const,
+                toolCallId: `call-${turn}-${call}`,
+                toolName: "edit-design",
+                result: { ok: true },
+              },
+            ]).flat(),
+            { type: "text", text: `Finished step ${turn}.` },
+          ],
+        },
+      );
+    }
+    const currentPrompt = "Make the headline bigger";
+    messages.push({
+      id: "user-current",
+      role: "user",
+      content: [{ type: "text", text: currentPrompt }],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-45-turn-agentic",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: currentPrompt, messages });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = body.structuredHistory as Array<{
+      role: "user" | "assistant";
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const texts = history
+      .flatMap((message) => message.content)
+      .flatMap((part) => (part.type === "text" ? [part.text] : []));
+    const serialized = JSON.stringify(body);
+
+    expect(texts).toContain(
+      `${firstAsk}\n[attached: brand.png image/png https://files.example.test/brand.png]\n[attached: inline.png image/png no durable URL available]`,
+    );
+    expect(texts).toContain(
+      "Follow-up 20\n[attached: logo.svg image/svg+xml https://files.example.test/logo.svg]",
+    );
+    expect(texts).not.toContain(currentPrompt);
+    expect(serialized).not.toContain("Scratch");
+    expect(serialized).not.toContain("base64,");
+    expect(
+      new TextEncoder().encode(JSON.stringify(history)).byteLength,
+    ).toBeLessThanOrEqual(256 * 1024);
+    expect(texts).toContain(
+      "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    );
+  });
+
   it("keeps the pending approval pair ahead of oversized continuation history", async () => {
     const approvalInput = {
       release: "agentkit-acceptance",
@@ -3471,5 +4680,53 @@ describe("createAgentNativeChatRuntime", () => {
       { type: "done", reason: "complete" },
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("loadedSkillSlugsFromMessages", () => {
+  const read = (
+    id: string,
+    slug: string,
+    result: string,
+    isError = false,
+  ): AgentChatRuntimeMessage[] => [
+    {
+      id: `${id}-call`,
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: id,
+          toolName: "docs-search",
+          input: { slug },
+        },
+      ],
+    },
+    {
+      id: `${id}-result`,
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: id,
+          toolName: "docs-search",
+          resultText: result,
+          ...(isError ? { isError: true } : {}),
+        },
+      ],
+    },
+  ];
+
+  it("lists successful skill reads across turns, most recent last", () => {
+    expect(
+      loadedSkillSlugsFromMessages([
+        ...read("a", "skill-slide-design", "# Skill: slide-design\n..."),
+        ...read("b", "skill-slide-editing", "# Skill: slide-editing\n..."),
+        ...read("c", "skill-missing", "Doc not found: skill-missing"),
+        ...read("d", "skill-broken", "# Skill: broken", true),
+        ...read("e", "agents-template", "# Template AGENTS.md"),
+        ...read("f", "skill-slide-design", "# Skill: slide-design\n..."),
+      ]),
+    ).toEqual(["skill-slide-editing", "skill-slide-design"]);
   });
 });

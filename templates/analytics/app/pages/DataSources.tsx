@@ -10,37 +10,41 @@ import {
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { getDefaultMcpIntegrations } from "@agent-native/core/client/resources";
+import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
+import { actionErrorMessage } from "@agent-native/core/client/use-action";
 import { docsUrl } from "@agent-native/core/shared";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  IntegrationGrid,
+  type IntegrationGridItem,
+} from "@agent-native/toolkit/app/integrations";
 import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
 import {
   useCredentialSaveScope,
   WhoField,
 } from "@agent-native/toolkit/app/settings";
 import {
-  IconCheck,
-  IconChevronDown,
-  IconChevronUp,
-  IconExternalLink,
-  IconLoader2,
-  IconCircle,
   IconAlertCircle,
-  IconUpload,
-  IconPencil,
-  IconTrash,
-  IconSearch,
-  IconPlus,
-  IconKey,
+  IconApi,
+  IconBrandGithub,
+  IconCheck,
+  IconCircle,
   IconCopy,
   IconDotsVertical,
-  IconBrandGithub,
-  IconBrandGoogle,
+  IconExternalLink,
+  IconFileSpreadsheet,
+  IconKey,
+  IconLoader2,
+  IconPencil,
   IconPlugConnected,
+  IconPlus,
+  IconSearch,
+  IconTrash,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -56,12 +60,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,12 +74,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { getIdToken } from "@/lib/auth";
 import {
   dataSourceOAuthReturnPath,
@@ -96,7 +109,9 @@ import {
   dataSources,
   categoryLabels,
   categoryOrder,
+  DATA_SOURCE_LOGO_IDS,
   type DataSource,
+  type DataSourceCategory,
   type WalkthroughStep,
 } from "@/lib/data-sources";
 
@@ -104,7 +119,7 @@ import {
   ConnectionTestStatus,
   type ConnectionTestResult,
 } from "../components/ConnectionTestStatus";
-import { CustomApiCard } from "../components/CustomApiCard";
+import { CustomApiPanel } from "../components/CustomApiCard";
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -114,6 +129,7 @@ interface AnalyticsPublicKeyRow {
   lastUsedAt: string | null;
   revokedAt: string | null;
   orgId: string | null;
+  replayAllowedOrigins: string[];
 }
 
 interface GitHubOAuthStatus {
@@ -150,40 +166,54 @@ interface FirstPartyAnalyticsHealthResponse {
   };
 }
 
+/** One row on the page: a data source, Google Sheets export, Custom API, or first-party analytics. */
+interface SourceEntry {
+  id: string;
+  name: string;
+  description?: string;
+  category: DataSourceCategory;
+  logo: ReactNode;
+  status?: string;
+  statusClassName?: string;
+  connected: boolean;
+  searchText: string;
+  detail: ReactNode;
+}
+
 const firstPartyAnalyticsEndpoint =
   (import.meta.env as Record<string, string | undefined>)
     .VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
   "https://analytics.agent-native.com/track";
 
-const MCP_INTEGRATIONS_BY_ID = new Map(
-  getDefaultMcpIntegrations().map((integration) => [
-    integration.id,
-    integration,
-  ]),
-);
-
-const DATA_SOURCE_LOGO_IDS: Record<string, string> = {
-  "google-analytics": "google-workspace",
-  bigquery: "google-workspace",
-  "google-cloud": "google-workspace",
-  jira: "atlassian",
-};
-
-function DataSourceLogo({ source }: { source: DataSource }) {
-  const integration = MCP_INTEGRATIONS_BY_ID.get(
-    DATA_SOURCE_LOGO_IDS[source.id] ?? source.id,
-  );
-  if (!integration?.logoUrl) {
-    const Icon = source.icon;
-    return <Icon className="h-5 w-5" />;
+/**
+ * Logos come from the shared table the Settings integrations tab uses. A
+ * Tabler icon stands in only when that table has no logo for the id.
+ */
+function SourceLogo({
+  id,
+  name,
+  fallbackIcon: FallbackIcon,
+}: {
+  id: string;
+  name: string;
+  fallbackIcon: DataSource["icon"];
+}) {
+  const logoId = DATA_SOURCE_LOGO_IDS[id] ?? id;
+  const logoUrl = mcpIntegrationLogo(logoId);
+  if (!logoUrl) {
+    return (
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
+        <FallbackIcon className="size-4" aria-hidden="true" />
+      </span>
+    );
   }
   return (
     <McpIntegrationLogo
-      name={source.name}
-      logoUrl={integration.logoUrl}
-      integrationId={integration.id}
-      className="size-8 rounded-md border-0 bg-transparent"
-      imageClassName="size-full p-0.5"
+      name={name}
+      logoUrl={logoUrl}
+      integrationId={logoId}
+      className="size-8"
+      imageClassName="size-6"
     />
   );
 }
@@ -577,63 +607,29 @@ function WorkspaceOAuthView({
   );
 }
 
-function GoogleSheetsExportCard({
-  statusData,
-}: {
-  statusData: DataSourceStatusResponse | undefined;
-}) {
-  const t = useT();
-  const connection = getGoogleDriveConnection(statusData);
-  const connected = connection?.grantState === "connected";
-
-  return (
-    <Card className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none">
-      <CardContent className="space-y-4 p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <IconBrandGoogle className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium">
-                {t("dataSources.googleSheetsExport")}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {t("dataSources.googleSheetsExportDescription")}
-              </p>
-            </div>
-          </div>
-          <span
-            className={`shrink-0 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}
-          >
-            {connected
-              ? t("dataSources.connected")
-              : t("dataSources.notConfigured")}
-          </span>
-        </div>
-        <WorkspaceOAuthView
-          provider="google_drive"
-          label={t("dataSources.googleSheets")}
-          connected={connected}
-        />
-      </CardContent>
-    </Card>
-  );
-}
-
 function SharedConnectionBadge({ status }: { status: SharedConnectionStatus }) {
-  const tone =
-    status.kind === "ready"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-      : status.kind === "needs_grant"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-        : status.kind === "local_credentials"
-          ? "border-border/60 bg-muted text-muted-foreground"
-          : "border-border/60 bg-background text-muted-foreground";
+  const t = useT();
+  const tone = {
+    ready:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    needs_grant:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    needs_credentials: "border-border/60 bg-background text-muted-foreground",
+    local_credentials: "border-border/60 bg-muted text-muted-foreground",
+    needs_reauth:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    error: "border-destructive/30 bg-destructive/10 text-destructive",
+  }[status.kind];
+  const label =
+    status.kind === "needs_reauth"
+      ? t("dataSources.reconnect")
+      : status.kind === "error"
+        ? t("dataSources.connectionFailed")
+        : status.label;
 
   return (
     <Badge variant="outline" className={tone}>
-      {status.label}
+      {label}
     </Badge>
   );
 }
@@ -649,9 +645,13 @@ function SharedConnectionStatusRow({
       ? t("dataSources.sharedReady")
       : status.kind === "needs_grant"
         ? t("dataSources.sharedNeedsGrant")
-        : status.kind === "local_credentials"
-          ? t("dataSources.sharedLocalCredentials")
-          : t("dataSources.sharedFallback");
+        : status.kind === "needs_reauth"
+          ? t("dataSources.sharedNeedsReauth")
+          : status.kind === "error"
+            ? t("dataSources.sharedError")
+            : status.kind === "local_credentials"
+              ? t("dataSources.sharedLocalCredentials")
+              : t("dataSources.sharedFallback");
 
   return (
     <div className="mb-4 flex items-start justify-between gap-3 rounded-md bg-muted/30 p-3">
@@ -1200,13 +1200,13 @@ function ConnectedView({
   );
 }
 
-function DataSourceCard({
+/** Setup sheet body for a data source: walkthrough, credentials, workspace connection, and test. */
+function DataSourceDetail({
   source,
   locallyConfigured,
   ready,
   sharedConnectionStatus,
   envStatus,
-  isStatusLoading,
   statusUnknown,
   canManageOrg,
   orgLoaded,
@@ -1221,7 +1221,6 @@ function DataSourceCard({
   ready: boolean;
   sharedConnectionStatus: SharedConnectionStatus | null;
   envStatus: EnvKeyStatus[];
-  isStatusLoading: boolean;
   statusUnknown: boolean;
   canManageOrg: boolean;
   orgLoaded: boolean;
@@ -1232,7 +1231,6 @@ function DataSourceCard({
   onSaved: () => void;
 }) {
   const t = useT();
-  const [expanded, setExpanded] = useState(focused);
   const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [showLocalCredentials, setShowLocalCredentials] = useState(false);
@@ -1268,329 +1266,242 @@ function DataSourceCard({
     isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
-  useEffect(() => {
-    if (focused) setExpanded(true);
-  }, [focused]);
+  if (showUnknownStatus) {
+    return (
+      <div className="space-y-3">
+        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+          <IconAlertCircle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
+          {t("dataSources.statusUnknownDescription")}
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowLocalCredentials(true)}
+          className="text-xs"
+        >
+          {t("dataSources.addLocalCredentials")}
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <Card
-      id={`data-source-${source.id}`}
-      className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none"
-    >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-      >
-        <CardHeader className="p-3.5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-primary">
-                <DataSourceLogo source={source} />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="text-sm font-medium">
-                  {source.name}
-                </CardTitle>
-                <CardDescription className="mt-0.5 line-clamp-1 text-xs">
-                  {source.description}
-                </CardDescription>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {isStatusLoading ? (
-                <Skeleton className="h-4 w-20 rounded-full" />
-              ) : statusUnknown && !ready ? (
-                <span className="flex items-center gap-1.5 text-xs text-amber-500 font-medium whitespace-nowrap">
-                  <IconAlertCircle className="h-3.5 w-3.5" />
-                  {t("dataSources.statusUnknown")}
-                </span>
-              ) : ready ? (
-                <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
-                  <IconCheck className="h-3.5 w-3.5" />
-                  {readyViaWorkspace && !locallyConfigured
-                    ? t("dataSources.ready")
-                    : t("dataSources.configured")}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
-                  <IconCircle className="h-3 w-3" />
-                  {t("dataSources.notConfigured")}
-                </span>
-              )}
-              <span className="hidden text-xs font-medium text-foreground/70 sm:inline">
-                {ready
-                  ? t("dataSources.editCredentials")
-                  : t("dataSources.connect")}
-              </span>
-              {expanded ? (
-                <IconChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <IconChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
-            </div>
-          </div>
-        </CardHeader>
-      </button>
-
-      {expanded && showUnknownStatus && (
-        <CardContent className="px-5 py-4">
-          <div className="space-y-3">
-            <p className="flex items-start gap-2 text-xs text-muted-foreground">
-              <IconAlertCircle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
-              {t("dataSources.statusUnknownDescription")}
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowLocalCredentials(true)}
-              className="text-xs"
-            >
-              {t("dataSources.addLocalCredentials")}
-            </Button>
-          </div>
-        </CardContent>
+    <div className="space-y-4">
+      {focused && ready && showAskContinuation && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-emerald-500/10 p-3">
+          <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <IconCheck className="h-3.5 w-3.5" />
+            {t("dataSources.connectionSuccessful")}
+          </span>
+          <Button asChild size="sm" className="text-xs">
+            <Link to="/ask">{t("navigation.ask")}</Link>
+          </Button>
+        </div>
       )}
-
-      {expanded && !showUnknownStatus && (
-        <CardContent className="px-5 py-4">
-          {focused && ready && showAskContinuation && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-emerald-500/10 p-3">
-              <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                <IconCheck className="h-3.5 w-3.5" />
-                {t("dataSources.connectionSuccessful")}
-              </span>
-              <Button asChild size="sm" className="text-xs">
-                <Link to="/ask">{t("navigation.ask")}</Link>
-              </Button>
+      {source.id === "github" && (
+        <GitHubOAuthView connected={locallyConfigured} onSaved={onSaved} />
+      )}
+      {shouldShowWorkspaceOAuthAdminNotice(
+        source,
+        ready,
+        canManageOrg,
+        orgLoaded,
+        hasOrg,
+      ) && (
+        <div className="rounded-md bg-muted/30 p-3">
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+              <IconPlugConnected className="h-4 w-4" />
             </div>
-          )}
-          {source.id === "github" && (
-            <div className="mb-4">
-              <GitHubOAuthView
-                connected={locallyConfigured}
-                onSaved={onSaved}
+            <div className="min-w-0 space-y-1">
+              <p className="text-xs font-medium text-foreground">
+                {t("dataSources.workspaceAdminRequiredTitle")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.workspaceAdminRequiredDescription", {
+                  name: source.name,
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {sharedConnectionStatus &&
+        sharedConnectionStatus.kind !== "needs_credentials" &&
+        sharedConnectionStatus.kind !== "needs_grant" && (
+          <SharedConnectionStatusRow status={sharedConnectionStatus} />
+        )}
+      {locallyConfigured ? (
+        <ConnectedView
+          source={source}
+          onSaved={onSaved}
+          envStatus={envStatus}
+        />
+      ) : readyViaWorkspace && !showCredentialSetup ? (
+        <WorkspaceReadyView
+          source={source}
+          sharedConnectionStatus={sharedConnectionStatus}
+          canManageOrg={canManageOrg}
+          oauthReturnPath={oauthReturnPath}
+          onSaved={onSaved}
+          onAddLocalCredentials={() => setShowLocalCredentials(true)}
+        />
+      ) : workspaceRoleLoading ? (
+        <Skeleton className="h-9 w-full rounded-md" />
+      ) : preferWorkspaceSetup && canManageOrg ? (
+        <WorkspaceOAuthView
+          provider={source.id}
+          label={source.name}
+          connected={sharedConnectionStatus?.kind === "needs_grant"}
+          returnPath={oauthReturnPath}
+        />
+      ) : preferWorkspaceSetup ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setShowLocalCredentials(true)}
+          className="text-xs"
+        >
+          {t("dataSources.useKeyJustInThisApp" /* i18n-key-ignore */, {
+            defaultValue: "Use a key just in this app",
+          })}
+        </Button>
+      ) : (
+        <>
+          {/* Step progress */}
+          <div className="flex items-center gap-1.5">
+            {source.walkthroughSteps.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentStep(i)}
+                className={`h-1.5 flex-1 rounded-full transition-colors ${
+                  i < currentStep
+                    ? "bg-emerald-500/60"
+                    : i === currentStep
+                      ? "bg-primary"
+                      : "bg-muted"
+                }`}
               />
-            </div>
-          )}
-          {shouldShowWorkspaceOAuthAdminNotice(
-            source,
-            ready,
-            canManageOrg,
-            orgLoaded,
-            hasOrg,
-          ) && (
-            <div className="mb-4 rounded-md bg-muted/30 p-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-                  <IconPlugConnected className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-medium text-foreground">
-                    {t("dataSources.workspaceAdminRequiredTitle")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("dataSources.workspaceAdminRequiredDescription", {
-                      name: source.name,
-                    })}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-          {sharedConnectionStatus &&
-            sharedConnectionStatus.kind !== "needs_credentials" &&
-            sharedConnectionStatus.kind !== "needs_grant" && (
-              <SharedConnectionStatusRow status={sharedConnectionStatus} />
-            )}
-          {locallyConfigured ? (
-            <ConnectedView
-              source={source}
-              onSaved={onSaved}
-              envStatus={envStatus}
-            />
-          ) : readyViaWorkspace && !showCredentialSetup ? (
-            <WorkspaceReadyView
-              source={source}
-              sharedConnectionStatus={sharedConnectionStatus}
-              canManageOrg={canManageOrg}
-              oauthReturnPath={oauthReturnPath}
-              onSaved={onSaved}
-              onAddLocalCredentials={() => setShowLocalCredentials(true)}
-            />
-          ) : workspaceRoleLoading ? (
-            <Skeleton className="h-9 w-full rounded-md" />
-          ) : preferWorkspaceSetup && canManageOrg ? (
-            <WorkspaceOAuthView
-              provider={source.id}
-              label={source.name}
-              connected={sharedConnectionStatus?.kind === "needs_grant"}
-              returnPath={oauthReturnPath}
-            />
-          ) : preferWorkspaceSetup ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowLocalCredentials(true)}
-              className="text-xs"
-            >
-              {t("dataSources.useKeyJustInThisApp" /* i18n-key-ignore */, {
-                defaultValue: "Use a key just in this app",
-              })}
-            </Button>
-          ) : (
-            <>
-              {/* Step progress */}
-              <div className="flex items-center gap-1.5 pb-3">
-                {source.walkthroughSteps.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCurrentStep(i);
-                    }}
-                    className={`h-1.5 flex-1 rounded-full transition-colors ${
-                      i < currentStep
-                        ? "bg-emerald-500/60"
-                        : i === currentStep
-                          ? "bg-primary"
-                          : "bg-muted"
-                    }`}
-                  />
-                ))}
-              </div>
+            ))}
+          </div>
 
-              {/* Current step */}
-              {(() => {
-                const step = source.walkthroughSteps[currentStep];
-                const isSaved = !!(
-                  step.inputKey &&
-                  envStatus.find((s) => s.key === step.inputKey)?.configured
-                );
-                return (
-                  <StepItem
-                    key={currentStep}
-                    step={step}
-                    index={currentStep}
-                    isComplete={false}
-                    isActive={true}
-                    isSaved={isSaved}
-                    inputValues={inputValues}
-                    onInputChange={(key, value) =>
-                      setInputValues((prev) => ({ ...prev, [key]: value }))
-                    }
-                  />
-                );
-              })()}
+          {/* Current step */}
+          {(() => {
+            const step = source.walkthroughSteps[currentStep];
+            const isSaved = !!(
+              step.inputKey &&
+              envStatus.find((s) => s.key === step.inputKey)?.configured
+            );
+            return (
+              <StepItem
+                key={currentStep}
+                step={step}
+                index={currentStep}
+                isComplete={false}
+                isActive={true}
+                isSaved={isSaved}
+                inputValues={inputValues}
+                onInputChange={(key, value) =>
+                  setInputValues((prev) => ({ ...prev, [key]: value }))
+                }
+              />
+            );
+          })()}
 
-              {/* Step navigation. Continue is gated on completing the
-                  current step's input — otherwise the progress bar advances
-                  while the user hasn't actually done anything, which feels
-                  misleading. Steps with no input (just a link to a console)
-                  or marked optional always allow Continue. */}
-              {(() => {
-                const step = source.walkthroughSteps[currentStep];
-                const stepKey = step.inputKey;
-                const stepFilled = stepKey
-                  ? !!inputValues[stepKey]?.trim() ||
-                    !!envStatus.find((s) => s.key === stepKey)?.configured
-                  : true;
-                const canAdvance = !stepKey || step.optional || stepFilled;
-                return (
-                  <div className="flex items-center gap-2 pb-4 pt-1">
-                    {currentStep > 0 && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCurrentStep((s) => s - 1);
-                        }}
-                        className="text-xs"
-                      >
-                        {t("dataSources.back")}
-                      </Button>
-                    )}
-                    {currentStep < totalSteps - 1 && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!canAdvance}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCurrentStep((s) => s + 1);
-                        }}
-                        className="text-xs"
-                      >
-                        {t("dataSources.continue")}
-                      </Button>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {hasInputValues && saveScope.canChoose && saveScope.scope ? (
-                <div className="pb-3">
-                  <WhoField
-                    id={whoId}
-                    choice
-                    scope={saveScope.scope}
-                    disabled={saveMutation.isPending}
-                    onChange={saveScope.setScope}
-                  />
-                </div>
-              ) : null}
+          {/* Step navigation. Continue is gated on completing the
+              current step's input — otherwise the progress bar advances
+              while the user hasn't actually done anything, which feels
+              misleading. Steps with no input (just a link to a console)
+              or marked optional always allow Continue. */}
+          {(() => {
+            const step = source.walkthroughSteps[currentStep];
+            const stepKey = step.inputKey;
+            const stepFilled = stepKey
+              ? !!inputValues[stepKey]?.trim() ||
+                !!envStatus.find((s) => s.key === stepKey)?.configured
+              : true;
+            const canAdvance = !stepKey || step.optional || stepFilled;
+            return (
               <div className="flex items-center gap-2 pt-1">
-                {hasInputValues && (
+                {currentStep > 0 && (
                   <Button
                     size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      saveMutation.mutate();
-                    }}
-                    disabled={saveMutation.isPending || !saveScope.scope}
+                    variant="ghost"
+                    onClick={() => setCurrentStep((s) => s - 1)}
                     className="text-xs"
                   >
-                    {saveMutation.isPending ? (
-                      <>
-                        <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                        {t("dataSources.saving")}
-                      </>
-                    ) : (
-                      t("dataSources.saveCredentials")
-                    )}
+                    {t("dataSources.back")}
                   </Button>
                 )}
-                {source.docsUrl && (
-                  <a
-                    href={source.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
-                    onClick={(e) => e.stopPropagation()}
+                {currentStep < totalSteps - 1 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!canAdvance}
+                    onClick={() => setCurrentStep((s) => s + 1)}
+                    className="text-xs"
                   >
-                    {t("dataSources.docs")}{" "}
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
+                    {t("dataSources.continue")}
+                  </Button>
                 )}
               </div>
+            );
+          })()}
 
-              {saveMutation.isError && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-rose-400">
-                  <IconAlertCircle className="h-3.5 w-3.5" />
-                  {(saveMutation.error as Error).message}
-                </div>
-              )}
-              {saveMutation.isSuccess && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500">
-                  <IconCheck className="h-3.5 w-3.5" />
-                  {t("dataSources.credentialsSaved")}
-                </div>
-              )}
-            </>
+          {hasInputValues && saveScope.canChoose && saveScope.scope ? (
+            <WhoField
+              id={whoId}
+              choice
+              scope={saveScope.scope}
+              disabled={saveMutation.isPending}
+              onChange={saveScope.setScope}
+            />
+          ) : null}
+          <div className="flex items-center gap-2 pt-1">
+            {hasInputValues && (
+              <Button
+                size="sm"
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending || !saveScope.scope}
+                className="text-xs"
+              >
+                {saveMutation.isPending ? (
+                  <>
+                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+                    {t("dataSources.saving")}
+                  </>
+                ) : (
+                  t("dataSources.saveCredentials")
+                )}
+              </Button>
+            )}
+            {source.docsUrl && (
+              <a
+                href={source.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
+              >
+                {t("dataSources.docs")} <IconExternalLink className="h-3 w-3" />
+              </a>
+            )}
+          </div>
+
+          {saveMutation.isError && (
+            <div className="flex items-center gap-2 text-xs text-rose-400">
+              <IconAlertCircle className="h-3.5 w-3.5" />
+              {(saveMutation.error as Error).message}
+            </div>
           )}
-        </CardContent>
+          {saveMutation.isSuccess && (
+            <div className="flex items-center gap-2 text-xs text-emerald-500">
+              <IconCheck className="h-3.5 w-3.5" />
+              {t("dataSources.credentialsSaved")}
+            </div>
+          )}
+        </>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -1620,7 +1531,7 @@ function AddDataSourceCTA() {
         <Button
           variant="outline"
           size="sm"
-          className="data-source-add-trigger gap-1.5"
+          className="shrink-0 gap-1.5"
           disabled={isGenerating}
         >
           {isGenerating ? (
@@ -1645,6 +1556,7 @@ function AddDataSourceCTA() {
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("dataSources.addDataSourcePlaceholder")}
           draftScope="analytics:add-data-source"
@@ -1655,35 +1567,26 @@ function AddDataSourceCTA() {
   );
 }
 
-function FirstPartyAnalyticsCard() {
-  const t = useT();
-  const formatters = useFormatters();
-  const formatNumber = formatters.formatNumber.bind(formatters);
-  const queryClient = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
-  const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
-  const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const { data, isLoading } = useActionQuery(
-    "list-analytics-public-keys",
-    undefined,
-    { staleTime: 10_000 },
-  );
-  const keys = ((data as AnalyticsPublicKeyRow[] | undefined) ?? []).filter(
-    (key) => !key.revokedAt,
-  );
-  const connected = keys.length > 0;
-  const {
-    data: rawHealth,
-    isLoading: isHealthLoading,
-    isError: isHealthError,
-  } = useActionQuery("get-first-party-analytics-health", undefined, {
-    staleTime: 30_000,
-    retry: false,
+/**
+ * First-party analytics keys and backend health. The list row and the setup
+ * sheet both read this; react-query shares the requests between them.
+ */
+function useFirstPartyAnalyticsData() {
+  const keysQuery = useActionQuery("list-analytics-public-keys", undefined, {
+    staleTime: 10_000,
   });
-  const health = rawHealth as FirstPartyAnalyticsHealthResponse | undefined;
-  const healthStatus = isHealthError ? "unavailable" : health?.status;
+  const healthQuery = useActionQuery(
+    "get-first-party-analytics-health",
+    undefined,
+    { staleTime: 30_000, retry: false },
+  );
+  const keys = (
+    (keysQuery.data as AnalyticsPublicKeyRow[] | undefined) ?? []
+  ).filter((key) => !key.revokedAt);
+  const health = healthQuery.data as
+    | FirstPartyAnalyticsHealthResponse
+    | undefined;
+  const healthStatus = healthQuery.isError ? "unavailable" : health?.status;
   const externalBackends = health?.externalBackends ?? [];
   const externalBackendConfigured = externalBackends.some(
     (backend) => backend.configured === true,
@@ -1704,6 +1607,47 @@ function FirstPartyAnalyticsCard() {
         ? "analyticsBackend.healthyDescription"
         : "analyticsBackend.unavailableDescription";
 
+  return {
+    keysLoading: keysQuery.isLoading,
+    keys,
+    connected: keys.length > 0,
+    health,
+    healthLoading: healthQuery.isLoading,
+    healthStatus,
+    externalBackends,
+    recommendsExternalBackend,
+    healthTitleKey,
+    healthDescriptionKey,
+  };
+}
+
+// Keep captureException() and captureMessage() verbatim in every translation:
+// the split below renders them as inline code.
+const SDK_CAPTURE_CALL_PATTERN = /(captureException\(\)|captureMessage\(\))/;
+
+/** First-party analytics setup sheet body: backend health, SDK env, keys, and replay origins. */
+function FirstPartyAnalyticsDetail() {
+  const t = useT();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
+  const queryClient = useQueryClient();
+  const {
+    keys,
+    health,
+    healthLoading,
+    healthStatus,
+    externalBackends,
+    recommendsExternalBackend,
+    healthTitleKey,
+    healthDescriptionKey,
+  } = useFirstPartyAnalyticsData();
+  const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [editingOriginsFor, setEditingOriginsFor] =
+    useState<AnalyticsPublicKeyRow | null>(null);
+  const [originDraft, setOriginDraft] = useState("");
+
   const createKey = useActionMutation("create-analytics-public-key", {
     onSuccess: (result: any) => {
       setCreatedKey(result.publicKey);
@@ -1722,6 +1666,30 @@ function FirstPartyAnalyticsCard() {
     },
   });
 
+  const updateKeyOrigins = useActionMutation("update-analytics-public-key", {
+    method: "PUT",
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-analytics-public-keys"],
+      });
+      setEditingOriginsFor(null);
+      setOriginDraft("");
+    },
+  });
+
+  const addReplayOrigins = () => {
+    if (!editingOriginsFor) return;
+    const origins = originDraft
+      .split(/\r?\n/)
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+    if (origins.length === 0) return;
+    updateKeyOrigins.mutate({
+      id: editingOriginsFor.id,
+      addReplayAllowedOrigins: origins,
+    });
+  };
+
   const copyCreatedKey = async () => {
     if (!createdKey) return;
     await navigator.clipboard?.writeText(createdKey);
@@ -1729,332 +1697,385 @@ function FirstPartyAnalyticsCard() {
   };
 
   return (
-    <Card className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-      >
-        <CardHeader className="p-5">
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <IconKey className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="text-sm font-medium">
-                  {t("dataSources.firstPartyAnalytics")}
-                </CardTitle>
-                <CardDescription className="mt-0.5 line-clamp-2 text-xs">
-                  {t("dataSources.firstPartyDescription")}
-                </CardDescription>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {isLoading ? (
-                <Skeleton className="h-4 w-20 rounded-full" />
-              ) : recommendsExternalBackend ? (
-                <span
-                  className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-500"
-                  title={healthTitleKey ? t(healthTitleKey) : undefined}
-                >
-                  <IconAlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  <span className="max-w-[12rem] truncate">
-                    {healthTitleKey
-                      ? t(healthTitleKey)
-                      : t("analyticsBackend.recommendationTitle")}
-                  </span>
-                </span>
-              ) : connected ? (
-                <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
-                  <IconCheck className="h-3.5 w-3.5" />
-                  {t("analyticsBackend.configured")}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
-                  <IconCircle className="h-3 w-3" />
-                  {t("dataSources.notConfigured")}
-                </span>
-              )}
-              {expanded ? (
-                <IconChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <IconChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
-            </div>
-          </div>
-        </CardHeader>
-      </button>
-
-      {expanded && (
-        <CardContent className="px-5 py-4">
-          <div className="space-y-4">
-            {isHealthLoading ? (
-              <Skeleton className="h-28 w-full rounded-md" />
-            ) : (
-              <div
-                className={`rounded-md p-3 text-xs ${
-                  recommendsExternalBackend ? "bg-amber-500/10" : "bg-muted/30"
+    <div className="space-y-4">
+      {healthLoading ? (
+        <Skeleton className="h-28 w-full rounded-md" />
+      ) : (
+        <div
+          className={`rounded-md p-3 text-xs ${
+            recommendsExternalBackend ? "bg-amber-500/10" : "bg-muted/30"
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <IconAlertCircle
+                className={`mt-px h-3.5 w-3.5 shrink-0 ${
+                  recommendsExternalBackend
+                    ? "text-amber-500"
+                    : "text-muted-foreground"
                 }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <IconAlertCircle
-                      className={`mt-px h-3.5 w-3.5 shrink-0 ${
-                        recommendsExternalBackend
-                          ? "text-amber-500"
-                          : "text-muted-foreground"
-                      }`}
-                    />
-                    <div className="min-w-0 space-y-1">
-                      {healthTitleKey && (
-                        <p className="font-medium text-foreground">
-                          {t(healthTitleKey)}
-                        </p>
-                      )}
-                      <p className="text-muted-foreground">
-                        {t(healthDescriptionKey)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                {externalBackends.length > 0 && (
-                  <div className="mt-4">
-                    <div className="mb-2 text-muted-foreground">
-                      {t("analyticsBackend.options")}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {externalBackends.map((backend) => {
-                        const statusLabel =
-                          backend.configured === true
-                            ? t("analyticsBackend.configured")
-                            : backend.configured === false
-                              ? t("analyticsBackend.setUp")
-                              : t("dataSources.statusUnknown");
-                        return (
-                          <Button
-                            asChild
-                            key={backend.id}
-                            size="sm"
-                            variant={
-                              backend.configured === true
-                                ? "outline"
-                                : "default"
-                            }
-                            className="text-xs"
-                          >
-                            <Link to={backend.setupLink}>
-                              {backend.label} · {statusLabel}
-                            </Link>
-                          </Button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {health && healthStatus !== "unavailable" && (
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dataSources.analyticsEventCount")}
-                      </div>
-                      <div className="font-medium text-foreground">
-                        {formatNumber(health.metrics.eventCount)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dataSources.slowQueries24h")}
-                      </div>
-                      <div className="font-medium text-foreground">
-                        {formatNumber(health.metrics.slowQueryCount24h)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">
-                        {t("dataSources.maxQueryDuration")}
-                      </div>
-                      <div className="font-medium text-foreground">
-                        {formatNumber(
-                          health.metrics.maxQueryDurationMs24h / 1_000,
-                          { maximumFractionDigits: 1 },
-                        )}
-                        s
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="grid gap-2 rounded-md bg-muted/30 p-3 text-xs">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">
-                  {t("dataSources.endpoint")}
-                </span>
-                <code className="truncate font-mono">
-                  {firstPartyAnalyticsEndpoint}
-                </code>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">
-                  {t("dataSources.serverEnv")}
-                </span>
-                <code className="truncate font-mono">
-                  AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
-                </code>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">
-                  {t("dataSources.browserEnv")}
-                </span>
-                <code className="truncate font-mono">
-                  VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
-                </code>
-              </div>
-            </div>
-
-            {/* Error capture note — the analytics SDK also captures uncaught
-                exceptions and links them to session replays. Static English
-                copy because shared i18n is owned elsewhere. */}
-            <div className="rounded-md bg-muted/30 p-3 text-xs">
-              <div className="font-medium text-foreground">
-                Error capture{/* i18n-ignore static SDK docs label */}
-              </div>
-              <p className="mt-1 text-muted-foreground">
-                Once a public key is set, the browser SDK automatically captures
-                uncaught exceptions and unhandled promise rejections, and
-                exposes a Sentry-style{" "}
-                <code className="font-mono">captureException()</code> /{" "}
-                <code className="font-mono">captureMessage()</code> API. Errors
-                {/* i18n-ignore static SDK docs copy */} are grouped into issues
-                under Monitoring → Errors and linked to the session replay where
-                each one happened.
-              </p>
-              <a
-                href={docsUrl("tracking", { hash: "posthog-error-tracking" })}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
-              >
-                Error capture docs{/* i18n-ignore static SDK docs link */}
-                <IconExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-
-            <div className="data-source-inline-form">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-                placeholder={t("dataSources.keyNamePlaceholder")}
               />
-              <Button
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  createKey.mutate({ name });
-                }}
-                disabled={createKey.isPending}
-                className="data-source-inline-form-button text-xs"
-              >
-                {createKey.isPending ? (
-                  <>
-                    <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                    {t("dataSources.generating")}
-                  </>
-                ) : (
-                  <>
-                    <IconPlus className="h-3 w-3 mr-1.5" />
-                    {t("dataSources.generateKey")}
-                  </>
+              <div className="min-w-0 space-y-1">
+                {healthTitleKey && (
+                  <p className="font-medium text-foreground">
+                    {t(healthTitleKey)}
+                  </p>
                 )}
-              </Button>
-            </div>
-
-            {createdKey && (
-              <div className="space-y-2 rounded-md bg-emerald-500/10 p-3">
-                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  {t("dataSources.newKeyGenerated")}
+                <p className="text-muted-foreground">
+                  {t(healthDescriptionKey)}
                 </p>
-                <div className="flex gap-2">
-                  <input
-                    readOnly
-                    value={createdKey}
-                    className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void copyCreatedKey();
-                    }}
-                    className="text-xs"
-                  >
-                    <IconCopy className="h-3 w-3 mr-1.5" />
-                    {copied ? t("dataSources.copied") : t("dataSources.copy")}
-                  </Button>
+              </div>
+            </div>
+          </div>
+          {externalBackends.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 text-muted-foreground">
+                {t("analyticsBackend.options")}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {externalBackends.map((backend) => {
+                  const statusLabel =
+                    backend.configured === true
+                      ? t("analyticsBackend.configured")
+                      : backend.configured === false
+                        ? t("analyticsBackend.setUp")
+                        : t("dataSources.statusUnknown");
+                  return (
+                    <Button
+                      asChild
+                      key={backend.id}
+                      size="sm"
+                      variant={
+                        backend.configured === true ? "outline" : "default"
+                      }
+                      className="text-xs"
+                    >
+                      <Link to={backend.setupLink}>
+                        {backend.label} · {statusLabel}
+                      </Link>
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {health && healthStatus !== "unavailable" && (
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <div>
+                <div className="text-muted-foreground">
+                  {t("dataSources.analyticsEventCount")}
+                </div>
+                <div className="font-medium text-foreground">
+                  {formatNumber(health.metrics.eventCount)}
                 </div>
               </div>
-            )}
-
-            {keys.length > 0 && (
-              <div className="space-y-2 pt-1">
-                {keys.map((key) => (
-                  <div
-                    key={key.id}
-                    className="flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{key.name}</div>
-                      <div className="text-muted-foreground font-mono">
-                        {key.publicKeyPrefix}...
-                        {key.lastUsedAt
-                          ? ` ${t("dataSources.lastUsed", {
-                              date: new Date(
-                                key.lastUsedAt,
-                              ).toLocaleDateString(),
-                            })}`
-                          : ` ${t("dataSources.neverUsed")}`}
-                      </div>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          className="shrink-0 text-muted-foreground hover:text-foreground"
-                          aria-label={t("dataSources.keyActions", {
-                            name: key.name,
-                          })}
-                        >
-                          <IconDotsVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem
-                          onSelect={() => revokeKey.mutate({ id: key.id })}
-                          disabled={revokeKey.isPending}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          {revokeKey.isPending ? (
-                            <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <IconTrash className="mr-2 h-4 w-4" />
-                          )}
-                          {revokeKey.isPending
-                            ? t("dataSources.revoking")
-                            : t("dataSources.revoke")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                ))}
+              <div>
+                <div className="text-muted-foreground">
+                  {t("dataSources.slowQueries24h")}
+                </div>
+                <div className="font-medium text-foreground">
+                  {formatNumber(health.metrics.slowQueryCount24h)}
+                </div>
               </div>
+              <div>
+                <div className="text-muted-foreground">
+                  {t("dataSources.maxQueryDuration")}
+                </div>
+                <div className="font-medium text-foreground">
+                  {formatNumber(health.metrics.maxQueryDurationMs24h / 1_000, {
+                    maximumFractionDigits: 1,
+                  })}
+                  s
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="grid gap-2 rounded-md bg-muted/30 p-3 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">
+            {t("dataSources.endpoint")}
+          </span>
+          <code className="truncate font-mono">
+            {firstPartyAnalyticsEndpoint}
+          </code>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">
+            {t("dataSources.serverEnv")}
+          </span>
+          <code className="truncate font-mono">
+            AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
+          </code>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-muted-foreground">
+            {t("dataSources.browserEnv")}
+          </span>
+          <code className="truncate font-mono">
+            VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
+          </code>
+        </div>
+      </div>
+
+      {/* Error capture note — the analytics SDK also captures uncaught
+          exceptions and links them to session replays. The heading and
+          docs link stay static English because shared i18n is owned
+          elsewhere. */}
+      <div className="rounded-md bg-muted/30 p-3 text-xs">
+        <div className="font-medium text-foreground">
+          Error capture{/* i18n-ignore static SDK docs label */}
+        </div>
+        <p className="mt-1 text-muted-foreground">
+          {t("dataSources.firstPartySdkAutoCapture")
+            .split(SDK_CAPTURE_CALL_PATTERN)
+            .map((part, index) =>
+              index % 2 === 1 ? (
+                <code key={index} className="font-mono">
+                  {part}
+                </code>
+              ) : (
+                part
+              ),
+            )}
+        </p>
+        <a
+          href={docsUrl("tracking", { hash: "posthog-error-tracking" })}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+        >
+          Error capture docs{/* i18n-ignore static SDK docs link */}
+          <IconExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+
+      <div className="data-source-inline-form">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={t("dataSources.keyNamePlaceholder")}
+          className="min-w-0 flex-1"
+        />
+        <Button
+          size="sm"
+          onClick={() => createKey.mutate({ name })}
+          disabled={createKey.isPending}
+          className="data-source-inline-form-button text-xs"
+        >
+          {createKey.isPending ? (
+            <>
+              <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
+              {t("dataSources.generating")}
+            </>
+          ) : (
+            <>
+              <IconPlus className="h-3 w-3 mr-1.5" />
+              {t("dataSources.generateKey")}
+            </>
+          )}
+        </Button>
+      </div>
+
+      {createdKey && (
+        <div className="space-y-2 rounded-md bg-emerald-500/10 p-3">
+          <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            {t("dataSources.newKeyGenerated")}
+          </p>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={createdKey}
+              className="min-w-0 flex-1 font-mono text-xs"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void copyCreatedKey()}
+              className="text-xs"
+            >
+              <IconCopy className="h-3 w-3 mr-1.5" />
+              {copied ? t("dataSources.copied") : t("dataSources.copy")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {keys.length > 0 && (
+        <div className="space-y-2 pt-1">
+          {keys.map((key) => (
+            <div
+              key={key.id}
+              className="flex items-center justify-between gap-3 text-xs"
+            >
+              <div className="min-w-0">
+                <div className="font-medium truncate">{key.name}</div>
+                <div className="text-muted-foreground font-mono">
+                  {key.publicKeyPrefix}...
+                  {key.lastUsedAt
+                    ? ` ${t("dataSources.lastUsed", {
+                        date: new Date(key.lastUsedAt).toLocaleDateString(),
+                      })}`
+                    : ` ${t("dataSources.neverUsed")}`}
+                </div>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    aria-label={t("dataSources.keyActions", {
+                      name: key.name,
+                    })}
+                  >
+                    <IconDotsVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      updateKeyOrigins.reset();
+                      setOriginDraft("");
+                      setEditingOriginsFor(key);
+                    }}
+                  >
+                    {t("dataSources.manageReplayOrigins")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => revokeKey.mutate({ id: key.id })}
+                    disabled={revokeKey.isPending}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    {revokeKey.isPending ? (
+                      <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <IconTrash className="mr-2 h-4 w-4" />
+                    )}
+                    {revokeKey.isPending
+                      ? t("dataSources.revoking")
+                      : t("dataSources.revoke")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Dialog
+        open={editingOriginsFor !== null}
+        onOpenChange={(open) => {
+          if (!open && !updateKeyOrigins.isPending) {
+            setEditingOriginsFor(null);
+            setOriginDraft("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dataSources.manageReplayOrigins")}</DialogTitle>
+            <DialogDescription>
+              {t("dataSources.replayOriginsDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium">
+                {t("dataSources.currentReplayOrigins")}
+              </p>
+              {editingOriginsFor?.replayAllowedOrigins.length ? (
+                <ul className="max-h-32 space-y-1 overflow-y-auto rounded-md bg-muted/40 p-2 text-xs">
+                  {editingOriginsFor.replayAllowedOrigins.map((origin) => (
+                    <li key={origin} className="break-all font-mono">
+                      {origin}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t("dataSources.anyReplayOriginAllowed")}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="analytics-replay-origins"
+                className="text-xs font-medium"
+              >
+                {t("dataSources.originsToAdd")}
+              </label>
+              <Textarea
+                id="analytics-replay-origins"
+                value={originDraft}
+                onChange={(event) => setOriginDraft(event.target.value)}
+                placeholder={t("dataSources.replayOriginsPlaceholder")}
+                rows={4}
+                disabled={updateKeyOrigins.isPending}
+              />
+            </div>
+            {updateKeyOrigins.isError && (
+              <p role="alert" className="text-xs text-destructive">
+                {actionErrorMessage(updateKeyOrigins.error) ??
+                  t("dataSources.replayOriginsUpdateFailed")}
+              </p>
             )}
           </div>
-        </CardContent>
-      )}
-    </Card>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingOriginsFor(null)}
+              disabled={updateKeyOrigins.isPending}
+            >
+              {t("dataSources.cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={addReplayOrigins}
+              disabled={updateKeyOrigins.isPending || !originDraft.trim()}
+            >
+              {updateKeyOrigins.isPending
+                ? t("dataSources.addingReplayOrigins")
+                : t("dataSources.addReplayOrigins")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SourceSection({
+  title,
+  entries,
+  onOpen,
+}: {
+  title: string;
+  entries: SourceEntry[];
+  onOpen: (id: string) => void;
+}) {
+  const t = useT();
+  const items: IntegrationGridItem[] = entries.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    description: entry.description,
+    logo: entry.logo,
+    status: entry.status,
+    statusClassName: entry.statusClassName,
+    actionKind: entry.connected ? "manage" : "connect",
+    actionLabel: entry.connected
+      ? t("dataSources.manage")
+      : t("dataSources.connect"),
+    onAction: () => onOpen(entry.id),
+  }));
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+      <IntegrationGrid variant="rows" items={items} />
+    </section>
   );
 }
 
@@ -2076,6 +2097,8 @@ export default function DataSources() {
   const focusedSourceId = focusedSource?.id ?? "";
   const showAskContinuation = searchParams.get("returnTo") === "ask";
   const [search, setSearch] = useState(() => focusedSource?.name ?? "");
+  const [activeId, setActiveId] = useState(focusedSourceId);
+  const [sheetOpen, setSheetOpen] = useState(focusedSourceId !== "");
   const oauthReturnPath = dataSourceOAuthReturnPath(
     focusedSource,
     showAskContinuation,
@@ -2088,6 +2111,13 @@ export default function DataSources() {
       setSearch("");
     }
   }, [focusedSource, unknownFocusedSourceId]);
+
+  // A deep link to ?source=<id> opens that source's setup sheet.
+  useEffect(() => {
+    if (!focusedSourceId) return;
+    setActiveId(focusedSourceId);
+    setSheetOpen(true);
+  }, [focusedSourceId]);
 
   const {
     data: rawStatusData,
@@ -2105,9 +2135,9 @@ export default function DataSources() {
       Boolean(statusData.error) ||
       statusData.workspaceConnections?.available === false);
 
-  const configuredCount = dataSources.filter((s) =>
-    isSourceReady(s, statusData, envStatus),
-  ).length;
+  const firstParty = useFirstPartyAnalyticsData();
+  const googleSheetsConnected =
+    getGoogleDriveConnection(statusData)?.grantState === "connected";
 
   const handleSaved = () => {
     void queryClient.invalidateQueries({
@@ -2115,47 +2145,234 @@ export default function DataSources() {
     });
   };
 
-  const searchLower = search.toLowerCase();
-  const firstPartyAnalyticsSearchText = [
-    t("dataSources.firstPartyAnalytics"),
-    t("dataSources.firstPartyDescription"),
-    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent-native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
-  ]
-    .join(" ")
-    .toLowerCase();
-  const firstPartyAnalyticsMatchesSearch =
-    search.length > 0 && firstPartyAnalyticsSearchText.includes(searchLower);
-  const filteredSources = search
-    ? dataSources.filter(
-        (s) =>
-          s.name.toLowerCase().includes(searchLower) ||
-          s.description.toLowerCase().includes(searchLower),
-      )
-    : null;
+  const sourceEntries: SourceEntry[] = dataSources.map((source) => {
+    const locallyConfigured = isSourceLocallyConfigured(
+      source,
+      statusData,
+      envStatus,
+    );
+    const ready = isSourceReady(source, statusData, envStatus);
+    const sharedConnectionStatus = getSharedConnectionStatus(
+      source,
+      statusData,
+      envStatus,
+    );
+    const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
+    const status = ready
+      ? {
+          label:
+            readyViaWorkspace && !locallyConfigured
+              ? t("dataSources.ready")
+              : t("dataSources.configured"),
+          className: "text-emerald-500",
+        }
+      : statusUnknown
+        ? {
+            label: t("dataSources.statusUnknown"),
+            className: "text-amber-500",
+          }
+        : sharedConnectionStatus?.kind === "needs_reauth"
+          ? {
+              label: t("dataSources.reconnect"),
+              className: "text-amber-600 dark:text-amber-400",
+            }
+          : sharedConnectionStatus?.kind === "error"
+            ? {
+                label: t("dataSources.connectionFailed"),
+                className: "text-destructive",
+              }
+            : {
+                label: t("dataSources.notConfigured"),
+                className: "text-muted-foreground",
+              };
+    return {
+      id: source.id,
+      name: source.name,
+      description: source.description,
+      category: source.category,
+      logo: (
+        <SourceLogo
+          id={source.id}
+          name={source.name}
+          fallbackIcon={source.icon}
+        />
+      ),
+      status: isStatusLoading ? undefined : status.label,
+      statusClassName: status.className,
+      connected: ready,
+      searchText: `${source.name} ${source.description}`.toLowerCase(),
+      detail: (
+        <DataSourceDetail
+          source={source}
+          locallyConfigured={locallyConfigured}
+          ready={ready}
+          sharedConnectionStatus={sharedConnectionStatus}
+          envStatus={envStatus}
+          statusUnknown={statusUnknown}
+          canManageOrg={canManageOrg}
+          orgLoaded={!isOrgRoleLoading}
+          hasOrg={Boolean(org?.orgId)}
+          focused={source.id === focusedSourceId}
+          oauthReturnPath={oauthReturnPath}
+          showAskContinuation={showAskContinuation}
+          onSaved={handleSaved}
+        />
+      ),
+    };
+  });
+
+  const firstPartyStatus = firstParty.recommendsExternalBackend
+    ? {
+        label: t(
+          firstParty.healthTitleKey ?? "analyticsBackend.recommendationTitle",
+        ),
+        className: "text-amber-500",
+      }
+    : firstParty.connected
+      ? {
+          label: t("analyticsBackend.configured"),
+          className: "text-emerald-500",
+        }
+      : {
+          label: t("dataSources.notConfigured"),
+          className: "text-muted-foreground",
+        };
+
+  const firstPartyEntry: SourceEntry = {
+    id: "first-party-analytics",
+    name: t("dataSources.firstPartyAnalytics"),
+    description: t("dataSources.firstPartyDescription"),
+    category: "analytics",
+    logo: (
+      <SourceLogo
+        id="first-party-analytics"
+        name={t("dataSources.firstPartyAnalytics")}
+        fallbackIcon={IconKey}
+      />
+    ),
+    status: firstParty.keysLoading ? undefined : firstPartyStatus.label,
+    statusClassName: firstPartyStatus.className,
+    connected: firstParty.connected,
+    searchText: [
+      t("dataSources.firstPartyAnalytics"),
+      t("dataSources.firstPartyDescription"),
+      "first-party analytics tracking observability llm ai generation $ai_generation posthog agent-native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+    ]
+      .join(" ")
+      .toLowerCase(),
+    detail: <FirstPartyAnalyticsDetail />,
+  };
+
+  const googleSheetsEntry: SourceEntry = {
+    id: "google-sheets-export",
+    name: t("dataSources.googleSheetsExport"),
+    description: t("dataSources.googleSheetsExportDescription"),
+    category: "analytics",
+    logo: (
+      <SourceLogo
+        id="google-sheets-export"
+        name={t("dataSources.googleSheetsExport")}
+        fallbackIcon={IconFileSpreadsheet}
+      />
+    ),
+    status: isStatusLoading
+      ? undefined
+      : googleSheetsConnected
+        ? t("dataSources.connected")
+        : t("dataSources.notConfigured"),
+    statusClassName: googleSheetsConnected
+      ? "text-emerald-500"
+      : "text-muted-foreground",
+    connected: googleSheetsConnected,
+    searchText: [
+      t("dataSources.googleSheetsExport"),
+      t("dataSources.googleSheetsExportDescription"),
+    ]
+      .join(" ")
+      .toLowerCase(),
+    detail: (
+      <WorkspaceOAuthView
+        provider="google_drive"
+        label={t("dataSources.googleSheets")}
+        connected={googleSheetsConnected}
+      />
+    ),
+  };
+
+  const customApiEntry: SourceEntry = {
+    id: "custom-api",
+    name: t("dataSources.customApi.title"),
+    description: t("dataSources.customApi.description"),
+    category: "engineering",
+    logo: (
+      <SourceLogo
+        id="custom-api"
+        name={t("dataSources.customApi.title")}
+        fallbackIcon={IconApi}
+      />
+    ),
+    connected: false,
+    searchText: [
+      t("dataSources.customApi.title"),
+      t("dataSources.customApi.description"),
+    ]
+      .join(" ")
+      .toLowerCase(),
+    detail: <CustomApiPanel />,
+  };
+
+  const entries = [
+    firstPartyEntry,
+    ...sourceEntries,
+    googleSheetsEntry,
+    customApiEntry,
+  ];
+  const activeEntry = entries.find((entry) => entry.id === activeId);
+
+  const openEntry = (id: string) => {
+    setActiveId(id);
+    setSheetOpen(true);
+  };
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSearch = (entry: SourceEntry) =>
+    !normalizedSearch || entry.searchText.includes(normalizedSearch);
+  // Connected sources lead the page, as on the Settings integrations tab, and
+  // leave their category section so each source appears once.
+  const connectedEntries = entries.filter(
+    (entry) => entry.connected && matchesSearch(entry),
+  );
+  const groups = categoryOrder
+    .map((category) => ({
+      category,
+      entries: entries.filter(
+        (entry) =>
+          entry.category === category &&
+          !entry.connected &&
+          matchesSearch(entry),
+      ),
+    }))
+    .filter((group) => group.entries.length > 0);
 
   return (
-    <div className="data-sources-layout mx-auto max-w-5xl space-y-8">
-      <p className="text-sm text-muted-foreground">
-        {t("dataSources.intro")}{" "}
-        {!isStatusLoading &&
-          (statusUnknown && configuredCount === 0 ? (
-            <span className="text-amber-500 font-medium">
-              {t("dataSources.statusUnknown")}
-            </span>
-          ) : configuredCount > 0 ? (
-            <span className="text-emerald-500 font-medium">
-              {t("dataSources.configuredCount", { count: configuredCount })}
-            </span>
-          ) : (
-            <span className="text-amber-500 font-medium">
-              {t("dataSources.configuredCount", { count: 0 })}
-            </span>
-          ))}
-      </p>
-
-      <GoogleSheetsExportCard statusData={statusData} />
-
-      <CustomApiCard />
+    <div className="mx-auto flex max-w-5xl flex-col gap-8">
+      <div className="flex items-center justify-end gap-2">
+        <div className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
+          <IconSearch
+            aria-hidden="true"
+            className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t("dataSources.searchPlaceholder")}
+            aria-label={t("dataSources.searchPlaceholder")}
+            className="ps-9"
+          />
+        </div>
+        <AddDataSourceCTA />
+      </div>
 
       {unknownFocusedSourceId && (
         <div
@@ -2169,102 +2386,52 @@ export default function DataSources() {
         </div>
       )}
 
-      {/* Search bar + Add Data Source */}
-      <div className="data-sources-toolbar">
-        <div className="relative min-w-0 flex-1">
-          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("dataSources.searchPlaceholder")}
-            className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-          />
-        </div>
-        <AddDataSourceCTA />
-      </div>
-
-      {/* Filtered results */}
-      {filteredSources !== null ? (
-        filteredSources.length > 0 || firstPartyAnalyticsMatchesSearch ? (
-          <div className="data-sources-grid">
-            {firstPartyAnalyticsMatchesSearch && <FirstPartyAnalyticsCard />}
-            {filteredSources.map((source) => (
-              <DataSourceCard
-                key={source.id}
-                source={source}
-                locallyConfigured={isSourceLocallyConfigured(
-                  source,
-                  statusData,
-                  envStatus,
-                )}
-                ready={isSourceReady(source, statusData, envStatus)}
-                sharedConnectionStatus={getSharedConnectionStatus(
-                  source,
-                  statusData,
-                  envStatus,
-                )}
-                envStatus={envStatus}
-                isStatusLoading={isStatusLoading}
-                statusUnknown={statusUnknown}
-                canManageOrg={canManageOrg}
-                orgLoaded={!isOrgRoleLoading}
-                hasOrg={Boolean(org?.orgId)}
-                focused={source.id === focusedSourceId}
-                oauthReturnPath={oauthReturnPath}
-                showAskContinuation={showAskContinuation}
-                onSaved={handleSaved}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground py-4">
-            {t("dataSources.noMatch", { search })}
-          </p>
-        )
+      {connectedEntries.length === 0 && groups.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {t("dataSources.noMatch", { search })}
+        </p>
       ) : (
-        categoryOrder.map((category) => {
-          const sources = dataSources.filter((s) => s.category === category);
-          if (sources.length === 0) return null;
-          return (
-            <div key={category} className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                {categoryLabels[category]}
-              </h3>
-              <div className="data-sources-grid">
-                {category === "analytics" && <FirstPartyAnalyticsCard />}
-                {sources.map((source) => (
-                  <DataSourceCard
-                    key={source.id}
-                    source={source}
-                    locallyConfigured={isSourceLocallyConfigured(
-                      source,
-                      statusData,
-                      envStatus,
-                    )}
-                    ready={isSourceReady(source, statusData, envStatus)}
-                    sharedConnectionStatus={getSharedConnectionStatus(
-                      source,
-                      statusData,
-                      envStatus,
-                    )}
-                    envStatus={envStatus}
-                    isStatusLoading={isStatusLoading}
-                    statusUnknown={statusUnknown}
-                    canManageOrg={canManageOrg}
-                    orgLoaded={!isOrgRoleLoading}
-                    hasOrg={Boolean(org?.orgId)}
-                    focused={source.id === focusedSourceId}
-                    oauthReturnPath={oauthReturnPath}
-                    showAskContinuation={showAskContinuation}
-                    onSaved={handleSaved}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })
+        <>
+          {connectedEntries.length > 0 && (
+            <SourceSection
+              title={t("dataSources.connected")}
+              entries={connectedEntries}
+              onOpen={openEntry}
+            />
+          )}
+          {groups.map((group) => (
+            <SourceSection
+              key={group.category}
+              title={categoryLabels[group.category]}
+              entries={group.entries}
+              onOpen={openEntry}
+            />
+          ))}
+        </>
       )}
+
+      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+        <SheetContent
+          aria-describedby={undefined}
+          className="w-full overflow-y-auto sm:max-w-lg"
+        >
+          {activeEntry ? (
+            <>
+              <SheetHeader className="pe-8">
+                <div className="flex min-w-0 items-center gap-3">
+                  {activeEntry.logo}
+                  <SheetTitle className="truncate">
+                    {activeEntry.name}
+                  </SheetTitle>
+                </div>
+              </SheetHeader>
+              <div className="data-source-card mt-5 min-w-0">
+                {activeEntry.detail}
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -1,8 +1,17 @@
 import { createApp } from "h3";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 const harness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
+  requireAgentChatAiSetup: vi.fn(async () => {}),
 }));
 
 // The real shim also bootstraps every default plugin. This keeps its routing
@@ -86,20 +95,27 @@ vi.mock("./social-og-image.js", () => ({
 // needs no credential.
 vi.mock("./agent-chat-ai-setup.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./agent-chat-ai-setup.js")>()),
-  requireAgentChatAiSetup: vi.fn(async () => {}),
+  requireAgentChatAiSetup: harness.requireAgentChatAiSetup,
 }));
 
 import {
   registerAgentEngine,
   unregisterAgentEngine,
 } from "../agent/engine/registry.js";
-import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineMessage,
+} from "../agent/engine/types.js";
 import {
   createThread,
   getThread,
   mutateThreadQueuedMessages,
 } from "../chat-threads/store.js";
+import { resetAgentEngineReadinessForTests } from "../client/agent-engine-readiness.js";
 import { startBackgroundAgentSession } from "../client/background-agent-session.js";
+import * as fileUploadRegistry from "../file-upload/registry.js";
+import { PDF_BASE64 } from "../file-upload/test-image-fixtures.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 import { seedAgentRunOwnerContext } from "./agent-run-context.js";
 
@@ -129,7 +145,8 @@ const scriptedEngine: AgentEngine = {
     computerUse: false,
     parallelToolCalls: false,
   },
-  async *stream(): AsyncIterable<EngineEvent> {
+  async *stream({ messages }): AsyncIterable<EngineEvent> {
+    engineMessages.push(messages);
     yield {
       type: "assistant-content",
       parts: [{ type: "text", text: "Replied to the comment." }],
@@ -140,6 +157,8 @@ const scriptedEngine: AgentEngine = {
 
 const hooks = new Map<string, Array<() => void | Promise<void>>>();
 const requests: RecordedResponse[] = [];
+const externalFiles = new Map<string, Uint8Array>();
+const engineMessages: EngineMessage[][] = [];
 
 function agentChatPosts(threadId: string): RecordedResponse[] {
   return requests.filter(
@@ -187,19 +206,21 @@ beforeAll(async () => {
   // Stands in for the session middleware: the browser request arrives
   // authenticated as OWNER.
   h3App.use((event) => {
+    const anonymous = event.req.headers.get("x-test-anonymous") === "1";
     seedAgentRunOwnerContext(event, {
-      owner: OWNER,
-      anonymous: false,
+      owner: anonymous ? "anonymous-owner@example.com" : OWNER,
+      anonymous,
       orgId: null,
     });
   });
   createAgentChatPlugin({
     actions: () => ({}),
     a2aAgentDelegation: false,
-    durableBackgroundRuns: false,
+    durableBackgroundRuns: true,
     frameworkTools: "minimal",
     leanPrompt: true,
     mcp: { enabled: false },
+    anonymousOwner: async () => "anonymous-owner@example.com",
   })({
     h3App,
     hooks: {
@@ -222,10 +243,19 @@ beforeAll(async () => {
           : input instanceof URL
             ? input.href
             : input.url;
+      const externalFile = externalFiles.get(raw);
+      if (externalFile) {
+        return new Response(externalFile.slice(), {
+          headers: { "content-type": "application/pdf" },
+        });
+      }
       if (!raw.startsWith("/") && !raw.startsWith(ORIGIN)) {
         return realFetch(input, init);
       }
       const url = new URL(raw, ORIGIN);
+      if (url.pathname === "/_agent-native/agent-engine/status") {
+        return Response.json({ configured: true, chatEligible: true });
+      }
       const headers = new Headers(init?.headers);
       headers.set("user-agent", BROWSER_USER_AGENT);
       const response = await h3App.fetch(
@@ -249,6 +279,11 @@ beforeAll(async () => {
   );
   // Plugin init imports the whole server graph.
 }, 60_000);
+
+beforeEach(() => {
+  resetAgentEngineReadinessForTests();
+  harness.requireAgentChatAiSetup.mockClear();
+});
 
 afterAll(async () => {
   vi.unstubAllGlobals();
@@ -327,6 +362,84 @@ describe("background agent sessions through the agent-chat plugin", () => {
       .toEqual({ status: "completed", terminalReason: "done" });
   });
 
+  it("rehydrates an uploaded PDF in the durable worker before sending it to the engine", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const url = "https://storage.example.test/uploads/background-report.pdf";
+    const pdfBytes = Buffer.from(PDF_BASE64, "base64");
+    const uploadFile = vi
+      .spyOn(fileUploadRegistry, "uploadFile")
+      .mockResolvedValue({ url, provider: "test-storage" });
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    externalFiles.set(url, pdfBytes);
+    engineMessages.length = 0;
+    const requestStart = requests.length;
+
+    try {
+      const handle = startBackgroundAgentSession({
+        message: "Summarize the uploaded report",
+        operationId: "pdf-background-operation",
+        threadId: "pdf-background-thread",
+        engine: ENGINE_NAME,
+        attachments: [
+          {
+            type: "file",
+            name: "background-report.pdf",
+            contentType: "application/pdf",
+            data: `data:application/pdf;base64,${PDF_BASE64}`,
+          },
+        ],
+      });
+      await handle.accepted;
+      await handle.completion;
+
+      const userParts = engineMessages
+        .flatMap((messages) => messages)
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content);
+      expect(userParts).toContainEqual({
+        type: "file",
+        data: PDF_BASE64,
+        mediaType: "application/pdf",
+        filename: "background-report.pdf",
+      });
+      expect(
+        userParts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      ).not.toContain("<chat-attachment-processing-error");
+      expect(uploadFile).toHaveBeenCalledOnce();
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect((await handle.status()).status).toBe("completed");
+      const workerDispatch = requests
+        .slice(requestStart)
+        .find(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/_agent-native/agent-chat/_process-run",
+        );
+      expect(workerDispatch?.body).toMatchObject({
+        __backgroundRun: { payloadRef: true },
+      });
+    } finally {
+      externalFiles.delete(url);
+      uploadFile.mockRestore();
+      findProvider.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("still refuses a queued-message promotion that carries no live claim", async () => {
     const threadId = "queued-promotion-thread";
     const queuedId = "queued-message-1";
@@ -358,5 +471,42 @@ describe("background agent sessions through the agent-chat plugin", () => {
     expect(repo.queuedMessages).toEqual([
       expect.objectContaining({ id: queuedId }),
     ]);
+  });
+
+  it("allows an anonymous read-only visitor to queue a prompt without a user AI identity", async () => {
+    const threadId = "anonymous-queued-thread";
+    await createThread("anonymous-owner@example.com", { id: threadId });
+
+    const response = await fetch(
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-anonymous": "1",
+        },
+        body: JSON.stringify({
+          mutation: {
+            type: "append",
+            message: {
+              id: "anonymous-queued-prompt",
+              threadId,
+              text: "Summarize this public page",
+            },
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(harness.requireAgentChatAiSetup).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({
+      queuedMessages: [
+        expect.objectContaining({
+          id: "anonymous-queued-prompt",
+          text: "Summarize this public page",
+        }),
+      ],
+    });
   });
 });

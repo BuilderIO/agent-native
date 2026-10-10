@@ -19,7 +19,10 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
     slide.id === "video-slide" ? (
       <video data-testid="presentation-video" controls />
     ) : (
-      <div data-testid={`rendered-${slide.id}`} />
+      <div
+        data-testid={`rendered-${slide.id}`}
+        dangerouslySetInnerHTML={{ __html: slide.content }}
+      />
     ),
 }));
 
@@ -142,5 +145,106 @@ describe("PresentationView keyboard shortcuts", () => {
         Reflect.deleteProperty(document.documentElement, "requestFullscreen");
       }
     }
+  });
+});
+
+describe("PresentationView paragraph animations", () => {
+  it("reveals and reverses mixed list-item text and paragraph steps", () => {
+    const slide = {
+      id: "wrapped-list-slide",
+      content: `<div class="fmd-slide"><div><ul>
+        <li>Intro<div>Section intro<p>First</p><p>Second</p></div></li>
+      </ul></div></div>`,
+      layout: "content",
+      animations: [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath: [0, 0, 0],
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ],
+    } as unknown as Slide;
+    render(
+      <MemoryRouter>
+        <PresentationView slides={[slide]} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    const rendered = screen.getByTestId("rendered-wrapped-list-slide");
+    const steps = rendered.querySelectorAll("[data-pstep]");
+    expect(Array.from(steps).map((step) => step.textContent)).toEqual([
+      "IntroSection introFirstSecond",
+      "Section introFirstSecond",
+      "First",
+      "Second",
+    ]);
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="0"] { opacity: 0; pointer-events: none; }',
+    );
+
+    const previous = screen.getByRole("button", {
+      name: "presentation.previousSlide",
+    });
+    const clickNext = () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "presentation.nextSlide" }),
+      );
+    expect((previous as HTMLButtonElement).disabled).toBe(true);
+
+    clickNext();
+
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="0"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="1"] { opacity: 0; pointer-events: none; }',
+    );
+
+    clickNext();
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="1"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 0; pointer-events: none; }',
+    );
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "presentation.nextSlide",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    clickNext();
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="3"] { opacity: 0; pointer-events: none; }',
+    );
+    expect((previous as HTMLButtonElement).disabled).toBe(false);
+
+    clickNext();
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="3"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+
+    fireEvent.click(previous);
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="3"] { opacity: 0; pointer-events: none; }',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+
+    fireEvent.click(previous);
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 0; pointer-events: none; }',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="1"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
   });
 });

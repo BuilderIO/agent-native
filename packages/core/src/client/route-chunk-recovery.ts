@@ -1,5 +1,7 @@
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
@@ -139,23 +141,46 @@ function withChunkRecoveryCacheBuster(
   now = Date.now(),
 ): string {
   const url = new URL(href, win.location.href);
-  url.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, CHUNK_RECOVERY_QUERY_VALUE);
-  url.searchParams.set(
-    CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
-    `${now.toString(36)}-${Math.random().toString(36).slice(2)}`,
-  );
+  if (
+    !url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) &&
+    !url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`)
+  ) {
+    const trailingSlash = url.pathname.endsWith("/") ? "/" : "";
+    const routePath = trailingSlash
+      ? url.pathname.slice(0, -trailingSlash.length)
+      : url.pathname;
+    url.pathname =
+      (routePath === "/" ? "" : routePath) +
+      CHUNK_RECOVERY_PATH_SUFFIX +
+      trailingSlash;
+  }
+  const originalHash = url.hash;
+  const recoveryHash = new URLSearchParams();
+  recoveryHash.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, now.toString(36));
+  recoveryHash.set(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM, originalHash);
+  url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  url.hash = recoveryHash.toString();
   return url.href;
 }
 
 function readRecoveryAttemptAt(win: Window): number {
   const url = new URL(win.location.href);
+  const recoveryHash = new URLSearchParams(url.hash.slice(1));
+  const hashTimestamp = recoveryHash.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const isLegacyRecovery =
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) ===
+    CHUNK_RECOVERY_QUERY_VALUE;
   if (
-    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) !==
-    CHUNK_RECOVERY_QUERY_VALUE
+    !url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) &&
+    !url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`) &&
+    hashTimestamp === null &&
+    !isLegacyRecovery
   ) {
     return 0;
   }
   const timestamp =
+    hashTimestamp ??
     url.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)?.split("-", 1)[0] ??
     "";
   if (!/^[0-9a-z]+$/i.test(timestamp)) return 0;
@@ -165,19 +190,33 @@ function readRecoveryAttemptAt(win: Window): number {
 
 function clearChunkRecoveryCacheBuster(win: Window): void {
   const url = new URL(win.location.href);
-  if (
-    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) !==
-    CHUNK_RECOVERY_QUERY_VALUE
-  ) {
+  const isRecoveryPath =
+    url.pathname.endsWith(CHUNK_RECOVERY_PATH_SUFFIX) ||
+    url.pathname.endsWith(`${CHUNK_RECOVERY_PATH_SUFFIX}/`);
+  const isLegacyRecovery =
+    url.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM) ===
+    CHUNK_RECOVERY_QUERY_VALUE;
+  const recoveryHash = new URLSearchParams(url.hash.slice(1));
+  const hasRecoveryHash = recoveryHash.has(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  if (!isRecoveryPath && !isLegacyRecovery && !hasRecoveryHash) {
     return;
   }
-  // Keep the fixed marker as a cooldown when session storage is unavailable.
   const recoveryStartedAt = readRecoveryAttemptAt(win);
-  if (markStaleChunkReload(win, recoveryStartedAt || Date.now()) !== true) {
-    return;
+  markStaleChunkReload(win, recoveryStartedAt || Date.now());
+  if (isRecoveryPath) {
+    const suffixWithTrailingSlash = `${CHUNK_RECOVERY_PATH_SUFFIX}/`;
+    if (url.pathname.endsWith(suffixWithTrailingSlash)) {
+      const path = url.pathname.slice(0, -suffixWithTrailingSlash.length);
+      url.pathname = path ? `${path}/` : "/";
+    } else {
+      const path = url.pathname.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length);
+      url.pathname = path || "/";
+    }
   }
   url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
   url.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
+  const originalHash = recoveryHash.get(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM);
+  if (hasRecoveryHash && originalHash !== null) url.hash = originalHash;
   win.history.replaceState(
     win.history.state,
     "",

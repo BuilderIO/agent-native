@@ -1,4 +1,77 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "مرجع الجلسة المرصودة",
+    sessionsOfAll: "\u200f{count} جلسة · {percent} من الإجمالي",
+    sessionsOfAppRoot:
+      "\u200f{count} جلسة · {percent} من مجموعة {app} (n={rootCount})",
+    sessionsOfPrevious: "\u200f{count} جلسة · {percent} من الخطوة السابقة",
+    sessionsOfParent: "\u200f{count} جلسة · {percent} من {label}",
+    observedContinuation:
+      "التسجيل نفسه · المثال {fromExample} ← المثال {toExample}",
+    observedContinuationCompact: "مثال {fromExample} ← {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "\u200f{count} جلسة · {percent} من هذه الخطوة",
+    partialSample: "عينة جزئية",
+    continuedOnUnpictured:
+      "المتابعة في مسارات غير معروضة: {count} · {percent} من هذه الخطوة",
+    noLaterStepObserved: "لم تُرصد خطوة لاحقة",
+    examplePosition: "المعرض {current} من {total}",
+    sourceExampleLabel: "المصدر",
+    showExample: "عرض مثال المصدر {current}",
+    screenshotExamples: "أمثلة لقطات الشاشة",
+    screenshotAlt:
+      "{label}، مثال المصدر {source}، موضعه في المعرض {current} من {total}، تاريخ الالتقاط {date}",
+    screenshotMissing: "لم تُلتقط لقطة شاشة",
+    recordingUnavailable: "غير متاح",
+    recordingGap: "فجوة في التسجيل",
+    recordingGapDuration: "فجوة في التسجيل · {duration}",
+    eventTime: "وقت الحدث (UTC)",
+    generationCompletedEvent: "حدث generation_completed (UTC)",
+    replayObservation: "ملاحظة إعادة التشغيل",
+    utcTimestamp: "طابع زمني UTC",
+    recordingId: "معرّف التسجيل",
+    replayOffset: "إزاحة إعادة التشغيل",
+    replayOffsetUnavailable: "غير متاح",
+    replaySeek: "موضع إعادة التشغيل",
+    checkpointSeekTarget: "هدف الانتقال إلى نقطة التحقق",
+    analyticsCheckpointOffset: "إزاحة نقطة تحقق Analytics",
+    replayObserved: "وقت ملاحظة إعادة التشغيل",
+    screenshotCaptured: "وقت التقاط لقطة الشاشة",
+    screenshotExportTimestamp: "وقت تصدير لقطة الشاشة بتوقيت UTC",
+    output: "المخرَج",
+    outputTitle: "عنوان المخرَج",
+    observedState: "الحالة المرصودة",
+    actorRecording: "الفاعل (التسجيل)",
+    actorSource: "مصدر الفاعل",
+    recordingMetadata: "بيانات التسجيل الوصفية",
+    evidence: "الدليل",
+    generationCompletedEvidence: "حدث generation_completed",
+    renderedOutputEvidence: "تمت ملاحظة مخرَج معروض؛ لا ندّعي وجود حدث اكتمال",
+    openFullPrompt: "فتح المطالبة كاملة",
+    prompt: "المطالبة",
+    promptEnglish: "المطالبة (بالإنجليزية)",
+    promptSource: "المطالبة (المصدر)",
+    source: "المصدر",
+    promptNotCaptured: "لم تُلتقط المطالبة",
+    actorUnavailable: "الفاعل غير متاح",
+    replayDetails: "تفاصيل إعادة التشغيل والمصدر",
+    sourceApp: "تطبيق المصدر",
+    route: "المسار الحالي عند الالتقاط",
+    routeUnavailable: "غير متاح",
+    captureSourceFingerprint: "بصمة مصدر الالتقاط",
+    captureSourceUnavailable: "غير مقدم",
+    recordingStarted: "بدأ التسجيل",
+    appBandHeading: "{app} · {count} جلسة",
+    journeyTitleSummary: "{app} · من {from} إلى {to} · {count} جلسة{partial}",
+    journeyTitleAppBandsSummary:
+      "من {from} إلى {to} · مجموعات مستقلة لكل تطبيق{partial}",
+    sessionCount: "\u200f{count} جلسة",
+    otherPaths: "مسارات أخرى",
+    otherBranchesShown: "يُعرض {shown} من أصل {total} فرعًا",
+    otherBranchDetailsUnavailable: "تفاصيل الفروع غير متاحة في شجرة الرحلة هذه",
+    otherBranchSourceKey: "مفتاح الخطوة المصدر: {key}",
+    htmlLanguage: "ar-SA",
+  },
   composer: { menu: { integrations: "التكاملات" } },
   creativeContext: {
     title: "المكتبة",
@@ -219,6 +292,18 @@ export default {
       exportSvg: "تصدير SVG",
       actionsPrefill: "راجع ثم أرسل",
       retry: "إعادة المحاولة",
+      currentDesign: "تصميم Design الحالي",
+      chooseDesign: "تصميم (اسألني أي تصميم أستخدمه عند الحاجة)",
+      importFramePrompt:
+        "استورد إطار Figma هذا إلى {{destination}} وحدد المحتوى الذي تعذر على المستورد نقله: {{url}}",
+      importFilePrompt:
+        "افتح ملف Figma هذا، واعرض الإطارات العليا فيه، واسألني عن الإطار الذي أريد استيراده: {{url}}",
+      inspectFramePrompt:
+        "افحص إطار Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      inspectFilePrompt:
+        "افحص ملف Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      exportSvgPrompt:
+        "صدّر شاشة Design الحالية بصيغة SVG لاستخدامها في Figma وحدد الأجزاء التي ستصبح محتوى SVG ثابتًا.",
     },
   },
   common: {
@@ -686,6 +771,9 @@ export default {
       tools: "الأدوات",
       tokens: "الرموز",
       label: "مساحة عمل التصميم",
+      account: "الحساب",
+      collapse: "طي الشريط الجانبي",
+      expand: "توسيع الشريط الجانبي",
     },
     breakpointBar: {
       base: "الأساس",
@@ -775,12 +863,10 @@ export default {
       "تم تغيير {{path}} على القرص منذ فتحه. أعد تحميل الشاشة وحاول مرة أخرى.",
     applyToSourceError: "تعذّر الحفظ في المصدر: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "استيراد الرموز",
       importTitle: "استيراد الرموز",
       importHint:
@@ -792,6 +878,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "استيراد الرموز الملصقة",
       importedCount: "تم استيراد {{count}} رمزا",
+      count: "{{count}} رمز",
+      search: "البحث في الرموز",
+      noMatches: "لا توجد رموز مطابقة",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -837,6 +926,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
+      figmaPasteUploadImage: "رفع صورة",
+      figmaPasteUploadImageFor: "رفع “{{name}}”",
+      figmaPasteImageFallbackName: "صورة {{index}}",
+      figmaPasteUploadImageSuccess: "تمت إضافة الصورة",
+      figmaPasteUploadImageInvalid: "اختر ملف صورة، مثل SVG أو PNG أو JPG.",
+      figmaPasteUploadImageError: "تعذّر ملء هذه الصورة",
       figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
       figmaHydrationDialogDescription:
         "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",
@@ -936,6 +1031,8 @@ export default {
       "توقف الإنشاء قبل إنشاء الملفات. حاول مرة أخرى للمتابعة من نفس المطالبة.",
     generationStoppedCheckAgent:
       "توقف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
+    invalidCanvasDimensions:
+      "حجم اللوحة المطلوب غير مدعوم. استخدم أبعادًا موجبة بالبكسل ضمن حدود المحرر.",
     notFound: "التصميم غير موجود",
     backToDesigns: "العودة إلى التصاميم",
     designNotFoundDescription: "هذا التصميم غير موجود أو تم حذفه.",
@@ -1491,6 +1588,13 @@ export default {
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
+      previewCredentialsUnavailableTitle:
+        "بيانات اعتماد المعاينة المحلية غير متاحة",
+      previewCredentialsUnavailableDescription:
+        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+      publicPreviewUnavailableDescription:
+        "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
+      previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {
@@ -1501,6 +1605,7 @@ export default {
     fork: "تفريع",
     fullView: "عرض كامل",
     preview: "معاينة",
+    focusScreen: "تركيز الشاشة",
     openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     doubleClickToEdit: "استخدم وضع التفاعل للتمرير المركّز",

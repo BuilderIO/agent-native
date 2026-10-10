@@ -416,7 +416,7 @@ export interface SuggestionDecisionRecord {
   suggestionId: string;
   idempotencyKey: string;
   reviewer: string | null;
-  decision: SuggestionDecision | "withdrawn";
+  decision: SuggestionDecision | "withdrawn" | "superseded";
   observedBase: string;
   outcome: string;
   detail: string | null;

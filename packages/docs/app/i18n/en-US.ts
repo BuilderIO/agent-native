@@ -674,7 +674,7 @@ const enUS = {
         "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
     },
     design: {
-      replaces: "Agent-Native Figma",
+      replaces: "Agent-Native Design studio",
       description:
         "Turns prompts into interactive designs that follow your design system and improve with agent feedback.",
     },
@@ -1435,7 +1435,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "Open-Source Figma alternative",
+      s006: "Open-source design workspace",
       s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
@@ -2165,6 +2165,8 @@ const enUS = {
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
     loadError: "Could not load the latest desktop installer.",
+    mountError:
+      "The desktop download page could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",
     unavailable: "Installer unavailable for this platform",

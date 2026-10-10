@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "排隊中",
   "agent.completed": "已完成",
   "agent.failed": "需要注意",
+  "agent.failureReason.failed": "未能完成",
+  "agent.failureReason.setup": "需要先完成設定",
+  "agent.failureReason.auth": "存取遭拒",
+  "agent.failureReason.timeout": "回應逾時",
+  "agent.failureReason.budget": "已超出時限",
+  "agent.failureReason.response": "沒有可用的結果",
   "agent.closed": "已關閉",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
@@ -80,6 +86,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "回覆必須包含…",
   "observability.promoteMustContainOptional": "回覆中要檢查的選填文字…",
   "observability.promoteMustContainLabel": "在升級後的評估回覆中檢查的文字",
+  "observability.promoteReviewedPromptLabel":
+    "手動審核的提示（不會從正式環境自動複製）",
   "observability.promoteNeedsContains":
     "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.viewDetails": "查看詳細資料",
@@ -479,7 +487,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
+  "composer.fileTooLarge": "此檔案超過 {{size}} MB 的上傳大小限制。",
+  "composer.sessionExpired": "工作階段已逾期。請重新登入，然後再傳送訊息。",
   "composer.unsupportedFileType": "不支援此檔案類型。",
+  "composer.uploadUnavailable": "目前無法上傳檔案。請稍後再試。",
+  "composer.uploadOffline": "上傳無法連線至伺服器。請檢查網路連線後再試一次。",
+  "composer.submissionNotReady": "聊天尚未準備好傳送。請稍候片刻再傳送。",
+  "composer.submissionScopeChanged": "此聊天在訊息傳送前已變更。請重新傳送。",
+  "composer.attachmentNotSaved": "未隨此聊天儲存",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "深入瞭解",
@@ -615,6 +630,8 @@ const messages: ToolkitAgentChatTranslation = {
     "您已登出，因此此對話無法追蹤代理。請重新登入，然後重新載入。",
   "errorMessages.malformedRequestAttachment":
     "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
+  "errorMessages.invalidAttachment":
+    "模型供應商因附件格式或大小不受支援而拒絕了該附件。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的檔案格式，或貼上相關文字，然後重新附加。",
   "errorMessages.noProviderConnected":
     "尚未連線 LLM 供應商。開啟設定 > 代理 > AI 供應商，然後使用 Builder.io（提供免費方案）或新增供應商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",
@@ -1075,6 +1092,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
+  "errorMessages.invalidAttachmentNamed":
+    "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":

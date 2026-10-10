@@ -1,3 +1,4 @@
+import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cache";
 import {
   agentNativePath,
   frameworkRoutePrefix,
@@ -13,6 +14,7 @@ import {
   parseEmbeddedThemeUpdate,
 } from "@agent-native/core/client/theme";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
+import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SettingsShortcut } from "@agent-native/core/client/use-settings-shortcut";
 import {
@@ -369,6 +371,11 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   return null;
 }
 
+function AgentEngineReadinessBootstrap() {
+  useAgentEngineConfigured();
+  return null;
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -494,6 +501,24 @@ export function AppProviders({
     );
   }
 
+  const sessionGated = (
+    <RequireSession bypass={sessionBypass} fallback={fallback}>
+      {sessionBypass ? (
+        children
+      ) : (
+        <>
+          <AgentEngineReadinessBootstrap />
+          <FirstRunOnboardingStartupGate
+            suppressSurface={skipFirstRunOnboarding}
+            fallback={fallback}
+          >
+            {children}
+          </FirstRunOnboardingStartupGate>
+        </>
+      )}
+    </RequireSession>
+  );
+
   return (
     <>
       <McpAppWidgetBootScript />
@@ -520,18 +545,13 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
         >
-          <RequireSession bypass={sessionBypass} fallback={fallback}>
-            {sessionBypass ? (
-              children
-            ) : (
-              <FirstRunOnboardingStartupGate
-                suppressSurface={skipFirstRunOnboarding}
-                fallback={fallback}
-              >
-                {children}
-              </FirstRunOnboardingStartupGate>
-            )}
-          </RequireSession>
+          {sessionBypass ? (
+            sessionGated
+          ) : (
+            // Outside RequireSession on purpose: inside it, a signed-out session
+            // unmounts the gate before it can clear the stored results.
+            <ActionQueryCacheGate>{sessionGated}</ActionQueryCacheGate>
+          )}
         </ProvidersInner>
       </ClientOnly>
     </>

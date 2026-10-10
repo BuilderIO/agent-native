@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { IconChevronDown } from "@tabler/icons-react";
 import { useCallback, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -34,6 +35,7 @@ import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-structure";
 import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edits-and-presence";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
+import { shouldShowFullDesignProjectMenu } from "../mcp-widget-write-capabilities";
 import { clearPendingEditSessionMarker } from "../pending-edit-session-marker";
 import type { DesignData } from "../types";
 import { ExportSubmenuContent } from "./export-submenu-content";
@@ -50,6 +52,7 @@ interface ProjectTitleControlProps {
   editorExportAndHandoff: EditorExportAndHandoff;
   editorSourceAndSync: EditorSourceAndSync;
   design: DesignData;
+  widgetEmbed: boolean;
 }
 
 function ProjectTitleControl({
@@ -64,6 +67,7 @@ function ProjectTitleControl({
   editorExportAndHandoff,
   editorSourceAndSync,
   design,
+  widgetEmbed,
 }: ProjectTitleControlProps) {
   const { t, id, queryClient } = editorCore;
   const { canEditDesign, canShareDesign, duplicateDesignMutation } =
@@ -176,9 +180,10 @@ function ProjectTitleControl({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="-mx-1 min-w-0 flex-1 cursor-pointer truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
+            className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-xs leading-4 text-foreground hover:bg-accent/50"
           >
-            {design.title}
+            <span className="truncate">{design.title}</span>
+            <IconChevronDown className="size-3 shrink-0" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -199,45 +204,51 @@ function ProjectTitleControl({
           >
             {t("designEditor.fileMenu.rename")}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleDuplicateDesign}
-            disabled={duplicateDesignMutation.isPending}
-          >
-            {t("designEditor.fileMenu.duplicate")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
-            {t("designEditor.fileMenu.versionHistory")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => setSaveTemplateOpen(true)}
-            disabled={files.length === 0}
-          >
-            {t("designEditor.saveAsTemplate")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => importFileInputRef.current?.click()}>
-            {t("designEditor.fileMenu.import")}
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              {t("designEditor.export")}
-            </DropdownMenuSubTrigger>
-            <ExportSubmenuContent
-              editorCore={editorCore}
-              editorGenerationAndAccess={editorGenerationAndAccess}
-              editorFilesAndSaving={editorFilesAndSaving}
-              editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
-              editorExportAndHandoff={editorExportAndHandoff}
-            />
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:text-destructive"
-            onClick={() => setTrashDialogOpen(true)}
-            disabled={!canShareDesign}
-          >
-            {t("designEditor.fileMenu.delete")}
-          </DropdownMenuItem>
+          {shouldShowFullDesignProjectMenu(widgetEmbed) ? (
+            <>
+              <DropdownMenuItem
+                onClick={handleDuplicateDesign}
+                disabled={duplicateDesignMutation.isPending}
+              >
+                {t("designEditor.fileMenu.duplicate")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+                {t("designEditor.fileMenu.versionHistory")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setSaveTemplateOpen(true)}
+                disabled={files.length === 0}
+              >
+                {t("designEditor.saveAsTemplate")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => importFileInputRef.current?.click()}
+              >
+                {t("designEditor.fileMenu.import")}
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  {t("designEditor.export")}
+                </DropdownMenuSubTrigger>
+                <ExportSubmenuContent
+                  editorCore={editorCore}
+                  editorGenerationAndAccess={editorGenerationAndAccess}
+                  editorFilesAndSaving={editorFilesAndSaving}
+                  editorActiveScreenAndGeometry={editorActiveScreenAndGeometry}
+                  editorExportAndHandoff={editorExportAndHandoff}
+                />
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => setTrashDialogOpen(true)}
+                disabled={!canShareDesign}
+              >
+                {t("designEditor.fileMenu.delete")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <input

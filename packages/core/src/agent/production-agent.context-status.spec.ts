@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mockEvent } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PNG_BASE64 } from "../file-upload/test-image-fixtures.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -15,11 +16,21 @@ import type {
   EngineMessage,
 } from "./engine/types.js";
 import {
-  createProductionAgentHandler,
+  createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   type ActionEntry,
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import { insertRun } from "./run-store.js";
+
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 
 const mockReadAppState = vi.hoisted(() =>
   vi.fn(async (_key: string): Promise<unknown> => null),
@@ -45,6 +56,21 @@ vi.mock("../a2a/caller-auth.js", async (importOriginal) => ({
     userEmail: "owner@example.com",
     metadata: {},
   }),
+}));
+
+const mockResolveActiveExperimentConfig = vi.hoisted(() =>
+  vi.fn(
+    async (
+      _userId: string,
+    ): Promise<{
+      configs: Record<string, unknown>;
+      assignments: Array<{ experimentId: string; variantId: string }>;
+    } | null> => null,
+  ),
+);
+vi.mock("../observability/experiments.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../observability/experiments.js")>()),
+  resolveActiveExperimentConfig: mockResolveActiveExperimentConfig,
 }));
 
 const instrumented = vi.hoisted(
@@ -95,8 +121,13 @@ async function firstPrompt(
     /** Steps to take while the handler is still preparing the prompt. */
     during?: () => Promise<void>;
   } = {},
-): Promise<{ text: string; runContext: RequestRunContext | undefined }> {
+): Promise<{
+  text: string;
+  runContext: RequestRunContext | undefined;
+  images: EngineMessage["content"];
+}> {
   let text = "";
+  let images: EngineMessage["content"] = [];
   let runContext: RequestRunContext | undefined;
   const engine: AgentEngine = {
     name: "test",
@@ -106,7 +137,7 @@ async function firstPrompt(
     capabilities: {
       thinking: false,
       promptCaching: false,
-      vision: false,
+      vision: true,
       computerUse: false,
       parallelToolCalls: false,
     },
@@ -117,6 +148,10 @@ async function firstPrompt(
       text ||= (last?.content ?? [])
         .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n");
+      const imageParts = (last?.content ?? []).filter(
+        (part) => part.type === "image",
+      );
+      if (imageParts.length > 0) images = imageParts;
       runContext ??= { ...getRequestRunContext() };
       yield {
         type: "assistant-content",
@@ -159,7 +194,7 @@ async function firstPrompt(
     const reader = response.getReader();
     while (!(await reader.read()).done) {}
   }
-  return { text, runContext };
+  return { text, runContext, images };
 }
 
 describe("reference prefetch status", () => {
@@ -233,6 +268,39 @@ describe("reference prefetch status", () => {
     const { text } = await firstPrompt({ prepareRequest });
 
     expect(text).not.toContain("<context-note>");
+  });
+});
+
+describe("server-prepared prior image context", () => {
+  it("sends prior images to the model without persisting them as current uploads", async () => {
+    const onRunPrepared = vi.fn();
+    const imageData = `data:image/png;base64,${PNG_BASE64}`;
+
+    const { images, text } = await firstPrompt({
+      onRunPrepared,
+      prepareRequest: () => ({
+        contextAttachments: [
+          {
+            type: "image",
+            name: "earlier.png",
+            contentType: "image/png",
+            data: imageData,
+          },
+        ],
+      }),
+    });
+
+    expect(images).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+    expect(text).toContain("Images attached in earlier turns of this chat");
+    expect(onRunPrepared).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [expect.objectContaining({ name: "earlier.png" })],
+      }),
+    );
   });
 });
 
@@ -506,5 +574,54 @@ describe("run trace metadata", () => {
       reasoningEffortRequested: "low",
     });
     expect(instrumented.at(-1)?.metadata).not.toHaveProperty("reasoningEffort");
+  });
+
+  describe("model experiments", () => {
+    const assignments = [{ experimentId: "exp-1", variantId: "terra" }];
+    beforeEach(() => {
+      mockResolveActiveExperimentConfig.mockReset();
+      mockResolveActiveExperimentConfig.mockResolvedValue({
+        configs: { model: "gpt-5-6-terra" },
+        assignments,
+      });
+    });
+
+    it("records the assignment when the experiment's model override runs", async () => {
+      await firstPrompt();
+
+      expect(mockResolveActiveExperimentConfig).toHaveBeenCalledWith(
+        "owner@example.com",
+      );
+      expect(instrumented.at(-1)?.metadata).toMatchObject({
+        modelSelectionSource: "experiment",
+        experimentAssignments: assignments,
+      });
+    });
+
+    it("records assignments when an active experiment has no model override", async () => {
+      mockResolveActiveExperimentConfig.mockResolvedValue({
+        configs: {},
+        assignments,
+      });
+
+      await firstPrompt();
+
+      expect(instrumented.at(-1)?.metadata).toMatchObject({
+        modelSelectionSource: "default",
+        experimentAssignments: assignments,
+      });
+    });
+
+    it("does not assign or attribute a variant when the request pins a model", async () => {
+      await firstPrompt({}, { model: "gpt-6-luna" });
+
+      expect(mockResolveActiveExperimentConfig).not.toHaveBeenCalled();
+      expect(instrumented.at(-1)?.metadata).toMatchObject({
+        modelSelectionSource: "request",
+      });
+      expect(instrumented.at(-1)?.metadata).not.toHaveProperty(
+        "experimentAssignments",
+      );
+    });
   });
 });

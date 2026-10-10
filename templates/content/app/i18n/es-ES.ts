@@ -457,7 +457,6 @@ const editor = {
   pageBodySyncing: "El contenido de esta página aún se está sincronizando",
   pageBodySyncingDescription:
     "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
-  createCollection: "Crear colección",
   creatingDatabase: "Creando colección integrada...",
   databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
@@ -814,10 +813,12 @@ const editor = {
     linkToNotionPage: "Enlace a la página de Noción",
     localFile: "archivo local",
     morePageActions: "Más acciones de página",
+    formatting: "Formato",
     noPagesFound: "No se encontraron páginas",
     notifications: "Notificaciones",
     notionSync: "Sincronización de nociones",
     openInNotion: "Abierto en noción",
+    openInAgentNative: "Abrir en Agent-Native",
     orgCanFindAndView:
       "Cualquier persona de su organización puede buscar y ver",
     orgLinkCanView:
@@ -1730,6 +1731,9 @@ const overrides = {
     aiUndo: "Deshacer",
     aiDone: "Listo",
     aiMoreChanges: "+{{count}} más",
+    suggestionReplaced: "Reemplazada",
+    suggestionWithdrawn: "Retirada",
+    suggestedChange: "Cambio sugerido",
     aiUndoUnavailable:
       "El texto eliminado no se puede restaurar automáticamente",
     aiUndoFailed: "No se pudo deshacer el cambio",
@@ -1772,6 +1776,11 @@ const overrides = {
     resize: "Cambiar ancho de la barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "No se pudo crear la página",
+    failedCreatePageDraftDescription:
+      "Tu borrador está guardado en este navegador. Puedes volver a intentar crear la página o descartar el borrador.",
+    discardFailedCreatePageQuestion: "¿Descartar la creación pendiente?",
+    discardFailedCreatePageDescription:
+      "Esto borra la creación pendiente y cualquier borrador sin guardar. Si la página ya se había guardado, seguirá en tu espacio de trabajo.",
     failedDeletePage: "No se pudo eliminar la página",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",

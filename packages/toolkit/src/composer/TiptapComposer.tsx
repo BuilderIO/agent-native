@@ -41,7 +41,6 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import { BuilderBMark } from "./BuilderBMark.js";
 import {
   searchComposerContextActions,
   type ComposerContextMenuItem,
@@ -1047,6 +1046,8 @@ export interface TiptapComposerProps {
   submissionDisabled?: boolean;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
+  /** Show progress in the send control while a pre-submit check is running. */
+  sendButtonBusy?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -1247,6 +1248,18 @@ function plainTextToDoc(text: string) {
 }
 
 /** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
+// The session shell hides its tree with an inline display: none (RequireSession).
+function isInsideHiddenShell(element: HTMLElement): boolean {
+  for (
+    let node: HTMLElement | null = element;
+    node;
+    node = node.parentElement
+  ) {
+    if (node.style?.display === "none") return true;
+  }
+  return false;
+}
+
 export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   editor: T | null | undefined,
 ): editor is T {
@@ -2404,9 +2417,7 @@ function ModelSelector({
                                     aria-hidden="true"
                                     className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
                                   />
-                                ) : (
-                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                )}
+                                ) : null}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting
@@ -2754,6 +2765,7 @@ export function TiptapComposer({
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
+  sendButtonBusy = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -3949,7 +3961,20 @@ export function TiptapComposer({
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+      if (!isComposerEditorUsable(editor)) return;
+      // An editor inside a hidden session shell cannot take focus, and nothing
+      // re-runs this when the shell is shown. Focus on the first size change.
+      const dom = editor.view.dom;
+      if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => {
+          if (isInsideHiddenShell(dom)) return;
+          observer.disconnect();
+          editor.commands.focus("end");
+        });
+        observer.observe(dom);
+        return;
+      }
+      editor.commands.focus("end");
     },
     addAttachment(file: File) {
       return addAttachmentForCurrentScope(file);
@@ -4539,7 +4564,7 @@ export function TiptapComposer({
 
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
       submitInFlightRef.current = true;
-      onSubmissionPendingChange?.(true);
+      if (!onBeforeSubmit) onSubmissionPendingChange?.(true);
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       let attachmentSnapshot: typeof composerAttachments;
       try {
@@ -4561,7 +4586,7 @@ export function TiptapComposer({
         return false;
       } finally {
         submitInFlightRef.current = false;
-        onSubmissionPendingChange?.(false);
+        if (!onBeforeSubmit) onSubmissionPendingChange?.(false);
       }
       if (
         !isComposerEditorUsable(ed) ||
@@ -4855,7 +4880,6 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
-        onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit(
             composerDraftSnapshot(text, references, attachments),
@@ -4879,7 +4903,6 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
-          onSubmissionPendingChange?.(false);
         }
       }
       if (
@@ -6146,10 +6169,15 @@ export function TiptapComposer({
                     }
                     disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
+                    aria-busy={sendButtonBusy || undefined}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+                    {sendButtonBusy ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{sendButtonTooltip}</TooltipContent>

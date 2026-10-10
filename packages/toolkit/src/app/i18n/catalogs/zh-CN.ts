@@ -37,6 +37,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "排队中",
   "agent.completed": "已完成",
   "agent.failed": "需要关注",
+  "agent.failureReason.failed": "未能完成",
+  "agent.failureReason.setup": "需要先完成设置",
+  "agent.failureReason.auth": "访问被拒绝",
+  "agent.failureReason.timeout": "响应超时",
+  "agent.failureReason.budget": "已超出时限",
+  "agent.failureReason.response": "没有可用结果",
   "agent.closed": "已关闭",
   "approval.alwaysAllow": "始终允许",
   "approval.alwaysAllowHint": "批准并始终允许此完全相同的命令",
@@ -79,6 +85,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "回复必须包含…",
   "observability.promoteMustContainOptional": "回复中要检查的可选文本…",
   "observability.promoteMustContainLabel": "在升级后的评测回复中检查的文本",
+  "observability.promoteReviewedPromptLabel":
+    "手动审核的提示（不会从生产环境自动复制）",
   "observability.promoteNeedsContains":
     "本次运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.viewDetails": "查看详情",
@@ -478,7 +486,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上传技能文件",
   "composer.upload": "上传",
   "composer.uploadFailed": "无法上传所选文件。",
+  "composer.fileTooLarge": "此文件超过 {{size}} MB 的上传大小限制。",
+  "composer.sessionExpired": "会话已过期。请重新登录，然后再发送消息。",
   "composer.unsupportedFileType": "不支持此文件类型。",
+  "composer.uploadUnavailable": "文件上传暂不可用。请稍后重试。",
+  "composer.uploadOffline": "上传未能连接到服务器。请检查网络连接后重试。",
+  "composer.submissionNotReady": "聊天尚未准备好发送。请稍等片刻后再发送。",
+  "composer.submissionScopeChanged": "此聊天在消息发送前已更改。请重新发送。",
+  "composer.attachmentNotSaved": "未随此聊天保存",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "了解更多",
@@ -614,6 +629,8 @@ const messages: ToolkitAgentChatTranslation = {
     "您已退出登录，因此此对话无法跟踪智能体。请重新登录，然后刷新。",
   "errorMessages.malformedRequestAttachment":
     "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
+  "errorMessages.invalidAttachment":
+    "模型提供商因附件格式或大小不受支持而拒绝了该附件。图片请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用受支持的文件格式，或粘贴相关文本，然后重新附加。",
   "errorMessages.noProviderConnected":
     "尚未连接 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后使用 Builder.io（提供免费套餐）或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
@@ -1071,6 +1088,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
   "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
+  "errorMessages.invalidAttachmentNamed":
+    "模型提供商拒绝了 {{name}}，因为其格式或大小不受支持。图像请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用支持的格式，或粘贴相关文本后重试。",
+  "recovery.retryWithoutAttachment": "不带附件重试",
   "recovery.retryAttachmentUnavailable":
     "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
   "recovery.deferredSubmissionFailed":

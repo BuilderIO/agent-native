@@ -10,12 +10,12 @@ import {
 import { readDesignEditorSource } from "./read-design-editor-source";
 
 describe("rightInspectorCanvasInset", () => {
-  it("reserves the panel width for a visible inspector", () => {
+  it("reserves the panel width for a visible docked inspector", () => {
     expect(
       rightInspectorCanvasInset({
         visible: true,
         width: 240,
-        widgetEmbed: false,
+        minimalUi: false,
       }),
     ).toBe(240);
   });
@@ -25,17 +25,17 @@ describe("rightInspectorCanvasInset", () => {
       rightInspectorCanvasInset({
         visible: false,
         width: 240,
-        widgetEmbed: false,
+        minimalUi: false,
       }),
     ).toBe(0);
   });
 
-  it("reserves nothing in a widget, so a wide pane keeps its full width when something is selected", () => {
+  it("reserves nothing when minimal UI floats the inspector over the canvas, so a selection never refits the screen", () => {
     expect(
       rightInspectorCanvasInset({
         visible: true,
         width: 240,
-        widgetEmbed: true,
+        minimalUi: true,
       }),
     ).toBe(0);
   });
@@ -96,12 +96,18 @@ describe("rightInspectorPanelClassName", () => {
     expect(rightInspectorPanelClassName(true)).toBe(
       FLOATING_RIGHT_INSPECTOR_CLASSNAME,
     );
-    expect(rightInspectorPanelClassName(true)).toContain(
-      "top-3 right-3 bottom-3",
-    );
+    expect(rightInspectorPanelClassName(true)).toContain("top-3 right-3");
     expect(rightInspectorPanelClassName(true)).toContain("rounded-2xl");
     expect(rightInspectorPanelClassName(true)).toContain("shadow-xl");
     expect(rightInspectorPanelClassName(true)).not.toContain("inset-y-0");
+  });
+
+  it("shows the floating card at every width instead of handing off to a drawer", () => {
+    const classes = rightInspectorPanelClassName(true).split(" ");
+    expect(classes).not.toContain("hidden");
+    expect(classes.some((name) => name.endsWith(":flex"))).toBe(false);
+    expect(classes).toContain("flex");
+    expect(classes).toContain("max-w-[calc(100%-1.5rem)]");
   });
 });
 

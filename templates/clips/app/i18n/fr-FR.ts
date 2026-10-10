@@ -2,6 +2,68 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
   },
+  lookbackContext: {
+    includeLast: "Inclure les derniers",
+    whatIsThis: "Qu'est-ce que c'est ?",
+    off: "Désactivé",
+    custom: "Personnalisé…",
+    customLabel: "Durée personnalisée",
+    customAmount: "Durée",
+    customUnit: "Unité",
+    unitSeconds: "secondes",
+    unitMinutes: "minutes",
+    customSave: "Utiliser la durée",
+    customErrorEmpty: "Saisissez une durée.",
+    customErrorInvalid: "Saisissez un nombre entier de secondes ou de minutes.",
+    customErrorTooLong: "Limitez-la à 5 min maximum.",
+    turnOnRewind: "Activer Rewind",
+    rewindOffTitle: "Activer Rewind",
+    rewindOffBody:
+      "Rewind conserve un historique local de votre écran afin que vous puissiez inclure les dernières minutes avant un enregistrement. Les séquences vidéo ne sont envoyées que si vous les incluez ou les approuvez.",
+    requestFailed:
+      "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
+    localOnlyUnavailable:
+      "Le temps d'écran antérieur n'est pas enregistré pour les enregistrements locaux uniquement.",
+    saving: "Enregistrement de {{window}} avant…",
+    ready: "Avec {{window}} avant",
+    failed: "Impossible d'enregistrer le temps d'écran antérieur",
+    unreadable: "Impossible de vérifier le temps d'écran antérieur",
+    edit: "Modifier",
+    editTitle: "Temps d'écran antérieur",
+    editSave: "Enregistrer",
+    editFailed: "Impossible d'enregistrer la fenêtre. Réessayez.",
+    previewPreparing: "Préparation de l'aperçu…",
+    previewFailed: "Impossible de préparer l'aperçu.",
+    previewLabel: "Aperçu du temps d'écran antérieur",
+    retry: "Réessayer",
+    playSelection: "Lire la sélection",
+    removeFailed:
+      "Impossible de supprimer le temps d'écran antérieur de l'enregistrement abandonné.",
+    removeFailedAction:
+      "Impossible de supprimer le temps d'écran antérieur. Réessayez.",
+    removeAction: "Retirer le temps d'écran antérieur",
+    removeConfirmTitle: "Retirer le temps d'écran antérieur ?",
+    removeConfirmBody:
+      "Les séquences vidéo sont déplacées vers la corbeille et le clip ne les inclut plus.",
+    removeConfirm: "Retirer",
+    removed: "Temps d'écran antérieur retiré",
+    scrubberFromBefore: "Depuis {{offset}} avant",
+    scrubberFromStart: "Depuis le début de l'enregistrement",
+    scrubberToBefore: "Jusqu'à {{offset}} avant",
+    scrubberToStart: "Jusqu'au début de l'enregistrement",
+    scrubberLength: "Durée",
+    scrubberStartHandle: "Début de la fenêtre",
+    scrubberEndHandle: "Fin de la fenêtre",
+    tab: "Contexte",
+    label: "Écran avant l'enregistrement",
+    window: "{{start}}–{{end}} avant l'enregistrement",
+    savingEarlierTime: "Enregistrement du temps d'écran antérieur…",
+    loadFailed: "Impossible de charger le temps d'écran antérieur.",
+    empty: "Aucun temps d'écran antérieur n'est joint à ce clip.",
+    larger: "Agrandir",
+    editHint: "Modifiez la fenêtre dans Clips Desktop.",
+    waitingOtherDevice: "En attente de l'appareil qui a enregistré ce clip",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Utiliser Builder.io",
@@ -352,7 +414,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexte de clip lisible par l'agent",
     agentInstructions:
-      "Récupérez agentContextUrl pour la transcription et le cadre JPEG URLs. Récupérez le cadre URLs pour VOIR l'écran, pas seulement lire la transcription.",
+      "Ouvrez d'abord agentContextUrl. Lisez la transcription complète avec apis.transcript et récupérez recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme images. Conservez exactement id et agent_access. En cas d'erreur, consultez failureKind, error et nextStep dans la réponse JSON. Si failureKind=access, expliquez que le lien ne donne pas accès ; pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et d'envoyer le lien généré. Si failureKind=media alors que la transcription fonctionne, expliquez que les médias stockés n'ont pas pu être récupérés et qu'un autre lien ne résoudra pas le problème. Si failureKind=processing, suivez nextStep ; cela ne signifie pas que le clip manque ni que le lien est invalide. Si failureKind=expired, demandez au propriétaire de prolonger ou supprimer l'expiration du clip dans le menu de partage, d'enregistrer, puis de choisir {{shareWithAgents}} et d'envoyer le nouveau lien.",
     untitledClip: "Extrait sans titre",
     incorrectPassword: "Mot de passe incorrect",
     passwordProtected: "Ce clip est protégé par mot de passe",
@@ -616,7 +678,7 @@ const messages = {
     openInCodex: "Ouvrir dans Codex",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
-      "Récupère cette URL de contexte Clips pour agent : {{agentContextUrl}}. Utilise transcript.segments pour le contexte parlé, récupère recommendedFrames ou les URLs de l'API d'images pour voir l'écran, et consulte browserDiagnostics s'il est présent pour les journaux de console expurgés et les métadonnées de requêtes fetch/XHR.",
+      "Lisez cette URL de contexte Clips pour agent : {{agentContextUrl}}. Lisez la transcription complète avec apis.transcript et récupérez recommendedFrames[].url (ou apis.frame.urlTemplate avec atMs) comme images. Conservez exactement id et agent_access. En cas d'erreur, consultez failureKind, error et nextStep dans la réponse JSON. Si failureKind=access, expliquez que le lien ne donne pas accès ; pour un clip privé, demandez au propriétaire de choisir {{shareWithAgents}} dans le menu de partage Clips et d'envoyer le lien généré. Si failureKind=media alors que la transcription fonctionne, expliquez que les médias stockés n'ont pas pu être récupérés et qu'un autre lien ne résoudra pas le problème. Si failureKind=processing, suivez nextStep ; cela ne signifie pas que le clip manque ni que le lien est invalide. Si failureKind=expired, demandez au propriétaire de prolonger ou supprimer l'expiration du clip dans le menu de partage, d'enregistrer, puis de choisir {{shareWithAgents}} et d'envoyer le nouveau lien. Utilisez aussi browserDiagnostics si disponible pour signaler un problème.",
     agentTokenDescription:
       "Lien temporaire en lecture seule pour les agents, car ce clip n’est pas public. Expire dans 2 heures.",
     agentPublicDescription:
@@ -775,6 +837,8 @@ const messages = {
     switchToNightly: "Passer aux versions Nightly",
     switchToStable: "Passer aux versions stables",
     retry: "Réessayer",
+    mountError:
+      "Clips n’a pas pu trouver son chemin dans cet espace de travail. Demandez à l’administrateur de vérifier la configuration du chemin de l’application.",
     heroDescription:
       "Un enregistreur de barre de menus pour l’écran, la caméra et écran + caméra. Démarrage en un clic, bulle caméra déplaçable et lien de partage instantané à l’arrêt.",
     versionReleased: "Version {{version}} — publiée {{date}}",
@@ -837,6 +901,9 @@ const messages = {
     labWisprFlow: "Dictée vocale",
     labWisprFlowDescription:
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
+    labLookbackContext: "Inclure le temps d'écran antérieur",
+    labLookbackContextDescription:
+      "Joindre jusqu'à cinq minutes de temps d'écran antérieur à un enregistrement comme contexte passif.",
     uploadWorkspaceTitle: "Espace actif",
     uploadWorkspaceDescription:
       "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",
@@ -2210,22 +2277,6 @@ const messages = {
     guideStartTitle: "Click Start notes (Localisé)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localisé)",
-  },
-  rewindExtension: {
-    title: "Ajouter ce qui s’est passé avant",
-    description:
-      "Choisissez un intervalle du Rewind local et ajoutez-le au début de ce clip. Rien n’est ajouté automatiquement.",
-    progressLabel: "Progression du traitement de l’historique Rewind",
-    privateFirstTitle: "Rendre d’abord ce clip privé",
-    privateFirstDescription:
-      "L’historique Rewind local peut contenir du contexte antérieur au début de l’enregistrement. Le clip deviendra privé. Si quelqu’un dispose encore d’un accès direct, Clips s’arrêtera pour vous laisser le retirer dans Partager.",
-    makePrivateContinue: "Rendre privé et continuer",
-    add30Seconds: "Ajouter les 30 secondes précédentes",
-    add5Minutes: "Ajouter les 5 minutes précédentes",
-    add5MinutesDescription:
-      "Utile pour retrouver le début d’une explication plus longue.",
-    privateReady:
-      "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
   },
   browserDiagnostics: {
     debug: "Débogage",

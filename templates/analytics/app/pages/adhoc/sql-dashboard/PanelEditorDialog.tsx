@@ -401,7 +401,7 @@ function PanelEditorContent({
         `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. Use chartType 'combo' to render some yKeys as bars and the rest as lines on one chart: set config.barKeys to the subset of yKeys that should render as bars; any yKey not in barKeys renders as a line. Use heatmap, callout, and section panels when their native contracts fit; do not create a Custom Block for a supported native panel. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
-        `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
+        `Discover relevant definitions and dashboard examples with \`find-data\`; open \`list-data-dictionary\` when the user asks to browse entries, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
         `After the mutation saves, read its \`verified\` flag: that, not panelCount, appliedOps, or insertedPanelIds, is the proof the panel renders. On \`verified: false\` or an error, call \`inspect-dashboard-panel\` before saying the panel renders. The UI refreshes automatically.`,
       submit: true,
@@ -749,6 +749,7 @@ function PanelEditorContent({
         <div className="grid gap-3">
           <Label>{t("panelEditor.whatToChart")}</Label>
           <PromptComposer
+            requireAgentEngine
             disabled={isGenerating}
             placeholder={t("panelEditor.promptPlaceholder")}
             draftScope="analytics:add-panel"

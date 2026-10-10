@@ -350,14 +350,17 @@ export default defineAppConfig({
 
 宿主通过 `@agent-native/core/server` 中的 `registerObservabilityProvider()` 注册指标提供程序（meter provider）后，Core 还会记录指标。指标针对每个请求和每次运行记录，不做采样：
 
-| 指标工具                                | 属性                                                                                         |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| 指标工具                                    | 属性                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` 与 `http.server.request.duration` 具有相同的属性和分桶，但它不是在响应钩子开始时结束，而是在钩子把响应交还给运行时时结束。当它的百分位数与 `http.server.request.duration` 的百分位数拉开差距时，说明已完成的响应正被阻塞，例如被内联遥测刷新阻塞。两个百分位数可能来自不同的请求，因此这个差值只是一个信号，而不是某个请求的等待时间。没有 `waitUntil` 时，core 会在该次刷新之后记录样本，因此样本会随下一次刷新到达后端。
 
 在指标中，`gen_ai.tool.name` 是框架操作的名称或 `other`；只有当引擎将某个模型 ID 列为受支持时，`gen_ai.request.model` 才是该模型 ID，否则为 `_OTHER`。因此，应用自定义的工具和调用方传入的模型 ID 不会产生无限增长的序列；span 中保留确切的值。
 
@@ -401,9 +404,11 @@ interface ObservabilityMeterProvider {
 
 ### 在无服务器环境中刷新 {#otel-flush}
 
-无服务器函数在两次调用之间会被冻结，因此 SDK 的导出定时器可能永远不会触发。当已注册的提供程序实现了 `forceFlush()` 时，Core 会在每个请求之后从响应钩子中调用它并等待完成。每次刷新都与同一个共享的 2 秒超时竞速，因此遥测占用响应的时间绝不会超过这个上限。
+无服务器函数在两次调用之间会被冻结，因此 SDK 的导出定时器可能永远不会触发。当已注册的提供程序实现了 `forceFlush()` 时，Core 会在每个请求之后从响应钩子中调用它并等待完成。每次刷新都与同一个共享的 2 秒超时竞速，因此遥测占用响应的时间绝不会超过这个上限。当平台提供 `waitUntil`（Cloudflare，或 Netlify 的调用上下文）时，Core 会把刷新交给它，先发送响应而不是等待。
 
-刷新失败或超时后，Core 会停止等待它，并给 `agent_native.telemetry.flush_failures` 加 1，下一次刷新会导出该计数。超时的导出会继续运行，只要运行时没有先冻结进程，它仍可能送达。该失败的 `error.type` 为 `timeout`，运行时在刷新中途冻结进程时为 `suspended`，否则为错误名称。
+Core 每个进程最多每 10 秒调用一次指标提供程序的 `forceFlush()`，其间的请求会跳过它。每次指标导出都会重新发送进程持有的所有序列，因此这样可以避免上传量随请求速率增长。被跳过的数据点不会丢失：下一次导出会携带它们，除非该实例不再处理任何请求。追踪提供程序在每个请求时都会刷新。
+
+刷新失败或超时后，Core 会停止等待它，并给 `agent_native.telemetry.flush_failures` 加 1，下一次刷新会导出该计数。超时的导出会继续运行，只要运行时没有先冻结进程，它仍可能送达。该失败的 `error.type` 为 `timeout`，运行时在刷新中途冻结进程时为 `suspended`，否则为错误名称。由于持续超时的采集器永远收不到该计数，Core 还会在每个进程中按信号和错误类型，向函数日志写入一行 `agent-native.telemetry_flush_failed`。
 
 在长期运行的服务器上，每次响应后都刷新意味着每个请求导出一次。在这类环境中，请注册不带 `forceFlush()` 的提供程序，让 SDK 自己的定时器负责导出。`@agent-native/core/server` 中的 `isServerlessRuntime()` 可以区分这两种情况。它在 Netlify、Vercel、AWS Lambda 和 Cloudflare 上为 true。
 
