@@ -216,6 +216,18 @@ describe("sendToAgentChat", () => {
     expect(parsed?.context).toBe('{"movieId":969681}');
   });
 
+  it("restaging stamps a fresh staging time over one the caller carried", () => {
+    setAgentChatContextItem({
+      key: "restage",
+      title: "Restage",
+      context: "first",
+      stagedAt: 1,
+    });
+
+    const [item] = listAgentChatContext();
+    expect(item.stagedAt).toBeGreaterThan(1);
+  });
+
   it("never repeats a staging time within one page", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
     try {

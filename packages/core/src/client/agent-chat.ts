@@ -1491,10 +1491,8 @@ export function setAgentChatContextItem(
 ): void {
   const normalized = normalizeAgentChatContextItem(opts);
   if (!normalized || typeof window === "undefined") return;
-  const item = {
-    ...normalized,
-    stagedAt: normalized.stagedAt ?? nextAgentChatStagedAt(),
-  };
+  // Every set gets a fresh staging time; a carried one would keep a replaced item's identity.
+  const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
 
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),
@@ -1517,10 +1515,8 @@ export async function setAgentChatContextItemAndPersist(
   if (!normalized) {
     throw new TypeError("Agent chat context must include a valid item.");
   }
-  const item = {
-    ...normalized,
-    stagedAt: normalized.stagedAt ?? nextAgentChatStagedAt(),
-  };
+  // Every set gets a fresh staging time; a carried one would keep a replaced item's identity.
+  const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
   if (typeof window === "undefined") {
     throw new Error("Agent chat context can only be persisted in a browser.");
   }

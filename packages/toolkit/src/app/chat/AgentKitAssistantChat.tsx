@@ -1110,6 +1110,7 @@ interface AgentKitSurfaceContextValue {
   onComposerSubmissionPendingChange: (pending: boolean) => void;
   isThinkingVisibleInTranscript: boolean;
   contextItems: AgentChatContextItem[];
+  providerContextItems: { current: readonly AgentChatContextItem[] };
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
   voiceTranscriptMessages: AgentMessage[];
@@ -1965,6 +1966,9 @@ const AgentKitAssistantChatBody = forwardRef<
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const previousPrefillRevisionRef = useRef(prefillRevision);
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
+  // Items the composer provider owns; the composer surface keeps this current so
+  // the staging check counts what a submit would also send.
+  const providerContextItems = useRef<readonly AgentChatContextItem[]>([]);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
   const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
@@ -3806,10 +3810,9 @@ const AgentKitAssistantChatBody = forwardRef<
     (rawItem: AgentChatContextItem, focus = true) => {
       const normalized = normalizeAgentChatContextItem(rawItem);
       if (!normalized) return;
-      const item = {
-        ...normalized,
-        stagedAt: normalized.stagedAt ?? nextAgentChatStagedAt(),
-      };
+      // A caller may carry the staging time of an item it read back; a replacement
+      // must not keep the replaced item's identity.
+      const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
       const current = getAgentChatContextState().items;
       const next = current
         .filter((candidate) => candidate.key !== item.key)
@@ -3869,7 +3872,9 @@ const AgentKitAssistantChatBody = forwardRef<
       canStageComposerContextItem: (item) => {
         const scopedKey = `${item.key}:${threadId}`;
         return composerContextFits([
-          ...contextItems.filter((candidate) => candidate.key !== scopedKey),
+          ...[...contextItems, ...providerContextItems.current].filter(
+            (candidate) => candidate.key !== scopedKey,
+          ),
           { ...item, key: scopedKey, targetThreadId: threadId },
         ]);
       },
@@ -3987,6 +3992,7 @@ const AgentKitAssistantChatBody = forwardRef<
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
     isThinkingVisibleInTranscript,
     contextItems,
+    providerContextItems,
     voiceTranscriptMessages,
     selectionLength,
     suggestions: suggestions ?? [],
@@ -4730,6 +4736,7 @@ function AgentKitComposerSurface({
   setupBouncePulse,
   bounceSetupCard,
   contextItems,
+  providerContextItems,
   selectionLength,
   prefillRevision,
   text,
@@ -4767,6 +4774,7 @@ function AgentKitComposerSurface({
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   contextItems: AgentChatContextItem[];
+  providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -4785,6 +4793,12 @@ function AgentKitComposerSurface({
 }) {
   const t = useT();
   const [composerError, setComposerError] = useState<string | null>(null);
+  React.useLayoutEffect(() => {
+    providerContextItems.current = composerContext?.contextItems ?? [];
+    return () => {
+      providerContextItems.current = [];
+    };
+  }, [composerContext?.contextItems, providerContextItems]);
   const mounted = useRef(true);
   const submissionAllowed = useRef(false);
   submissionAllowed.current =

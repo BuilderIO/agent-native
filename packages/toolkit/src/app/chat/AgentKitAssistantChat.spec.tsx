@@ -1033,6 +1033,87 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
   });
 
+  it("restaging a read-back item during an in-flight send keeps the replacement", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "shared-reference",
+          title: "Reference",
+          context: "Reference: a",
+        },
+        { focus: false },
+      ),
+    );
+    const [readBack] = chatMocks.composerProps.contextItems;
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Use the reference", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        { ...readBack, context: "Reference: b" },
+        { focus: false },
+      ),
+    );
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "shared-reference",
+        context: "Reference: b",
+      }),
+    ]);
+  });
+
+  it("counts provider-owned context against the prefill capacity", async () => {
+    const providerItem = {
+      key: "provider-reference",
+      title: "Provider",
+      context: "p".repeat(60 * 1024),
+    };
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: [providerItem],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div />,
+      prepareSubmission: vi.fn(async () => [providerItem]),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "prefill",
+        title: "Prefill",
+        context: "x".repeat(1024),
+      }),
+    ).toBe(true);
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "prefill",
+        title: "Prefill",
+        context: "x".repeat(8 * 1024),
+      }),
+    ).toBe(false);
+  });
+
   it("uses the action widget renderer for action chat UI output", async () => {
     await mount(baseProps());
 
