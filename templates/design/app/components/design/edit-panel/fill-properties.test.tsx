@@ -90,9 +90,13 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       supportsLayeredFills?: boolean;
       singlePaint?: boolean;
       supportedPaintTypes?: string[];
+      documentColors?: string[];
+      onOpenChange?: (open: boolean) => void;
     }) =>
       createElement("div", {
         "data-testid": "base-fill-color-input",
+        "data-document-colors": props.documentColors?.join(",") ?? "",
+        onClick: () => props.onOpenChange?.(true),
         "data-value": props.value,
         "data-background-image": props.backgroundImage ?? "",
         "data-background-size": props.backgroundSize ?? "",
@@ -476,6 +480,38 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-size="cover, 100% 100%"');
     expect(markup).toContain('data-background-repeat="no-repeat, repeat"');
     expect(markup).toContain('data-background-position="center, 0% 0%"');
+  });
+
+  it("reads the subtree's colors for the picker swatches only once a fill picker opens", () => {
+    const readSubtreeColorStyles = vi.fn(() => [{ color: "#101828ff" }]);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        createElement(FillProperties, {
+          element: element({
+            computedStyles: { backgroundColor: "rgb(255, 255, 255)" },
+            styleSnapshotReadOnDemand: true,
+          }),
+          onStyleChange: vi.fn(),
+          readSubtreeColorStyles,
+        }),
+      ),
+    );
+    const input = () =>
+      container.querySelector<HTMLElement>(
+        '[data-testid="base-fill-color-input"]',
+      )!;
+    expect(readSubtreeColorStyles).not.toHaveBeenCalled();
+    expect(input().dataset.documentColors).toBe("#ffffff");
+
+    act(() => input().click());
+
+    expect(readSubtreeColorStyles).toHaveBeenCalledTimes(1);
+    expect(input().dataset.documentColors).toBe("#ffffff,#101828");
+    act(() => root.unmount());
+    container.remove();
   });
 
   it("uses a visible background for a text-bearing control", () => {

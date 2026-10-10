@@ -1220,6 +1220,9 @@ function replaceScopedColorTokensInHtml(
 export function selectionColorValues(
   element: ElementInfo | ElementInfo[],
   scopes: SelectionColorScope[] = [],
+  readSubtreeColorStyles?: (
+    element: ElementInfo,
+  ) => Array<Record<string, string>>,
 ): SelectionColorValue[] {
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
@@ -1257,6 +1260,11 @@ export function selectionColorValues(
       current.portableStyleSnapshot?.nodes.forEach((node) =>
         addStyleColors(values, node.styles, true),
       );
+      if (current.styleSnapshotReadOnDemand) {
+        readSubtreeColorStyles?.(current).forEach((styles) =>
+          addStyleColors(values, styles, true),
+        );
+      }
       if (current.htmlContent) {
         scanColorTokens(current.htmlContent).tokens.forEach(
           ({ value: token }) => addColorValue(values, "color", token),

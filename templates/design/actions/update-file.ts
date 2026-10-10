@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   CollabBaseVersionConflictError,
   applyTextToYDoc,
@@ -22,6 +22,7 @@ import {
   readLiveSourceFile,
   readPreparedSourceText,
   SourceWorkspaceEditConflictError,
+  type SourceWorkspaceFile,
   withDesignSourceMutationTransaction,
   withPreparedSourceFileMutation,
   withSourceFileWriteLock,
@@ -29,7 +30,11 @@ import {
 } from "../server/source-workspace.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
+import {
+  applySourceContentPatch,
+  sourceContentHash,
+  type SourceContentPatch,
+} from "../shared/source-workspace.js";
 import {
   assertDesignWidgetWriteScope,
   designWidgetWriteDesignId,
@@ -40,6 +45,34 @@ function logSaveConflictDebug(
   detail: Record<string, unknown>,
 ): void {
   console.warn(`[update-file:debug] ${event}`, detail);
+}
+
+function contentChangedConflict(): Error & { statusCode?: number } {
+  const conflict = new Error(
+    "File changed since it was read. Re-read the file and retry.",
+  ) as Error & { statusCode?: number };
+  conflict.statusCode = 409;
+  return conflict;
+}
+
+// Resolved before the write lock: the full content it yields goes through the
+// same expectedVersionHash check under the lock as a client-sent document.
+async function contentFromPatch(
+  file: SourceWorkspaceFile,
+  expectedVersionHash: string,
+  patch: SourceContentPatch,
+): Promise<string> {
+  const live = await readLiveSourceFile(file);
+  if (live.versionHash === patch.resultHash) return live.content;
+  if (live.versionHash !== expectedVersionHash) throw contentChangedConflict();
+  const content = applySourceContentPatch(live.content, patch);
+  if (sourceContentHash(content) !== patch.resultHash) {
+    fail("The content patch did not produce its result hash.", {
+      errorCode: "content_patch_mismatch",
+      statusCode: 422,
+    });
+  }
+  return content;
 }
 
 function fileNotFound(id: string): Error & { statusCode?: number } {
@@ -59,6 +92,19 @@ export default defineAction({
     .object({
       id: z.string().describe("File ID to update"),
       content: z.string().optional().describe("Updated file content"),
+      contentPatch: z
+        .object({
+          start: z.number().int().nonnegative(),
+          deleteCount: z.number().int().nonnegative(),
+          text: z.string(),
+          resultHash: z.string().min(1),
+        })
+        .optional()
+        .describe(
+          "Instead of content: one splice applied to the live content whose " +
+            "sourceContentHash is expectedVersionHash. resultHash is the " +
+            "sourceContentHash of the content the splice produces.",
+        ),
       filename: z.string().optional().describe("New filename"),
       fileType: z
         .enum(["html", "css", "jsx", "asset"])
@@ -122,6 +168,31 @@ export default defineAction({
               : ["operationRevision"],
         });
       }
+      if (value.contentPatch !== undefined) {
+        if (value.content !== undefined || value.identityOnly === true) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "contentPatch replaces content and cannot be an identity-only update.",
+            path: ["contentPatch"],
+          });
+        }
+        if (!value.expectedVersionHash) {
+          ctx.addIssue({
+            code: "custom",
+            message: "contentPatch requires expectedVersionHash.",
+            path: ["expectedVersionHash"],
+          });
+        }
+        if (value.syncCollab === false) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "contentPatch cannot be combined with syncCollab: false. Send the full content for a write that skips collaboration sync.",
+            path: ["syncCollab"],
+          });
+        }
+      }
       if (value.identityOnly === true) {
         if (value.content === undefined || !value.expectedVersionHash) {
           ctx.addIssue({
@@ -165,7 +236,8 @@ export default defineAction({
   run: async (
     {
       id,
-      content,
+      content: requestedContent,
+      contentPatch,
       filename,
       fileType,
       syncCollab,
@@ -222,7 +294,7 @@ export default defineAction({
 
     assertDesignWidgetWriteScope(file.designId, context, {
       actionName: "update-file",
-      content,
+      content: requestedContent ?? contentPatch?.text,
       expectedVersionHash,
       syncCollab,
     });
@@ -234,6 +306,10 @@ export default defineAction({
       { allowCheckpointFailureSkip: true },
     );
     const checkpointField = checkpointSkippedResultField(checkpoint);
+    const content =
+      contentPatch && expectedVersionHash
+        ? await contentFromPatch(file, expectedVersionHash, contentPatch)
+        : requestedContent;
 
     if (identityOnly === true) {
       if (
@@ -445,11 +521,7 @@ export default defineAction({
                   liveContentHash: sourceContentHash(liveContent),
                   persistedMirrorHash: persistedContentHash,
                 });
-                const conflict = new Error(
-                  "File changed since it was read. Re-read the file and retry.",
-                ) as Error & { statusCode?: number };
-                conflict.statusCode = 409;
-                throw conflict;
+                throw contentChangedConflict();
               }
             }
           }

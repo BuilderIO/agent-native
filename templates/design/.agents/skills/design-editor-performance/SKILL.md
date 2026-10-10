@@ -74,7 +74,10 @@ warm count are constants at the top of `MultiScreenCanvas.tsx`.
    and compares with `scripts/runtime-budget.json`. It exits 0 within budget,
    1 over budget, and 2 when a step did not take effect. It runs as the
    `Runtime budget` check of the Design E2E workflow, on the same pull requests
-   that workflow already runs for. The gates (heap, blanked screens, live
+   that workflow already runs for. It measures in full Chromium, where static
+   previews get a renderer of their own as they do in Chrome. Heap gates named
+   `editorHeap…` read the editor's renderer; `totalHeap…` sums every
+   renderer, previews included. The gates (heap, blanked screens, live
    editors) each carry their reason in the JSON; editor churn and frame times
    are reported only, because shared runners are too noisy for a fixed limit.
    When a change improves a gated number, lower its `max` in the same PR.

@@ -184,7 +184,6 @@ export function useEditorLiveEditsAndPresence({
     activeEditorDragRef,
     activeEditorDragScreenIdRef,
     setLayerStructurePreviewByFileId,
-    canvasIframeRef,
     resolveSelectorRectInIframe,
     resolveTextQuoteRectInIframe,
     resolveSelectorRect,
@@ -976,33 +975,15 @@ export function useEditorLiveEditsAndPresence({
         return;
       }
       setSelectedStateId(stateId);
-      const win = canvasIframeRef.current?.contentWindow;
-      if (!win) return;
-
-      if (stateId === null) {
-        win.postMessage(
-          {
-            type: "replace-document-content",
-            content: activeContent,
-            forceFullDocument: true,
-          },
-          "*",
-        );
-        return;
-      }
-
-      const html = designStatePreviewHtml(row);
-      if (!html) return;
-      win.postMessage(
-        {
-          type: "replace-document-content",
-          content: html,
-          forceFullDocument: true,
-        },
-        "*",
-      );
+      const content =
+        stateId === null ? activeContent : designStatePreviewHtml(row);
+      if (!content) return;
+      // Through the canvas, so a later node swap diffs against what its frame shows.
+      const replaceContent = (window as any).__designCanvasReplaceContent;
+      if (typeof replaceContent !== "function") return;
+      replaceContent(content, null, [], { forceFullDocument: true });
     },
-    [activeContent, canvasIframeRef],
+    [activeContent],
   );
   const liveScreenIds = useMemo(
     () =>

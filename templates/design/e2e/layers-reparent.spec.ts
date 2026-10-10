@@ -72,25 +72,8 @@ test.describe.serial("layers menu structure operations", () => {
     const before = await visibleLayerNames(page);
     expect(before.indexOf("Alpha Button")).toBeGreaterThanOrEqual(0);
     expect(before.indexOf("Beta Button")).toBeGreaterThanOrEqual(0);
-    expect(before.indexOf("Beta Button")).toBeLessThan(
-      before.indexOf("Alpha Button"),
-    );
-
-    await layerRow(page, "Alpha Button").dragTo(layerRow(page, "Beta Button"), {
-      targetPosition: { x: 24, y: 2 },
-    });
-
-    await expect
-      .poll(async () => {
-        const names = await visibleLayerNames(page);
-        return names.indexOf("Alpha Button") < names.indexOf("Beta Button");
-      })
-      .toBe(true);
-
-    await clickLayerRow(page, "Beta Button");
-    await expect(layerRow(page, "Beta Button")).toHaveAttribute(
-      "aria-selected",
-      "true",
+    expect(before.indexOf("Alpha Button")).toBeLessThan(
+      before.indexOf("Beta Button"),
     );
 
     await layerRow(page, "Beta Button").dragTo(layerRow(page, "Alpha Button"), {
@@ -101,6 +84,23 @@ test.describe.serial("layers menu structure operations", () => {
       .poll(async () => {
         const names = await visibleLayerNames(page);
         return names.indexOf("Beta Button") < names.indexOf("Alpha Button");
+      })
+      .toBe(true);
+
+    await clickLayerRow(page, "Alpha Button");
+    await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    await layerRow(page, "Alpha Button").dragTo(layerRow(page, "Beta Button"), {
+      targetPosition: { x: 24, y: 2 },
+    });
+
+    await expect
+      .poll(async () => {
+        const names = await visibleLayerNames(page);
+        return names.indexOf("Alpha Button") < names.indexOf("Beta Button");
       })
       .toBe(true);
   });

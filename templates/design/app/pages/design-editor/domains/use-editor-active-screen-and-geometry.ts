@@ -63,7 +63,10 @@ import {
   optimisticRemoveBreakpointData,
 } from "../commands/optimistic-breakpoint-mutation";
 import { runPersistFrameGeometrySave } from "../commands/persist-frame-geometry-save";
-import { runWriteFrameGeometrySnapshot } from "../commands/write-frame-geometry-snapshot";
+import {
+  refetchDesignAfterGeometrySaves,
+  runWriteFrameGeometrySnapshot,
+} from "../commands/write-frame-geometry-snapshot";
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
@@ -122,10 +125,6 @@ import {
   findInteractDevicePreset,
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
-import {
-  classifyDesignSaveFailure,
-  designSaveErrorMessage,
-} from "../save-failure";
 import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
@@ -360,7 +359,7 @@ export function useEditorActiveScreenAndGeometry({
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
     creativeContextEnabled,
-    warnChangesWillRetry,
+    reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
@@ -442,6 +441,19 @@ export function useEditorActiveScreenAndGeometry({
   >([]);
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
+  );
+  const frameGeometrySavesInFlightRef = useRef(0);
+  const designRefetchCancelledRef = useRef(false);
+  const refetchDesignCancelledByGeometryWrite = useCallback(
+    () =>
+      refetchDesignAfterGeometrySaves({
+        designRefetchCancelledRef,
+        frameGeometrySavesInFlightRef,
+        id,
+        pendingFrameGeometrySaveRef,
+        queryClient,
+      }),
+    [id, queryClient],
   );
   const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
     useState(false);
@@ -602,6 +614,7 @@ export function useEditorActiveScreenAndGeometry({
       );
       if (operationsForRevision.length === 0) return false;
       const operationSource = designSaveOperationSourceRef.current;
+      frameGeometrySavesInFlightRef.current += 1;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
         .catch(() => {})
@@ -744,25 +757,18 @@ export function useEditorActiveScreenAndGeometry({
                   "Reconciled frame geometry save remains queued for retry.",
                   reconciledEntryRetryFailure.error,
                 );
-                warnChangesWillRetry();
-              } else if (
-                classifyDesignSaveFailure(error, navigator.onLine) === "offline"
-              ) {
-                warnChangesWillRetry();
-              } else {
-                toast.error(
-                  designSaveErrorMessage(error) ?? t("common.genericError"),
-                  { id: "design-geometry-save-error" },
-                );
               }
+              reportSaveFailure(reconciledEntryRetryFailure?.error ?? error);
             }
           }
         });
       frameGeometryMutationChainRef.current = current;
       void current.finally(() => {
+        frameGeometrySavesInFlightRef.current -= 1;
         if (frameGeometryMutationChainRef.current === current) {
           frameGeometryMutationChainRef.current = Promise.resolve();
         }
+        refetchDesignCancelledByGeometryWrite();
       });
       return true;
     },
@@ -772,10 +778,10 @@ export function useEditorActiveScreenAndGeometry({
       id,
       journalOutboxEntry,
       queryClient,
+      refetchDesignCancelledByGeometryWrite,
       saveDesignDataAsync,
-      t,
       shellMode,
-      warnChangesWillRetry,
+      reportSaveFailure,
     ],
   );
 
@@ -887,7 +893,7 @@ export function useEditorActiveScreenAndGeometry({
           journalOutboxEntry,
           pendingFrameGeometryOperationsForUnloadRef,
           queryClient,
-          warnChangesWillRetry,
+          reportSaveFailure,
         },
         pending,
         keepalive,
@@ -900,7 +906,7 @@ export function useEditorActiveScreenAndGeometry({
       id,
       journalOutboxEntry,
       queryClient,
-      warnChangesWillRetry,
+      reportSaveFailure,
     ],
   );
 
@@ -914,9 +920,10 @@ export function useEditorActiveScreenAndGeometry({
       if (!pending) return;
       if (persistFrameGeometrySave(pending, keepalive)) {
         pendingFrameGeometrySaveRef.current = null;
+        refetchDesignCancelledByGeometryWrite();
       }
     },
-    [persistFrameGeometrySave],
+    [persistFrameGeometrySave, refetchDesignCancelledByGeometryWrite],
   );
 
   const queueFrameGeometrySave = useCallback(
@@ -990,6 +997,7 @@ export function useEditorActiveScreenAndGeometry({
           boardFileId,
           canEditDesignRef,
           designDataJsonRef,
+          designRefetchCancelledRef,
           enqueueFrameGeometryDataSave,
           frameGeometrySaveTimerRef,
           id,
@@ -1148,6 +1156,7 @@ export function useEditorActiveScreenAndGeometry({
           captureCurrentSelection,
           clearRedoStacks,
           designDataJsonRef,
+          designRefetchCancelledRef,
           geometryUndoStackRef,
           historyOrderRef: historyOrderRef as React.RefObject<
             UndoRedoOrderKind[]
@@ -1286,8 +1295,8 @@ export function useEditorActiveScreenAndGeometry({
         );
         if (!attempt.accepted) return;
         void attempt.completion
-          .then(() => acknowledgeFrameGeometryOutboxEntry(entry))
-          .catch(warnChangesWillRetry);
+          .then(() => acknowledgeOutboxEntry(entry))
+          .catch(reportSaveFailure);
         return;
       }
       persistFrameGeometrySave(pending, true);
@@ -1303,14 +1312,12 @@ export function useEditorActiveScreenAndGeometry({
     flushPendingFrameGeometrySave,
     journalOutboxEntry,
     persistFrameGeometrySave,
-    warnChangesWillRetry,
+    reportSaveFailure,
   ]);
 
   useEffect(() => {
     const handleBackground = () => {
-      void flushPendingFileContentSavesForBackground().catch(
-        warnChangesWillRetry,
-      );
+      void flushPendingFileContentSavesForBackground().catch(reportSaveFailure);
       flushPendingTweakSave();
       flushPendingFrameGeometrySave();
     };

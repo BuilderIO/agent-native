@@ -14,6 +14,7 @@ const clipboard = vi.hoisted(() => ({
 
 vi.mock("@/lib/design-clipboard", () => clipboard);
 
+import type { PortableStyleSnapshotRead } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
   ElementInfo,
   PortableStyleSnapshot,
@@ -33,6 +34,10 @@ import { runGetSelectedLayerSnapshots } from "./get-selected-layer-snapshots";
 
 function ref<T>(current: T): RefObject<T> {
   return { current } as RefObject<T>;
+}
+
+function noFrameAnswers(): PortableStyleSnapshotRead {
+  return { status: "missing" };
 }
 
 describe("copying a runtime-projected layer", () => {
@@ -90,6 +95,7 @@ describe("copying a runtime-projected layer", () => {
       overviewScreens: [],
       overviewSelectedScreenIds: [],
       pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
       runtimeLayerSnapshotsById: {},
       setHasCanvasClipboard: () => {},
       t: (key) => key,
@@ -178,6 +184,7 @@ describe("copying a runtime-projected layer", () => {
       overviewScreens: [],
       overviewSelectedScreenIds: [],
       pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
       runtimeLayerSnapshotsById: {},
       setHasCanvasClipboard: () => {},
       t: (key) => key,
@@ -290,6 +297,7 @@ describe("copying a runtime-projected layer", () => {
       overviewScreens,
       overviewSelectedScreenIds: [],
       pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
       runtimeLayerSnapshotsById,
       setHasCanvasClipboard: () => {},
       t: (key) => key,
@@ -308,5 +316,129 @@ describe("copying a runtime-projected layer", () => {
       )?.entries[0]?.sourceParentNodeId,
     ).toBe("runtime-group");
     expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("copying a layer whose selection carries no style snapshot", () => {
+  const file: DesignFile = {
+    id: "screen-a",
+    filename: "index.html",
+    fileType: "html",
+    content:
+      '<!doctype html><html><body><div class="card" data-agent-native-node-id="node-1">Copy</div></body></html>',
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const capturedSnapshot: PortableStyleSnapshot = {
+    version: 1,
+    rootSourceId: "node-1",
+    nodes: [
+      { sourceId: "node-1", path: [], styles: { color: "rgb(1, 2, 3)" } },
+    ],
+  };
+
+  beforeEach(() => clipboard.writeDesignClipboard.mockClear());
+
+  function copyWith(
+    readPortableStyleSnapshot: (
+      screenId: string,
+      selector: string,
+    ) => PortableStyleSnapshotRead,
+  ) {
+    const projection = buildCodeLayerProjection(file.content!, {
+      source: { kind: "design-file", fileId: file.id },
+    });
+    const node = projection.nodes.find((candidate) => candidate.tag === "div")!;
+    const snapshots = runGetSelectedLayerSnapshots({
+      activeFile: file,
+      designSourceType: "inline",
+      files: [file],
+      getFreshActiveContent: () => file.content!,
+      getScreenContent: () => file.content!,
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      runtimeLayerSnapshotsById: {},
+      selectedElement: { tagName: "div", classes: ["card"] } as ElementInfo,
+      selectedElementLayerId: node.id,
+      selectedLayerIdsState: [node.id],
+    });
+    expect(snapshots[0]?.portableStyleSnapshot).toBeUndefined();
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    const copying = runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
+        undefined,
+      ),
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => snapshots,
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("single"),
+    });
+    return { copying, copiedLayerEntriesRef };
+  }
+
+  it("reads the snapshot from the layer's frame and writes it during the gesture", async () => {
+    const read = vi.fn(
+      (): PortableStyleSnapshotRead => ({
+        status: "captured",
+        snapshot: capturedSnapshot,
+      }),
+    );
+    const { copying, copiedLayerEntriesRef } = copyWith(read);
+
+    expect(read).toHaveBeenCalledWith(
+      "screen-a",
+      '[data-agent-native-node-id="node-1"]',
+    );
+    expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(1);
+    expect(
+      parseDesignClipboardMarker(
+        clipboard.writeDesignClipboard.mock.calls[0]?.[0].html,
+        "local-clipboard-token",
+      )?.entries[0]?.portableStyleSnapshot,
+    ).toEqual(capturedSnapshot);
+    await copying;
+    expect(copiedLayerEntriesRef.current[0]?.portableStyleSnapshot).toEqual(
+      capturedSnapshot,
+    );
+  });
+
+  it("marks the entry as a failed capture when the frame could not capture it", async () => {
+    const { copying, copiedLayerEntriesRef } = copyWith(() => ({
+      status: "failed",
+    }));
+    await copying;
+
+    expect(copiedLayerEntriesRef.current[0]).toMatchObject({
+      styleSnapshotCaptureFailed: true,
+    });
+    expect(
+      copiedLayerEntriesRef.current[0]?.portableStyleSnapshot,
+    ).toBeUndefined();
+  });
+
+  it("copies without a snapshot when no frame renders the layer", async () => {
+    const { copying, copiedLayerEntriesRef } = copyWith(noFrameAnswers);
+    await copying;
+
+    expect(copiedLayerEntriesRef.current[0]?.portableStyleSnapshot).toBe(
+      undefined,
+    );
+    expect(copiedLayerEntriesRef.current[0]?.styleSnapshotCaptureFailed).toBe(
+      undefined,
+    );
   });
 });

@@ -1,5 +1,7 @@
 import type { TweakSelections } from "@shared/resolve-tweaks";
 
+import { classifyDesignSaveFailure } from "./save-failure";
+
 export interface PendingTweakSave {
   selections: TweakSelections;
   revision: number;
@@ -61,19 +63,20 @@ export async function sendJournaledTweakSaveKeepalive(options: {
   return true;
 }
 
-export type TweakSaveFailureKind =
-  | "conflict"
-  | "durable-retry"
-  | "tab-memory-only";
+export type TweakSaveFailureKind = "conflict" | "durable-retry" | "not-saved";
 
 export function classifyTweakSaveFailure(
   error: unknown,
   journaled: boolean,
+  navigatorOnline: boolean,
 ): TweakSaveFailureKind {
   const status =
     error && typeof error === "object" && "status" in error
       ? (error as { status?: unknown }).status
       : undefined;
   if (status === 409) return "conflict";
-  return journaled ? "durable-retry" : "tab-memory-only";
+  return journaled &&
+    classifyDesignSaveFailure(error, navigatorOnline) === "offline"
+    ? "durable-retry"
+    : "not-saved";
 }

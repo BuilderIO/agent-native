@@ -27,3 +27,21 @@ it("drops the oldest results once their documents outgrow the character budget",
   expect(memo.has(older)).toBe(false);
   expect(memo.has(newer)).toBe(true);
 });
+
+it("derives from a named earlier document even after other documents were used since", () => {
+  const compute = vi.fn((content: string) => content.length);
+  const memo = memoizeByContent(
+    16,
+    compute,
+    (previousContent, previous, content) =>
+      content.startsWith(previousContent) ? previous + 1000 : null,
+  );
+  memo("edited");
+  for (const other of ["p", "q", "r", "s", "t"]) memo(other);
+  compute.mockClear();
+
+  expect(memo.derivedFrom("edited", "edited-undone")).toBe(1006);
+  expect(compute).not.toHaveBeenCalled();
+  expect(memo.derivedFrom("never-seen", "fresh")).toBe(5);
+  expect(compute).toHaveBeenCalledTimes(1);
+});

@@ -53,6 +53,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
   var designCanvasContentOffsetY =
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+  // A subtree style snapshot can cost a second on a deep screen, so only a frame
+  // the parent cannot call into ships one with every element info.
+  var portableStyleSnapshotsReadOnDemand = Boolean(window.frameElement);
 
   function clipboardScreenContext() {
     return !designCanvasBoardSurface && designCanvasScreenId
@@ -3405,6 +3408,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  // display:none here or on an ancestor (a breakpoint frame hiding `md:flex`)
+  // leaves no box, and getBoundingClientRect() then reads 0x0 at the origin.
+  function hasLayoutBox(el: Element): boolean {
+    return el.getClientRects().length > 0;
+  }
+
   function outermostSvgAncestor(el: Element | null): Element | null {
     var owner = el && (el as SVGElement).ownerSVGElement;
     if (!owner) return null;
@@ -4587,6 +4596,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var portableStyleProbeDoc: Document | null | undefined;
   var portableStyleProbeContainer: HTMLElement | ShadowRoot | null | undefined;
+  var portableStyleProbeHost: Element | undefined;
+
+  // Tag defaults are cached, so the probe lives only for the task that needed
+  // it; kept, it is a second document for the life of every selected editor.
+  function releasePortableStyleProbe(): void {
+    portableStyleProbeHost?.remove();
+    portableStyleProbeHost = undefined;
+    portableStyleProbeDoc = undefined;
+    portableStyleProbeContainer = undefined;
+  }
 
   function portableStyleProbeDocument(): Document | null {
     if (portableStyleProbeDoc !== undefined) return portableStyleProbeDoc;
@@ -4595,6 +4614,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     try {
       frame = document.createElement("iframe");
       frame.setAttribute("aria-hidden", "true");
+      // An overlay node, so creating it mid-snapshot leaves the style cache valid.
+      frame.setAttribute("data-agent-native-edit-overlay", "style-probe");
       frame.tabIndex = -1;
       frame.style.cssText =
         "position:fixed!important;width:0!important;height:0!important;" +
@@ -4602,21 +4623,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.body.appendChild(frame);
       var probeDoc = frame.contentDocument;
       if (probeDoc) {
+        portableStyleProbeHost = frame;
         portableStyleProbeDoc = probeDoc;
         portableStyleProbeContainer = probeDoc.body;
       } else {
         frame.remove();
         var fallbackHost = document.createElement("div");
         fallbackHost.setAttribute(
+          "data-agent-native-edit-overlay",
+          "style-probe",
+        );
+        fallbackHost.setAttribute(
           "style",
           "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
         );
         document.body.appendChild(fallbackHost);
+        portableStyleProbeHost = fallbackHost;
         portableStyleProbeDoc = document;
         portableStyleProbeContainer = fallbackHost.attachShadow({
           mode: "open",
         });
       }
+      window.setTimeout(releasePortableStyleProbe, 0);
     } catch (err) {
       frame?.remove();
       console.warn("Portable style probe unavailable", err);
@@ -5762,6 +5790,85 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  var srgbColorContext: CanvasRenderingContext2D | null | undefined;
+  var srgbColorByValue = new Map<string, string>();
+
+  // Computed Tailwind v4 colors stay in oklch(), which the editor's color
+  // parsing cannot read, so each one is painted once and read back as hex.
+  function srgbColor(value: string): string {
+    var known = srgbColorByValue.get(value);
+    if (known !== undefined) return known;
+    if (srgbColorContext === undefined) {
+      srgbColorContext = document
+        .createElement("canvas")
+        .getContext("2d", { willReadFrequently: true });
+    }
+    if (!srgbColorContext) return value;
+    srgbColorContext.clearRect(0, 0, 1, 1);
+    srgbColorContext.fillStyle = value;
+    srgbColorContext.fillRect(0, 0, 1, 1);
+    var hex = "#";
+    srgbColorContext.getImageData(0, 0, 1, 1).data.forEach(function (channel) {
+      hex += channel.toString(16).padStart(2, "0");
+    });
+    srgbColorByValue.set(value, hex);
+    return hex;
+  }
+
+  function srgbColorTokens(value: string): string {
+    return value.replace(
+      /\b(?:oklch|oklab|lch|lab|hwb|color)\([^()]*\)/g,
+      srgbColor,
+    );
+  }
+
+  function hasOwnText(el: Element): boolean {
+    for (var child = el.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === 3 && child.textContent?.trim()) return true;
+    }
+    return false;
+  }
+
+  function paintedColorStyles(el: Element): Record<string, string> {
+    var cs = window.getComputedStyle(el);
+    var styles: Record<string, string> = {};
+    var read = function (property: string) {
+      styles[property] = srgbColorTokens(cs.getPropertyValue(property));
+    };
+    if (hasOwnText(el)) read("color");
+    read("background-color");
+    if (cs.backgroundImage !== "none") read("background-image");
+    ["top", "right", "bottom", "left"].forEach(function (side) {
+      if (portableBorderSidePaints(cs, side)) read("border-" + side + "-color");
+    });
+    if (cs.boxShadow !== "none") read("box-shadow");
+    if (
+      el instanceof SVGGeometryElement ||
+      el instanceof SVGTextContentElement
+    ) {
+      if (cs.fill !== "none") read("fill");
+      if (cs.stroke !== "none") read("stroke");
+    }
+    return styles;
+  }
+
+  // Swatches only need painted colors, so this skips the full snapshot's
+  // per-node work; the cap keeps a huge subtree from stalling a picker opening.
+  var SUBTREE_COLOR_NODE_LIMIT = 5000;
+
+  function collectSubtreeColorStyles(
+    root: Element,
+  ): Array<Record<string, string>> | null {
+    srgbColorByValue.clear();
+    var nodes = [paintedColorStyles(root)];
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (nodes.length >= SUBTREE_COLOR_NODE_LIMIT) return null;
+      nodes.push(paintedColorStyles(node as Element));
+    }
+    return nodes;
+  }
+
   // Raw authored (not computed) inline style values for the properties the
   // EditPanel constraints/position/auto-size readers need to distinguish
   // "unset" from "resolved to a computed pixel value" (e.g. an absolutely
@@ -6443,7 +6550,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function getElementInfo(
     el: Element,
     portableComputedStylesCache?: PortableStyleComputedStylesCache,
-    includePortableStyleSnapshot = true,
+    includePortableStyleSnapshot = !portableStyleSnapshotsReadOnDemand,
     sharedPositionComputedStylesCache?: PositionComputedStylesCache,
   ): unknown {
     var cs = window.getComputedStyle(el);
@@ -6578,6 +6685,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         portableStyleSnapshot === null ? undefined : portableStyleSnapshot,
       styleSnapshotCaptureFailed:
         portableStyleSnapshot === null ? true : undefined,
+      styleSnapshotReadOnDemand:
+        portableStyleSnapshotsReadOnDemand || undefined,
       boundingRect,
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
@@ -6873,7 +6982,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
       });
     }
-    portableStyleProbeDocument();
     var portableComputedStylesCache = createPortableStyleComputedStylesCache();
     try {
       return targets.map(function (target) {
@@ -11412,13 +11520,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     setSelectionOverlayResizeChromeVisible(
       !readOnly && !activeTextEditEl && members.length < 2,
     );
-    if (members.length === 0 || selectionChromeHidden) {
+    var laidOutMembers = members.filter(hasLayoutBox);
+    if (laidOutMembers.length === 0 || selectionChromeHidden) {
       if (multiSelectionBoundsOverlay) {
         multiSelectionBoundsOverlay.style.display = "none";
       }
       return;
     }
-    var rects = members.map(function (el) {
+    var rects = laidOutMembers.map(function (el) {
       return (el as HTMLElement).getBoundingClientRect();
     });
     var left = Math.min.apply(
@@ -11483,9 +11592,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function positionOverlay(overlay: HTMLElement, el: Element): void {
-    if (!el || !document.documentElement.contains(el)) {
+    if (!el || !document.documentElement.contains(el) || !hasLayoutBox(el)) {
       overlay.style.display = "none";
-      if (overlay === selectionOverlay) hideSelectionOverlay();
+      if (overlay === selectionOverlay) {
+        hideSelectionOverlay();
+        // Still observed, so a selection hidden at this width reappears once it renders.
+        syncOverlayObservers();
+      }
       return;
     }
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
@@ -14046,8 +14159,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }> = [];
     // The hit stack is nested, so each candidate's subtree snapshot contains
     // the next one's; a shared cache reads each element's styles once.
-    portableStyleProbeDocument();
-    var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+    var portableComputedStylesCache = portableStyleSnapshotsReadOnDemand
+      ? undefined
+      : createPortableStyleComputedStylesCache();
     try {
       pointTargets.forEach(function (pointTarget) {
         if (!pointTarget || pointTarget.nodeType !== 1) return;
@@ -18297,6 +18411,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "li",
   ];
 
+  // Only inline runs keep a parent one block of text; a heading or paragraph
+  // child makes it a stack of layers, as the layer tree in code-layer.ts does.
+  var BRIDGE_INLINE_TEXT_TAGS = [
+    "a",
+    "abbr",
+    "b",
+    "bdi",
+    "bdo",
+    "cite",
+    "code",
+    "data",
+    "dfn",
+    "em",
+    "i",
+    "kbd",
+    "label",
+    "mark",
+    "q",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var",
+    "wbr",
+  ];
+
   var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
 
   function hasOnlyLeafContent(el: Element): boolean {
@@ -18307,7 +18452,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        BRIDGE_INLINE_TEXT_TAGS.indexOf(childTag) === -1 &&
         BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
       ) {
         return false;
@@ -25821,6 +25966,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return hitEl;
   }
 
+  // An inline run sits in its text block's lines and takes the block's type,
+  // so a drag moves the block: dropping the run elsewhere strips its styling.
+  function textBlockOwningRun(el: Element | null): Element | null {
+    var block = el;
+    while (
+      block &&
+      block.parentElement &&
+      !isDocumentRootElement(block.parentElement) &&
+      window.getComputedStyle(block).display === "inline" &&
+      isTextBearingLeaf(block.parentElement)
+    ) {
+      block = block.parentElement;
+    }
+    return block;
+  }
+
   function nextStackCandidate(candidateKeys, currentKey) {
     if (!candidateKeys || candidateKeys.length === 0) return null;
     var idx = candidateKeys.indexOf(currentKey);
@@ -25899,15 +26060,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectedAlive && selectedEl.getBoundingClientRect
         ? selectedEl.getBoundingClientRect()
         : null;
-    var dragTarget = dragTargetForPointerDown({
-      selectedEl: selectedEl,
-      selectedAlive: selectedAlive,
-      selectedRect: selectedRect,
-      hitEl: hitTarget,
-      hitRaw: hit,
-      point: { x: e.clientX, y: e.clientY },
-      preferSelected: selectedLayerDragPriorityEnabled,
-    });
+    var dragTarget = textBlockOwningRun(
+      dragTargetForPointerDown({
+        selectedEl: selectedEl,
+        selectedAlive: selectedAlive,
+        selectedRect: selectedRect,
+        hitEl: hitTarget,
+        hitRaw: hit,
+        point: { x: e.clientX, y: e.clientY },
+        preferSelected: selectedLayerDragPriorityEnabled,
+      }),
+    );
     if ((window as any).__DND_DEBUG)
       dndLog("shield:down", {
         hit: getSelector(hit),
@@ -28274,7 +28437,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           payload: collectSelectableElementInfos(
             Boolean(e.data.deep),
             readSelectablePoint(e.data.atPoint),
-            e.data.includePortableStyleSnapshot !== false,
+            e.data.includePortableStyleSnapshot !== false &&
+              !portableStyleSnapshotsReadOnDemand,
           ),
         },
         "*",
@@ -29704,6 +29868,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
     inlineExportResources: function (html: string) {
       return inlineRuntimeSnapshotResources(html, 5_000_000);
+    },
+    collectPortableStyleSnapshot: function (
+      screenId: string,
+      selector: string,
+    ) {
+      if (screenId !== designCanvasScreenId) return null;
+      var target: Element | null;
+      try {
+        target = document.querySelector(selector);
+      } catch (_error) {
+        return { status: "failed" };
+      }
+      var snapshot = target ? collectPortableStyleSnapshot(target) : undefined;
+      if (snapshot === null) return { status: "failed" };
+      if (snapshot === undefined) return { status: "missing" };
+      return { status: "captured", snapshot: snapshot };
+    },
+    collectSubtreeColorStyles: function (screenId: string, selector: string) {
+      if (screenId !== designCanvasScreenId) return null;
+      var target: Element | null;
+      try {
+        target = document.querySelector(selector);
+      } catch (_error) {
+        return { status: "failed" };
+      }
+      if (!target || isDocumentRootElement(target))
+        return { status: "missing" };
+      var nodes = collectSubtreeColorStyles(target);
+      if (!nodes) return { status: "failed" };
+      return { status: "captured", nodes: nodes };
     },
     updateConfig: function (next) {
       if (!next || typeof next !== "object") return;

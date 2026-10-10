@@ -167,6 +167,7 @@ export function FillProperties({
   cancelOpacityGestureOnHistoryUndo = false,
   onAddFill,
   capturedStyleTargets,
+  readSubtreeColorStyles,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -179,6 +180,9 @@ export function FillProperties({
   cancelOpacityGestureOnHistoryUndo?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
+  readSubtreeColorStyles?: (
+    element: ElementInfo,
+  ) => Array<Record<string, string>>;
 }) {
   const t = useT();
   const commitImageFillPatch = (
@@ -359,15 +363,20 @@ export function FillProperties({
     reorderFillLayers,
   );
 
+  const fillPickerOpen = openFillPickerKey !== null;
   const selectionHexes = useMemo(
     () =>
-      selectionColorValues(element)
+      selectionColorValues(
+        element,
+        [],
+        fillPickerOpen ? readSubtreeColorStyles : undefined,
+      )
         .map((c) => {
           const parsed = parseCssColor(c.value);
           return parsed ? rgbaToHex(parsed) : null;
         })
         .filter((h): h is string => Boolean(h)),
-    [element],
+    [element, fillPickerOpen, readSubtreeColorStyles],
   );
   const seenHex = new Set<string>();
   const documentColors = [...selectionHexes, ...documentColorPalette].filter(

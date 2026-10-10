@@ -16,6 +16,77 @@ import type {
   EditorMode,
 } from "@/pages/design-editor/types";
 
+export class DesignSelectionPublishError extends Error {
+  constructor(
+    readonly key: string,
+    readonly cause: unknown,
+  ) {
+    super(`Could not publish the editor selection to "${key}"`);
+    this.name = "DesignSelectionPublishError";
+  }
+}
+
+const AGENT_SELECTION_STYLE_KEYS = [
+  "display",
+  "position",
+  "width",
+  "height",
+  "color",
+  "backgroundColor",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "textAlign",
+  "flexDirection",
+  "gap",
+  "borderRadius",
+  "opacity",
+] as const;
+const MAX_SUMMARY_CLASSES = 40;
+const MAX_SUMMARY_CLASS_LENGTH = 200;
+const MAX_SUMMARY_TEXT_LENGTH = 200;
+
+// The agent targets an element by these ids; its subtree style snapshot stays
+// in the frame, where copy reads it on demand.
+function summarizeSelectedElement(element: ElementInfo) {
+  const computedStyles: Record<string, string> = {};
+  for (const key of AGENT_SELECTION_STYLE_KEYS) {
+    const value = element.computedStyles[key];
+    if (value) computedStyles[key] = value;
+  }
+  const text = element.textContent;
+  return {
+    tagName: element.tagName,
+    id: element.id,
+    sourceId: element.sourceId,
+    selector: element.selector,
+    runtimeSelector: element.runtimeSelector,
+    runtimeSourceId: element.runtimeSourceId,
+    pendingNodeId: element.pendingNodeId,
+    componentName: element.componentName,
+    provenance: element.provenance,
+    repeat: element.repeat,
+    primitiveKind: element.primitiveKind,
+    isGroup: element.isGroup,
+    classes: element.classes
+      .filter((name) => name.length <= MAX_SUMMARY_CLASS_LENGTH)
+      .slice(0, MAX_SUMMARY_CLASSES),
+    classCount: element.classes.length,
+    textContent: text?.slice(0, MAX_SUMMARY_TEXT_LENGTH),
+    textContentTruncated:
+      element.textContentTruncated ||
+      (text !== undefined && text.length > MAX_SUMMARY_TEXT_LENGTH) ||
+      undefined,
+    boundingRect: element.boundingRect,
+    childElementCount: element.childElementCount,
+    isFlexContainer: element.isFlexContainer,
+    isGridContainer: element.isGridContainer,
+    parentDisplay: element.parentDisplay,
+    computedStyles,
+  };
+}
+
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeCodeFile: CodeWorkbenchActiveFile | null;
@@ -166,7 +237,9 @@ export function runPublishAgentSelectionContext({
     zoom: selection.zoom,
     screens: selection.screens,
     selectedScreenIds: selection.selectedScreenIds,
-    selectedElement: selection.selectedElement,
+    selectedElement: selectedElement
+      ? summarizeSelectedElement(selectedElement)
+      : null,
     mode: selection.mode,
     activeTool: selection.activeTool,
     inspectorTab: selection.inspectorTab,
@@ -193,9 +266,13 @@ export function runPublishAgentSelectionContext({
     persistedSelectionStateRef.current = pending.key;
     persistedSelectionContextRef.current = pending.contextKey;
     for (const key of designSelectionStateKeys()) {
-      setClientAppState(key, pending.value, { keepalive: true }).catch(
-        () => {},
-      );
+      setClientAppState(key, pending.value).catch((cause: unknown) => {
+        if (persistedSelectionStateRef.current === pending.key) {
+          persistedSelectionStateRef.current = null;
+          persistedSelectionContextRef.current = null;
+        }
+        console.error(new DesignSelectionPublishError(key, cause));
+      });
     }
   };
   if (persistedSelectionStateRef.current === persistedKey) {

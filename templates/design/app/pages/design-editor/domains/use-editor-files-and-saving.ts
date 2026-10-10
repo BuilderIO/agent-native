@@ -97,6 +97,7 @@ import {
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  reportDesignSaveFailure,
 } from "../save-failure";
 import {
   designFileCodeLayerSource,
@@ -230,6 +231,26 @@ export function useEditorFilesAndSaving({
       id: "design-save-outbox-discarded",
     });
   }, [readOnlyWidget, t]);
+
+  const reportSaveFailure = useCallback(
+    (error: unknown) =>
+      reportDesignSaveFailure(error, navigator.onLine, {
+        warnChangesWillRetry,
+        showConflict: () => {
+          if (readOnlyWidget) return;
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            id: "design-save-error",
+          });
+        },
+        showError: (message) => {
+          if (readOnlyWidget) return;
+          toast.error(message ?? t("common.genericError"), {
+            id: "design-save-error",
+          });
+        },
+      }),
+    [readOnlyWidget, t, warnChangesWillRetry],
+  );
 
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
@@ -1560,7 +1581,7 @@ export function useEditorFilesAndSaving({
     fileSaveOperationRevisionRef,
     latestFileSaveForUnloadRef,
     fileSaveTimersRef,
-    warnChangesWillRetry,
+    reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,

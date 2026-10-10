@@ -404,6 +404,7 @@ export interface CodeLayerTreeNode {
     | "justifyContent"
     | "isFlexContainer"
     | "isGridContainer"
+    | "parentDisplay"
   >;
   badge?: string;
   renamable: boolean;
@@ -4099,6 +4100,7 @@ function treeFieldsFor(
       justifyContent: node.layout.justifyContent,
       isFlexContainer: node.layout.isFlexContainer,
       isGridContainer: node.layout.isGridContainer,
+      parentDisplay: node.layout.parentDisplay,
     },
     badge:
       node.layerNameSource === "attribute" && node.layerNameAttribute

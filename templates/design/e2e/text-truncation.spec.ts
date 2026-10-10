@@ -637,7 +637,7 @@ test(
         return selected
           ? {
               sourceLayerIdentity: selected.sourceLayerIdentity,
-              hasPortableStyleSnapshot: selected.portableStyleSnapshot != null,
+              hasBridgeDetail: Array.isArray(selected.editCapabilities),
             }
           : null;
       });
@@ -648,7 +648,7 @@ test(
       expect
         .soft(hydratedSelection?.sourceLayerIdentity?.screenId)
         .toBe(screenId);
-      expect.soft(hydratedSelection?.hasPortableStyleSnapshot).toBe(true);
+      expect.soft(hydratedSelection?.hasBridgeDetail).toBe(true);
     } finally {
       await postAction(page, "delete-design", { id: designId });
     }

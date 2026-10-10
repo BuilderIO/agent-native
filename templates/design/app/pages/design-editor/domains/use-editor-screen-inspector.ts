@@ -14,6 +14,7 @@ import {
 } from "@/components/design/EditPanel";
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
+import { readSubtreeColorStyles } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import {
   resolveScreenHeightMode,
   type ScreenHeightMode,
@@ -22,6 +23,7 @@ import {
   clampScreenDimension,
   readScreenSizeConstraints,
 } from "@/components/design/multi-screen/screen-sizing";
+import type { ElementInfo } from "@/components/design/types";
 import {
   externalPreviewUrlForContent,
   fullPreviewHtml,
@@ -170,6 +172,7 @@ export function useEditorScreenInspector({
     designDataJsonRef,
     canvasFrameGeometryById,
     overviewScreens,
+    boardFileId,
   } = editorFilesAndSaving;
   const {
     responsiveEditScopeRef,
@@ -923,6 +926,23 @@ export function useEditorScreenInspector({
     viewMode,
   ]);
 
+  const readSelectionSubtreeColorStyles = useCallback(
+    (element: ElementInfo): Array<Record<string, string>> => {
+      const screenId = element.sourceLayerIdentity?.screenId ?? activeFile?.id;
+      if (!screenId || !element.selector) return [];
+      const read = readSubtreeColorStyles(
+        screenId,
+        element.selector,
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined,
+        boardFileId,
+      );
+      return read.status === "captured" ? read.nodes : [];
+    },
+    [activeFile?.id, boardFileId],
+  );
+
   const selectionColorScopeIdentity = JSON.stringify(
     selectionColorScopes.map(
       ({ fileId, sourceId, selector, wholeDocument }) => ({
@@ -1390,6 +1410,7 @@ export function useEditorScreenInspector({
     selectionColorPickerSessionRef,
     selectionColorScopes,
     selectionColorScopeIdentity,
+    readSelectionSubtreeColorStyles,
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,

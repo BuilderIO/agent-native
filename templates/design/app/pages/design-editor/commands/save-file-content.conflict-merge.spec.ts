@@ -1,4 +1,8 @@
-import { sourceContentHash } from "@shared/source-workspace";
+import {
+  applySourceContentPatch,
+  sourceContentHash,
+  type SourceContentPatch,
+} from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +28,23 @@ const MINE = BASE.replace(
 const THEIRS = BASE.replace("#6366f1", "#ff0000");
 const MERGED = MINE.replace("#6366f1", "#ff0000");
 
+type SentSave = {
+  content?: string;
+  contentPatch?: SourceContentPatch;
+  expectedVersionHash: string;
+};
+
+function sentContent(input: SentSave, bases: readonly string[]): string {
+  if (input.content !== undefined) return input.content;
+  const base = bases.find(
+    (candidate) => sourceContentHash(candidate) === input.expectedVersionHash,
+  );
+  if (base === undefined || !input.contentPatch) {
+    throw new Error("save carried neither content nor a patch on a known base");
+  }
+  return applySourceContentPatch(base, input.contentPatch);
+}
+
 function conflict(): Error {
   return Object.assign(new Error("File changed since it was read."), {
     status: 409,
@@ -31,10 +52,7 @@ function conflict(): Error {
 }
 
 function setup(options: {
-  mutate: (input: {
-    content: string;
-    expectedVersionHash: string;
-  }) => Promise<unknown>;
+  mutate: (input: SentSave) => Promise<unknown>;
   live?: () => Promise<string>;
   base?: string | undefined;
   id?: string;
@@ -112,11 +130,11 @@ describe("runSaveFileContent concurrent edit merge", () => {
     expect(mutateAsync).toHaveBeenCalledTimes(2);
     expect(mutateAsync.mock.calls[1]![0]).toMatchObject({
       id: pending.id,
-      content: MERGED,
       expectedVersionHash: sourceContentHash(THEIRS),
       operationSource: "tab-b",
       operationRevision: 4,
     });
+    expect(sentContent(mutateAsync.mock.calls[1]![0], [THEIRS])).toBe(MERGED);
     expect(args.markPendingLocalFileContent).toHaveBeenCalledWith(
       pending.id,
       MERGED,
@@ -209,10 +227,12 @@ describe("runSaveFileContent concurrent edit merge", () => {
   it("merges a queued follow-up save against the content its predecessor sent", async () => {
     const second = MINE.replace("Beta", "Beta 2");
     const secondMerged = MERGED.replace("Beta", "Beta 2");
+    const known = [BASE, MINE, THEIRS, MERGED];
     const first = setup({
       mutate: async (input) => {
-        if (input.content === MINE) throw conflict();
-        if (input.content === MERGED) {
+        const content = sentContent(input, known);
+        if (content === MINE) throw conflict();
+        if (content === MERGED) {
           return { updated: true, versionHash: sourceContentHash(MERGED) };
         }
         if (input.expectedVersionHash === sourceContentHash(MINE)) {
@@ -237,8 +257,51 @@ describe("runSaveFileContent concurrent edit merge", () => {
     await expect(secondSave).resolves.toBe("persisted");
 
     expect(
-      first.mutateAsync.mock.calls.map(([input]) => input.content),
+      first.mutateAsync.mock.calls.map(([input]) => sentContent(input, known)),
     ).toEqual([MINE, MERGED, second, secondMerged]);
     expect(first.rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("runSaveFileContent request body", () => {
+  beforeEach(() => {
+    __clearKnownSaveContentsForTests();
+  });
+
+  const persisted = async () => ({
+    updated: true,
+    versionHash: sourceContentHash(MINE),
+  });
+
+  it("sends only the changed span when the base it was edited from is known", async () => {
+    const { args, pending, mutateAsync } = setup({ mutate: persisted });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+
+    const sent = mutateAsync.mock.calls[0]![0];
+    expect(sent.content).toBeUndefined();
+    expect(sent.contentPatch!.text.length).toBeLessThan(MINE.length / 10);
+    expect(sentContent(sent, [BASE])).toBe(MINE);
+  });
+
+  it("sends the whole document when the base it was edited from is unknown", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: persisted,
+      base: undefined,
+    });
+
+    await runSaveFileContent(args, pending);
+
+    expect(mutateAsync.mock.calls[0]![0]).toMatchObject({ content: MINE });
+    expect(mutateAsync.mock.calls[0]![0].contentPatch).toBeUndefined();
+  });
+
+  it("sends the whole document for a mirror-only write", async () => {
+    const { args, pending, mutateAsync } = setup({ mutate: persisted });
+    pending.syncCollab = false;
+
+    await runSaveFileContent(args, pending);
+
+    expect(mutateAsync.mock.calls[0]![0]).toMatchObject({ content: MINE });
   });
 });

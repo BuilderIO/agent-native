@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 
 import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-screen/types";
+import { cancelDesignRefetchForGeometryWrite } from "@/pages/design-editor/commands/write-frame-geometry-snapshot";
 import {
   cloneCanvasFrameGeometry,
   frameHeightChangedIds,
@@ -31,6 +32,7 @@ export interface GeometryCommitArgs {
   captureCurrentSelection: () => GeometryHistorySelection;
   clearRedoStacks: () => void;
   designDataJsonRef: RefObject<Record<string, unknown>>;
+  designRefetchCancelledRef: RefObject<boolean>;
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   historyOrderRef: RefObject<UndoRedoOrderKind[]>;
   id: string | undefined;
@@ -58,6 +60,7 @@ export function runGeometryCommit(
     captureCurrentSelection,
     clearRedoStacks,
     designDataJsonRef,
+    designRefetchCancelledRef,
     geometryUndoStackRef,
     historyOrderRef,
     id,
@@ -181,6 +184,11 @@ export function runGeometryCommit(
     afterSnapshot,
   );
   if (continuesLastGesture) {
+    cancelDesignRefetchForGeometryWrite(
+      queryClient,
+      id,
+      designRefetchCancelledRef,
+    );
     queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
       if (!old || typeof old !== "object") return old;
       const nextData = {

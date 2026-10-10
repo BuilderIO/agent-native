@@ -73,6 +73,34 @@ export const hitTestBridgeScript: string = `"use strict";
       "label",
       "li"
     ];
+    var BRIDGE_INLINE_TEXT_TAGS = [
+      "a",
+      "abbr",
+      "b",
+      "bdi",
+      "bdo",
+      "cite",
+      "code",
+      "data",
+      "dfn",
+      "em",
+      "i",
+      "kbd",
+      "label",
+      "mark",
+      "q",
+      "s",
+      "samp",
+      "small",
+      "span",
+      "strong",
+      "sub",
+      "sup",
+      "time",
+      "u",
+      "var",
+      "wbr"
+    ];
     var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
     function isOverlayElement(el) {
       return Boolean(
@@ -93,7 +121,7 @@ export const hitTestBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_INLINE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;

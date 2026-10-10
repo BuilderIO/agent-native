@@ -14,10 +14,52 @@ import {
 } from "@/pages/design-editor/design-data-geometry-utils";
 import { sanitizeCanvasFrameGeometryForPersist } from "@/pages/design-editor/geometry-persistence";
 
+// A get-design response already in flight predates this geometry and would
+// snap the frames back, so it is dropped here and re-run once the save lands.
+export function cancelDesignRefetchForGeometryWrite(
+  queryClient: QueryClient,
+  id: string | undefined,
+  designRefetchCancelledRef: RefObject<boolean>,
+): void {
+  const queryKey = ["action", "get-design", { id }];
+  if (queryClient.isFetching({ queryKey, exact: true }) === 0) return;
+  designRefetchCancelledRef.current = true;
+  void queryClient.cancelQueries({ queryKey, exact: true });
+}
+
+export function refetchDesignAfterGeometrySaves({
+  designRefetchCancelledRef,
+  frameGeometrySavesInFlightRef,
+  id,
+  pendingFrameGeometrySaveRef,
+  queryClient,
+}: {
+  designRefetchCancelledRef: RefObject<boolean>;
+  frameGeometrySavesInFlightRef: RefObject<number>;
+  id: string | undefined;
+  pendingFrameGeometrySaveRef: RefObject<unknown>;
+  queryClient: QueryClient;
+}): void {
+  if (
+    !id ||
+    !designRefetchCancelledRef.current ||
+    frameGeometrySavesInFlightRef.current > 0 ||
+    pendingFrameGeometrySaveRef.current !== null
+  ) {
+    return;
+  }
+  designRefetchCancelledRef.current = false;
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-design", { id }],
+    exact: true,
+  });
+}
+
 export interface WriteFrameGeometrySnapshotArgs {
   boardFileId: string | undefined;
   canEditDesignRef: RefObject<boolean>;
   designDataJsonRef: RefObject<Record<string, unknown>>;
+  designRefetchCancelledRef: RefObject<boolean>;
   enqueueFrameGeometryDataSave: (
     dataOperations: DesignDataOperation[],
   ) => boolean;
@@ -36,6 +78,7 @@ export function runWriteFrameGeometrySnapshot(
     boardFileId,
     canEditDesignRef,
     designDataJsonRef,
+    designRefetchCancelledRef,
     enqueueFrameGeometryDataSave,
     frameGeometrySaveTimerRef,
     id,
@@ -105,6 +148,11 @@ export function runWriteFrameGeometrySnapshot(
   );
   designDataJsonRef.current = nextData;
   if (liveFrameGeometryRef) liveFrameGeometryRef.current = snapshot;
+  cancelDesignRefetchForGeometryWrite(
+    queryClient,
+    id,
+    designRefetchCancelledRef,
+  );
   queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
     if (!old || typeof old !== "object") return old;
     return { ...old, data: JSON.stringify(nextData) };
