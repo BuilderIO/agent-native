@@ -678,7 +678,7 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
     });
     await page.mouse.move(
       target.x + target.width * 0.75,
-      target.y + target.height / 2,
+      target.y + target.height * 0.75,
       { steps: 24 },
     );
     await expect
@@ -707,6 +707,12 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
             return {
               sourceParent: source?.parentElement?.tagName ?? null,
               targetParent: target?.parentElement?.tagName ?? null,
+              sourceFollowsTarget: Boolean(
+                source &&
+                target &&
+                target.compareDocumentPosition(source) &
+                  Node.DOCUMENT_POSITION_FOLLOWING,
+              ),
               sourcePosition: source?.style.position ?? null,
               sourceLeft: source?.style.left ?? null,
               sourceTop: source?.style.top ?? null,
@@ -718,6 +724,7 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
       .toEqual({
         sourceParent: "BODY",
         targetParent: "BODY",
+        sourceFollowsTarget: true,
         sourcePosition: "",
         sourceLeft: "",
         sourceTop: "",
@@ -736,12 +743,19 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
             ? "BODY"
             : source?.parentElement?.getAttribute("data-agent-native-node-id"),
         targetContains: !!target && !!source && target.contains(source),
+        sourceFollowsTarget: Boolean(
+          source &&
+          target &&
+          target.compareDocumentPosition(source) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
         position: source ? getComputedStyle(source).position : null,
       };
     });
     expect(state).toEqual({
       sourceParent: "BODY",
       targetContains: false,
+      sourceFollowsTarget: true,
       position: "static",
     });
     expect(state.sourceParent).not.toBe("flow");

@@ -630,8 +630,8 @@ async function drawInScreen(
     `[data-screen-shell][data-frame-id="${screenId}"] [data-screen-card]`,
   );
   if (!rect.assertUnobstructed) await screenCard.scrollIntoViewIfNeeded();
-  const screenWidth =
-    designData(before).canvasFrames?.[screenId]?.width ?? 1440;
+  const screenGeometry = designData(before).canvasFrames?.[screenId] ?? null;
+  const screenWidth = screenGeometry?.width ?? 1440;
   if (tool === "Frame") {
     await pickFrameMode(page, "Frame");
   } else {
@@ -652,87 +652,186 @@ async function drawInScreen(
   } = {
     current: null,
   };
-  await expect
-    .poll(
-      async () => {
-        const bodyBox = await body.boundingBox();
-        const cardBox = await screenCard.boundingBox();
-        if (!bodyBox || !cardBox) {
-          drawingGeometry.current = null;
-          return { settled: false, safe: false };
-        }
-        const scale = cardBox.width / screenWidth;
-        const startPoint = {
-          x: bodyBox.x + rect.x * scale,
-          y: bodyBox.y + rect.y * scale,
-        };
-        const endPoint = {
-          x: bodyBox.x + (rect.x + (rect.width ?? 1)) * scale,
-          y: bodyBox.y + (rect.y + (rect.height ?? 1)) * scale,
-        };
-        const pointerTargets = await page.evaluate(
-          ({ startPoint, endPoint, cardBox }) => {
-            return [startPoint, endPoint].map(({ x, y }) => {
-              const target = document.elementFromPoint(x, y);
-              return {
-                inViewport:
-                  x >= 0 &&
-                  y >= 0 &&
-                  x < window.innerWidth &&
-                  y < window.innerHeight,
-                inScreenBounds:
-                  x >= cardBox.x &&
-                  y >= cardBox.y &&
-                  x <= cardBox.x + cardBox.width &&
-                  y <= cardBox.y + cardBox.height,
-                inToolbar: Boolean(
-                  target?.closest("[data-design-bottom-toolbar]"),
-                ),
-                creationShield: Boolean(
-                  target?.closest("[data-canvas-creation-shield]"),
-                ),
-                frameId:
-                  target
-                    ?.closest<HTMLElement>("[data-frame-id]")
-                    ?.getAttribute("data-frame-id") ?? null,
-              };
-            });
-          },
-          { startPoint, endPoint, cardBox },
-        );
-        const cameraSignature = [
-          bodyBox.x,
-          bodyBox.y,
-          cardBox.x,
-          cardBox.y,
-          cardBox.width,
-          cardBox.height,
-        ]
-          .map((value) => Math.round(value * 2) / 2)
-          .join(":");
-        stableCameraSamples =
-          cameraSignature === previousCamera ? stableCameraSamples + 1 : 0;
-        previousCamera = cameraSignature;
-        const settled = stableCameraSamples >= 2;
-        const safe =
-          Number.isFinite(scale) &&
-          scale > 0 &&
-          pointerTargets.every(
-            (target) =>
-              target.inViewport &&
-              target.inScreenBounds &&
-              !target.inToolbar &&
-              (target.frameId === screenId || target.creationShield),
+  const drawingGeometryDiagnostic: {
+    current: Record<string, unknown> | null;
+  } = {
+    current: null,
+  };
+  try {
+    await expect
+      .poll(
+        async () => {
+          const bodyBox = await body.boundingBox();
+          const cardBox = await screenCard.boundingBox();
+          const viewport = await page.evaluate(() => ({
+            width: window.innerWidth,
+            height: window.innerHeight,
+          }));
+          if (!bodyBox || !cardBox) {
+            drawingGeometry.current = null;
+            drawingGeometryDiagnostic.current = {
+              screenId,
+              tool,
+              requestedRect: rect,
+              persistedScreenDimensions: {
+                width: screenGeometry?.width ?? null,
+                height: screenGeometry?.height ?? null,
+              },
+              screenWidthForScale: screenWidth,
+              bodyBox,
+              cardBox,
+              viewport,
+              scale: null,
+              startPoint: null,
+              endPoint: null,
+              pointerTargets: null,
+              settled: false,
+              safe: false,
+            };
+            return { settled: false, safe: false };
+          }
+          const scale = cardBox.width / screenWidth;
+          const startPoint = {
+            x: bodyBox.x + rect.x * scale,
+            y: bodyBox.y + rect.y * scale,
+          };
+          const endPoint = {
+            x: bodyBox.x + (rect.x + (rect.width ?? 1)) * scale,
+            y: bodyBox.y + (rect.y + (rect.height ?? 1)) * scale,
+          };
+          const pointerTargets = await page.evaluate(
+            ({ startPoint, endPoint, cardBox }) => {
+              return [startPoint, endPoint].map(({ x, y }) => {
+                const target = document.elementFromPoint(x, y);
+                const targetBounds = target?.getBoundingClientRect();
+                const frameElement =
+                  target?.closest<HTMLElement>("[data-frame-id]");
+                const screenShell = target?.closest<HTMLElement>(
+                  "[data-screen-shell]",
+                );
+                return {
+                  inViewport:
+                    x >= 0 &&
+                    y >= 0 &&
+                    x < window.innerWidth &&
+                    y < window.innerHeight,
+                  inScreenBounds:
+                    x >= cardBox.x &&
+                    y >= cardBox.y &&
+                    x <= cardBox.x + cardBox.width &&
+                    y <= cardBox.y + cardBox.height,
+                  inToolbar: Boolean(
+                    target?.closest("[data-design-bottom-toolbar]"),
+                  ),
+                  creationShield: Boolean(
+                    target?.closest("[data-canvas-creation-shield]"),
+                  ),
+                  frameId: frameElement?.getAttribute("data-frame-id") ?? null,
+                  hit: target
+                    ? {
+                        tagName: target.tagName,
+                        id: target.id || null,
+                        role: target.getAttribute("role"),
+                        className: target.getAttribute("class"),
+                        bounds: targetBounds
+                          ? {
+                              x: targetBounds.x,
+                              y: targetBounds.y,
+                              width: targetBounds.width,
+                              height: targetBounds.height,
+                            }
+                          : null,
+                        screenCard: Boolean(
+                          target.closest("[data-screen-card]"),
+                        ),
+                        screenShellId:
+                          screenShell?.getAttribute("data-frame-id") ?? null,
+                      }
+                    : null,
+                };
+              });
+            },
+            { startPoint, endPoint, cardBox },
           );
-        drawingGeometry.current = { startPoint, endPoint };
-        return { settled, safe, scale, pointerTargets };
-      },
-      {
-        timeout: 15_000,
-        message: `screen ${screenId} must fit and expose both ${tool} endpoints before drawing`,
-      },
-    )
-    .toMatchObject({ settled: true, safe: true });
+          const cameraSignature = [
+            bodyBox.x,
+            bodyBox.y,
+            cardBox.x,
+            cardBox.y,
+            cardBox.width,
+            cardBox.height,
+          ]
+            .map((value) => Math.round(value * 2) / 2)
+            .join(":");
+          stableCameraSamples =
+            cameraSignature === previousCamera ? stableCameraSamples + 1 : 0;
+          previousCamera = cameraSignature;
+          const settled = stableCameraSamples >= 2;
+          const safe =
+            Number.isFinite(scale) &&
+            scale > 0 &&
+            pointerTargets.every(
+              (target) =>
+                target.inViewport &&
+                target.inScreenBounds &&
+                !target.inToolbar &&
+                (target.frameId === screenId || target.creationShield),
+            );
+          drawingGeometryDiagnostic.current = {
+            screenId,
+            tool,
+            requestedRect: rect,
+            persistedScreenDimensions: {
+              width: screenGeometry?.width ?? null,
+              height: screenGeometry?.height ?? null,
+            },
+            screenWidthForScale: screenWidth,
+            bodyBox,
+            cardBox,
+            viewport,
+            scale,
+            startPoint,
+            endPoint,
+            pointerTargets,
+            cameraSignature,
+            stableCameraSamples,
+            settled,
+            safe,
+          };
+          drawingGeometry.current = { startPoint, endPoint };
+          return { settled, safe, scale, pointerTargets };
+        },
+        {
+          timeout: 15_000,
+          message: `screen ${screenId} must fit and expose both ${tool} endpoints before drawing`,
+        },
+      )
+      .toMatchObject({ settled: true, safe: true });
+  } catch (error) {
+    try {
+      await test.info().attach("screen-drawing-geometry-failure", {
+        body: JSON.stringify(
+          drawingGeometryDiagnostic.current ?? {
+            screenId,
+            tool,
+            requestedRect: rect,
+            persistedScreenDimensions: {
+              width: screenGeometry?.width ?? null,
+              height: screenGeometry?.height ?? null,
+            },
+            screenWidthForScale: screenWidth,
+            detail: "No poll geometry sample was captured",
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    } catch {
+      // Preserve the original geometry assertion if artifact attachment fails.
+    }
+    throw error;
+  }
   const settledGeometry = drawingGeometry.current;
   if (!settledGeometry) {
     throw new Error(`screen ${screenId} drawing geometry was unavailable`);
