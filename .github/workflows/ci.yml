@@ -1120,6 +1120,8 @@ jobs:
 
       - name: Run deterministic authoring smoke in Firefox
         working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser firefox
