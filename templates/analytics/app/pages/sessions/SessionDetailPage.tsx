@@ -874,6 +874,8 @@ function ReplayPlayer({
     ],
   );
 
+  useReplaySeekOnOffsetChange(initialSeekMs, seek);
+
   const beginScrub = useCallback(
     (ms: number) => {
       if (savingScreenshotRef.current) return;
@@ -3656,6 +3658,20 @@ export function shouldPublishReplayClockUpdate(
     lastUpdateAt == null ||
     frameTime - lastUpdateAt >= REPLAY_CLOCK_UPDATE_INTERVAL_MS
   );
+}
+
+export function useReplaySeekOnOffsetChange(
+  initialSeekMs: number | null,
+  seek: (ms: number) => void,
+) {
+  const previousInitialSeekMsRef = useRef(initialSeekMs);
+  const seekRef = useLiveRef(seek);
+
+  useEffect(() => {
+    if (previousInitialSeekMsRef.current === initialSeekMs) return;
+    previousInitialSeekMsRef.current = initialSeekMs;
+    seekRef.current(initialSeekMs ?? 0);
+  }, [initialSeekMs, seekRef]);
 }
 
 // rrweb queues an event at the baseline, and a same-tick pause would clear it.
