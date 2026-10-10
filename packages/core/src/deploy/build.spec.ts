@@ -26,6 +26,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -37,6 +38,7 @@ import {
 } from "../shared/embed-auth.js";
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
 } from "../shared/route-chunk-recovery-bootstrap.js";
@@ -1462,6 +1464,19 @@ async function importGeneratedWorker(
   } = {},
 ) {
   const dir = makeTempDir();
+  const tempNodeModules = path.join(dir, "node_modules");
+  const scopedNodeModules = path.join(tempNodeModules, "@agent-native");
+  fs.mkdirSync(scopedNodeModules, { recursive: true });
+  fs.symlinkSync(
+    path.join(process.cwd(), "packages/core/node_modules/h3"),
+    path.join(tempNodeModules, "h3"),
+    "dir",
+  );
+  fs.symlinkSync(
+    path.join(process.cwd(), "packages/core"),
+    path.join(scopedNodeModules, "core"),
+    "dir",
+  );
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
   fs.writeFileSync(
@@ -1491,6 +1506,14 @@ export function createRequestHandler() {
         return new Response('{"ok":true}', {
           headers: {
             "cache-control": "no-cache",
+            "content-type": "application/json",
+          },
+        });
+      }
+      if (url.pathname === "/private-json.data") {
+        return new Response('{"private":true}', {
+          headers: {
+            "cache-control": "private, no-store",
             "content-type": "application/json",
           },
         });
@@ -2167,6 +2190,22 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
   });
 
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request(
+        `https://app.test/private-json.data${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      ),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cdn-cache-control")).toBeNull();
+    expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+  });
+
   it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -2197,7 +2236,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
 
     const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      `const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}"};`,
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
     );
 
     const worker = await importGeneratedWorker(source);
@@ -2207,16 +2246,63 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       {},
     );
 
-    expect(response.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
 
-    const recoveryUrl = new URL("https://app.test/docs/inbox");
-    recoveryUrl.searchParams.set(
+    const legacyRecoveryUrl = new URL("https://app.test/docs/inbox");
+    legacyRecoveryUrl.searchParams.set(
       CHUNK_RECOVERY_QUERY_PARAM,
       CHUNK_RECOVERY_QUERY_VALUE,
     );
+    legacyRecoveryUrl.searchParams.set("tab", "one");
+    const legacyRecovery = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(legacyRecovery.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyRecovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyRecovery.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
+    expect(legacyRecovery.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    legacyRecoveryUrl.searchParams.set("tab", "two");
+    const legacyRecoveryWithDifferentTab = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(legacyRecoveryWithDifferentTab.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    const arbitraryRecoveryUrl = new URL("https://app.test/docs/inbox");
+    arbitraryRecoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      "arbitrary",
+    );
+    const arbitraryRecovery = await worker.fetch(
+      new Request(arbitraryRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(arbitraryRecovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryRecovery.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    const recoveryUrl = new URL(
+      `https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}/`,
+    );
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    recoveryUrl.searchParams.set("tab", "unread");
     const recovery = await worker.fetch(
       new Request(recoveryUrl),
       { APP_BASE_PATH: "/docs" },
@@ -2224,17 +2310,12 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(recovery.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(recovery.headers.get("cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(await recovery.clone().text()).toContain("GET /inbox/</body>");
 
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
     const arbitrary = await worker.fetch(
@@ -2244,10 +2325,62 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(arbitrary.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(arbitrary.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    expect(arbitrary.headers.get("netlify-vary")).toBe("query=_routes|index");
+  }, 60_000);
+
+  it("normalizes the recovery path before serving the generated static shell", async () => {
+    const source = generateWorkerEntry([], [], [], [], null, [], "", {
+      includeReactRouterSsr: false,
+    });
+    const worker = await importGeneratedWorker(source);
+    const requestedPaths: string[] = [];
+    const response = await worker.fetch(
+      new Request(`https://app.test/docs${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      {
+        APP_BASE_PATH: "/docs",
+        ASSETS: {
+          fetch: async (request: Request) => {
+            requestedPaths.push(new URL(request.url).pathname);
+            if (new URL(request.url).pathname === "/index.html") {
+              return new Response(
+                "<html><head></head><body>shell</body></html>",
+                {
+                  headers: { "content-type": "text/html; charset=utf-8" },
+                },
+              );
+            }
+            return new Response("missing", { status: 404 });
+          },
+        },
+      },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("data-agent-native-auth-redirect");
+    expect(response.headers.get("speculation-rules")).toBe(
+      '"/docs/_agent-native/speculation-rules.json"',
+    );
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(requestedPaths).toEqual([
+      `/docs${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      "/index.html",
+    ]);
+  });
+
+  it("emits recovery matching for React Router data suffixes", () => {
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith("/_.data")');
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith(".data")');
+    expect(source).toContain(
+      "const { routePath } = splitReactRouterDataPathname(pathname)",
     );
   });
 
@@ -2270,7 +2403,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
-  it("preserves full-query variation for query-sensitive recovery responses", async () => {
+  it("revalidates query-sensitive recovery-path responses in browsers", async () => {
     vi.stubEnv("NETLIFY", "true");
     const source = generateWorkerEntry([], []);
     const worker = await importGeneratedWorker(source, {
@@ -2278,16 +2411,19 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
         [SSR_QUERY_CACHE_KEY_HEADER]: "query",
       },
     });
-    const recoveryUrl = new URL("https://app.test/redirect");
-    recoveryUrl.searchParams.set("from", "home");
-    recoveryUrl.searchParams.set(
-      CHUNK_RECOVERY_QUERY_PARAM,
-      CHUNK_RECOVERY_QUERY_VALUE,
+    const recoveryUrl = new URL(
+      `https://app.test/redirect${CHUNK_RECOVERY_PATH_SUFFIX}`,
     );
+    recoveryUrl.searchParams.set("from", "home");
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
 
     const response = await worker.fetch(new Request(recoveryUrl), {}, {});
 
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
@@ -2312,6 +2448,16 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       expect(response.headers.get(name)).toBe(value);
     }
     expect(response.headers.get("set-cookie")).toBeNull();
+
+    const recoveryResponse = await worker.fetch(
+      new Request(`https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(recoveryResponse.headers.get(name)).toBe(value);
+    }
   });
 
   it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
