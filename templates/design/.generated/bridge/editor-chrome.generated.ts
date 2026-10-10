@@ -5254,6 +5254,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!/(^|,)\\s*text\\s*(,|$)/i.test(backgroundClip) && /(^|,)\\s*text\\s*(,|$)/i.test(webkitBackgroundClip)) {
         backgroundClip = webkitBackgroundClip;
       }
+      var vectorFillGradient = paintCs.getPropertyValue("--an-vector-fill-gradient").trim();
+      var vectorStrokeGradient = strokeCs.getPropertyValue("--an-vector-stroke-gradient").trim();
       return {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
@@ -5338,8 +5340,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
         fill: paintCs.fill,
+        ...vectorFillGradient ? { "--an-vector-fill-gradient": vectorFillGradient } : {},
         fillOpacity: paintCs.fillOpacity,
         stroke: strokeCs.stroke,
+        ...vectorStrokeGradient ? { "--an-vector-stroke-gradient": vectorStrokeGradient } : {},
         strokeWidth: strokeCs.strokeWidth,
         strokeOpacity: strokeCs.strokeOpacity,
         strokeDasharray: strokeCs.strokeDasharray,
@@ -6275,6 +6279,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
+    var measurementModifierActive = false;
+    var measurementTargetEl = null;
     var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
@@ -9891,6 +9897,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       positionMultiSelectionBounds();
       positionGradientOverlay();
       refreshFrameNameLabels();
+      refreshMeasurements();
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
@@ -9912,6 +9919,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedMutationTarget = null;
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
+    var observedMutationPaintReferencesDirty = true;
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9919,10 +9927,54 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       if (!overlayMutationObserver && typeof MutationObserver !== "undefined") {
-        overlayMutationObserver = new MutationObserver(function() {
+        overlayMutationObserver = new MutationObserver(function(records) {
+          var relevantRecords = records.filter(overlayMutationRequiresRefresh);
+          if (!relevantRecords.length) return;
+          if (relevantRecords.some(overlayMutationMayChangeSvgPaintReferences)) {
+            observedMutationPaintReferencesDirty = true;
+          }
           scheduleRefreshOverlays();
         });
       }
+    }
+    function isSvgMetadataNode(node) {
+      var element = node instanceof Element ? node : node.parentElement;
+      while (element && element.namespaceURI === "http://www.w3.org/2000/svg") {
+        var localName = element.localName.toLowerCase();
+        if (localName === "title" || localName === "desc" || localName === "metadata") {
+          return true;
+        }
+        element = element.parentElement;
+      }
+      return false;
+    }
+    function overlayMutationRequiresRefresh(record) {
+      var target = record.target;
+      var targetElement = target instanceof Element ? target : target.parentElement;
+      if (targetElement && isOverlayElement(targetElement)) return false;
+      if (isSvgMetadataNode(target)) return false;
+      if (record.type === "childList") {
+        var changedNodes = Array.prototype.slice.call(record.addedNodes).concat(Array.prototype.slice.call(record.removedNodes));
+        return changedNodes.some(function(node) {
+          var element = node instanceof Element ? node : node.parentElement;
+          return !element || !isOverlayElement(element) && !isSvgMetadataNode(node);
+        });
+      }
+      return true;
+    }
+    function overlayMutationMayChangeSvgPaintReferences(record) {
+      var selected = observedMutationTarget;
+      if (selected && selected.tagName.toLowerCase() === "svg" && (selected.contains(record.target) || record.target === observedMutationRoot)) {
+        return true;
+      }
+      if (observedMutationPaintServers.some(function(server) {
+        return server === record.target || server.contains(record.target);
+      })) {
+        return true;
+      }
+      return observedMutationPaintParents.some(function(parent) {
+        return parent === record.target;
+      });
     }
     function syncOverlayObservers() {
       ensureOverlayObservers();
@@ -9950,7 +10002,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
-        var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
+        var paintReferencesNeedRefresh = nextTarget !== observedMutationTarget || observedMutationPaintReferencesDirty;
+        var nextPaintServers = !nextTarget ? [] : paintReferencesNeedRefresh ? cornerRadiusReferencedPaintElements(nextTarget) : observedMutationPaintServers;
         var nextPaintParents = [];
         nextPaintServers.forEach(function(server) {
           var parent = server.parentElement;
@@ -9965,15 +10018,51 @@ export const editorChromeBridgeScript: string = `"use strict";
           return observedMutationPaintParents[index] !== parent;
         });
         if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
+          let observeMutationTarget2 = function(element, options) {
+            var existing = mutationObservations.find(function(observation) {
+              return observation.element === element;
+            });
+            if (!existing) {
+              mutationObservations.push({
+                element,
+                options: Object.assign({}, options, {
+                  attributeFilter: options.attributeFilter ? options.attributeFilter.slice() : void 0
+                })
+              });
+              return;
+            }
+            var observesAllAttributes = Boolean(
+              existing.options.attributes && !existing.options.attributeFilter || options.attributes && !options.attributeFilter
+            );
+            var attributeFilter = observesAllAttributes ? void 0 : Array.from(
+              new Set(
+                (existing.options.attributeFilter || []).concat(
+                  options.attributeFilter || []
+                )
+              )
+            );
+            existing.options = {
+              attributes: Boolean(
+                existing.options.attributes || options.attributes
+              ),
+              attributeFilter: attributeFilter && attributeFilter.length > 0 ? attributeFilter : void 0,
+              childList: Boolean(existing.options.childList || options.childList),
+              characterData: Boolean(
+                existing.options.characterData || options.characterData
+              ),
+              subtree: Boolean(existing.options.subtree || options.subtree)
+            };
+          };
+          var observeMutationTarget = observeMutationTarget2;
           overlayMutationObserver.disconnect();
+          var mutationObservations = [];
           if (nextRoot) {
-            overlayMutationObserver.observe(nextRoot, {
+            observeMutationTarget2(nextRoot, {
               attributes: true,
-              childList: true,
-              subtree: false
+              childList: true
             });
             if (nextRoot !== selectedEl && selectedEl) {
-              overlayMutationObserver.observe(selectedEl, {
+              observeMutationTarget2(selectedEl, {
                 attributes: true,
                 childList: true,
                 subtree: selectedEl.tagName.toLowerCase() === "svg"
@@ -9982,7 +10071,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           nextPaintServers.forEach(function(server) {
             if (server !== nextRoot && server !== nextTarget) {
-              overlayMutationObserver.observe(server, {
+              observeMutationTarget2(server, {
                 attributes: true,
                 childList: true,
                 subtree: true
@@ -9990,17 +10079,24 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           });
           nextPaintParents.forEach(function(parent) {
-            overlayMutationObserver.observe(parent, {
+            observeMutationTarget2(parent, {
               attributes: true,
               childList: true,
               subtree: false
             });
+          });
+          mutationObservations.forEach(function(observation) {
+            overlayMutationObserver.observe(
+              observation.element,
+              observation.options
+            );
           });
           observedMutationRoot = nextRoot;
           observedMutationTarget = nextTarget;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
         }
+        observedMutationPaintReferencesDirty = false;
       }
     }
     var overlayAnimationTrackingActive = false;
@@ -10050,9 +10146,84 @@ export const editorChromeBridgeScript: string = `"use strict";
       onOverlayAnimationTrackingEvent,
       true
     );
+    var measurementPositionFrame = null;
+    var measurementPositionSnapshot = null;
+    function currentMeasurementGeometry() {
+      if (!measurementModifierActive || readOnly || interactionMode || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+        return null;
+      }
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var targetRect = measurementTargetEl.getBoundingClientRect();
+      return {
+        selectedRect,
+        targetRect,
+        snapshot: [
+          selectedRect.left,
+          selectedRect.top,
+          selectedRect.right,
+          selectedRect.bottom,
+          targetRect.left,
+          targetRect.top,
+          targetRect.right,
+          targetRect.bottom
+        ]
+      };
+    }
+    function sameMeasurementGeometry(a, b) {
+      return Boolean(
+        a && a.length === b.length && a.every(function(value, index) {
+          return value === b[index];
+        })
+      );
+    }
+    function refreshMeasurementPositions() {
+      measurementPositionFrame = null;
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      if (!sameMeasurementGeometry(measurementPositionSnapshot, geometry.snapshot)) {
+        measurementPositionSnapshot = geometry.snapshot;
+        showMeasurements(
+          selectedEl,
+          measurementTargetEl,
+          geometry.selectedRect,
+          geometry.targetRect
+        );
+      }
+      measurementPositionFrame = window.requestAnimationFrame(
+        refreshMeasurementPositions
+      );
+    }
     function hideMeasurements() {
+      measurementTargetEl = null;
+      measurementPositionSnapshot = null;
+      if (measurementPositionFrame !== null) {
+        window.cancelAnimationFrame(measurementPositionFrame);
+        measurementPositionFrame = null;
+      }
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
+    }
+    function refreshMeasurements() {
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      measurementPositionSnapshot = geometry.snapshot;
+      showMeasurements(
+        selectedEl,
+        measurementTargetEl,
+        geometry.selectedRect,
+        geometry.targetRect
+      );
+      if (measurementPositionFrame === null) {
+        measurementPositionFrame = window.requestAnimationFrame(
+          refreshMeasurementPositions
+        );
+      }
     }
     function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
       var horizontal = y1 === y2;
@@ -10132,7 +10303,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return segments;
     }
-    function showMeasurements(a, b) {
+    function showMeasurements(a, b, selectedRect, targetRect) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
@@ -10143,8 +10314,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
       measurementSegments(
-        a.getBoundingClientRect(),
-        b.getBoundingClientRect()
+        selectedRect || a.getBoundingClientRect(),
+        targetRect || b.getBoundingClientRect()
       ).forEach(function(segment) {
         addMeasurementLine(
           segment.x1,
@@ -21318,6 +21489,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      measurementModifierActive = Boolean(e.altKey);
       var isAltSpacingRegionPointerMove = Boolean(
         e.altKey && spacingKeyFromTarget(
           e.target && e.target.nodeType === 1 ? e.target : null
@@ -21331,16 +21503,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.metaKey || e.ctrlKey
       );
       if (!hoveredEl) {
+        measurementTargetEl = null;
         highlightOverlay.style.display = "none";
         if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = null;
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]")) {
+        measurementTargetEl = null;
+        hideMeasurements();
+        syncOverlayObservers();
         return;
+      }
       if (!spacingDrag) {
         var hoveringSelectedSpacingSurface = Boolean(
           selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
@@ -21365,11 +21543,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       } else {
         positionOverlay(highlightOverlay, hoveredEl);
       }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
+      measurementTargetEl = e.altKey && selectedEl && hoveredEl !== selectedEl ? hoveredEl : null;
+      syncOverlayObservers();
+      refreshMeasurements();
       if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
         lastHoverInfoPostedEl = hoveredEl;
         var info = getLightElementInfo(hoveredEl);
@@ -21441,11 +21617,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         clearHoverGate();
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
         }
         highlightOverlay.style.display = "none";
         hideMeasurements();
+        syncOverlayObservers();
         window.parent.postMessage(
           { type: "element-hover", payload: null },
           "*"
@@ -21457,7 +21636,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keyup",
       function(e) {
         if (e.key === "Alt") {
+          measurementModifierActive = false;
+          measurementTargetEl = null;
           hideMeasurements();
+          syncOverlayObservers();
           lastHoverInfoPostedEl = hoveredEl;
           window.parent.postMessage(
             {
@@ -21502,7 +21684,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "measurement-modifier-release") {
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = hoveredEl;
         window.parent.postMessage(
           {
@@ -21592,6 +21777,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
+          hideMeasurements();
           if (activeTextEditEl) {
             activeTextEditEl.blur();
           }
@@ -21616,6 +21802,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         interactionMode = nextInteractionMode;
         if (interactionMode) {
+          hideMeasurements();
           var releaseSpacePan = bridgeSpaceKeyPressed;
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
@@ -23013,6 +23200,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
+            hideMeasurements();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }
