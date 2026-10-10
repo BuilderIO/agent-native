@@ -31,6 +31,7 @@ import {
   getAppBasePathFromViteEnv,
   stripAppBasePath,
 } from "./app-base-path.js";
+import { platformWaitUntil, runInBackground } from "./background-work.js";
 import { httpRouteForRequest } from "./http-route.js";
 
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
@@ -341,45 +342,15 @@ async function emitTelemetry(
     await flushTrackingEvents(state.trackingScope);
     await flushObservability();
   };
-  const waitUntil = responseWaitUntil(event);
-  if (waitUntil) {
-    recordHandoff();
-    waitUntil(flush());
-    return;
-  }
-  await flush();
+  const exported = flush().catch((error: unknown) => {
+    console.warn(
+      "[http-response-telemetry] export failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  });
+  await runInBackground(exported, platformWaitUntil(event.req));
   // Recorded after the export it measures, so the next flush carries it.
   recordHandoff();
-}
-
-type WaitUntil = (promise: Promise<unknown>) => void;
-
-const NETLIFY_CONTEXT_STORE_KEY = Symbol.for(
-  "@netlify/functions/request-context-store",
-);
-
-type NetlifyContextStore = {
-  getStore?: () => { context?: { waitUntil?: unknown } } | undefined;
-};
-
-// h3 holds the Response until the response hook settles, so awaiting the
-// export here delays every reply by up to the flush timeout.
-function responseWaitUntil(event: H3Event): WaitUntil | undefined {
-  const req = event.req as { waitUntil?: unknown } | undefined;
-  if (typeof req?.waitUntil === "function") {
-    return req.waitUntil.bind(req) as WaitUntil;
-  }
-  // Nitro's Netlify entry drops the function context. The Netlify runtime
-  // still keeps it in the AsyncLocalStorage that `getContext()` from
-  // `@netlify/functions` reads, registered under this global symbol.
-  const store = (globalThis as Record<symbol, unknown>)[
-    NETLIFY_CONTEXT_STORE_KEY
-  ] as NetlifyContextStore | undefined;
-  const netlifyContext = store?.getStore?.()?.context;
-  if (typeof netlifyContext?.waitUntil === "function") {
-    return netlifyContext.waitUntil.bind(netlifyContext) as WaitUntil;
-  }
-  return undefined;
 }
 
 function requestTelemetryState(

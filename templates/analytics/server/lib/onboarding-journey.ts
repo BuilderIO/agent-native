@@ -546,6 +546,7 @@ async function readJourneyEvents(
         timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
         maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
         eventDateRange: request.eventDateRange,
+        scopedEventsSingleScan: true,
         signal,
       });
     } catch (error) {

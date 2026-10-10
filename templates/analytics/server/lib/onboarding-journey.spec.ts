@@ -912,6 +912,7 @@ describe("getOnboardingJourney", () => {
       expect(mocks.queryFirstPartyAnalytics.mock.calls[0]?.[2]).toMatchObject({
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
         maxBytesBilled: 25_000_000_000,
+        scopedEventsSingleScan: true,
       });
       expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },

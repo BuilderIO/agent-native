@@ -82,6 +82,7 @@ interface Instruments {
   toolCalls: MetricCounter;
   flushFailures: MetricCounter;
   traceWriteFailures: MetricCounter;
+  actionChangeMarkerFailures: MetricCounter;
 }
 
 let cachedInstruments: Instruments | undefined;
@@ -145,6 +146,13 @@ function instruments(): Instruments | undefined {
       {
         description:
           "Runs whose trace spans or summary could not be persisted; their trace is incomplete or missing.",
+      },
+    ),
+    actionChangeMarkerFailures: meter.createCounter(
+      "agent_native.action_change.marker_failures",
+      {
+        description:
+          "Action writes whose durable change marker did not persist; polling clients were not told about them.",
       },
     ),
   };
@@ -313,6 +321,13 @@ export function recordTraceWriteFailure(
 ): void {
   instruments()?.traceWriteFailures.add(1, {
     "agent_native.observability.stage": stage,
+    "error.type": flushErrorType(error),
+  });
+}
+
+/** Counted once per write whose durable change marker did not persist. */
+export function recordActionChangeMarkerFailure(error: unknown): void {
+  instruments()?.actionChangeMarkerFailures.add(1, {
     "error.type": flushErrorType(error),
   });
 }
