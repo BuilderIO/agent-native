@@ -1113,6 +1113,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       setIsStartingNewDeck(true);
       deck = createDeck(undefined, {
         designSystemId: selectedDesignSystem?.id ?? null,
+        creation: { method: "blank" },
       });
     });
     if (!deck) {
@@ -1190,6 +1191,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         designSystemId: selectedDesignSystem?.id ?? null,
         deferPersistence: true,
         undoableCreation: false,
+        creation: { method: "generated" },
       });
     });
     if (!deck) {
@@ -1834,6 +1836,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       if (selection.kind === "google-slides") {
         const imported = (await callAction("import-google-slides-reference", {
           presentationUrl: selection.url,
+          purpose: "direct",
         })) as {
           id?: unknown;
           imported?: unknown;
@@ -1870,6 +1873,7 @@ export default function Index({ active = true }: { active?: boolean }) {
             {
               filePath: file.path,
               designSystemId: initialDesignSystemId,
+              purpose: "direct",
             },
             { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
           )) as {
@@ -1898,6 +1902,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           deck = createDeck(undefined, {
             noDefaultSlides: true,
             designSystemId: initialDesignSystemId,
+            creation: { method: "import_pdf", purpose: "direct" },
           });
         });
         if (!deck) throw new Error("The PDF deck could not be created.");
@@ -2086,7 +2091,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         if (pptxReference) {
           const imported = (await callAction(
             "import-pptx",
-            { filePath: pptxReference.path },
+            { filePath: pptxReference.path, purpose: "reference" },
             { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
           )) as {
             id?: unknown;
@@ -2125,6 +2130,10 @@ export default function Index({ active = true }: { active?: boolean }) {
           }
           const referenceDeck = createDeck(undefined, {
             noDefaultSlides: true,
+            creation: {
+              method: documentFormat === "pdf" ? "import_pdf" : "import_docx",
+              purpose: "reference",
+            },
           });
           const persisted = await ensureDeckPersisted(referenceDeck.id);
           if (!persisted.persisted) {
@@ -2253,7 +2262,10 @@ export default function Index({ active = true }: { active?: boolean }) {
       setReferenceImporting(true);
       try {
         const payload = resolveGoogleSlidesImportPayload(source.value);
-        const raw = await callAction("import-google-slides-reference", payload);
+        const raw = await callAction("import-google-slides-reference", {
+          ...payload,
+          purpose: "reference",
+        });
         const imported = raw as {
           id?: unknown;
           imported?: unknown;

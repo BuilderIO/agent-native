@@ -11,6 +11,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Journey storyboards support up to 2,000 steps
 - Design widgets now support scoped edits and screen creation directly on the all-screens canvas.
 - Journey canvases place app cohorts side by side, lead with onboarding paths, and keep replay details expandable
 - Onboarding trees keep setup choices together while showing deeper paths clearly.

@@ -9,8 +9,7 @@ import { searchAnalyticsQueryCatalog } from "../server/lib/analytics-query-catal
 
 export default defineAction({
   description:
-    "Prefer a current certified dashboard panel before other matches; a dashboard starred by the requesting user is a weaker relevance signal. " +
-    "Search Analytics' existing query knowledge before writing a new query. This is the analytics equivalent of grepping for similar code: one bounded call searches accessible saved dashboard names, chart titles/descriptions/queries, shipped dashboard patterns, and data-dictionary definitions. The result reports `searchedDashboardCount`, `dashboardSearchTruncated`, `dashboardSearchStatus`, `searchedDictionaryEntryCount`, `dictionarySearchTruncated`, and `dictionarySearchStatus`. If dashboard search is truncated or unavailable and no close saved-dashboard match appears, use `search-dashboard-references` with focused terms; if dictionary search is truncated, partial, or unavailable and no close definition appears, use `list-data-dictionary` with focused terms before concluding there is no saved example. Use it first for an ordinary metric lookup unless the user supplied an exact source and query. Prefer the highest-trust close match, adapt its saved query only for the requested filters/time window, run one authoritative source query, and stop on success. Do not separately list every dashboard or scan provider catalogs after a strong match.",
+    "Search Analytics' existing query knowledge before writing a new query. This bounded search ranks saved dashboard panels, data-dictionary definitions, and imported source-index metadata. Results are references, not live data. Scope compatibility is ranked before certification. The result reports searched/available counts, truncation, and a `nextPage` cursor. Use it for ordinary metric discovery, then inspect live schema if exact columns or current source availability are needed; run one authoritative source query before reporting values.",
   schema: z.object({
     search: z
       .string()
@@ -27,10 +26,15 @@ export default defineAction({
       .optional()
       .default(6)
       .describe("Maximum ranked candidates to return"),
+    nextPage: z
+      .string()
+      .max(64)
+      .optional()
+      .describe("Cursor returned by the previous search result"),
   }),
   readOnly: true,
   mcpTool: true,
-  run: async ({ search, limit }) => {
+  run: async ({ search, limit, nextPage }) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     return searchAnalyticsQueryCatalog({
@@ -38,6 +42,7 @@ export default defineAction({
       limit,
       email,
       orgId: getRequestOrgId() || null,
+      nextPage,
     });
   },
 });

@@ -35,6 +35,8 @@ vi.mock("@agent-native/core/sharing", () => ({
     sql`${table.ownerEmail} = 'me@example.com'`,
 }));
 
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
+
 import listAiRequests from "./list-ai-requests";
 
 async function insertRecording(id: string, title: string, owner: string) {
@@ -178,5 +180,72 @@ describe("list-ai-requests", () => {
 
     expect(result.requests).toHaveLength(1);
     expect(result.activeSessions).toEqual([]);
+  });
+  it("recovers working sessions for every queued request kind", async () => {
+    await insertRecording("rec_chapters", "Chapters", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-status-rec_chapters",
+        value: {
+          kind: "regenerate-chapters",
+          status: "working",
+          requestedAt,
+          operationId: "operation-2",
+          threadId: "thread-2",
+          turnId: "turn-2",
+        },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.activeSessions).toEqual([
+      expect.objectContaining({
+        recordingId: "rec_chapters",
+        kind: "regenerate-chapters",
+        operationId: "operation-2",
+      }),
+    ]);
+  });
+
+  it("recovers only generating workflows that have a background session tab", async () => {
+    await insertRecording("rec_flow", "Workflow", "me@example.com");
+    await insertRecording("rec_legacy", "Legacy", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    const tabId = "clips-workflow:rec_flow:2026:req-1:run";
+    mocks.appState = [
+      {
+        key: "clips-workflow-rec_flow",
+        value: { status: "generating", requestedAt, requestId: "req-1", tabId },
+      },
+      {
+        key: "clips-workflow-rec_legacy",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestId: "req-2",
+          tabId: "clips-workflow:rec_legacy:2026:req-2:chat-abc",
+        },
+      },
+      {
+        key: "clips-workflow-rec_done",
+        value: { status: "ready", requestedAt, requestId: "req-0", tabId },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.activeSessions).toEqual([
+      {
+        recordingId: "rec_flow",
+        kind: "generate-workflow",
+        requestedAt,
+        requestId: "req-1",
+        operationId: tabId,
+        threadId: tabId,
+        turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
+      },
+    ]);
   });
 });

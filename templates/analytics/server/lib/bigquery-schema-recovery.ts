@@ -34,6 +34,7 @@ export interface SchemaRecovery {
   /** The first columns of `table` as `name:type`. */
   columns?: string[];
   columnCount?: number;
+  columnsTruncated?: true;
   /** Tables in the SQL whose metadata could not be read. */
   unreadTables?: string[];
 }
@@ -246,6 +247,7 @@ export async function recoverFromSchemaMiss(
         .slice(0, MAX_COLUMNS)
         .map((c) => `${c.name}:${c.type ?? "UNKNOWN"}`),
       columnCount: best.columns.length,
+      ...(best.columns.length > MAX_COLUMNS ? { columnsTruncated: true } : {}),
       ...(unread.length ? { unreadTables: unread } : {}),
     };
   };

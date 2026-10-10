@@ -60,7 +60,7 @@ async function action(
 
 async function createDesign(request: APIRequestContext): Promise<string> {
   const created = await action(request, "create-design", {
-    title: `Tutorial 2 QA ${Date.now()}`,
+    title: `Responsive card QA ${Date.now()}`,
     projectType: "prototype",
   });
   const designId: string | undefined =
@@ -415,7 +415,7 @@ async function focusCanvas(page: Page): Promise<void> {
   });
 }
 
-test.describe("interaction: tutorial 2 — responsive card with auto layout and constraints", () => {
+test.describe("interaction: responsive card with auto layout and constraints", () => {
   let designId = "";
 
   test.afterEach(async ({ request }) => {
@@ -506,7 +506,7 @@ test.describe("interaction: tutorial 2 — responsive card with auto layout and 
       .toBeGreaterThan(0);
   });
 
-  test("step 2 substitute: no polygon/triangle tool exists — a rectangle is the closest equivalent and reparents into the frame", async ({
+  test("a rectangle drawn inside a frame reparents into it", async ({
     page,
     request,
   }) => {
@@ -538,14 +538,6 @@ test.describe("interaction: tutorial 2 — responsive card with auto layout and 
         )
         .toBe(true);
     }
-
-    const polygonButton = page.locator(
-      '[data-design-bottom-toolbar] button[aria-label*="Polygon" i], [data-design-bottom-toolbar] button[aria-label*="Triangle" i]',
-    );
-    await expect(
-      polygonButton,
-      "no polygon/triangle tool button exists",
-    ).toHaveCount(0);
 
     const frameId = await drawBoardShapeAndWaitStable(
       page,
