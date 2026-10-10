@@ -92,15 +92,6 @@ export interface UploadedFile {
   dataUrl?: string;
 }
 
-function uploadedFilesTotalBytes(files: readonly UploadedFile[]) {
-  let totalBytes = 0;
-  for (const file of files) {
-    if (!Number.isSafeInteger(file.size) || file.size < 0) return null;
-    totalBytes += file.size;
-  }
-  return totalBytes;
-}
-
 function promptAttachmentSizeLimit(
   files: readonly File[],
 ): "images" | "attachments" | null {
@@ -120,6 +111,29 @@ function promptAttachmentSizeLimit(
     return "attachments";
   }
   return null;
+}
+
+function splitUploadBatches<T extends { file: File }>(
+  files: readonly T[],
+): T[][] {
+  const batches: T[][] = [];
+  let batch: T[] = [];
+  let batchBytes = 0;
+  for (const item of files) {
+    if (
+      batch.length > 0 &&
+      (batch.length >= MAX_UPLOAD_FILES_PER_REQUEST ||
+        batchBytes + item.file.size > MAX_UPLOAD_BYTES)
+    ) {
+      batches.push(batch);
+      batch = [];
+      batchBytes = 0;
+    }
+    batch.push(item);
+    batchBytes += item.file.size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
 }
 
 const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
@@ -411,12 +425,13 @@ export default function PromptPopover({
         Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
       );
       const preparedFiles: Array<{
+        sourceIndex: number;
         file: File;
         dataUrl: string | null;
       }> = [];
-      for (const file of files) {
+      for (const [sourceIndex, file] of files.entries()) {
         if (!isVisualImageAttachment(file)) {
-          preparedFiles.push({ file, dataUrl: null });
+          preparedFiles.push({ sourceIndex, file, dataUrl: null });
           continue;
         }
         const prepared = await preparePromptImageAttachment(
@@ -424,25 +439,18 @@ export default function PromptPopover({
           maxImageDataUrlBytes,
         );
         if (!prepared) throw new MissingVisualImagePayloadError();
-        preparedFiles.push({ file: prepared.file, dataUrl: prepared.dataUrl });
+        preparedFiles.push({
+          sourceIndex,
+          file: prepared.file,
+          dataUrl: prepared.dataUrl,
+        });
       }
-      if (
-        preparedFiles.reduce((sum, prepared) => sum + prepared.file.size, 0) >
-        MAX_UPLOAD_BYTES
-      ) {
+      if (preparedFiles.some(({ file }) => file.size > MAX_UPLOAD_BYTES)) {
         throw new Error(attachmentLimitMessage);
       }
       const uploadedFiles: UploadedFile[] = [];
       try {
-        for (
-          let start = 0;
-          start < preparedFiles.length;
-          start += MAX_UPLOAD_FILES_PER_REQUEST
-        ) {
-          const batch = preparedFiles.slice(
-            start,
-            start + MAX_UPLOAD_FILES_PER_REQUEST,
-          );
+        for (const batch of splitUploadBatches(preparedFiles)) {
           const formData = new FormData();
           batch.forEach(({ file }) => formData.append("files", file));
           const res = await fetch(`${appBasePath()}/api/uploads`, {
@@ -464,21 +472,19 @@ export default function PromptPopover({
           }
           uploadedFiles.push(
             ...uploaded.map((uploadedFile, batchIndex) => {
-              const index = start + batchIndex;
+              const prepared = batch[batchIndex]!;
+              const originalFile = files[prepared.sourceIndex];
               return {
                 ...uploadedFile,
-                ...(files[index]?.type
+                ...(originalFile?.type
                   ? {
-                      type:
-                        preparedFiles[index]?.file.type || files[index].type,
+                      type: prepared.file.type || originalFile.type,
                     }
                   : {}),
-                ...(preparedFiles[index]?.file !== files[index] && files[index]
-                  ? { originalName: files[index].name }
+                ...(prepared.file !== originalFile && originalFile
+                  ? { originalName: originalFile.name }
                   : {}),
-                ...(preparedFiles[index]?.dataUrl
-                  ? { dataUrl: preparedFiles[index].dataUrl }
-                  : {}),
+                ...(prepared.dataUrl ? { dataUrl: prepared.dataUrl } : {}),
               };
             }),
           );
@@ -566,11 +572,14 @@ export default function PromptPopover({
             contextItems: await beforeSubmitContext(options.contextItems),
           };
         uploaded = await uploadFiles(files);
-        const uploadedBytes = uploadedFilesTotalBytes(uploaded);
-        if (uploadedBytes === null) {
+        if (
+          uploaded.some(
+            (file) => !Number.isSafeInteger(file.size) || file.size < 0,
+          )
+        ) {
           throw new Error(t("promptDialog.failedToUploadFile"));
         }
-        if (uploadedBytes > MAX_UPLOAD_BYTES) {
+        if (uploaded.some((file) => file.size > MAX_UPLOAD_BYTES)) {
           throw new Error(attachmentLimitMessage);
         }
         if (draftScopeRef.current !== submissionScope)

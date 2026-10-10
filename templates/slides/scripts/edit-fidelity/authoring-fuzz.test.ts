@@ -21,7 +21,7 @@ import {
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
   isExpectedBrowserSessionPollNavigationConsoleError,
-  isExpectedSaveReloadBrowserSessionPollConsoleError,
+  isExpectedSaveReloadBrowserSessionConsoleError,
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
@@ -1347,67 +1347,104 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   ).toBe(false);
 });
 
-it("ignores a poll warning only for a recent claim canceled by save/reload navigation", () => {
-  const candidate = {
+it("ignores browser-session poll or heartbeat errors only for matching canceled reload requests", () => {
+  const claimCandidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 8_999,
     requestWasPendingAtNavigation: true,
   };
-  const warning =
+  const registrationCandidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const pollWarning =
     "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const heartbeatWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
 
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
-      candidate,
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      claimCandidate,
     ]),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(
-      warning,
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [registrationCandidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      pollWarning,
       "cleanup/navigation",
-      [candidate],
+      [claimCandidate],
     ),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "step 79", [
-      candidate,
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "step 79", [
+      claimCandidate,
     ]),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
-      { ...candidate, requestWasPendingAtNavigation: false },
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, requestWasPendingAtNavigation: false },
     ]),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
-      { ...candidate, ageMs: 9_000 },
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, ageMs: 9_000 },
     ]),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
-      { ...candidate, ageMs: -1 },
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, ageMs: -1 },
     ]),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
-      { ...candidate, method: "GET" },
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, method: "GET" },
     ]),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
       {
-        ...candidate,
+        ...claimCandidate,
         pathname: "/_agent-native/browser-sessions/session-id/requests/other",
       },
     ]),
   ).toBe(false);
   expect(
-    isExpectedSaveReloadBrowserSessionPollConsoleError(
+    isExpectedSaveReloadBrowserSessionConsoleError(
       "another poll error",
       "save/reload",
-      [candidate],
+      [claimCandidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [claimCandidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [{ ...registrationCandidate, requestWasPendingAtNavigation: false }],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [{ ...registrationCandidate, ageMs: 9_000 }],
     ),
   ).toBe(false);
 });

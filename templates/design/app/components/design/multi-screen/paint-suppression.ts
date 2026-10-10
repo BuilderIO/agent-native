@@ -34,6 +34,60 @@ export function collectScreenPaintTargets(
   return targets;
 }
 
+export function observeScreenPaintTargets(
+  surface: HTMLElement | null,
+  onChange: (targets: ScreenPaintTarget[]) => void,
+): () => void {
+  if (!surface) return () => {};
+
+  const containsScreenPaintTarget = (node: Node) => {
+    if (!(node instanceof Element)) return false;
+    return (
+      node.matches("[data-screen-content]") ||
+      node.querySelector("[data-screen-content]") !== null
+    );
+  };
+  const observer = new MutationObserver((records) => {
+    let targetsMayHaveChanged = false;
+    for (const record of records) {
+      if (record.type === "attributes") {
+        targetsMayHaveChanged = true;
+        break;
+      }
+      for (const node of record.addedNodes) {
+        if (containsScreenPaintTarget(node)) {
+          targetsMayHaveChanged = true;
+          break;
+        }
+      }
+      if (targetsMayHaveChanged) break;
+      for (const node of record.removedNodes) {
+        if (containsScreenPaintTarget(node)) {
+          targetsMayHaveChanged = true;
+          break;
+        }
+      }
+      if (targetsMayHaveChanged) break;
+    }
+    if (targetsMayHaveChanged) {
+      onChange(collectScreenPaintTargets(surface));
+    }
+  });
+
+  onChange(collectScreenPaintTargets(surface));
+  observer.observe(surface, {
+    attributes: true,
+    attributeFilter: [
+      "data-frame-id",
+      "data-screen-content",
+      "data-screen-shell",
+    ],
+    childList: true,
+    subtree: true,
+  });
+  return () => observer.disconnect();
+}
+
 export function resolveSuppressedScreenIds(
   candidates: readonly ScreenPaintCandidate[],
   liveViewport: OverscannedViewportBounds | null,
