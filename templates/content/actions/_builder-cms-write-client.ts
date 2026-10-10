@@ -1,7 +1,8 @@
-import { fail } from "@agent-native/core/action";
+import { fail, isActionContractError } from "@agent-native/core/action";
 import {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
+  resolveBuilderLegacyRequestAuthorization,
   resolveBuilderRequestAuthorization,
   type BuilderRequestAuthorization,
 } from "@agent-native/core/server";
@@ -34,19 +35,46 @@ export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 type FetchLike = typeof fetch;
 
 function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
-  return (
-    process.env.BUILDER_CONTENT_API_HOST ??
-    process.env.BUILDER_CMS_API_HOST ??
-    (source === "oauth" ? BUILDER_OAUTH_RESOURCE : "https://builder.io")
-  ).replace(/\/+$/, "");
+  // An OAuth bearer stays on its Builder API resource; only the explicit
+  // management-host override may redirect it.
+  const host =
+    source === "oauth"
+      ? (process.env.BUILDER_CMS_API_HOST ?? BUILDER_OAUTH_RESOURCE)
+      : (process.env.BUILDER_CONTENT_API_HOST ??
+        process.env.BUILDER_CMS_API_HOST ??
+        "https://builder.io");
+  return host.replace(/\/+$/, "");
 }
 
-async function readBuilderWriteAuthorization() {
-  return resolveBuilderRequestAuthorization({
-    oauthResource: "general",
-    requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
-    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
-  });
+const BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_CMS_PRIVATE_KEY",
+] as const;
+
+async function readBuilderWriteAuthorization(sourceBound: boolean) {
+  try {
+    return await resolveBuilderRequestAuthorization({
+      oauthResource: "general",
+      requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
+      legacyCredentialKeys: BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
+    });
+  } catch (error) {
+    // The shared resolver throws instead of falling back when a grant predates
+    // builder:content:write. A caller with no Source binding wrote with the
+    // deploy keys before OAuth, so it keeps that path until re-authorizing.
+    if (
+      sourceBound ||
+      !isActionContractError(error) ||
+      error.errorCode !== "builder_oauth_reauthorization_required"
+    ) {
+      throw error;
+    }
+    const legacy = await resolveBuilderLegacyRequestAuthorization(
+      BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
+    );
+    if (!legacy) throw error;
+    return legacy;
+  }
 }
 
 function assertBuilderWriteSourceBinding(
@@ -366,7 +394,10 @@ export async function executeBuilderCmsWrite(args: {
   nodeRequestImpl?: unknown;
   timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
-  const authorization = await readBuilderWriteAuthorization();
+  const authorization = await readBuilderWriteAuthorization(
+    args.requireSourceBinding === true ||
+      Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
+  );
   if (!authorization) {
     return {
       ok: false,

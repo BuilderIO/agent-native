@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core/action";
+import { fail, isActionContractError } from "@agent-native/core/action";
 import {
   BUILDER_CONTENT_READ_SCOPE,
   BUILDER_OAUTH_RESOURCE,
@@ -198,6 +198,7 @@ export class BuilderCmsContentEntryReadError extends Error {
     readonly reason:
       | "auth_failed"
       | "access_denied"
+      | "not_found"
       | "transient_read_failure"
       | "malformed_body",
     readonly providerStatus: string,
@@ -343,12 +344,13 @@ function builderContentApiHost() {
   ).replace(/\/+$/, "");
 }
 
+// Carries the OAuth bearer, so it never falls back to the public Content API
+// host: a token issued for the Builder API resource stays on that resource.
 function builderManagementApiHost() {
-  return (
-    process.env.BUILDER_CMS_API_HOST ??
-    process.env.BUILDER_CONTENT_API_HOST ??
-    BUILDER_OAUTH_RESOURCE
-  ).replace(/\/+$/, "");
+  return (process.env.BUILDER_CMS_API_HOST ?? BUILDER_OAUTH_RESOURCE).replace(
+    /\/+$/,
+    "",
+  );
 }
 
 function entryArrayFromResponse(value: unknown) {
@@ -542,17 +544,54 @@ function builderMcpEndpoint(
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderCmsAuthorization() {
-  const general = await resolveBuilderRequestAuthorization({
-    oauthResource: "general",
-    requiredScope: BUILDER_CONTENT_READ_SCOPE,
-    legacyCredentialKeys: [],
-  });
-  if (general) return general;
-  return resolveBuilderRequestAuthorization({
-    oauthResource: "publish",
-    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
-  });
+function isBuilderOAuthReauthorizationRequired(error: unknown) {
+  return (
+    isActionContractError(error) &&
+    error.errorCode === "builder_oauth_reauthorization_required"
+  );
+}
+
+function isBuilderReadSourceBound(
+  expectedSourceSpace?: string | null,
+  expectedSourceConnectionId?: string | null,
+) {
+  return Boolean(expectedSourceSpace || expectedSourceConnectionId);
+}
+
+async function readGeneralBuilderContentAuthorization(sourceBound: boolean) {
+  try {
+    return {
+      authorization: await resolveBuilderRequestAuthorization({
+        oauthResource: "general",
+        requiredScope: BUILDER_CONTENT_READ_SCOPE,
+        legacyCredentialKeys: [],
+      }),
+      reauthorization: null,
+    };
+  } catch (error) {
+    // The shared resolver throws instead of returning null when a grant
+    // predates builder:content:read. Only an unbound source may keep its
+    // previous read path until the user re-authorizes.
+    if (sourceBound || !isBuilderOAuthReauthorizationRequired(error)) {
+      throw error;
+    }
+    return { authorization: null, reauthorization: error };
+  }
+}
+
+async function readBuilderCmsAuthorization(sourceBound = false) {
+  const general = await readGeneralBuilderContentAuthorization(sourceBound);
+  if (general.authorization) return general.authorization;
+  try {
+    const publish = await resolveBuilderRequestAuthorization({
+      oauthResource: "publish",
+      legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+    });
+    if (publish || !general.reauthorization) return publish;
+  } catch (error) {
+    if (!general.reauthorization) throw error;
+  }
+  throw general.reauthorization;
 }
 
 function isGeneralBuilderOAuth(
@@ -573,8 +612,7 @@ function assertBuilderReadSourceAuthorization(
   expectedSourceConnectionId?: string | null,
 ) {
   if (
-    expectedSourceSpace &&
-    expectedSourceConnectionId &&
+    isBuilderReadSourceBound(expectedSourceSpace, expectedSourceConnectionId) &&
     !isGeneralBuilderOAuth(authorization)
   ) {
     fail(
@@ -636,6 +674,7 @@ async function readBuilderCmsGeneralModels(args: {
     fail(`Builder model discovery failed with HTTP ${response.status}.`, {
       errorCode: "builder_upstream_failed",
       statusCode: 424,
+      details: { httpStatus: response.status },
     });
   }
   return builderMcpModelsFromToolResponse((await response.json()) as unknown);
@@ -1643,6 +1682,51 @@ export async function readBuilderCmsWriteSnapshot(args: {
   });
 }
 
+function builderGeneralEntryHttpFailure(message: string, status: number) {
+  const reason =
+    status === 401
+      ? "auth_failed"
+      : status === 403
+        ? "access_denied"
+        : status === 429 || status >= 500
+          ? "transient_read_failure"
+          : "malformed_body";
+  return new BuilderCmsContentEntryReadError(
+    message,
+    reason,
+    `http_${status}`,
+    reason === "transient_read_failure",
+  );
+}
+
+function builderGeneralEntryRequestFailure(error: unknown) {
+  if (!isActionContractError(error)) {
+    const message = error instanceof Error ? error.message : String(error);
+    return new BuilderCmsContentEntryReadError(
+      `Builder CMS entry read failed before a response was received: ${message}`,
+      "transient_read_failure",
+      "network_error",
+      true,
+    );
+  }
+  const httpStatus = error.details?.httpStatus;
+  if (typeof httpStatus === "number") {
+    return builderGeneralEntryHttpFailure(error.message, httpStatus);
+  }
+  const reason =
+    error.statusCode === 404
+      ? "not_found"
+      : error.statusCode === 424
+        ? "malformed_body"
+        : "access_denied";
+  return new BuilderCmsContentEntryReadError(
+    error.message,
+    reason,
+    error.errorCode,
+    false,
+  );
+}
+
 export async function readBuilderCmsEntryLiveState(args: {
   model: string;
   entryId: string;
@@ -1650,11 +1734,13 @@ export async function readBuilderCmsEntryLiveState(args: {
   expectedSourceConnectionId?: string | null;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsEntryLiveState> {
-  const generalAuthorization = await resolveBuilderRequestAuthorization({
-    oauthResource: "general",
-    requiredScope: BUILDER_CONTENT_READ_SCOPE,
-    legacyCredentialKeys: [],
-  });
+  const { authorization: generalAuthorization } =
+    await readGeneralBuilderContentAuthorization(
+      isBuilderReadSourceBound(
+        args.expectedSourceSpace,
+        args.expectedSourceConnectionId,
+      ),
+    );
   assertBuilderReadSourceAuthorization(
     generalAuthorization,
     args.expectedSourceSpace,
@@ -1747,7 +1833,12 @@ export async function readBuilderCmsContentEntryResult(args: {
   fetchImpl?: FetchLike;
   strictEntryIdentity?: boolean;
 }): Promise<BuilderCmsContentEntryReadResult> {
-  const authorization = await readBuilderCmsAuthorization();
+  const authorization = await readBuilderCmsAuthorization(
+    isBuilderReadSourceBound(
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    ),
+  );
   assertBuilderReadSourceAuthorization(
     authorization,
     args.expectedSourceSpace,
@@ -1776,32 +1867,12 @@ export async function readBuilderCmsContentEntryResult(args: {
         fetchImpl: args.fetchImpl ?? fetch,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const sourceBindingFailure =
-        /did not identify its selected space|does not match this Content source|connected Builder credential does not match/.test(
-          message,
-        );
-      throw new BuilderCmsContentEntryReadError(
-        `Builder CMS entry read failed before a response was received: ${message}`,
-        sourceBindingFailure ? "access_denied" : "transient_read_failure",
-        sourceBindingFailure ? "source_space_mismatch" : "network_error",
-        !sourceBindingFailure,
-      );
+      throw builderGeneralEntryRequestFailure(error);
     }
     if (!response.ok) {
-      const reason =
-        response.status === 401
-          ? "auth_failed"
-          : response.status === 403
-            ? "access_denied"
-            : response.status === 429 || response.status >= 500
-              ? "transient_read_failure"
-              : "malformed_body";
-      throw new BuilderCmsContentEntryReadError(
+      throw builderGeneralEntryHttpFailure(
         `Builder CMS entry read failed with HTTP ${response.status}.`,
-        reason,
-        `http_${response.status}`,
-        reason === "transient_read_failure",
+        response.status,
       );
     }
     let json: unknown;
@@ -2035,7 +2106,12 @@ export async function listBuilderCmsModels(
   const fetchImpl = args.fetchImpl ?? fetch;
   let authorization: BuilderRequestAuthorization | null;
   try {
-    authorization = await readBuilderCmsAuthorization();
+    authorization = await readBuilderCmsAuthorization(
+      isBuilderReadSourceBound(
+        args.expectedSourceSpace,
+        args.expectedSourceConnectionId,
+      ),
+    );
   } catch (error) {
     return {
       state: "error",
@@ -2169,7 +2245,12 @@ export async function readBuilderCmsContentEntries(args: {
   const fetchImpl = args.fetchImpl ?? fetch;
   let authorization: BuilderRequestAuthorization | null;
   try {
-    authorization = await readBuilderCmsAuthorization();
+    authorization = await readBuilderCmsAuthorization(
+      isBuilderReadSourceBound(
+        args.expectedSourceSpace,
+        args.expectedSourceConnectionId,
+      ),
+    );
   } catch (error) {
     return {
       state: "error",

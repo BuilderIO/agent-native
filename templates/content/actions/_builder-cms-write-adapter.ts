@@ -14,6 +14,7 @@ import {
   BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
   BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
   BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
+  BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY,
   BUILDER_CMS_WRITE_VERSION_KEY,
   builderCmsSourceRowIdentityState,
 } from "./_builder-cms-source-adapter.js";
@@ -982,8 +983,12 @@ export function buildBuilderCmsExecutionPlan(args: {
     request,
   });
   if (targetEntryId && !guardedBody) {
+    const snapshotError =
+      targetRow?.sourceValues?.[BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY];
     fieldBlockers.push(
-      "Refresh this Builder entry before writing so a guarded write snapshot can be captured.",
+      typeof snapshotError === "string" && snapshotError.trim()
+        ? `Refresh this Builder entry before writing so a guarded write snapshot can be captured. The last capture failed: ${snapshotError.trim()}`
+        : "Refresh this Builder entry before writing so a guarded write snapshot can be captured.",
     );
   }
   const safety = builderSafetyChecks({

@@ -1,6 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, lt, notInArray, or } from "drizzle-orm";
+import { and, eq, exists, isNull, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -109,6 +109,12 @@ export interface ExecuteBuilderSourceExecutionDeps {
   }) => Promise<void>;
   claimExecution: (args: {
     executionId: string;
+    changeSetId: string;
+    /** The row the gate validated; any later write voids the claim. */
+    expected: Pick<
+      BuilderSourceExecutionRecord,
+      "state" | "updatedAt" | "attemptToken"
+    >;
     summary: string;
     payload: unknown;
     now: string;
@@ -137,6 +143,15 @@ export interface ExecuteBuilderSourceExecutionDeps {
     now: string;
     attemptToken?: string;
     state?: "failed" | "reconciliation_required";
+  }) => Promise<void>;
+  releaseExecutionClaim: (args: {
+    executionId: string;
+    attemptToken: string;
+    restore: Pick<BuilderSourceExecutionRecord, "state" | "attemptToken">;
+    summary: string;
+    payload: unknown;
+    lastError: string;
+    now: string;
   }) => Promise<void>;
   executeWrite: (args: {
     request: BuilderCmsExecutionPayload["request"];
@@ -1105,6 +1120,34 @@ export function realExecutionDeps(
                 prepared.previousState,
               ),
               previousAttemptFilter(prepared),
+              eq(
+                schema.contentDatabaseSourceExecutions.state,
+                args.expected.state,
+              ),
+              eq(
+                schema.contentDatabaseSourceExecutions.updatedAt,
+                args.expected.updatedAt,
+              ),
+              previousAttemptFilter({
+                previousAttemptToken: args.expected.attemptToken ?? null,
+              }),
+              exists(
+                getDb()
+                  .select({ id: schema.contentDatabaseSourceChangeSets.id })
+                  .from(schema.contentDatabaseSourceChangeSets)
+                  .where(
+                    and(
+                      eq(
+                        schema.contentDatabaseSourceChangeSets.id,
+                        args.changeSetId,
+                      ),
+                      eq(
+                        schema.contentDatabaseSourceChangeSets.state,
+                        "approved",
+                      ),
+                    ),
+                  ),
+              ),
               or(
                 notInArray(schema.contentDatabaseSourceExecutions.state, [
                   "running",
@@ -1315,6 +1358,52 @@ export function realExecutionDeps(
       if (builderExecutionAffectedRows(result) === 0) {
         await discardUncommittedPayload(prepared);
         fail("Builder execution changed before failure checkpoint.", {
+          errorCode: "builder_execution_changed",
+          statusCode: 409,
+        });
+      }
+      await cleanupCommittedPrevious(prepared);
+    },
+    releaseExecutionClaim: async (args) => {
+      const prepared = await storedPayloadJson(args.executionId, args.payload);
+      let result;
+      try {
+        result = await getDb()
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: args.restore.state,
+            summary: args.summary,
+            payloadJson: prepared.payloadJson,
+            lastError: args.lastError,
+            attemptToken: args.restore.attemptToken ?? null,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+              eq(schema.contentDatabaseSourceExecutions.state, "running"),
+              eq(
+                schema.contentDatabaseSourceExecutions.attemptToken,
+                args.attemptToken,
+              ),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                prepared.previousPayloadJson,
+              ),
+            ),
+          );
+      } catch (error) {
+        if (
+          (await resolveAmbiguousPayloadWrite(args.executionId, prepared)) ===
+          "committed"
+        ) {
+          return;
+        }
+        throw error;
+      }
+      if (builderExecutionAffectedRows(result) === 0) {
+        await discardUncommittedPayload(prepared);
+        fail("Builder execution changed before its claim was released.", {
           errorCode: "builder_execution_changed",
           statusCode: 409,
         });
@@ -1681,6 +1770,12 @@ export async function executeBuilderSourceExecutionWithDeps(
     const attemptToken = crypto.randomUUID();
     const claimed = await deps.claimExecution({
       executionId: execution.id,
+      changeSetId: changeSet.id,
+      expected: {
+        state: execution.state,
+        updatedAt: execution.updatedAt,
+        attemptToken: execution.attemptToken,
+      },
       summary: `Running Builder ${plan.pushMode} execution.`,
       payload: validatedPayload,
       now,
@@ -1692,14 +1787,34 @@ export async function executeBuilderSourceExecutionWithDeps(
     }
     timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
 
-    const writeResult = await timing.measure("write_dispatch", () =>
-      deps.executeWrite({
-        request: plan.payload.request,
-        expectedSourceSpace: source.metadata.builderSpacePublicKey,
-        expectedSourceConnectionId: source.metadata.connectionId,
-        requireSourceBinding: true,
-      }),
-    );
+    let writeResult: BuilderCmsWriteResult;
+    try {
+      writeResult = await timing.measure("write_dispatch", () =>
+        deps.executeWrite({
+          request: plan.payload.request,
+          expectedSourceSpace: source.metadata.builderSpacePublicKey,
+          expectedSourceConnectionId: source.metadata.connectionId,
+          requireSourceBinding: true,
+        }),
+      );
+    } catch (error) {
+      // executeWrite reports every post-dispatch outcome as a result, so a
+      // throw means nothing reached Builder. Keeping the claim would strand
+      // the gate as an attempted write that cancel and review must preserve.
+      await deps.releaseExecutionClaim({
+        executionId: execution.id,
+        attemptToken,
+        restore: {
+          state: execution.state,
+          attemptToken: execution.attemptToken,
+        },
+        summary: `${plan.summary} Execution stopped before write.`,
+        payload: validatedPayload,
+        lastError: error instanceof Error ? error.message : String(error),
+        now: deps.now(),
+      });
+      throw error;
+    }
     const payloadWithResponse = executionResponsePayload({
       payload: validatedPayload,
       writeResult,

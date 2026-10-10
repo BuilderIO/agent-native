@@ -267,6 +267,7 @@ function depsFor(args: {
     claimExecution: vi.fn(async () => args.claimExecution ?? true),
     markExecutionSucceeded: vi.fn(async () => {}),
     markExecutionFailed: vi.fn(async () => {}),
+    releaseExecutionClaim: vi.fn(async () => {}),
     executeWrite: vi.fn(async () =>
       args.writeResult
         ? args.writeResult
@@ -1226,10 +1227,57 @@ describe("execute Builder source execution", () => {
     expect(deps.claimExecution).toHaveBeenCalledWith(
       expect.objectContaining({
         executionId: execution.id,
+        changeSetId: approvedChangeSet.id,
+        expected: {
+          state: "running",
+          updatedAt: "2026-06-15T11:00:00.000Z",
+          attemptToken: undefined,
+        },
         staleBefore: "2026-06-15T11:50:00.000Z",
       }),
     );
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the claim when the write fails before dispatch", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = {
+      ...executionFor({
+        source: builderSource,
+        changeSet: approvedChangeSet,
+        state: "failed",
+      }),
+      attemptToken: "earlier-attempt",
+    };
+    const deps = depsFor({ source: builderSource, execution });
+    vi.mocked(deps.executeWrite).mockRejectedValueOnce(
+      new Error("Re-authorize Builder.io to continue."),
+    );
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Re-authorize Builder.io to continue.");
+
+    const claimToken = vi.mocked(deps.claimExecution).mock.calls[0]?.[0]
+      .attemptToken;
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        attemptToken: claimToken,
+        restore: { state: "failed", attemptToken: "earlier-attempt" },
+        lastError: "Re-authorize Builder.io to continue.",
+      }),
+    );
+    expect(deps.markExecutionFailed).not.toHaveBeenCalled();
+    expect(deps.reconcileWrite).not.toHaveBeenCalled();
   });
 
   it("does not mark success when post-write reconciliation fails", async () => {

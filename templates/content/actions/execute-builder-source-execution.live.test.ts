@@ -200,6 +200,7 @@ function buildDeps(args: {
     markExecutionFailed: vi.fn(async (call) => {
       args.onFailed(call);
     }),
+    releaseExecutionClaim: vi.fn(async () => {}),
     executeWrite: vi.fn((call) => executeBuilderCmsWrite(call)),
     readLiveEntry: vi.fn(async () => ({
       exists: true,

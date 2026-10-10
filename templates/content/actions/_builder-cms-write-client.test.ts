@@ -1,4 +1,8 @@
-import { resolveBuilderRequestAuthorization } from "@agent-native/core/server";
+import { ActionContractError } from "@agent-native/core/action";
+import {
+  resolveBuilderLegacyRequestAuthorization,
+  resolveBuilderRequestAuthorization,
+} from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,11 +14,15 @@ import {
 vi.mock("@agent-native/core/server", () => ({
   BUILDER_CONTENT_WRITE_SCOPE: "builder:content:write",
   BUILDER_OAUTH_RESOURCE: "https://api.builder.io",
+  resolveBuilderLegacyRequestAuthorization: vi.fn(),
   resolveBuilderRequestAuthorization: vi.fn(),
 }));
 
 const resolveBuilderRequestAuthorizationMock = vi.mocked(
   resolveBuilderRequestAuthorization,
+);
+const resolveBuilderLegacyRequestAuthorizationMock = vi.mocked(
+  resolveBuilderLegacyRequestAuthorization,
 );
 
 function useLegacyWriteAuthorization(token = "example-private-key") {
@@ -115,6 +123,7 @@ describe("Builder CMS write client", () => {
   });
 
   it("uses the general OAuth grant for the existing Write API without a key fallback", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://attacker.example.com";
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
@@ -422,6 +431,72 @@ describe("Builder CMS write client", () => {
       }),
     ).resolves.toMatchObject({ ok: true, entryId: "entry-1" });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  describe("when the general grant predates builder:content:write", () => {
+    const reauthorizationRequired = new ActionContractError(
+      "Builder.io access needs re-authorizing to grant builder:content:write.",
+      {
+        errorCode: "builder_oauth_reauthorization_required",
+        statusCode: 400,
+      },
+    );
+    const request = {
+      method: "PATCH" as const,
+      path: "/api/v1/write/blog-article/entry-1",
+      body: { data: { title: "Reviewed title" } },
+    };
+
+    beforeEach(() => {
+      resolveBuilderRequestAuthorizationMock.mockRejectedValue(
+        reauthorizationRequired,
+      );
+      resolveBuilderLegacyRequestAuthorizationMock.mockResolvedValue({
+        token: "example-private-key",
+        authorization: "Bearer example-private-key",
+        source: "legacy",
+        legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+      });
+    });
+
+    it("keeps a non-Source caller on its deploy key", async () => {
+      const fetchImpl = vi.fn(async (_input: URL, init?: RequestInit) => {
+        expect(init?.headers).toMatchObject({
+          authorization: "Bearer example-private-key",
+        });
+        return new Response(JSON.stringify({ id: "entry-1" }), {
+          status: 200,
+        });
+      });
+
+      await expect(
+        executeBuilderCmsWrite({
+          request,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).resolves.toMatchObject({ ok: true, entryId: "entry-1" });
+      expect(resolveBuilderLegacyRequestAuthorizationMock).toHaveBeenCalledWith(
+        ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+      );
+    });
+
+    it("surfaces re-authorization for a Source write", async () => {
+      const fetchImpl = vi.fn();
+
+      await expect(
+        executeBuilderCmsWrite({
+          request,
+          expectedSourceSpace: "selected-space",
+          expectedSourceConnectionId: "connection-1",
+          requireSourceBinding: true,
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+        }),
+      ).rejects.toBe(reauthorizationRequired);
+      expect(
+        resolveBuilderLegacyRequestAuthorizationMock,
+      ).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
   });
 
   it("does not dispatch an OAuth write for a different or unbound source space", async () => {

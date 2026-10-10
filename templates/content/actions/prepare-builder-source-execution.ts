@@ -98,6 +98,7 @@ export default defineAction({
       let nextReference: string | null = null;
       let previousReference: string | null = null;
       let attemptedPayloadJson: string | null = null;
+      let observedPayloadJson: string | null | undefined;
       let replacementCommitted = false;
       let replacementPrepared = false;
       try {
@@ -107,6 +108,7 @@ export default defineAction({
             .from(schema.contentDatabaseSourceExecutions)
             .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
             .limit(1);
+          observedPayloadJson = existing?.payloadJson ?? null;
 
           const preserve =
             existing &&
@@ -230,7 +232,14 @@ export default defineAction({
               () => undefined,
             );
           }
-          // A concurrent prepare won; reuse its durable execution gate.
+          // Only a row another prepare changed is a won race to reuse; an
+          // unchanged row means this prepare's own failure must surface.
+          if (
+            observedPayloadJson === undefined ||
+            winner.payloadJson === observedPayloadJson
+          ) {
+            throw error;
+          }
         } else {
           throw error;
         }

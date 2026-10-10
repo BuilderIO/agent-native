@@ -29,6 +29,8 @@ export const BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY =
   "__builder.write.autosaveCreatedDate";
 export const BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY =
   "__builder.write.hasPendingAutosave";
+export const BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY =
+  "__builder.write.snapshotError";
 
 export interface BuilderCmsSourceEntry {
   id: string;
