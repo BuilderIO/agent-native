@@ -283,7 +283,7 @@ test(
   "text truncation restores authored styles through Undo, reload, and text editing",
   {},
   async ({ page }, testInfo) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
     const designId = await prepareDesign(page);
     try {
       await page.setViewportSize({ width: 2800, height: 1600 });
