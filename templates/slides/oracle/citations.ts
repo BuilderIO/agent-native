@@ -483,14 +483,30 @@ function containsFocus(value: unknown, context: Context): boolean {
   if (node.type === "CallExpression") {
     const declaration = testDeclaration(node.callee, context);
     if (declaration?.modifiers.includes("only")) return true;
-    // A test body runs after Vitest has decided the file's focus, so a focus
-    // inside one changes nothing. Only the declaration's own callee is read.
+    // A handler runs after Vitest has decided the file's focus, so a focus inside
+    // one changes nothing. The title, table and condition are evaluated while the
+    // file is collected, so they are read.
     if (declaration !== undefined && declaration.base !== "describe") {
-      return containsFocus(node.callee, context);
+      const parts = [
+        node.callee,
+        ...argumentsOf(node).map((argument) => argument.expression),
+      ];
+      return parts.some(
+        (part) => !isHandler(part) && containsFocus(part, context),
+      );
     }
   }
   const inner = enterScope(node, context);
   return Object.values(node).some((child) => containsFocus(child, inner));
+}
+
+/** A function literal passed as a test's handler, which runs after collection. */
+function isHandler(value: unknown): boolean {
+  const node = value as AstNode | undefined;
+  return (
+    node?.type === "ArrowFunctionExpression" ||
+    node?.type === "FunctionExpression"
+  );
 }
 
 /**

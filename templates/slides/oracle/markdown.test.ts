@@ -309,6 +309,14 @@ describe("diffLedgerExpectations", () => {
     expect(problems[0]).toMatch(/is contradicted by the result/);
   });
 
+  it("accepts a nothing hit expectation whose result says the selection clears", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("3.8", "deselects all; selection clears")],
+      [jsonRow({ id: "3.8", expect: { hit: "nothing" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
   it("rejects a cursor expectation whose name is only negated", () => {
     const problems = diffLedgerExpectations(
       [markdownResult("1.1", "not default, a hover cursor")],

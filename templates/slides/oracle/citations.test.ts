@@ -509,6 +509,30 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
+  it("keeps a focus in a table that a test declaration evaluates at collection", () => {
+    const source = [
+      `it.each([1, (it.only("focused", () => {}), 2)])("moves %s (oracle 8.10)", () => {});`,
+      `it("snaps (oracle 8.11)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("keeps a focus in a skipIf condition that Vitest evaluates at collection", () => {
+    const source = [
+      `it.skipIf((it.only("focused", () => {}), false))("moves (oracle 8.12)", () => {});`,
+      `it("snaps (oracle 8.13)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("keeps a focus in a title expression that Vitest evaluates at collection", () => {
+    const source = [
+      `it((() => { it.only("focused", () => {}); return "moves (oracle 8.14)"; })(), () => {});`,
+      `it("snaps (oracle 8.15)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
   it("counts ordinary tests when a focus sits inside a test body, which runs after focus is decided", () => {
     const source = [
       `it("outer", () => { it.only("never registers (oracle 8.8)", () => {}); });`,
