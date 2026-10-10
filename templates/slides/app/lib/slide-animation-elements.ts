@@ -308,6 +308,10 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         }
       }
     };
+    const hasParagraphsInListItem = (element: Element, item: Element) =>
+      Array.from(element.querySelectorAll("p")).some(
+        (paragraph) => paragraph.closest("li") === item,
+      );
     const collectListItemContent = (parent: Element) => {
       for (const child of getPersistedChildren(parent)) {
         const childTagName = child.tagName.toLowerCase();
@@ -319,26 +323,31 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         } else if (childTagName === "li") {
           collectListItem(child);
         } else if (shouldKeepAsSingleElement(child)) {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          collectNestedLists(child);
+          const containingListItem = parent.closest("li");
+          if (
+            containingListItem &&
+            hasOwnText(child) &&
+            hasParagraphsInListItem(child, containingListItem)
+          ) {
+            nativeParagraphs.push(child);
+            collectListItemContent(child);
+          } else {
+            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            collectNestedLists(child);
+          }
         } else {
           collectListItemContent(child);
         }
       }
     };
     const collectListItem = (item: Element) => {
-      const children = getPersistedChildren(item).filter(
-        (child) => !SKIPPED_TAGS.has(child.tagName.toLowerCase()),
-      );
-      const hasParagraphs = children.some(
-        (child) => child.tagName.toLowerCase() === "p",
-      );
-      if (hasParagraphs && hasOwnText(item)) {
+      const itemHasParagraphs = hasParagraphsInListItem(item, item);
+      if (itemHasParagraphs && hasOwnText(item)) {
         nativeParagraphs.push(item);
-        collectNestedLists(item);
+        collectListItemContent(item);
         return;
       }
-      if (!hasParagraphs && hasMeaningfulContent(item)) {
+      if (!itemHasParagraphs && hasMeaningfulContent(item)) {
         nativeParagraphs.push(item);
         collectNestedLists(item);
         return;
