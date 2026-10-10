@@ -80,10 +80,16 @@ export function createAuthoredContentBase() {
       editorContent = content;
       seen.push(content);
       if (seen.length > MAX_SEEN) seen.shift();
-      if (acknowledged?.saved.revision === saved.revision) {
-        unheld = holds(content, acknowledged.saved, acknowledged.base)
+      const ack = acknowledged;
+      const acknowledgedRevision = ack?.saved.revision;
+      if (
+        ack &&
+        acknowledgedRevision !== undefined &&
+        acknowledgedRevision === saved.revision
+      ) {
+        unheld = holds(content, ack.saved, ack.base)
           ? null
-          : { revision: saved.revision, base: acknowledged.base };
+          : { revision: acknowledgedRevision, base: ack.base };
         return;
       }
       if (!unheld || unheld.revision !== saved.revision) return;
