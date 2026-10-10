@@ -23,6 +23,8 @@ export default {
       "{label}، مثال المصدر {source}، موضعه في المعرض {current} من {total}، تاريخ الالتقاط {date}",
     screenshotMissing: "لم تُلتقط لقطة شاشة",
     recordingUnavailable: "غير متاح",
+    recordingGap: "فجوة في التسجيل",
+    recordingGapDuration: "فجوة في التسجيل · {duration}",
     eventTime: "وقت الحدث (UTC)",
     generationCompletedEvent: "حدث generation_completed (UTC)",
     replayObservation: "ملاحظة إعادة التشغيل",
@@ -1583,6 +1585,13 @@ export default {
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
+      previewCredentialsUnavailableTitle:
+        "بيانات اعتماد المعاينة المحلية غير متاحة",
+      previewCredentialsUnavailableDescription:
+        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+      publicPreviewUnavailableDescription:
+        "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
+      previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {

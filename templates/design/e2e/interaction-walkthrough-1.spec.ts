@@ -319,12 +319,12 @@ async function setScrubInput(
   await input.press("Enter");
 }
 
-test.describe("interaction: guided walkthrough - create a simple button component", () => {
-  test("step 1: Text tool click + type creates a text node with the typed content", async ({
+test.describe("interaction: button component", () => {
+  test("Text tool click and type creates a text node with the typed content", async ({
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 1 Step 1");
+    currentDesignId = await createFixtureDesign(page, "Text creation");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -341,11 +341,11 @@ test.describe("interaction: guided walkthrough - create a simple button componen
     expect(layerNameOf(html, textIds[0]!)).toBe("Button");
   });
 
-  test("step 2: double-click a layer row in the panel enters rename mode", async ({
+  test("double-click a layer row in the panel enters rename mode", async ({
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 1 Step 2");
+    currentDesignId = await createFixtureDesign(page, "Layer rename");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -357,11 +357,14 @@ test.describe("interaction: guided walkthrough - create a simple button componen
       .toBe("Renamed Alpha");
   });
 
-  test("steps 4-5, 11: Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it", async ({
+  test("Shift+A wraps a text leaf in a hug-contents frame; retyping auto-resizes it", async ({
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(page, "E2E Tutorial 1 Step 4");
+    currentDesignId = await createFixtureDesign(
+      page,
+      "Auto-layout text resize",
+    );
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -414,7 +417,7 @@ test.describe("interaction: guided walkthrough - create a simple button componen
     });
     expect(
       wrapperNameBefore,
-      'standard names a Shift+A single-object auto-layout wrapper "Frame" or the next sequential "Frame N"',
+      'a Shift+A single-object auto-layout wrapper is named "Frame" or the next sequential "Frame N"',
     ).toMatch(/^Frame(?: \d+)?$/);
 
     const widthBefore = (
@@ -453,14 +456,11 @@ test.describe("interaction: guided walkthrough - create a simple button componen
       .toBe("Sign up");
   });
 
-  test("steps 6-10: fill, stroke, corner radius, drop shadow, padding via inspector (peer-owned)", async ({
+  test("inspector controls edit fill, stroke, corner radius, shadow, and padding", async ({
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 1 Button Styles",
-    );
+    currentDesignId = await createFixtureDesign(page, "Button styles");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -627,14 +627,11 @@ test.describe("interaction: guided walkthrough - create a simple button componen
     );
   });
 
-  test("step 12 equivalent: Cmd+Alt+K annotates the selection as a component (no standard component/instance system exists)", async ({
+  test("Cmd+Alt+K annotates the selection as a component", async ({
     page,
     request,
   }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 1 Create Component",
-    );
+    currentDesignId = await createFixtureDesign(page, "Create component");
     await gotoEditor(page, currentDesignId);
     await installBridge(page);
 
@@ -661,7 +658,7 @@ test.describe("interaction: guided walkthrough - create a simple button componen
 
     expect(
       isAnnotatedComponent,
-      "Cmd+Alt+K should annotate the selection with data-agent-native-component (closest equivalent to standard's Create Component; full component/variant system does not exist)",
+      "Cmd+Alt+K should annotate the selection with data-agent-native-component",
     ).toBe(true);
   });
 
@@ -671,7 +668,7 @@ test.describe("interaction: guided walkthrough - create a simple button componen
   });
 });
 
-test.describe("interaction: overview-canvas (outside any screen) and cross-boundary steps", () => {
+test.describe("interaction: overview canvas and cross-boundary interactions", () => {
   test("text tool on empty overview canvas creates a free-floating board object, not a screen child", async ({
     page,
     request,

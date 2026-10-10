@@ -15,6 +15,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { MenuSearchInput } from "@/components/ui/command";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
@@ -350,14 +351,20 @@ function MultiSelectOption({
   label,
   checked,
   onCheckedChange,
+  onOnly,
+  onlyLabel,
+  onlyAriaLabel,
 }: {
   label: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  onOnly: () => void;
+  onlyLabel: string;
+  onlyAriaLabel: string;
 }) {
   const id = useId();
   return (
-    <div className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent">
+    <li className="group/option flex min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent">
       <Checkbox
         id={id}
         checked={checked}
@@ -366,6 +373,183 @@ function MultiSelectOption({
       <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer truncate">
         {label}
       </label>
+      <span className="inline-flex">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={onOnly}
+          aria-label={onlyAriaLabel}
+        >
+          {onlyLabel}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+function MultiSelectFilter({
+  filter,
+  value,
+  setValue,
+}: {
+  filter: DashboardFilter;
+  value: string;
+  setValue: (updates: Record<string, string>) => void;
+}) {
+  const t = useT();
+  const labelId = useId();
+  const triggerId = useId();
+  const optionsListId = useId();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const seenOptionValues = new Set<string>();
+  const options = (filter.options ?? []).filter((option) => {
+    if (seenOptionValues.has(option.value)) return false;
+    seenOptionValues.add(option.value);
+    return true;
+  });
+  // Values are comma-joined in the URL, so option values must not contain ",".
+  const selected = value.split(",").filter(Boolean);
+  const selectedSet = new Set(selected);
+  const allOptionsSelected =
+    options.length > 0 &&
+    selectedSet.size === options.length &&
+    options.every((option) => selectedSet.has(option.value));
+  // Keep URL values with no matching option visible so the trigger never says "All" over a filtered query.
+  const selectedLabels = selected.map(
+    (selectedValue) =>
+      options.find((option) => option.value === selectedValue)?.label ??
+      selectedValue,
+  );
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredOptions = normalizedQuery
+    ? options.filter(
+        (option) =>
+          option.label.toLocaleLowerCase().includes(normalizedQuery) ||
+          option.value.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    : options;
+  const noFilteredOptions = filteredOptions.length === 0;
+  const allFilteredOptionsSelected =
+    !noFilteredOptions &&
+    filteredOptions.every((option) => selectedSet.has(option.value));
+
+  const setSelected = (next: string[]) =>
+    setValue({
+      [filter.id]: next.length > 0 ? next.join(",") : MULTI_SELECT_EMPTY,
+    });
+  const selectAllFiltered = () =>
+    setSelected(
+      Array.from(
+        new Set([
+          ...selected,
+          ...filteredOptions.map((option) => option.value),
+        ]),
+      ),
+    );
+  const toggle = (optionValue: string, checked: boolean) =>
+    setSelected(
+      checked
+        ? Array.from(new Set([...selected, optionValue]))
+        : selected.filter((value) => value !== optionValue),
+    );
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label id={labelId} className="text-xs text-muted-foreground font-medium">
+        {filter.label}
+      </label>
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setQuery("");
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            id={triggerId}
+            aria-labelledby={`${labelId} ${triggerId}`}
+            variant="outline"
+            size="sm"
+            className="w-40 justify-start"
+          >
+            <span className="min-w-0 truncate">
+              {allOptionsSelected
+                ? t("sqlDashboard.allValues")
+                : selectedLabels.length > 0
+                  ? selectedLabels.join(", ")
+                  : t("sqlDashboard.allValues")}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-64">
+          <MenuSearchInput
+            aria-controls={optionsListId}
+            aria-label={t("sqlDashboard.searchValues")}
+            placeholder={t("sqlDashboard.searchValues")}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+          <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={noFilteredOptions || allFilteredOptionsSelected}
+              onClick={selectAllFiltered}
+            >
+              {t("sqlDashboard.selectAll")}
+            </Button>
+            {selected.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="w-full justify-start"
+                onClick={() => setSelected([])}
+              >
+                {t("sqlDashboard.clearAll")}
+              </Button>
+            )}
+          </div>
+          <div id={optionsListId}>
+            {!noFilteredOptions && (
+              <ul
+                aria-label={filter.label}
+                className="max-h-60 list-none overflow-y-auto p-1"
+              >
+                {filteredOptions.map((option) => (
+                  <MultiSelectOption
+                    key={option.value}
+                    label={option.label}
+                    checked={selectedSet.has(option.value)}
+                    onCheckedChange={(checked) => toggle(option.value, checked)}
+                    onOnly={() => setSelected([option.value])}
+                    onlyLabel={t("sqlDashboard.selectOnly")}
+                    onlyAriaLabel={t("sqlDashboard.selectOnlyValue", {
+                      value: option.label,
+                    })}
+                  />
+                ))}
+              </ul>
+            )}
+            <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className={
+                noFilteredOptions
+                  ? "px-2 py-4 text-center text-xs text-muted-foreground"
+                  : "sr-only"
+              }
+            >
+              {noFilteredOptions ? t("sqlDashboard.noValuesFound") : ""}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -384,8 +568,6 @@ function FilterControl({
   setValue,
 }: FilterControlProps) {
   const t = useT();
-  const labelId = useId();
-  const triggerId = useId();
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
@@ -480,75 +662,12 @@ function FilterControl({
   }
 
   if (filter.type === "multi-select") {
-    // Values are comma-joined in the URL, so option values must not contain ",".
-    const options = filter.options ?? [];
-    const selected = (vars[filter.id] || "").split(",").filter(Boolean);
-    // Label the values the query receives, including URL values with no matching option, so the trigger never reads "All" over a filtered query.
-    const selectedLabels = selected.map(
-      (value) => options.find((opt) => opt.value === value)?.label ?? value,
-    );
-    const setSelected = (next: string[]) =>
-      setValue({
-        [filter.id]: next.length > 0 ? next.join(",") : MULTI_SELECT_EMPTY,
-      });
-    // Values with no matching option stay selected: the trigger shows them and the query applies them, so a toggle must not drop them silently.
-    const toggle = (value: string, checked: boolean) => {
-      const listed = options
-        .filter((opt) =>
-          opt.value === value ? checked : selected.includes(opt.value),
-        )
-        .map((opt) => opt.value);
-      const unlisted = selected.filter(
-        (v) => !options.some((opt) => opt.value === v),
-      );
-      setSelected([...listed, ...unlisted]);
-    };
     return (
-      <div className="flex flex-col gap-1">
-        <label
-          id={labelId}
-          className="text-xs text-muted-foreground font-medium"
-        >
-          {filter.label}
-        </label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              id={triggerId}
-              aria-labelledby={`${labelId} ${triggerId}`}
-              variant="outline"
-              size="sm"
-              className="w-[160px] justify-start text-xs font-normal"
-            >
-              <span className="min-w-0 truncate">
-                {selectedLabels.length > 0
-                  ? selectedLabels.join(", ")
-                  : t("sqlDashboard.allValues")}
-              </span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[200px] p-1">
-            {options.map((opt) => (
-              <MultiSelectOption
-                key={opt.value}
-                label={opt.label}
-                checked={selected.includes(opt.value)}
-                onCheckedChange={(checked) => toggle(opt.value, checked)}
-              />
-            ))}
-            {selected.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-1 h-6 w-full justify-start px-2 text-xs text-muted-foreground"
-                onClick={() => setSelected([])}
-              >
-                {t("sqlDashboard.clearAll")}
-              </Button>
-            )}
-          </PopoverContent>
-        </Popover>
-      </div>
+      <MultiSelectFilter
+        filter={filter}
+        value={vars[filter.id] || ""}
+        setValue={setValue}
+      />
     );
   }
 

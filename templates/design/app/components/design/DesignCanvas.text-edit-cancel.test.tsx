@@ -81,6 +81,7 @@ it("drops a queued begin-text-edit when the creation is stood down before the br
         contentKey="screen-live"
         screenId="screen-live"
         sourceType="localhost"
+        connectionId="localhost_connection"
         bridgeUrl={bridgeUrl}
         previewToken="text-edit-cancel-preview-token"
         liveEditCapability="text-edit-cancel-live-capability"
@@ -204,6 +205,7 @@ async function mountCanvas(
             contentKey="screen-live"
             screenId={overrides.screenId ?? options.screenId ?? "screen-live"}
             sourceType="localhost"
+            connectionId="localhost_connection"
             bridgeUrl={bridgeUrl}
             previewToken={previewToken}
             liveEditCapability="text-edit-cancel-live-capability"

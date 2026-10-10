@@ -102,6 +102,22 @@ const SCENARIOS = [
 type Scenario = (typeof SCENARIOS)[number];
 /** Scenarios whose net text change is zero: nothing may change at all. */
 const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
+const getSlashListbox = async (page: any, editor: any) => {
+  const editorHandle = await editor.elementHandle();
+  if (!editorHandle) throw new Error("slash menu editor is unavailable");
+  await page.waitForFunction(
+    (element: HTMLElement) => {
+      const listboxId = element.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      return listbox?.getAttribute("role") === "listbox";
+    },
+    editorHandle,
+    { timeout: 5_000 },
+  );
+  const listboxId = await editor.getAttribute("aria-controls");
+  if (!listboxId) throw new Error("slash menu did not expose its listbox");
+  return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
+};
 
 // ------------------------------------------------------------------- cli ---
 
@@ -3031,31 +3047,37 @@ async function runAuthoringParityQa(
   const getEditor = (slideId: string) => page.locator(selectorFor(slideId));
   let currentCaseId = "setup";
   const waitForSlashOption = async (editor: any, caseId: string) => {
-    const option = page.locator('[role="listbox"] [role="option"]').first();
+    let listboxId: string | null = null;
     try {
+      const listbox = await getSlashListbox(page, editor);
+      listboxId = await listbox.getAttribute("id");
+      const option = listbox.locator('[role="option"]').first();
       await option.waitFor({ state: "visible", timeout: 3_000 });
     } catch {
-      const state = await editor.evaluate((element: HTMLElement) => {
-        const selection = window.getSelection();
-        const range = selection?.rangeCount
-          ? selection.getRangeAt(0)
-          : undefined;
-        const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
-        return {
-          html: element.innerHTML,
-          focused: document.activeElement === element,
-          ariaExpanded: element.getAttribute("aria-expanded"),
-          ariaActiveDescendant: element.getAttribute("aria-activedescendant"),
-          selection: range
-            ? {
-                text: range.startContainer.textContent,
-                offset: range.startOffset,
-                collapsed: range.collapsed,
-              }
-            : null,
-          listbox: listbox?.outerHTML ?? null,
-        };
-      });
+      const state = await editor.evaluate(
+        (element: HTMLElement, id: string | null) => {
+          const selection = window.getSelection();
+          const range = selection?.rangeCount
+            ? selection.getRangeAt(0)
+            : undefined;
+          const listbox = id ? document.getElementById(id) : null;
+          return {
+            html: element.innerHTML,
+            focused: document.activeElement === element,
+            ariaExpanded: element.getAttribute("aria-expanded"),
+            ariaActiveDescendant: element.getAttribute("aria-activedescendant"),
+            selection: range
+              ? {
+                  text: range.startContainer.textContent,
+                  offset: range.startOffset,
+                  collapsed: range.collapsed,
+                }
+              : null,
+            listbox: listbox?.outerHTML ?? null,
+          };
+        },
+        listboxId,
+      );
       throw new Error(
         `${caseId}: slash menu did not open: ${JSON.stringify(state)}`,
       );
@@ -3313,13 +3335,13 @@ async function runAuthoringParityQa(
           await editor.pressSequentially("/");
           await waitForSlashOption(editor, test.id);
           await editor.pressSequentially("heading 2");
-          await page
-            .locator('[role="listbox"] [role="option"][data-value="heading2"]')
-            .waitFor({ state: "visible", timeout: 3_000 });
+          const listbox = await getSlashListbox(page, editor);
+          const headingOption = listbox.locator(
+            '[role="option"][data-value="heading2"]',
+          );
+          await headingOption.waitFor({ state: "visible", timeout: 3_000 });
           const active = await editor.getAttribute("aria-activedescendant");
-          const headingOptionId = await page
-            .locator('[role="listbox"] [role="option"][data-value="heading2"]')
-            .getAttribute("id");
+          const headingOptionId = await headingOption.getAttribute("id");
           if (!headingOptionId || active !== headingOptionId) {
             throw new Error(
               `/heading 2 did not select Heading 2 (active: ${active})`,
@@ -3331,8 +3353,9 @@ async function runAuthoringParityQa(
           });
         } else {
           await editor.pressSequentially("/");
-          const options = page.locator('[role="listbox"] [role="option"]');
           await waitForSlashOption(editor, test.id);
+          const listbox = await getSlashListbox(page, editor);
+          const options = listbox.locator('[role="option"]');
           if ((await options.count()) !== slashCommands.length) {
             throw new Error(
               `slash menu showed ${await options.count()} commands`,
@@ -3514,8 +3537,9 @@ async function runAuthoringParityQa(
         await editor.press(lineEndKey);
         await editor.press("Shift+Enter");
         await editor.pressSequentially("After /heading 2");
-        const option = page.locator(
-          '[role="listbox"] [role="option"][data-value="heading2"]',
+        const listbox = await getSlashListbox(page, editor);
+        const option = listbox.locator(
+          '[role="option"][data-value="heading2"]',
         );
         await option.waitFor({ state: "visible" });
         await page.keyboard.press("Enter");
@@ -3824,7 +3848,11 @@ async function runAuthoringCorpusQa(
           anchor = slashRange.getBoundingClientRect();
         }
       }
-      const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
+      const listboxId = root.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      if (listbox?.getAttribute("role") !== "listbox") {
+        throw new Error("slash menu is not the active editor's listbox");
+      }
       const popover = listbox?.closest<HTMLElement>(
         "[data-radix-popper-content-wrapper]",
       );
@@ -4238,13 +4266,12 @@ async function runAuthoringCorpusQa(
               );
             }
             await page.keyboard.type("/heading 2");
-            const options = page.locator('[role="listbox"] [role="option"]');
+            const listbox = await getSlashListbox(page, editor);
+            const options = listbox.locator('[role="option"]');
             await options.first().waitFor({ state: "visible" });
             const active = await editor.getAttribute("aria-activedescendant");
-            const headingOptionId = await page
-              .locator(
-                '[role="listbox"] [role="option"][data-value="heading2"]',
-              )
+            const headingOptionId = await listbox
+              .locator('[role="option"][data-value="heading2"]')
               .getAttribute("id");
             if (!headingOptionId || active !== headingOptionId) {
               throw new Error(
@@ -4892,8 +4919,9 @@ async function runAuthoringCorpusQa(
       const editor = page.locator(selectorFor(edgeSlideId));
       await editor.press(lineEndKey);
       await editor.pressSequentially("/");
-      await page
-        .locator('[role="listbox"] [role="option"]')
+      const listbox = await getSlashListbox(page, editor);
+      await listbox
+        .locator('[role="option"]')
         .first()
         .waitFor({ state: "visible" });
       const geometry = await assertSlashPopoverGeometry(editor);
@@ -4918,7 +4946,7 @@ async function runAuthoringCorpusQa(
         );
       }
       await page.keyboard.press("Escape");
-      await page.locator('[role="listbox"]').waitFor({ state: "hidden" });
+      await listbox.waitFor({ state: "hidden" });
       await exitEdit(page, edgeSlideId, "escape");
     } catch (error) {
       problems.push(`slash viewport-edge geometry: ${String(error)}`);

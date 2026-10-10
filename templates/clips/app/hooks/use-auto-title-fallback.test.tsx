@@ -7,15 +7,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   bumpChangeVersion: vi.fn(),
   callAction: vi.fn(),
-  sendToAgentChatAndConfirm: vi.fn(async (options: { tabId?: string }) => ({
-    tabId: options.tabId,
-    delivered: true,
-  })),
+  startBackgroundAgentSession: vi.fn(
+    (options: {
+      operationId: string;
+      threadId: string;
+      instructions?: string;
+    }) => {
+      const receipt = {
+        operationId: options.operationId,
+        threadId: options.threadId,
+        turnId: "turn-1",
+      };
+      return {
+        ...receipt,
+        accepted: Promise.resolve(receipt),
+        completion: Promise.resolve(),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        open: vi.fn(),
+      };
+    },
+  ),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  generateTabId: () => "chat-123",
-  sendToAgentChatAndConfirm: mocks.sendToAgentChatAndConfirm,
+  getBackgroundAgentSessionStatus: vi.fn(),
+  startBackgroundAgentSession: mocks.startBackgroundAgentSession,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -263,7 +280,7 @@ describe("auto-title fallback", () => {
     });
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
     );
     expect(regenerateTitleCalls()).toHaveLength(0);
   });
@@ -283,11 +300,13 @@ describe("auto-title fallback", () => {
     });
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
     );
-    const [options] = mocks.sendToAgentChatAndConfirm.mock.calls[0] as [
-      { context: string },
+    const [options] = mocks.startBackgroundAgentSession.mock.calls[0] as [
+      { instructions: string },
     ];
-    expect(JSON.parse(options.context).currentTitle).toBe("Quarterly planning");
+    expect(JSON.parse(options.instructions).currentTitle).toBe(
+      "Quarterly planning",
+    );
   });
 });

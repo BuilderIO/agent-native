@@ -18,6 +18,7 @@ import {
   eq,
   exists,
   inArray,
+  isNotNull,
   isNull,
   or,
   sql,
@@ -1414,31 +1415,27 @@ export async function getContentDatabaseResponse(
 
 export async function isSoftDeletedDatabaseDocument(documentId: string) {
   const db = getDb();
-  const [ownedDatabase] = await db
+  const [deletedDatabase] = await db
     .select({ id: schema.contentDatabases.id })
     .from(schema.contentDatabases)
-    .where(
+    .leftJoin(
+      schema.contentDatabaseItems,
       and(
-        eq(schema.contentDatabases.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+        eq(schema.contentDatabaseItems.databaseId, schema.contentDatabases.id),
+        eq(schema.contentDatabaseItems.documentId, documentId),
       ),
-    );
-  if (ownedDatabase) return true;
-
-  const [databaseItem] = await db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
     .where(
       and(
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+        isNotNull(schema.contentDatabases.deletedAt),
+        or(
+          eq(schema.contentDatabases.documentId, documentId),
+          isNotNull(schema.contentDatabaseItems.id),
+        ),
       ),
-    );
-  return !!databaseItem;
+    )
+    .limit(1);
+  return !!deletedDatabase;
 }
 
 export async function getDatabaseByDocumentId(

@@ -59,6 +59,23 @@ sizes and persists the whole tree in one transaction.
    strictly increasing actual screenshot seek offsets. The dashed edge reads
    “Same recording” and has no cohort percentage. It describes replay order,
    not a causal transition.
+   For exact examples from distinct recordings in the same session and app,
+   use `observedRecordingGaps` instead of `observedContinuations`:
+   `{ type: "recording-gap", fromNodeKey, fromExampleIndex, toNodeKey,
+   toExampleIndex, gapDurationMs? }`. The destination must be a direct
+   reference-only child. Bind both endpoints to private frames with exact
+   `recordingStartedAt` values and actual `screenshotOffsetMs` seeks. Their
+   `sessionId` values must match and their recording IDs must differ; when
+   anonymous identity hashes are present, the `anonymousIdHash` values must
+   match. The source frame must include `recordingEndedAt` before the target
+   recording start, proving a recording gap even when duration is omitted.
+   Pass `gapDurationMs` only when it exactly equals target recording start
+   minus source recording end; values are bounded to 30 days. The edge is
+   dashed and visibly says “Recording gap,” optionally with the duration. It
+   preserves reference-only semantics and adds no cohort count, percentage,
+   conversion, signup success, or authentication outcome. If authentication
+   completion was not directly observed, keep it unknown. Unsupported or
+   mismatched provenance is rejected.
    For large native-PNG imports, create the Design once, then call
    `stage-journey-canvas-frames` with a stable `importId` and batches of up to
    eight frames. Use the same stable `frameKey` (`nodeKey`, NUL, `exampleIndex`)
@@ -76,7 +93,7 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
-Each call accepts at most 1,000 journey nodes and 900 frame entries, with a
+Each call accepts at most 2,000 journey nodes and 900 frame entries, with a
 256 MiB total screenshot-byte limit.
 For independent app trees on one board, set `layoutMode: "appBands"`,
 `tree.app: "all"`, app-prefixed node keys such as `clips::...`, and

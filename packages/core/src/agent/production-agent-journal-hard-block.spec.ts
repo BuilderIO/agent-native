@@ -38,7 +38,10 @@ vi.mock("./observational-memory/index.js", () => ({
 vi.mock("../server/agents-bundle.js", () => ({
   loadAgentsBundle: vi.fn(async () => ({})),
   getRuntimeSkillsForUser: vi.fn(async () => [
-    { meta: { name: "slide-editing" } },
+    {
+      meta: { name: "slide-editing" },
+      content: "Check the layout only after all edits.",
+    },
   ]),
   skillDocsSlug: (name: string) =>
     `skill-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,

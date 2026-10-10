@@ -39,9 +39,10 @@ export const JOURNEY_FILENAME_PREFIX = "journey-";
 export const REPLAY_SCREENSHOT_ROUTE = "/api/design-board-replay-screenshots/";
 export const JOURNEY_STAGED_REPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
-export const MAX_JOURNEY_NODES = 1000;
+export const MAX_JOURNEY_NODES = 2000;
 export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
+const MAX_RECORDING_GAP_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_DIMENSION = 16_384;
 const MAX_IMAGE_URL_CHARS = 2_048;
 
@@ -100,6 +101,13 @@ type JourneyFrameCaption = z.infer<typeof journeyFrameCaptionSchema>;
 
 export const journeyExampleSchema = z.object({
   sessionId: z.string().min(1).max(256),
+  anonymousIdHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional()
+    .describe(
+      "SHA-256 hash used only to compare anonymous identity when available.",
+    ),
   recordingId: z.string().max(256).nullable(),
   ts: isoTimestamp,
   offsetMs: z.number().min(0).nullable(),
@@ -168,7 +176,7 @@ export function imageUrlProblem(value: string): string | null {
   if (scheme !== "https") {
     return `must be an https:// URL, received ${scheme ? `${scheme}:` : "a value without a scheme"}.`;
   }
-  if (/[\u0000- \u007f]/.test(value)) {
+  if (/[\p{Cc}\s]/u.test(value)) {
     return "must not contain whitespace or control characters.";
   }
   let parsed: URL;
@@ -226,6 +234,11 @@ export const journeyFrameSchema = z
     recordingStartedAt: isoTimestamp
       .optional()
       .describe("Exact recording start timestamp from session metadata."),
+    recordingEndedAt: isoTimestamp
+      .optional()
+      .describe(
+        "Exact source recording end timestamp from session metadata; required when this frame is the source of an observed recording gap.",
+      ),
     width: pixels,
     height: pixels,
     capturedAt: isoTimestamp,
@@ -333,6 +346,35 @@ export const createJourneyCanvasInputSchema = z
       .describe(
         "Observed chronological links from a canonical example or reference-only node to a direct reference-only child, using exact examples from the same recording; these dashed links do not represent cohort transitions or percentages.",
       ),
+    observedRecordingGaps: z
+      .array(
+        z
+          .object({
+            type: z
+              .literal("recording-gap")
+              .describe("An observed link across distinct recordings."),
+            fromNodeKey: z.string().min(1).max(2_048),
+            fromExampleIndex: z.number().int().min(0).max(999),
+            toNodeKey: z.string().min(1).max(2_048),
+            toExampleIndex: z.number().int().min(0).max(999),
+            gapDurationMs: z
+              .number()
+              .int()
+              .min(1)
+              .max(MAX_RECORDING_GAP_MS)
+              .optional()
+              .describe(
+                "Exact elapsed time from the source recording end to the target recording start, in milliseconds; include only when both timestamps are known.",
+              ),
+          })
+          .strict(),
+      )
+      .max(MAX_JOURNEY_FRAMES)
+      .optional()
+      .default([])
+      .describe(
+        "Explicit recording-gap links from an exact source example to a direct reference-only child example in a distinct later recording from the same session and app. Both private frames need their own recording start and actual screenshot seek offset; the source frame also needs its recording end before the target starts. If anonymousIdHash is present, it must match on both examples. Optional gapDurationMs must exactly match the source recording end and target recording start and is bounded to 30 days. Links are dashed, labeled Recording gap, and carry no cohort transition, percentage, or authentication outcome.",
+      ),
     layoutMode: z
       .enum(["tree", "appBands"])
       .optional()
@@ -351,7 +393,7 @@ export const createJourneyCanvasInputSchema = z
       .optional()
       .default(3)
       .describe(
-        "Maximum ordinary screenshots shown per node; frames selected by observedContinuations are kept in addition to this limit.",
+        "Maximum ordinary screenshots shown per node; frames selected by observedContinuations or observedRecordingGaps are kept in addition to this limit.",
       ),
     includeScreenshotless: z.boolean().optional().default(false),
     allowEncryptedPublicUploadFallback: z
@@ -604,6 +646,129 @@ export const createJourneyCanvasInputSchema = z
         );
       }
     });
+    const seenRecordingGaps = new Set<string>();
+    input.observedRecordingGaps.forEach((gap, index) => {
+      const path = ["observedRecordingGaps", index] as (string | number)[];
+      const edgeKey = `${gap.fromNodeKey}\u0000${gap.toNodeKey}`;
+      if (seenRecordingGaps.has(edgeKey)) {
+        issue(path, "A recording gap can be declared only once per node pair.");
+      }
+      seenRecordingGaps.add(edgeKey);
+      if (seenContinuations.has(edgeKey)) {
+        issue(
+          path,
+          "A node pair cannot be declared as both a same-recording continuation and a recording gap.",
+        );
+      }
+
+      const fromIndex = byKey.get(gap.fromNodeKey);
+      const toIndex = byKey.get(gap.toNodeKey);
+      const fromNode =
+        fromIndex === undefined ? undefined : input.tree.nodes[fromIndex];
+      const toNode =
+        toIndex === undefined ? undefined : input.tree.nodes[toIndex];
+      if (!fromNode || !toNode) {
+        issue(path, "A recording gap must reference two nodes in this tree.");
+        return;
+      }
+      if (toNode.referenceOnly !== true || toNode.parentKey !== fromNode.key) {
+        issue(
+          path,
+          "Recording gaps must follow a direct parent edge to a reference-only node.",
+        );
+      }
+
+      const fromExample = fromNode.examples[gap.fromExampleIndex];
+      const toExample = toNode.examples[gap.toExampleIndex];
+      const fromFrame = framesByExample.get(
+        `${gap.fromNodeKey}\u0000${gap.fromExampleIndex}`,
+      );
+      const toFrame = framesByExample.get(
+        `${gap.toNodeKey}\u0000${gap.toExampleIndex}`,
+      );
+      if (!fromExample || !toExample || !fromFrame || !toFrame) {
+        issue(
+          path,
+          "Recording gaps need an exact example binding and a captured frame for each endpoint.",
+        );
+        return;
+      }
+
+      const fromApp = journeyFrameSourceApp(
+        fromNode.key,
+        input.tree.app,
+        fromFrame.sourceApp,
+      );
+      const toApp = journeyFrameSourceApp(
+        toNode.key,
+        input.tree.app,
+        toFrame.sourceApp,
+      );
+      const fromStartedAt = fromFrame.recordingStartedAt
+        ? Date.parse(fromFrame.recordingStartedAt)
+        : Number.NaN;
+      const toStartedAt = toFrame.recordingStartedAt
+        ? Date.parse(toFrame.recordingStartedAt)
+        : Number.NaN;
+      const fromEndedAt = fromFrame.recordingEndedAt
+        ? Date.parse(fromFrame.recordingEndedAt)
+        : Number.NaN;
+      const fromObservedAt =
+        Number.isFinite(fromStartedAt) &&
+        fromFrame.screenshotOffsetMs !== undefined
+          ? fromStartedAt + fromFrame.screenshotOffsetMs
+          : Number.NaN;
+      const toObservedAt =
+        Number.isFinite(toStartedAt) && toFrame.screenshotOffsetMs !== undefined
+          ? toStartedAt + toFrame.screenshotOffsetMs
+          : Number.NaN;
+      const privateFrames =
+        (fromFrame.attachmentRef !== undefined ||
+          fromFrame.stagedFrameId !== undefined) &&
+        (toFrame.attachmentRef !== undefined ||
+          toFrame.stagedFrameId !== undefined);
+      const sameAnonymousIdentity =
+        fromExample.anonymousIdHash === undefined &&
+        toExample.anonymousIdHash === undefined
+          ? true
+          : fromExample.anonymousIdHash !== undefined &&
+            fromExample.anonymousIdHash === toExample.anonymousIdHash;
+      const provenanceIsValid =
+        fromExample.sessionId === toExample.sessionId &&
+        Boolean(fromExample.recordingId) &&
+        Boolean(toExample.recordingId) &&
+        fromExample.recordingId !== toExample.recordingId &&
+        sameAnonymousIdentity &&
+        fromApp !== null &&
+        fromApp === toApp &&
+        privateFrames &&
+        fromFrame.screenshotOffsetMs !== undefined &&
+        toFrame.screenshotOffsetMs !== undefined &&
+        Number.isFinite(fromStartedAt) &&
+        Number.isFinite(toStartedAt) &&
+        Number.isFinite(fromEndedAt) &&
+        fromStartedAt <= fromObservedAt &&
+        fromObservedAt <= fromEndedAt &&
+        toStartedAt > fromEndedAt &&
+        fromObservedAt < toObservedAt;
+      if (!provenanceIsValid) {
+        issue(
+          path,
+          "Recording gaps need private screenshots from the same session and app, different recordings, matching anonymous identity when available, actual seeks in chronological order, and a source recording end before the target recording start.",
+        );
+      }
+      if (
+        gap.gapDurationMs !== undefined &&
+        (!Number.isFinite(fromEndedAt) ||
+          !Number.isFinite(toStartedAt) ||
+          toStartedAt - fromEndedAt !== gap.gapDurationMs)
+      ) {
+        issue(
+          [...path, "gapDurationMs"],
+          "gapDurationMs must exactly match the target recording start minus the source recording end.",
+        );
+      }
+    });
   });
 
 export type JourneyNode = z.infer<typeof journeyNodeSchema>;
@@ -672,6 +837,23 @@ function slug(value: string): string {
 
 const formatInt = (value: number, locale = "en-US") =>
   value.toLocaleString(locale);
+
+function formatRecordingGapDuration(value: number, locale: string): string {
+  const units = [
+    { name: "day", milliseconds: 24 * 60 * 60 * 1_000 },
+    { name: "hour", milliseconds: 60 * 60 * 1_000 },
+    { name: "minute", milliseconds: 60 * 1_000 },
+    { name: "second", milliseconds: 1_000 },
+    { name: "millisecond", milliseconds: 1 },
+  ] as const;
+  const unit = units.find((candidate) => value >= candidate.milliseconds)!;
+  return new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: unit.name,
+    unitDisplay: "narrow",
+    maximumFractionDigits: 1,
+  }).format(value / unit.milliseconds);
+}
 
 function appDisplayName(value: string): string {
   const knownApps = new Map([
@@ -954,17 +1136,52 @@ function orderAppBandComponents(
 ): JourneyLayoutNode[] {
   const byKey = new Map(nodes.map((node) => [node.key, node]));
   const originalIndex = new Map(nodes.map((node, index) => [node.key, index]));
+  const rootKeyByNodeKey = new Map<string, string>();
+  const path: JourneyLayoutNode[] = [];
+  const pathIndex = new Map<string, number>();
   const rootKeyFor = (node: JourneyLayoutNode): string => {
-    const visited = new Set<string>();
+    const cached = rootKeyByNodeKey.get(node.key);
+    if (cached !== undefined) return cached;
+
+    path.length = 0;
+    pathIndex.clear();
     let current = node;
-    while (current.parentKey !== null) {
-      if (visited.has(current.key)) return current.key;
-      visited.add(current.key);
+    let rootKey: string;
+    while (true) {
+      const cachedRoot = rootKeyByNodeKey.get(current.key);
+      if (cachedRoot !== undefined) {
+        rootKey = cachedRoot;
+        break;
+      }
+      const cycleStart = pathIndex.get(current.key);
+      if (cycleStart !== undefined) {
+        rootKey = current.key;
+        for (let index = cycleStart - 1; index >= 0; index -= 1) {
+          rootKeyByNodeKey.set(path[index]!.key, rootKey);
+        }
+        path.length = 0;
+        pathIndex.clear();
+        return rootKey;
+      }
+      pathIndex.set(current.key, path.length);
+      path.push(current);
+      if (current.parentKey === null) {
+        rootKey = current.key;
+        break;
+      }
       const parent = byKey.get(current.parentKey);
-      if (!parent) return current.key;
+      if (!parent) {
+        rootKey = current.key;
+        break;
+      }
       current = parent;
     }
-    return current.key;
+    for (let index = path.length - 1; index >= 0; index -= 1) {
+      rootKeyByNodeKey.set(path[index]!.key, rootKey);
+    }
+    path.length = 0;
+    pathIndex.clear();
+    return rootKey;
   };
   const componentNodes = new Map<string, JourneyLayoutNode[]>();
   for (const node of nodes) {
@@ -1224,6 +1441,16 @@ export function planJourneyCanvas(
       new Set<number>();
     to.add(continuation.toExampleIndex);
     continuationExamplesByNode.set(continuation.toNodeKey, to);
+  }
+  for (const gap of input.observedRecordingGaps) {
+    const from =
+      continuationExamplesByNode.get(gap.fromNodeKey) ?? new Set<number>();
+    from.add(gap.fromExampleIndex);
+    continuationExamplesByNode.set(gap.fromNodeKey, from);
+    const to =
+      continuationExamplesByNode.get(gap.toNodeKey) ?? new Set<number>();
+    to.add(gap.toExampleIndex);
+    continuationExamplesByNode.set(gap.toNodeKey, to);
   }
   const framesByNode = new Map<string, JourneyFrame[]>();
   for (const frame of input.frames) {
@@ -1658,8 +1885,28 @@ export function planJourneyCanvas(
         )
       : undefined;
   };
+  const observedRecordingGapsByNodePair = new Map(
+    input.observedRecordingGaps.map((gap) => [
+      `${gap.fromNodeKey}\u0000${gap.toNodeKey}`,
+      gap,
+    ]),
+  );
+  const observedRecordingGapForEdge = (
+    edge: PlacedEdge,
+  ): (typeof input.observedRecordingGaps)[number] | undefined => {
+    const from = byLayoutId.get(edge.fromKey);
+    const to = byLayoutId.get(edge.toKey);
+    return from && to
+      ? observedRecordingGapsByNodePair.get(
+          `${from.node.key}\u0000${to.node.key}`,
+        )
+      : undefined;
+  };
   const isObservedContinuation = (edge: PlacedEdge): boolean => {
     return observedContinuationForEdge(edge) !== undefined;
+  };
+  const isObservedRecordingGap = (edge: PlacedEdge): boolean => {
+    return observedRecordingGapForEdge(edge) !== undefined;
   };
   const labelText = (edge: PlacedEdge): string | null => {
     const continuation = observedContinuationForEdge(edge);
@@ -1677,6 +1924,17 @@ export function planJourneyCanvas(
           ),
         },
       );
+    }
+    const recordingGap = observedRecordingGapForEdge(edge);
+    if (recordingGap) {
+      return recordingGap.gapDurationMs === undefined
+        ? messages.recordingGap
+        : interpolateJourneyCanvasMessage(messages.recordingGapDuration, {
+            duration: formatRecordingGapDuration(
+              recordingGap.gapDurationMs,
+              messages.htmlLanguage,
+            ),
+          });
     }
     const child = byLayoutId.get(edge.toKey);
     if (!child || child.kind !== "card" || !hasCohortMetrics(child.node))
@@ -1776,8 +2034,10 @@ export function planJourneyCanvas(
       const id = `${JOURNEY_BOARD_ID_PREFIX}edge-${hashId(`${designId}\u0000${edge.fromKey}\u0000${edge.toKey}`)}`;
       const child = byLayoutId.get(edge.toKey);
       const observedContinuation = isObservedContinuation(edge);
+      const observedRecordingGap = isObservedRecordingGap(edge);
       const dashed =
         observedContinuation ||
+        observedRecordingGap ||
         Boolean(
           child &&
           effectiveParent.get(child.node.key)?.key !== child.node.parentKey,
@@ -1785,7 +2045,11 @@ export function planJourneyCanvas(
       fragments.push(
         arrowFragment(
           id,
-          observedContinuation ? "Same-recording continuation" : "Journey edge",
+          observedContinuation
+            ? "Same-recording continuation"
+            : observedRecordingGap
+              ? "Observed recording gap"
+              : "Journey edge",
           edge.points.map((point) => ({
             x: point.x + origin.x,
             y: point.y + origin.y,
@@ -1796,6 +2060,7 @@ export function planJourneyCanvas(
       const text = labelText(edge);
       if (text) {
         const continuation = observedContinuationForEdge(edge);
+        const recordingGap = observedRecordingGapForEdge(edge);
         const accessibleText = continuation
           ? interpolateJourneyCanvasMessage(messages.observedContinuation, {
               fromExample: formatInt(
@@ -1808,14 +2073,35 @@ export function planJourneyCanvas(
               ),
             })
           : text;
+        const parentBox = placed.get(edge.fromKey)?.rect;
+        const childBox = placed.get(edge.toKey)?.rect;
+        const corridorStart = parentBox ? parentBox.x + parentBox.width : null;
+        const corridorWidth =
+          corridorStart !== null && childBox
+            ? childBox.x - corridorStart
+            : null;
+        const labelRect =
+          recordingGap && corridorStart !== null && corridorWidth !== null
+            ? {
+                ...edge.labelRect,
+                x:
+                  corridorStart +
+                  Math.round(
+                    (corridorWidth - Math.min(152, corridorWidth - 8)) / 2,
+                  ),
+                width: Math.min(152, corridorWidth - 8),
+              }
+            : edge.labelRect;
         fragments.push(
           boardDiv({
             id: `${id}-label`,
             name: observedContinuation
               ? "Observed same-recording continuation"
-              : "Journey edge label",
+              : recordingGap
+                ? "Observed recording gap"
+                : "Journey edge label",
             primitive: "text",
-            rect: at(edge.labelRect),
+            rect: at(labelRect),
             style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 10px/20px system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
             html: escapeHtml(text),
             title: accessibleText,

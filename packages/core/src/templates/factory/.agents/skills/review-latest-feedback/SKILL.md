@@ -453,9 +453,10 @@ status or ask a useful question. Follow `address-feedback-with-replies` for
 Slack voice. End each Slack reply with `this was sent from a bot.` after its
 plain-language status.
 
-Use everyday words for nontechnical readers. In one short paragraph, say what
-we did, what we didn't do when relevant, and what's next. Give a simple reason
-when useful. Keep technical proof in the recap or PR.
+Short replies: say the change, limits, and next step. Link merged PRs and say
+they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
+Beta fixes follow reference for timing and live status; state other availability
+plainly.
 
 Share only new or useful information.
 

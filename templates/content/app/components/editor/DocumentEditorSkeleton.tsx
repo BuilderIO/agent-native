@@ -168,12 +168,7 @@ export function DocumentEditorSkeleton({
   const sidebarTrigger = useSidebarTrigger();
   const skeleton = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div
-        className={cn(
-          "flex h-12 shrink-0 items-center gap-3 border-b border-border px-4",
-          HIDDEN_IN_WIDGET_CLASS_NAME,
-        )}
-      >
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         {sidebarTrigger}
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <Skeleton className="h-6 w-6 rounded-md" />

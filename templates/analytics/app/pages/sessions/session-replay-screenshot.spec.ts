@@ -897,6 +897,23 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
+  it("can preflight replay assets without browser credentials", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/image.png";
+    document.body.appendChild(image);
+    const probes = stubImageProbes(() => "load");
+
+    await assertRemoteImagesCapturable(document, undefined, "omit");
+
+    expect(probes).toHaveLength(1);
+    expect(probes[0]).toMatchObject({
+      credentials: "omit",
+      mode: "cors",
+      url: image.src,
+    });
+    image.remove();
+  });
+
   it("preflights inline image data and checks its dimensions", async () => {
     const image = document.createElement("img");
     image.src = await dataPng(4_000, 3_000);

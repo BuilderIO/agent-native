@@ -5,6 +5,7 @@ import path from "node:path";
 import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import enUS from "../app/i18n/en-US";
 import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
 import {
   CANARY_SESSION_ID,
@@ -320,7 +321,16 @@ async function openSidebarComposer(
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  const workspaceRail = page.locator(
+    '[data-design-chrome-region="workspace-rail"]',
+  );
+  await expect(workspaceRail).toBeVisible({ timeout: 15_000 });
+  await workspaceRail
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
+    .click();
   await expect(
     page.locator(`iframe[data-screen-iframe-id="${fileId}"]`),
   ).toBeVisible({ timeout: 30_000 });
@@ -340,7 +350,7 @@ async function uploadImage(
   const imagePath = path.resolve(
     import.meta.dirname,
     "fixtures",
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
   );
   const source = await readFile(imagePath);
   const largeRasterBase64 =
@@ -393,13 +403,13 @@ async function uploadImage(
     `sidebar upload input accepts PNG images (accept=${JSON.stringify(acceptedTypes)})`,
   ).toBe(true);
   await imageInput.setInputFiles({
-    name: "responsive-card-art-photo.png",
+    name: "card-art-photo.png",
     mimeType: "image/png",
     buffer: bytes,
   });
   await expect(
     sidebarComposer.getByRole("button", {
-      name: "Remove responsive-card-art-photo.png",
+      name: "Remove card-art-photo.png",
     }),
   ).toBeVisible();
   return { bytes, sha256, dataUrl };
@@ -509,7 +519,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   const imagePath = path.resolve(
     import.meta.dirname,
     "fixtures",
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
   );
   const dataUrl = `data:image/png;base64,${(await readFile(imagePath)).toString("base64")}`;
   await page.addInitScript(
@@ -603,7 +613,7 @@ test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async
   const image = await uploadImage(page, sidebarComposer, 2_300_000);
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
     { useOriginalReference: true },
   );
   await sidebarPrompt.fill(IMAGE_PROMPT);
@@ -705,7 +715,7 @@ test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision 
   const original = await uploadImage(page, sidebarComposer, 6_000_000);
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
   );
   await sidebarPrompt.fill(IMAGE_PROMPT);
   await sidebarPrompt.press("Enter");
@@ -890,7 +900,7 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
   const providerText = state.requestSummaries
     .flatMap((summary) => summary.userMessages)
     .join("\n");
-  expect(providerText).toContain("responsive-card-art-photo.png");
+  expect(providerText).toContain("card-art-photo.png");
   expect(providerText).toContain(LINKEDIN_AD_PROMPT);
   expect(state.callNames).toContain("generate-design");
   expect(
@@ -1368,7 +1378,7 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   const uploaded = await uploadImage(page, sidebarComposer, 2_300_000);
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
     { useOriginalReference: true },
   );
   await sidebarPrompt.fill(`${IMAGE_PROMPT} ${marker} uploaded`);

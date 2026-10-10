@@ -19,7 +19,11 @@ vi.mock("./bigquery.js", () => ({
   getBigQueryProjectId,
   runQuery,
 }));
-vi.mock("./gcloud.js", () => ({ fetchGoogleWithRetry, getAccessToken }));
+vi.mock("./gcloud.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./gcloud.js")>()),
+  fetchGoogleWithRetry,
+  getAccessToken,
+}));
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 vi.mock("./credentials-context.js", () => ({
   requireRequestCredentialContext: vi.fn(),
@@ -146,6 +150,40 @@ describe("event predicate pushdown", () => {
     const inner = rendered.slice(0, rendered.indexOf(" QUALIFY"));
     expect(inner).toContain("AND (event_name = 'http.response')");
     expect(inner).toContain("AND (event_date >= DATE '2026-10-09')");
+  });
+  it("pushes the frozen onboarding date window into every raw source before deduplication", () => {
+    const query = `SELECT COUNT(*) AS n FROM (
+      SELECT * FROM analytics_events WHERE org_id = 'org' AND event_date <= DATE '2026-10-08'
+      UNION ALL
+      SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = 'owner@example.test' AND event_date <= DATE '2026-10-08'
+    ) AS analytics_events WHERE event_date >= DATE '2026-10-08' AND event_date <= DATE '2026-10-08'`;
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(query, [], table, {
+      eventDateRange: { startDate: "2026-10-08", endDate: "2026-10-08" },
+    });
+    const sources = [
+      ...rendered.matchAll(
+        /SELECT \* FROM `example-project\.analytics\.events` WHERE([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+
+    expect(sources).toHaveLength(2);
+    for (const source of sources) {
+      expect(source[1]).toContain("event_date >= DATE '2026-10-08'");
+      expect(source[1]).toContain("event_date <= DATE '2026-10-08'");
+    }
+    expect(rendered.match(/QUALIFY ROW_NUMBER\(\)/g)).toHaveLength(2);
+  });
+  it("rejects impossible calendar dates before sending the query", () => {
+    expect(() =>
+      renderFirstPartyAnalyticsBigQuerySql(
+        `SELECT id FROM ${source} WHERE event_name = 'signup'`,
+        [],
+        table,
+        { eventDateRange: { startDate: "2026-02-31", endDate: "2026-03-01" } },
+      ),
+    ).toThrow("First-party event date bounds must be calendar dates");
+    expect(runQuery).not.toHaveBeenCalled();
   });
 });
 
@@ -731,6 +769,14 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("forwards the query abort signal through project resolution", async () => {
+    const signal = new AbortController().signal;
+
+    await getFirstPartyAnalyticsTable(undefined, signal);
+
+    expect(getBigQueryProjectId).toHaveBeenCalledWith(signal);
   });
 
   it("compares BigQuery retention metrics against the copied non-http scope", async () => {

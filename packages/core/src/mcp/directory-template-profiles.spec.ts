@@ -64,7 +64,19 @@ const templateProfiles = [
 // and the review kit) that a profile binds to widget grants, so they have no
 // file under the template's actions/.
 const sharedActionsByApp: Record<string, Record<string, unknown>> = {
-  content: { "list-resource-suggestions": listResourceSuggestions },
+  content: {
+    "list-resource-suggestions": listResourceSuggestions,
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
+  design: {
+    "list-resource-shares": listResourceShares,
+    "share-resource": shareResource,
+    "unshare-resource": unshareResource,
+    "set-resource-visibility": setResourceVisibility,
+  },
   slides: {
     "list-resource-shares": listResourceShares,
     "share-resource": shareResource,
@@ -341,6 +353,156 @@ describe("ChatGPT directory template profiles", () => {
   );
 
   it(
+    "binds Design widget sharing and title renames to the granted design",
+    async () => {
+      const { actions } = await loadTemplateActions("design");
+      const resourceUri = "ui://design/shell-v69";
+      const resourceIds = {
+        designId: "design-123",
+        resourceType: "design",
+      };
+      const profileWriteArguments =
+        designProfile.widgetWriteActionArguments ?? {};
+      const bindArguments = (name: string) => {
+        const rules = profileWriteArguments[
+          name as keyof typeof profileWriteArguments
+        ] as Record<string, unknown>;
+        return Object.fromEntries(
+          Object.entries(rules).map(([key, rule]) => [
+            key,
+            typeof rule === "string"
+              ? resourceIds[rule as keyof typeof resourceIds]
+              : rule,
+          ]),
+        );
+      };
+      const writeNames = [
+        "share-resource",
+        "unshare-resource",
+        "set-resource-visibility",
+        "update-design",
+      ];
+      const readArguments = {
+        resourceType: "design",
+        resourceId: "design-123",
+      };
+      const scope = createMcpDirectoryWidgetWriteCapability({
+        appId: "design",
+        resourceUri,
+        resourceIds,
+        userEmail: "reviewer@example.test",
+        orgId: "org-1",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: { "list-resource-shares": readArguments },
+        writeActionArguments: Object.fromEntries(
+          writeNames.map((name) => [name, bindArguments(name)]),
+        ),
+      });
+      expect(scope).toBeDefined();
+      if (!scope) throw new Error("Failed to create the Design widget grant.");
+
+      const normalizeWrite = (
+        actionName: string,
+        args: Record<string, unknown>,
+        userEmail = "reviewer@example.test",
+      ) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(scope, {
+          actionName,
+          appId: "design",
+          resourceUri,
+          userEmail,
+          orgId: "org-1",
+          args,
+          allowedArgumentNames: Object.keys(
+            profileWriteArguments[
+              actionName as keyof typeof profileWriteArguments
+            ] ?? {},
+          ),
+        });
+      const normalizeRead = (args: Record<string, unknown>) =>
+        normalizeMcpDirectoryWidgetReadActionArguments(scope, {
+          actionName: "list-resource-shares",
+          appId: "design",
+          resourceUri,
+          userEmail: "reviewer@example.test",
+          orgId: "org-1",
+          args,
+          allowedArgumentNames: Object.keys(readArguments),
+        });
+
+      expect(
+        actions["list-resource-shares"]?.tool?.parameters?.properties,
+      ).toHaveProperty("resourceId");
+      for (const actionName of writeNames.slice(0, 3)) {
+        const properties = actions[actionName]?.tool?.parameters?.properties;
+        expect(properties).toHaveProperty("resourceType");
+        expect(properties).toHaveProperty("resourceId");
+      }
+
+      expect(normalizeRead(readArguments)).toEqual(readArguments);
+      expect(
+        normalizeRead({ ...readArguments, resourceType: "content" }),
+      ).toBeUndefined();
+      expect(
+        normalizeRead({ ...readArguments, resourceId: "design-456" }),
+      ).toBeUndefined();
+
+      const argsByAction = {
+        "share-resource": {
+          ...readArguments,
+          principalType: "user",
+          principalId: "editor@example.test",
+          role: "viewer",
+        },
+        "unshare-resource": {
+          ...readArguments,
+          principalType: "user",
+          principalId: "editor@example.test",
+        },
+        "set-resource-visibility": {
+          ...readArguments,
+          visibility: "private",
+        },
+      };
+      for (const [actionName, args] of Object.entries(argsByAction)) {
+        expect(normalizeWrite(actionName, args)).toMatchObject(readArguments);
+        expect(
+          normalizeWrite(actionName, { ...args, resourceType: "content" }),
+        ).toBeUndefined();
+        expect(
+          normalizeWrite(actionName, { ...args, resourceId: "design-456" }),
+        ).toBeUndefined();
+      }
+      expect(
+        normalizeWrite("share-resource", {
+          ...argsByAction["share-resource"],
+          anotherDesignId: "design-456",
+        }),
+      ).toBeUndefined();
+      expect(
+        normalizeWrite(
+          "share-resource",
+          argsByAction["share-resource"],
+          "other@example.test",
+        ),
+      ).toBeUndefined();
+      expect(
+        normalizeWrite("update-design", {
+          id: "design-123",
+          title: "Renamed in the widget",
+        }),
+      ).toEqual({ id: "design-123", title: "Renamed in the widget" });
+      expect(
+        normalizeWrite("update-design", {
+          id: "design-456",
+          title: "Out of scope",
+        }),
+      ).toBeUndefined();
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "allows Content widget document icon updates without widening its write scope",
     async () => {
       const { actions } = await loadTemplateActions("content");
@@ -402,6 +564,290 @@ describe("ChatGPT directory template profiles", () => {
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
+
+  it("accepts a title-only Content widget document update", () => {
+    const updateDocumentArguments =
+      contentProfile.widgetWriteActionArguments["update-document"];
+    const resourceUri = "ui://content/shell-v69";
+    const capability = createMcpDirectoryWidgetWriteCapability({
+      appId: "content",
+      resourceUri,
+      resourceIds: { documentId: "page-1", resourceType: "document" },
+      userEmail: "reviewer@example.test",
+      expiresAtMs: Date.now() + 60_000,
+      readActionArguments: {},
+      writeActionArguments: {
+        "update-document": { ...updateDocumentArguments, id: "page-1" },
+      },
+    });
+    const normalize = (args: Record<string, unknown>) =>
+      normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+        actionName: "update-document",
+        appId: "content",
+        resourceUri,
+        userEmail: "reviewer@example.test",
+        args,
+        allowedArgumentNames: Object.keys(updateDocumentArguments),
+      });
+
+    for (const args of [
+      { id: "page-1", title: "Renamed" },
+      {
+        id: "page-1",
+        title: "Renamed",
+        baseTitle: "Before",
+        historySessionId: "session-1",
+        browserSaveAttemptId: "attempt-1",
+      },
+    ]) {
+      expect(normalize(args)).toEqual(args);
+    }
+    expect(normalize({ id: "page-2", title: "Renamed" })).toBeUndefined();
+    expect(normalize({ title: "Renamed" })).toBeUndefined();
+  });
+
+  it(
+    "scopes Content document sharing to the ticketed document and nothing wider",
+    async () => {
+      const { actions } = await loadTemplateActions("content");
+      const documentId = "page-share-1";
+      const resourceUri = "ui://content/shell-v69";
+      const createDocument = contentProfile.widgetTargets["create-document"];
+      const target = createDocument({}, { id: documentId, spaceId: "space-1" });
+      if (!target)
+        throw new Error("Content create-document target is missing.");
+
+      const shareActions = [
+        "share-resource",
+        "unshare-resource",
+        "set-resource-visibility",
+      ] as const;
+      expect([...(target.writeActions ?? [])].sort()).toEqual(
+        ["update-document", ...shareActions].sort(),
+      );
+      expect(
+        contentProfile.widgetTargets["create-content-database"](
+          {},
+          {
+            database: {
+              id: "database-1",
+              documentId: "database-page-1",
+              spaceId: "space-1",
+            },
+          },
+        )?.writeActions,
+      ).toEqual(["add-database-item", "update-database-item"]);
+      expect(
+        Object.keys(contentProfile.widgetWriteActionArguments).sort(),
+      ).toEqual([
+        "add-database-item",
+        "set-resource-visibility",
+        "share-resource",
+        "unshare-resource",
+        "update-database-item",
+        "update-document",
+      ]);
+      expect(contentProfile.widgetReadAuthenticatedActions).toContain(
+        "list-resource-shares",
+      );
+      expect(contentProfile.connectorCatalog).not.toContain("share-resource");
+      expect(contentProfile.connectorCatalog).not.toContain(
+        "list-resource-shares",
+      );
+
+      for (const name of shareActions) {
+        expect(actions[name]?.http?.method ?? "POST").toBe("POST");
+        expect(actions[name]?.readOnly).not.toBe(true);
+        expect(actions[name]?.requiresAuth).not.toBe(false);
+        expect(actions[name]?.toolCallable).toBe(false);
+      }
+      expect(actions["list-resource-shares"]?.http).toEqual({ method: "GET" });
+      expect(actions["list-resource-shares"]?.readOnly).toBe(true);
+
+      const materialize = (rules: Record<string, unknown>) =>
+        Object.fromEntries(
+          Object.entries(rules).map(([key, rule]) => [
+            key,
+            typeof rule === "string" ? target.resourceIds[rule] : rule,
+          ]),
+        ) as Record<string, string | { type: "actionSchema" }>;
+      const writeActionArguments = Object.fromEntries(
+        (target.writeActions ?? []).map((name) => [
+          name,
+          materialize(
+            contentProfile.widgetWriteActionArguments[
+              name as keyof typeof contentProfile.widgetWriteActionArguments
+            ],
+          ),
+        ]),
+      );
+      expect(writeActionArguments["share-resource"]).toMatchObject({
+        resourceType: "document",
+        resourceId: documentId,
+      });
+      expect(writeActionArguments["unshare-resource"]).toMatchObject({
+        resourceType: "document",
+        resourceId: documentId,
+      });
+      expect(writeActionArguments["set-resource-visibility"]).toMatchObject({
+        resourceType: "document",
+        resourceId: documentId,
+      });
+
+      const capability = createMcpDirectoryWidgetWriteCapability({
+        appId: "content",
+        resourceUri,
+        resourceIds: target.resourceIds,
+        userEmail: "editor@example.test",
+        orgId: "org-1",
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: {
+          "list-resource-shares": materialize(
+            contentProfile.widgetReadActionArguments["list-resource-shares"],
+          ),
+        },
+        writeActionArguments,
+      });
+      expect(capability).toBeDefined();
+
+      const bodies = {
+        "share-resource": {
+          resourceType: "document",
+          resourceId: documentId,
+          principalType: "user",
+          principalId: "teammate@example.test",
+          role: "viewer",
+          notify: true,
+          resourceUrl: "/page/page-share-1",
+          message: "Take a look",
+        },
+        "unshare-resource": {
+          resourceType: "document",
+          resourceId: documentId,
+          principalType: "user",
+          principalId: "teammate@example.test",
+        },
+        "set-resource-visibility": {
+          resourceType: "document",
+          resourceId: documentId,
+          visibility: "org",
+        },
+      } as const;
+      const normalize = (
+        name: string,
+        args: Record<string, unknown>,
+        overrides: Record<string, unknown> = {},
+      ) =>
+        normalizeMcpDirectoryWidgetWriteActionArguments(capability, {
+          actionName: name,
+          appId: "content",
+          resourceUri,
+          userEmail: "editor@example.test",
+          orgId: "org-1",
+          args,
+          allowedArgumentNames: Object.keys(
+            contentProfile.widgetWriteActionArguments[
+              name as keyof typeof contentProfile.widgetWriteActionArguments
+            ] ?? {},
+          ),
+          ...overrides,
+        });
+      for (const name of shareActions) {
+        const body: Record<string, unknown> = { ...bodies[name] };
+        const { resourceId: _resourceId, ...withoutResourceId } = body;
+        const { resourceType: _resourceType, ...withoutResourceType } = body;
+        expect(normalize(name, body), name).toEqual(body);
+        expect(
+          normalize(name, { ...body, resourceId: "other-page" }),
+        ).toBeUndefined();
+        expect(
+          normalize(name, { ...body, resourceType: "form" }),
+        ).toBeUndefined();
+        expect(normalize(name, withoutResourceId)).toBeUndefined();
+        expect(normalize(name, withoutResourceType)).toBeUndefined();
+        expect(
+          normalize(name, body, { userEmail: "someone-else@example.test" }),
+        ).toBeUndefined();
+      }
+      for (const name of [
+        "delete-document",
+        "set-document-discoverability",
+        "list-resource-access-requests",
+        "approve-resource-access-request",
+        "create-agent-resource-link",
+      ]) {
+        expect(
+          normalize(
+            name,
+            { resourceType: "document", resourceId: documentId },
+            { allowedArgumentNames: ["resourceType", "resourceId"] },
+          ),
+          name,
+        ).toBeUndefined();
+      }
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
+
+  it("keeps the minted Content document write capability inside its length cap", () => {
+    const mint = (documentId: string, spaceId: string, identity: string) => {
+      const target = contentProfile.widgetTargets["create-document"](
+        {},
+        { id: documentId, spaceId },
+      );
+      if (!target)
+        throw new Error("Content create-document target is missing.");
+      const materialize = (rules: Record<string, unknown>) => {
+        const args: Record<string, unknown> = {};
+        for (const [key, rule] of Object.entries(rules)) {
+          const value =
+            typeof rule === "string" ? target.resourceIds[rule] : rule;
+          if (value === undefined) return undefined;
+          args[key] = value;
+        }
+        return args as Record<string, never>;
+      };
+      return createMcpDirectoryWidgetWriteCapability({
+        appId: "content",
+        resourceUri: "ui://content/shell-v69",
+        resourceIds: target.resourceIds,
+        userEmail: `${identity}@builder.io`,
+        orgId: identity,
+        expiresAtMs: Date.now() + 60_000,
+        readActionArguments: Object.fromEntries(
+          Object.entries(contentProfile.widgetReadActionArguments).flatMap(
+            ([name, rules]) => {
+              const args = materialize(rules);
+              return args ? [[name, args]] : [];
+            },
+          ),
+        ),
+        writeActionArguments: Object.fromEntries(
+          (target.writeActions ?? []).map((name) => [
+            name,
+            materialize(
+              contentProfile.widgetWriteActionArguments[
+                name as keyof typeof contentProfile.widgetWriteActionArguments
+              ],
+            )!,
+          ]),
+        ),
+      });
+    };
+    const uuid = "123e4567-e89b-12d3-a456-426614174000";
+
+    // A typical nanoid page, then a page, space, and org that all use UUIDs.
+    // The mint refuses an oversized capability, so a page would not open.
+    for (const scope of [
+      mint("a1b2c3d4e5f6", "a1b2c3d4e5f6", "steve"),
+      mint(uuid, uuid, uuid),
+    ]) {
+      expect(scope).toBeDefined();
+      expect(scope!.length).toBeLessThanOrEqual(
+        MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_LENGTH,
+      );
+    }
+  });
 
   it(
     "uses document-specific labels for Content's shared widget shell",

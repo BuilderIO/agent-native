@@ -8,6 +8,7 @@ export default {
     overview: "Übersicht",
     dashboard: "Dashboard",
     dataSources: "Datenquellen",
+    sourceStatus: "Quellenstatus",
     dataDictionary: "Datenlexikon",
     sessions: "Sitzungen",
     monitoring: "Monitoring",
@@ -531,6 +532,35 @@ export default {
       resourcesSubmitted: "{{count}} Ressourcen gesendet.",
     },
   },
+  dataStatus: {
+    sources: "Quellen",
+    index: "Index",
+    connected: "Verbunden",
+    notConnected: "Nicht verbunden",
+    needsReauth: "Erneute Authentifizierung erforderlich",
+    error: "Fehler",
+    loadingSources: "Quellenstatus wird geladen",
+    indexNotImported: "Es wurde kein generierter Index importiert.",
+    indexUnreadable:
+      "Der gespeicherte Index konnte nicht gelesen werden. Lade einen gültigen Index hoch.",
+    indexReadFailed: "Der Indexstatus konnte nicht geladen werden.",
+    lastBuilt: "Zuletzt erstellt",
+    freshness: "Aktualität",
+    fresh: "Aktuell · {{age}}",
+    stale: "Veraltet · {{age}}",
+    generatedUnapproved: "Generiert · nicht genehmigt",
+    entriesBySource: "{{count}} Einträge nach Quelle",
+    noSourceEntries: "Keine Quellenzahlen verfügbar.",
+    countUnavailable: "Nicht verfügbar",
+    adminUpload: "Admin-Upload",
+    exportDictionary: "Datenlexikon exportieren",
+    exportingDictionary: "Datenlexikon wird exportiert…",
+    exportFailed:
+      "Export des Datenlexikons fehlgeschlagen. Bitte erneut versuchen.",
+    exportEmpty: "Es gibt keine Einträge zum Exportieren.",
+    exportLimitReached:
+      "Das Datenlexikon überschreitet das Exportlimit. Wende dich an einen Administrator.",
+  },
   dataDictionary: {
     intro:
       "Der Katalog von Metriken, Tabellen und Geschäftsdefinitionen, den der Analyseagent beim Erstellen von Dashboards aus Eingabeaufforderungen verwendet. Sorgen Sie dafür, dass die Eingaben korrekt sind, und der Agent hört auf, Ihre Daten zu erraten.",
@@ -592,6 +622,29 @@ export default {
       "Wann sollte jemand nach dieser Kennzahl greifen?",
     saving: "Sparen...",
     saveEntry: "Eintrag speichern",
+    importIndex: "Quellindex importieren",
+    indexNotImported: "Es wurde kein generierter Quellindex importiert.",
+    indexUnreadable:
+      "Der gespeicherte Quellindex konnte nicht gelesen werden; importiere eine gültige Datei erneut.",
+    indexReadFailed:
+      "Der gespeicherte Quellindex konnte nicht geprüft werden. Versuche es erneut.",
+    indexReady: "{{count}} Quelldefinitionen, erstellt am {{date}}.",
+    indexStale:
+      "Der Snapshot ist {{days}} Tage alt. Aktualisiere ihn, um neuere Quellrevisionen zu prüfen.",
+    indexFileInvalid:
+      "Wähle eine gültige Quellindex-JSON-Datei mit höchstens 750 KB aus.",
+    replaceIndexTitle: "Quellindex ersetzen?",
+    replaceIndexDescription:
+      "Dadurch wird der aktuelle Quellindex der Organisation ersetzt. Importierte Definitionen bleiben ungeprüfte Vorschläge und sind keine Live-Abfrageergebnisse.",
+    indexPreview:
+      "{{count}} Definitionen aus {{sources}}; erstellt am {{date}}.",
+    replaceIndex: "Index ersetzen",
+    importingIndex: "Wird importiert…",
+    indexImportFailed:
+      "Der Quellindex konnte nicht importiert werden. Prüfe die Datei und versuche es erneut.",
+    dictionaryPage: "Seite {{page}} · {{count}} von {{total}} Treffern",
+    previousPage: "Zurück",
+    nextPage: "Weiter",
   },
   dataSources: {
     uploadFile: "Datei hochladen",
@@ -630,6 +683,10 @@ export default {
       "Verwenden der in dieser App gespeicherten Anmeldeinformationen. Für die Wiederverwendung über Apps hinweg verbinden und gewähren Sie diesen Anbieter in Dispatch.",
     sharedFallback:
       "Verbinden oder gewähren Sie diesen Anbieter in Dispatch, um ihn in allen Apps wiederzuverwenden, oder speichern Sie unten die lokalen Anmeldeinformationen.",
+    sharedNeedsReauth:
+      "Für diese gemeinsame Verbindung ist eine erneute Autorisierung erforderlich. Verbinden Sie sie erneut in Dispatch.",
+    sharedError:
+      "Diese gemeinsame Verbindung hat einen Fehler gemeldet. Öffnen Sie Dispatch, um sie zu überprüfen und zu reparieren.",
     workspaceReadyDescription:
       "Diese Quelle ist über eine gemeinsame Arbeitsbereichsverbindung bereit. Verwalten Sie den gemeinsamen Zugriff in Dispatch oder fügen Sie lokale Anmeldeinformationen nur für diese App hinzu.",
     testing: "Testen...",
@@ -1006,6 +1063,7 @@ export default {
     dashboard: "Dashboard – Analytics",
     dataDictionary: "Datenwörterbuch – Analytics",
     dataSources: "Datenquellen – Analytics",
+    sourceStatus: "Quellenstatus – Analytics",
     sessions: "Sitzungen - Analytics",
     eventCatalog: "Ereigniskatalog - Analytics",
     routePerformance: "Routen-Performance - Analytics",
@@ -1120,6 +1178,11 @@ export default {
   sqlDashboard: {
     customRange: "Benutzerdefinierter Zeitraum",
     allValues: "Alle",
+    searchValues: "Werte suchen",
+    noValuesFound: "Keine Werte gefunden",
+    selectAll: "Alle auswählen",
+    selectOnly: "Nur",
+    selectOnlyValue: "Nur {{value}}",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",

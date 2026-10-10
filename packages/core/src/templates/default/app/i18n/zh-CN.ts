@@ -627,6 +627,7 @@ const messages = {
     promoteMustContain: "回复必须包含…",
     promoteMustContainOptional: "回复中要检查的可选文本…",
     promoteMustContainLabel: "在升级后的评测回复中检查的文本",
+    promoteReviewedPromptLabel: "手动审核的提示（不会从生产环境自动复制）",
     promoteNeedsContains:
       "此运行没有成功的工具调用。请先输入回复必须包含的文本，再将其晋升为评测。",
     spans: "Spans",

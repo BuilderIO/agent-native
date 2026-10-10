@@ -80,6 +80,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "回覆必須包含…",
   "observability.promoteMustContainOptional": "回覆中要檢查的選填文字…",
   "observability.promoteMustContainLabel": "在升級後的評估回覆中檢查的文字",
+  "observability.promoteReviewedPromptLabel":
+    "手動審核的提示（不會從正式環境自動複製）",
   "observability.promoteNeedsContains":
     "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.viewDetails": "查看詳細資料",

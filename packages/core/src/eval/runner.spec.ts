@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { AgentEngine } from "../agent/engine/types.js";
 import type { AgentChatEvent } from "../agent/types.js";
@@ -6,7 +6,13 @@ import type { AgentRunner } from "./agent-runner.js";
 import type { AgentRunOutput } from "./types.js";
 
 const productionMod = vi.hoisted(() => ({
-  actionsToEngineTools: vi.fn(() => []),
+  actionsToEngineTools: vi.fn(() => [
+    {
+      name: "search",
+      description: "Search data",
+      inputSchema: { type: "object", properties: {} },
+    },
+  ]),
   runAgentLoop: vi.fn(),
 }));
 vi.mock("../agent/production-agent.js", () => ({
@@ -39,7 +45,8 @@ vi.mock("../observability/store.js", () => ({
 const { defineEval } = await import("./define-eval.js");
 const { contains, exactMatch, usesTool, llmJudge, createScorer } =
   await import("./scorer.js");
-const { scoreEval, runEvals, runEvalSuite } = await import("./runner.js");
+const { scoreEval, runEvals, runEvalSuite, loadProductionEvalContext } =
+  await import("./runner.js");
 const { formatReport } = await import("./report.js");
 const { createAgentRunner } = await import("./agent-runner.js");
 
@@ -73,6 +80,77 @@ function fakeRunner(
   };
 }
 
+function testProductionContext() {
+  return {
+    actions: { search: { readOnly: true } as never },
+    systemPrompt: "production prompt",
+    finalResponseGuard: (() => null) as never,
+    ownerEmail: "eval@example.com",
+    orgId: "org-eval",
+  };
+}
+
+function testProductionChatPath(
+  prefetchStatus: "ok" | "empty" | "timed_out" | "failed" = "ok",
+) {
+  return {
+    async run({
+      input,
+      identity,
+      onUsage,
+    }: {
+      input: { prompt: string };
+      identity: { ownerEmail: string; orgId: string };
+      onUsage(usage: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+        model: string;
+      }): void;
+    }) {
+      onUsage({
+        inputTokens: 4,
+        outputTokens: 2,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "fake-model",
+      });
+      return {
+        output: {
+          text: `production: ${input.prompt}`,
+          toolCalls: ["search"],
+          ok: true,
+          runId: "run-production",
+          durationMs: 1,
+          usage: {
+            inputTokens: 4,
+            outputTokens: 2,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            usageReported: true,
+            model: "fake-model",
+          },
+        },
+        receipt: {
+          productionAgentLoopInvoked: true,
+          requestPreparationInvoked: true as const,
+          systemPromptBuilt: true as const,
+          finalResponseGuardInstalled: true as const,
+          finalResponseGuardApplied: true as const,
+          usageCaptured: true as const,
+          prefetchStatus,
+          ownerEmail: identity.ownerEmail,
+          orgId: identity.orgId,
+          initialToolNames: ["search"],
+          availableActionNames: ["search"],
+          readOnlyActionNames: ["search"],
+        },
+      };
+    },
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   storeMod.insertEvalResult.mockResolvedValue(undefined);
@@ -87,6 +165,10 @@ beforeEach(() => {
     cacheWriteTokens: 0,
     model: "fake-model",
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("scoreEval with a JS scorer", () => {
@@ -256,6 +338,31 @@ describe("llmJudge scorer via the analyze context (mocked engine)", () => {
 });
 
 describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
+  it("supports the legacy actions and systemPrompt runner options", async () => {
+    const actions = { search: { readOnly: true } as never };
+    const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
+    const runner = await createAgentRunner({
+      actions,
+      systemPrompt: "legacy eval prompt",
+      engine,
+    });
+
+    await runner.runAgent({ prompt: "legacy request" });
+
+    expect(productionMod.runAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actions,
+        systemPrompt: "legacy eval prompt",
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "legacy request" }],
+          },
+        ],
+      }),
+    );
+  });
+
   it("collects assistant text + tool calls off the send stream", async () => {
     const runLoop = vi.fn(
       async (opts: { send: (e: AgentChatEvent) => void }) => {
@@ -293,13 +400,18 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           model: "fake-model",
+          usageReported: true,
         };
       },
     );
 
     const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
     const runner = await createAgentRunner({
-      actions: {},
+      productionContext: {
+        ...testProductionContext(),
+        appId: "analytics",
+        initialToolNames: ["search"],
+      },
       engine,
       model: "fake-model",
       runLoop: runLoop as never,
@@ -331,6 +443,23 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
       },
     ]);
     expect(out.ok).toBe(true);
+    expect(runLoop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: "production prompt",
+        ownerEmail: "eval@example.com",
+        orgId: "org-eval",
+        appId: "analytics",
+        actionCaller: "tool",
+        finalResponseGuard: expect.any(Function),
+        finalResponseGuardRequestText: "hi",
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "search" }),
+        ]),
+        availableTools: expect.arrayContaining([
+          expect.objectContaining({ name: "search" }),
+        ]),
+      }),
+    );
 
     const e = defineEval({
       name: "e2e",
@@ -339,6 +468,11 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     });
     const row = await scoreEval(e, runner);
     expect(row.passed).toBe(true);
+    expect(row.usage).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      usageReported: true,
+    });
   });
 
   it("marks the run not-ok when the loop emits an error event", async () => {
@@ -356,7 +490,7 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     );
     const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
     const runner = await createAgentRunner({
-      actions: {},
+      productionContext: testProductionContext(),
       engine,
       model: "fake-model",
       runLoop: runLoop as never,
@@ -375,9 +509,16 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
       stream,
     } as unknown as AgentEngine;
     const runner = await createAgentRunner({
-      actions: {},
+      productionContext: testProductionContext(),
       engine,
       model: "fake-model",
+      runLoop: (async () => ({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "fake-model",
+      })) as never,
     });
 
     await runner.analyzeContext().judge({ prompt: "Score this" });
@@ -393,7 +534,7 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     });
     engineMod.getStoredModelForEngine.mockResolvedValue(null);
     const runner = await createAgentRunner({
-      actions: {},
+      productionContext: testProductionContext(),
       runLoop: (async () => ({
         inputTokens: 0,
         outputTokens: 0,
@@ -405,16 +546,208 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     expect(engineMod.resolveEngine).toHaveBeenCalled();
     expect(runner.model).toBe("registry-model");
   });
+
+  it("rejects a production eval that has only the direct agent loop", async () => {
+    const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
+    await expect(
+      createAgentRunner({ productionContext: testProductionContext(), engine }),
+    ).rejects.toThrow("invokes the shared production agent loop");
+  });
+
+  it("uses the production chat adapter and validates its request setup receipt", async () => {
+    const productionChatPath = testProductionChatPath();
+    const run = vi.spyOn(productionChatPath, "run");
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+      model: "fake-model",
+    });
+
+    const output = await runner.runAgent({ prompt: "find active users" });
+
+    expect(output).toMatchObject({
+      text: "production: find active users",
+      ok: true,
+      usage: { inputTokens: 4, outputTokens: 2, usageReported: true },
+    });
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: { prompt: "find active users" },
+        identity: { ownerEmail: "eval@example.com", orgId: "org-eval" },
+        model: "fake-model",
+        signal: expect.any(AbortSignal),
+        onUsage: expect.any(Function),
+      }),
+    );
+  });
+
+  it("accepts an empty production prefetch result", async () => {
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath("empty"),
+      },
+      engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+      model: "fake-model",
+    });
+
+    const output = await runner.runAgent({ prompt: "find active users" });
+
+    expect(output.ok).toBe(true);
+  });
+
+  it.each(["timed_out", "failed"] as const)(
+    "fails production eval when prefetch status is %s",
+    async (prefetchStatus) => {
+      const runner = await createAgentRunner({
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath: testProductionChatPath(prefetchStatus),
+        },
+        engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+        model: "fake-model",
+      });
+
+      const output = await runner.runAgent({ prompt: "find active users" });
+
+      expect(output.ok).toBe(false);
+      expect(output.error).toContain(`prefetch status "${prefetchStatus}"`);
+    },
+  );
+
+  it("fails a production path whose advertised action surface includes writes", async () => {
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        receipt: {
+          ...result.receipt,
+          availableActionNames: ["search", "mutate"],
+        },
+      };
+    };
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+      model: "fake-model",
+    });
+
+    const output = await runner.runAgent({ prompt: "find active users" });
+
+    expect(output.ok).toBe(false);
+    expect(output.error).toContain("non-read-only action surface");
+  });
+
+  it("aborts and fails a production chat adapter that times out", async () => {
+    let signal: AbortSignal | undefined;
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: {
+          async run(args) {
+            signal = args.signal;
+            args.onUsage({
+              inputTokens: 3,
+              outputTokens: 1,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              model: "fake-model",
+            });
+            return new Promise<never>(() => {});
+          },
+        },
+      },
+      engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+      model: "fake-model",
+      timeoutMs: 5,
+    });
+
+    const output = await runner.runAgent({ prompt: "find active users" });
+
+    expect(signal?.aborted).toBe(true);
+    expect(output.ok).toBe(false);
+    expect(output.error).toBe("Agent run timed out after 5 ms.");
+    expect(output.usage).toMatchObject({
+      inputTokens: 3,
+      outputTokens: 1,
+      usageReported: true,
+    });
+  });
+
+  it("fails closed on timeout and keeps usage reported before abort", async () => {
+    const runLoop = vi.fn(
+      (opts: {
+        onUsage: (usage: {
+          inputTokens: number;
+          outputTokens: number;
+          cacheReadTokens: number;
+          cacheWriteTokens: number;
+          model: string;
+        }) => void;
+      }) => {
+        opts.onUsage({
+          inputTokens: 20,
+          outputTokens: 5,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 1,
+          model: "fake-model",
+        });
+        return new Promise<never>(() => {});
+      },
+    );
+    const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
+    const runner = await createAgentRunner({
+      productionContext: testProductionContext(),
+      engine,
+      model: "fake-model",
+      timeoutMs: 5,
+      runLoop: runLoop as never,
+    });
+
+    const out = await runner.runAgent({ prompt: "hi" });
+
+    expect(out.ok).toBe(false);
+    expect(out.error).toBe("Agent run timed out after 5 ms.");
+    expect(out.text).toBe("");
+    expect(out.usage).toMatchObject({
+      inputTokens: 20,
+      outputTokens: 5,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 1,
+      usageReported: true,
+    });
+  });
+
+  it("requires a non-empty production prompt before creating a runner", async () => {
+    const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
+    await expect(
+      createAgentRunner({
+        productionContext: {
+          ...testProductionContext(),
+          systemPrompt: " ",
+        },
+        engine,
+        model: "fake-model",
+      }),
+    ).rejects.toThrow("non-empty production system prompt");
+  });
 });
 
 describe("persistence to the observability store", () => {
-  it("writes one row per (eval x scorer) when persist is on", async () => {
+  it("persists one row per (eval x scorer) by default", async () => {
     const e = defineEval({
       name: "persisted",
       input: { prompt: "x" },
       scorers: [contains("a"), exactMatch("a")],
     });
-    await runEvals([e], fakeRunner({ text: "a" }), { persist: true });
+    await runEvals([e], fakeRunner({ text: "a" }));
     expect(storeMod.insertEvalResult).toHaveBeenCalledTimes(2);
     const firstRow = storeMod.insertEvalResult.mock.calls[0][0];
     expect(firstRow.evalType).toBe("automated");
@@ -422,7 +755,7 @@ describe("persistence to the observability store", () => {
     expect(firstRow.metadata).toMatchObject({ source: "cli-eval" });
   });
 
-  it("does not write when persist is off (default in scoreEval)", async () => {
+  it("does not write when persist is explicitly off", async () => {
     const e = defineEval({
       name: "unpersisted",
       input: { prompt: "x" },
@@ -445,6 +778,115 @@ describe("persistence to the observability store", () => {
 });
 
 describe("runEvalSuite runner creation", () => {
+  it("rejects custom callbacks in a production-required suite before invoking them", async () => {
+    const productionChatPath = testProductionChatPath();
+    const adapterRun = vi.spyOn(productionChatPath, "run");
+    const customRun = vi.fn(async () => ({
+      text: "fabricated production answer",
+      toolCalls: [],
+      ok: true,
+      runId: "eval:fake",
+      durationMs: 1,
+    }));
+    const evalCase = defineEval({
+      name: "custom-production-bypass",
+      input: { prompt: "find active users" },
+      run: customRun,
+      scorers: [contains("fabricated")],
+    });
+
+    await expect(
+      runEvalSuite({
+        evals: [evalCase],
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath,
+        },
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+
+    expect(customRun).not.toHaveBeenCalled();
+    expect(adapterRun).not.toHaveBeenCalled();
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+    expect(productionMod.runAgentLoop).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, { receipt: {} }])(
+    "reports missing production adapter output as a receipt error (%s)",
+    async (result) => {
+      const evalCase = defineEval({
+        name: "production-adapter-output",
+        input: { prompt: "find active users" },
+        scorers: [contains("active users")],
+      });
+      const productionContext = {
+        ...testProductionContext(),
+        productionChatPath: {
+          async run() {
+            return result as never;
+          },
+        },
+      };
+
+      const suite = await runEvalSuite({
+        evals: [evalCase],
+        productionContext,
+        requireProductionChatPath: true,
+        persist: false,
+      });
+
+      expect(suite.report.results[0]).toMatchObject({
+        status: "failed",
+        error: "Production chat eval adapter returned no run output.",
+      });
+    },
+  );
+
+  it("persists eval results by default", async () => {
+    const e = defineEval({
+      name: "local-only",
+      input: { prompt: "x" },
+      scorers: [contains("ok")],
+    });
+
+    await runEvalSuite({
+      evals: [e],
+      runner: fakeRunner({ text: "ok" }),
+    });
+
+    expect(storeMod.insertEvalResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports legacy actions and systemPrompt options", async () => {
+    const actions = { search: { readOnly: true } as never };
+    const e = defineEval({
+      name: "legacy-options",
+      input: { prompt: "x" },
+      run: (ctx) => ctx.runAgent(ctx.input),
+      scorers: [
+        createScorer({
+          name: "always_pass",
+          generateScore() {
+            return 1;
+          },
+        }),
+      ],
+    });
+
+    await runEvalSuite({
+      evals: [e],
+      actions,
+      systemPrompt: "legacy suite prompt",
+      persist: false,
+    });
+
+    expect(productionMod.runAgentLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ actions, systemPrompt: "legacy suite prompt" }),
+    );
+  });
+
   it("creates a runner for custom evals because run(ctx) may call runAgent", async () => {
     const e = defineEval({
       name: "custom-run-calls-agent",
@@ -462,13 +904,132 @@ describe("runEvalSuite runner creation", () => {
 
     const result = await runEvalSuite({
       evals: [e],
-      actions: {},
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath: testProductionChatPath(),
+      },
       persist: false,
     });
 
     expect(result.report.failed).toBe(0);
     expect(engineMod.resolveEngine).toHaveBeenCalled();
-    expect(productionMod.runAgentLoop).toHaveBeenCalled();
+    expect(productionMod.runAgentLoop).not.toHaveBeenCalled();
+  });
+
+  it("refuses direct-loop contexts even when supplied by the caller", async () => {
+    const e = defineEval({
+      name: "must-use-production-chat",
+      input: { prompt: "x" },
+      scorers: [contains("x")],
+    });
+
+    await expect(
+      runEvalSuite({
+        evals: [e],
+        productionContext: testProductionContext(),
+        persist: false,
+      }),
+    ).rejects.toThrow("does not invoke the shared production agent loop");
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
+  });
+
+  it("requires a production chat adapter when requested, even with a runner", async () => {
+    const e = defineEval({
+      name: "must-use-production-chat",
+      input: { prompt: "x" },
+      scorers: [contains("x")],
+    });
+
+    await expect(
+      runEvalSuite({
+        evals: [e],
+        runner: fakeRunner({ text: "x" }),
+        productionContext: testProductionContext(),
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("does not invoke the shared production agent loop");
+  });
+
+  it("rejects an injected runner after validating the production adapter", async () => {
+    const e = defineEval({
+      name: "must-use-production-chat",
+      input: { prompt: "x" },
+      scorers: [contains("x")],
+    });
+
+    await expect(
+      runEvalSuite({
+        evals: [e],
+        runner: fakeRunner({ text: "x" }),
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath: testProductionChatPath(),
+        },
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("injected runner");
+  });
+
+  it("checks for a production adapter before accepting an empty suite", async () => {
+    await expect(
+      runEvalSuite({
+        cwd: "/tmp/no-production-eval-adapter",
+        evals: [],
+        identity: { ownerEmail: "eval@example.com", orgId: "org-eval" },
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("Production eval adapter is missing");
+  });
+
+  it("rejects empty and skipped production suites after adapter validation", async () => {
+    const productionContext = {
+      ...testProductionContext(),
+      productionChatPath: testProductionChatPath(),
+    };
+    await expect(
+      runEvalSuite({
+        evals: [],
+        productionContext,
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("at least one eval case");
+
+    const skipped = defineEval({
+      name: "skipped-production-case",
+      input: { prompt: "x" },
+      skipReason: "disabled",
+      scorers: [],
+    });
+    await expect(
+      runEvalSuite({
+        evals: [skipped],
+        productionContext,
+        requireProductionChatPath: true,
+        persist: false,
+      }),
+    ).rejects.toThrow("cannot contain skipped cases");
+  });
+
+  it("requires the app production adapter instead of guessing a prompt or identity", async () => {
+    await expect(
+      loadProductionEvalContext("/tmp/no-production-eval-adapter", {
+        ownerEmail: "eval@example.com",
+        orgId: "org-eval",
+      }),
+    ).rejects.toThrow("Production eval adapter is missing");
+  });
+
+  it("does not infer eval identity from environment variables", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "ambient@example.com");
+    vi.stubEnv("AGENT_ORG_ID", "ambient-org");
+
+    await expect(
+      loadProductionEvalContext("/tmp/no-production-eval-adapter"),
+    ).rejects.toThrow("explicit ownerEmail and orgId");
   });
 
   it("does not resolve an engine or discover actions when all evals are skipped", async () => {
