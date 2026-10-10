@@ -24,6 +24,7 @@ import {
   CARD_PROVENANCE_HEADER_HEIGHT,
   LABEL_WIDTH,
   STUB_HEIGHT,
+  STUB_WIDTH,
   layoutJourneyAppBands,
   layoutJourney,
   type JourneyLayoutNode,
@@ -73,6 +74,11 @@ const OTHER_STUB_HEADING_FONT_SIZE = 24;
 const OTHER_STUB_HEADING_LINE_HEIGHT = 28;
 const OTHER_STUB_WIDTH = 360;
 const OTHER_STUB_CONTENT_WIDTH = 320;
+const STUB_CONTENT_WIDTH_INSET = 26;
+const STUB_TITLE_FONT_SIZE = 13;
+const STUB_TITLE_LINE_HEIGHT = 18;
+const STUB_DETAIL_FONT_SIZE = 12;
+const STUB_DETAIL_LINE_HEIGHT = 16;
 const isoTimestamp = z
   .string()
   .max(64)
@@ -1024,6 +1030,22 @@ function edgeLabelLineHeight(fontSize: number): number {
   return EDGE_LABEL_LINE_HEIGHT;
 }
 
+function wrappedStubHeaderHeight(
+  title: string,
+  detail: string,
+  contentWidth: number,
+  titleFontSize: number,
+  titleLineHeight: number,
+  detailFontSize: number,
+  detailLineHeight: number,
+): number {
+  return (
+    16 +
+    wrappedLineCount(title, contentWidth, titleFontSize) * titleLineHeight +
+    wrappedLineCount(detail, contentWidth, detailFontSize) * detailLineHeight
+  );
+}
+
 interface JourneyEdgeLabel {
   primary: string;
   secondary?: string;
@@ -1162,21 +1184,18 @@ function otherStubDisplay(args: {
     };
   });
   const branchCount = node.otherBranchCount ?? branches.length;
-  const headerHeight =
-    16 +
-    wrappedLineCount(
+  let height = Math.max(
+    STUB_HEIGHT,
+    wrappedStubHeaderHeight(
       node.label,
-      OTHER_STUB_CONTENT_WIDTH,
-      OTHER_STUB_HEADING_FONT_SIZE,
-    ) *
-      OTHER_STUB_HEADING_LINE_HEIGHT +
-    wrappedLineCount(
       aggregateDetail,
       OTHER_STUB_CONTENT_WIDTH,
       OTHER_STUB_HEADING_FONT_SIZE,
-    ) *
-      OTHER_STUB_HEADING_LINE_HEIGHT;
-  let height = Math.max(STUB_HEIGHT, headerHeight);
+      OTHER_STUB_HEADING_LINE_HEIGHT,
+      OTHER_STUB_HEADING_FONT_SIZE,
+      OTHER_STUB_HEADING_LINE_HEIGHT,
+    ),
+  );
   if (displays.length === 0) {
     height +=
       8 +
@@ -2028,6 +2047,7 @@ export function planJourneyCanvas(
   const layoutAppById = new Map<string, string>();
   const layoutEntryById = new Map<string, Rendered>();
   const dropoffOf = new Map<string, z.infer<typeof cohortJourneyNodeSchema>>();
+  const dropoffDetailOf = new Map<string, string>();
   for (const entry of ordered) {
     const parent = effectiveParent.get(entry.node.key) ?? null;
     const parentId = parent ? rendered.get(parent.key)!.layoutId : null;
@@ -2084,10 +2104,30 @@ export function planJourneyCanvas(
       entry.node.dropoffN > 0
     ) {
       dropoffOf.set(entry.node.key, entry.node);
+      const detail = interpolateJourneyCanvasMessage(messages.sessionsOfStep, {
+        count: formatInt(entry.node.dropoffN, messages.htmlLanguage),
+        percent: formatPercent(entry.node.dropoffPct, messages.htmlLanguage),
+      });
+      dropoffDetailOf.set(entry.node.key, detail);
       layoutNodes.push({
         key: `d${entry.index}`,
         parentKey: entry.layoutId,
         kind: "stub",
+        stubSize: {
+          width: STUB_WIDTH,
+          height: Math.max(
+            STUB_HEIGHT,
+            wrappedStubHeaderHeight(
+              messages.noLaterStepObserved,
+              detail,
+              STUB_WIDTH - STUB_CONTENT_WIDTH_INSET,
+              STUB_TITLE_FONT_SIZE,
+              STUB_TITLE_LINE_HEIGHT,
+              STUB_DETAIL_FONT_SIZE,
+              STUB_DETAIL_LINE_HEIGHT,
+            ),
+          ),
+        },
       });
       const appKey = appKeyForNode(entry.node.key);
       if (appKey) {
@@ -2552,10 +2592,7 @@ export function planJourneyCanvas(
             at(stub.rect),
             MUTED,
             messages.noLaterStepObserved,
-            interpolateJourneyCanvasMessage(messages.sessionsOfStep, {
-              count: formatInt(dropoff.dropoffN, messages.htmlLanguage),
-              percent: formatPercent(dropoff.dropoffPct, messages.htmlLanguage),
-            }),
+            dropoffDetailOf.get(entry.node.key)!,
           ),
         );
       }
@@ -2587,10 +2624,10 @@ function stubFragment(
     detailLineHeight?: number;
   } = {},
 ): string {
-  const titleFontSize = options.titleFontSize ?? 13;
-  const titleLineHeight = options.titleLineHeight ?? 18;
-  const detailFontSize = options.detailFontSize ?? 12;
-  const detailLineHeight = options.detailLineHeight ?? 16;
+  const titleFontSize = options.titleFontSize ?? STUB_TITLE_FONT_SIZE;
+  const titleLineHeight = options.titleLineHeight ?? STUB_TITLE_LINE_HEIGHT;
+  const detailFontSize = options.detailFontSize ?? STUB_DETAIL_FONT_SIZE;
+  const detailLineHeight = options.detailLineHeight ?? STUB_DETAIL_LINE_HEIGHT;
   return boardDiv({
     id,
     name,

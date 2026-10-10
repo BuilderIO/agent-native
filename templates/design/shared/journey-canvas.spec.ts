@@ -15,7 +15,10 @@ import {
   replaceJourneyBoardObjects,
   type CreateJourneyCanvasInput,
 } from "./journey-canvas.js";
-import { CARD_PROVENANCE_HEADER_HEIGHT } from "./journey-layout.js";
+import {
+  CARD_PROVENANCE_HEADER_HEIGHT,
+  STUB_HEIGHT,
+} from "./journey-layout.js";
 
 type RawInput = z.input<typeof createJourneyCanvasInputSchema>;
 type RawJourneyNode = RawInput["tree"]["nodes"][number];
@@ -2297,6 +2300,23 @@ describe("planJourneyCanvas", () => {
     expect(
       otherHeight("Onboarding Onboarding Onboarding"),
     ).toBeGreaterThanOrEqual(otherHeight("Other (3 branches)") + 56);
+  });
+
+  it("reserves wrapped localized drop-off text in the stub layout", () => {
+    const result = planJourneyCanvas(
+      parse(rawInput()),
+      "design-1",
+      arSA.journeyCanvas,
+    );
+    const fragment = result
+      .boardFragments({ x: 0, y: 0 })
+      .find((candidate) =>
+        candidate.includes('data-agent-native-node-id="jc-dropoff-'),
+      );
+    const height = fragment?.match(/height:(\d+(?:\.\d+)?)px/);
+
+    expect(height).not.toBeNull();
+    expect(Number(height![1])).toBeGreaterThan(STUB_HEIGHT);
   });
 
   it("shows full Other branch paths, counts, parent percentages, and the cap", () => {
