@@ -1388,7 +1388,7 @@ describe("sendToAgentChat", () => {
     ).toBeNull();
   });
 
-  it("publishes only shared fields, so composer-only context cannot reach other composers", () => {
+  it("publishes shared fields and the staging time, never composer-only fields", () => {
     publishAgentChatContextItems([
       {
         key: "prefill-hidden",
@@ -1401,7 +1401,7 @@ describe("sendToAgentChat", () => {
     ]);
 
     expect(getAgentChatContextState().items).toEqual([
-      { key: "prefill-hidden", title: "Hidden", context: "Cast" },
+      { key: "prefill-hidden", title: "Hidden", context: "Cast", stagedAt: 1 },
     ]);
   });
 
@@ -1714,6 +1714,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagedAt: expect.any(Number),
       },
     });
     expect(listAgentChatContext()).toEqual([
@@ -1721,6 +1722,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagedAt: expect.any(Number),
       },
     ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1746,6 +1748,7 @@ describe("sendToAgentChat", () => {
         title: "Cart",
         context: "Line item A",
         openSidebar: false,
+        stagedAt: expect.any(Number),
       },
     });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([

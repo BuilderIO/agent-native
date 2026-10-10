@@ -1991,6 +1991,37 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(false);
   });
 
+  it("the composer's optimistic clear on submit keeps its context for a send that fails", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => chatMocks.composerProps.onTextChange("Tell me more"));
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Cast: Tom Holland",
+          composerOnly: true,
+          hidden: true,
+          stagedAt: Date.now(),
+        },
+        { focus: false },
+      ),
+    );
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+
+    await act(async () => {
+      void chatMocks.composerProps
+        .onSubmit("Tell me more", [], [], { intent: "immediate" })
+        .catch(() => undefined);
+    });
+    await act(async () => chatMocks.composerProps.onTextChange(""));
+
+    expect(chatMocks.composerProps.contextItems).toHaveLength(1);
+  });
+
   it("clearing the draft in this chat drops its composer-only context", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
@@ -2078,7 +2109,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       context: "Core selection",
     };
     await act(async () => ref.current!.setComposerContextItem(ambient));
-    expect(chatMocks.composerProps.contextItems).toEqual([ambient, item]);
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      { ...ambient, stagedAt: expect.any(Number) },
+      item,
+    ]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
     expect(chatMocks.composerProps.onInspectContextItem).toBeUndefined();
     expect(chatMocks.composerProps.plusMenuMode).toBe("full");

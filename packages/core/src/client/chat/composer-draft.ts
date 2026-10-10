@@ -237,7 +237,13 @@ export function writeAssistantChatHiddenContext(
     }
     return true;
   } catch {
-    // coercion-ok: browser storage may be unavailable or full; the caller reports the failed write.
-    return items.length === 0;
+    // coercion-ok: browser storage may be unavailable or full. A failed write can leave the
+    // previous entry in place, so drop it rather than let an older context restore beside a newer draft.
+    try {
+      storage.removeItem(key);
+    } catch {
+      // coercion-ok: storage is already unusable; there is nothing more to drop.
+    }
+    return false;
   }
 }

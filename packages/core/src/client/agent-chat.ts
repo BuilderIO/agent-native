@@ -490,6 +490,7 @@ function persistAgentChatContextState(state: AgentChatContextState): void {
 
 // The shared store reaches every open composer, so it never carries composer-only
 // context. A hidden item published here becomes an ordinary chip instead of vanishing.
+// The staging time stays: it tells a restaged item from the one a submit captured.
 function sharedContextItem(item: AgentChatContextItem): AgentChatContextItem {
   return {
     key: item.key,
@@ -498,6 +499,7 @@ function sharedContextItem(item: AgentChatContextItem): AgentChatContextItem {
     ...(item.contextNamespace
       ? { contextNamespace: item.contextNamespace }
       : {}),
+    ...(item.stagedAt !== undefined ? { stagedAt: item.stagedAt } : {}),
   };
 }
 
@@ -1484,8 +1486,9 @@ export function sendToAgentChatAndConfirm(
 export function setAgentChatContextItem(
   opts: AgentChatContextSetOptions,
 ): void {
-  const item = normalizeAgentChatContextItem(opts);
-  if (!item || typeof window === "undefined") return;
+  const normalized = normalizeAgentChatContextItem(opts);
+  if (!normalized || typeof window === "undefined") return;
+  const item = { ...normalized, stagedAt: normalized.stagedAt ?? Date.now() };
 
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),

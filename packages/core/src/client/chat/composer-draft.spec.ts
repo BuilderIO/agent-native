@@ -176,7 +176,15 @@ describe("hidden composer context recovery", () => {
 });
 
 describe("hidden composer context persistence", () => {
-  it("reports a failed write instead of treating the prefill as saved", () => {
+  it("drops the previous entry when a replacement write fails", () => {
+    const key = `agent-chat-composer-hidden-context:${encodeURIComponent("thread-f")}`;
+    const previous = {
+      key: "prefill-context-old",
+      title: "prefill-context-old",
+      context: "Old cast",
+      stagedAt: Date.now(),
+    };
+    expect(writeAssistantChatHiddenContext("thread-f", [previous])).toBe(true);
     const setItem = vi
       .spyOn(window.localStorage, "setItem")
       .mockImplementation(() => {
@@ -185,14 +193,15 @@ describe("hidden composer context persistence", () => {
     try {
       const saved = writeAssistantChatHiddenContext("thread-f", [
         {
-          key: "prefill-context-full",
-          title: "prefill-context-full",
-          context: "Cast: Tom Holland",
+          key: "prefill-context-new",
+          title: "prefill-context-new",
+          context: "New cast",
           stagedAt: Date.now(),
         },
       ]);
 
       expect(saved).toBe(false);
+      expect(window.localStorage.getItem(key)).toBeNull();
     } finally {
       setItem.mockRestore();
     }

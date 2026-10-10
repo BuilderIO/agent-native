@@ -1555,6 +1555,9 @@ const AgentKitAssistantChatBody = forwardRef<
   const saveSnapshotRef = useRef<() => void>(() => undefined);
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
+  // The text the latest submit was called with. The composer empties its draft
+  // optimistically on submit; the draft-clear rule must not read that as an abandonment.
+  const submittedDraftRef = useRef<string | null>(null);
   const latestAssistant = useMemo(
     () =>
       [...thread.messages]
@@ -1882,6 +1885,7 @@ const AgentKitAssistantChatBody = forwardRef<
     draftRef.current = { scope: hiddenContextScope, text: composerText };
     if (previous.scope !== hiddenContextScope) return;
     if (previous.text.trim() === "" || composerText.trim() !== "") return;
+    if (previous.text.trim() === submittedDraftRef.current?.trim()) return;
     setContextItems((items) =>
       items.some((item) => item.composerOnly)
         ? items.filter((item) => !item.composerOnly)
@@ -2621,6 +2625,8 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
+      // Set before the first await: the composer clears its draft right after this call.
+      submittedDraftRef.current = text;
       const runWasActiveAtSubmit = isThreadRunning();
       const release = await acquireSubmission();
       if (!release)
@@ -3036,18 +3042,18 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const setContextItem = useCallback(
     (rawItem: AgentChatContextItem, focus = true) => {
-      const item = normalizeAgentChatContextItem(rawItem);
-      if (!item) return;
+      const normalized = normalizeAgentChatContextItem(rawItem);
+      if (!normalized) return;
+      // Stamp each staging, so cleanup can tell it from a later replacement with the same key.
+      const item =
+        normalized.stagedAt === undefined
+          ? { ...normalized, stagedAt: Date.now() }
+          : normalized;
       if (item.composerOnly) {
         // Publishing would make composer-only context reachable from every open composer.
-        // Stamp the staging time so cleanup can tell this item from a later replacement with the same key.
-        const staged =
-          item.stagedAt === undefined
-            ? { ...item, stagedAt: Date.now() }
-            : item;
         setContextItems((items) => [
-          ...items.filter((candidate) => candidate.key !== staged.key),
-          staged,
+          ...items.filter((candidate) => candidate.key !== item.key),
+          item,
         ]);
       } else {
         const current = getAgentChatContextState().items;
