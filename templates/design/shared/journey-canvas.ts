@@ -22,6 +22,8 @@ import {
   APP_BAND_HEADER_HEIGHT,
   CARD_HEADER_HEIGHT,
   CARD_PROVENANCE_HEADER_HEIGHT,
+  LABEL_WIDTH,
+  STUB_HEIGHT,
   layoutJourneyAppBands,
   layoutJourney,
   type JourneyLayoutNode,
@@ -42,6 +44,8 @@ export const JOURNEY_STAGED_REPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 export const MAX_JOURNEY_NODES = 2000;
 export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
+export const MAX_OTHER_BRANCH_SUMMARIES = 20;
+const MAX_JOURNEY_DEPTH = 40;
 const MAX_RECORDING_GAP_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_DIMENSION = 16_384;
 const MAX_IMAGE_URL_CHARS = 2_048;
@@ -60,6 +64,15 @@ const IMAGE_WELL = "#f3f4f6";
 const PROMPT_SHADOW = "rgba(17,24,39,.18)";
 // guard:allow-raw-color — arrows sit on a canvas that is light or dark; mid-grey reads on both
 const EDGE = "#8b8f98";
+const MAX_EDGE_LABEL_WIDTH = 420;
+const EDGE_LABEL_FONT_SIZE = 14;
+const EDGE_LABEL_LINE_HEIGHT = 17;
+const BRANCH_LABEL_FONT_SIZE = 20;
+const PERCENT_LABEL_FONT_SIZE = 24;
+const OTHER_STUB_HEADING_FONT_SIZE = 24;
+const OTHER_STUB_HEADING_LINE_HEIGHT = 28;
+const OTHER_STUB_WIDTH = 360;
+const OTHER_STUB_CONTENT_WIDTH = 320;
 const isoTimestamp = z
   .string()
   .max(64)
@@ -72,6 +85,14 @@ const isoTimestamp = z
 const pixels = z.number().int().min(1).max(MAX_DIMENSION);
 const percent = z.number().min(0).max(100);
 const count = z.number().int().min(0).max(2_147_483_647);
+const otherBranchSummarySchema = z
+  .object({
+    path: z.array(z.string().min(1).max(300)).min(1).max(MAX_JOURNEY_DEPTH),
+    key: z.string().min(1).max(2_048),
+    n: count.min(1),
+    pctOfParent: percent,
+  })
+  .strict();
 
 const journeyFrameCaptionSchema = z
   .object({
@@ -122,29 +143,96 @@ const journeyNodeBaseSchema = z.object({
   parentKey: z.string().min(1).max(2_048).nullable(),
   depth: count,
   examples: z.array(journeyExampleSchema).max(50),
+  otherBranchCount: count.min(1).optional(),
+  otherBranches: z
+    .array(otherBranchSummarySchema)
+    .max(MAX_OTHER_BRANCH_SUMMARIES)
+    .optional(),
 });
 
-const cohortJourneyNodeSchema = journeyNodeBaseSchema.extend({
-  kind: z.enum(["step", "other"]),
-  referenceOnly: z
-    .literal(false)
-    .default(false)
-    .describe("False for nodes with cohort counts and percentages."),
-  n: count,
-  pctOfRoot: percent,
-  pctOfParent: percent,
-  dropoffN: count,
-  dropoffPct: percent,
-});
+const cohortJourneyNodeSchema = journeyNodeBaseSchema
+  .extend({
+    kind: z.enum(["step", "other"]),
+    referenceOnly: z
+      .literal(false)
+      .default(false)
+      .describe("False for nodes with cohort counts and percentages."),
+    n: count,
+    pctOfRoot: percent,
+    pctOfParent: percent,
+    dropoffN: count,
+    dropoffPct: percent,
+  })
+  .superRefine((node, ctx) => {
+    const branches = node.otherBranches;
+    if (
+      node.kind !== "other" &&
+      (node.otherBranchCount !== undefined || branches !== undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranches"],
+        message: "Branch summaries are only valid on other nodes.",
+      });
+    }
+    if (!branches) return;
+    if (node.otherBranchCount === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranchCount"],
+        message: "Branch summaries require their total branch count.",
+      });
+    } else if (branches.length > node.otherBranchCount) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranches"],
+        message: "Branch summaries cannot exceed the total branch count.",
+      });
+    }
+    const summarizedSessions = branches.reduce(
+      (sum, branch) => sum + branch.n,
+      0,
+    );
+    if (summarizedSessions > node.n) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranches"],
+        message: "Branch summaries cannot exceed the aggregate session count.",
+      });
+    }
+    if (
+      node.otherBranchCount === branches.length &&
+      summarizedSessions !== node.n
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranches"],
+        message: "Complete branch summaries must equal the aggregate count.",
+      });
+    }
+  });
 
-const referenceJourneyNodeSchema = journeyNodeBaseSchema.extend({
-  kind: z.literal("step"),
-  referenceOnly: z
-    .literal(true)
-    .describe(
-      "A separately observed visual reference. It has no cohort metrics and is labeled Observed session reference.",
-    ),
-});
+const referenceJourneyNodeSchema = journeyNodeBaseSchema
+  .extend({
+    kind: z.literal("step"),
+    referenceOnly: z
+      .literal(true)
+      .describe(
+        "A separately observed visual reference. It has no cohort metrics and is labeled Observed session reference.",
+      ),
+  })
+  .superRefine((node, ctx) => {
+    if (
+      node.otherBranchCount !== undefined ||
+      node.otherBranches !== undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranches"],
+        message: "Branch summaries are only valid on other nodes.",
+      });
+    }
+  });
 
 export const journeyNodeSchema = z.union([
   cohortJourneyNodeSchema,
@@ -875,6 +963,223 @@ export function formatPercent(value: number, locale = "en-US"): string {
   }).format(clamped / 100);
 }
 
+function estimatedTextWidth(
+  value: string,
+  fontSize = EDGE_LABEL_FONT_SIZE,
+): number {
+  return Array.from(value).reduce((width, character) => {
+    const codePoint = character.codePointAt(0)!;
+    if (codePoint > 0x2fff) return width + fontSize * 1.2;
+    if (/[ilI.,'`:;!|]/.test(character)) return width + fontSize * 0.42;
+    if (/[MW@%#&]/.test(character)) return width + fontSize * 0.9;
+    if (/\s/.test(character)) return width + fontSize * 0.38;
+    return width + fontSize * 0.68;
+  }, 0);
+}
+
+function wrappedLineCount(
+  value: string,
+  width: number,
+  fontSize = EDGE_LABEL_FONT_SIZE,
+): number {
+  return Math.max(1, Math.ceil(estimatedTextWidth(value, fontSize) / width));
+}
+
+function edgeLabelLineHeight(fontSize: number): number {
+  if (fontSize >= PERCENT_LABEL_FONT_SIZE) return 28;
+  if (fontSize >= BRANCH_LABEL_FONT_SIZE) return 25;
+  return EDGE_LABEL_LINE_HEIGHT;
+}
+
+interface JourneyEdgeLabel {
+  primary: string;
+  secondary?: string;
+  primaryFontSize?: number;
+  secondaryFontSize?: number;
+  accessibleText: string;
+}
+
+function edgeLabelSize(label: JourneyEdgeLabel): {
+  width: number;
+  height: number;
+} {
+  const primaryFontSize = label.primaryFontSize ?? EDGE_LABEL_FONT_SIZE;
+  const secondaryFontSize = label.secondaryFontSize ?? primaryFontSize;
+  const labelWidth = Math.min(
+    MAX_EDGE_LABEL_WIDTH,
+    Math.max(
+      LABEL_WIDTH,
+      Math.ceil(
+        Math.max(
+          estimatedTextWidth(label.primary, primaryFontSize),
+          label.secondary
+            ? estimatedTextWidth(label.secondary, secondaryFontSize)
+            : 0,
+        ) + 20,
+      ),
+    ),
+  );
+  const contentWidth = labelWidth - 20;
+  const height =
+    8 +
+    wrappedLineCount(label.primary, contentWidth, primaryFontSize) *
+      edgeLabelLineHeight(primaryFontSize) +
+    (label.secondary
+      ? wrappedLineCount(label.secondary, contentWidth, secondaryFontSize) *
+        edgeLabelLineHeight(secondaryFontSize)
+      : 0);
+  return {
+    width: labelWidth,
+    height: Math.max(28, height),
+  };
+}
+
+interface OtherBranchDisplay {
+  path: string;
+  sourceKey: string;
+  detail: string;
+}
+
+interface OtherStubDisplay {
+  aggregateDetail: string;
+  branches: OtherBranchDisplay[];
+  branchCount: number;
+  height: number;
+}
+
+function otherNodeSessionDetail(args: {
+  node: z.infer<typeof cohortJourneyNodeSchema>;
+  count: number;
+  pctOfParent: number;
+  tree: CreateJourneyCanvasInput["tree"];
+  layoutMode: CreateJourneyCanvasInput["layoutMode"];
+  nodeIndex: Map<string, number>;
+  messages: JourneyCanvasMessages;
+}): string {
+  const { node, count, pctOfParent, tree, layoutMode, nodeIndex, messages } =
+    args;
+  const parent =
+    node.parentKey === null
+      ? null
+      : tree.nodes[nodeIndex.get(node.parentKey)!]!;
+  const formattedCount = formatInt(count, messages.htmlLanguage);
+  const formattedPercent = formatPercent(pctOfParent, messages.htmlLanguage);
+  if (!parent || !hasCohortMetrics(parent)) {
+    const appKey = appKeyForNode(node.key);
+    if (layoutMode === "appBands" && appKey && tree.appRootN?.[appKey]) {
+      return interpolateJourneyCanvasMessage(messages.sessionsOfAppRoot, {
+        count: formattedCount,
+        percent: formattedPercent,
+        app: appDisplayName(appKey),
+        rootCount: formatInt(tree.appRootN[appKey], messages.htmlLanguage),
+      });
+    }
+    return interpolateJourneyCanvasMessage(messages.sessionsOfAll, {
+      count: formattedCount,
+      percent: formattedPercent,
+    });
+  }
+  return interpolateJourneyCanvasMessage(messages.sessionsOfPrevious, {
+    count: formattedCount,
+    percent: formattedPercent,
+  });
+}
+
+function otherStubDisplay(args: {
+  node: z.infer<typeof cohortJourneyNodeSchema>;
+  tree: CreateJourneyCanvasInput["tree"];
+  layoutMode: CreateJourneyCanvasInput["layoutMode"];
+  nodeIndex: Map<string, number>;
+  messages: JourneyCanvasMessages;
+}): OtherStubDisplay {
+  const { node, tree, layoutMode, nodeIndex, messages } = args;
+  const aggregateDetail = otherNodeSessionDetail({
+    node,
+    count: node.n,
+    pctOfParent: node.pctOfParent,
+    tree,
+    layoutMode,
+    nodeIndex,
+    messages,
+  });
+  const branches = node.otherBranches ?? [];
+  const pathCounts = new Map<string, number>();
+  for (const branch of branches) {
+    const path = branch.path.join(" → ");
+    pathCounts.set(path, (pathCounts.get(path) ?? 0) + 1);
+  }
+  const displays = branches.map((branch) => {
+    const path = branch.path.join(" → ");
+    const sourceKey = branch.key.split(" > ").pop() ?? branch.key;
+    return {
+      path:
+        pathCounts.get(path)! > 1
+          ? `${path} · ${interpolateJourneyCanvasMessage(messages.otherBranchSourceKey, { key: sourceKey })}`
+          : path,
+      sourceKey,
+      detail: otherNodeSessionDetail({
+        node,
+        count: branch.n,
+        pctOfParent: branch.pctOfParent,
+        tree,
+        layoutMode,
+        nodeIndex,
+        messages,
+      }),
+    };
+  });
+  const branchCount = node.otherBranchCount ?? branches.length;
+  const headerHeight =
+    16 +
+    wrappedLineCount(
+      node.label,
+      OTHER_STUB_CONTENT_WIDTH,
+      OTHER_STUB_HEADING_FONT_SIZE,
+    ) *
+      OTHER_STUB_HEADING_LINE_HEIGHT +
+    wrappedLineCount(
+      aggregateDetail,
+      OTHER_STUB_CONTENT_WIDTH,
+      OTHER_STUB_HEADING_FONT_SIZE,
+    ) *
+      OTHER_STUB_HEADING_LINE_HEIGHT;
+  let height = Math.max(STUB_HEIGHT, headerHeight);
+  if (displays.length === 0) {
+    height +=
+      8 +
+      wrappedLineCount(
+        messages.otherBranchDetailsUnavailable,
+        OTHER_STUB_CONTENT_WIDTH,
+        11,
+      ) *
+        14;
+  } else {
+    for (const branch of displays) {
+      height +=
+        7 +
+        wrappedLineCount(branch.path, OTHER_STUB_CONTENT_WIDTH, 11) * 14 +
+        wrappedLineCount(branch.detail, OTHER_STUB_CONTENT_WIDTH, 10) * 13;
+    }
+    if (branchCount > displays.length) {
+      const remaining = interpolateJourneyCanvasMessage(
+        messages.otherBranchesShown,
+        {
+          shown: formatInt(displays.length, messages.htmlLanguage),
+          total: formatInt(branchCount, messages.htmlLanguage),
+        },
+      );
+      height +=
+        8 + wrappedLineCount(remaining, OTHER_STUB_CONTENT_WIDTH, 10) * 14;
+    }
+  }
+  return {
+    aggregateDetail,
+    branches: displays,
+    branchCount,
+    height,
+  };
+}
+
 function replayObservedAt(
   recordingStartedAt: string | undefined,
   screenshotOffsetMs: number | undefined,
@@ -1543,16 +1848,160 @@ export function planJourneyCanvas(
   // Analytics already returns siblings in presentation order. App bands put
   // the main onboarding path ahead of independent route components.
   const ordered = [...rendered.values()];
+  const observedContinuationsByNodePair = new Map(
+    input.observedContinuations.map((continuation) => [
+      `${continuation.fromNodeKey}\u0000${continuation.toNodeKey}`,
+      continuation,
+    ]),
+  );
+  const observedRecordingGapsByNodePair = new Map(
+    input.observedRecordingGaps.map((gap) => [
+      `${gap.fromNodeKey}\u0000${gap.toNodeKey}`,
+      gap,
+    ]),
+  );
+  const effectiveParent = new Map<string, JourneyNode | null>();
+  const outgoingCountByParent = new Map<string, number>();
+  for (const entry of ordered) {
+    const parent = nearestCardAncestor(entry.node);
+    effectiveParent.set(entry.node.key, parent);
+    if (parent) {
+      outgoingCountByParent.set(
+        parent.key,
+        (outgoingCountByParent.get(parent.key) ?? 0) + 1,
+      );
+    }
+    if (
+      entry.kind === "card" &&
+      hasCohortMetrics(entry.node) &&
+      entry.node.dropoffN > 0
+    ) {
+      outgoingCountByParent.set(
+        entry.node.key,
+        (outgoingCountByParent.get(entry.node.key) ?? 0) + 1,
+      );
+    }
+  }
+
+  const edgeLabelFor = (
+    entry: Rendered,
+    parent: JourneyNode,
+  ): JourneyEdgeLabel | null => {
+    const pairKey = `${parent.key}\u0000${entry.node.key}`;
+    const continuation = observedContinuationsByNodePair.get(pairKey);
+    if (continuation) {
+      return {
+        primary: interpolateJourneyCanvasMessage(
+          messages.observedContinuationCompact,
+          {
+            fromExample: formatInt(
+              continuation.fromExampleIndex + 1,
+              messages.htmlLanguage,
+            ),
+            toExample: formatInt(
+              continuation.toExampleIndex + 1,
+              messages.htmlLanguage,
+            ),
+          },
+        ),
+        accessibleText: interpolateJourneyCanvasMessage(
+          messages.observedContinuation,
+          {
+            fromExample: formatInt(
+              continuation.fromExampleIndex + 1,
+              messages.htmlLanguage,
+            ),
+            toExample: formatInt(
+              continuation.toExampleIndex + 1,
+              messages.htmlLanguage,
+            ),
+          },
+        ),
+      };
+    }
+    const recordingGap = observedRecordingGapsByNodePair.get(pairKey);
+    if (recordingGap) {
+      const text =
+        recordingGap.gapDurationMs === undefined
+          ? messages.recordingGap
+          : interpolateJourneyCanvasMessage(messages.recordingGapDuration, {
+              duration: formatRecordingGapDuration(
+                recordingGap.gapDurationMs,
+                messages.htmlLanguage,
+              ),
+            });
+      return { primary: text, accessibleText: text };
+    }
+    if (entry.kind !== "card" || !hasCohortMetrics(entry.node)) return null;
+    const directParent =
+      entry.node.parentKey === null
+        ? null
+        : tree.nodes[nodeIndex.get(entry.node.parentKey)!]!;
+    const viaSkippedParent =
+      directParent !== null && directParent.key !== parent.key;
+    const denominatorParent =
+      viaSkippedParent && hasCohortMetrics(directParent)
+        ? directParent
+        : parent;
+    if (!hasCohortMetrics(denominatorParent)) return null;
+    const value = !viaSkippedParent
+      ? entry.node.pctOfParent
+      : (entry.node.n / Math.max(1, denominatorParent.n)) * 100;
+    const percentLabel = formatPercent(value, messages.htmlLanguage);
+    if (viaSkippedParent) {
+      return {
+        primary: denominatorParent.label,
+        secondary: percentLabel,
+        primaryFontSize: BRANCH_LABEL_FONT_SIZE,
+        secondaryFontSize: PERCENT_LABEL_FONT_SIZE,
+        accessibleText: interpolateJourneyCanvasMessage(
+          messages.observedBranchLabel,
+          { label: denominatorParent.label, percent: percentLabel },
+        ),
+      };
+    }
+    return (outgoingCountByParent.get(parent.key) ?? 0) > 1 || value < 99.5
+      ? {
+          primary: percentLabel,
+          primaryFontSize: PERCENT_LABEL_FONT_SIZE,
+          accessibleText: percentLabel,
+        }
+      : null;
+  };
+
+  const edgeLabelsByLayoutId = new Map<string, JourneyEdgeLabel>();
+  const otherStubDisplays = new Map<string, OtherStubDisplay>();
+  for (const entry of ordered) {
+    const parent = effectiveParent.get(entry.node.key);
+    if (parent) {
+      const label = edgeLabelFor(entry, parent);
+      if (label) edgeLabelsByLayoutId.set(entry.layoutId, label);
+    }
+    if (entry.kind === "stub" && hasCohortMetrics(entry.node)) {
+      otherStubDisplays.set(
+        entry.node.key,
+        otherStubDisplay({
+          node: entry.node,
+          tree,
+          layoutMode: input.layoutMode,
+          nodeIndex,
+          messages,
+        }),
+      );
+    }
+  }
 
   const layoutNodes: JourneyLayoutNode[] = [];
   const layoutAppById = new Map<string, string>();
   const layoutEntryById = new Map<string, Rendered>();
   const dropoffOf = new Map<string, z.infer<typeof cohortJourneyNodeSchema>>();
-  const effectiveParent = new Map<string, JourneyNode | null>();
   for (const entry of ordered) {
-    const parent = nearestCardAncestor(entry.node);
-    effectiveParent.set(entry.node.key, parent);
+    const parent = effectiveParent.get(entry.node.key) ?? null;
     const parentId = parent ? rendered.get(parent.key)!.layoutId : null;
+    const incomingLabel = edgeLabelsByLayoutId.get(entry.layoutId);
+    const incomingLabelSize = incomingLabel
+      ? edgeLabelSize(incomingLabel)
+      : undefined;
     const appKey = appKeyForNode(entry.node.key);
     if (appKey) {
       layoutAppById.set(entry.layoutId, appKey);
@@ -1560,7 +2009,20 @@ export function planJourneyCanvas(
     }
     layoutNodes.push(
       entry.kind === "stub"
-        ? { key: entry.layoutId, parentKey: parentId, kind: "stub" }
+        ? {
+            key: entry.layoutId,
+            parentKey: parentId,
+            kind: "stub",
+            ...(otherStubDisplays.has(entry.node.key)
+              ? {
+                  stubSize: {
+                    width: OTHER_STUB_WIDTH,
+                    height: otherStubDisplays.get(entry.node.key)!.height,
+                  },
+                }
+              : {}),
+            ...(incomingLabelSize ? { edgeLabelSize: incomingLabelSize } : {}),
+          }
         : {
             key: entry.layoutId,
             parentKey: parentId,
@@ -1578,6 +2040,7 @@ export function planJourneyCanvas(
               : CARD_HEADER_HEIGHT,
             layers: Math.max(0, entry.frames.length - 1),
             footer: false,
+            ...(incomingLabelSize ? { edgeLabelSize: incomingLabelSize } : {}),
           },
     );
   }
@@ -1621,10 +2084,6 @@ export function planJourneyCanvas(
       : null;
   const layout = appBandLayout ?? layoutJourney(layoutNodes, { cardWidth });
   const placed = new Map(layout.nodes.map((node) => [node.key, node]));
-  const outgoing = new Map<string, number>();
-  for (const edge of layout.edges) {
-    outgoing.set(edge.fromKey, (outgoing.get(edge.fromKey) ?? 0) + 1);
-  }
 
   const screens: PlannedScreen[] = [];
   let frameCount = 0;
@@ -1868,12 +2327,6 @@ export function planJourneyCanvas(
   });
 
   const byLayoutId = new Map(ordered.map((entry) => [entry.layoutId, entry]));
-  const observedContinuationsByNodePair = new Map(
-    input.observedContinuations.map((continuation) => [
-      `${continuation.fromNodeKey}\u0000${continuation.toNodeKey}`,
-      continuation,
-    ]),
-  );
   const observedContinuationForEdge = (
     edge: PlacedEdge,
   ): (typeof input.observedContinuations)[number] | undefined => {
@@ -1885,12 +2338,6 @@ export function planJourneyCanvas(
         )
       : undefined;
   };
-  const observedRecordingGapsByNodePair = new Map(
-    input.observedRecordingGaps.map((gap) => [
-      `${gap.fromNodeKey}\u0000${gap.toNodeKey}`,
-      gap,
-    ]),
-  );
   const observedRecordingGapForEdge = (
     edge: PlacedEdge,
   ): (typeof input.observedRecordingGaps)[number] | undefined => {
@@ -1907,62 +2354,6 @@ export function planJourneyCanvas(
   };
   const isObservedRecordingGap = (edge: PlacedEdge): boolean => {
     return observedRecordingGapForEdge(edge) !== undefined;
-  };
-  const labelText = (edge: PlacedEdge): string | null => {
-    const continuation = observedContinuationForEdge(edge);
-    if (continuation) {
-      return interpolateJourneyCanvasMessage(
-        messages.observedContinuationCompact,
-        {
-          fromExample: formatInt(
-            continuation.fromExampleIndex + 1,
-            messages.htmlLanguage,
-          ),
-          toExample: formatInt(
-            continuation.toExampleIndex + 1,
-            messages.htmlLanguage,
-          ),
-        },
-      );
-    }
-    const recordingGap = observedRecordingGapForEdge(edge);
-    if (recordingGap) {
-      return recordingGap.gapDurationMs === undefined
-        ? messages.recordingGap
-        : interpolateJourneyCanvasMessage(messages.recordingGapDuration, {
-            duration: formatRecordingGapDuration(
-              recordingGap.gapDurationMs,
-              messages.htmlLanguage,
-            ),
-          });
-    }
-    const child = byLayoutId.get(edge.toKey);
-    if (!child || child.kind !== "card" || !hasCohortMetrics(child.node))
-      return null;
-    const parent = effectiveParent.get(child.node.key);
-    if (!parent || !hasCohortMetrics(parent)) return null;
-    const directParent =
-      child.node.parentKey === null
-        ? null
-        : tree.nodes[nodeIndex.get(child.node.parentKey)!]!;
-    const viaSkippedParent =
-      directParent !== null && directParent.key !== parent.key;
-    const denominatorParent =
-      viaSkippedParent && hasCohortMetrics(directParent)
-        ? directParent
-        : parent;
-    const pct = !viaSkippedParent
-      ? child.node.pctOfParent
-      : (child.node.n / Math.max(1, denominatorParent.n)) * 100;
-    if (viaSkippedParent && hasCohortMetrics(denominatorParent)) {
-      return interpolateJourneyCanvasMessage(messages.observedBranchLabel, {
-        label: denominatorParent.label,
-        percent: formatPercent(pct, messages.htmlLanguage),
-      });
-    }
-    return (outgoing.get(edge.fromKey) ?? 0) > 1 || pct < 99.5
-      ? formatPercent(pct, messages.htmlLanguage)
-      : null;
   };
 
   const boardFragments = (origin: Point): string[] => {
@@ -2057,41 +2448,15 @@ export function planJourneyCanvas(
           dashed,
         ),
       );
-      const text = labelText(edge);
-      if (text) {
+      const label = edgeLabelsByLayoutId.get(edge.toKey);
+      if (label) {
         const continuation = observedContinuationForEdge(edge);
         const recordingGap = observedRecordingGapForEdge(edge);
-        const accessibleText = continuation
-          ? interpolateJourneyCanvasMessage(messages.observedContinuation, {
-              fromExample: formatInt(
-                continuation.fromExampleIndex + 1,
-                messages.htmlLanguage,
-              ),
-              toExample: formatInt(
-                continuation.toExampleIndex + 1,
-                messages.htmlLanguage,
-              ),
-            })
-          : text;
-        const parentBox = placed.get(edge.fromKey)?.rect;
-        const childBox = placed.get(edge.toKey)?.rect;
-        const corridorStart = parentBox ? parentBox.x + parentBox.width : null;
-        const corridorWidth =
-          corridorStart !== null && childBox
-            ? childBox.x - corridorStart
-            : null;
-        const labelRect =
-          recordingGap && corridorStart !== null && corridorWidth !== null
-            ? {
-                ...edge.labelRect,
-                x:
-                  corridorStart +
-                  Math.round(
-                    (corridorWidth - Math.min(152, corridorWidth - 8)) / 2,
-                  ),
-                width: Math.min(152, corridorWidth - 8),
-              }
-            : edge.labelRect;
+        const primaryFontSize = label.primaryFontSize ?? EDGE_LABEL_FONT_SIZE;
+        const primaryLineHeight = edgeLabelLineHeight(primaryFontSize);
+        const secondaryFontSize = label.secondaryFontSize ?? primaryFontSize;
+        const secondaryLineHeight = edgeLabelLineHeight(secondaryFontSize);
+        const labelHtml = `<div style="font-size:${primaryFontSize}px;line-height:${primaryLineHeight}px;font-weight:${primaryFontSize >= PERCENT_LABEL_FONT_SIZE ? 700 : 600};overflow-wrap:anywhere">${escapeHtml(label.primary)}</div>${label.secondary ? `<div style="font-size:${secondaryFontSize}px;line-height:${secondaryLineHeight}px;font-weight:700;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(label.secondary)}</div>` : ""}`;
         fragments.push(
           boardDiv({
             id: `${id}-label`,
@@ -2101,11 +2466,11 @@ export function planJourneyCanvas(
                 ? "Observed recording gap"
                 : "Journey edge label",
             primitive: "text",
-            rect: at(labelRect),
-            style: `background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 10px/20px system-ui,sans-serif;color:${INK};overflow:hidden;white-space:nowrap;text-overflow:ellipsis`,
-            html: escapeHtml(text),
-            title: accessibleText,
-            ariaLabel: accessibleText,
+            rect: at(edge.labelRect),
+            style: `display:flex;flex-direction:column;justify-content:center;padding:3px 8px;background:${SURFACE};border:1px solid ${BORDER};border-radius:11px;text-align:center;font:600 ${primaryFontSize}px/${primaryLineHeight}px system-ui,sans-serif;color:${INK};overflow:visible;white-space:normal;overflow-wrap:anywhere`,
+            html: labelHtml,
+            title: label.accessibleText,
+            ariaLabel: label.accessibleText,
           }),
         );
       }
@@ -2115,6 +2480,17 @@ export function planJourneyCanvas(
       const box = placed.get(entry.layoutId)!;
       if (entry.kind === "stub") {
         if (!hasCohortMetrics(entry.node)) continue;
+        const display = otherStubDisplays.get(entry.node.key)!;
+        const branchRows = display.branches
+          .map(
+            (branch) =>
+              `<div style="padding:3px 0;border-top:1px solid ${BORDER}"><div style="font-size:11px;line-height:14px;font-weight:600;color:${INK};overflow-wrap:anywhere">${escapeHtml(branch.path)}</div><div style="font-size:10px;line-height:13px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(branch.detail)}</div></div>`,
+          )
+          .join("");
+        const detailsHtml =
+          display.branches.length === 0
+            ? `<div style="padding-top:4px;font-size:11px;line-height:14px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(messages.otherBranchDetailsUnavailable)}</div>`
+            : `${branchRows}${display.branchCount > display.branches.length ? `<div style="margin-top:4px;padding-top:4px;border-top:1px solid ${BORDER};font-size:10px;line-height:14px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(interpolateJourneyCanvasMessage(messages.otherBranchesShown, { shown: formatInt(display.branches.length, messages.htmlLanguage), total: formatInt(display.branchCount, messages.htmlLanguage) }))}</div>` : ""}`;
         fragments.push(
           stubFragment(
             `${JOURNEY_BOARD_ID_PREFIX}other-${hashId(`${designId}\u0000${entry.node.key}`)}`,
@@ -2122,13 +2498,14 @@ export function planJourneyCanvas(
             at(box.rect),
             MUTED,
             escapeHtml(entry.node.label),
-            interpolateJourneyCanvasMessage(messages.sessionsOfPrevious, {
-              count: formatInt(entry.node.n, messages.htmlLanguage),
-              percent: formatPercent(
-                entry.node.pctOfParent,
-                messages.htmlLanguage,
-              ),
-            }),
+            display.aggregateDetail,
+            detailsHtml,
+            {
+              titleFontSize: OTHER_STUB_HEADING_FONT_SIZE,
+              titleLineHeight: OTHER_STUB_HEADING_LINE_HEIGHT,
+              detailFontSize: OTHER_STUB_HEADING_FONT_SIZE,
+              detailLineHeight: OTHER_STUB_HEADING_LINE_HEIGHT,
+            },
           ),
         );
         continue;
@@ -2170,14 +2547,25 @@ function stubFragment(
   marker: string,
   title: string,
   detail: string,
+  detailsHtml = "",
+  options: {
+    titleFontSize?: number;
+    titleLineHeight?: number;
+    detailFontSize?: number;
+    detailLineHeight?: number;
+  } = {},
 ): string {
+  const titleFontSize = options.titleFontSize ?? 13;
+  const titleLineHeight = options.titleLineHeight ?? 18;
+  const detailFontSize = options.detailFontSize ?? 12;
+  const detailLineHeight = options.detailLineHeight ?? 16;
   return boardDiv({
     id,
     name,
     primitive: "rectangle",
     rect,
-    style: `padding:7px 10px;background:${SURFACE};border:1px solid ${BORDER};border-left:4px solid ${marker};border-radius:6px;font-family:system-ui,sans-serif;overflow:hidden;white-space:nowrap`,
-    html: `<div style="font-size:13px;line-height:18px;font-weight:600;color:${INK};overflow:hidden;text-overflow:ellipsis">${title}</div><div style="font-size:12px;line-height:16px;color:${MUTED}">${escapeHtml(detail)}</div>`,
+    style: `padding:7px 10px;background:${SURFACE};border:1px solid ${BORDER};border-left:4px solid ${marker};border-radius:6px;font-family:system-ui,sans-serif;overflow:visible;white-space:normal;overflow-wrap:anywhere`,
+    html: `<div style="font-size:${titleFontSize}px;line-height:${titleLineHeight}px;font-weight:600;color:${INK};overflow-wrap:anywhere">${title}</div><div style="font-size:${detailFontSize}px;line-height:${detailLineHeight}px;color:${MUTED};overflow-wrap:anywhere">${escapeHtml(detail)}</div>${detailsHtml}`,
   });
 }
 

@@ -90,7 +90,19 @@ export interface JourneyNode {
   /** Sessions with a later observed step that is not represented as a child. */
   deeperN: number;
   examples: JourneyExample[];
+  /** Original direct children represented by an `other` aggregate. */
+  otherBranchCount?: number;
+  otherBranches?: Array<{
+    /** Full human-readable path from the journey root to this branch. */
+    path: string[];
+    /** Source step key, used only to distinguish branches with identical labels. */
+    key: string;
+    n: number;
+    pctOfParent: number;
+  }>;
 }
+
+export const MAX_OTHER_BRANCH_SUMMARIES = 20;
 
 // Clock skew and recorder start-up mean a step can land just outside the
 // recording that shows it.
@@ -340,7 +352,7 @@ export function buildJourneyTree(
   }
 
   const nodes: JourneyNode[] = [];
-  const emitChildren = (parent: TrieNode) => {
+  const emitChildren = (parent: TrieNode, parentPath: string[]) => {
     const ordered = [...parent.children.values()].sort(
       (a, b) => b.n - a.n || compareKeys(a.stepKey, b.stepKey),
     );
@@ -361,7 +373,7 @@ export function buildJourneyTree(
         deeperN: 0,
         examples: pickExamples(node.refs, recordings, options),
       });
-      emitChildren(node);
+      emitChildren(node, [...parentPath, node.label]);
     }
     const merged = ordered.filter((node) => node.n < options.minNodeSessions);
     if (merged.length) {
@@ -380,10 +392,19 @@ export function buildJourneyTree(
         dropoffPct: pct(dropoffN, n),
         deeperN: 0,
         examples: [],
+        otherBranchCount: merged.length,
+        otherBranches: merged
+          .slice(0, MAX_OTHER_BRANCH_SUMMARIES)
+          .map((branch) => ({
+            path: [...parentPath, branch.label],
+            key: branch.key,
+            n: branch.n,
+            pctOfParent: pct(branch.n, parent.n),
+          })),
       });
     }
   };
-  emitChildren(root);
+  emitChildren(root, []);
   return { rootN: root.n, nodes: addDeeperCounts(nodes) };
 }
 

@@ -308,6 +308,72 @@ describe("create-journey-canvas input", () => {
     expect(input.tree.nodes[0]?.referenceOnly).toBe(false);
   });
 
+  it("validates bounded branch summaries against their aggregate", () => {
+    const raw = rawInput();
+    const other = {
+      ...node("signup > other", "signup", 800, {
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      }),
+      kind: "other" as const,
+      label: "Other (3 branches)",
+      examples: [],
+      otherBranchCount: 3,
+      otherBranches: [
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace",
+          n: 500,
+          pctOfParent: 50,
+        },
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace_alternate",
+          n: 200,
+          pctOfParent: 20,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+
+    expect(problems(input)).toEqual([]);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? { ...candidate, otherBranchCount: 1 }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/cannot exceed the total branch count/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranches: Array.from(
+                    { length: 21 },
+                    () => other.otherBranches[0],
+                  ),
+                  otherBranchCount: 21,
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/otherBranches/);
+  });
+
   it("accepts an https imageUrl and an attachmentRef", () => {
     expect(problems(rawInput())).toEqual([]);
     const withRef = rawInput({
@@ -706,7 +772,9 @@ describe("create-journey-canvas input", () => {
     expect(board).not.toMatch(/100%|40%|conversion|successful signup/i);
     expect(label).toContain('title="Recording gap · 3s"');
     expect(labelPosition).not.toBeNull();
-    expect(Number(labelPosition![3])).toBe(152);
+    expect(Number(labelPosition![3])).toBeGreaterThanOrEqual(112);
+    expect(label).toContain("overflow:visible;white-space:normal");
+    expect(label).not.toContain("ellipsis");
     expect(source.frame.x + source.frame.width).toBeLessThan(target.frame.x);
     expect(Number(labelPosition![1])).toBeGreaterThanOrEqual(
       source.frame.x + source.frame.width,
@@ -1194,7 +1262,7 @@ describe("create-journey-canvas input", () => {
     expect(board).toContain("Custom keys · 50%");
   });
 
-  it("truncates long edge labels visually while preserving their full accessible text", () => {
+  it("wraps long edge labels without truncating their visible or accessible text", () => {
     const longLabel = `Custom method ${"very-long-name ".repeat(12)}`.trim();
     const base = rawInput();
     const nodes = base.tree.nodes.map((candidate) =>
@@ -1219,9 +1287,9 @@ describe("create-journey-canvas input", () => {
 
     expect(label).toContain(`title="${longLabel} · 63%"`);
     expect(label).toContain(`aria-label="${longLabel} · 63%"`);
-    expect(label).toContain(
-      "overflow:hidden;white-space:nowrap;text-overflow:ellipsis",
-    );
+    expect(label).toContain("overflow:visible;white-space:normal");
+    expect(label).toContain("overflow-wrap:anywhere");
+    expect(label).not.toContain("ellipsis");
   });
 
   it("rejects trees and frames that do not hang together", () => {
@@ -1355,8 +1423,8 @@ describe("planJourneyCanvas", () => {
     expect(designRoot.html).toContain(
       "40 sessions · 100% of Design cohort (n=40)",
     );
-    expect(clipsChild.html).toContain("60 sessions · 60% of previous");
-    expect(designChild.html).toContain("20 sessions · 50% of previous");
+    expect(clipsChild.html).toContain("60 sessions · 60% of previous step");
+    expect(designChild.html).toContain("20 sessions · 50% of previous step");
     expect(fragments).toContain("Clips · 100 sessions");
     expect(fragments).toContain("Design · 40 sessions");
     expect(
@@ -1515,7 +1583,7 @@ describe("planJourneyCanvas", () => {
   it("writes a header with label, session count and percent, and an img with the https URL", () => {
     const prompt = plan().screens.find((s) => s.nodeKey === "signup > prompt")!;
     expect(prompt.html).toMatch(/<h1[^>]*>signup &gt; prompt<\/h1>/);
-    expect(prompt.html).toContain("500 sessions · 50% of previous");
+    expect(prompt.html).toContain("500 sessions · 50% of previous step");
     expect(prompt.html).toContain(
       'src="https://img.example.test/signup%20%3E%20prompt-0.png"',
     );
@@ -2114,7 +2182,58 @@ describe("planJourneyCanvas", () => {
       (s) => s.nodeKey === "signup > skip > editor",
     )!;
     expect(editor.html).toContain("100 sessions · 63% of signup &gt; skip");
-    expect(fragments).toContain("signup &gt; skip · 63%");
+    expect(fragments).toContain("signup &gt; skip</div><div style");
+    expect(fragments).toContain(">63%</div>");
+  });
+
+  it("keeps long skipped-branch names and percentages visible without truncation", () => {
+    const longLabel = `Onboarding step ${"choose route ".repeat(18)}`.slice(
+      0,
+      300,
+    );
+    const root = node("signup", null, 1_000, {
+      label: "Signup",
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const skipped = node("signup > skipped", "signup", 600, {
+      label: longLabel,
+      depth: 2,
+      pctOfRoot: 60,
+      pctOfParent: 60,
+    });
+    const finish = node("signup > skipped > finish", skipped.key, 200, {
+      label: "Finish",
+      depth: 3,
+      pctOfRoot: 20,
+      pctOfParent: 33.33,
+    });
+    const fragments = plan(
+      rawInput({
+        tree: {
+          ...rawInput().tree,
+          nodes: [root, skipped, finish],
+        },
+        frames: [frame(root.key, 0), frame(finish.key, 0)],
+      }),
+    )
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+    const labelStart = fragments.indexOf(
+      'data-agent-native-layer-name="Journey edge label"',
+    );
+    const labelEnd = fragments.indexOf("</div></div>", labelStart) + 12;
+    const label = fragments.slice(
+      fragments.lastIndexOf("<div ", labelStart),
+      labelEnd,
+    );
+
+    expect(label).toContain(longLabel);
+    expect(label).toContain(">33%</div>");
+    expect(label).toContain("font-size:20px;line-height:25px");
+    expect(label).toContain("font-size:24px;line-height:28px;font-weight:700");
+    expect(label).toContain("overflow:visible;white-space:normal");
+    expect(label).not.toContain("ellipsis");
   });
 
   it("renders screenshotless steps only when asked", () => {
@@ -2135,6 +2254,9 @@ describe("planJourneyCanvas", () => {
     expect(html).toContain("340 sessions · 34% of this step");
     expect(html).toContain("10 sessions · 10% of this step");
     expect(html).toContain("Other (3 branches)");
+    expect(html).toContain(
+      "Branch details are not available in this journey tree",
+    );
     expect(html).not.toContain('data-agent-native-layer-name="Captured date"');
     expect(html).not.toContain("Captured 2026-10-08 · 2 examples");
     expect(html).toContain("Design onboarding");
@@ -2151,6 +2273,52 @@ describe("planJourneyCanvas", () => {
     expect(plan(truncated).boardFragments({ x: 0, y: 0 }).join("\n")).toContain(
       "partial sample",
     );
+  });
+
+  it("shows full Other branch paths, counts, parent percentages, and the cap", () => {
+    const raw = rawInput();
+    const other = {
+      ...node("signup > other", "signup", 800, {
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      }),
+      kind: "other" as const,
+      label: "Other (3 branches)",
+      examples: [],
+      otherBranchCount: 3,
+      otherBranches: [
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace",
+          n: 500,
+          pctOfParent: 50,
+        },
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace_alternate",
+          n: 200,
+          pctOfParent: 20,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+    const fragments = plan(input).boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(fragments).toContain("800 sessions · 80% of previous step");
+    expect(fragments).toContain(
+      "signup → Workspace · Source step key: workspace",
+    );
+    expect(fragments).toContain(
+      "signup → Workspace · Source step key: workspace_alternate",
+    );
+    expect(fragments).toContain("500 sessions · 50% of previous step");
+    expect(fragments).toContain("200 sessions · 20% of previous step");
+    expect(fragments).toContain("Showing 2 of 3 branches");
+    expect(fragments).toContain("font-size:24px;line-height:28px");
+    const otherFragment = fragments.slice(fragments.indexOf("jc-other-"));
+    expect(otherFragment).not.toContain("<img");
   });
 
   it("points private attachments at the authenticated replay-screenshot route", () => {

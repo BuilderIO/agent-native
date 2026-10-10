@@ -158,6 +158,21 @@ describe("buildJourneyTree", () => {
       dropoffN: 2,
       dropoffPct: 100,
       examples: [],
+      otherBranchCount: 2,
+      otherBranches: [
+        {
+          path: ["SIGNUP", "ROLE", "CHOICE", "CUSTOM"],
+          key: "signup > role > choice > custom",
+          n: 1,
+          pctOfParent: 25,
+        },
+        {
+          path: ["SIGNUP", "ROLE", "CHOICE", "OTHER_ONE"],
+          key: "signup > role > choice > other_one",
+          n: 1,
+          pctOfParent: 25,
+        },
+      ],
     });
     const choice = nodes.find(
       (candidate) => candidate.key === "signup > role > choice",
@@ -166,6 +181,34 @@ describe("buildJourneyTree", () => {
       .filter((candidate) => candidate.parentKey === choice.key)
       .reduce((sum, candidate) => sum + candidate.n, 0);
     expect(choice.n).toBe(choice.dropoffN + childN + choice.deeperN);
+  });
+
+  it("caps the branch disclosure while preserving its total count", () => {
+    const sessions = Array.from({ length: 22 }, (_, index) =>
+      session(`s${index}`, [`branch-${String(index).padStart(2, "0")}`]),
+    );
+    const { rootN, nodes } = buildJourneyTree(sessions, new Map(), {
+      ...OPTIONS,
+      minNodeSessions: 2,
+    });
+    const other = nodes[0]!;
+
+    expect(rootN).toBe(22);
+    expect(other).toMatchObject({
+      kind: "other",
+      n: 22,
+      otherBranchCount: 22,
+    });
+    expect(other.otherBranches).toHaveLength(20);
+    expect(other.otherBranches?.[0]).toMatchObject({
+      path: ["BRANCH-00"],
+      key: "branch-00",
+      n: 1,
+      pctOfParent: 4.55,
+    });
+    expect(
+      other.otherBranches?.some((branch) => branch.key === "branch-21"),
+    ).toBe(false);
   });
 
   it("counts sessions cut at maxDepth in n but not as drop-off", () => {
