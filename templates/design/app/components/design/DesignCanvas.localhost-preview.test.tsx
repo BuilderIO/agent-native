@@ -90,6 +90,79 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("ignores invalid preview route reports and keeps absolute routes", async () => {
+    const onRoutePathChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="<main>Inline preview</main>"
+          contentKey="inline-route-path"
+          screenId="inline-route-path"
+          sourceType="inline"
+          onRoutePathChange={onRoutePathChange}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    expect(iframe?.contentWindow).toBeTruthy();
+
+    const reportRoute = async (
+      type: "agent-native:editor-chrome-ready" | "agent-native:live-route-path",
+      routePath: string,
+    ) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type, routePath },
+            origin: window.location.origin,
+            source: iframe!.contentWindow,
+          }),
+        );
+      });
+    };
+
+    for (const invalidRoutePath of [
+      "srcdoc",
+      "//external.example/path",
+      "/\\external.example/path",
+      "/\\\\external.example/path",
+      "/\n/external.example/path",
+      "/\t/external.example/path",
+      "/\r/external.example/path",
+      "https://external.example/path",
+    ]) {
+      await reportRoute("agent-native:editor-chrome-ready", invalidRoutePath);
+      await reportRoute("agent-native:live-route-path", invalidRoutePath);
+    }
+    expect(onRoutePathChange).not.toHaveBeenCalled();
+
+    await reportRoute(
+      "agent-native:editor-chrome-ready",
+      "/settings?tab=profile",
+    );
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "inline-route-path",
+      "/settings?tab=profile",
+    );
+
+    await reportRoute("agent-native:live-route-path", "/profile#details");
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "inline-route-path",
+      "/profile#details",
+    );
+  });
+
   it("keeps Chrome settings help available when the prompt is gone", async () => {
     await act(async () => {
       root.render(

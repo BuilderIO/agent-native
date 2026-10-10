@@ -927,6 +927,25 @@ function getExternalPreviewUrl(content: string): string | null {
   }
 }
 
+function isAbsoluteRoutePath(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    value.startsWith("/\\")
+  ) {
+    return false;
+  }
+  try {
+    return (
+      new URL(value, "https://design-route.invalid").origin ===
+      "https://design-route.invalid"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isCurrentLiveEditReadyMessage(
   liveEditUrl: string,
   routePath: unknown,
@@ -943,7 +962,8 @@ function isCurrentLiveEditReadyMessage(
         : null;
     if (!targetPath) return "invalid";
     const expectedRoutePath = targetPath.pathname + targetPath.search;
-    if (typeof routePath === "string" && routePath) {
+    if (routePath !== undefined && routePath !== null && routePath !== "") {
+      if (!isAbsoluteRoutePath(routePath)) return "invalid";
       return routePath === expectedRoutePath ? "current" : "stale";
     }
     return previousRoutePath === null || previousRoutePath === expectedRoutePath
@@ -958,6 +978,7 @@ function liveEditDocumentIdentityForRoute(
   liveEditUrl: string,
   routePath: string,
 ): { status: "ready"; identity: string } | { status: "invalid" } {
+  if (!isAbsoluteRoutePath(routePath)) return { status: "invalid" };
   try {
     const liveEdit = new URL(liveEditUrl);
     const targetUrl = liveEdit.searchParams.get("url");
@@ -3904,7 +3925,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
-        if (typeof e.data.routePath === "string" && e.data.routePath) {
+        if (isAbsoluteRoutePath(e.data.routePath)) {
           const routeChanged =
             liveRoutePathRef.current !== null &&
             liveRoutePathRef.current !== e.data.routePath;
@@ -4055,7 +4076,7 @@ export function DesignCanvas({
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
-      if (typeof e.data.routePath === "string" && e.data.routePath) {
+      if (isAbsoluteRoutePath(e.data.routePath)) {
         liveRoutePathRef.current = e.data.routePath;
         onRoutePathChange?.(screenId, e.data.routePath);
       }
