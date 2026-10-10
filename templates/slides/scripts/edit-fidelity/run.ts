@@ -28,7 +28,9 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
+  isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
+  normalizeFirefoxBrowserSessionConsoleError,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -5595,6 +5597,7 @@ async function runAuthoringFuzzQa(
       }
     } finally {
       const cleanupErrors: string[] = [];
+      const pendingCleanupConsoleInspections = new Set<Promise<void>>();
       const monitoredPages = new Set<Page>();
       const recoveryPages = new Set<Page>();
       let cleanupNavigationCandidates: Array<{
@@ -5626,18 +5629,24 @@ async function runAuthoringFuzzQa(
           seedHarnessUnavailable ??= unavailable;
         }
       };
-      const isExpectedCleanupNavigationError = (message: string) => {
+      const getCleanupNavigationCandidates = () => {
         const now = Date.now();
-        const candidates = cleanupNavigationCandidates.map(
+        return cleanupNavigationCandidates.map(
           ({ startedAt, ...candidate }) => ({
             ...candidate,
             ageMs: now - startedAt,
           }),
         );
+      };
+      const isExpectedCleanupNavigationError = (
+        message: string,
+        candidates = getCleanupNavigationCandidates(),
+        navigationPending = cleanupNavigationPending,
+      ) => {
         return isExpectedCleanupNavigationRequestError(
           message,
           candidates,
-          cleanupNavigationPending,
+          navigationPending,
         );
       };
       if (authoringSucceeded && page && !page.isClosed()) {
@@ -5652,10 +5661,38 @@ async function runAuthoringFuzzQa(
           );
         }
       }
-      const onConsole = (message: { type(): string; text(): string }) => {
+      const onConsole = (message: any) => {
         if (message.type() === "error") {
-          if (isExpectedCleanupNavigationError(message.text())) return;
-          cleanupErrors.push(`console: ${message.text()}`);
+          const text = message.text();
+          if (
+            !cleanupNavigationPending ||
+            !isFirefoxBrowserSessionConsoleError(text)
+          ) {
+            if (isExpectedCleanupNavigationError(text)) return;
+            cleanupErrors.push(`console: ${text}`);
+            return;
+          }
+          const candidates = getCleanupNavigationCandidates();
+          const navigationPending = cleanupNavigationPending;
+          let inspection: Promise<void>;
+          inspection = normalizeFirefoxBrowserSessionConsoleError(message)
+            .then((normalized) => {
+              if (
+                isExpectedCleanupNavigationError(
+                  normalized,
+                  candidates,
+                  navigationPending,
+                )
+              ) {
+                return;
+              }
+              cleanupErrors.push(`console: ${normalized}`);
+            })
+            .catch((error: unknown) => {
+              cleanupErrors.push(`console: ${text} (${String(error)})`);
+            })
+            .finally(() => pendingCleanupConsoleInspections.delete(inspection));
+          pendingCleanupConsoleInspections.add(inspection);
         }
       };
       const onPageError = (error: Error) => {
@@ -5875,6 +5912,9 @@ async function runAuthoringFuzzQa(
       if (page) await closePage(page, "could not close authoring page");
       for (const cleanupPage of recoveryPages) {
         await closePage(cleanupPage, "could not close recovery page");
+      }
+      while (pendingCleanupConsoleInspections.size) {
+        await Promise.all([...pendingCleanupConsoleInspections]);
       }
       if (cleanupErrors.length) {
         const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
