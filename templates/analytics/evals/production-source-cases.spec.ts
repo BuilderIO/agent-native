@@ -318,6 +318,13 @@ describe("Analytics synthetic production source evals", () => {
     const parentheticalNegation = await reportFor(
       "dbt_mart.dim_users_core: user grain (not the declared grain)",
     );
+    const directNegations = await Promise.all(
+      [
+        "user grain is not correct",
+        "user grain is not declared",
+        "user grain does not match the declared grain",
+      ].map((claim) => reportFor(`dbt_mart.dim_users_core: ${claim}`)),
+    );
 
     expect(positiveAfterNegation).toMatchObject({
       total: 1,
@@ -336,6 +343,9 @@ describe("Analytics synthetic production source evals", () => {
       passed: 0,
       failed: 1,
     });
+    for (const report of directNegations) {
+      expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    }
   });
 
   it("requires complete relation identifiers instead of accepting a prefixed name", async () => {
