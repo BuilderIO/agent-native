@@ -290,8 +290,11 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
   if (!resolved) return null;
 
   const expanded: T[] = [];
-  for (const { target, element } of resolved) {
+  const seenTargets = new Set<string>();
+  for (const { target, element, key } of resolved) {
     if (!target.byParagraph) {
+      if (seenTargets.has(key)) continue;
+      seenTargets.add(key);
       expanded.push(target);
       continue;
     }
@@ -303,39 +306,40 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
     const tagName = element.tagName.toLowerCase();
     const nativeParagraphs: Element[] = [];
     if (importedParagraphs.length < 2) {
-      if ((tagName === "p" || tagName === "li") && element.parentElement) {
-        nativeParagraphs.push(
-          ...getPersistedChildren(element.parentElement).filter(
-            (sibling) =>
-              sibling.tagName.toLowerCase() === tagName &&
-              hasMeaningfulContent(sibling),
-          ),
-        );
-      } else {
-        const collectParagraphs = (parent: Element) => {
-          for (const child of getPersistedChildren(parent)) {
-            const childTagName = child.tagName.toLowerCase();
-            if (SKIPPED_TAGS.has(childTagName)) continue;
-            if (childTagName === "p" || childTagName === "li") {
-              if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-              continue;
-            }
-            collectParagraphs(child);
+      const textContainer =
+        textObject ??
+        (tagName === "p" || tagName === "li"
+          ? (element.parentElement ?? element)
+          : element);
+      const collectParagraphs = (parent: Element) => {
+        for (const child of getPersistedChildren(parent)) {
+          const childTagName = child.tagName.toLowerCase();
+          if (SKIPPED_TAGS.has(childTagName)) continue;
+          if (childTagName === "p" || childTagName === "li") {
+            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            continue;
           }
-        };
-        collectParagraphs(element);
-      }
+          collectParagraphs(child);
+        }
+      };
+      collectParagraphs(textContainer);
     }
     const paragraphs =
       importedParagraphs.length > 1 ? importedParagraphs : nativeParagraphs;
     if (paragraphs.length < 2) {
-      expanded.push(target);
+      if (!seenTargets.has(key)) {
+        seenTargets.add(key);
+        expanded.push(target);
+      }
       continue;
     }
 
     for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
       const elementPath = getPersistedElementPath(root, paragraph);
       if (!elementPath) return null;
+      const paragraphKey = animationElementKey(elementPath);
+      if (seenTargets.has(paragraphKey)) continue;
+      seenTargets.add(paragraphKey);
       expanded.push({
         ...target,
         id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,

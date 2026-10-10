@@ -272,6 +272,74 @@ describe("slide animation element parsing", () => {
     );
   });
 
+  it("includes nested list items when a surrounding paragraph is selected", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide">
+        <div>
+          <p>Introduction</p>
+          <ul><li>First point</li><li>Second point</li></ul>
+          <p>Closing point</p>
+        </div>
+      </div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 1, 0],
+      [0, 1, 1],
+      [0, 2],
+    ]);
+  });
+
+  it("deduplicates a by-paragraph target that overlaps another animation", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "all-paragraphs",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+      {
+        id: "second-paragraph",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "fade",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 1],
+    ]);
+    expect(expanded && resolveSlideAnimationTargets(root, expanded)).not.toBe(
+      null,
+    );
+  });
+
   it("expands by paragraph when one native paragraph is selected", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
