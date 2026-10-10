@@ -92,6 +92,7 @@ describe("compileSourceIndex", () => {
         "    group: product_analytics",
         "    defaults:",
         "      agg_time_dimension: created_at",
+        "    primary_entity: workspace",
         "    entities:",
         "      - name: workspace",
         "        type: primary",
@@ -126,20 +127,65 @@ describe("compileSourceIndex", () => {
       metric: "semantic_model:workspaces",
       owner: "Product Analytics",
       grain: "Unique key: workspace_id",
-      primaryEntity: "workspace_id",
+      primaryEntity: "workspace",
       timeDimension: "created_at",
       table: "dim_workspaces",
     });
+    expect(semanticModel?.definition).toContain(
+      "Primary entity expression: workspace_id",
+    );
     expect(metric).toMatchObject({
       metric: "metric:active_workspaces",
       owner: "Product Analytics",
       grain: "Unique key: workspace_id",
-      primaryEntity: "workspace_id",
+      primaryEntity: "workspace",
       timeDimension: "created_at",
       semanticModel: "workspaces",
     });
     expect(JSON.stringify([semanticModel, metric])).not.toContain(
       "private@example.com",
+    );
+  });
+
+  it("indexes a top-level primary entity without inferring row grain from it", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "semantic.yml"),
+      [
+        "version: 2",
+        "semantic_models:",
+        "  - name: activity",
+        "    model: ref('fact_activity')",
+        "    description: One row per event_date, user_id, org_id, event_type.",
+        "    primary_entity: builder_activity",
+        "    entities:",
+        "      - name: user",
+        "        type: foreign",
+        "        expr: user_id",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "fact_activity.sql"),
+      "select 1 as event_date, 2 as user_id, 3 as org_id, 4 as event_type",
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const semanticModel = bundle.entries.find(
+      (entry) => entry.entryType === "semantic_model",
+    );
+
+    expect(semanticModel).toMatchObject({
+      metric: "semantic_model:activity",
+      primaryEntity: "builder_activity",
+    });
+    expect(semanticModel?.grain).toBeUndefined();
+    expect(semanticModel?.definition).toContain(
+      "One row per event_date, user_id, org_id, event_type.",
     );
   });
 
