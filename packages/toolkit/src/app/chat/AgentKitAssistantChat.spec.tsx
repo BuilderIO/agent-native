@@ -8102,6 +8102,69 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("fails fast while a timed-out transport write remains unsettled", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    vi.useFakeTimers();
+    try {
+      const persistThreadSnapshot = chatMocks.rootProps.transport
+        .persistThreadSnapshot as (input: unknown) => Promise<void>;
+      const input = {
+        threadId: "stalled-snapshot-queue-thread",
+        snapshot: { messages: [] },
+      };
+      const first = persistThreadSnapshot(input);
+      const firstResult = first.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(writeCount).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(await firstResult).toMatchObject({ name: "TimeoutError" });
+
+      const rejectedWrites = await Promise.allSettled(
+        Array.from({ length: 16 }, () => persistThreadSnapshot(input)),
+      );
+      expect(
+        rejectedWrites.every(
+          (result) =>
+            result.status === "rejected" &&
+            (result.reason as Error).name === "ThreadSnapshotQueueStalledError",
+        ),
+      ).toBe(true);
+      expect(writeCount).toBe(1);
+
+      resolveFirstWrite?.();
+      await act(async () => {
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      await expect(persistThreadSnapshot(input)).resolves.toBeUndefined();
+      expect(writeCount).toBe(2);
+    } finally {
+      resolveFirstWrite?.();
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("checkpoints changed snapshots during default transport runs", async () => {
     const onSaveThread = vi.fn().mockResolvedValue(true);
     const onMessageCountChange = vi.fn();

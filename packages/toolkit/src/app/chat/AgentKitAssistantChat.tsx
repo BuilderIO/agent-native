@@ -238,6 +238,9 @@ const threadSnapshotPersistenceQueues = new Map<string, Promise<void>>();
 const threadSnapshotSaveQueues = new Map<string, Promise<void>>();
 const threadSnapshotPersistenceQueueSizes = new Map<string, number>();
 const threadSnapshotSaveQueueSizes = new Map<string, number>();
+// An aborted write can still commit remotely, so keep its queue fenced until it settles.
+const stalledThreadSnapshotPersistenceQueues = new Set<string>();
+const stalledThreadSnapshotSaveQueues = new Set<string>();
 const latestThreadSnapshotGenerations = new Map<string, number>();
 let threadSnapshotGeneration = 0;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
@@ -265,6 +268,9 @@ function enqueueThreadSnapshotPersistence<T>(
   persist: (context: AgentRequestContext) => Promise<T> | T,
   context?: AgentRequestContext,
 ): Promise<T> {
+  if (stalledThreadSnapshotPersistenceQueues.has(key)) {
+    return Promise.reject(threadSnapshotQueueStalledError());
+  }
   if (
     !reserveThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key)
   ) {
@@ -278,7 +284,23 @@ function enqueueThreadSnapshotPersistence<T>(
     resolveResult = resolve;
     rejectResult = reject;
   });
+  let operationStarted = false;
+  let operationSettled = false;
+  let slotReleased = false;
+  const releaseSlot = () => {
+    if (slotReleased) return;
+    slotReleased = true;
+    releaseThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key);
+  };
   const controller = new AbortController();
+  const onAbort = () => {
+    if (operationStarted && !operationSettled) {
+      stalledThreadSnapshotPersistenceQueues.add(key);
+    } else if (!operationStarted) {
+      releaseSlot();
+    }
+  };
+  controller.signal.addEventListener("abort", onAbort, { once: true });
   const abortFromCaller = () => controller.abort(context?.signal?.reason);
   if (context?.signal?.aborted) abortFromCaller();
   else
@@ -293,9 +315,11 @@ function enqueueThreadSnapshotPersistence<T>(
   const cleanup = () => {
     window.clearTimeout(timeout);
     context?.signal?.removeEventListener("abort", abortFromCaller);
+    controller.signal.removeEventListener("abort", onAbort);
   };
   const operation = previous.then(() => {
     if (controller.signal.aborted) throw abortError(controller.signal);
+    operationStarted = true;
     return persist({ ...context, signal: controller.signal });
   });
   const settled = operation
@@ -304,8 +328,10 @@ function enqueueThreadSnapshotPersistence<T>(
       () => undefined,
     )
     .then(() => {
+      operationSettled = true;
+      stalledThreadSnapshotPersistenceQueues.delete(key);
       cleanup();
-      releaseThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key);
+      releaseSlot();
       if (threadSnapshotPersistenceQueues.get(key) === settled) {
         threadSnapshotPersistenceQueues.delete(key);
       }
@@ -320,6 +346,9 @@ function enqueueThreadSnapshotSave<T>(
   key: string,
   save: (context: AgentRequestContext) => Promise<T> | T,
 ): Promise<T> {
+  if (stalledThreadSnapshotSaveQueues.has(key)) {
+    return Promise.reject(threadSnapshotQueueStalledError());
+  }
   if (!reserveThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key)) {
     return Promise.reject(threadSnapshotQueueFullError());
   }
@@ -330,15 +359,35 @@ function enqueueThreadSnapshotSave<T>(
     resolveResult = resolve;
     rejectResult = reject;
   });
+  let operationStarted = false;
+  let operationSettled = false;
+  let slotReleased = false;
+  const releaseSlot = () => {
+    if (slotReleased) return;
+    slotReleased = true;
+    releaseThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key);
+  };
   const controller = new AbortController();
+  const onAbort = () => {
+    if (operationStarted && !operationSettled) {
+      stalledThreadSnapshotSaveQueues.add(key);
+    } else if (!operationStarted) {
+      releaseSlot();
+    }
+  };
+  controller.signal.addEventListener("abort", onAbort, { once: true });
   const timeout = window.setTimeout(() => {
     const error = new Error("Chat thread snapshot persistence timed out.");
     error.name = "TimeoutError";
     controller.abort(error);
   }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
-  const cleanup = () => window.clearTimeout(timeout);
+  const cleanup = () => {
+    window.clearTimeout(timeout);
+    controller.signal.removeEventListener("abort", onAbort);
+  };
   const operation = previous.then(() => {
     if (controller.signal.aborted) throw abortError(controller.signal);
+    operationStarted = true;
     return save({ signal: controller.signal });
   });
   const settled = operation
@@ -347,8 +396,10 @@ function enqueueThreadSnapshotSave<T>(
       () => undefined,
     )
     .then(() => {
+      operationSettled = true;
+      stalledThreadSnapshotSaveQueues.delete(key);
       cleanup();
-      releaseThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key);
+      releaseSlot();
       if (threadSnapshotSaveQueues.get(key) === settled) {
         threadSnapshotSaveQueues.delete(key);
       }
@@ -418,6 +469,14 @@ function releaseThreadSnapshotQueueSlot(
 function threadSnapshotQueueFullError(): Error {
   const error = new Error("Too many chat thread snapshot writes are pending.");
   error.name = "ThreadSnapshotQueueFullError";
+  return error;
+}
+
+function threadSnapshotQueueStalledError(): Error {
+  const error = new Error(
+    "A previous chat thread snapshot write has not settled after cancellation.",
+  );
+  error.name = "ThreadSnapshotQueueStalledError";
   return error;
 }
 
