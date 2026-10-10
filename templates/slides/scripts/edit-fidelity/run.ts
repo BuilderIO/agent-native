@@ -27,6 +27,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
+  isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   lineNavigationKeys,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
@@ -5388,6 +5389,36 @@ async function runAuthoringFuzzQa(
     let createError: unknown = null;
     let seedHarnessUnavailable: CouldNotRun | null = null;
     const unavailableCleanupPages = new Set<Page>();
+    const cleanupRequestStartTimes = new Map<
+      any,
+      { page: Page; startedAt: number }
+    >();
+    const cleanupRequestTrackingPages = new Map<
+      Page,
+      {
+        onRequest: (request: any) => void;
+        onRequestSettled: (request: any) => void;
+      }
+    >();
+    const trackCleanupRequests = (target: Page) => {
+      if (cleanupRequestTrackingPages.has(target)) return;
+      const onRequest = (request: any) => {
+        cleanupRequestStartTimes.set(request, {
+          page: target,
+          startedAt: Date.now(),
+        });
+      };
+      const onRequestSettled = (request: any) => {
+        cleanupRequestStartTimes.delete(request);
+      };
+      target.on("request", onRequest);
+      target.on("requestfinished", onRequestSettled);
+      target.on("requestfailed", onRequestSettled);
+      cleanupRequestTrackingPages.set(target, {
+        onRequest,
+        onRequestSettled,
+      });
+    };
     const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
     try {
       const activePage = await runSetupAsCouldNotRun(
@@ -5395,6 +5426,7 @@ async function runAuthoringFuzzQa(
         createPage,
       );
       page = activePage;
+      trackCleanupRequests(activePage);
       activePage.on("crash", () => {
         unavailableCleanupPages.add(activePage);
       });
@@ -5481,6 +5513,11 @@ async function runAuthoringFuzzQa(
         slideContentSelector: rootSelector,
         originalHtml,
         originalSlideHtml,
+        initialPendingWatchedRequests: new Map(
+          [...cleanupRequestStartTimes.entries()]
+            .filter(([, request]) => request.page === activePage)
+            .map(([request, { startedAt }]) => [request, startedAt]),
+        ),
         modifier,
         historyLimit: IN_PLACE_TEXT_UNDO_LIMIT,
         expectScaledSlide: profile?.kind === "scaled",
@@ -5552,6 +5589,14 @@ async function runAuthoringFuzzQa(
       const cleanupErrors: string[] = [];
       const monitoredPages = new Set<Page>();
       const recoveryPages = new Set<Page>();
+      let cleanupNavigationCandidates: Array<{
+        url: string;
+        pathname: string;
+        method: string;
+        startedAt: number;
+        requestWasPendingAtNavigation: true;
+      }> = [];
+      let cleanupNavigationPending = false;
       let recoveryPage: Page | null = null;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
@@ -5573,12 +5618,28 @@ async function runAuthoringFuzzQa(
           seedHarnessUnavailable ??= unavailable;
         }
       };
+      const isExpectedCleanupNavigationError = (message: string) => {
+        const now = Date.now();
+        const candidates = cleanupNavigationCandidates.map(
+          ({ startedAt, ...candidate }) => ({
+            ...candidate,
+            ageMs: now - startedAt,
+          }),
+        );
+        return isExpectedCleanupNavigationRequestError(
+          message,
+          candidates,
+          cleanupNavigationPending,
+        );
+      };
       const onConsole = (message: { type(): string; text(): string }) => {
         if (message.type() === "error") {
+          if (isExpectedCleanupNavigationError(message.text())) return;
           cleanupErrors.push(`console: ${message.text()}`);
         }
       };
       const onPageError = (error: Error) => {
+        if (isExpectedCleanupNavigationError(error.message)) return;
         cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
       };
       const onResponse = (response: { status(): number; url(): string }) => {
@@ -5588,6 +5649,7 @@ async function runAuthoringFuzzQa(
       };
       const monitorCleanupPage = (target: Page) => {
         if (!authoringSucceeded || monitoredPages.has(target)) return;
+        trackCleanupRequests(target);
         target.on("console", onConsole);
         target.on("pageerror", onPageError);
         target.on("response", onResponse);
@@ -5623,6 +5685,7 @@ async function runAuthoringFuzzQa(
         recoveryPage = createdRecoveryPage;
         recoveryPages.add(createdRecoveryPage);
         lastCleanupPage = createdRecoveryPage;
+        trackCleanupRequests(createdRecoveryPage);
         createdRecoveryPage.on("crash", () => {
           unavailableCleanupPages.add(createdRecoveryPage);
         });
@@ -5726,10 +5789,30 @@ async function runAuthoringFuzzQa(
           }
           try {
             const cleanupPage = await getCleanupPage();
-            await cleanupPage.goto(`${base}/home`, {
-              waitUntil: "domcontentloaded",
-              timeout: 120_000,
-            });
+            cleanupNavigationCandidates = [
+              ...cleanupRequestStartTimes.entries(),
+            ]
+              .filter(([, request]) => request.page === cleanupPage)
+              .map(([request, { startedAt }]) => {
+                const url = request.url();
+                return {
+                  url,
+                  pathname: new URL(url).pathname,
+                  method: request.method(),
+                  startedAt,
+                  requestWasPendingAtNavigation: true as const,
+                };
+              });
+            cleanupNavigationPending = true;
+            try {
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
+            } finally {
+              cleanupNavigationPending = false;
+              cleanupNavigationCandidates = [];
+            }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
           }
@@ -5746,6 +5829,12 @@ async function runAuthoringFuzzQa(
           monitoredPage.off("console", onConsole);
           monitoredPage.off("pageerror", onPageError);
           monitoredPage.off("response", onResponse);
+        }
+        for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
+          if (trackedPage.isClosed()) continue;
+          trackedPage.off("request", listeners.onRequest);
+          trackedPage.off("requestfinished", listeners.onRequestSettled);
+          trackedPage.off("requestfailed", listeners.onRequestSettled);
         }
       }
       const closePage = async (target: Page, label: string) => {
