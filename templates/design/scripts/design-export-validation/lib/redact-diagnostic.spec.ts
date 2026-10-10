@@ -49,6 +49,50 @@ describe("redactExportDiagnostic", () => {
       "password=\"[redacted]\" authorization='[redacted]' authorization=[redacted] passwordCount=3 title=Welcome",
     );
   });
+
+  it("redacts credential assignments nested inside quoted diagnostic values", () => {
+    expect(
+      redactExportDiagnostic('message="login failed password=FAKE_PASSWORD"'),
+    ).toBe('message="login failed password=[redacted]"');
+  });
+
+  it("redacts escaped quoted credentials nested inside diagnostic values", () => {
+    expect(
+      redactExportDiagnostic(
+        String.raw`message="login failed password=\"FAKE PASSWORD\""`,
+      ),
+    ).toBe(String.raw`message="login failed password=\"[redacted]\""`);
+  });
+
+  it("preserves mixed nested quote styles around redacted credentials", () => {
+    expect(
+      redactExportDiagnostic(
+        'message="login failed password=\'FAKE SINGLE\' api_key=\\"FAKE DOUBLE\\""',
+      ),
+    ).toBe(
+      'message="login failed password=\'[redacted]\' api_key=\\"[redacted]\\""',
+    );
+  });
+
+  it("classifies secret key spellings without matching ordinary keyboard fields", () => {
+    expect(
+      redactExportDiagnostic(
+        "secret_key=FAKE_SECRET SECRET_KEY=FAKE_SECRET secretKey=FAKE_SECRET x_secret_key=FAKE_SECRET keyboard=music",
+      ),
+    ).toBe(
+      "secret_key=[redacted] SECRET_KEY=[redacted] secretKey=[redacted] x_secret_key=[redacted] keyboard=music",
+    );
+  });
+
+  it("fails closed for deeply nested quoted diagnostics", () => {
+    let value = "password=FAKE_DEEP_SECRET";
+    for (let depth = 0; depth < 12; depth += 1) {
+      value = `message=${JSON.stringify(value)}`;
+    }
+
+    expect(redactExportDiagnostic(value)).not.toContain("FAKE_DEEP_SECRET");
+  });
+
   it("consumes complete escaped and compound credential values", () => {
     expect(
       redactExportDiagnostic(

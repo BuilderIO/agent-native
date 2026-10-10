@@ -1,6 +1,7 @@
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const SENSITIVE_ASSIGNMENT_PATTERN =
-  /(^|[^\w$])(["']?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\2(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/gi;
+  /(^|[^\w$])(["']?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\2(\s*[:=]\s*)(?:(\\"|")((?:\\.|[^"\\])*)(\5)|(\\'|')((?:\\.|[^'\\])*)(\8)|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/gi;
+const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
 
 function isSensitiveAssignmentKey(key: string): boolean {
   const words = key
@@ -18,32 +19,46 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "password" ||
     lastWord === "authorization" ||
     (lastWord === "key" &&
-      ["api", "private", "access"].includes(words[words.length - 2]))
+      ["api", "private", "access", "secret"].includes(words[words.length - 2]))
+  );
+}
+
+function redactAssignments(value: string, depth = 0): string {
+  const pattern = new RegExp(SENSITIVE_ASSIGNMENT_PATTERN.source, "gi");
+  return value.replace(
+    pattern,
+    (
+      match,
+      boundary: string,
+      keyQuote: string,
+      key: string,
+      separator: string,
+      doubleOpeningQuote: string | undefined,
+      doubleQuotedValue: string | undefined,
+      doubleClosingQuote: string | undefined,
+      singleOpeningQuote: string | undefined,
+      singleQuotedValue: string | undefined,
+      singleClosingQuote: string | undefined,
+    ) => {
+      const openingQuote = doubleOpeningQuote ?? singleOpeningQuote ?? "";
+      const closingQuote = doubleClosingQuote ?? singleClosingQuote ?? "";
+      const quotedValue = doubleQuotedValue ?? singleQuotedValue;
+      const prefix = `${boundary}${keyQuote}${key}${keyQuote}${separator}`;
+      if (isSensitiveAssignmentKey(key)) {
+        return prefix + openingQuote + "[redacted]" + closingQuote;
+      }
+      if (quotedValue === undefined) return match;
+      if (depth >= MAX_NESTED_ASSIGNMENT_DEPTH) {
+        return prefix + openingQuote + "[redacted]" + closingQuote;
+      }
+
+      const redactedNestedValue = redactAssignments(quotedValue, depth + 1);
+      if (redactedNestedValue === quotedValue) return match;
+      return prefix + openingQuote + redactedNestedValue + closingQuote;
+    },
   );
 }
 
 export function redactExportDiagnostic(value: string): string {
-  return value
-    .replace(URL_PATTERN, "[URL]")
-    .replace(
-      SENSITIVE_ASSIGNMENT_PATTERN,
-      (
-        match,
-        boundary: string,
-        keyQuote: string,
-        key: string,
-        separator: string,
-        doubleQuotedValue: string | undefined,
-        singleQuotedValue: string | undefined,
-      ) => {
-        if (!isSensitiveAssignmentKey(key)) return match;
-        const quote =
-          doubleQuotedValue !== undefined
-            ? '"'
-            : singleQuotedValue !== undefined
-              ? "'"
-              : "";
-        return `${boundary}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
-      },
-    );
+  return redactAssignments(value.replace(URL_PATTERN, "[URL]"));
 }

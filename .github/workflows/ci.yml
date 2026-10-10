@@ -578,6 +578,36 @@ jobs:
           fi
           pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() && matrix.shard != 'music-app-workflow' }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          case "$E2E_RUN_ID" in
+            *-screen-history-*) run_id="design-selection-history-${E2E_RUN_ID#design-dnd-}" ;;
+            *-ai-sidebar-loopback) run_id="design-ai-sidebar-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ;;
+            *) run_id="$E2E_RUN_ID" ;;
+          esac
+          found=false
+          if [[ -f "test-results/$run_id/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ !cancelled() && matrix.shard != 'music-app-workflow' && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-canvas-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: |
+            templates/design/test-results/design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}/**
+          retention-days: 7
+          if-no-files-found: warn
+
   design-canvas-changed-spec-diagnostics:
     name: Design changed-spec diagnostics (${{ matrix.shard }})
     needs: change-scope
@@ -679,6 +709,28 @@ jobs:
           changed_shard="${changed_shard#changed-}"
           pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'
 
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          found=false
+          if [[ -f "test-results/$E2E_RUN_ID/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ !cancelled() && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-changed-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+          retention-days: 7
+          if-no-files-found: warn
+
   pre-auth-session-replay-smoke:
     name: Pre-auth session replay smoke
     needs: change-scope
@@ -711,6 +763,28 @@ jobs:
           E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
           E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
         run: pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1
+
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          found=false
+          if [[ -f "test-results/$E2E_RUN_ID/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ !cancelled() && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-pre-auth-replay-${{ github.run_attempt }}
+          path: templates/design/test-results/pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}/**
+          retention-days: 7
+          if-no-files-found: warn
 
   fast-tests:
     name: Fast tests
