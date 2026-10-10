@@ -90,6 +90,20 @@ describe("generate-home-suggestions", () => {
     },
   );
 
+  it("samples valid items when the bank contains one invalid suggestion", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify([...suggestions, { label: "", prompt: "" }]),
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "ready",
+      suggestions: suggestions.slice(0, 3),
+    });
+  });
+
   it("samples three distinct suggestions from the role-specific bank", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const result = await action.run({}, {
