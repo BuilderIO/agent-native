@@ -799,7 +799,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("removes persisted thread context when its prefill is cancelled", async () => {
-    const persisted = Promise.withResolvers<{ stagedAt: number }>();
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
     chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
       persisted.promise,
     );
@@ -815,7 +815,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     cancelAgentChatSubmit("prefill-cancelled-after-persist");
 
     await act(async () => {
-      persisted.resolve({ stagedAt: 7 });
+      persisted.resolve({ stagingId: "staged-7" });
       await persisted.promise;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -823,7 +823,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
       "agent-chat-prefill-context",
-      { threadScoped: true, stagedAt: 7 },
+      { threadScoped: true, stagingId: "staged-7" },
     );
   });
 

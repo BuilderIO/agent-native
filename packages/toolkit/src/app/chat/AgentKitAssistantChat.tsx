@@ -35,7 +35,7 @@ import {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
-  nextAgentChatStagedAt,
+  nextAgentChatStagingId,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   removeAgentChatContextItemAndPersist,
@@ -2939,11 +2939,12 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        // Matched by staging time as well as key, so a replacement staged while this
+        // Matched by staging identity as well as key, so a replacement staged while this
         // send was in flight survives the cleanup.
         const isSent = (item: AgentChatContextItem) =>
           contextItems.some(
-            (sent) => sent.key === item.key && sent.stagedAt === item.stagedAt,
+            (sent) =>
+              sent.key === item.key && sent.stagingId === item.stagingId,
           );
         publishAgentChatContextItems(
           getAgentChatContextState().items.filter((item) => !isSent(item)),
@@ -3452,11 +3453,12 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        // Matched by staging time as well as key, so a replacement staged while this
+        // Matched by staging identity as well as key, so a replacement staged while this
         // send was in flight survives the cleanup.
         const isSent = (item: AgentChatContextItem) =>
           contextItems.some(
-            (sent) => sent.key === item.key && sent.stagedAt === item.stagedAt,
+            (sent) =>
+              sent.key === item.key && sent.stagingId === item.stagingId,
           );
         publishAgentChatContextItems(
           getAgentChatContextState().items.filter((item) => !isSent(item)),
@@ -3886,9 +3888,9 @@ const AgentKitAssistantChatBody = forwardRef<
     (rawItem: AgentChatContextItem, focus = true) => {
       const normalized = normalizeAgentChatContextItem(rawItem);
       if (!normalized) return;
-      // A caller may carry the staging time of an item it read back; a replacement
+      // A caller may carry the staging identity of an item it read back; a replacement
       // must not keep the replaced item's identity.
-      const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
+      const item = { ...normalized, stagingId: nextAgentChatStagingId() };
       const current = getAgentChatContextState().items;
       const next = current
         .filter((candidate) => candidate.key !== item.key)
@@ -3902,11 +3904,11 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string, options?: { threadScoped?: boolean; stagedAt?: number }) => {
+    (key: string, options?: { threadScoped?: boolean; stagingId?: string }) => {
       const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
       if (options?.threadScoped) {
         return removeAgentChatContextItemAndPersist(targetKey, {
-          stagedAt: options.stagedAt,
+          stagingId: options.stagingId,
         }).then(() => {
           setContextItems(
             filterAgentChatContextItems(
@@ -4984,13 +4986,16 @@ function AgentKitComposerSurface({
       ) {
         throw new AgentKitComposerContextError(t("agentChat.error.failed"));
       }
+      const refreshed = captured.map((item) =>
+        capturedKeys.has(item.key) ? preparedByKey.get(item.key)! : item,
+      );
+      // Preparing can grow provider items past the limit the staging check saw; refuse
+      // here, before the send is accepted, rather than fail the send later.
+      if (!composerContextFits(refreshed)) {
+        throw new AgentKitComposerContextError(t("agentChat.error.failed"));
+      }
       assertCurrentSubmission();
-      return {
-        ...options,
-        contextItems: captured.map((item) =>
-          capturedKeys.has(item.key) ? preparedByKey.get(item.key)! : item,
-        ),
-      };
+      return { ...options, contextItems: refreshed };
     });
     if (prepared) composerContext?.submissionAccepted(prepared);
   };

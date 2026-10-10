@@ -593,7 +593,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     },
     removeAgentChatContextItemAndPersist: async (
       key: string,
-      options?: { stagedAt?: number },
+      options?: { stagingId?: string },
     ) => {
       await actual.removeAgentChatContextItemAndPersist(key, options);
       chatMocks.contextItems = actual.getAgentChatContextState().items;
@@ -1126,7 +1126,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         { key: "agent-chat-prefill-context", title: "Selected rows", context },
         { focus: false, threadScoped: true },
       );
-    let first: { stagedAt?: number } | void = undefined;
+    let first: { stagingId?: string } | void = undefined;
     await act(async () => {
       first = await stage("Selected rows: a");
     });
@@ -1137,7 +1137,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () =>
       ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
         threadScoped: true,
-        stagedAt: first?.stagedAt,
+        stagingId: first?.stagingId,
       }),
     );
 
@@ -1147,6 +1147,50 @@ describe("AgentKitAssistantChat host behavior", () => {
         context: "Selected rows: b",
       }),
     ]);
+  });
+
+  it("refuses a submit whose refreshed provider context pushes the combined context over the limit", async () => {
+    const providerItem = {
+      key: "provider-reference",
+      title: "Provider",
+      context: "p".repeat(1024),
+    };
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: [providerItem],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div />,
+      prepareSubmission: vi.fn(async () => [
+        { ...providerItem, context: "p".repeat(40 * 1024) },
+      ]),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        { key: "ambient", title: "Ambient", context: "a".repeat(30 * 1024) },
+        { focus: false },
+      ),
+    );
+
+    await act(async () => {
+      await chatMocks.composerProps
+        .onSubmit("Use the context", [], [], {
+          intent: "immediate",
+          contextItems: chatMocks.composerProps.contextItems,
+        })
+        .catch(() => undefined);
+    });
+
+    expect(context.prepareSubmission).toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
   });
 
   it("uses the action widget renderer for action chat UI output", async () => {
@@ -2391,7 +2435,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     await act(async () => ref.current!.setComposerContextItem(ambient));
     expect(chatMocks.composerProps.contextItems).toEqual([
-      { ...ambient, stagedAt: expect.any(Number) },
+      { ...ambient, stagingId: expect.any(String) },
       item,
     ]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
@@ -2474,7 +2518,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "Active app context",
       context: "Selected rows: a, b",
       targetThreadId: "thread-1",
-      stagedAt: expect.any(Number),
+      stagingId: expect.any(String),
     };
     expect(
       (
