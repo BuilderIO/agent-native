@@ -5613,6 +5613,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, []);
 
   const finishDrag = useCallback(() => {
+    if (panGestureActiveRef.current) {
+      startTransition(() => {
+        setPan(panRef.current);
+        setCanvasZoom(zoomRef.current);
+      });
+      recomputePenPointerForViewChangeRef.current();
+    }
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
       feedbackTimerRef.current = null;
@@ -5633,7 +5640,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     boardElementResizeCancel.current = null;
     clearPanHitTestShield();
     dragCleanup.current?.();
-  }, [clearPanHitTestShield]);
+  }, [clearPanHitTestShield, startTransition]);
 
   const scaleScreenContents = useCallback(
     (
@@ -5824,9 +5831,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           );
         } else if (state.type === "pan") {
           panRef.current = { ...state.originPan };
-          setPan(panRef.current);
           applyViewToDomRef.current();
-          recomputePenPointerForViewChangeRef.current();
         } else if (state.type === "marquee") {
           marqueeLifecycleRef.current += 1;
           onLayerMarqueeSelectionChange?.([], {
@@ -5989,8 +5994,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
 
       const handlePanEnd = () => {
-        startTransition(() => setPan(panRef.current));
-        recomputePenPointerForViewChangeRef.current();
         finishDrag();
       };
 
@@ -9934,8 +9937,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
     }
-    setCanvasZoom(zoomRef.current);
     if (!panGestureActiveRef.current) {
+      setCanvasZoom(zoomRef.current);
       setPan(panRef.current);
       recomputePenPointerForViewChange();
     }
@@ -11794,10 +11797,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             bottom: focusedInteract ? 0 : undefined,
             transform: focusedInteractFrame
               ? `translate(${surfaceSize.width / 2 - (SURFACE_PADDING + focusedInteractFrame.geometry.x + focusedInteractFrame.geometry.width / 2) * scale}px, ${surfaceSize.height / 2 - (SURFACE_PADDING + focusedInteractFrame.geometry.y + focusedInteractFrame.geometry.height / 2) * scale}px) scale(${scale})`
-              : `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              : `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current / 100})`,
             transformOrigin: "top left",
             visibility: focusedInteract ? "hidden" : undefined,
-            [CHROME_SCALE_CSS_VAR]: chromeScale,
+            [CHROME_SCALE_CSS_VAR]:
+              zoomRef.current > 0 ? 100 / zoomRef.current : 1,
           } as CSSProperties
         }
       >
