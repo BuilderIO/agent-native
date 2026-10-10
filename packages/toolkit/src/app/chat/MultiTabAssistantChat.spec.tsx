@@ -1083,10 +1083,14 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
   it("reports failed navigation prefill and accepts an explicit retry", async () => {
     const outcomes: string[] = [];
+    const failedEvents: CustomEvent[] = [];
     const chat = () => (
       <MultiTabAssistantChat
         storageKey="bridge-test"
-        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+        onNavigationChange={(event, outcome) => {
+          outcomes.push(outcome);
+          if (outcome === "failed") failedEvents.push(event as CustomEvent);
+        }}
       />
     );
     threadMocks.switchThread.mockImplementation((id: string) => {
@@ -1103,17 +1107,23 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           detail: {
             threadId: "thread-2",
             prefill: "Retryable navigation draft",
+            openRequestId: "failed-prefill-original-open",
           },
         }),
       );
     });
     expect(outcomes).toEqual(["started", "failed"]);
+    expect(failedEvents[0].detail).toEqual({
+      threadId: "thread-2",
+      prefill: "Retryable navigation draft",
+      openRequestId: "failed-prefill-original-open",
+    });
     await act(async () => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
           detail: {
-            threadId: "thread-2",
-            prefill: "Retryable navigation draft",
+            ...failedEvents[0].detail,
+            openRequestId: "failed-prefill-retry-open",
           },
         }),
       );
