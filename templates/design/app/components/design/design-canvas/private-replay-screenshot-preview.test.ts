@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  preparePrivateReplayScreenshotPreviewDocument,
-  replacePrivateScreenshotSrcsetPlaceholder,
-} from "./private-replay-screenshot-preview";
+import { preparePrivateReplayScreenshotPreviewDocument } from "./private-replay-screenshot-preview";
 
 describe("private replay screenshot preview bridge", () => {
   it("moves only local private screenshot sources into the parent bridge", () => {
@@ -86,14 +83,36 @@ describe("private replay screenshot preview bridge", () => {
     expect(prepared.html).not.toContain(route);
   });
 
-  it("replaces exact srcset placeholders without corrupting longer indices", () => {
+  it("serializes exact srcset replacement without corrupting longer indices", () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    const prepared = preparePrivateReplayScreenshotPreviewDocument(
+      `<img src="${route}">`,
+      {
+        designId: "design_fixture",
+        parentOrigin: "https://design.example.test",
+      },
+    );
     const placeholder = (index: number) =>
       `data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=#agent-native-private-replay-${index}`;
     const firstPlaceholder = placeholder(1);
     const tenthPlaceholder = placeholder(10);
     const original = `${firstPlaceholder} 2x, ${tenthPlaceholder} 10x`;
+    const replacementStartMarker =
+      "var replacePrivateScreenshotSrcsetPlaceholder = ";
+    const replacementStart =
+      prepared.html.indexOf(replacementStartMarker) +
+      replacementStartMarker.length;
+    const replacementEnd = prepared.html.indexOf(
+      ";\n  var nonce = ",
+      replacementStart,
+    );
+    expect(replacementStart).toBeGreaterThan(replacementStartMarker.length);
+    expect(replacementEnd).toBeGreaterThan(replacementStart);
+    const replaceFromBootstrap = new Function(
+      `return (${prepared.html.slice(replacementStart, replacementEnd)})`,
+    )() as (srcset: string, placeholder: string, objectUrl: string) => string;
 
-    const firstHydrated = replacePrivateScreenshotSrcsetPlaceholder(
+    const firstHydrated = replaceFromBootstrap(
       original,
       firstPlaceholder,
       "blob:https://design.example.test/first",
@@ -103,7 +122,7 @@ describe("private replay screenshot preview bridge", () => {
     );
 
     expect(
-      replacePrivateScreenshotSrcsetPlaceholder(
+      replaceFromBootstrap(
         firstHydrated,
         tenthPlaceholder,
         "blob:https://design.example.test/tenth",
