@@ -1075,16 +1075,18 @@ async function createPodcastRow(
     direction?: "Horizontal" | "Vertical";
     cardWidth?: number;
     width?: number;
+    x?: number;
   } = {},
 ) {
   const direction = options.direction ?? "Horizontal";
   const cardWidth = options.cardWidth ?? 360;
   const rowWidth = options.width ?? 1091;
+  const rowX = options.x ?? 300;
   await drawInScreen(
     page,
     screenId,
     "Frame",
-    { x: 300, y, width: rowWidth, height: 315 },
+    { x: rowX, y, width: rowWidth, height: 315 },
     undefined,
     rowName,
   );
@@ -1106,7 +1108,7 @@ async function createPodcastRow(
       screenId,
       rowName,
       card.name,
-      312 + index * (cardWidth + 24),
+      rowX + 12 + index * (cardWidth + 24),
       y + 12,
       card.title,
       card.creator,
@@ -3302,7 +3304,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         creator: "FoodieFiends",
       },
     ],
-    { direction: "Vertical", cardWidth: 302, width: 302 },
+    { direction: "Vertical", cardWidth: 302, width: 302, x: 44 },
   );
 
   const mobileCardAuthoring = await readDesign(page, designId);

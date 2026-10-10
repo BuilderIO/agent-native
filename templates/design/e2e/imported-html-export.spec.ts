@@ -314,7 +314,7 @@ test("static design documents retain their rendered pixels through Design PNG ex
   browser,
   request,
   baseURL,
-}) => {
+}, testInfo) => {
   test.setTimeout(600_000);
   if (!baseURL) throw new Error("test baseURL is unavailable");
   const entries = STATIC_EXPORT_FIXTURES;
@@ -553,6 +553,7 @@ test("static design documents retain their rendered pixels through Design PNG ex
           connectionId: string;
           bridgeToken: string;
           previewToken: string;
+          screens: Array<{ id: string; path: string }>;
         };
         designId = opened.designId;
         designIds.push(designId);
@@ -584,8 +585,22 @@ test("static design documents retain their rendered pixels through Design PNG ex
         const preview = exportPage.locator(
           'iframe[data-design-preview-iframe][data-design-source-type="localhost"]',
         );
-        await expect(preview).toHaveCount(1, { timeout: 30_000 });
-        const previewFrame = preview.first().contentFrame();
+        await expect(preview).toHaveCount(opened.screens.length, {
+          timeout: 30_000,
+        });
+        const primaryScreen = opened.screens.find(
+          (screen) => screen.path === `/${entry.name}`,
+        );
+        if (!primaryScreen) {
+          throw new Error(
+            `the opened Design should include the primary ${entry.name} route`,
+          );
+        }
+        const primaryPreview = exportPage.locator(
+          `iframe[data-design-preview-iframe][data-design-source-type="localhost"][data-screen-iframe-id="${primaryScreen.id}"]`,
+        );
+        await expect(primaryPreview).toHaveCount(1);
+        const previewFrame = primaryPreview.contentFrame();
         await expect
           .poll(() =>
             previewFrame.locator("[data-agent-native-node-id]").count(),
@@ -873,9 +888,27 @@ test("static design documents retain their rendered pixels through Design PNG ex
       ),
       `${JSON.stringify(outcomes, null, 2)}\n`,
     );
+    const failureDetails = outcomes
+      .filter((outcome) => typeof outcome.error === "string")
+      .map((outcome) => ({
+        name: outcome.name,
+        stage: outcome.error,
+        exception: outcome.exception,
+        toast: outcome.toast,
+        toastHistory: Array.isArray(outcome.toastHistory)
+          ? outcome.toastHistory.map((message) => safeError(message).message)
+          : [],
+        diagnostics: outcome.diagnostics,
+      }));
+    if (failureDetails.length > 0) {
+      await testInfo.attach("imported-html-export-failures.json", {
+        body: JSON.stringify(failureDetails, null, 2),
+        contentType: "application/json",
+      });
+    }
     console.info(
-      `[imported-html-export] ${JSON.stringify(
-        outcomes.map((outcome) => ({
+      `[imported-html-export] ${JSON.stringify({
+        outcomes: outcomes.map((outcome) => ({
           name: outcome.name,
           diffPixels: outcome.diffPixels,
           diffRatio: outcome.diffRatio,
@@ -883,7 +916,8 @@ test("static design documents retain their rendered pixels through Design PNG ex
           snapshotDiffRatio: outcome.snapshotDiffRatio,
           error: outcome.error,
         })),
-      )}`,
+        failures: failureDetails,
+      })}`,
     );
     expect(caseFailures, "case-level browser/download failures").toEqual([]);
     const comparedOutcomes = outcomes.filter(

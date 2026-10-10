@@ -815,14 +815,13 @@ test.describe("URL-backed live auto-layout probe", () => {
       waitUntil: "domcontentloaded",
     });
     const shell = page.locator("[data-screen-shell]").first();
-    const interact = shell.locator("[data-frame-full-view]");
+    const interact = page.getByRole("button", {
+      name: "Interact",
+      exact: true,
+    });
     await expect(interact).toBeVisible({ timeout: 90_000 });
-    const interactBounds = await interact.boundingBox();
-    if (!interactBounds) throw new Error("Interact button has no bounds");
-    await page.mouse.click(
-      interactBounds.x + Math.min(8, interactBounds.width / 2),
-      interactBounds.y + interactBounds.height / 2,
-    );
+    await interact.hover();
+    await interact.click();
     await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
 
     const frame = page.locator("iframe[data-design-preview-iframe]").first();

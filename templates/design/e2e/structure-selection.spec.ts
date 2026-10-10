@@ -1677,6 +1677,10 @@ test.describe("groups", () => {
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgb(249, 115, 22)");
+      expect(
+        viteUpdates,
+        "Rapid Undo must be observed without a Vite update or editor reload.",
+      ).toEqual([]);
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect
         .poll(() => indexHtml(page, id))
