@@ -676,7 +676,11 @@ const updateDocumentAction = defineAction({
     > => {
       measurement.record = !isFavoriteOnlyUpdate(args);
       const id = args.id;
-      if (!id) throw new Error("--id is required");
+      if (!id)
+        throw new ActionContractError("--id is required", {
+          errorCode: "DOCUMENT_ID_REQUIRED",
+          statusCode: 400,
+        });
       assertWidgetDocumentWriteScope(ctx, id);
       if (
         (args.editorSessionId === undefined) !==
@@ -848,10 +852,17 @@ const updateDocumentAction = defineAction({
         );
       }
       if (args.isFavorite !== undefined && !requestUserEmail) {
-        throw new Error("no authenticated user");
+        throw new ActionContractError("no authenticated user", {
+          errorCode: "DOCUMENT_UPDATE_ACTOR_REQUIRED",
+          statusCode: 401,
+        });
       }
       if (args.icon !== undefined) {
-        if (!requestUserEmail) throw new Error("no authenticated user");
+        if (!requestUserEmail)
+          throw new ActionContractError("no authenticated user", {
+            errorCode: "DOCUMENT_UPDATE_ACTOR_REQUIRED",
+            statusCode: 401,
+          });
         await verifyPrivateIconAssignment({
           icon: args.icon,
           userEmail: requestUserEmail,
