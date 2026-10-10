@@ -16,5 +16,6 @@ export default defineAction({
     folderId: z.string().min(1).describe("Dashboard folder ID"),
   }),
   http: { method: "POST" },
-  run: async ({ folderId }) => exportFolderSync(folderId, syncCallerFromRequest()),
+  run: async ({ folderId }) =>
+    exportFolderSync(folderId, syncCallerFromRequest()),
 });
