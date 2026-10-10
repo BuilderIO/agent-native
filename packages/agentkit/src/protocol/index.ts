@@ -106,18 +106,25 @@ export function isInlineDataUrl(value: unknown): value is string {
   return typeof value === "string" && /^\s*data:/i.test(value);
 }
 
+const INLINE_FILE_BASE64_PREFIXES = [
+  /^iVBORw0KGgo/, // PNG
+  /^(?:\/9j\/|_9j_)/, // JPEG, including base64url
+  /^R0lGOD/, // GIF
+  /^UklGR/, // WebP
+  /^Qk0/, // BMP
+  /^SUkq/, // TIFF, little-endian
+  /^TU0A/, // TIFF, big-endian
+  /^(?:PHN2Zy|PD94bWw|77u\/PHN2Zy|77u\/PD94bWw)/, // SVG
+  /^JVBERi0/, // PDF
+  /^UEsDB/, // ZIP
+  /^AAAA[A-Za-z0-9+/]GZ0eXB/, // ISO base media, including AVIF/HEIF
+];
+
 function isInlineFileBody(value: string): boolean {
   const normalized = value.trim();
-  if (
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      normalized,
-    )
-  ) {
-    return false;
-  }
-  if (/^\s*data:/i.test(normalized)) return true;
-  if (normalized.length < 24 || normalized.length % 4 === 1) return false;
-  return /^[A-Za-z0-9+/_-]+={0,2}$/.test(normalized);
+  if (isInlineDataUrl(normalized)) return true;
+  // Provider IDs can be base64url-shaped; only recognizable file signatures identify bytes.
+  return INLINE_FILE_BASE64_PREFIXES.some((prefix) => prefix.test(normalized));
 }
 
 export function isPersistableAttachmentUrl(value: unknown): value is string {

@@ -1010,6 +1010,7 @@ export default {
     approved: "approved",
     suggestion: "suggestion",
     unreviewed: "unreviewed",
+    deprecated: "deprecated",
     ai: "AI",
     source: "source",
     deleteTitle: 'Delete "{{metric}}"?',
@@ -1060,6 +1061,8 @@ export default {
     indexUnreadable:
       "The saved source index could not be read; re-import a valid file.",
     indexReadFailed: "The saved source index could not be checked. Try again.",
+    generatedEntriesMayBeMissing:
+      "Generated source entries may be missing; saved entries are still available.",
     indexReady: "{{count}} source definitions generated {{date}}.",
     indexStale:
       "Snapshot is {{days}} days old. Refresh it to check for newer source revisions.",

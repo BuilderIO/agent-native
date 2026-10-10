@@ -3730,6 +3730,7 @@ export function AgentMessageActions({
               onPress={() => void copyAction.execute().catch(() => undefined)}
             />
             {editContext?.enabled &&
+            message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
               <IconButton

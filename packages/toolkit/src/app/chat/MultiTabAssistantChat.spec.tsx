@@ -3695,7 +3695,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   it.each([false, true])(
     "keeps later deliveries behind context persistence (submit=%s)",
     async (submit) => {
-      const persisted = Promise.withResolvers<{ stagedAt: number }>();
+      const persisted = Promise.withResolvers<{ stagingId: string }>();
       chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
         persisted.promise,
       );
@@ -3719,7 +3719,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
         expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
         await act(async () => {
-          persisted.resolve({ stagedAt: 7 });
+          persisted.resolve({ stagingId: "prefill-staging-id-7" });
           await persisted.promise;
           await vi.advanceTimersByTimeAsync(100);
         });
@@ -3737,7 +3737,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   );
 
   it("cancels a context prefill still persisting when the panel unmounts", async () => {
-    const persisted = Promise.withResolvers<{ stagedAt: number }>();
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
     const results: unknown[] = [];
     const onResult = (event: Event) =>
       results.push((event as CustomEvent).detail);
@@ -3764,13 +3764,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         },
       ]);
       await act(async () => {
-        persisted.resolve({ stagedAt: 7 });
+        persisted.resolve({ stagingId: "prefill-staging-id-7" });
         await persisted.promise;
       });
       expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
       expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
         "agent-chat-prefill-context",
-        { threadScoped: true, stagedAt: 7 },
+        { threadScoped: true, stagingId: "prefill-staging-id-7" },
       );
       expect(results).toHaveLength(1);
     } finally {
@@ -3798,7 +3798,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           root.render(<MultiTabAssistantChat storageKey="bridge-test" />),
         );
       }
-      const persisted = Promise.withResolvers<{ stagedAt: number }>();
+      const persisted = Promise.withResolvers<{ stagingId: string }>();
       const results: unknown[] = [];
       const onResult = (event: Event) => {
         const result = (event as CustomEvent).detail;
@@ -3828,7 +3828,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           }),
         );
         await act(async () => {
-          persisted.resolve({ stagedAt: 7 });
+          persisted.resolve({ stagingId: "prefill-staging-id-7" });
           await persisted.promise;
         });
         expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
@@ -3861,7 +3861,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           root.render(<MultiTabAssistantChat storageKey="bridge-test" />),
         );
       }
-      const persisted = Promise.withResolvers<{ stagedAt: number }>();
+      const persisted = Promise.withResolvers<{ stagingId: string }>();
       const results: unknown[] = [];
       const onResult = (event: Event) =>
         results.push((event as CustomEvent).detail);
@@ -3911,7 +3911,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   );
 
   it("releases the delivery lane when a queued send throws synchronously", async () => {
-    const persisted = Promise.withResolvers<{ stagedAt: number }>();
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
     chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
       persisted.promise,
     );
@@ -3928,7 +3928,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         });
         dispatchSubmitChat({ message: "Throwing send", submit: true });
         dispatchSubmitChat({ message: "Later send", submit: true });
-        persisted.resolve({ stagedAt: 7 });
+        persisted.resolve({ stagingId: "prefill-staging-id-7" });
         await persisted.promise;
       });
       await expect(
@@ -3978,7 +3978,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("removes persisted thread context when its prefill is cancelled", async () => {
-    const persisted = Promise.withResolvers<{ stagedAt: number }>();
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
     chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
       persisted.promise,
     );
@@ -3994,7 +3994,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     cancelAgentChatSubmit("prefill-cancelled-after-persist");
 
     await act(async () => {
-      persisted.resolve({ stagedAt: 7 });
+      persisted.resolve({ stagingId: "staged-7" });
       await persisted.promise;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -4002,7 +4002,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
       "agent-chat-prefill-context",
-      { threadScoped: true, stagedAt: 7 },
+      { threadScoped: true, stagingId: "staged-7" },
     );
   });
 
@@ -5790,6 +5790,71 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
+  it("adopts the thread route on its first accepted save, not on submit", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+
+    expect(navigate).not.toHaveBeenCalled();
+
+    act(() => {
+      assistantChatMockState.onSaveThread?.("thread-1", {
+        threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+        title: "New chat",
+        preview: "Hello",
+        messageCount: 1,
+        titleSource: "fallback",
+      });
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: false });
+  });
+
+  it("does not move the route when a background chat is first saved", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      assistantChatMockState.onSaveThread?.("thread-2", {
+        threadData: JSON.stringify({ messages: [{ id: "message-2" }] }),
+        title: "Background chat",
+        preview: "Hello",
+        messageCount: 1,
+        titleSource: "fallback",
+      });
+    });
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("syncs selected and new chat states to the URL when enabled", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
     threadMocks.threads = [
@@ -5913,6 +5978,31 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       null,
       expect.objectContaining({ routeThreadId: "thread-1" }),
     );
+  });
+
+  it("rewrites a shared query thread on the route-owned home to its thread path", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: true });
   });
 
   it("accepts a route-owned thread id for path-based chat routes", async () => {

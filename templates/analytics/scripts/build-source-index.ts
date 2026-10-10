@@ -80,6 +80,7 @@ export interface SourceIndexEntry {
   source: string;
   sourceKind?: "dbt" | "code" | "sigma";
   entryType?: "model" | "event" | "semantic_model" | "metric";
+  status?: "active" | "deprecated";
   semanticScope?: SemanticScope;
   owner?: string;
   grain?: string;
@@ -2733,12 +2734,14 @@ export async function compileSourceIndex(
       "Each dbt root must have Git commit metadata so generatedAt is reproducible.",
     );
   }
-  entries.sort((a, b) => a.id.localeCompare(b.id));
+  const indexedEntries = entries
+    .map((entry) => ({ ...entry, status: entry.status ?? "active" }))
+    .sort((a, b) => a.id.localeCompare(b.id));
   const bundle: SourceIndexBundle = {
     schemaVersion: SCHEMA_VERSION,
     generatedAt,
     sources,
-    entries,
+    entries: indexedEntries,
     scanSummary,
   };
   const validated = sourceIndexBundleSchema.safeParse(bundle);

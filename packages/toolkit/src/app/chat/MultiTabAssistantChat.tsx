@@ -153,7 +153,7 @@ async function deliverPendingPrefill(
     if (onHandoff(delivered))
       reportAgentChatSubmitResult(send.submitMessageId, delivered, reason);
   };
-  let stagedAt: number | undefined;
+  let stagingId: string | undefined;
   if (send.prefillContext) {
     // Checked against what the composer already holds, before the draft changes,
     // so a refused prefill leaves no draft without its context.
@@ -185,7 +185,7 @@ async function deliverPendingPrefill(
         threadScoped: true,
       });
       if (contextWrite && typeof contextWrite.then === "function") {
-        stagedAt = (await contextWrite)?.stagedAt;
+        stagingId = (await contextWrite)?.stagingId;
       }
     } catch {
       reportResult(false, "context-persistence-failed");
@@ -196,14 +196,14 @@ async function deliverPendingPrefill(
     if (send.prefillContext) {
       // Removes only the item this delivery staged, so a newer prefill with the same
       // key that replaced it while the write was in flight keeps its place.
-      if (stagedAt === undefined) {
+      if (stagingId === undefined) {
         console.error(
           "Could not identify the staged prefill context; it was not removed after the cancelled send.",
         );
       } else {
         await ref.removeComposerContextItem(send.prefillContext.key, {
           threadScoped: true,
-          stagedAt,
+          stagingId,
         });
       }
     }
@@ -1207,6 +1207,21 @@ export function MultiTabAssistantChat({
       threadUrlSyncEnabled,
     ],
   );
+
+  // A shared `?thread=` link opens its thread once, then moves to the
+  // route-owned thread path, so the blank create route keeps no stale query.
+  useEffect(() => {
+    if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
+    if (routeThreadId) return;
+    const sharedThreadId = readUrlThreadId(threadUrlParamName);
+    if (sharedThreadId) writeThreadUrl(sharedThreadId, { replace: true });
+  }, [
+    routeThreadId,
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+    writeThreadUrl,
+  ]);
 
   const {
     threads,

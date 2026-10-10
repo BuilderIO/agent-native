@@ -2,7 +2,9 @@ import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router";
 
+import { brainAskThreadPath } from "@/lib/brain";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE = "Brain - Open Source company knowledge base for AI agents";
@@ -21,8 +23,13 @@ export function meta() {
   ];
 }
 
+// Serves both /home and /home/:threadId (home.$threadId.tsx re-exports this
+// module). Keep it the only component rendered for both paths so the chat is
+// not remounted when the thread URL changes mid-run.
 export default function AskRoute() {
   const t = useT();
+  const { threadId } = useParams();
+  const navigate = useNavigate();
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -42,6 +49,11 @@ export default function AskRoute() {
       surfaceClassName="brain-chat-panel"
       defaultMode="chat"
       storageKey="brain"
+      threadUrlSync={{
+        routeThreadId: threadId ?? null,
+        getPath: brainAskThreadPath,
+        navigate,
+      }}
       browserTabId={TAB_ID}
       showHeader={false}
       showTabBar={false}

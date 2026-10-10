@@ -593,7 +593,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
     },
     removeAgentChatContextItemAndPersist: async (
       key: string,
-      options?: { stagedAt?: number },
+      options?: { stagingId?: string },
     ) => {
       await actual.removeAgentChatContextItemAndPersist(key, options);
       chatMocks.contextItems = actual.getAgentChatContextState().items;
@@ -1142,7 +1142,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         { key: "agent-chat-prefill-context", title: "Selected rows", context },
         { focus: false, threadScoped: true },
       );
-    let first: { stagedAt?: number } | void = undefined;
+    let first: { stagingId?: string } | void = undefined;
     await act(async () => {
       first = await stage("Selected rows: a");
     });
@@ -1153,7 +1153,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () =>
       ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
         threadScoped: true,
-        stagedAt: first?.stagedAt,
+        stagingId: first?.stagingId,
       }),
     );
 
@@ -1163,6 +1163,50 @@ describe("AgentKitAssistantChat host behavior", () => {
         context: "Selected rows: b",
       }),
     ]);
+  });
+
+  it("refuses a submit whose refreshed provider context pushes the combined context over the limit", async () => {
+    const providerItem = {
+      key: "provider-reference",
+      title: "Provider",
+      context: "p".repeat(1024),
+    };
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: [providerItem],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div />,
+      prepareSubmission: vi.fn(async () => [
+        { ...providerItem, context: "p".repeat(40 * 1024) },
+      ]),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        { key: "ambient", title: "Ambient", context: "a".repeat(30 * 1024) },
+        { focus: false },
+      ),
+    );
+
+    await act(async () => {
+      await chatMocks.composerProps
+        .onSubmit("Use the context", [], [], {
+          intent: "immediate",
+          contextItems: chatMocks.composerProps.contextItems,
+        })
+        .catch(() => undefined);
+    });
+
+    expect(context.prepareSubmission).toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
   });
 
   it("uses the action widget renderer for action chat UI output", async () => {
@@ -1399,6 +1443,123 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       container.querySelector("[data-agentkit-active-run-id-copy]"),
     ).toBeNull();
+  });
+
+  it("shows the submitted message and Thinking before the agent client accepts the send", async () => {
+    let acceptSend: () => void = () => undefined;
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          acceptSend = () => resolve(undefined);
+        }),
+    );
+    await mount(baseProps());
+
+    let submission: Promise<unknown> | undefined;
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Summarize my inbox",
+        [],
+        [],
+        { intent: "immediate" },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Summarize my inbox");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "agentChat.status.thinking",
+    );
+
+    await act(async () => {
+      acceptSend();
+      await submission;
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
+  it("does not show a pending prompt under a different thread after the surface moves", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    // The thread comes from the agent context, so the switch must reach it there.
+    chatMocks.threadId = "thread-2";
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
+  it("keeps a pending prompt visible until its own message lands, not another send's", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "other-send",
+        role: "user",
+        parts: [{ type: "text", text: "Another prompt" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
+  });
+
+  it("does not take a longer message that quotes the prompt for its own", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "quoting-send",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox, then archive it" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
   });
 
   it("copies the active run ID from its action menu", async () => {
@@ -2290,7 +2451,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     await act(async () => ref.current!.setComposerContextItem(ambient));
     expect(chatMocks.composerProps.contextItems).toEqual([
-      { ...ambient, stagedAt: expect.any(Number) },
+      { ...ambient, stagingId: expect.any(String) },
       item,
     ]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
@@ -2373,7 +2534,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "Active app context",
       context: "Selected rows: a, b",
       targetThreadId: "thread-1",
-      stagedAt: expect.any(Number),
+      stagingId: expect.any(String),
     };
     expect(
       (
@@ -4161,6 +4322,13 @@ describe("AgentKitAssistantChat host behavior", () => {
           },
           {
             type: "file",
+            name: "opaque-id.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/opaque-id.png?token=secret",
+            fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+          },
+          {
+            type: "file",
             name: "raw.png",
             mediaType: "image/png",
             url: "AQID",
@@ -4243,6 +4411,12 @@ describe("AgentKitAssistantChat host behavior", () => {
         name: "durable.png",
         mediaType: "image/png",
         url: "https://files.example.test/durable.png",
+      },
+      {
+        type: "file",
+        name: "opaque-id.png",
+        mediaType: "image/png",
+        fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
       },
       {
         type: "file",
@@ -6742,6 +6916,43 @@ describe("AgentKitAssistantChat host behavior", () => {
         agentNativeRecoveryOfRunId: "run-1",
       },
     });
+  });
+
+  it("shows a visible error when retrying without attachments fails", async () => {
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected this attachment.",
+      retryable: false,
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-attachment",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+      },
+    ];
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onRetryWithoutAttachments();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.recovery.deferredSubmissionFailed",
+    );
   });
 
   it("offers no attachment-free retry when the failed request had no attachments", async () => {

@@ -554,6 +554,7 @@ export default {
     approved: "موافقة",
     suggestion: "اقتراح",
     unreviewed: "لم تتم مراجعته",
+    deprecated: "مهمل",
     ai: "AI",
     source: "مصدر",
     deleteTitle: 'حذف "{{metric}}"؟',
@@ -603,6 +604,8 @@ export default {
     indexNotImported: "لم يتم استيراد فهرس مصادر مُنشأ.",
     indexUnreadable: "تعذرت قراءة فهرس المصادر المحفوظ؛ أعد استيراد ملف صالح.",
     indexReadFailed: "تعذر التحقق من فهرس المصادر المحفوظ؛ حاول مرة أخرى.",
+    generatedEntriesMayBeMissing:
+      "قد تكون إدخالات المصادر المُنشأة مفقودة؛ تظل الإدخالات المحفوظة متاحة.",
     indexReady: "تم إنشاء {{count}} من تعريفات المصادر في {{date}}.",
     indexStale:
       "مرّ {{days}} يومًا على اللقطة. حدّثها للتحقق من وجود إصدارات أحدث للمصادر.",

@@ -2,7 +2,7 @@
 
 This deterministic benchmark compares the current shared Analytics
 query-catalog matcher and ranker with the implementation in `origin/main` at
-revision `70bf54c17404fa0993b248154bf95ef70d216a3f`. All names, definitions,
+revision `bdd2cfccb528339cc47e19aeaff9bf3e367374f1`. All names, definitions,
 SQL fragments, and cases are invented. These rows are not historical chats,
 production data, or production end-to-end results.
 
@@ -15,9 +15,10 @@ Re-measure the baseline when changing the comparison base; do not update the
 revision without running the fixtures against that commit.
 
 The after results call `rankAnalyticsQueryCatalog` directly with fixed
-fixtures. The four cases cover a built-in dictionary alias (`MRR`), a term
-found only in panel SQL, semantic-scope selection, and approved versus
-generated dictionary trust. The CSV marks every row `SYNTHETIC` and includes
+fixtures. The five cases cover a built-in dictionary alias (`MRR`), a term
+found only in panel SQL, semantic-scope selection, approved versus generated
+dictionary trust, and off-topic `Connect` text competing with an
+organization-membership entry. The CSV marks every row `SYNTHETIC` and includes
 the expected candidate's rank under both methods. This measures retrieval
 ranking only; it does not measure answer quality, latency, or the mounted
 production chat path.

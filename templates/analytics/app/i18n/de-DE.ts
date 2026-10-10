@@ -575,6 +575,7 @@ export default {
     approved: "genehmigt",
     suggestion: "Anregung",
     unreviewed: "unrezensiert",
+    deprecated: "veraltet",
     ai: "AI",
     source: "Quelle",
     deleteTitle: "„{{metric}}“ löschen?",
@@ -628,6 +629,8 @@ export default {
       "Der gespeicherte Quellindex konnte nicht gelesen werden; importiere eine gültige Datei erneut.",
     indexReadFailed:
       "Der gespeicherte Quellindex konnte nicht geprüft werden. Versuche es erneut.",
+    generatedEntriesMayBeMissing:
+      "Generierte Quelleinträge fehlen möglicherweise; gespeicherte Einträge sind weiterhin verfügbar.",
     indexReady: "{{count}} Quelldefinitionen, erstellt am {{date}}.",
     indexStale:
       "Der Snapshot ist {{days}} Tage alt. Aktualisiere ihn, um neuere Quellrevisionen zu prüfen.",
