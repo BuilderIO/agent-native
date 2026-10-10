@@ -369,6 +369,15 @@ export default defineAction({
               lockedDatabaseId,
               currentUpdatedAt: current.updatedAt,
             });
+            await tx
+              .update(schema.contentDatabases)
+              .set({ updatedAt: updates.updatedAt as string })
+              .where(
+                and(
+                  eq(schema.contentDatabases.id, lockedDatabaseId),
+                  eq(schema.contentDatabases.ownerEmail, ownerEmail),
+                ),
+              );
           }
         }
         await tx

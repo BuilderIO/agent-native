@@ -680,6 +680,69 @@ describe("document descriptions through external MCP", () => {
     }
   });
 
+  it.each(["full-page", "inline-retained", "inline-detached"] as const)(
+    "keeps database and backing-page timestamps equal after a %s reparent",
+    async (mode) => {
+      const host = await createPage({ title: "Collection move host" });
+      const destination = await createPage({
+        title: "Collection move destination",
+      });
+      const created = await callJson(ownerClient, "create-content-database", {
+        spaceId: (await readRow(host.id)).spaceId,
+        title: "Moved collection",
+        description: "Guidance survives reparenting",
+        ...(mode !== "full-page" ? { parentId: host.id } : {}),
+        idempotencyKey: `move-database-clock-${mode}`,
+      });
+      const databaseId = created.database.id;
+      const documentId = created.database.documentId;
+      const collectionUpdatedAt = new Date(Date.now() + 60_000).toISOString();
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({
+          updatedAt: collectionUpdatedAt,
+          ...(mode !== "full-page"
+            ? { ownerDocumentId: host.id, ownerBlockId: "move-clock-block" }
+            : {}),
+        })
+        .where(eq(schema.contentDatabases.id, databaseId));
+      const before = await readRow(documentId);
+      const moveDocument = (await import("./move-document.js")).default;
+      const moved = await runWithRequestContext({ userEmail: owner }, () =>
+        moveDocument.run({
+          id: documentId,
+          parentId: mode === "inline-retained" ? host.id : destination.id,
+          position: 1,
+        }),
+      );
+      const described = await callJson(
+        ownerClient,
+        "describe-content-database",
+        {
+          databaseId,
+        },
+      );
+      expect(Date.parse(described.database.updatedAt)).toBeGreaterThan(
+        Date.parse(collectionUpdatedAt),
+      );
+      expect(described.database.updatedAt).toBe(moved.updatedAt);
+      const document = await readRow(documentId);
+      expect(document.updatedAt).toBe(moved.updatedAt);
+      expect(document.content).toBe(before.content);
+      expect(document.description).toBe(before.description);
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      expect(database.ownerDocumentId).toBe(
+        mode === "inline-retained" ? host.id : null,
+      );
+      expect(database.ownerBlockId).toBe(
+        mode === "inline-retained" ? "move-clock-block" : null,
+      );
+    },
+  );
+
   it("revalidates an inline collection's current host before detaching", async () => {
     const host = await createPage({ title: "Original inline host" });
     const privateHost = await createPage({ title: "Private replacement host" });
