@@ -578,7 +578,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("lets users cancel a direct Builder connect and return to setup", () => {
+  it("offers a return path after a cancelled Builder connect settles", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -590,9 +590,6 @@ describe("FirstRunOnboarding", () => {
       cancel: vi.fn(),
       retry: vi.fn(),
     };
-    flow.cancel.mockImplementation(() => {
-      flow.connecting = false;
-    });
     flow.start.mockImplementation(() => {
       flow.connecting = true;
     });
@@ -622,6 +619,12 @@ describe("FirstRunOnboarding", () => {
     expect(cancelButton?.textContent).toBe("Cancel");
     act(() => cancelButton?.click());
     expect(flow.cancel).toHaveBeenCalledOnce();
+    expect(flow.connecting).toBe(true);
+    expect(
+      document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
+    ).toBeNull();
+
+    flow.connecting = false;
 
     act(() => {
       root.render(
