@@ -272,8 +272,11 @@ describe("buildJourneyTree", () => {
           ]),
         ),
       ).flat(),
-      session("root-rare-a", ["root-rare-a"]),
-      session("root-rare-b", ["root-rare-b"]),
+      ...Array.from({ length: 30 }, (_, index) =>
+        session(`root-rare-${String(index).padStart(2, "0")}`, [
+          `root-rare-${String(index).padStart(2, "0")}`,
+        ]),
+      ),
     ];
     const { rootN, nodes } = buildJourneyTree(sessions, new Map(), {
       ...OPTIONS,
@@ -289,17 +292,17 @@ describe("buildJourneyTree", () => {
       0,
     );
 
-    expect(rootN).toBe(254);
+    expect(rootN).toBe(282);
     expect(rootOther).toMatchObject({
-      n: 2,
-      pctOfRoot: 0.79,
-      pctOfParent: 0.79,
-      otherBranchCount: 2,
-      otherBranches: [
-        { path: ["ROOT-RARE-A"], n: 1 },
-        { path: ["ROOT-RARE-B"], n: 1 },
-      ],
+      n: 30,
+      pctOfRoot: 10.64,
+      pctOfParent: 10.64,
+      otherBranchCount: 30,
+      otherBranchSummariesPartial: true,
     });
+    expect(rootOther?.otherBranches).toHaveLength(20);
+    expect(rootOther?.otherBranches?.[0]?.path).toEqual(["ROOT-RARE-00"]);
+    expect(rootOther?.otherBranches?.[19]?.path).toEqual(["ROOT-RARE-19"]);
     expect(summaryCount).toBe(MAX_OTHER_BRANCH_SUMMARIES_PER_TREE);
   });
 
