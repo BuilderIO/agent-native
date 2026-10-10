@@ -103,3 +103,67 @@ describe("redactExportDiagnostic", () => {
     );
   });
 });
+
+describe("redactExportDiagnostic nested credential regressions", () => {
+  it("redacts credentials nested in bare assignment values and object values", () => {
+    expect(redactExportDiagnostic("message=password=FAKE_PASSWORD")).toBe(
+      "message=password=[redacted]",
+    );
+    expect(redactExportDiagnostic('payload={"password":"FAKE_PASSWORD"}')).toBe(
+      'payload={"password":"[redacted]"}',
+    );
+    expect(
+      redactExportDiagnostic(
+        'payload={"password":"FAKE_PASSWORD","title":"Welcome"}',
+      ),
+    ).toBe('payload={"password":"[redacted]","title":"Welcome"}');
+  });
+
+  it("redacts JSON-escaped credential keys nested in quoted values", () => {
+    expect(
+      redactExportDiagnostic(
+        String.raw`config="{\"password\":\"FAKE_SECRET\"}"`,
+      ),
+    ).toBe(String.raw`config="{\"password\":\"[redacted]\"}"`);
+  });
+
+  it("redacts signing and encryption key spellings while preserving ordinary keys", () => {
+    expect(
+      redactExportDiagnostic(
+        "signing_key=FAKE_SIGNING_SECRET signingKey=FAKE_SIGNING_SECRET x_signing_key=FAKE_SIGNING_SECRET encryption_key=FAKE_ENCRYPTION_SECRET encryptionKey=FAKE_ENCRYPTION_SECRET x_encryption_key=FAKE_ENCRYPTION_SECRET keyboard=music document_key=home",
+      ),
+    ).toBe(
+      "signing_key=[redacted] signingKey=[redacted] x_signing_key=[redacted] encryption_key=[redacted] encryptionKey=[redacted] x_encryption_key=[redacted] keyboard=music document_key=home",
+    );
+  });
+
+  it("fails closed for object and array values assigned to sensitive keys", () => {
+    expect(
+      redactExportDiagnostic('private_key={"kty":"RSA","d":"FAKE_PRIVATE"}'),
+    ).toBe("private_key=[redacted]");
+    expect(redactExportDiagnostic("password=[FAKE_ONE,FAKE_TWO]")).toBe(
+      "password=[redacted]",
+    );
+    expect(
+      redactExportDiagnostic(
+        'payload={"password":"FAKE_PASSWORD","title":"Welcome"}',
+      ),
+    ).toBe('payload={"password":"[redacted]","title":"Welcome"}');
+  });
+});
+
+describe("redactExportDiagnostic truncated values", () => {
+  it("fails closed for truncated sensitive quotes and preserves nested credentials", () => {
+    expect(redactExportDiagnostic('password="FAKE_PASSWORD')).toBe(
+      "password=[redacted]",
+    );
+    expect(redactExportDiagnostic(String.raw`password=\"FAKE_PASSWORD`)).toBe(
+      "password=[redacted]",
+    );
+    expect(
+      redactExportDiagnostic('message="login failed password=FAKE_PASSWORD'),
+    ).toBe('message="login failed password=[redacted]');
+    expect(redactExportDiagnostic("password=")).toBe("password=");
+    expect(redactExportDiagnostic("password=   ")).toBe("password=   ");
+  });
+});
