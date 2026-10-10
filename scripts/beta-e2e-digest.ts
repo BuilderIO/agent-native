@@ -4,10 +4,10 @@
  *
  * Turns a run's Playwright results.json files, its jobs and artifact lists, and
  * the previous run's state into three things an engineer or an agent can act on
- * without opening a log: a GitHub issue body, a short Slack message, and a
- * hidden state marker that the next run diffs against. It also decides whether
- * anyone needs to be told (green to red, new failures, recovery, or a daily
- * reminder), so an unchanged red run stays quiet.
+ * without opening a log: a complete run report, a short Slack message, and a
+ * state file that the next run diffs against. It also decides whether anyone
+ * needs to be told (green to red, new failures, recovery, or a daily reminder),
+ * so an unchanged red run stays quiet.
  *
  * Rules this file holds itself to:
  *   - A job that failed or was cancelled without producing results is reported
@@ -42,17 +42,8 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const ISSUE_TITLE = "[beta-e2e] Scheduled beta health check failing";
-export const ISSUE_LABELS = ["beta-e2e", "qa"];
-export const ISSUE_BODY_BUDGET = 60_000;
-const STATE_MARKER_PREFIX = "<!-- beta-e2e-state:v1 ";
-const STATE_MARKER_SUFFIX = " -->";
-// ponytail: the marker tracks the first 120 failures so it stays a few KB inside
-// GitHub's 64k body cap. Past that (a catastrophic run) the tail is untracked
-// and reads as NEW each run; raise it or move the state to an artifact if that
-// ever happens in practice.
-const STATE_MAX_ENTRIES = 120;
 const ERROR_LINE_MAX = 200;
+const MAX_SLACK_COLLECTION_DETAILS = 4_000;
 const REMINDER_HOURS = 24;
 
 export type FailureClass = "env" | "product" | "infra-timeout" | "unclassified";
@@ -176,7 +167,7 @@ export interface StateEntry {
   /** Short label for FIXED lines. */
   l: string;
   c: FailureClass;
-  /** Absent in markers written before kinds were tracked; read as "test". */
+  /** Absent in older state artifacts; read as "test". */
   t?: StateKind;
 }
 
@@ -210,11 +201,10 @@ export interface DigestInput {
   /** Tail of each failed job's log, by job id. Absent means not fetched. */
   logs: Record<number, string>;
   previous: DigestState | null;
+  previousStateUnavailable?: boolean;
   now: string;
-  issueUrl?: string;
-  issueNumber?: number;
   slackNote?: string;
-  /** Problems collecting this run's data, shown in the issue so they are not silent. */
+  /** Problems collecting this run's data, shown in the report so they are not silent. */
   notes?: string[];
   maxFailures?: number;
 }
@@ -300,6 +290,7 @@ export type NotifyReason =
 
 const ANSI_PATTERN =
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))/g;
+const MAX_SLACK_FINDING_DETAILS = 30_000;
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI_PATTERN, "");
@@ -1091,7 +1082,6 @@ export function buildDigest(input: DigestInput): Digest {
   // Gating failures first, so a catastrophic run drops NOT RUN entries before
   // it drops anything that is actually failing.
   const trackedEntries = [...entries, ...notRun];
-  const tracked = trackedEntries.slice(0, STATE_MAX_ENTRIES);
   const state: DigestState = {
     v: 1,
     status,
@@ -1118,7 +1108,7 @@ export function buildDigest(input: DigestInput): Digest {
       : (prev?.lastNotifiedAt ?? null),
     failing:
       status === "red"
-        ? tracked.map((entry) => ({
+        ? trackedEntries.map((entry) => ({
             k: entry.key,
             s: entry.slot,
             r: entry.since,
@@ -1130,7 +1120,7 @@ export function buildDigest(input: DigestInput): Digest {
                 : entry.kind,
           }))
         : [],
-    overflow: Math.max(0, trackedEntries.length - tracked.length),
+    overflow: 0,
   };
 
   return {
@@ -1161,38 +1151,72 @@ export function buildDigest(input: DigestInput): Digest {
 }
 
 // ---------------------------------------------------------------------------
-// State marker
+// The previous run's state is stored as JSON in its digest artifact.
 
-export function embedState(state: DigestState): string {
-  const json = JSON.stringify(state).replace(/>/g, "\\u003e");
-  return `${STATE_MARKER_PREFIX}${json}${STATE_MARKER_SUFFIX}`;
-}
-
-/** Previous state from an issue body; null when the body carries none. */
 export function extractState(
-  body: string | null | undefined,
+  json: string | null | undefined,
 ): DigestState | null {
-  if (!body) return null;
-  const start = body.indexOf(STATE_MARKER_PREFIX);
-  if (start < 0) return null;
-  const end = body.indexOf(STATE_MARKER_SUFFIX, start);
-  if (end < 0) {
+  if (json === null || json === undefined) return null;
+  const parsed = JSON.parse(json) as unknown;
+  if (parsed === null) {
     throw new Error(
-      "The previous issue body has a truncated beta-e2e state marker.",
+      "The previous beta-e2e state artifact does not distinguish absent state from unavailable state.",
     );
   }
-  const parsed = JSON.parse(
-    body.slice(start + STATE_MARKER_PREFIX.length, end),
-  ) as DigestState;
+  if (typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("The previous beta-e2e state artifact is invalid.");
+  }
+  const availability = (parsed as Record<string, unknown>)[
+    "_betaE2EStateAvailability"
+  ];
+  if (availability === "absent") return null;
+  if (availability === "unknown") {
+    throw new Error(
+      "The previous beta-e2e state artifact records that notification state was unavailable.",
+    );
+  }
+  const state = parsed as Partial<DigestState>;
+  const validRun = (value: unknown): value is number =>
+    Number.isInteger(value) && (value as number) > 0;
+  const validTimestamp = (value: unknown): value is string =>
+    typeof value === "string" && Number.isFinite(Date.parse(value));
+  const validStateEntry = (value: unknown): value is StateEntry => {
+    if (typeof value !== "object" || value === null) return false;
+    const entry = value as Partial<StateEntry>;
+    return (
+      typeof entry.k === "string" &&
+      typeof entry.s === "string" &&
+      validRun(entry.r) &&
+      typeof entry.l === "string" &&
+      (entry.c === "env" ||
+        entry.c === "product" ||
+        entry.c === "infra-timeout" ||
+        entry.c === "unclassified") &&
+      (entry.t === undefined ||
+        entry.t === "test" ||
+        entry.t === "setup" ||
+        entry.t === "job" ||
+        entry.t === "run")
+    );
+  };
   if (
-    parsed.v !== 1 ||
-    (parsed.status !== "red" && parsed.status !== "green")
+    state.v !== 1 ||
+    (state.status !== "red" && state.status !== "green") ||
+    !validRun(state.run) ||
+    !validTimestamp(state.at) ||
+    !Number.isInteger(state.consecutiveRed) ||
+    (state.consecutiveRed as number) < 0 ||
+    (state.firstRed !== null && !validRun(state.firstRed)) ||
+    (state.lastGreen !== null && !validRun(state.lastGreen)) ||
+    (state.lastNotifiedAt !== null && !validTimestamp(state.lastNotifiedAt)) ||
+    !Array.isArray(state.failing) ||
+    !state.failing.every(validStateEntry) ||
+    !Number.isInteger(state.overflow) ||
+    (state.overflow as number) < 0
   ) {
-    throw new Error(
-      "The previous issue body has an unrecognised beta-e2e state marker.",
-    );
+    throw new Error("The previous beta-e2e state artifact is invalid.");
   }
-  return parsed;
+  return state as DigestState;
 }
 
 // ---------------------------------------------------------------------------
@@ -1287,7 +1311,7 @@ interface RenderOptions {
   rowLimit: number;
 }
 
-function renderIssueWith(digest: Digest, options: RenderOptions): string {
+function renderReportContent(digest: Digest, options: RenderOptions): string {
   const { input, state } = digest;
   const lines: string[] = [];
   const push = (...more: string[]) => lines.push(...more);
@@ -1370,7 +1394,7 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
     if (testEntries.length > options.rowLimit) {
       push(
         "",
-        `... and ${testEntries.length - options.rowLimit} more failing tests not listed here (the size of this issue is capped). The full list is in each artifact's \`results.json\`.`,
+        `... and ${testEntries.length - options.rowLimit} more failing tests not listed here. The full list is in each artifact's \`results.json\`.`,
       );
     }
     push("");
@@ -1432,7 +1456,7 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
     if (digest.notRun.length > options.rowLimit) {
       push(
         "",
-        `... and ${digest.notRun.length - options.rowLimit} more not run (the size of this issue is capped).`,
+        `... and ${digest.notRun.length - options.rowLimit} more not run.`,
       );
     }
     push("");
@@ -1462,13 +1486,13 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
 
   if (digest.fixed.length > 0) {
     push("### Fixed since the previous run", "");
-    for (const old of digest.fixed.slice(0, 30)) {
+    for (const old of digest.fixed.slice(0, options.rowLimit)) {
       push(
         `- ${classTag(old.c)} \`${old.l.replace(/`/g, "'")}\` (failing since ${runLink(digest, old.r)})`,
       );
     }
-    if (digest.fixed.length > 30)
-      push(`- ... and ${digest.fixed.length - 30} more`);
+    if (digest.fixed.length > options.rowLimit)
+      push(`- ... and ${digest.fixed.length - options.rowLimit} more`);
     push("");
   }
 
@@ -1477,13 +1501,13 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
       `### Flaky in this run (${digest.flaky.length}, passed on retry, not paged)`,
       "",
     );
-    for (const test of digest.flaky.slice(0, 15)) {
+    for (const test of digest.flaky.slice(0, options.rowLimit)) {
       push(
         `- ${plainCell(test.app)} · ${plainCell(test.project)} · ${codeCell(test.title)}`,
       );
     }
-    if (digest.flaky.length > 15)
-      push(`- ... and ${digest.flaky.length - 15} more`);
+    if (digest.flaky.length > options.rowLimit)
+      push(`- ... and ${digest.flaky.length - options.rowLimit} more`);
     push("");
   }
 
@@ -1519,7 +1543,7 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
 
   if (digest.advisory.length > 0) {
     push(`### Advisory findings (${digest.advisory.length}, non-gating)`, "");
-    for (const item of digest.advisory.slice(0, 10)) {
+    for (const item of digest.advisory.slice(0, options.rowLimit)) {
       const text =
         "message" in item
           ? item.message
@@ -1579,147 +1603,211 @@ function renderIssueWith(digest: Digest, options: RenderOptions): string {
     "   Authenticated projects (registry, chat, journeys-core, journeys-session, journeys-credentials, journeys-flows, design) also need `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS` exported, and chat needs `BETA_E2E_OPENAI_API_KEY` and `BETA_E2E_CLUSTER=chat`. See `e2e/beta/README.md`.",
     "5. Classes: `[product]` an assertion failed (a regression, or a test that no longer matches the product); `[env]` a credential or session problem (secret expired, wrong identity); `[infra-timeout]` a timeout, cancellation, or network failure before the product could be judged.",
     "",
-    "This issue is updated in place on every scheduled run and gets a comment only when the set of failures changes. It closes itself when a run is fully green.",
+    "The complete report and state file are attached to this workflow run. Slack receives one rolled-up message when the report changes, recovers, or reaches its daily reminder.",
     "",
   );
 
   return lines.join("\n");
 }
 
-export function renderIssueBody(digest: Digest): string {
-  const marker = embedState(digest.state);
-  const attempts: RenderOptions[] = [
-    { detailLimit: 25, rowLimit: 150 },
-    { detailLimit: 8, rowLimit: 80 },
-    { detailLimit: 0, rowLimit: 40 },
-    { detailLimit: 0, rowLimit: 15 },
-  ];
-  for (const options of attempts) {
-    const body = `${renderIssueWith(digest, options)}\n${marker}\n`;
-    if (body.length <= ISSUE_BODY_BUDGET) return body;
-  }
-  // Last resort: the page of facts that matter, never a body GitHub refuses.
-  const compact = renderIssueWith(digest, { detailLimit: 0, rowLimit: 5 });
-  const room = ISSUE_BODY_BUDGET - marker.length - 200;
-  return `${truncate(compact, room)}\n\n(Issue body truncated to fit GitHub's size limit.)\n${marker}\n`;
-}
-
-export function renderComment(digest: Digest): string | null {
-  const { input } = digest;
-  if (digest.status === "green") {
-    const notRunNote =
-      digest.counts.notRun > 0
-        ? ` ${notRunSummary(digest.counts.notRun)}.`
-        : "";
-    if (input.previous?.status === "red") {
-      return `Recovered in ${runLink(digest, input.runId)}. It was red for ${input.previous.consecutiveRed} consecutive run${input.previous.consecutiveRed === 1 ? "" : "s"}${input.previous.firstRed ? `, starting at ${runLink(digest, input.previous.firstRed)}` : ""}.${notRunNote} Closing.`;
-    }
-    if (input.issueNumber !== undefined) {
-      return `${runLink(digest, input.runId)} is green, but this issue is still open without a red state to recover from (it predates the state-tracked report, or its marker is unreadable). Closing; the next failure opens a fresh one.`;
-    }
-    return null;
-  }
-  if (!digest.stateChanged) return null;
-  const lines = [
-    `Run ${runLink(digest, input.runId)}: ${digest.entries.length} failing (NEW ${digest.counts.newFailures}, STILL FAILING ${digest.counts.stillFailing}, FIXED ${digest.counts.fixed}, NOT RUN ${digest.counts.notRun}).`,
-  ];
-  const fresh = digest.entries
-    .filter((entry) => entry.state === "new")
-    .slice(0, 8);
-  if (fresh.length > 0) {
-    lines.push("", "New:");
-    for (const entry of fresh) {
-      lines.push(
-        `- ${classTag(entry.class)} ${codeCell(truncate(entry.label, 160))}`,
-      );
-    }
-  }
-  if (digest.fixed.length > 0) {
-    lines.push("", "Fixed:");
-    for (const old of digest.fixed.slice(0, 8)) {
-      lines.push(`- ${classTag(old.c)} ${codeCell(old.l)}`);
-    }
-  }
-  lines.push("", "The issue body holds the full current state.");
-  return lines.join("\n");
+export function renderReport(digest: Digest): string {
+  return renderReportContent(digest, {
+    detailLimit: Number.MAX_SAFE_INTEGER,
+    rowLimit: Number.MAX_SAFE_INTEGER,
+  });
 }
 
 export function renderSlack(digest: Digest): string {
-  const { input } = digest;
-  const runLinkText = `<${runUrl(input, input.runId)}|run #${input.runNumber ?? input.runId}>`;
-  const issueLink = input.issueUrl
-    ? ` · <${input.issueUrl}|issue${input.issueNumber ? ` #${input.issueNumber}` : ""}>`
-    : "";
+  const input = digest.input;
+  const runLink =
+    "<" +
+    runUrl(input, input.runId) +
+    "|run #" +
+    (input.runNumber ?? input.runId) +
+    ">";
   const envSkipped = envSkippedSummary(digest);
   const quarantined = quarantinedSummary(digest);
-
-  if (digest.status === "green") {
-    const prev = input.previous;
-    return [
-      `:white_check_mark: *Beta E2E recovered* in ${runLinkText}${issueLink}`,
-      prev?.status === "red"
-        ? `It was red for ${prev.consecutiveRed} consecutive run${prev.consecutiveRed === 1 ? "" : "s"}${prev.firstRed ? ` since <${runUrl(input, prev.firstRed)}|run ${prev.firstRed}>` : ""}.`
-        : "No gating failures.",
-      ...(digest.counts.notRun > 0
-        ? [`NOT RUN: ${notRunSummary(digest.counts.notRun)}.`]
-        : []),
-      ...(envSkipped ? [`NOT TESTED: ${slackEscape(envSkipped)}.`] : []),
-      ...(quarantined ? [`QUARANTINED: ${slackEscape(quarantined)}.`] : []),
-    ].join("\n");
-  }
-
-  const tests = digest.entries.filter((entry) => entry.kind === "test").length;
-  const jobs = digest.entries.length - tests;
-  const lines: string[] = [];
-  lines.push(
-    `:red_circle: *Beta E2E failing*: ${tests} test${tests === 1 ? "" : "s"}, ${jobs} job${jobs === 1 ? "" : "s"} without results (${digest.state.consecutiveRed} consecutive red run${digest.state.consecutiveRed === 1 ? "" : "s"})`,
-  );
-  lines.push(
-    `${runLinkText}${issueLink} · last green: ${digest.state.lastGreen ? `<${runUrl(input, digest.state.lastGreen)}|run ${digest.state.lastGreen}>` : "none recorded"}`,
-  );
-  lines.push(
-    `New ${digest.counts.newFailures} · still failing ${digest.counts.stillFailing} · fixed ${digest.counts.fixed} · NOT RUN ${digest.counts.notRun} · flaky (not paged) ${digest.counts.flaky}`,
-  );
-  if (envSkipped) lines.push(`NOT TESTED: ${slackEscape(envSkipped)}.`);
-  if (quarantined) lines.push(`QUARANTINED: ${slackEscape(quarantined)}.`);
-  const ranked = [...digest.entries].sort(
-    (a, b) => Number(b.state === "new") - Number(a.state === "new"),
-  );
-  lines.push("Top failures:");
-  for (const entry of ranked.slice(0, 5)) {
+  const findingLines: string[] = [];
+  const addFinding = (
+    kind: string,
+    classification: string,
+    fingerprint: string,
+    title: string,
+    detail: string,
+  ) => {
+    const safe = (text: string, max: number) =>
+      `\`${slackEscape(truncate(text.replace(/`/g, "'"), max))}\``;
+    findingLines.push(
+      `• ${kind} [${classification}] ${safe(title, 180)} · fingerprint ${safe(fingerprint, 20)} — ${safe(firstErrorLine(detail), ERROR_LINE_MAX)}`,
+    );
+  };
+  for (const entry of digest.entries) {
+    const title = entry.test
+      ? `${entry.test.app}/${entry.test.project}: ${entry.test.title}`
+      : (entry.fact?.shortName ?? entry.setup?.slot ?? entry.label);
     const detail =
       entry.test?.error ??
       entry.fact?.summary ??
       entry.setup?.error ??
       entry.carriedReason ??
       entry.label;
-    const where = entry.test
-      ? `${entry.test.app} · ${entry.test.project} · ${entry.test.title}`
-      : entry.fact
-        ? `no results: ${entry.fact.shortName}`
-        : entry.label;
-    lines.push(
-      `• ${classTag(entry.class)} ${entry.state === "new" ? "NEW " : ""}${slackEscape(truncate(where, 90))}: ${slackEscape(truncate(detail, 140))}`,
+    addFinding(
+      entry.state === "new" ? "NEW" : "STILL",
+      entry.class,
+      entry.key,
+      title,
+      detail,
     );
   }
-  if (ranked.length > 5)
-    lines.push(`• +${ranked.length - 5} more in the issue`);
-  const jobLinks = digest.failedJobs
-    .slice(0, 4)
-    .map(
-      ({ job }) => `<${job.html_url}|${slackEscape(shortJobName(job.name))}>`,
+  for (const entry of digest.notRun) {
+    addFinding(
+      "NOT RUN",
+      entry.class,
+      entry.key,
+      entry.label,
+      entry.carriedReason ?? "Did not execute in this run; not verified fixed.",
     );
-  if (jobLinks.length > 0) lines.push(`Failed jobs: ${jobLinks.join(" · ")}`);
-  const artifactSlots = [
-    ...new Set(digest.entries.map((entry) => entry.slot)),
-  ].slice(0, 3);
-  const artifactBits = artifactSlots
-    .map((slot) => artifactLinks(digest, slot))
-    .filter((links) => links.url)
-    .map((links) => `<${links.url}|${links.name}>`);
-  if (artifactBits.length > 0)
-    lines.push(`Artifacts: ${artifactBits.join(" · ")}`);
-  return lines.slice(0, 12).join("\n");
+  }
+  for (const entry of digest.fixed) {
+    addFinding("FIXED", entry.c, entry.k, entry.l, `Passed in run ${entry.r}.`);
+  }
+  for (const [index, item] of digest.advisory.entries()) {
+    const title =
+      "title" in item
+        ? item.title
+        : "message" in item
+          ? item.message
+          : item.error;
+    const detail =
+      "detail" in item
+        ? item.detail
+        : "summary" in item
+          ? item.summary
+          : "error" in item
+            ? item.error
+            : title;
+    addFinding("ADVISORY", item.class, `advisory-${index + 1}`, title, detail);
+  }
+  let findingCharacters = 0;
+  const visibleFindings: string[] = [];
+  let overflowFindings = 0;
+  for (const line of findingLines) {
+    const nextLength = line.length + 1;
+    if (findingCharacters + nextLength > MAX_SLACK_FINDING_DETAILS) {
+      overflowFindings = findingLines.length - visibleFindings.length;
+      break;
+    }
+    visibleFindings.push(line);
+    findingCharacters += nextLength;
+  }
+  const findings = [
+    ...(findingLines.length > 0
+      ? [
+          `*Findings: ${findingLines.length} total; showing ${visibleFindings.length}; ${overflowFindings} omitted from this Slack message*`,
+          ...visibleFindings,
+        ]
+      : []),
+    ...(overflowFindings > 0
+      ? [
+          `${overflowFindings} additional findings are in the full report artifact.`,
+        ]
+      : []),
+  ];
+  let noteCharacters = 0;
+  const visibleNotes: string[] = [];
+  for (const note of input.notes ?? []) {
+    const safeNote = slackEscape(note.replace(/\s+/g, " ").trim());
+    const nextLength = safeNote.length + 1;
+    if (noteCharacters + nextLength > MAX_SLACK_COLLECTION_DETAILS) break;
+    visibleNotes.push(safeNote);
+    noteCharacters += nextLength;
+  }
+  const omittedNotes = (input.notes?.length ?? 0) - visibleNotes.length;
+  const collectionNotes =
+    visibleNotes.length > 0
+      ? [
+          `*Collection warnings: ${(input.notes ?? []).length} total; showing ${visibleNotes.length}; ${omittedNotes} omitted from this Slack message*`,
+          ...visibleNotes.map((note) => `• ${note}`),
+          ...(omittedNotes > 0
+            ? [
+                "Additional collection warnings are in the full report artifact.",
+              ]
+            : []),
+        ]
+      : [];
+
+  if (digest.status === "green") {
+    const previous = input.previous;
+    return [
+      ":white_check_mark: *Beta E2E recovered* in " + runLink,
+      previous?.status === "red"
+        ? "It was red for " +
+          previous.consecutiveRed +
+          " consecutive run" +
+          (previous.consecutiveRed === 1 ? "" : "s") +
+          (previous.firstRed
+            ? " since <" +
+              runUrl(input, previous.firstRed) +
+              "|run " +
+              previous.firstRed +
+              ">"
+            : "") +
+          "."
+        : "No gating failures.",
+      ...(digest.counts.notRun > 0
+        ? ["NOT RUN: " + notRunSummary(digest.counts.notRun) + "."]
+        : []),
+      ...(envSkipped ? ["NOT TESTED: " + slackEscape(envSkipped) + "."] : []),
+      ...(quarantined
+        ? ["QUARANTINED: " + slackEscape(quarantined) + "."]
+        : []),
+      ...collectionNotes,
+      ...findings,
+      "Full report and Playwright artifacts: " + runLink + ".",
+    ].join("\n");
+  }
+
+  const tests = digest.entries.filter((entry) => entry.kind === "test").length;
+  const jobs = digest.entries.length - tests;
+  return [
+    ":red_circle: *Beta E2E failing*: " +
+      tests +
+      " test" +
+      (tests === 1 ? "" : "s") +
+      ", " +
+      jobs +
+      " job" +
+      (jobs === 1 ? "" : "s") +
+      " without results (" +
+      digest.state.consecutiveRed +
+      " consecutive red run" +
+      (digest.state.consecutiveRed === 1 ? "" : "s") +
+      ")",
+    "New " +
+      digest.counts.newFailures +
+      " · still failing " +
+      digest.counts.stillFailing +
+      " · fixed " +
+      digest.counts.fixed +
+      " · NOT RUN " +
+      digest.counts.notRun +
+      " · flaky (not paged) " +
+      digest.counts.flaky,
+    "Last green: " +
+      (digest.state.lastGreen
+        ? "<" +
+          runUrl(input, digest.state.lastGreen) +
+          "|run " +
+          digest.state.lastGreen +
+          ">"
+        : "none recorded") +
+      ".",
+    ...(envSkipped ? ["NOT TESTED: " + slackEscape(envSkipped) + "."] : []),
+    ...(quarantined ? ["QUARANTINED: " + slackEscape(quarantined) + "."] : []),
+    ...collectionNotes,
+    ...findings,
+    "Full report and Playwright artifacts: " + runLink + ".",
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -1862,15 +1950,23 @@ export function loadInput(args: Record<string, string>): DigestInput {
   }
   const notes = (args.note ?? "").split("\n").filter(Boolean);
   let previous: DigestState | null = null;
-  if (args["previous-state"] && existsSync(args["previous-state"])) {
-    try {
-      previous = extractState(readFileSync(args["previous-state"], "utf8"));
-    } catch (error) {
-      // A damaged marker must not stop the report; it is said, not hidden, and
-      // this run is then reported as a first report.
+  let previousStateUnavailable = false;
+  if (args["previous-state"]) {
+    if (!existsSync(args["previous-state"])) {
+      previousStateUnavailable = true;
       notes.push(
-        `The previous issue's state marker could not be read (${error instanceof Error ? error.message : String(error)}), so NEW / STILL FAILING / FIXED are not compared against it.`,
+        "The previous state artifact could not be read (the file is missing), so NEW / STILL FAILING / FIXED are not compared against it.",
       );
+    } else {
+      try {
+        previous = extractState(readFileSync(args["previous-state"], "utf8"));
+      } catch (error) {
+        previousStateUnavailable = true;
+        // Damaged previous state is called out, and this run starts a new comparison.
+        notes.push(
+          `The previous state artifact could not be read (${error instanceof Error ? error.message : String(error)}), so NEW / STILL FAILING / FIXED are not compared against it.`,
+        );
+      }
     }
   }
   return {
@@ -1887,11 +1983,8 @@ export function loadInput(args: Record<string, string>): DigestInput {
     ...collectResults(args["results-dir"] ?? "", runId),
     logs,
     previous,
+    previousStateUnavailable,
     now: args.now ?? new Date().toISOString(),
-    issueUrl: args["issue-url"] || undefined,
-    issueNumber: args["issue-number"]
-      ? Number(args["issue-number"])
-      : undefined,
     slackNote: args["slack-note"] || undefined,
     notes,
     maxFailures: args["max-failures"]
@@ -1902,36 +1995,23 @@ export function loadInput(args: Record<string, string>): DigestInput {
 
 export function writeOutputs(digest: Digest, outDir: string): void {
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(path.join(outDir, "issue.md"), renderIssueBody(digest));
+  writeFileSync(path.join(outDir, "report.md"), renderReport(digest));
   writeFileSync(path.join(outDir, "slack.txt"), `${renderSlack(digest)}\n`);
   writeFileSync(
     path.join(outDir, "state.json"),
     `${JSON.stringify(digest.state, null, 2)}\n`,
   );
-  const comment = renderComment(digest);
-  if (comment) writeFileSync(path.join(outDir, "comment.md"), `${comment}\n`);
-  // A green run closes any open issue: one that went red under this report, and
-  // one that predates it (the legacy issue has no state marker, so a green first
-  // run would otherwise leave it open until a red run and then a green one).
-  const previousRed = digest.input.previous?.status === "red";
-  const openIssue = digest.input.issueNumber !== undefined;
   writeFileSync(
     path.join(outDir, "decision.json"),
     `${JSON.stringify(
       {
         status: digest.status,
-        title: ISSUE_TITLE,
-        labels: ISSUE_LABELS,
-        issueAction:
-          digest.status === "red"
-            ? "upsert"
-            : previousRed || openIssue
-              ? "close"
-              : "none",
+        previousStateAvailable: digest.input.previous !== null,
+        previousStateUnavailable:
+          digest.input.previousStateUnavailable ?? false,
         shouldNotify: digest.notify.shouldNotify,
         notifyReason: digest.notify.reason,
         stateChanged: digest.stateChanged,
-        hasComment: comment !== null,
         failing: digest.entries.length,
         newFailures: digest.counts.newFailures,
         fixed: digest.counts.fixed,

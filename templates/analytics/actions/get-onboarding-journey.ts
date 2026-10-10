@@ -18,6 +18,7 @@ import {
 
 const MAX_WINDOW_DAYS = 90;
 const MAX_DEPTH = 40;
+const MAX_JOURNEY_EVENT_ROWS = 200_000;
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -36,7 +37,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined by direct canonical auth_user_id across first-party sessions and apps over a fixed 30-day horizon. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. If an event or follow-up query fails, the action returns a stage-specific error with safe BigQuery status/reason when available; an unreadable query never becomes zero counts or an empty-tree substitute.',
+    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined by direct canonical auth_user_id across first-party sessions and apps over a fixed 30-day horizon. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. If an event or follow-up query fails, the action returns a stage-specific error with safe BigQuery status/reason when available; an unreadable query never becomes zero counts or an empty-tree substitute.',
   schema: z.object({
     dateFrom: isoDate.describe(
       "Inclusive UTC start date, YYYY-MM-DD. Sessions that began earlier appear mid-journey, so start a day before the period you care about.",
@@ -113,7 +114,7 @@ export default defineAction({
       .number()
       .int()
       .min(1000)
-      .max(200000)
+      .max(MAX_JOURNEY_EVENT_ROWS)
       .optional()
       .default(40000)
       .describe(

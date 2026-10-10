@@ -6,6 +6,7 @@ export {
 
 export {
   dbAdminBasePath,
+  getDbAdminBasePath,
   dbAdminGet,
   dbAdminPost,
   useOverview,

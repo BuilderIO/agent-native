@@ -66,6 +66,9 @@ export default {
     journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
     sessionCount: "세션 {count}개",
     otherPaths: "기타 경로",
+    otherBranchesShown: "분기 {total}개 중 {shown}개 표시",
+    otherBranchDetailsUnavailable: "이 여정 트리에는 분기 세부 정보가 없습니다",
+    otherBranchSourceKey: "원본 단계 키: {key}",
     htmlLanguage: "ko-KR",
   },
   composer: { menu: { integrations: "연동" } },
@@ -1695,9 +1698,11 @@ export default {
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
     imageAttachmentUnavailable:
-      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
+      "이 이미지를 업로드할 수 있도록 준비하지 못했습니다. JPG, PNG, GIF 또는 WebP 이미지를 사용해 보세요.",
+    imageAttachmentTooLarge:
+      "이미지는 각각 최대 {{perFile}}MB, 전체 최대 {{total}}MB까지 첨부할 수 있습니다.",
     attachmentsTooLarge:
-      "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
+      "이미지는 자동으로 최적화됩니다. 최적화된 이미지와 다른 파일의 총 크기는 {{max}}MB 이하여야 합니다.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
     skipPrompt: "프롬프트 건너뛰기",
     startBlankCanvas: "빈 캔버스로 시작",

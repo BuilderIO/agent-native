@@ -23,6 +23,7 @@ import {
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -1583,6 +1584,8 @@ interface VisualEditorProps {
     markdown: string,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
+  /** Opens the import dialog for a drop that carries Markdown files. */
+  onImportFiles?: (files: File[]) => void;
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
@@ -3035,6 +3038,7 @@ export function VisualEditor({
   onChange,
   onSaveContent,
   onEscape,
+  onImportFiles,
   ydoc,
   observeLiveBody = false,
   collabSynced = true,
@@ -3304,6 +3308,8 @@ export function VisualEditor({
 
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onImportFilesRef = useRef(onImportFiles);
+  onImportFilesRef.current = onImportFiles;
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -3477,6 +3483,18 @@ export function VisualEditor({
         class: "notion-editor",
       },
       handleDrop(view, event) {
+        const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
+        if (
+          view.editable &&
+          onImportFilesRef.current &&
+          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+        ) {
+          // Images dropped beside Markdown belong to the import, not the page.
+          event.preventDefault();
+          setIsDraggingMedia(false);
+          onImportFilesRef.current(droppedFiles);
+          return true;
+        }
         if (view.editable) markUserEditIntent();
         setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;

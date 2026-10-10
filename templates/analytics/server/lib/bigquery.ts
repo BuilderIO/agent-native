@@ -953,6 +953,14 @@ function rowsToObjects(
 
 export interface DryRunQueryOptions {
   signal?: AbortSignal;
+  wrapPreparationErrors?: boolean;
+}
+
+export class BigQueryDryRunPreparationError extends Error {
+  constructor() {
+    super("BigQuery dry-run request preparation failed");
+    this.name = "BigQueryDryRunPreparationError";
+  }
 }
 
 export interface DryRunQueryResult {
@@ -1015,14 +1023,31 @@ export async function dryRunQuerySchema(
   if (options.signal?.aborted) {
     throw new Error("BigQuery validation was cancelled before it started");
   }
-  const { projectId, appEventsTable } = await getProjectInfo();
-  const resolvedSql = await resolveTablePlaceholder(
-    sql,
-    projectId,
-    appEventsTable,
-  );
-
-  const token = await getAccessToken();
+  let projectId: string;
+  let appEventsTable: BigQueryTableRef;
+  let resolvedSql: string;
+  let token: string;
+  try {
+    ({ projectId, appEventsTable } = await getProjectInfo(options.signal));
+    resolvedSql = await resolveTablePlaceholder(
+      sql,
+      projectId,
+      appEventsTable,
+      options.signal,
+    );
+    token = await getAccessToken(options.signal);
+  } catch (error) {
+    if (
+      options.signal?.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw error;
+    }
+    if (options.wrapPreparationErrors) {
+      throw new BigQueryDryRunPreparationError();
+    }
+    throw error;
+  }
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
   const controller = new AbortController();

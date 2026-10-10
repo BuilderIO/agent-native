@@ -168,7 +168,12 @@ fallback for organization-scoped calls, not a fallback user identity.
 workspace deploy without it and prints the generator command. Peers that must
 trust user identity assertions need the *same* value on both sides. Keep it
 different from every org `a2a_secret`; a shared value cannot distinguish a
-user assertion from an organization credential.
+user assertion from an organization credential. An org secret equal to
+`A2A_SECRET`, or a user token signed only with the org secret, is verified as an
+organization principal and reaches the caller as the typed
+`permanent_precondition` error ("no verified user"): an admin/ops fix, never a
+retry. Mismatched `A2A_SECRET` values are rejected with `401`
+(`a2a_auth_rejected`).
 
 With no secret configured at all:
 

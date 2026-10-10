@@ -44,6 +44,8 @@ actions, and local folders that sync into the same collection model.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.
+  One-off Markdown files are not a source: import them with `import-content`
+  (see `document-editing`).
 - If Content tools are not visible and no local Content app or Desktop bridge is
   running, treat this skill as repo-editing guidance. Edit configured
   `.md`/`.mdx` files directly, preserve frontmatter and MDX imports, and tell

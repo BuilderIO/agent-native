@@ -18,9 +18,14 @@ import {
   actionsToEngineTools,
   runAgentLoop,
 } from "../agent/production-agent.js";
+import {
+  attachToolSearch,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type {
+  AgentRunOptions,
   AgentRunOutput,
   EvalProductionContext,
   EvalInput,
@@ -73,7 +78,10 @@ export type AgentRunnerConfig = AgentRunnerConfigBase &
   );
 
 export interface AgentRunner {
-  runAgent(input: EvalInput): Promise<AgentRunOutput>;
+  runAgent(
+    input: EvalInput,
+    options?: AgentRunOptions,
+  ): Promise<AgentRunOutput>;
   analyzeContext(): ScorerAnalyzeContext;
   readonly engine: AgentEngine;
   readonly model: string;
@@ -137,10 +145,10 @@ export async function createAgentRunner(
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
   const timeoutMs = config.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
-  const availableTools = actionsToEngineTools(actions);
   const initialToolNames = productionContext?.initialToolNames
     ? new Set(productionContext.initialToolNames)
     : undefined;
+  const availableTools = actionsToEngineTools(actions);
   const tools = initialToolNames
     ? availableTools.filter((tool) => initialToolNames.has(tool.name))
     : availableTools;
@@ -150,12 +158,20 @@ export async function createAgentRunner(
     );
   }
 
-  async function runAgent(input: EvalInput): Promise<AgentRunOutput> {
+  async function runAgent(
+    input: EvalInput,
+    options: AgentRunOptions = {},
+  ): Promise<AgentRunOutput> {
+    const actionAllowlist = resolveActionAllowlist(
+      actions!,
+      options.actionAllowlist,
+    );
     if (productionChatPath) {
       return runProductionChatPath({
         productionChatPath,
         productionContext: productionContext!,
         input,
+        actionAllowlist,
         engine,
         model,
         timeoutMs,
@@ -168,6 +184,15 @@ export async function createAgentRunner(
     }
     const runId = `eval:${crypto.randomUUID()}`;
     const messages = toEngineMessages(input);
+    const runActions = options.actionAllowlist
+      ? filterActionsForEval(actions!, actionAllowlist)
+      : actions!;
+    const runAvailableTools = options.actionAllowlist
+      ? actionsToEngineTools(runActions)
+      : availableTools;
+    const runTools = initialToolNames
+      ? runAvailableTools.filter((tool) => initialToolNames.has(tool.name))
+      : runAvailableTools;
 
     let text = "";
     const toolCalls: string[] = [];
@@ -250,10 +275,10 @@ export async function createAgentRunner(
           engine,
           model,
           systemPrompt,
-          tools,
-          ...(productionContext ? { availableTools } : {}),
+          tools: runTools,
+          ...(productionContext ? { availableTools: runAvailableTools } : {}),
           messages,
-          actions: actions!,
+          actions: runActions,
           send,
           signal: controller.signal,
           onUsage: (next) => {
@@ -356,6 +381,7 @@ async function runProductionChatPath(args: {
   productionChatPath: NonNullable<EvalProductionContext["productionChatPath"]>;
   productionContext: EvalProductionContext;
   input: EvalInput;
+  actionAllowlist: readonly string[];
   engine: AgentEngine;
   model: string;
   timeoutMs: number;
@@ -388,6 +414,7 @@ async function runProductionChatPath(args: {
         () =>
           args.productionChatPath.run({
             input: args.input,
+            actionAllowlist: args.actionAllowlist,
             identity: {
               ownerEmail: args.productionContext.ownerEmail,
               orgId: args.productionContext.orgId!,
@@ -407,13 +434,16 @@ async function runProductionChatPath(args: {
     const receiptError = validateProductionPathRun(
       result,
       args.productionContext,
+      args.actionAllowlist,
     );
     const output = result.output;
     const usage = output.usage ?? partialUsage;
     if (!usage) {
       return failedProductionPathOutput(
         output,
-        "Production chat eval adapter did not return or report usage.",
+        output.ok
+          ? "Production chat eval adapter did not return or report usage."
+          : "Production agent run failed before usage was captured.",
         Date.now() - started,
       );
     }
@@ -452,6 +482,7 @@ async function runProductionChatPath(args: {
 function validateProductionPathRun(
   result: EvalProductionPathRun,
   context: EvalProductionContext,
+  actionAllowlist: readonly string[],
 ): string | undefined {
   if (!result || typeof result !== "object" || !result.output) {
     return "Production chat eval adapter returned no run output.";
@@ -499,11 +530,40 @@ function validateProductionPathRun(
     available.size === 0 ||
     initial.size === 0 ||
     [...available].some((name) => !readOnly.has(name)) ||
+    [...available].some((name) => !actionAllowlist.includes(name)) ||
     [...initial].some((name) => !available.has(name))
   ) {
-    return "Production chat eval adapter exposed an empty or non-read-only action surface.";
+    return "Production chat eval adapter exposed an empty or non-read-only action surface, or exposed a disallowed action.";
   }
   return undefined;
+}
+
+function resolveActionAllowlist(
+  actions: Record<string, ActionEntry>,
+  requested?: readonly string[],
+): readonly string[] {
+  const actionAllowlist = requested ?? Object.keys(actions);
+  const unknownActions = actionAllowlist.filter((name) => !actions[name]);
+  if (unknownActions.length > 0) {
+    throw new Error(
+      `Eval action allowlist contains unknown actions: ${unknownActions.join(", ")}.`,
+    );
+  }
+  return [...new Set(actionAllowlist)];
+}
+
+function filterActionsForEval(
+  actions: Record<string, ActionEntry>,
+  actionAllowlist: readonly string[],
+): Record<string, ActionEntry> {
+  const allowed = new Set(actionAllowlist);
+  const filtered = Object.fromEntries(
+    Object.entries(actions).filter(
+      ([name]) => allowed.has(name) && name !== TOOL_SEARCH_ACTION_NAME,
+    ),
+  );
+  if (allowed.has(TOOL_SEARCH_ACTION_NAME)) attachToolSearch(filtered);
+  return filtered;
 }
 
 function failedProductionPathOutput(

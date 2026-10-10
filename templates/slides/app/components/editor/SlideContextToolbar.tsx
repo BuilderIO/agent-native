@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   FONT_FAMILY_OPTIONS,
   VisualFontFamilyPicker,
@@ -70,7 +69,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useNarrowElement } from "@/hooks/use-narrow-element";
 import type { VideoPlaybackSettings } from "@/lib/slide-video";
 import { cn, shortcutLabel } from "@/lib/utils";
 
@@ -93,9 +91,6 @@ import {
 } from "./slide-style";
 
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
-// Below this container width the widget toolbar wraps onto more rows and
-// moves the secondary appearance controls into the controls popover.
-const COMPACT_TOOLBAR_MAX_WIDTH = 720;
 const SCRUB_CLASS = "w-24 shrink-0";
 const SIZE_SCRUB_CLASS = "w-28 shrink-0 gap-0.5";
 const MENU_BUTTON_CLASS =
@@ -148,63 +143,6 @@ function alignIcon(textAlign: string) {
   if (textAlign === "right") return IconAlignRight;
   if (textAlign === "justify") return IconAlignJustified;
   return IconAlignLeft;
-}
-
-const ARRANGE_ACTIONS = [
-  {
-    target: "back",
-    labelKey: "styleInspector.sendToBack",
-    icon: IconStackBack,
-  },
-  {
-    target: "backward",
-    labelKey: "styleInspector.sendBackward",
-    icon: IconStackBack,
-  },
-  {
-    target: "front",
-    labelKey: "styleInspector.bringToFront",
-    icon: IconStackFront,
-  },
-  {
-    target: "forward",
-    labelKey: "styleInspector.bringForward",
-    icon: IconStackFront,
-  },
-] as const satisfies ReadonlyArray<{
-  target: SlideObjectZOrderTarget;
-  labelKey: string;
-  icon: typeof IconStackBack;
-}>;
-
-function ArrangeButtons({
-  onArrange,
-  t,
-}: {
-  onArrange: (target: SlideObjectZOrderTarget) => void;
-  t: Translate;
-}) {
-  return (
-    <>
-      {ARRANGE_ACTIONS.map(({ target, labelKey, icon: Icon }) => (
-        <Tooltip key={target}>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className={MENU_BUTTON_CLASS}
-              onClick={() => onArrange(target)}
-              aria-label={t(labelKey)}
-            >
-              <Icon className="size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t(labelKey)}</TooltipContent>
-        </Tooltip>
-      ))}
-    </>
-  );
 }
 
 export function SlideContextToolbar({
@@ -268,13 +206,6 @@ export function SlideContextToolbar({
   };
 }) {
   const t = useT();
-  const widgetEmbed = useIsMcpAppWidgetEmbed();
-  const [toolbarElement, setToolbarElement] = useState<HTMLDivElement | null>(
-    null,
-  );
-  const compact =
-    useNarrowElement(toolbarElement, COMPACT_TOOLBAR_MAX_WIDTH) && widgetEmbed;
-  const dividerClass = compact ? "hidden" : TOOLBAR_DIVIDER;
   // The field holds what was typed until the object paints it; a refused
   // rotation never will, so the field starts over from what the object paints.
   const [refusedRotations, setRefusedRotations] = useState(0);
@@ -340,21 +271,18 @@ export function SlideContextToolbar({
 
   return (
     <div
-      ref={setToolbarElement}
       className={cn(
         "slide-context-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-transparent px-2 sm:px-3",
-        compact && "h-auto min-h-10 flex-wrap overflow-x-visible py-1",
         className,
       )}
       data-slide-context-toolbar="true"
-      data-compact={compact ? "true" : undefined}
       role="toolbar"
       aria-label={t("styleInspector.title")}
     >
       {leading && (
         <>
           {leading}
-          <div className={dividerClass} />
+          <div className={TOOLBAR_DIVIDER} />
         </>
       )}
       {hasSelectedElement && onOpenAnimations && (
@@ -378,7 +306,7 @@ export function SlideContextToolbar({
             </TooltipTrigger>
             <TooltipContent>{t("animations.title")}</TooltipContent>
           </Tooltip>
-          <div className={dividerClass} />
+          <div className={TOOLBAR_DIVIDER} />
         </>
       )}
       {hasSelectedElement && canComment && onComment && (
@@ -398,7 +326,7 @@ export function SlideContextToolbar({
             </TooltipTrigger>
             <TooltipContent>{t("comments.addComment")}</TooltipContent>
           </Tooltip>
-          <div className={dividerClass} />
+          <div className={TOOLBAR_DIVIDER} />
         </>
       )}
       {isVideoSelection && videoPlayback && onVideoPlaybackChange && (
@@ -484,7 +412,7 @@ export function SlideContextToolbar({
               <TooltipContent>{t("styleInspector.ungroup")}</TooltipContent>
             </Tooltip>
           )}
-          <div className={dividerClass} />
+          <div className={TOOLBAR_DIVIDER} />
         </>
       )}
       {hasMultiObjectSelection && (
@@ -578,7 +506,7 @@ export function SlideContextToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <div className={dividerClass} />
+          <div className={TOOLBAR_DIVIDER} />
         </>
       )}
       {!snapshot ? (
@@ -611,7 +539,7 @@ export function SlideContextToolbar({
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ fontFamily: value })}
               />
-              <div className={dividerClass} />
+              <div className={TOOLBAR_DIVIDER} />
               <VisualScrubInput
                 label={t("styleInspector.size")}
                 icon={IconLetterCase}
@@ -625,14 +553,14 @@ export function SlideContextToolbar({
                 unit="px"
                 mixed={mixedTextStyles.includes("fontSize")}
                 mixedLabel={t("styleInspector.mixed")}
-                className={cn(SIZE_SCRUB_CLASS, compact && "w-40")}
+                className={SIZE_SCRUB_CLASS}
                 onChange={(fontSize, meta) =>
                   onChange({
                     fontSize: `${formatValue(sizeFor(fontSize, meta))}px`,
                   })
                 }
               />
-              <div className={dividerClass} />
+              <div className={TOOLBAR_DIVIDER} />
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -731,7 +659,7 @@ export function SlideContextToolbar({
                 onChange={(value) => onChange({ color: value })}
               />
 
-              <div className={dividerClass} />
+              <div className={TOOLBAR_DIVIDER} />
 
               <DropdownMenu>
                 <Tooltip>
@@ -833,64 +761,60 @@ export function SlideContextToolbar({
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ backgroundColor: value })}
               />
-              {!compact && (
-                <>
-                  <VisualScrubInput
-                    label={t("styleInspector.opacity")}
-                    icon={IconGridDots}
-                    prefix="icon"
-                    value={snapshot.opacity}
-                    min={0}
-                    max={100}
-                    step={5}
-                    unit="%"
-                    className={SCRUB_CLASS}
-                    onChange={(opacity) =>
-                      onChange({ opacity: String(opacity / 100) })
-                    }
-                  />
-                  <VisualScrubInput
-                    label={t("styleInspector.cornerRadius")}
-                    icon={IconBorderRadius}
-                    prefix="icon"
-                    value={snapshot.borderRadius}
-                    min={0}
-                    max={96}
-                    unit="px"
-                    className={SCRUB_CLASS}
-                    onChange={(radius) =>
-                      onChange({ borderRadius: `${formatValue(radius)}px` })
-                    }
-                  />
+              <VisualScrubInput
+                label={t("styleInspector.opacity")}
+                icon={IconGridDots}
+                prefix="icon"
+                value={snapshot.opacity}
+                min={0}
+                max={100}
+                step={5}
+                unit="%"
+                className={SCRUB_CLASS}
+                onChange={(opacity) =>
+                  onChange({ opacity: String(opacity / 100) })
+                }
+              />
+              <VisualScrubInput
+                label={t("styleInspector.cornerRadius")}
+                icon={IconBorderRadius}
+                prefix="icon"
+                value={snapshot.borderRadius}
+                min={0}
+                max={96}
+                unit="px"
+                className={SCRUB_CLASS}
+                onChange={(radius) =>
+                  onChange({ borderRadius: `${formatValue(radius)}px` })
+                }
+              />
 
-                  <div className={dividerClass} />
-                  <VisualScrubInput
-                    label={t("styleInspector.strokeWeight")}
-                    icon={IconBorderStyle}
-                    prefix="icon"
-                    value={snapshot.borderWidth}
-                    min={0}
-                    max={16}
-                    unit="px"
-                    className={SCRUB_CLASS}
-                    onChange={(width) =>
-                      onChange({ borderWidth: `${formatValue(width)}px` })
-                    }
-                  />
-                  <VisualColorPicker
-                    label={t("styleInspector.strokeColor")}
-                    value={snapshot.borderColor}
-                    documentColors={documentColors}
-                    variant="swatch"
-                    contentProps={inlineEditSurfaceProps}
-                    onChange={(value) => onChange({ borderColor: value })}
-                  />
-                </>
-              )}
+              <div className={TOOLBAR_DIVIDER} />
+              <VisualScrubInput
+                label={t("styleInspector.strokeWeight")}
+                icon={IconBorderStyle}
+                prefix="icon"
+                value={snapshot.borderWidth}
+                min={0}
+                max={16}
+                unit="px"
+                className={SCRUB_CLASS}
+                onChange={(width) =>
+                  onChange({ borderWidth: `${formatValue(width)}px` })
+                }
+              />
+              <VisualColorPicker
+                label={t("styleInspector.strokeColor")}
+                value={snapshot.borderColor}
+                documentColors={documentColors}
+                variant="swatch"
+                contentProps={inlineEditSurfaceProps}
+                onChange={(value) => onChange({ borderColor: value })}
+              />
             </>
           )}
 
-          <div className={dividerClass} />
+          <div className={TOOLBAR_DIVIDER} />
 
           {(snapshot.isAbsolute ||
             (objectSelectionCount < 2 && onEnablePositioning)) && (
@@ -965,9 +889,78 @@ export function SlideContextToolbar({
             </Popover>
           )}
 
-          {(snapshot.isAbsolute || objectSelectionCount >= 2) &&
-            onArrange &&
-            !compact && <ArrangeButtons onArrange={onArrange} t={t} />}
+          {(snapshot.isAbsolute || objectSelectionCount >= 2) && onArrange && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("back")}
+                    aria-label={t("styleInspector.sendToBack")}
+                  >
+                    <IconStackBack className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.sendToBack")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("backward")}
+                    aria-label={t("styleInspector.sendBackward")}
+                  >
+                    <IconStackBack className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.sendBackward")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("front")}
+                    aria-label={t("styleInspector.bringToFront")}
+                  >
+                    <IconStackFront className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.bringToFront")}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    onClick={() => onArrange("forward")}
+                    aria-label={t("styleInspector.bringForward")}
+                  >
+                    <IconStackFront className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("styleInspector.bringForward")}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
 
           <Popover>
             <Tooltip>
@@ -1061,7 +1054,7 @@ export function SlideContextToolbar({
                 </>
               )}
 
-              {(snapshot.isText || compact) && (
+              {snapshot.isText && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <VisualScrubInput
@@ -1113,46 +1106,32 @@ export function SlideContextToolbar({
                       onChange={(value) => onChange({ borderColor: value })}
                     />
                   </VisualControlRow>
-                  {snapshot.isText && (
-                    <>
-                      <VisualScrubInput
-                        label={t("styleInspector.line")}
-                        icon={IconArrowAutofitHeight}
-                        prefix="icon"
-                        value={snapshot.lineHeight}
-                        min={0.8}
-                        max={3}
-                        step={0.05}
-                        onChange={(lineHeight) =>
-                          onChange({ lineHeight: formatValue(lineHeight) })
-                        }
-                      />
-                      <VisualControlRow label={t("styleInspector.fill")}>
-                        <VisualColorPicker
-                          label={t("styleInspector.fill")}
-                          value={snapshot.backgroundColor}
-                          documentColors={documentColors}
-                          allowTransparent
-                          variant="filled"
-                          className="rounded-sm"
-                          contentProps={inlineEditSurfaceProps}
-                          onChange={(value) =>
-                            onChange({ backgroundColor: value })
-                          }
-                        />
-                      </VisualControlRow>
-                    </>
-                  )}
+                  <VisualScrubInput
+                    label={t("styleInspector.line")}
+                    icon={IconArrowAutofitHeight}
+                    prefix="icon"
+                    value={snapshot.lineHeight}
+                    min={0.8}
+                    max={3}
+                    step={0.05}
+                    onChange={(lineHeight) =>
+                      onChange({ lineHeight: formatValue(lineHeight) })
+                    }
+                  />
+                  <VisualControlRow label={t("styleInspector.fill")}>
+                    <VisualColorPicker
+                      label={t("styleInspector.fill")}
+                      value={snapshot.backgroundColor}
+                      documentColors={documentColors}
+                      allowTransparent
+                      variant="filled"
+                      className="rounded-sm"
+                      contentProps={inlineEditSurfaceProps}
+                      onChange={(value) => onChange({ backgroundColor: value })}
+                    />
+                  </VisualControlRow>
                 </>
               )}
-
-              {(snapshot.isAbsolute || objectSelectionCount >= 2) &&
-                onArrange &&
-                compact && (
-                  <div className="flex items-center gap-1">
-                    <ArrangeButtons onArrange={onArrange} t={t} />
-                  </div>
-                )}
 
               {!snapshot.isImage && (
                 <div className="grid grid-cols-2 gap-2">
@@ -1199,7 +1178,7 @@ export function SlideContextToolbar({
         objectSelectionCount === 0 &&
         onEnablePositioning && (
           <>
-            <div className={dividerClass} />
+            <div className={TOOLBAR_DIVIDER} />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -1237,7 +1216,7 @@ export function SlideContextToolbar({
             <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
           </Tooltip>
           <span className="w-11 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
-            {Math.round(zoomControls.value)}%
+            {zoomControls.value}%
           </span>
           <Tooltip>
             <TooltipTrigger asChild>

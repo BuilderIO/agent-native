@@ -23,16 +23,33 @@ available. Classify each fingerprint as **product regression**, **stale spec**,
 **harness flake**, or **infrastructure**, then reproduce locally and fix the
 owning boundary.
 
-Search open PRs and existing issues for every run ID, workflow, or fingerprint
-to find an active owner. An existing issue covers only the exact failure-level
-evidence it names: a run-ID-only match owns only that occurrence, and a workflow
-name alone does not cover every failure in it. Record the matching PR, issue,
-or Codex task as owner and keep every unmatched occurrence actionable. Do not
-create or update GitHub issues to track CI fingerprints. If a dedicated workflow
-already owns a reporter-managed issue, link it and leave its updates and
-recovery lifecycle to that workflow. If no active owner or canonical issue can
-be verified, record the ownership gap and next action instead of opening a
-competing ticket.
+Scheduled CI, production-health, and signup reporters publish grouped findings
+to `#qa-agent-native`, with a run link and an artifact containing the complete
+report. Read the full artifact; the channel message is the discovery index, not
+a replacement for the occurrence ledger. Search the channel and open PRs/tasks
+for each run ID, workflow, or fingerprint to find an active owner. A matching
+PR, task, or QA rollup covers only the exact failure-level evidence it names:
+a run-ID-only match owns only that occurrence, and a workflow name alone does
+not cover every failure in it. Record the matching PR, task, or Slack permalink
+and keep every unmatched occurrence actionable. Do not create or update GitHub
+issues for CI fingerprints. Legacy automated issue reports are not the
+reporting or recovery state; carry their evidence to the QA rollup and use the
+workflow's run artifacts for deduplication and recovery. If no active owner or
+canonical report can be verified, record the ownership gap and next action
+instead of opening a competing ticket.
+
+The `pnpm ci:red-report` sweep also uses `#qa-agent-native` as the discovery
+index. After matching its rows against existing channel rollups, tasks, and
+PRs at the exact run-ID and fingerprint level, post one grouped channel message
+for uncovered findings in that sweep. Group by workflow and fingerprint, and
+include every uncovered run link, attempt, run count, occurrence count, and the
+classification or next owner action. Do not post one message per finding or
+repeat unchanged occurrences already represented in a rollup. If the grouped
+message exceeds Slack's size limit, split it into workflow/fingerprint chunks
+in one thread. Keep the complete occurrence ledger in the feedback task
+transcript even when a finding is already covered. If Slack delivery fails,
+record that failure and keep the CI rows unresolved; never fall back to creating
+or updating GitHub issues.
 
 The durable cross-sweep ledger is the **CI failure ledger** section in the most
 recent `review-latest-feedback` Codex task transcript. At the start of a sweep,
@@ -57,8 +74,9 @@ out of the report is not recovery. Carry unresolved rows from the prior task
 transcript into the current ledger and keep each occurrence's evidence and
 disposition even when several failures share one fingerprint.
 
-Quarantine only with a named owner, expiry, and an explicitly authorized
-tracking issue. A green result produced by quarantine is a defect. Follow
+Quarantine only with a named owner and expiry, and use an existing authorized
+tracking record rather than creating an automated findings issue. A green
+result produced by quarantine is a defect. Follow
 quarantined rows until fixed or restored. The CI failure ledger records run count,
 fingerprint and occurrence counts, query status, classification, disposition,
 evidence, and owner/action.

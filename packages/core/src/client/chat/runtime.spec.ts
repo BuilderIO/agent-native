@@ -9,6 +9,7 @@ import {
   vi,
 } from "vitest";
 
+import { isLlmCredentialError } from "../../agent/engine/credential-errors.js";
 import {
   AgentChatAiSetupRequiredError,
   agentEngineStatusUrlForChatApi,
@@ -22,6 +23,7 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
+  AGENT_CALL_FAILURE_REASON_KEYS,
   createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
   loadedSkillSlugsFromMessages,
@@ -34,6 +36,14 @@ import {
   type AgentChatRuntimeTurnInput,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
+
+const REJECTED_LLM_CREDENTIAL_CODES = [
+  "http_401",
+  "http_403",
+  "invalid_api_key",
+  "authentication_error",
+  "unauthorized",
+];
 
 async function* streamRuntimeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
   yield {
@@ -3587,18 +3597,40 @@ describe("createAgentNativeChatRuntime", () => {
       type: "activity",
       activity: {
         id: "agent-call-1:progress",
+        label: "processing",
         detail: "Reading the protocol contract",
         data: { state: "working", elapsedSeconds: 12 },
+      },
+    });
+    expect(events[5]).toMatchObject({
+      type: "interaction",
+      interaction: {
+        id: "agent-call-1:message:3",
+        kind: "messaged",
+        detail: "Found the runtime boundary.",
       },
     });
     expect(events[6]).toMatchObject({
       type: "activity",
       activity: {
         id: "agent-call-1:activity",
+        label: "processing",
         data: snapshot,
         metadata: { sequence: 4, durationMs: 1_500 },
       },
     });
+    // The participant chip names the app; no row label may repeat it.
+    const rowLabels = events.flatMap((event) =>
+      event.type === "interaction"
+        ? [event.interaction.label]
+        : event.type === "activity"
+          ? [event.activity.label]
+          : [],
+    );
+    expect(rowLabels).toHaveLength(5);
+    expect(rowLabels).not.toContain("Planck");
+    expect(rowLabels).not.toContain("working");
+    expect(events[5]).not.toHaveProperty("interaction.label");
     expect(events[7]).toMatchObject({
       type: "participant",
       operation: "update",
@@ -3608,6 +3640,234 @@ describe("createAgentNativeChatRuntime", () => {
       },
     });
     expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("maps a failed agent_call to a reason key instead of the app name or raw code", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "start",
+          agentCallId: "call-start",
+          seq: 1,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-precondition",
+          taskId: "remote-task-1",
+          terminalCode: "permanent_precondition",
+          seq: 2,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-auth",
+          terminalCode: "a2a_auth_rejected",
+          seq: 3,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-unknown",
+          terminalCode: "a2a_task_failed",
+          seq: 4,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-prototype",
+          terminalCode: "constructor",
+          seq: 5,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-no-code",
+          seq: 6,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-budget",
+          terminalCode: "run_budget_exhausted",
+          seq: 7,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-timeout",
+          terminalCode: "timeout_without_task",
+          seq: 8,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-response",
+          terminalCode: "a2a_response_too_large",
+          seq: 9,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "pending",
+          agentCallId: "call-pending",
+          terminalCode: "input_required",
+          seq: 10,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-setup",
+          terminalCode: "missing_credentials",
+          seq: 11,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-child-precondition",
+          terminalCode: "a2a_child_permanent_precondition",
+          seq: 12,
+        },
+        {
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: "call-blocked",
+          terminalCode: "a2a_target_blocked_this_turn",
+          seq: 13,
+        },
+        ...REJECTED_LLM_CREDENTIAL_CODES.map((terminalCode, index) => ({
+          type: "agent_call",
+          agent: "Brain",
+          status: "error",
+          agentCallId: `call-rejected-${terminalCode}`,
+          terminalCode,
+          seq: 14 + index,
+        })),
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Ask" }))
+        .events,
+    );
+    const interaction = (callId: string) =>
+      events.find(
+        (event) =>
+          event.type === "interaction" &&
+          event.interaction.participantId === callId,
+      );
+    const reasonKey = (callId: string) => {
+      const event = interaction(callId);
+      return event?.type === "interaction"
+        ? event.interaction.metadata?.failureReasonKey
+        : undefined;
+    };
+
+    expect(reasonKey("call-setup")).toBe("agentChat.agent.failureReason.setup");
+    expect(reasonKey("call-auth")).toBe("agentChat.agent.failureReason.auth");
+    // A rejected LLM key renders like any other rejected credential, not as the
+    // generic failure its terminal code would otherwise fall back to.
+    for (const terminalCode of REJECTED_LLM_CREDENTIAL_CODES) {
+      expect(isLlmCredentialError(undefined, terminalCode)).toBe(true);
+      expect(reasonKey(`call-rejected-${terminalCode}`)).toBe(
+        "agentChat.agent.failureReason.auth",
+      );
+    }
+    expect(reasonKey("call-budget")).toBe(
+      "agentChat.agent.failureReason.budget",
+    );
+    expect(reasonKey("call-timeout")).toBe(
+      "agentChat.agent.failureReason.timeout",
+    );
+    expect(reasonKey("call-response")).toBe(
+      "agentChat.agent.failureReason.response",
+    );
+    // permanent_precondition also stops attachment, SSRF, and plan-mode
+    // failures, so it must not claim a setup step would fix the call.
+    for (const callId of [
+      "call-precondition",
+      "call-child-precondition",
+      "call-blocked",
+      "call-unknown",
+      "call-prototype",
+      "call-no-code",
+    ]) {
+      expect(reasonKey(callId)).toBe("agentChat.agent.failureReason.failed");
+    }
+    expect(reasonKey("call-start")).toBeUndefined();
+    expect(reasonKey("call-pending")).toBeUndefined();
+    expect(AGENT_CALL_FAILURE_REASON_KEYS).toEqual(
+      expect.arrayContaining(
+        events.flatMap((event) =>
+          event.type === "interaction" &&
+          typeof event.interaction.metadata?.failureReasonKey === "string"
+            ? [event.interaction.metadata.failureReasonKey]
+            : [],
+        ),
+      ),
+    );
+
+    for (const callId of [
+      "call-start",
+      "call-setup",
+      "call-precondition",
+      "call-child-precondition",
+      "call-blocked",
+      "call-auth",
+      "call-unknown",
+      "call-prototype",
+      "call-no-code",
+      "call-budget",
+      "call-timeout",
+      "call-response",
+      "call-pending",
+    ]) {
+      const event = interaction(callId);
+      if (event?.type !== "interaction") throw new Error(callId);
+      expect(event.interaction.label).toBeUndefined();
+      expect(event.interaction.object).toBeUndefined();
+      expect(event.interaction.detail).toBeUndefined();
+    }
+
+    expect(interaction("call-precondition")).toMatchObject({
+      interaction: { kind: "failed" },
+    });
+    expect(
+      events.find(
+        (event) =>
+          event.type === "participant" &&
+          event.participant.id === "call-precondition",
+      ),
+    ).toMatchObject({
+      participant: {
+        status: "failed",
+        metadata: { terminalCode: "permanent_precondition" },
+      },
+    });
+    expect(events.find((event) => event.type === "task")).toMatchObject({
+      task: {
+        id: "remote-task-1",
+        status: "failed",
+        metadata: { terminalCode: "permanent_precondition" },
+      },
+    });
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {

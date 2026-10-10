@@ -48,81 +48,213 @@ jobs:
     permissions:
       actions: read
       contents: read
-      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
       SIGNUP_E2E_APPS: ${{ inputs.apps || 'all' }}
       SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.environments || 'beta' }}
+      SLACK_CHANNEL: C0C4U4XRT6X
     steps:
-      - name: Update one open issue for a failed run
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Build one consolidated report for a failed run
+        id: report
         if: ${{ needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled' }}
         run: |
           set -euo pipefail
+          report_dir=.tmp/signup-e2e
+          mkdir -p "$report_dir/logs" "$report_dir/report"
 
-          issue_title="[signup-e2e] Scheduled signup health check failing"
-          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
-          # Each failed job with a link and the step it failed at, the last
-          # error annotations from its log, and the evidence artifact.
-          failed_jobs="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | "- [\(.name)](\(.url)): \(.conclusion) at step \"\([.steps[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | first // "unknown")\""] | join("\n")')"
-          error_lines=""
-          for job_id in $(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .databaseId' | head -n 3); do
-            if log="$(gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/logs")"; then
-              lines="$(printf '%s\n' "$log" | grep -F '##[error]' | tail -n 5 | sed -E 's/^[^ ]+ //' || true)"
-              error_lines="$error_lines${lines:-(no error annotations in the log of job $job_id)}"$'\n'
-            else
-              error_lines="${error_lines}(could not read the log of job $job_id)"$'\n'
+          report_incomplete=false
+          collection_errors=()
+          collection_error() {
+            local label="$1"
+            local error_file="$2"
+            local fallback="$3"
+            local detail
+            detail="$(tr '\r\n' ' ' < "$error_file" | sed -E 's/[[:space:]]+/ /g' | cut -c 1-500)"
+            collection_errors+=("$label: ${detail:-$fallback}")
+            report_incomplete=true
+          }
+
+          if jobs_json="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[]' 2> "$report_dir/jobs-api-error.txt")"; then
+            if ! printf '%s\n' "$jobs_json" | jq -s '[.[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | {id, name, url: .html_url, conclusion}]' > "$report_dir/jobs.json" 2> "$report_dir/jobs-parse-error.txt"; then
+              collection_error "Job details parse" "$report_dir/jobs-parse-error.txt" "GitHub returned unreadable job data."
+              printf '[]\n' > "$report_dir/jobs.json"
             fi
-          done
+          else
+            collection_error "Job details API" "$report_dir/jobs-api-error.txt" "GitHub Actions API request failed without an error message."
+            printf '[]\n' > "$report_dir/jobs.json"
+          fi
+          if [ "$(jq 'length' "$report_dir/jobs.json")" -eq 0 ]; then
+            jq -n --arg name "Signup E2E workflow" --arg url "$RUN_URL" --arg conclusion "${{ needs.signup-e2e.result }}" \
+              '[{id: null, name: $name, url: $url, conclusion: $conclusion}]' > "$report_dir/jobs.json"
+          fi
+
           artifact_name="signup-e2e-$GITHUB_RUN_ID"
-          artifact_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"$artifact_name\") | .id" | head -n1)"
+          evidence_url=""
+          if artifacts_json="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" --jq '.artifacts[]' 2> "$report_dir/artifacts-api-error.txt")"; then
+            if ! artifact_id="$(printf '%s\n' "$artifacts_json" | jq -rs --arg name "$artifact_name" '[.[] | select(.name == $name and (.expired | not))] | map(.id) | last // empty' 2> "$report_dir/artifacts-parse-error.txt")"; then
+              collection_error "Artifact details parse" "$report_dir/artifacts-parse-error.txt" "GitHub returned unreadable artifact data."
+              artifact_id=""
+            fi
+          else
+            collection_error "Artifact details API" "$report_dir/artifacts-api-error.txt" "GitHub Actions API request failed without an error message."
+            artifact_id=""
+          fi
           if [ -n "$artifact_id" ]; then
-            artifact="[$artifact_name]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts/$artifact_id) (gh run download $GITHUB_RUN_ID -n $artifact_name)"
-          else
-            artifact="none uploaded"
+            evidence_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts/$artifact_id"
           fi
-          body="$(cat <<EOF
-          The scheduled full signup E2E check failed.
+          enriched_jobs="$report_dir/enriched-jobs.json"
+          : > "$enriched_jobs"
+          while IFS= read -r job; do
+            job_id="$(jq -r '.id // empty' <<< "$job")"
+            job_file="${job_id:-unknown}.log"
+            log_path="$report_dir/logs/$job_file"
+            if [ -n "$job_id" ]; then
+              if ! gh run view --log-failed --job "$job_id" --repo "$GITHUB_REPOSITORY" > "$log_path" 2> "$report_dir/job-$job_id-log-error.txt"; then
+                collection_error "Failed job log $job_id" "$report_dir/job-$job_id-log-error.txt" "GitHub did not return this job's logs."
+                [ -f "$log_path" ] || : > "$log_path"
+              fi
+            else
+              : > "$log_path"
+            fi
+            jq -c --arg log_file "$job_file" '. + {logFile: $log_file}' <<< "$job" >> "$enriched_jobs"
+          done < <(jq -c '.[]' "$report_dir/jobs.json")
+          jq -s . "$enriched_jobs" > "$report_dir/jobs-with-logs.json"
+          errors_json="$(printf '%s\n' "${collection_errors[@]}" | sed '/^$/d' | jq -R . | jq -s .)"
+          jq -n \
+            --arg workflowResult "${{ needs.signup-e2e.result }}" \
+            --arg apps "$SIGNUP_E2E_APPS" \
+            --arg environments "$SIGNUP_E2E_ENVIRONMENTS" \
+            --arg runUrl "$RUN_URL" \
+            --arg evidenceUrl "$evidence_url" \
+            --argjson jobs "$(cat "$report_dir/jobs-with-logs.json")" \
+            --argjson collectionErrors "$errors_json" \
+            '{workflowResult: $workflowResult, apps: $apps, environments: $environments, runUrl: $runUrl, evidenceUrl: (if $evidenceUrl == "" then null else $evidenceUrl end), jobs: $jobs, collectionErrors: $collectionErrors}' \
+            > "$report_dir/metadata.json"
+          echo "incomplete=$report_incomplete" >> "$GITHUB_OUTPUT"
 
-          Run: $RUN_URL
-          Failed jobs and the step each failed at:
-          $failed_jobs
+      - name: Build the detailed findings report
+        if: ${{ steps.report.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/signup-e2e-rollup.ts \
+            --metadata .tmp/signup-e2e/metadata.json \
+            --logs-dir .tmp/signup-e2e/logs \
+            --out-dir .tmp/signup-e2e/report
 
-          Last error lines:
-          \`\`\`
-          $error_lines
-          \`\`\`
-          Artifact: $artifact
-          Targets: $SIGNUP_E2E_APPS on $SIGNUP_E2E_ENVIRONMENTS
-          Reproduce: gh workflow run signup-e2e-scheduled.yml --ref main -f apps=$SIGNUP_E2E_APPS -f environments=$SIGNUP_E2E_ENVIRONMENTS
+      - name: Upload the full signup E2E report
+        id: report-artifact
+        if: ${{ always() && steps.report.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signup-e2e-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .tmp/signup-e2e/logs/
+            .tmp/signup-e2e/metadata.json
+            .tmp/signup-e2e/report/signup-e2e-findings.md
+            .tmp/signup-e2e/report/signup-e2e-rollup.json
+          if-no-files-found: error
+          retention-days: 90
 
-          The Playwright artifact contains failure screenshots without auth traces or videos.
-          This issue is reused while open; a successful run comments with the recovery run and closes it.
-          EOF
-          )"
+      - name: Build the Slack rollup
+        id: slack-report
+        if: ${{ always() && steps.report.outcome == 'success' }}
+        env:
+          REPORT_ARTIFACT_URL: ${{ steps.report-artifact.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          args=(
+            --metadata .tmp/signup-e2e/metadata.json
+            --logs-dir .tmp/signup-e2e/logs
+            --out-dir .tmp/signup-e2e/report
+          )
+          if [ -n "$REPORT_ARTIFACT_URL" ]; then args+=(--report-artifact-url "$REPORT_ARTIFACT_URL"); fi
+          node --experimental-strip-types scripts/signup-e2e-rollup.ts "${args[@]}"
+          jq -n --arg channel "$SLACK_CHANNEL" --rawfile text .tmp/signup-e2e/report/signup-e2e-slack.txt \
+            '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
+            > .tmp/signup-e2e-slack-payload.json
+          {
+            echo "### Signup E2E report"
+            echo
+            cat .tmp/signup-e2e/report/signup-e2e-slack.txt
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -n "$issue_number" ]; then
-            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "$body"
+      - name: Build a degraded report when collection itself failed
+        if: >-
+          ${{ always() && needs.signup-e2e.result != 'success' && (steps.report.outcome != 'success' || steps.slack-report.outcome != 'success') }}
+        env:
+          REPORT_ARTIFACT_URL: ${{ steps.report-artifact.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp
+          jq -n --arg channel "$SLACK_CHANNEL" --arg run_url "$RUN_URL" --arg artifact_url "$REPORT_ARTIFACT_URL" \
+            '{channel: $channel, text: ":warning: *Signup E2E report is degraded*\nCollection failed before test details could be assembled.\nFindings: 1 total; showing 1; 0 omitted from this Slack message.\n• Report collection failure: no test findings can be confirmed from the available metadata.\n" + (if $artifact_url == "" then "Full report artifact unavailable; see <" + $run_url + "|workflow run logs>." else "Full report and failed-job logs: <" + $artifact_url + "|90-day report artifact>." end) + "\nRun: <" + $run_url + "|workflow run>.", unfurl_links: false, unfurl_media: false}' \
+            > .tmp/signup-e2e-slack-payload.json
+          echo "### Signup E2E report is degraded" >> "$GITHUB_STEP_SUMMARY"
+          echo "Collection failed before test details could be assembled. A degraded report will be posted to #qa-agent-native." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check Slack configuration
+        id: slack_config
+        if: ${{ always() && (needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled') }}
+        env:
+          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$issue_title" --body "$body"
+            message="Slack notification not configured: QA_SLACK_BOT_TOKEN is empty, so the signup E2E report could not be sent to #qa-agent-native."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
+
+      - name: Post the consolidated report to Slack
+        id: slack
+        if: ${{ always() && steps.slack_config.outputs.configured == 'true' }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          errors: false
+          payload-file-path: .tmp/signup-e2e-slack-payload.json
+
+      - name: Report Slack delivery failure
+        if: ${{ always() && steps.slack_config.outputs.configured == 'true' && (steps.slack.outcome != 'success' || steps.slack.outputs.ok != 'true') }}
+        env:
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+        run: |
+          set -euo pipefail
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
+          reason="${reason:-no Slack API error code returned; step outcome $SLACK_OUTCOME}"
+          message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The QA_SLACK_BOT_TOKEN bot must be invited to the channel and the token must be valid. No GitHub issue fallback was used."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Fail after posting an incomplete report
+        if: >-
+          ${{ always() && (steps.report.outcome != 'success' || steps.slack-report.outcome != 'success' || steps.report.outputs.incomplete == 'true' || steps.report-artifact.outcome == 'failure') && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' }}
+        run: |
+          message="Signup E2E collection or full-report artifact upload was incomplete, but the degraded report was posted to #qa-agent-native. See the report and collection errors above."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Report inconclusive provider result
         if: ${{ needs.signup-e2e.result == 'success' && needs.signup-e2e.outputs.signup_outcome == 'inconclusive' }}
         run: echo "The signup E2E run was inconclusive because Mailosaur was rate-limited; no recovery or page action was taken." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Close the open issue after recovery
-        if: ${{ needs.signup-e2e.result == 'success' && needs.signup-e2e.outputs.signup_outcome == 'success' }}
-        run: |
-          set -euo pipefail
-
-          issue_title="[signup-e2e] Scheduled signup health check failing"
-          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
-          if [ -n "$issue_number" ]; then
-            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "The scheduled signup E2E check recovered: $RUN_URL"
-            gh issue close "$issue_number" --repo "$GITHUB_REPOSITORY"
-          fi
 
       - name: Resolve PagerDuty after recovery
         if: ${{ needs.signup-e2e.result == 'success' && needs.signup-e2e.outputs.signup_outcome == 'success' && env.PAGERDUTY_ROUTING_KEY != '' }}

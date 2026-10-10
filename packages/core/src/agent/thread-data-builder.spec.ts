@@ -12,6 +12,7 @@ import {
   applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
@@ -71,6 +72,52 @@ describe("foldUnstartedTurnFailure", () => {
       }),
     ]);
     expect(extractThreadMeta(repo).preview).toBeTruthy();
+  });
+});
+
+describe("foldThreadRunSuggestions for a turn that yielded to a connection request", () => {
+  const yielded: RunEvent[] = [
+    {
+      seq: 0,
+      event: {
+        type: "tool_done",
+        id: "call-1",
+        tool: "provider-api-request",
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+    },
+    {
+      seq: 1,
+      event: {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    },
+  ];
+  const fold = (status: "completed" | "truncated", tail: RunEvent["event"]) =>
+    foldThreadRunSuggestions(
+      {},
+      {
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+        status,
+        events: [...yielded, { seq: yielded.length, event: tail }],
+      },
+    ).agentKit.runs[0].status;
+
+  it("reads a completed run as waiting on the user", () => {
+    expect(fold("completed", { type: "done" })).toBe("awaiting_input");
+  });
+
+  it("reads a run the manager cut off as failed, whatever it asked for", () => {
+    expect(
+      fold("truncated", { type: "auto_continue", reason: "stream_ended" }),
+    ).toBe("failed");
   });
 });
 
