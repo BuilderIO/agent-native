@@ -473,6 +473,14 @@ describe("session replay agent context links", () => {
     });
 
     expect(context.timeline.markers).toHaveLength(200);
+    expect(context.timeline).toMatchObject({
+      markerCount: 200,
+      totalMarkerCount: 255,
+      markerTruncated: true,
+      omittedMarkerCount: 55,
+      eventsTruncated: false,
+      truncated: true,
+    });
     expect(
       context.timeline.markers.filter(
         (marker) => marker.kind === "console-error",
@@ -480,6 +488,26 @@ describe("session replay agent context links", () => {
     ).toHaveLength(5);
     const offsets = context.timeline.markers.map((marker) => marker.offsetMs);
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+
+    mockGetSessionReplayEvents.mockResolvedValueOnce({
+      recording: makeRecording(),
+      chunks: [{ seq: 0, checksum: "abc", byteLength: 1, events }],
+      eventCount: events.length,
+      truncated: false,
+      unavailableChunks: 0,
+    });
+    const timeline = await getSessionReplayTimeline("sr_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    expect(timeline).toMatchObject({
+      markerCount: 200,
+      totalMarkerCount: 255,
+      markerTruncated: true,
+      omittedMarkerCount: 55,
+      eventsTruncated: false,
+      truncated: true,
+    });
   });
 
   it("bounds top-level diagnostics to 50 entries and points at the diagnostics API", async () => {
