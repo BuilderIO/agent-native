@@ -3191,7 +3191,7 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("reports snapshot persistence failures without rejecting the legacy API", async () => {
+  it("reports snapshot persistence failures through the legacy API", async () => {
     const transport = createTransport([]);
     transport.persistThreadSnapshot = async () => {
       throw new Error("History storage is unavailable.");
@@ -3201,9 +3201,9 @@ describe("AgentKitClient", () => {
     await expect(
       client.persistThreadSnapshotWithResult("thread-1"),
     ).resolves.toBe(false);
-    await expect(
-      client.persistThreadSnapshot("thread-1"),
-    ).resolves.toBeUndefined();
+    await expect(client.persistThreadSnapshot("thread-1")).rejects.toThrow(
+      "Thread snapshot persistence failed.",
+    );
     expect(client.getSnapshot()).toMatchObject({
       connection: "error",
       error: {

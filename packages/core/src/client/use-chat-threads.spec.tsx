@@ -1838,6 +1838,46 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("route-thread")).toBe(false);
   });
 
+  it("replaces a forbidden saved non-route thread with a fresh draft", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forbidden-saved-thread-test",
+      "forbidden-thread",
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/forbidden-thread" && !init) {
+        return new Response(null, { status: 403 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "forbidden-saved-thread-test");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.isNewThread("forked-thread")).toBe(true);
+    expect(hook!.isThreadPersisted("forked-thread")).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).not.toContain(
+      "forbidden-thread",
+    );
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) => url === "/chat/threads/forbidden-thread",
+      ),
+    ).toBe(true);
+  });
+
   it("treats a route without a thread as create mode and clears saved active thread", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:route-create-test",

@@ -6515,6 +6515,57 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("forwards snapshot cancellation through custom and core persistence", async () => {
+    let customSignal: AbortSignal | undefined;
+    let coreSignal: AbortSignal | undefined;
+    const waitForAbort =
+      (capture: (signal: AbortSignal) => void) =>
+      (_input: unknown, context?: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => {
+          const signal = context?.signal;
+          if (!signal) throw new Error("Expected a persistence signal.");
+          capture(signal);
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+    const customPersist = vi.fn(
+      waitForAbort((signal) => {
+        customSignal = signal;
+      }),
+    );
+    const corePersist = vi.fn(
+      waitForAbort((signal) => {
+        coreSignal = signal;
+      }),
+    );
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(corePersist);
+    const transport = {
+      persistThreadSnapshot: customPersist,
+    } as unknown as AgentTransport;
+    const createTransport = () => transport;
+
+    await mount(baseProps({ createTransport }));
+    const abortController = new AbortController();
+    const saving = chatMocks.rootProps.transport.persistThreadSnapshot(
+      {
+        threadId: "thread-1",
+        snapshot: { messages: [] },
+      },
+      { signal: abortController.signal },
+    );
+    await vi.waitFor(() => {
+      expect(customPersist).toHaveBeenCalledOnce();
+      expect(corePersist).toHaveBeenCalledOnce();
+    });
+
+    abortController.abort();
+    await expect(saving).rejects.toBeDefined();
+
+    expect(customSignal?.aborted).toBe(true);
+    expect(coreSignal?.aborted).toBe(true);
+  });
+
   it("serializes transport and metadata saves across remounts", async () => {
     let resolveFirstTransport: (() => void) | undefined;
     const firstTransportSave = new Promise<void>((resolve) => {

@@ -442,20 +442,21 @@ function withCoreSnapshotPersistence(
   > = (...args) =>
     enqueueThreadSnapshotPersistence(
       persistenceKeyForThread(args[0].threadId),
-      async () => {
+      async (context) => {
         const writes = [
           ...(customTransport.persistThreadSnapshot
             ? [
                 Promise.resolve().then(() =>
                   customTransport.persistThreadSnapshot!.call(
                     customTransport,
-                    ...args,
+                    args[0],
+                    context,
                   ),
                 ),
               ]
             : []),
           Promise.resolve().then(() =>
-            corePersist.call(coreTransport, ...args),
+            corePersist.call(coreTransport, args[0], context),
           ),
         ];
         const results = await Promise.allSettled(writes);
@@ -470,6 +471,7 @@ function withCoreSnapshotPersistence(
           );
         }
       },
+      args[1],
     );
   const dispose = async () => {
     if (disposed) return;

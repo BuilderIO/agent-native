@@ -335,7 +335,7 @@ export interface AgentKitController {
   getSnapshot(): AgentKitSnapshot;
   subscribe(listener: AgentKitListener): () => void;
   getThread(threadId: ThreadId): AgentThreadState;
-  /** Persist the current thread snapshot, optionally with a host-filtered message list. */
+  /** Persist the current snapshot, optionally filtered, and reject on failure. */
   persistThreadSnapshot(
     threadId: ThreadId,
     messages?: AgentMessage[],
@@ -4070,7 +4070,13 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void> {
-    await this.persistThreadSnapshotWithResult(threadId, messages);
+    const persisted = await this.persistThreadSnapshotWithResult(
+      threadId,
+      messages,
+    );
+    if (!persisted) {
+      throw new Error("Thread snapshot persistence failed.");
+    }
   }
 
   public async persistThreadSnapshotWithResult(

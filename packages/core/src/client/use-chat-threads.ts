@@ -156,7 +156,7 @@ async function fetchThreadById(
   apiUrl: string,
   id: string,
   scope?: ChatThreadScope | null,
-): Promise<ChatThreadSummary | null | undefined> {
+): Promise<ChatThreadSummary | null | undefined | "forbidden"> {
   try {
     const params = new URLSearchParams();
     appendChatThreadScopeParams(params, scope);
@@ -165,7 +165,7 @@ async function fetchThreadById(
       `${apiUrl}/threads/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
     );
     if (res.status === 404) return null;
-    if (res.status === 403) return undefined;
+    if (res.status === 403) return "forbidden";
     if (!res.ok) return undefined;
     return (await res.json()) as ChatThreadSummary;
   } catch {
@@ -717,7 +717,11 @@ export function useChatThreads(
               );
               return retained ? [retained] : [];
             }
-            if (!thread || thread.archivedAt) {
+            if (
+              thread === null ||
+              thread === "forbidden" ||
+              thread.archivedAt
+            ) {
               explicitlyOpenedThreadIdsRef.current.delete(id);
               evictedExplicitIds.add(id);
               return [];
@@ -909,9 +913,12 @@ export function useChatThreads(
         return;
       }
       const restoredIsMissing =
-        restoredThread === null && lookupRestored && !restoredOnPage;
+        (restoredThread === null || restoredThread === "forbidden") &&
+        lookupRestored &&
+        !restoredOnPage;
       const restoredBelongsElsewhere = Boolean(
         restoredThread &&
+        restoredThread !== "forbidden" &&
         !threadCanStayVisibleInHistory(
           restoredThread.scope ?? null,
           scopeRef.current,
@@ -920,6 +927,7 @@ export function useChatThreads(
       );
       if (
         restoredThread &&
+        restoredThread !== "forbidden" &&
         !restoredBelongsElsewhere &&
         !isUnconfirmedClientDraftThread(
           restoredThread.id,
@@ -945,7 +953,9 @@ export function useChatThreads(
       const savedId = restoredNeedsReplacement ? null : restoredId;
       const loadedHasSavedId = Boolean(
         savedId &&
-        ((restoredThread && !restoredBelongsElsewhere) ||
+        ((restoredThread &&
+          restoredThread !== "forbidden" &&
+          !restoredBelongsElsewhere) ||
           loadedThreads.some((t) => t.id === savedId)),
       );
       const savedIdCameFromRoute =
@@ -1057,7 +1067,7 @@ export function useChatThreads(
         }
         return;
       }
-      if (thread === null) {
+      if (thread === null || thread === "forbidden") {
         return;
       }
 
@@ -1463,7 +1473,7 @@ export function useChatThreads(
     async (id: string): Promise<"opened" | "missing" | "unavailable"> => {
       const thread = await fetchThreadById(apiUrl, id, null);
       if (thread === undefined) return "unavailable";
-      if (thread === null || thread.archivedAt) {
+      if (thread === null || thread === "forbidden" || thread.archivedAt) {
         explicitlyOpenedThreadIdsRef.current.delete(id);
         setEvictedThreadIds((prev) =>
           prev.includes(id) ? prev : [...prev, id],
