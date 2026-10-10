@@ -16,6 +16,29 @@ function candidate(
   return { id, title, updatedAt };
 }
 
+// A wall-clock budget fails on CI, where every core runs a test worker: one
+// ranking measured 448ms locally under that load against ~5ms idle. Time the
+// ranking against a baseline in the same process instead, with the samples
+// interleaved so a slow stretch hits both. Contention and GC only ever add
+// time, so each side's fastest sample is its real cost; a median still tripped
+// these tests under load. The first samples warm up the JIT for both paths.
+function fastestInterleavedMs(measured: () => void, baseline: () => void) {
+  let fastestMeasuredMs = Number.POSITIVE_INFINITY;
+  let fastestBaselineMs = Number.POSITIVE_INFINITY;
+  for (let sample = 0; sample < 18; sample += 1) {
+    let start = performance.now();
+    measured();
+    const measuredMs = performance.now() - start;
+    start = performance.now();
+    baseline();
+    const baselineMs = performance.now() - start;
+    if (sample < 3) continue;
+    fastestMeasuredMs = Math.min(fastestMeasuredMs, measuredMs);
+    fastestBaselineMs = Math.min(fastestBaselineMs, baselineMs);
+  }
+  return { fastestMeasuredMs, fastestBaselineMs };
+}
+
 function rankIds(items: TitleSearchCandidate[], query: string) {
   return rankTitlesByQuery(buildTitleSearchIndex(items), query).map(
     (result) => result.candidate.id,
@@ -174,7 +197,7 @@ describe("rankTitlesByQuery tie-breaks", () => {
 });
 
 describe("rankTitlesByQuery performance", () => {
-  it("ranks 10,000 titles through the typo tier in under 50ms", () => {
+  it("ranks 10,000 titles through the typo tier within twice a rebuild", () => {
     const items: TitleSearchCandidate[] = Array.from(
       { length: 10_000 },
       (_, index) =>
@@ -185,13 +208,18 @@ describe("rankTitlesByQuery performance", () => {
         ),
     );
     const index = buildTitleSearchIndex(items);
-    rankTitlesByQuery(index, "plnaning"); // warm up the JIT
-    const start = performance.now();
     const ranked = rankTitlesByQuery(index, "plnaning");
-    const elapsed = performance.now() - start;
     expect(ranked.length).toBe(10_000);
     expect(ranked[0]!.tier).toBe(TITLE_MATCH_TIER.fuzzy);
-    expect(elapsed).toBeLessThan(50);
+
+    const { fastestMeasuredMs, fastestBaselineMs } = fastestInterleavedMs(
+      () => rankTitlesByQuery(index, "plnaning"),
+      () => buildTitleSearchIndex(items),
+    );
+    // Every title reaches the edit-distance pass here, at about half a rebuild
+    // idle and up to 1.2x under load, so the margin is wider than the
+    // shared-tier test's. Twice a rebuild still means a several-fold slowdown.
+    expect(fastestMeasuredMs).toBeLessThan(fastestBaselineMs * 2);
   });
 
   it("skips typo matching when shared-tier matches already fill the limit", () => {
@@ -234,29 +262,13 @@ describe("rankTitlesByQuery performance", () => {
     const index = buildTitleSearchIndex(items);
     expect(rankTitlesByQuery(index, "road").length).toBeGreaterThan(0);
 
-    // A wall-clock budget fails on CI, where every core runs a test worker:
-    // one ranking measured 448ms locally under that load against ~5ms idle.
-    // Compare against rebuilding the index in the same process instead, with
-    // the samples interleaved so a slow stretch hits both. Contention and GC
-    // only ever add time, so each side's fastest sample is its real cost; a
-    // median still tripped this under load.
-    let fastestRankMs = Number.POSITIVE_INFINITY;
-    let fastestRebuildMs = Number.POSITIVE_INFINITY;
-    for (let sample = 0; sample < 18; sample += 1) {
-      let start = performance.now();
-      rankTitlesByQuery(index, "road");
-      const rankMs = performance.now() - start;
-      start = performance.now();
-      buildTitleSearchIndex(items);
-      const rebuildMs = performance.now() - start;
-      // The first samples warm up the JIT for both paths.
-      if (sample < 3) continue;
-      fastestRankMs = Math.min(fastestRankMs, rankMs);
-      fastestRebuildMs = Math.min(fastestRebuildMs, rebuildMs);
-    }
+    const { fastestMeasuredMs, fastestBaselineMs } = fastestInterleavedMs(
+      () => rankTitlesByQuery(index, "road"),
+      () => buildTitleSearchIndex(items),
+    );
     // Ranking runs on every keystroke against a prebuilt index, at about a
     // third of a rebuild. Costing more than one renormalizing pass means
     // per-keystroke work has grown several-fold.
-    expect(fastestRankMs).toBeLessThan(fastestRebuildMs);
+    expect(fastestMeasuredMs).toBeLessThan(fastestBaselineMs);
   });
 });
