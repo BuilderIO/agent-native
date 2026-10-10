@@ -36,7 +36,7 @@ function pngFile(
   const minimumSize =
     chunks.reduce((total, bytes) => total + bytes.length, 0) + 12;
   if (size > minimumSize) {
-    chunks.push(chunk("tEXt", size - minimumSize - 12));
+    chunks.push(chunk("IDAT", size - minimumSize - 12));
   }
   chunks.push(chunk("IEND", 0));
 
@@ -320,6 +320,17 @@ describe("preparePromptImageAttachment", () => {
 
     await expect(preparation).rejects.toMatchObject({
       code: "animated-image-exceeds-data-url-budget",
+    });
+  });
+
+  it("bounds PNG metadata scanning before image data", async () => {
+    const preparation = preparePromptImageAttachment(
+      pngWithManyMetadataChunksFile(100_000),
+      1,
+    );
+
+    await expect(preparation).rejects.toMatchObject({
+      code: "invalid-or-unsupported-image",
     });
   });
 

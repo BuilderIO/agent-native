@@ -5,6 +5,7 @@ import {
 } from "@/lib/chat-image-attachments";
 
 const MAX_IMAGE_HEADER_BYTES = 1024 * 1024;
+const MAX_PNG_METADATA_BYTES = 1024 * 1024;
 const MAX_IMAGE_DECODE_PIXELS = 32_000_000;
 const MAX_IMAGE_DECODE_DIMENSION = 20_000;
 const IMAGE_COMPRESSION_PASSES = [
@@ -316,6 +317,7 @@ async function readPngMetadata(file: File): Promise<ImageMetadata | null> {
 
   let animated = false;
   while (reader.offset + 8 <= file.size) {
+    if (reader.offset > MAX_PNG_METADATA_BYTES) return null;
     let chunkHeader = reader.readBufferedBytes(8);
     if (!chunkHeader) {
       if (!(await reader.ensureBuffered())) return null;
