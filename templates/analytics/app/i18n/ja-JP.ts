@@ -1096,6 +1096,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "カスタム範囲",
+    allValues: "すべて",
+    searchValues: "値を検索",
+    noValuesFound: "値が見つかりません",
+    selectAll: "すべて選択",
+    selectOnly: "のみ",
+    selectOnlyValue: "{{value}} のみ",
     untitledDashboard: "無題のダッシュボード",
     dashboardFallback: "ダッシュボード",
     viewOnly: "このダッシュボードには表示のみのアクセス権があります。",

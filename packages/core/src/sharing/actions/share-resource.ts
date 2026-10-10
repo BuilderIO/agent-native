@@ -23,7 +23,10 @@ import {
 } from "../grant.js";
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
-import { assertWidgetShareWriteGrant } from "../widget-grant.js";
+import {
+  assertWidgetShareWriteGrant,
+  widgetShareMessage,
+} from "../widget-grant.js";
 import { resourceSharingChange } from "./change-result.js";
 
 function appPath(path: string): string {
@@ -318,7 +321,7 @@ export default defineAction({
               url: notificationUrl,
             },
             role: args.role,
-            message: args.message,
+            message: widgetShareMessage(ctx, args.message),
             app: { name: brandName, logoUrl: brandLogoUrl },
             heroHtml,
             extras,

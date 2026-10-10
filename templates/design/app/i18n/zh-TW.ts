@@ -21,6 +21,8 @@ export default {
       "{label}，來源範例 {source}，圖庫位置 {current}/{total}，截圖日期 {date}",
     screenshotMissing: "未擷取螢幕截圖",
     recordingUnavailable: "無法使用",
+    recordingGap: "錄製空檔",
+    recordingGapDuration: "錄製空檔 · {duration}",
     eventTime: "事件時間（UTC）",
     generationCompletedEvent: "generation_completed 事件（UTC）",
     replayObservation: "回放觀察",
@@ -1640,6 +1642,12 @@ export default {
       permissionPromptSettingsInstructions:
         "點擊網址列左側的網站控制圖示，開啟網站設定，然後將本機網路設為「允許」。",
       permissionPromptRetry: "重試連線",
+      previewCredentialsUnavailableTitle: "本機預覽認證資訊無法使用",
+      previewCredentialsUnavailableDescription:
+        "請在檢查器中重新連線此畫面的 localhost 連線，然後再試一次。",
+      publicPreviewUnavailableDescription:
+        "localhost 預覽不會與公開檢視者分享。請以協作者身分開啟此設計以查看此畫面。",
+      previewCredentialsRetry: "重新取得認證資訊",
     },
   },
   multiScreenCanvas: {

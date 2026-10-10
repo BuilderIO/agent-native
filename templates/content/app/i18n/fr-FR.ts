@@ -820,10 +820,12 @@ const editor = {
     linkToNotionPage: "Lien vers la page Notion",
     localFile: "Fichier local",
     morePageActions: "Plus d'actions sur la page",
+    formatting: "Mise en forme",
     noPagesFound: "Aucune page trouvée",
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
     openInNotion: "Ouvrir dans Notion",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     orgCanFindAndView:
       "Tout le monde dans votre organisation peut trouver et consulter",
     orgLinkCanView:
@@ -1484,6 +1486,9 @@ const overrides = {
     aiUndo: "Annuler",
     aiDone: "Terminé",
     aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
     aiUndoUnavailable:
       "Le texte supprimé ne peut pas être rétabli automatiquement",
     aiUndoFailed: "Impossible d’annuler la modification",

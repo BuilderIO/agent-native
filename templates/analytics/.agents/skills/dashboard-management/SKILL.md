@@ -328,6 +328,14 @@ Use conditional blocks for optional filters:
 {{?country}}AND country = '{{country}}'{{/country}}
 ```
 
+**Use `type: "multi-select"` for a pick list where several options can apply at once.** Give it `options` like a `select`. Its value is the selected option values joined by commas. Interpolate it as `IN ({{<id>:list}})`, which expands to one quoted literal per selected value, and wrap the clause in a conditional so an empty selection drops the filter:
+
+```sql
+{{?plan}}AND plan IN ({{plan:list}}){{/plan}}
+```
+
+An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
+
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 
 ## Modifying A Dashboard

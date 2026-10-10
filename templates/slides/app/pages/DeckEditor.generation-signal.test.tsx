@@ -208,6 +208,11 @@ vi.mock(
     },
   }),
 );
+const relayTrack = vi.hoisted(() =>
+  vi.fn(
+    async (_name: string, _properties?: Record<string, unknown>) => undefined,
+  ),
+);
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   const original =
@@ -217,6 +222,7 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   return {
     ...original,
     getAnalyticsSessionId: () => mocks.analyticsSessionId,
+    track: relayTrack,
     trackEvent: vi.fn(),
   };
 });
@@ -436,6 +442,7 @@ describe("DeckEditor generation signal wiring", () => {
     window.localStorage.clear();
     mocks.deck.slides = [];
     mocks.deck.generationContext.generationMode = undefined;
+    mocks.deck.generationContext.generationAttemptId = "attempt-1";
     Object.assign(mocks, {
       broadGenerating: true,
       showInlineEditTrigger: false,
@@ -489,6 +496,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.toastError.mockClear();
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
+    relayTrack.mockClear();
   });
 
   afterEach(() => {
@@ -2317,6 +2325,110 @@ describe("DeckEditor generation signal wiring", () => {
         failure_code: "no_output",
       }),
     );
+  });
+
+  it("reports the owner's first view of a ready deck once per attempt", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>Ready</p>" }];
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+
+    await settleNewDeckAttempt("attempt-first-view");
+    await waitFor(() =>
+      expect(relayTrack).toHaveBeenCalledWith("deck_ready_viewed", {
+        generation_attempt_id: "attempt-first-view",
+        output_id: "deck-1",
+        output_type: "deck",
+        slide_count: 1,
+        view_mode: "live",
+        app_name: "slides",
+        template_name: "slides",
+      }),
+    );
+
+    cleanup();
+    router?.dispose();
+    mocks.refreshOpenDeck.mockClear();
+    mocks.attemptGenerating = true;
+    await settleNewDeckAttempt("attempt-first-view");
+
+    expect(
+      relayTrack.mock.calls.filter(([name]) => name === "deck_ready_viewed"),
+    ).toHaveLength(1);
+  });
+
+  async function settleNewDeckAttempt(attemptId: string) {
+    mocks.deck.generationContext.generationAttemptId = attemptId;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          `/deck/deck-1?generating=1&generation_attempt_id=${attemptId}`,
+        ],
+      },
+    );
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: attemptId,
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+      publishAgentGeneratingChange();
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+    await waitFor(() => expect(mocks.refreshOpenDeck).toHaveBeenCalled());
+    await act(async () => {
+      await lockTail;
+    });
+  }
+
+  it("treats a finished turn with fewer slides than asked as a completed deck", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>Ready</p>" }];
+    (mocks.deck.generationContext as Record<string, unknown>).targetSlideCount =
+      3;
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    try {
+      await settleNewDeckAttempt("attempt-fewer");
+
+      await waitFor(() =>
+        expect(relayTrack).toHaveBeenCalledWith(
+          "deck_ready_viewed",
+          expect.objectContaining({
+            generation_attempt_id: "attempt-fewer",
+            slide_count: 1,
+            target_slide_count: 3,
+          }),
+        ),
+      );
+    } finally {
+      delete (mocks.deck.generationContext as Record<string, unknown>)
+        .targetSlideCount;
+    }
+  });
+
+  it("sends no ready view when the turn did not finish", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>Ready</p>" }];
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    mocks.attemptTimedOut = true;
+    try {
+      await settleNewDeckAttempt("attempt-timeout");
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(
+        relayTrack.mock.calls.filter(([name]) => name === "deck_ready_viewed"),
+      ).toHaveLength(0);
+    } finally {
+      mocks.attemptTimedOut = false;
+    }
   });
 
   it("offers a stalled action-owned generation in its original chat", async () => {

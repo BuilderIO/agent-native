@@ -245,27 +245,25 @@ Do not change code for an unrelated product idea, praise, status update, merge
 or review request, irrelevant bot forward, duplicate, or work outside the
 invocation's ownership.
 
-**Keep subjective UI changes human-in-the-loop.** Automatically fix only
-objective UI defects: broken interactions, misalignment, overlap or clipping,
-unusable controls, or removing clear excess clutter. A reporter request is not
-product signoff. Discoverability complaints and preferences do not authorize
-adding, promoting, moving, or duplicating buttons or other persistent chrome.
-Check overflow, keyboard, Cmd+K, and contextual surfaces first. Adding or
-promoting chrome requires the invoking user's explicit current-task request or
-  :upvote:` below. Otherwise mark **Skipped**. If this run already claimed it,
-  keep our `👀`
-  and post **Skipped** once if the thread does not state it; do not ask the
-  reporter to decide. Measure failures with `text-heavy-ui`.
+**Subjective UX proposals need human review.** Adding buttons/chrome or changing
+visibility, placement, emphasis, or discoverability (including “hard to find”)
+is a product proposal, not a defect. Check overflow, keyboard, Cmd+K, and
+contextual surfaces first. Recap the ask, findings, options, recommendation,
+and tradeoff; mark **Skipped**. A report or `:upvote:` never authorizes automatic
+implementation; only a user-directed task may implement an approved approach.
+If claimed, keep 👀, post **Skipped** once, and don't ask the reporter to choose.
 
-Requests for a new capability still follow the invoking identity's `:upvote:`
-gate. Content remains Alice's area unless the invocation claims it.
+Auto-fix objective defects only: broken behavior/results, misalignment,
+overlap/clipping, illegibility, unusable focus/targets, jank, jitter,
+measurable slowness, regressions. Separate defects from preferences; measure
+failures with `text-heavy-ui`. Content remains Alice's unless claimed.
 
 ### `:upvote:` authorizes feature requests
 
 An `:upvote:` from **the invoking identity** - not from anyone else - promotes
-an otherwise out-of-scope item into scope and authorizes the work. It is the
-endorsement that settles the product question: the person who would otherwise
-route this away has read it and decided it should happen. Build it.
+an otherwise out-of-scope item into scope and authorizes the work. Subjective
+UX proposals are the exception: an upvote routes them for human review, not
+implementation by this sweep.
 
 Find them alongside the newest-message scan:
 
@@ -279,10 +277,11 @@ the query also returns ordinary replies and old polls that happen to carry the
 reaction. Take the ones that name a concrete improvement; skip the rest
 without comment.
 
-An upvote endorses a **feature or UX change** and skips only the clear-bug bar;
-it does not change ownership, reaction, verification, or question-budget rules.
-Build the smallest endorsed version, name Sid or Alice, and state requested
-versus actual behavior in the recap. Add `👀` before investigation or
+An upvote endorses an otherwise out-of-scope **feature request** and skips only
+the clear-bug bar; it does not change ownership, reaction, verification, or
+question-budget rules. Subjective UX proposals remain review-only as above.
+Build the smallest eligible endorsed version, name Sid or Alice, and state
+requested versus actual behavior in the recap. Add `👀` before investigation or
 delegation and read it back. Keep it evidence-limited until Phase 2's four bars
 hold; then use **Shipped**, adding `✅` only if it meets **Fixed**.
 
@@ -463,9 +462,10 @@ status or ask a useful question. Follow `address-feedback-with-replies` for
 Slack voice. End each Slack reply with `this was sent from a bot.` after its
 plain-language status.
 
-Use everyday words for nontechnical readers. In one short paragraph, say what
-we did, what we didn't do when relevant, and what's next. Give a simple reason
-when useful. Keep technical proof in the recap or PR.
+Short replies: say the change, limits, and next step. Link merged PRs and say
+they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
+Beta fixes follow reference for timing and live status; state other availability
+plainly.
 
 Share only new or useful information.
 

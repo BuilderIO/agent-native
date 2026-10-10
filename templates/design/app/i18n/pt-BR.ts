@@ -23,6 +23,8 @@ export default {
       "{label}, exemplo de origem {source}, posição na galeria {current} de {total}, capturado em {date}",
     screenshotMissing: "Nenhuma captura de tela registrada",
     recordingUnavailable: "indisponível",
+    recordingGap: "Intervalo sem gravação",
+    recordingGapDuration: "Intervalo sem gravação · {duration}",
     eventTime: "Horário do evento (UTC)",
     generationCompletedEvent: "evento generation_completed (UTC)",
     replayObservation: "Observação da reprodução",
@@ -1621,6 +1623,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e defina Rede local como Permitir.",
       permissionPromptRetry: "Tentar conexão novamente",
+      previewCredentialsUnavailableTitle:
+        "As credenciais da pré-visualização local não estão disponíveis",
+      previewCredentialsUnavailableDescription:
+        "Reconecte a conexão localhost desta tela no inspetor e tente novamente.",
+      publicPreviewUnavailableDescription:
+        "Pré-visualizações do localhost não são compartilhadas com visitantes públicos. Abra este Design como colaborador para ver esta tela.",
+      previewCredentialsRetry: "Tentar credenciais novamente",
     },
   },
   multiScreenCanvas: {
