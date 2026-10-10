@@ -1128,6 +1128,7 @@ export interface ActionEntry {
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
   changeEvents?: boolean;
+  persistInBrowser?: boolean;
   changeResource?: (
     input: any,
     result: any,
