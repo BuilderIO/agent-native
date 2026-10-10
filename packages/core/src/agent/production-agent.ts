@@ -2251,7 +2251,13 @@ function sanitizeDurableAttachment(
       attachmentCollection,
       key,
     );
-    if (next !== OMIT_DURABLE_DISPATCH_VALUE) sanitized[key] = next;
+    if (next !== OMIT_DURABLE_DISPATCH_VALUE)
+      Object.defineProperty(sanitized, key, {
+        value: next,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
   }
   return sanitized;
 }

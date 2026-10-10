@@ -876,6 +876,45 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("serializeDurableDispatchPayload", () => {
+  it.each([false, true])(
+    "preserves own JSON keys in saved request context with attachments=%s",
+    (withAttachment) => {
+      const body = JSON.parse(
+        '{"message":"finish the original ticket","__proto__":{"request":"original"},"metadata":{"__proto__":{"saved":"original"},"visible":"keep"},"structuredHistory":[{"metadata":{"__proto__":{"turn":"original"}}}]}',
+      );
+      const expected = JSON.parse(JSON.stringify(body));
+      if (withAttachment) {
+        const metadata = JSON.parse(
+          '{"__proto__":{"saved":"original attachment"},"visible":"keep"}',
+        );
+        body.attachments = [
+          {
+            type: "image",
+            url: "https://files.example.test/reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            metadata,
+          },
+        ];
+        expected.attachments = [
+          { type: "image", url: body.attachments[0].url, metadata },
+        ];
+      }
+      const payload = serializeDurableDispatchPayload(body);
+      const saved = JSON.parse(payload);
+      expect(saved).toEqual(expected);
+      expect(Object.hasOwn(saved, "__proto__")).toBe(true);
+      expect(Object.hasOwn(saved.metadata, "__proto__")).toBe(true);
+      expect(
+        Object.hasOwn(saved.structuredHistory[0].metadata, "__proto__"),
+      ).toBe(true);
+      if (withAttachment)
+        expect(Object.hasOwn(saved.attachments[0].metadata, "__proto__")).toBe(
+          true,
+        );
+      expect(payload).not.toContain("INLINE_IMAGE_BYTES");
+    },
+  );
+
   it("keeps the resized vision URL and original reference when stripping inline pixels", () => {
     const payload = serializeDurableDispatchPayload({
       attachments: [
