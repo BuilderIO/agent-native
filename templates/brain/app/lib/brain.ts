@@ -1096,9 +1096,10 @@ export function brainAskThreadPath(threadId: string | null): string {
   return threadId ? `/home/${encodeURIComponent(threadId)}` : "/home";
 }
 
+// Thread ids are URL-safe, so the raw segment is the id. Decoding would throw
+// on a hand-typed malformed escape such as /home/%, and that crashes render.
 export function brainAskThreadIdFromPath(pathname: string): string | null {
-  const segment = /^\/home\/([^/]+)\/?$/.exec(pathname)?.[1];
-  return segment ? decodeURIComponent(segment) : null;
+  return /^\/home\/([^/]+)\/?$/.exec(pathname)?.[1] ?? null;
 }
 
 export function viewFromPath(pathname: string): BrainView {

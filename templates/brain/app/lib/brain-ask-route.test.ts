@@ -12,7 +12,15 @@ describe("Brain ask route thread ids", () => {
   });
 
   it("round-trips the path it builds", () => {
-    expect(brainAskThreadIdFromPath(brainAskThreadPath("a b"))).toBe("a b");
+    expect(brainAskThreadIdFromPath(brainAskThreadPath("thread-1"))).toBe(
+      "thread-1",
+    );
     expect(brainAskThreadIdFromPath(brainAskThreadPath(null))).toBeNull();
+  });
+
+  it("does not throw on a malformed percent escape in a hand-typed link", () => {
+    expect(() => brainAskThreadIdFromPath("/home/%")).not.toThrow();
+    expect(brainAskThreadIdFromPath("/home/%")).toBe("%");
+    expect(brainAskThreadIdFromPath("/home/%E0%A4%A")).toBe("%E0%A4%A");
   });
 });
