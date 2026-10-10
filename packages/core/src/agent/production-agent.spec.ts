@@ -68,6 +68,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   appendRequestAttachmentContextToResumedHistory,
+  endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
   queuedPromotionAttachments,
   normalizeAgentActionSurfaceResolution,
@@ -17199,6 +17200,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       }),
     ).toBe(true);
     expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
+  it("does NOT chain a run that yielded to a connection request after a failed tool", () => {
+    // The card is the user's turn. Chaining re-ran the model after the yield and
+    // it retried the same unconnectable provider run after run.
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "provider-api-request",
+        id: "tool-1",
+        input: {},
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+      {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    ]);
+
+    expect(endsAtContinuationBoundary(run)).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        foregroundSelfChainEligible: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("does NOT chain a background run that sent final text after completed tools", () => {

@@ -5950,6 +5950,142 @@ describe("AgentKitClient", () => {
     ]);
   });
 
+  describe("a reloaded snapshot that still lists an open connection request", () => {
+    const openRequest = {
+      id: "connection-1",
+      provider: "google_drive",
+      reason: "connect" as const,
+      status: "requested" as const,
+    };
+    const run = (
+      id: string,
+      status: "completed" | "failed",
+      startedAt: string,
+    ) => ({
+      id,
+      threadId: "thread-1",
+      status,
+      lastSequence: 3,
+      startedAt,
+      completedAt: "2026-08-29T00:01:00.000Z",
+    });
+    const loadWith = async (snapshot: Partial<AgentThreadSnapshot>) => {
+      const transport = createTransport([]);
+      transport.getThreadSnapshot = async () => ({
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:01:00.000Z",
+        messages: [],
+        connectionRequests: [{ request: openRequest, runId: "run-1" }],
+        ...snapshot,
+      });
+      return new AgentKitClient({ transport }).loadThread("thread-1");
+    };
+
+    it("does not bring it back for a failed run", async () => {
+      const thread = await loadWith({
+        runs: [run("run-1", "failed", "2026-08-29T00:00:00.000Z")],
+        events: [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, {
+            type: "connection.requested",
+            request: openRequest,
+          }),
+          protocolEvent(3, {
+            type: "run.failed",
+            error: { code: "stream_ended", message: "Run ended early" },
+          }),
+        ],
+      });
+
+      expect(thread.runs["run-1"]?.status).toBe("failed");
+      expect(thread.connectionRequests).toEqual({});
+      expect(thread.connectionRequestRunIds).toEqual({});
+    });
+
+    it("does not bring it back once a newer run has started", async () => {
+      const thread = await loadWith({
+        runs: [
+          run("run-1", "completed", "2026-08-29T00:00:00.000Z"),
+          run("run-2", "completed", "2026-08-29T00:00:30.000Z"),
+        ],
+      });
+
+      expect(thread.connectionRequests).toEqual({});
+      expect(thread.connectionRequestRunIds).toEqual({});
+    });
+
+    it("keeps it for the latest completed run, which is waiting on the user", async () => {
+      const thread = await loadWith({
+        runs: [run("run-1", "completed", "2026-08-29T00:00:00.000Z")],
+      });
+
+      expect(thread.connectionRequests["connection-1"]).toEqual(openRequest);
+      expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
+    });
+
+    it("keeps it for a completed run whose terminal events cannot be replayed", async () => {
+      const transport = createTransport([]);
+      transport.getThreadSnapshot = async () => ({
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:01:00.000Z",
+        messages: [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "Connect Google Drive" }],
+          },
+        ],
+        events: [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, {
+            type: "connection.requested",
+            request: openRequest,
+          }),
+        ],
+        runs: [
+          {
+            ...run("run-1", "completed", "2026-08-29T00:00:00.000Z"),
+            lastSequence: 7,
+            activeMessageId: "assistant-1",
+          },
+        ],
+        activeRunIds: [],
+        connectionRequests: [{ request: openRequest, runId: "run-1" }],
+      });
+      transport.subscribeToRun = async function* () {
+        throw Object.assign(new Error("Replay is unavailable"), {
+          retryable: false,
+        });
+      };
+      const client = new AgentKitClient({
+        transport,
+        reconnect: { attempts: 3 },
+      });
+
+      try {
+        await client.loadThread("thread-1");
+        await vi.waitFor(() =>
+          expect(client.getSnapshot().connection).toBe("error"),
+        );
+
+        const thread = client.getThread("thread-1");
+        // The unconfirmed replay settles the run's items as failed; the run
+        // itself still completed, so the user's answer is still wanted.
+        expect(thread.messages).toContainEqual(
+          expect.objectContaining({ id: "assistant-1", status: "error" }),
+        );
+        expect(thread.runs["run-1"]?.status).toBe("completed");
+        expect(thread.connectionRequests["connection-1"]).toEqual(openRequest);
+        expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
+      } finally {
+        await client.dispose();
+      }
+    });
+  });
+
   it("resubscribes the same run after a connection continuation", async () => {
     let subscriptionCount = 0;
     const resolveConnectionRequest = vi.fn(async () => undefined);
@@ -6655,6 +6791,104 @@ describe("AgentKitClient", () => {
       agentId: "agent-planck",
       scope: "external",
       source: { label: "Agent-Native" },
+    });
+  });
+
+  describe("participants across a snapshot reload", () => {
+    const analytics = {
+      id: "agent-analytics",
+      name: "Analytics",
+      kind: "peer",
+      status: "completed",
+    } as const;
+    const snapshotWith = (extra: Partial<AgentThreadSnapshot>) =>
+      ({
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:02.000Z",
+        messages: [],
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "completed",
+            lastSequence: 3,
+          },
+        ],
+        activeRunIds: [],
+        ...extra,
+      }) satisfies AgentThreadSnapshot;
+
+    async function completedRunWithAnalytics(
+      snapshot: AgentThreadSnapshot,
+    ): Promise<AgentKitClient> {
+      const transport = createTransport([
+        protocolEvent(1, { type: "run.started" }),
+        protocolEvent(2, { type: "agent.registered", agent: analytics }),
+        protocolEvent(3, { type: "run.completed" }),
+      ]);
+      transport.getThreadSnapshot = async () => snapshot;
+      const client = new AgentKitClient({ transport });
+      const run = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Ask Analytics",
+      });
+      await run.completed;
+      return client;
+    }
+
+    it("keeps the participants a run registered when the stored history is compact", async () => {
+      // Durable history keeps run lifecycle events and drops agent.* ones, and
+      // the snapshot never carries a participant list of its own.
+      const client = await completedRunWithAnalytics(
+        snapshotWith({
+          events: [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, { type: "run.completed" }),
+          ],
+        }),
+      );
+
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.agents["agent-analytics"]).toMatchObject({
+        name: "Analytics",
+        status: "completed",
+      });
+      expect(client.getThread("thread-1").agents).toBe(thread.agents);
+    });
+
+    it("rebuilds participants from the events of a freshly loaded thread", async () => {
+      const transport = createTransport([]);
+      transport.getThreadSnapshot = async () =>
+        snapshotWith({
+          events: [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, { type: "agent.registered", agent: analytics }),
+            protocolEvent(3, { type: "run.completed" }),
+          ],
+        });
+      const client = new AgentKitClient({ transport });
+
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.agents).toEqual({ "agent-analytics": analytics });
+    });
+
+    it("takes a participant's newer state from a snapshot that lists it", async () => {
+      const client = await completedRunWithAnalytics(
+        snapshotWith({
+          events: [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, { type: "run.completed" }),
+          ],
+          agents: [{ ...analytics, status: "closed" }],
+        }),
+      );
+
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.agents["agent-analytics"]?.status).toBe("closed");
     });
   });
 

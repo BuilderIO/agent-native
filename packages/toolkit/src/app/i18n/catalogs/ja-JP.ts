@@ -39,6 +39,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
   "agent.failed": "対応が必要です",
+  "agent.failureReason.failed": "完了できませんでした",
+  "agent.failureReason.setup": "先に設定が必要です",
+  "agent.failureReason.auth": "アクセスが拒否されました",
+  "agent.failureReason.timeout": "応答がタイムアウトしました",
+  "agent.failureReason.budget": "時間切れになりました",
+  "agent.failureReason.response": "使える結果がありません",
   "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":

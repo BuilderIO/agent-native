@@ -446,6 +446,7 @@ import {
   buildPublicAgentA2ASkills,
   buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
+  unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
 import {
   createBuilderBrowserTool,
@@ -2406,7 +2407,7 @@ export function createAgentChatPlugin(
             return;
           }
 
-          if (!userEmail) throw new Error("no authenticated user");
+          if (!userEmail) throw unverifiedA2AUserError(context.event);
 
           const fallbackResponse = await options?.a2aMessageFallback?.({
             message,
