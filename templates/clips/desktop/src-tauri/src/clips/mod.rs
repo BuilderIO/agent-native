@@ -115,6 +115,25 @@ fn bubble_window_size_for_scale(size_logical: u32, scale_factor: f64) -> (u32, u
     (content + gutter * 2, content + controls + gutter * 2)
 }
 
+fn bubble_visible_center(position: (i32, i32), size: (u32, u32)) -> (i32, i32) {
+    (
+        position.0 + size.0 as i32 / 2,
+        position.1 + size.1 as i32 - size.0 as i32 / 2,
+    )
+}
+
+fn bubble_position_preserving_visible_center(
+    position: (i32, i32),
+    current_size: (u32, u32),
+    target_size: (u32, u32),
+) -> (i32, i32) {
+    let center = bubble_visible_center(position, current_size);
+    (
+        center.0 - target_size.0 as i32 / 2,
+        center.1 - target_size.1 as i32 + target_size.0 as i32 / 2,
+    )
+}
+
 fn bubble_scale_factor_for_position(app: &AppHandle, x: i32, y: i32) -> f64 {
     let scale = app
         .get_webview_window(BUBBLE_LABEL)
@@ -265,8 +284,11 @@ fn sync_bubble_window_geometry(app: &AppHandle, window: &WebviewWindow) -> Resul
     let current_position = window
         .outer_position()
         .map_err(|error| format!("read bubble window position: {error}"))?;
-    let target_x = current_position.x + (current_size.width as i32 - width as i32) / 2;
-    let target_y = current_position.y + (current_size.height as i32 - height as i32) / 2;
+    let (target_x, target_y) = bubble_position_preserving_visible_center(
+        (current_position.x, current_position.y),
+        (current_size.width, current_size.height),
+        (width, height),
+    );
     let (x, y) = clamp_bubble_window_position(app, target_x, target_y, width, height);
     window
         .set_size(tauri::Size::Physical(PhysicalSize::new(width, height)))
@@ -338,26 +360,19 @@ fn load_bubble_size_name(app: &AppHandle) -> String {
     }
 }
 
-fn save_bubble_size_name(app: &AppHandle, name: &str) {
-    let Some(path) = bubble_size_path(app) else {
-        return;
-    };
-    let body = match serde_json::to_vec(&serde_json::json!({ "size": name })) {
-        Ok(b) => b,
-        Err(err) => {
-            eprintln!("[clips-tray] save_bubble_size_name serialize failed: {err}");
-            return;
-        }
-    };
+fn save_bubble_size_name(app: &AppHandle, name: &str) -> Result<(), String> {
+    let path = bubble_size_path(app).ok_or("bubble size path unavailable")?;
+    let body = serde_json::to_vec(&serde_json::json!({ "size": name }))
+        .map_err(|error| format!("serialize bubble size: {error}"))?;
     let tmp = path.with_extension("json.tmp");
     if let Err(err) = std::fs::write(&tmp, &body) {
-        eprintln!("[clips-tray] save_bubble_size_name write tmp failed: {err}");
-        return;
+        return Err(format!("write bubble size: {err}"));
     }
     if let Err(err) = std::fs::rename(&tmp, &path) {
-        eprintln!("[clips-tray] save_bubble_size_name rename failed: {err}");
         let _ = std::fs::remove_file(&tmp);
+        return Err(format!("save bubble size: {err}"));
     }
+    Ok(())
 }
 
 fn load_bubble_position(app: &AppHandle) -> Option<(i32, i32)> {
@@ -2133,6 +2148,7 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
+        bubble_position_preserving_visible_center, bubble_visible_center,
         bubble_window_size_for_scale, clamp_popover_logical_size, overlay_labels_to_hide,
         strip_trailing_period_for_messaging, text_insertion_strategy, TextInsertionStrategy,
         BUBBLE_LABEL, FINALIZING_LABEL,
@@ -2167,6 +2183,20 @@ mod tests {
         assert_eq!(bubble_window_size_for_scale(180, 2.0), (432, 512));
         assert_eq!(bubble_window_size_for_scale(252, 1.0), (288, 328));
         assert_eq!(bubble_window_size_for_scale(252, 2.0), (576, 656));
+    }
+
+    #[test]
+    fn bubble_scale_change_preserves_the_visible_camera_center() {
+        let current_position = (220, 310);
+        let current_size = bubble_window_size_for_scale(180, 1.0);
+        let target_size = bubble_window_size_for_scale(180, 2.0);
+        let target_position =
+            bubble_position_preserving_visible_center(current_position, current_size, target_size);
+
+        assert_eq!(
+            bubble_visible_center(current_position, current_size),
+            bubble_visible_center(target_position, target_size)
+        );
     }
 
     #[test]
@@ -2637,7 +2667,7 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
         _ => "small",
     };
     let size_logical = bubble_size_for_name(name);
-    if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
+    let position_result = if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
         let scale = win
             .scale_factor()
             .map_err(|error| format!("read bubble scale factor: {error}"))?
@@ -2660,13 +2690,20 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
             .map_err(|error| format!("resize bubble window: {error}"))?;
         win.set_position(PhysicalPosition::new(new_x, new_y))
             .map_err(|error| format!("reposition bubble window: {error}"))?;
-        let position = win
-            .outer_position()
-            .map_err(|error| format!("read bubble window position: {error}"))?;
-        save_bubble_position_at(&app, position.x, position.y)?;
+        match win.outer_position() {
+            Ok(position) => save_bubble_position_at(&app, position.x, position.y).map(|_| ()),
+            Err(error) => Err(format!("read bubble window position: {error}")),
+        }
+    } else {
+        Ok(())
+    };
+    let size_result = save_bubble_size_name(&app, name);
+    match (position_result, size_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(position_error), Ok(())) => Err(position_error),
+        (Ok(()), Err(size_error)) => Err(size_error),
+        (Err(position_error), Err(size_error)) => Err(format!("{position_error}; {size_error}")),
     }
-    save_bubble_size_name(&app, name);
-    Ok(())
 }
 
 #[tauri::command]
