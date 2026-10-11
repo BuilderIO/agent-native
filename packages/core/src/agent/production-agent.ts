@@ -1817,6 +1817,11 @@ export interface ProductionAgentOptions {
     threadId: string,
     runId: string,
   ) => void | Promise<void>;
+  /**
+   * Called when the run's engine, model, and effort resolve, and again before
+   * each model call, because a call can run on a rate-limit fallback model or
+   * at the lower effort an empty-response retry steps down to.
+   */
   onEngineResolved?: (
     engine: AgentEngine,
     model: string,
@@ -5869,6 +5874,15 @@ export async function runAgentLoop(opts: {
   unknownWriteToolNames?: Set<string>;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  /**
+   * The model and effort each model call uses. Either can change mid-run: a
+   * rate limit falls back to another model, and an empty response steps effort
+   * down.
+   */
+  onModelSettings?: (
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -6507,11 +6521,7 @@ export async function runAgentLoop(opts: {
           providerOptions,
         };
 
-        // Actions record the effort their call ran at, which an empty-response
-        // retry steps down. A nested loop with no effort of its own (a custom
-        // agent profile) shares this context and must not erase the caller's.
-        if (runCtx && opts.reasoningEffort)
-          runCtx.reasoningEffort = effectiveReasoningEffort;
+        opts.onModelSettings?.(model, effectiveReasoningEffort);
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         notifyModelInputObserver(opts.onModelInput, engineMessages);
         const eventStream = engine.stream(streamOpts);
@@ -13116,6 +13126,12 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
+          // Nested loops (custom agent profiles) share this request context
+          // but not this callback, so they never overwrite the run's model.
+          onModelSettings: (
+            model: string,
+            effort: ReasoningEffort | undefined,
+          ) => options.onEngineResolved?.(engine, model, effort),
           runId,
           followUpSuggestions: true,
           systemPrompt: requestSystemPrompt,

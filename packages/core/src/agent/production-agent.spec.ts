@@ -15972,64 +15972,63 @@ describe("runAgentLoop", () => {
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
-  it.each([
-    { loopEffort: "high" as const, recorded: "medium" },
-    { loopEffort: undefined, recorded: "high" },
-  ])(
-    "reports the effort a tool call ran at to the run context (loop effort $loopEffort)",
-    async ({ loopEffort, recorded }) => {
-      let call = 0;
-      const engine: AgentEngine = {
-        ...engineWithUncalledStream(),
-        async *stream(): AsyncIterable<EngineEvent> {
-          call += 1;
-          if (call === 1) {
-            yield {
-              type: "assistant-content",
-              parts: [{ type: "thinking" as const, text: "..." }],
-            };
-            yield { type: "stop", reason: "end_turn" };
-            return;
-          }
-          yield {
-            type: "assistant-content",
-            parts:
-              call === 2
+  it("reports the effort each call runs at through onEngineResolved, so a write after an empty-response retry records the lower effort", async () => {
+    let call = 0;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      async *stream(): AsyncIterable<EngineEvent> {
+        call += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            call === 1
+              ? [{ type: "thinking" as const, text: "..." }]
+              : call === 2
                 ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
                 : [{ type: "text", text: "Done." }],
-          };
-          yield { type: "stop", reason: call === 2 ? "tool_use" : "end_turn" };
+        };
+        yield { type: "stop", reason: call === 2 ? "tool_use" : "end_turn" };
+      },
+    };
+    const seen: unknown[] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            seen.push(getRequestRunContext()?.reasoningEffort);
+            return "ok";
+          },
         },
-      };
-      const seen: unknown[] = [];
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, _model, reasoningEffort) => {
+        getRequestRunContext()!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+      }),
+    );
 
-      await runWithRequestContext(
-        { userEmail: "alice@example.com", run: { reasoningEffort: "high" } },
-        () =>
-          runAgentLoop({
-            engine,
-            model: "claude-sonnet-5",
-            systemPrompt: "system",
-            tools: [],
-            messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-            actions: {
-              record: {
-                ...actionEntry({}),
-                run: async () => {
-                  seen.push(getRequestRunContext()?.reasoningEffort);
-                  return "ok";
-                },
-              },
-            },
-            send: () => {},
-            signal: new AbortController().signal,
-            reasoningEffort: loopEffort,
-          }),
-      );
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
 
-      expect(seen).toEqual([recorded]);
-    },
-  );
+    await vi.waitFor(() => expect(seen).toEqual(["medium"]));
+  });
 
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
@@ -17284,6 +17283,81 @@ describe("runAgentLoop model fallback", () => {
 
       expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
       expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a rate-limit fallback model before the call that uses it, so a write records the model that answered", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let fallbackCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        if (opts.model === "claude-haiku-4-5") {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        fallbackCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            fallbackCalls === 1
+              ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: fallbackCalls === 1 ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    const seen: unknown[] = [];
+
+    try {
+      const run = runWithRequestContext(
+        { userEmail: "owner@example.com", run: { model: "claude-haiku-4-5" } },
+        () =>
+          runAgentLoop({
+            engine,
+            model: "claude-haiku-4-5",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "go" }] },
+            ],
+            actions: {
+              record: {
+                ...actionEntry({}),
+                run: async () => {
+                  seen.push(getRequestRunContext()?.model);
+                  return "ok";
+                },
+              },
+            },
+            onModelSettings: (model) => {
+              getRequestRunContext()!.model = model;
+            },
+            send: () => {},
+            signal: new AbortController().signal,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      await run;
+
+      expect(seen).toEqual(["claude-sonnet-5"]);
     } finally {
       vi.useRealTimers();
     }
