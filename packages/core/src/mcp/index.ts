@@ -11,6 +11,8 @@ export {
 } from "./build-server.js";
 export type { MCPCallerIdentity, MCPRequestMeta } from "./build-server.js";
 export type { ExternalAgentPolicy } from "./external-agent-policy.js";
+export { handleMcpFetchRequest } from "./fetch-handler.js";
+export type { MCPFetchHandlerOptions } from "./fetch-handler.js";
 
 export { runMCPStdio } from "./stdio.js";
 export type { RunMCPStdioOptions } from "./stdio.js";

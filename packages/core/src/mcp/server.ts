@@ -7,7 +7,6 @@ import {
   getRequestHeader,
 } from "h3";
 
-import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
 import {
@@ -18,9 +17,7 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { trackMcpInitialize } from "./analytics.js";
 import {
-  createMCPServerForRequest,
   verifyAuth,
   McpIdentityVerificationUnavailableError,
   getAccessTokens,
@@ -36,6 +33,7 @@ import {
   type MCPCallerIdentity,
   type MCPRequestMeta,
 } from "./build-server.js";
+import { handleMcpFetchRequest } from "./fetch-handler.js";
 import {
   buildMcpOAuthChallenge,
   getMcpOAuthAudiences,
@@ -50,8 +48,8 @@ import {
   joinMcpRoute,
 } from "./route-paths.js";
 
+export { createMCPServerForRequest } from "./build-server.js";
 export {
-  createMCPServerForRequest,
   verifyAuth,
   getAccessTokens,
   resolveOrgIdFromDomain,
@@ -400,32 +398,6 @@ async function handleMcpRequestInternal(
   const body = method === "POST" ? await readBody(event) : undefined;
   onMcpMethod?.(directoryLogMethod(body) ?? method);
 
-  const initializeRequest = body
-    ? (Array.isArray(body) ? body : [body]).find(
-        (
-          m,
-        ): m is {
-          params?: {
-            capabilities?: unknown;
-            clientInfo?: { name?: unknown; version?: unknown };
-            protocolVersion?: unknown;
-          };
-        } =>
-          typeof m === "object" &&
-          m !== null &&
-          (m as { method?: unknown }).method === "initialize",
-      )
-    : undefined;
-
-  if (getAppConfig().observability.mcpDebugInitialize && initializeRequest) {
-    console.error(
-      "[MCP_DEBUG_INIT] clientInfo=",
-      JSON.stringify(initializeRequest.params?.clientInfo),
-      "capabilities=",
-      JSON.stringify(initializeRequest.params?.capabilities),
-    );
-  }
-
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
     fullSurface: authResult.fullSurface === true,
@@ -448,48 +420,12 @@ async function handleMcpRequestInternal(
       return directoryProfileUnavailable(event, error);
     }
   }
-  if (initializeRequest) {
-    const clientInfo = initializeRequest.params?.clientInfo;
-    const protocolVersion = initializeRequest.params?.protocolVersion;
-    trackMcpInitialize({
-      source: "http",
-      serverName: requestConfig.name,
-      serverVersion: requestConfig.version ?? "1.0.0",
-      ...(requestConfig.appId ? { appId: requestConfig.appId } : {}),
-      ...(typeof clientInfo?.name === "string"
-        ? { clientName: clientInfo.name }
-        : {}),
-      ...(typeof clientInfo?.version === "string"
-        ? { clientVersion: clientInfo.version }
-        : {}),
-      ...(requestMeta.clientName
-        ? { clientUserAgent: requestMeta.clientName }
-        : {}),
-      ...(typeof protocolVersion === "string" ? { protocolVersion } : {}),
-      ...(authResult.identity?.userEmail
-        ? { userId: authResult.identity.userEmail }
-        : {}),
-    });
-  }
-
-  const { createMcpHandler } = await import("@modelcontextprotocol/server");
-  const handler = createMcpHandler(
-    () =>
-      createMCPServerForRequest(
-        requestConfig,
-        authResult.identity,
-        serverRequestMeta,
-      ),
-    {
-      legacy: "stateless",
-      responseMode: "auto",
-    },
-  );
   const webRequest = buildWebRequest(event, method, routePath);
-  return handler.fetch(
-    webRequest,
-    method === "POST" ? { parsedBody: body } : undefined,
-  );
+  return handleMcpFetchRequest(webRequest, requestConfig, {
+    identity: authResult.identity,
+    requestMeta: serverRequestMeta,
+    parsedBody: body,
+  });
 }
 
 export async function handleMcpRequest(
