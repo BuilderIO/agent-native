@@ -234,6 +234,100 @@ describe("RunsTrayMenuItem", () => {
     expect(runsTrigger?.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(runsTrigger);
   });
+
+  it("does not stop a run when a pointer gesture starts on another run", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "menu-run-3",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Manage the active run",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-menu-3" },
+              metadata: { parentThreadId: "thread-parent-3" },
+            },
+            {
+              id: "menu-run-4",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Another active run",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-menu-4" },
+              metadata: { parentThreadId: "thread-parent-4" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DropdownMenu open>
+          <DropdownMenuContent forceMount>
+            <RunsTrayMenuItem pollMs={0} />
+          </DropdownMenuContent>
+        </DropdownMenu>,
+      );
+    });
+    const runsTrigger = document.querySelector(
+      '[aria-label^="Agent runs"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      runsTrigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Another active run"),
+      );
+    });
+
+    const otherRunTitle = Array.from(
+      document.querySelectorAll('button[role="menuitem"]'),
+    ).find((button) => button.textContent?.includes("Another active run"));
+    const stopButton = document.querySelector(
+      '[aria-label="Stop Manage the active run"]',
+    ) as HTMLButtonElement | null;
+    expect(otherRunTitle).toBeTruthy();
+    expect(stopButton).toBeTruthy();
+
+    await act(async () => {
+      otherRunTitle?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      stopButton?.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      stopButton?.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          detail: 1,
+        }),
+      );
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/agent-chat/runs/menu-run-3/stop"),
+      ),
+    ).toHaveLength(0);
+    expect(
+      document.querySelector('[aria-label="Stop Manage the active run"]'),
+    ).toBeTruthy();
+  });
 });
 
 describe("RunsTray polling", () => {

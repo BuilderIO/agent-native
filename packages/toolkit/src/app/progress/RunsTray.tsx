@@ -760,6 +760,34 @@ function RunRow({
   const isRunning = run.status === "running";
   const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
   const backgroundStatus = getBackgroundStatus(run);
+  const actionButtonRef = useRef<HTMLButtonElement>(null);
+  const pointerStartedOnActionRef = useRef(false);
+  const pointerReleasedOnActionRef = useRef(false);
+
+  useEffect(() => {
+    if (!insideDropdownMenu) return;
+    const isActionTarget = (target: EventTarget | null) =>
+      target instanceof Node &&
+      actionButtonRef.current?.contains(target) === true;
+    const recordPointerDown = (event: PointerEvent) => {
+      pointerStartedOnActionRef.current = isActionTarget(event.target);
+      pointerReleasedOnActionRef.current = false;
+    };
+    const recordPointerUp = (event: PointerEvent) => {
+      pointerReleasedOnActionRef.current = isActionTarget(event.target);
+      window.setTimeout(() => {
+        pointerStartedOnActionRef.current = false;
+        pointerReleasedOnActionRef.current = false;
+      }, 0);
+    };
+    document.addEventListener("pointerdown", recordPointerDown, true);
+    document.addEventListener("pointerup", recordPointerUp, true);
+    return () => {
+      document.removeEventListener("pointerdown", recordPointerDown, true);
+      document.removeEventListener("pointerup", recordPointerUp, true);
+    };
+  }, [insideDropdownMenu]);
+
   const titleButton =
     threadId && onOpenThread ? (
       <button
@@ -785,6 +813,7 @@ function RunRow({
     canStop || !isRunning ? (
       <button
         type="button"
+        ref={insideDropdownMenu ? actionButtonRef : undefined}
         aria-label={
           canStop
             ? t("runsTray.stopRun", { title: run.title })
@@ -796,7 +825,18 @@ function RunRow({
         )}
         onPointerMove={onActionStart}
         onPointerDown={onActionStart}
-        onClick={() => {
+        onClick={(event) => {
+          const isPointerActivation =
+            event.detail > 0 || pointerReleasedOnActionRef.current;
+          if (
+            insideDropdownMenu &&
+            isPointerActivation &&
+            !pointerStartedOnActionRef.current
+          ) {
+            return;
+          }
+          pointerStartedOnActionRef.current = false;
+          pointerReleasedOnActionRef.current = false;
           onActionStart?.();
           if (canStop) {
             onStop(run.id);
