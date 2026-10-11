@@ -32,13 +32,11 @@ export function OnboardingBanner({
 
   if (
     loading ||
-    !summaryKnown ||
-    dismissed ||
-    (totalCount > 0 && allComplete)
+    (summaryKnown && (dismissed || (totalCount > 0 && allComplete)))
   ) {
     return null;
   }
-  if (error && totalCount > 0) {
+  if (error && (!summaryKnown || totalCount > 0)) {
     const retry = async () => {
       setRetrying(true);
       try {
@@ -67,7 +65,7 @@ export function OnboardingBanner({
       </div>
     );
   }
-  if (totalCount === 0) return null;
+  if (!summaryKnown || totalCount === 0) return null;
 
   return (
     <button

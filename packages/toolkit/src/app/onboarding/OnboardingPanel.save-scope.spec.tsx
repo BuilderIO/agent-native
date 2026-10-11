@@ -190,16 +190,21 @@ describe("onboarding form save scope", () => {
     expect(secretSave.body.scope).toBe("workspace");
   });
 
-  it("hides an unavailable summary until onboarding state is known", async () => {
+  it("shows retry only when the initial summary is unavailable", async () => {
+    steps = [formStep()];
     onboardingError = "summary: 503";
     summaryKnown = false;
     refresh = vi.fn(async () => {});
     await renderOnboarding(<OnboardingPanel />);
 
-    expect(container?.querySelector('[role="alert"]')).toBeNull();
-    expect(
-      container?.querySelector('[data-testid="onboarding-summary-retry"]'),
-    ).toBeNull();
+    const retry = container?.querySelector<HTMLButtonElement>(
+      '[data-testid="onboarding-summary-retry"]',
+    );
+    expect(container?.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container?.textContent).not.toContain("Example keys");
+    expect(retry).not.toBeNull();
+    await act(async () => retry?.click());
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
   it("keeps known steps visible while showing a summary retry state", async () => {
@@ -214,15 +219,22 @@ describe("onboarding form save scope", () => {
     ).not.toBeNull();
   });
 
-  it("hides a banner retry until onboarding state is known", async () => {
+  it("shows a retry-only banner when the initial summary is unavailable", async () => {
+    steps = [formStep()];
     onboardingError = "summary: 503";
     summaryKnown = false;
+    refresh = vi.fn(async () => {});
     await renderOnboarding(<OnboardingBanner />);
 
-    expect(container?.querySelector('[role="alert"]')).toBeNull();
-    expect(
-      container?.querySelector('[data-testid="onboarding-summary-retry"]'),
-    ).toBeNull();
+    const retry = container?.querySelector<HTMLButtonElement>(
+      '[data-testid="onboarding-summary-retry"]',
+    );
+    expect(container?.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container?.textContent).not.toContain("Example keys");
+    expect(container?.textContent).not.toContain("Continue");
+    expect(retry).not.toBeNull();
+    await act(async () => retry?.click());
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
   it("shows a retry action on the banner for a known active summary", async () => {

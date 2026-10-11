@@ -118,7 +118,8 @@ export function OnboardingPanel({
   const errorNotice =
     error &&
     (previewMode ||
-      (summaryKnown && totalCount > 0 && !dismissed && !allComplete)) ? (
+      !summaryKnown ||
+      (totalCount > 0 && !dismissed && !allComplete)) ? (
       <div role="alert" style={styles.errorNotice}>
         <span>{t("agentChat.common.chunkLoadFailed")}</span>
         <Button
@@ -138,7 +139,14 @@ export function OnboardingPanel({
     ) : null;
 
   if (loading) return null;
-  if (!previewMode && !summaryKnown) return null;
+  if (!previewMode && !summaryKnown) {
+    if (!errorNotice) return null;
+    return (
+      <div className={className} style={styles.errorOnly}>
+        {errorNotice}
+      </div>
+    );
+  }
   if (!previewMode && (dismissed || (totalCount > 0 && allComplete))) {
     return null;
   }

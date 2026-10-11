@@ -70,6 +70,12 @@ vi.mock("../../../../lib/recordings.js", () => ({
   }),
   ownerEmailMatches: () => "owner-match",
 }));
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  isParkedForStorage: (row: {
+    status: string;
+    failureReason?: string | null;
+  }) => row.status === "uploading" && Boolean(row.failureReason),
+}));
 vi.mock("./abort.post.js", () => ({
   default: (...args: unknown[]) => mockAbortUpload(...args),
 }));
@@ -137,6 +143,36 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
         interruptionDetail: "TypeError: Load failed",
       }),
     );
+  });
+
+  it("leaves a storage-parked upload untouched after a delayed interruption", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        failureReason: "Waiting for storage setup",
+        videoUrl: null,
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+    mockBody.value = {
+      detail: "Video storage status was unavailable (503)",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      parkedForStorage: true,
+    });
+
+    expect(mockUpdateSets).toHaveLength(0);
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockReadAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("redacts HTML response bodies while preserving the failure code", async () => {

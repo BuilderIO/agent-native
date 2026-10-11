@@ -30,6 +30,7 @@ import {
   getResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
 
 function uploadStateMatchesRecording(
   state: Record<string, unknown>,
@@ -192,6 +193,15 @@ export async function handleAbortRecordingUpload(
     if (!existing) {
       setResponseStatus(event, 404);
       return { error: "Recording not found" };
+    }
+
+    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
+      };
     }
 
     const preserveFailure =
