@@ -9201,6 +9201,67 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(mutating).not.toContain("get the rest");
   });
 
+  it("names paging inputs when an MCP App tool's text is cut, but not for a GET action that opts out of read-only", async () => {
+    const rows = "x".repeat(5000);
+    const incomplete = `[Truncated: showing the first 2000 of ${rows.length} characters. This result is incomplete.`;
+    const appResource = (name: string) => ({
+      resource: {
+        uri: `ui://mail/${name}`,
+        title: name,
+        description: "Rows inline.",
+        html: "<!doctype html><html><body>Rows</body></html>",
+      },
+    });
+    const pagedSchema = z.object({ cursor: z.string().optional() });
+    const appConfig = {
+      ...config,
+      actions: {
+        "app-rows": defineAction({
+          description: "List rows.",
+          schema: pagedSchema,
+          readOnly: true,
+          mcpApp: appResource("app-rows"),
+          run: async () => rows,
+        }),
+        "app-get-rows": defineAction({
+          description: "Fetch rows.",
+          schema: pagedSchema,
+          http: { method: "GET" },
+          readOnly: false,
+          mcpApp: appResource("app-get-rows"),
+          run: async () => rows,
+        }),
+      },
+    };
+    const callApp = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: {
+            ...(await mcpAppsFullCatalogHeaders()),
+            "x-agent-native-mcp-inline-apps": "1",
+          },
+          config: appConfig,
+        },
+      );
+      return out.result;
+    };
+
+    const readOnly = await callApp("app-rows", 311);
+    expect(readOnly.structuredContent).toBeDefined();
+    expect(readOnly.content[0].text).toContain(
+      `${incomplete} This tool pages with cursor.]`,
+    );
+    const getOnly = await callApp("app-get-rows", 312);
+    expect(getOnly.structuredContent).toBeDefined();
+    expect(getOnly.content[0].text).toContain(`${incomplete}]`);
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);
