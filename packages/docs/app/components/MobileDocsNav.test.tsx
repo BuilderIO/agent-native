@@ -1,15 +1,35 @@
 // @vitest-environment jsdom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import { getDocsNavSections } from "./docsNavItems";
 import MobileDocsNav from "./MobileDocsNav";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+});
 
 function renderMobileNav(pathname: string) {
   return render(
@@ -95,5 +115,32 @@ describe("MobileDocsNav", () => {
         .getByRole("button", { name: group.label })
         .getAttribute("aria-expanded"),
     ).toBe("true");
+  });
+
+  it("closes the docs dropdown when the viewport switches to desktop", () => {
+    let handleChange: ((event: MediaQueryListEvent) => void) | undefined;
+    const query = {
+      matches: false,
+      addEventListener: (_type: string, listener: EventListener) => {
+        handleChange = listener as (event: MediaQueryListEvent) => void;
+      },
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList;
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => query),
+    );
+
+    renderMobileNav("/docs/");
+    openNav();
+
+    const trigger = screen.getByRole("button", { name: "Navigate docs" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    act(() => {
+      handleChange?.({ matches: true } as MediaQueryListEvent);
+    });
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 });

@@ -17,6 +17,8 @@ import {
   isDocsNavItemActive,
 } from "./docsNavState";
 
+const DESKTOP_NAV_QUERY = "(min-width: 1024px)";
+
 export default function MobileDocsNav() {
   const [open, setOpen] = useState(false);
   const navRef = useRef<HTMLDivElement>(null);
@@ -43,6 +45,17 @@ export default function MobileDocsNav() {
     setOpenSectionId(getActiveDocsNavSectionId(navSections, location.pathname));
     setOpenGroupId(getActiveDocsNavGroupId(navSections, location.pathname));
   }, [location.pathname, navSections]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const query = window.matchMedia(DESKTOP_NAV_QUERY);
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setOpen(false);
+    };
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener("change", handleChange);
+  }, [open]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
