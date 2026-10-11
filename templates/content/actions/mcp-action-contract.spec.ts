@@ -116,6 +116,12 @@ describe("Content action-owned agent catalogs", () => {
       }),
     );
     expect(migrationInputSchema.required).toEqual(["phase"]);
+    expect(migrationInputSchema.description).toContain(
+      'phase="validate": requires plan',
+    );
+    expect(migrationInputSchema.description).toContain(
+      'phase="verify": requires databaseId, idempotencyKey, expectedPostDigest',
+    );
 
     expect(batchParameters?.allOf).toBeDefined();
     expect(batchInputSchema.type).toBe("object");

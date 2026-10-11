@@ -1,42 +1,26 @@
 import { fileURLToPath } from "node:url";
 
 import {
-  conformanceMcpConfig,
-  listMcpCatalogTools,
-  loadTemplateMcpActions,
+  loadTemplateMcpConformance,
   providerSchemaViolations,
-  type McpCatalogMode,
+  templateMcpCatalogModes,
+  type TemplateMcpConformance,
 } from "@agent-native/core/testing";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { CHATGPT_DIRECTORY_PROFILE } from "./lib/chatgpt-directory-tools.js";
-
-const MODES: McpCatalogMode[] = [
-  "default",
-  "full",
-  "app",
-  "oauth-read",
-  "directory",
-];
+const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 
 describe("Content MCP catalogs", () => {
-  let config: ReturnType<typeof conformanceMcpConfig>;
+  let template: TemplateMcpConformance;
 
   beforeAll(async () => {
-    const actions = await loadTemplateMcpActions(
-      fileURLToPath(new URL("..", import.meta.url)),
-    );
-    config = conformanceMcpConfig("content", actions);
+    template = await loadTemplateMcpConformance(projectRoot);
   }, 180_000);
 
-  it.each(MODES)(
-    "advertises only schemas every provider accepts in the %s catalog",
+  it.each(templateMcpCatalogModes(projectRoot))(
+    "advertises only schemas that pass every pinned provider rule in the %s catalog",
     async (mode) => {
-      const tools = await listMcpCatalogTools(
-        config,
-        mode,
-        CHATGPT_DIRECTORY_PROFILE,
-      );
+      const tools = await template.listCatalog(mode);
       expect(tools.length).toBeGreaterThan(0);
       expect(tools.flatMap((tool) => providerSchemaViolations(tool))).toEqual(
         [],
