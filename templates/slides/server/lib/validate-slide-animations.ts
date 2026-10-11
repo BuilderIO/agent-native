@@ -154,6 +154,12 @@ function pairUnequalRun(
   const claimed = new Set<Element>();
   for (const element of before) {
     const key = tagAndClass(element);
+    // Both sides must hold exactly one element of this tag and class. With two
+    // baseline siblings of one tag and class, a deleted one can look paired to the
+    // survivor, so the element stays unpaired.
+    if (before.filter((other) => tagAndClass(other) === key).length !== 1) {
+      continue;
+    }
     const candidates = after.filter(
       (candidate) => !claimed.has(candidate) && tagAndClass(candidate) === key,
     );

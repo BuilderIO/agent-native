@@ -323,6 +323,24 @@ describe("save-time reveal identity across a content edit", () => {
     });
   });
 
+  it("refuses a reveal whose target was deleted when its surviving same-tag sibling is edited", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: box("<p>Two, revised</p>"),
+        animations: [{ id: "one", elementIndex: 0, elementPath: [1, 0] }],
+        baseline: {
+          content: before,
+          animations: [{ id: "one", elementIndex: 0, elementPath: [1, 0] }],
+        },
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "one" },
+    });
+  });
+
   it("refuses a text edit to the target that also inserts a sibling before it", () => {
     const error = refusalOf(() =>
       saveWith(box("<p>One</p><p>Something new</p><p>Two, revised</p>")),
