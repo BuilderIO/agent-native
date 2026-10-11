@@ -58,6 +58,7 @@ import {
   allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
+  VideoStorageStatusUnavailableError,
 } from "../../../../lib/video-storage.js";
 
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
@@ -631,6 +632,70 @@ export async function handleRecordingChunk(
         staleAttempt: true,
       };
     }
+
+    const activeUpload =
+      existing.status === "uploading" || existing.status === "processing";
+    const pendingProcessingState =
+      isFinal && existing.status === "processing"
+        ? pendingMediaVerificationState(
+            await readAppState(`recording-upload-${recordingId}`).catch(
+              () => null,
+            ),
+          )
+        : null;
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadAttempt = {
+      recordingId,
+      uploadAttemptId: attemptId,
+      uploadGenerationId,
+    };
+    const resumableSession =
+      activeUpload && !pendingProcessingState
+        ? await getResumableSession(recordingId, uploadGenerationId)
+        : null;
+
+    let rejectWithoutStorage: boolean | null = null;
+    if (activeUpload && !pendingProcessingState && !resumableSession) {
+      try {
+        rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage();
+      } catch (error) {
+        if (!(error instanceof VideoStorageStatusUnavailableError)) throw error;
+
+        const [current] = await db
+          .select({
+            uploadAttemptId: schema.recordings.uploadAttemptId,
+            uploadGenerationId: schema.recordings.uploadGenerationId,
+          })
+          .from(schema.recordings)
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ),
+          );
+        if (
+          !current ||
+          (current.uploadAttemptId ?? null) !== attemptId ||
+          (current.uploadGenerationId ?? null) !== uploadGenerationId
+        ) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error: "A newer upload retry is already active.",
+            staleAttempt: true,
+          };
+        }
+
+        setResponseStatus(event, 503);
+        return {
+          ok: false,
+          errorCode: "video_storage_status_unavailable",
+          retryable: true,
+          storageSetupRequired: false,
+        };
+      }
+    }
+
     const lease = await renewUploadLease(recordingId, {
       attemptId,
       generationId: uploadGenerationId,
@@ -727,26 +792,14 @@ export async function handleRecordingChunk(
       return failed.length === 1;
     };
 
-    if (isFinal && existing.status === "processing") {
-      const pendingState = pendingMediaVerificationState(
-        await readAppState(`recording-upload-${recordingId}`).catch(() => null),
+    if (pendingProcessingState) {
+      return acceptedProcessingResponse(
+        event,
+        recordingId,
+        pendingProcessingState,
       );
-      if (pendingState) {
-        return acceptedProcessingResponse(event, recordingId, pendingState);
-      }
     }
 
-    const uploadStateKey = `recording-upload-${recordingId}`;
-    const uploadAttempt = {
-      recordingId,
-      uploadAttemptId: attemptId,
-      uploadGenerationId,
-    };
-
-    const resumableSession = await getResumableSession(
-      recordingId,
-      uploadGenerationId,
-    );
     if (resumableSession && isStreamingUploadDisabled()) {
       console.warn(
         `[chunk] streaming uploads are disabled, but preserving existing resumable session for in-flight recording: ${recordingId}`,
@@ -794,7 +847,7 @@ export async function handleRecordingChunk(
       );
     }
 
-    if (await shouldRejectVideoUploadWithoutStorage()) {
+    if (rejectWithoutStorage === true) {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
       if (
