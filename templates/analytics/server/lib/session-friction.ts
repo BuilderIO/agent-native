@@ -296,9 +296,7 @@ function readReplayFrictionProgress(
 ): ReplayFrictionProgress | null {
   const parsed = parseReplayFrictionDetectorState(row.detectorState);
   if (!parsed) return null;
-  const { lastSeq, ...state } = parsed as ReplayFrictionDetectorState & {
-    lastSeq?: unknown;
-  };
+  const { lastSeq, ...state } = parsed;
   if (lastSeq === undefined) return { state, lastSeq: row.processedChunks - 1 };
   if (typeof lastSeq !== "number" || !Number.isFinite(lastSeq)) return null;
   return { state, lastSeq };
@@ -436,14 +434,6 @@ async function remeasureReplayFrictionOnce(
     issueErrors: 0,
   };
   let progress: ReplayFrictionProgress | null = null;
-  const previousProgress = existing
-    ? readReplayFrictionProgress(existing)
-    : null;
-  const previousRageClickCount =
-    previousProgress?.state.rageClickCount ??
-    (existing
-      ? Math.max(0, input.rageClickCount - (input.rageClickDelta ?? 0))
-      : 0);
   let errorThenLeave = false;
   let processedChunks = 0;
   for await (const chunk of input.readStoredChunks()) {
@@ -463,9 +453,7 @@ async function remeasureReplayFrictionOnce(
   if (!progress) return "unmeasurable";
   const rageClickAdjustment = input.rageClickCountOverridden
     ? 0
-    : existing
-      ? totals.rageClicks - previousRageClickCount - (input.rageClickDelta ?? 0)
-      : totals.rageClicks - input.rageClickCount;
+    : totals.rageClicks - input.rageClickCount;
   const written = await writeReplayFriction(input, existing, {
     counts: {
       deadClicks: totals.deadClicks,

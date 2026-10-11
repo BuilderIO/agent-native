@@ -147,6 +147,63 @@ describe("compileSourceIndex", () => {
     );
   });
 
+  it("resolves dbt doc references and fingerprints their source text", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await mkdir(path.join(dbtRoot, "docs", "models"), { recursive: true });
+    const docPath = path.join(dbtRoot, "docs", "models", "membership.md");
+    const docText = `Membership counts use the month cutoff. ${"This declared rule distinguishes membership from activity. ".repeat(18)}The final caveat remains available to search.`;
+    await writeFile(
+      docPath,
+      `{% docs membership_counts %}\n${docText}\n{% enddocs %}\n`,
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: aggregate_monthly_users_per_org",
+        "    description: \"{{ doc('membership_counts') }}\"",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "aggregate_monthly_users_per_org.sql"),
+      "{{ config(unique_key = ['date_month', 'org_id']) }}\nselect 1",
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-10T00:00:00.000Z",
+    });
+    const entry = bundle.entries.find(
+      (candidate) =>
+        candidate.metric === "model:aggregate_monthly_users_per_org",
+    );
+    const originalFingerprint = bundle.sources[0]?.contentFingerprint;
+
+    expect(entry?.definition).toContain(
+      "Membership counts use the month cutoff",
+    );
+    expect(entry?.definition).toContain(
+      "The final caveat remains available to search.",
+    );
+    expect(entry?.definition).not.toContain("{{ doc(");
+
+    await writeFile(
+      docPath,
+      `{% docs membership_counts %}\n${docText} Updated definition.\n{% enddocs %}\n`,
+    );
+    const updatedBundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-10T00:00:00.000Z",
+    });
+
+    expect(updatedBundle.sources[0]?.contentFingerprint).not.toBe(
+      originalFingerprint,
+    );
+  });
+
   it("uses the primary entity name when primary_entity is omitted", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
@@ -338,7 +395,7 @@ describe("compileSourceIndex", () => {
         "    description: Unsafe model names are reported.",
         "  - name: long_model",
         "    description: >",
-        `      ${"Business context ".repeat(100)}`,
+        `      ${"Business context ".repeat(200)}`,
       ].join("\n"),
     );
 

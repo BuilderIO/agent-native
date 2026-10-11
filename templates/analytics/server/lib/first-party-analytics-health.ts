@@ -436,6 +436,7 @@ export async function getFirstPartyAnalyticsHealth(
   );
   const reasons: FirstPartyAnalyticsHealth["reasons"] = [];
   if (
+    backend.sink !== "bigquery" &&
     eventCount >= FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS.recommendEventCount
   ) {
     reasons.push("event_volume");

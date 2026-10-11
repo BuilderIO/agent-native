@@ -347,6 +347,21 @@ describe("parseReplayFrictionDetectorState", () => {
     });
   });
 
+  it("preserves and validates the persisted chunk sequence", () => {
+    const state = emptyReplayFrictionDetectorState();
+
+    expect(
+      parseReplayFrictionDetectorState(
+        JSON.stringify({ ...state, lastSeq: 8 }),
+      ),
+    ).toMatchObject({ lastSeq: 8 });
+    for (const lastSeq of [-1, 1.5, "8", null]) {
+      expect(
+        parseReplayFrictionDetectorState(JSON.stringify({ ...state, lastSeq })),
+      ).toBeNull();
+    }
+  });
+
   it("returns null for state it cannot continue from", () => {
     expect(parseReplayFrictionDetectorState("{")).toBeNull();
     expect(parseReplayFrictionDetectorState("{}")).toBeNull();

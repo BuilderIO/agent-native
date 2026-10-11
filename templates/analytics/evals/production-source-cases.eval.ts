@@ -10,8 +10,21 @@ type RelationGrainClaim = {
   grains: string[];
 };
 
+type RelationMeaningClaim = {
+  relation: string;
+  meanings: string[];
+};
+
+type FieldMeaningClaim = {
+  relation: string;
+  field: string;
+  meanings: string[];
+};
+
 type SourceContract = {
   relationGrains: RelationGrainClaim[];
+  relationMeanings?: RelationMeaningClaim[];
+  fieldMeanings?: FieldMeaningClaim[];
   relationGrainAlternatives: Array<{
     label: string;
     alternatives: RelationGrainClaim[];
@@ -71,6 +84,16 @@ export const sourceContracts = {
         ],
       },
     ],
+    relationMeanings: [
+      {
+        relation: "dbt_mart.organization_user_count",
+        meanings: ["current", "daily"],
+      },
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        meanings: ["historical", "month-end", "monthly trend"],
+      },
+    ],
     relationGrainAlternatives: [],
     concepts: ["current", "historical", "date", "month"],
   },
@@ -82,6 +105,18 @@ export const sourceContracts = {
           "one row per organization per month",
           "organization by month grain",
         ],
+      },
+    ],
+    fieldMeanings: [
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        field: "user_count",
+        meanings: ["external", "customer", "product users"],
+      },
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        field: "internal_user_count",
+        meanings: ["internal", "staff", "employee"],
       },
     ],
     relationGrainAlternatives: [],
@@ -206,6 +241,57 @@ function hasRelationGrainClaim(
   });
 }
 
+function hasRelationMeaningClaim(
+  lines: string[],
+  claim: RelationMeaningClaim,
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  return lines.some(
+    (line) =>
+      findCompletePhraseIndexes(line, relation).length > 0 &&
+      claim.meanings.some(
+        (meaning) =>
+          findCompletePhraseIndexes(line, meaning.toLowerCase()).length > 0,
+      ),
+  );
+}
+
+function hasFieldMeaningClaim(
+  lines: string[],
+  claim: FieldMeaningClaim,
+  allClaims: FieldMeaningClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const field = claim.field.toLowerCase();
+  const otherFields = allClaims
+    .filter(
+      (candidate) =>
+        candidate.relation === claim.relation &&
+        candidate.field !== claim.field,
+    )
+    .map((candidate) => candidate.field.toLowerCase());
+  return lines.some((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    return findCompletePhraseIndexes(line, field).some((index) => {
+      const nextFieldIndex = Math.min(
+        line.length,
+        ...otherFields.flatMap((otherField) =>
+          findCompletePhraseIndexes(
+            line.slice(index + field.length),
+            otherField,
+          ).map((offset) => index + field.length + offset),
+        ),
+      );
+      const assignment = line.slice(index + field.length, nextFieldIndex);
+      return claim.meanings.some(
+        (meaning) =>
+          findCompletePhraseIndexes(assignment, meaning.toLowerCase()).length >
+          0,
+      );
+    });
+  });
+}
+
 function sourceContractScorer(
   contract: SourceContract,
 ): Scorer<AgentRunOutput, { passed: boolean; reasons: string[] }> {
@@ -236,6 +322,22 @@ function sourceContractScorer(
           )
         ) {
           reasons.push(`missing ${group.label} with its expected grain`);
+        }
+      }
+
+      for (const claim of contract.relationMeanings ?? []) {
+        if (!hasRelationMeaningClaim(lines, claim)) {
+          reasons.push(
+            `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
+          );
+        }
+      }
+
+      for (const claim of contract.fieldMeanings ?? []) {
+        if (!hasFieldMeaningClaim(lines, claim, contract.fieldMeanings ?? [])) {
+          reasons.push(
+            `${claim.relation}.${claim.field} was not mapped to its expected population`,
+          );
         }
       }
 
@@ -290,12 +392,12 @@ export default [
   ),
   sourceEval(
     "Builder.io current and historical organization user counts have different grains",
-    "SYNTHETIC source selection only: I need a current organization user count and a historical month-end trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query production rows or return count values.",
+    "SYNTHETIC source selection only: I need a current organization user count and a historical month-end trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? Use model or schema metadata only. Put one relation on each line as `<relation>: current or historical; grain: <declared row unit>`. Do not query production rows or return count values.",
     sourceContracts.builderCurrentAndHistoricalUserCounts,
   ),
   sourceEval(
     "Builder.io month-end customer and internal user counts are separate",
-    "SYNTHETIC source selection only: for a month-end organization report, I need external Builder.io product users and Builder staff users shown separately. Which dbt model and fields define those counts, and what is its row grain? Use model or schema metadata only. Put the relation on one line as `<relation>: grain: <declared row unit>`. Do not query production rows, list users, or return count values.",
+    "SYNTHETIC source selection only: for a month-end organization report, I need external Builder.io product users and Builder staff users shown separately. Which dbt model and fields define those counts, and what is its row grain? Use model or schema metadata only. Put the relation and grain on one line as `<relation>: grain: <declared row unit>`, then map each field on its own line as `<relation>.<field>: <population>`. Do not query production rows, list users, or return count values.",
     sourceContracts.builderExternalAndInternalUserCounts,
   ),
   sourceEval(

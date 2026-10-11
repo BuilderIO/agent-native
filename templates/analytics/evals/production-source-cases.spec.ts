@@ -27,7 +27,15 @@ function outputFor(
     ),
   ];
   const expectedText = [
-    ...relationClaims.map((claim) => `${claim.relation}: ${claim.grains[0]}`),
+    ...relationClaims.map((claim) => {
+      const meaning = contract.relationMeanings?.find(
+        (candidate) => candidate.relation === claim.relation,
+      )?.meanings[0];
+      return `${claim.relation}: ${[meaning, claim.grains[0]].filter(Boolean).join("; ")}`;
+    }),
+    ...(contract.fieldMeanings ?? []).map(
+      (claim) => `${claim.relation}.${claim.field}: ${claim.meanings[0]}`,
+    ),
     ...contract.concepts,
   ].join("\n");
   return {
@@ -94,6 +102,59 @@ describe("Analytics synthetic production source evals", () => {
     );
 
     expect(report).toMatchObject({ total: 6, passed: 6, failed: 0 });
+  });
+
+  it("rejects current and historical count relations assigned to the opposite time scopes", async () => {
+    const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
+    const report = await runEvals(
+      [cases[1]!],
+      runnerFor({
+        text: [
+          "dbt_mart.organization_user_count: historical month-end; one row per organization per date",
+          "dbt_mart.aggregate_monthly_users_per_org: current daily; one row per organization per month",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:reversed-time-scope-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      "dbt_mart.organization_user_count was not assigned to its expected current time scope",
+    );
+  });
+
+  it("rejects reversed external and internal user-count field meanings", async () => {
+    const contract = sourceContracts.builderExternalAndInternalUserCounts;
+    const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const report = await runEvals(
+      [cases[2]!],
+      runnerFor({
+        text: [
+          `${relation}: one row per organization per month`,
+          `${relation}.user_count: internal Builder.io staff users`,
+          `${relation}.internal_user_count: external Builder.io product users`,
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:reversed-population-fields-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.user_count was not mapped to its expected population`,
+    );
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.internal_user_count was not mapped to its expected population`,
+    );
   });
 
   it("accepts the complete user-organization membership row unit", async () => {

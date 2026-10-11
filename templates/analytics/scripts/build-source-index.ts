@@ -23,7 +23,7 @@ const MAX_ENTRIES = 1_500;
 const MAX_BUNDLE_BYTES = 750_000;
 const MAX_ROOT_BYTES = 250_000_000;
 const MAX_STRING_LENGTH = 2_000;
-const MAX_DESCRIPTION_LENGTH = 1_000;
+const MAX_DESCRIPTION_LENGTH = 2_000;
 const SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -698,6 +698,41 @@ function yamlScalar(raw: string): string {
   }
   if ([">", ">-", ">+", "|", "|-", "|+"].includes(value)) return "";
   return value.replace(/\s+#(?!\d).*$/, "").trim();
+}
+
+function parseDbtDocBlocks(markdown: string): Map<string, string | null> {
+  const docs = new Map<string, string | null>();
+  const pattern =
+    /{%\s*docs\s+([A-Za-z_][A-Za-z0-9_-]{0,99})\s*%}([\s\S]*?){%\s*enddocs\s*%}/g;
+  for (const match of markdown.matchAll(pattern)) {
+    const name = match[1]!;
+    const description = match[2]!.replace(/\s+/g, " ").trim();
+    if (!description) continue;
+    docs.set(name, docs.has(name) ? null : description);
+  }
+  return docs;
+}
+
+function resolveDbtDocReferences(
+  yaml: string,
+  docs: Map<string, string | null>,
+): string {
+  return yaml
+    .split(/\r?\n/)
+    .map((line) => {
+      const commentFree = yamlCommentFree(line);
+      const description = commentFree.match(/^(\s*description\s*:\s*)(.*)$/);
+      if (!description) return line;
+      const value = yamlScalar(description[2]!);
+      const reference = value.match(
+        /^\{\{\s*doc\(\s*(['"])([A-Za-z_][A-Za-z0-9_-]{0,99})\1\s*\)\s*\}\}$/,
+      );
+      if (!reference) return line;
+      const resolved = docs.get(reference[2]!);
+      if (!resolved) return line;
+      return `${description[1]}${JSON.stringify(resolved)}`;
+    })
+    .join("\n");
 }
 
 function yamlList(raw: string): string[] {
@@ -2441,6 +2476,15 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   const fingerprint = createHash("sha256");
   const budget = { bytes: 0 };
   const scanSummary = emptyScanSummary();
+  const dbtDocBlocks = new Map<string, string | null>();
+  for (const file of files) {
+    if (path.extname(file.absolutePath).toLowerCase() !== ".md") continue;
+    const markdown = await readSourceFile(file, budget);
+    hashFile(fingerprint, file, markdown);
+    for (const [name, description] of parseDbtDocBlocks(markdown)) {
+      dbtDocBlocks.set(name, dbtDocBlocks.has(name) ? null : description);
+    }
+  }
   for (const file of files) {
     const extension = path.extname(file.absolutePath).toLowerCase();
     const relativePath = safeRelativePath(
@@ -2451,10 +2495,11 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
     if (extension === ".yml" || extension === ".yaml") {
       const docsRaw = await readSourceFile(file, budget);
       hashFile(fingerprint, file, docsRaw);
-      docs.push(...parseSchemaYaml(docsRaw, relativePath, scanSummary));
-      docs.push(...parseEmbeddedSemanticYaml(docsRaw, relativePath));
+      const resolvedDocs = resolveDbtDocReferences(docsRaw, dbtDocBlocks);
+      docs.push(...parseSchemaYaml(resolvedDocs, relativePath, scanSummary));
+      docs.push(...parseEmbeddedSemanticYaml(resolvedDocs, relativePath));
       semanticYamlItems.push(
-        ...parseSemanticYamlItems(docsRaw, relativePath, scanSummary),
+        ...parseSemanticYamlItems(resolvedDocs, relativePath, scanSummary),
       );
       continue;
     }

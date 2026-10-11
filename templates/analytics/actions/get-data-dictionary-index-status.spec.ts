@@ -81,7 +81,7 @@ describe("get-data-dictionary-index-status", () => {
     await expect(action.run()).resolves.toEqual({ status: "not-configured" });
   });
 
-  it("defaults missing legacy scan counts to zero", async () => {
+  it("reports missing legacy scan counts as unavailable", async () => {
     mocks.readSourceIndex.mockResolvedValueOnce({
       status: "available",
       bundle: {
@@ -93,7 +93,28 @@ describe("get-data-dictionary-index-status", () => {
 
     await expect(action.run()).resolves.toMatchObject({
       status: "available",
-      unresolvedTrackingCallSites: 0,
+      unresolvedTrackingCallSites: null,
+    });
+  });
+
+  it("preserves older partial scan summaries without inventing a zero", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [{ id: "dbt" }],
+        entries: [{ source: "dbt" }],
+        scanSummary: {
+          unsafeEntriesOmitted: 1,
+          unsafeFieldsOmitted: 2,
+          truncatedFields: 3,
+        },
+      },
+    });
+
+    await expect(action.run()).resolves.toMatchObject({
+      status: "available",
+      unresolvedTrackingCallSites: null,
     });
   });
 

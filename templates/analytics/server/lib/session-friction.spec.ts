@@ -1207,6 +1207,21 @@ describe("session friction on Postgres", () => {
     expect(details.get("r-late")?.replay).toMatchObject({ dead_clicks: 4 });
   });
 
+  it("preserves the highest persisted sequence when an early chunk arrives late", async () => {
+    await migrateFriction(client);
+    await addRecording("r-sequence", "s-sequence", at(0), 3);
+    await deadClickBatch("r-sequence", "s-sequence", 0, [2], false);
+    await deadClickBatch("r-sequence", "s-sequence", 1, [1], false);
+
+    const result = await client.query(
+      "SELECT processed_chunks, detector_state FROM session_recording_friction WHERE recording_id = 'r-sequence'",
+    );
+    expect(Number(result.rows[0].processed_chunks)).toBe(1);
+    expect(JSON.parse(String(result.rows[0].detector_state))).toMatchObject({
+      lastSeq: 2,
+    });
+  });
+
   it("measures an ended recording again when its final upload loses the row to an overlapping one", async () => {
     await migrateFriction(client);
     await addRecording("r1", "s1", at(0), 3);
@@ -1491,6 +1506,90 @@ describe("session friction on Postgres", () => {
     expect(Number(friction.rows[0].score)).toBe(
       sessionFrictionScore({ rage_clicks: 2 }, REPLAY_FRICTION_SCORE_INPUTS),
     );
+  });
+
+  it("reconciles an ended recording to stored rage clusters after a skipped late batch", async () => {
+    await migrateFriction(client);
+    await addRecording("r-rage-late", "s-rage-late", at(0));
+    const click = (timestamp: number) => ({
+      type: 3,
+      timestamp,
+      data: { source: 2, type: 2, id: 7, x: 20, y: 20 },
+    });
+    const chunks = [
+      {
+        seq: 0,
+        inlineData: JSON.stringify({
+          events: [click(1_000), click(1_100), click(1_200)],
+        }),
+      },
+      {
+        seq: 1,
+        inlineData: JSON.stringify({
+          events: [click(5_000), click(5_100), click(5_200)],
+        }),
+      },
+      {
+        seq: 2,
+        inlineData: JSON.stringify({
+          events: [click(9_000), click(9_100), click(9_200)],
+        }),
+      },
+    ];
+    const ingest = async (
+      chunkIndex: number,
+      priorChunkCount: number,
+      rageClickCount: number,
+    ) => {
+      const chunk = chunks[chunkIndex]!;
+      storeChunks("r-rage-late", [chunk]);
+      await client.query(
+        "UPDATE session_recordings SET chunk_count = $1, rage_click_count = $2 WHERE id = 'r-rage-late'",
+        [priorChunkCount + 1, rageClickCount],
+      );
+      await recordReplayFriction({
+        recordingId: "r-rage-late",
+        sessionId: "s-rage-late",
+        ownerEmail: OWNER,
+        orgId: ORG,
+        priorChunkCount,
+        newChunks: [chunk],
+        errorCount: 0,
+        rageClickCount,
+        rageClickDelta: 1,
+        recordingEnded: false,
+        readStoredChunks: readStored("r-rage-late"),
+        ingestedAt: at(chunkIndex + 1),
+      });
+    };
+
+    await ingest(0, 0, 1);
+    await ingest(2, 1, 2);
+    await ingest(1, 2, 3);
+    await finalizeReplayFriction(
+      { ...recordingInput("r-rage-late", "s-rage-late", 3), rageClickCount: 3 },
+      at(60),
+      readStored("r-rage-late"),
+    );
+
+    const recording = await client.query(
+      "SELECT rage_click_count FROM session_recordings WHERE id = 'r-rage-late'",
+    );
+    const friction = await client.query(
+      "SELECT score, dead_clicks, detector_state FROM session_recording_friction WHERE recording_id = 'r-rage-late'",
+    );
+    expect(Number(recording.rows[0].rage_click_count)).toBe(3);
+    expect(Number(friction.rows[0].dead_clicks)).toBe(2);
+    expect(Number(friction.rows[0].score)).toBe(
+      sessionFrictionScore(
+        { dead_clicks: 2, rage_clicks: 3 },
+        REPLAY_FRICTION_SCORE_INPUTS,
+      ),
+    );
+    expect(JSON.parse(String(friction.rows[0].detector_state))).toMatchObject({
+      rageClickCount: 3,
+      lastSeq: 2,
+    });
   });
 
   it("measures replay batches in order and stops at a batch it missed", async () => {
