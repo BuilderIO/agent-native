@@ -99,6 +99,7 @@ const RUN_PROVENANCE_KEYS = new Set([
   "submissionSource",
   "submissionRunId",
   "submissionThreadId",
+  "authorModel",
   "authorEffort",
 ]);
 

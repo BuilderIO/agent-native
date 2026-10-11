@@ -102,6 +102,20 @@ describe("sent comment mentions", () => {
     expect(spokenText(host)).toBe("Thanks @Sam, and @Claude too");
   });
 
+  it("leaves a name shared by two identities as text", () => {
+    const pills = render(
+      "@Sam Lee and @Sam Lee, plus @Priya",
+      JSON.stringify([
+        { kind: "person", email: "sam.lee@example.com", name: "Sam Lee" },
+        { kind: "person", email: "sam.l@example.org", name: "Sam Lee" },
+        { kind: "person", email: "priya@example.com", name: "Priya" },
+      ]),
+    );
+
+    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Priya"]);
+    expect(spokenText(host)).toBe("@Sam Lee and @Sam Lee, plus @Priya");
+  });
+
   it("never turns markup in a name or comment into elements", () => {
     const pills = render(
       "<b>bold</b> @<img src=x>",

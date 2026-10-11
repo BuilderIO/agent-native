@@ -1,6 +1,9 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { InlineMarkdown } from "@agent-native/toolkit/app/review";
-import type { CommentMention } from "@shared/comment-mentions";
+import {
+  commentMentionKey,
+  type CommentMention,
+} from "@shared/comment-mentions";
 import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -34,19 +37,28 @@ export function renderCommentBody(
   content: string,
   mentions: readonly CommentMention[],
 ) {
-  const bySource = new Map<string, CommentMention>();
+  const bySource = new Map<string, CommentMention | null>();
   for (const mention of mentions) {
+    if (!mention.name) continue;
     const source = `@${mention.name}`;
-    if (mention.name && !bySource.has(source)) bySource.set(source, mention);
+    const known = bySource.get(source);
+    // Stored mentions carry no positions, so a name shared by two identities
+    // can't be attributed per occurrence; it stays text instead of a guess.
+    bySource.set(
+      source,
+      known === undefined ||
+        (known && commentMentionKey(known) === commentMentionKey(mention))
+        ? mention
+        : null,
+    );
   }
   return (
     <InlineMarkdown
       content={content}
       inline
-      protectedSpans={[...bySource.keys()].map((source) => ({
-        source,
-        label: source,
-      }))}
+      protectedSpans={[...bySource]
+        .filter(([, mention]) => mention)
+        .map(([source]) => ({ source, label: source }))}
       renderProtectedSpan={(span, children) => {
         const mention = bySource.get(span.source);
         return mention ? (
