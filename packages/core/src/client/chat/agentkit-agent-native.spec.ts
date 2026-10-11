@@ -3811,6 +3811,92 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("drops a duplicate same-run assistant snapshot when restoring the durable reply", async () => {
+    const threadId = "thread-duplicate-assistant-snapshot";
+    const runId = "run-duplicate-assistant-snapshot";
+    const answer = "L1: one\nL40: forty";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "completed", runId })
+          : json({
+              id: threadId,
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-user",
+                      role: "user",
+                      content: [{ type: "text", text: "Write forty lines" }],
+                      metadata: {
+                        custom: {
+                          agentKitMessageId: "snapshot-user",
+                          submittedRunId: runId,
+                          submittedTurnId: "turn-1",
+                        },
+                      },
+                    },
+                  },
+                  {
+                    message: {
+                      id: "server-assistant",
+                      role: "assistant",
+                      status: { type: "complete" },
+                      content: [{ type: "text", text: answer }],
+                      metadata: { runId, custom: { turnId: "turn-1" } },
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "snapshot-user",
+                      role: "user",
+                      parts: [{ type: "text", text: "Write forty lines" }],
+                    },
+                    {
+                      id: "assistant-duplicate",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: `${answer}\n${answer}` }],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-canonical",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: answer }],
+                      metadata: { runId },
+                    },
+                  ],
+                  runs: [
+                    {
+                      id: runId,
+                      threadId,
+                      status: "completed",
+                      lastSequence: 2,
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(
+      snapshot?.messages.filter((message) => message.role === "assistant"),
+    ).toEqual([
+      expect.objectContaining({
+        id: "assistant-canonical",
+        role: "assistant",
+        parts: [{ type: "text", text: answer }],
+      }),
+    ]);
+    await transport.dispose();
+  });
+
   // The shape of a thread whose page was reloaded mid-run: the page saved
   // its snapshot with only the prompt, and the server then finished the run.
   function reloadedMidRunThread(agentKitMessages: unknown[]) {

@@ -13,7 +13,7 @@ import {
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import {
-  representedRootAssistantMessageIds,
+  projectRootAssistantMessages,
   threadMessageRecord,
 } from "../agent/thread-message-projection.js";
 import { getDbExec } from "../db/client.js";
@@ -442,13 +442,16 @@ function countThreadMessages(value: unknown, fallback: number): number {
   const agentKitMessages = Array.isArray(repo.agentKit?.messages)
     ? repo.agentKit.messages
     : [];
-  const mirroredRootIds = representedRootAssistantMessageIds({
+  const assistantProjection = projectRootAssistantMessages({
     rootMessages,
     snapshotMessages: agentKitMessages,
     events: repo.agentKit?.events,
     runs: repo.agentKit?.runs,
     toolCalls: repo.agentKit?.toolCalls,
   });
+  const mirroredRootIds = assistantProjection.representedRootMessageIds;
+  const supersededSnapshotMessageIds =
+    assistantProjection.supersededSnapshotMessageIds;
   const agentKitUserMessageId = (entry: unknown): string | undefined => {
     const message = threadMessageRecord(entry);
     if (message?.role !== "user") return undefined;
@@ -509,7 +512,16 @@ function countThreadMessages(value: unknown, fallback: number): number {
     }
     countMessage(entry);
   }
-  for (const entry of agentKitMessages) countMessage(entry);
+  for (const entry of agentKitMessages) {
+    const message = threadMessageRecord(entry);
+    if (
+      typeof message?.id === "string" &&
+      supersededSnapshotMessageIds.has(message.id)
+    ) {
+      continue;
+    }
+    countMessage(entry);
+  }
   return messageIds.size + unkeyedMessages;
 }
 

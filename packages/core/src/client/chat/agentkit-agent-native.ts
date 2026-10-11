@@ -909,6 +909,8 @@ function reconcileDurableMessages(
     rootAssistantProjection.representedRootMessageIds;
   const snapshotRunIdsByMessageId =
     rootAssistantProjection.snapshotRunIdsByMessageId;
+  const supersededSnapshotMessageIds =
+    rootAssistantProjection.supersededSnapshotMessageIds;
   const rootMessageIdsBySnapshotMessageId = new Map(
     [...rootAssistantProjection.snapshotMessageIdsByRootMessageId].map(
       ([rootId, snapshotId]) => [snapshotId, rootId],
@@ -930,6 +932,7 @@ function reconcileDurableMessages(
     (message) =>
       !(message.role === "user" && representedDurableUserIds.has(message.id)) &&
       !representedDurableAssistantIds.has(message.id) &&
+      !supersededSnapshotMessageIds.has(message.id) &&
       !supersededCompletedAssistantIds.has(message.id),
   );
 

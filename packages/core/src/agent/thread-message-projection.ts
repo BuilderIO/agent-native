@@ -44,6 +44,17 @@ function explicitRunId(value: Record<string, unknown>): string | undefined {
   return typeof runId === "string" ? runId : undefined;
 }
 
+function isTerminalAssistant(value: Record<string, unknown>): boolean {
+  const status = value.status;
+  const type = record(status)?.type;
+  return (
+    status === "complete" ||
+    status === "error" ||
+    type === "complete" ||
+    type === "incomplete"
+  );
+}
+
 function foldedRunIds(value: Record<string, unknown>): string[] {
   const custom = record(record(value.metadata)?.custom);
   const folded = Array.isArray(custom?.foldedRunIds)
@@ -309,6 +320,7 @@ export function projectRootAssistantMessages(input: {
   representedRootMessageIds: Set<string>;
   snapshotMessageIdsByRootMessageId: Map<string, string>;
   snapshotRunIdsByMessageId: Map<string, string>;
+  supersededSnapshotMessageIds: Set<string>;
 } {
   const rootMessages = Array.isArray(input.rootMessages)
     ? input.rootMessages.flatMap((value) => {
@@ -385,6 +397,16 @@ export function projectRootAssistantMessages(input: {
   }
   const represented = new Set<string>();
   const directMatches = new Map<string, string>();
+  const rootAssistantCountsByRun = new Map<string, number>();
+  for (const root of rootMessages) {
+    const runId = root.role === "assistant" ? explicitRunId(root) : undefined;
+    if (!runId) continue;
+    rootAssistantCountsByRun.set(
+      runId,
+      (rootAssistantCountsByRun.get(runId) ?? 0) + 1,
+    );
+  }
+  const supersededSnapshotMessageIds = new Set<string>();
   for (const root of rootMessages) {
     if (root.role !== "assistant" || typeof root.id !== "string") continue;
     const runId = explicitRunId(root);
@@ -397,11 +419,33 @@ export function projectRootAssistantMessages(input: {
       contentMatches(root, candidate, toolMessageIds),
     );
     const rootText = text(root);
-    const matchingCandidate = sameRunMatches[0];
-    const exactTextMatch =
-      matchingCandidate !== undefined &&
-      rootText !== undefined &&
-      text(matchingCandidate) === rootText;
+    const exactTextMatches = sameRunMatches.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    if (
+      rootText &&
+      isTerminalAssistant(root) &&
+      exactTextMatches.length === 1 &&
+      rootAssistantCountsByRun.get(runId) === 1
+    ) {
+      const matchingCandidate = exactTextMatches[0]!;
+      represented.add(root.id);
+      directMatches.set(root.id, matchingCandidate.id as string);
+      for (const candidate of sameRunCandidates) {
+        if (candidate.id === matchingCandidate.id) continue;
+        const candidateText = text(candidate);
+        if (
+          candidateText &&
+          candidateText.startsWith(rootText) &&
+          typeof candidate.id === "string"
+        ) {
+          supersededSnapshotMessageIds.add(candidate.id);
+        }
+      }
+      continue;
+    }
+    const matchingCandidate = exactTextMatches[0] ?? sameRunMatches[0];
+    const exactTextMatch = exactTextMatches.length === 1;
     const clientCanMatchPartial =
       matchingCandidate !== undefined &&
       (explicitRunId(matchingCandidate) === runId ||
@@ -451,6 +495,7 @@ export function projectRootAssistantMessages(input: {
     representedRootMessageIds: represented,
     snapshotMessageIdsByRootMessageId,
     snapshotRunIdsByMessageId,
+    supersededSnapshotMessageIds,
   };
 }
 

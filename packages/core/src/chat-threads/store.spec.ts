@@ -1548,6 +1548,54 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("excludes a duplicated assistant snapshot beside its durable reply", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-duplicate",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done.\nDone." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-canonical",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts an identical root and AgentKit assistant mirror once", async () => {
     const repository = {
       messages: [
