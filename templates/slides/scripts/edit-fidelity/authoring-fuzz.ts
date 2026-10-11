@@ -1073,10 +1073,16 @@ export async function runAuthoringFuzz(
       ) {
         return;
       }
-      // Diagnostic only: CI runs without tracing, so record which browser-session
-      // requests were watched and pending at reload when an unexpected error lands.
+      // Diagnostic only: CI runs without tracing, so record the browser-session
+      // requests in each map with startOffsetMs (negative = started before reload
+      // began). Map membership is not reported: the reload map keeps failed requests
+      // and also admits requests started after reload begins.
+      const startOffsetMs = (startedAt: number) =>
+        reloadNavigationStartedAt === null
+          ? null
+          : startedAt - reloadNavigationStartedAt;
       console.log(
-        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${reloadNavigationStartedAt === null ? "n/a" : Date.now() - reloadNavigationStartedAt} text=${JSON.stringify(text.slice(0, 240))} reloadPending=${JSON.stringify(reloadNavigationCandidates.map(({ pathname, ageMs }) => ({ pathname, ageMs: Math.round(ageMs) })))} watched=${JSON.stringify([...watchedRequests.entries()].map(([request, startedAt]) => ({ pathname: new URL(request.url()).pathname, method: request.method(), ageMs: Date.now() - startedAt, pendingAtReload: reloadNavigationRequests.has(request) })))}`,
+        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${reloadNavigationStartedAt === null ? "n/a" : Date.now() - reloadNavigationStartedAt} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify([...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({ pathname: new URL(request.url()).pathname, ageMs: Date.now() - startedAt, startOffsetMs: startOffsetMs(startedAt) })))} watched=${JSON.stringify([...watchedRequests.entries()].map(([request, startedAt]) => ({ pathname: new URL(request.url()).pathname, method: request.method(), ageMs: Date.now() - startedAt, startOffsetMs: startOffsetMs(startedAt) })))}`,
       );
       pageErrors.push(text);
     };
@@ -1109,7 +1115,7 @@ export async function runAuthoringFuzz(
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled || isBrowserSessionPath(pathname)) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation}`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation} startOffsetMs=${requestStartedAt === undefined || reloadNavigationStartedAt === null ? "n/a" : requestStartedAt - reloadNavigationStartedAt}`,
       );
     }
     if (
