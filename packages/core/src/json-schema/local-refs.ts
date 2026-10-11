@@ -6,13 +6,16 @@ import {
 
 const WHOLE_DEFINITION = /^#\/(\$defs|definitions)\/[^/]+$/;
 
+/** The pointer's segments, or undefined when `ref` is not a local pointer. */
 function pointerSegments(ref: string): string[] | undefined {
   if (!ref.startsWith("#")) return undefined;
   let fragment: string;
   try {
     fragment = decodeURIComponent(ref.slice(1));
-  } catch {
-    return undefined;
+  } catch (error) {
+    // A malformed escape names no target; unresolvedLocalRefs reports it.
+    if (error instanceof URIError) return undefined;
+    throw error;
   }
   if (fragment === "") return [];
   if (!fragment.startsWith("/")) return undefined;
