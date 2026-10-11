@@ -437,7 +437,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.shard == 'screen-history-1' || matrix.shard == 'screen-history-2' || matrix.shard == 'screen-history-3') && 13 || 9 }}
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
@@ -488,7 +488,7 @@ jobs:
       - name: Run focused Screen selection history regressions
         if: startsWith(matrix.shard, 'screen-history-')
         working-directory: templates/design
-        timeout-minutes: 8
+        timeout-minutes: 5
         env:
           E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
