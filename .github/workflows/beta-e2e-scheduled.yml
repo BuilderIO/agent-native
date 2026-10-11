@@ -24,7 +24,10 @@ jobs:
       # they cannot spend or inherit the repository-wide provider key.
       key_source: dedicated
     secrets: inherit
+    # beta-e2e.yml's report job needs actions: read; without it GitHub refuses
+    # to start the run.
     permissions:
+      actions: read
       contents: read
 
   # Keep one collector and digest implementation for scheduled and manual runs.
