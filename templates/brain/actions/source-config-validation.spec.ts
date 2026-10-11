@@ -181,6 +181,33 @@ describe("create-source config validation", () => {
     expect(mocks.createSource).not.toHaveBeenCalled();
   });
 
+  it("refuses to create a live Zoom source with no zoom config", async () => {
+    for (const config of [undefined, {}, { pollMinutes: 60 }]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config,
+        }),
+        JSON.stringify(config),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("creates a Zoom fixture source without approved meeting series", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom fixture",
+        provider: "zoom",
+        visibility: "org",
+        config: { fixture: true, transcripts: ["Ada: hello"] },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
+
   it("creates a source from config passed as a JSON string", async () => {
     await createSource.run({
       title: "Zoom meetings",
