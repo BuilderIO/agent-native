@@ -32,6 +32,7 @@ type BuilderConnectChoiceFlow = Pick<BuilderConnectFlow, "connecting"> & {
   error?: string | null;
   errorKind?: BuilderConnectErrorKind | null;
   retry?: () => boolean | void;
+  statusCheckEnabled?: boolean;
   statusReadSettledCount?: number;
   statusResolved?: boolean;
 };
@@ -112,15 +113,20 @@ export function BuilderConnectChoicePanel({
                   defaultValue:
                     "Couldn't check whether this app can create new accounts.",
                 })
-              : flow.statusResolved === false
-                ? t("agentChat.onboarding.builderActivationChecking", {
+              : flow.statusCheckEnabled === false
+                ? t("agentChat.onboarding.builderActivationUnavailableInMode", {
                     defaultValue:
-                      "Checking whether new account activation is available.",
+                      "New account activation isn't available in this mode. You can still connect an existing account.",
                   })
-                : t("agentChat.onboarding.builderActivationUnavailable", {
-                    defaultValue:
-                      "New account creation isn't enabled for this app. You can still connect an existing account.",
-                  })}
+                : flow.statusResolved === false
+                  ? t("agentChat.onboarding.builderActivationChecking", {
+                      defaultValue:
+                        "Checking whether new account activation is available.",
+                    })
+                  : t("agentChat.onboarding.builderActivationUnavailable", {
+                      defaultValue:
+                        "New account creation isn't enabled for this app. You can still connect an existing account.",
+                    })}
       </p>
       {flow.accountExists ? (
         <div

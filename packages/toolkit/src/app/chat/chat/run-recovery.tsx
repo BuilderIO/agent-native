@@ -62,7 +62,11 @@ type SetupTelemetryEventName =
   | "integration_setup_exposed"
   | "integration_method_clicked"
   | "integration_method_outcome";
-type SetupTelemetryMethodId = "setup_card" | "builder" | "custom_keys";
+type SetupTelemetryMethodId =
+  | "setup_card"
+  | "builder"
+  | "custom_keys"
+  | "environment_variable";
 type SetupTelemetryAction = "view" | "click" | "connect";
 type SetupTelemetryOutcome =
   | "exposed"
@@ -495,6 +499,13 @@ export function BuilderSetupContent({
       "click",
       "started",
     );
+  const trackEnvironmentVariableClick = () =>
+    trackSetupFunnelEvent(
+      "integration_method_clicked",
+      "environment_variable",
+      "click",
+      "started",
+    );
   const customKeysClassName = cn(
     "agent-builder-setup-card__key-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md text-[11px] font-medium",
     sidebarLayout
@@ -597,7 +608,7 @@ export function BuilderSetupContent({
                     href="https://www.agent-native.com/docs/environment-variables#llm-provider-keys"
                     target="_blank"
                     rel="noreferrer"
-                    onClick={trackCustomKeysClick}
+                    onClick={trackEnvironmentVariableClick}
                     className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="text-xs font-medium text-foreground">

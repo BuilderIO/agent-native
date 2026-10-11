@@ -190,6 +190,41 @@ describe("BuilderConnectPopover", () => {
     expect(flow.start).not.toHaveBeenCalled();
   });
 
+  it("shows a resolved state when status checks are disabled", async () => {
+    const flow = {
+      connecting: false,
+      statusCheckEnabled: false,
+      statusResolved: false,
+      agentNativeProvisioningEnabled: false,
+      start: vi.fn(),
+    };
+
+    render(
+      React.createElement(
+        DeferredBuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+    await finishLazyLoad();
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "New account activation isn't available in this mode.",
+    );
+    expect(consent?.textContent).not.toContain("Checking whether");
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.disabled,
+    ).toBe(true);
+  });
+
   it("offers a retry after a Builder status read fails", () => {
     const retry = vi.fn(() => true);
     const flow = {

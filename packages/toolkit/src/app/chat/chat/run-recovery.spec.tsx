@@ -899,6 +899,18 @@ describe("run recovery surfaces", () => {
     );
 
     await act(async () => {
+      environmentOption?.click();
+    });
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_clicked",
+      expect.objectContaining({
+        method_id: "environment_variable",
+        action: "click",
+        outcome: "started",
+      }),
+    );
+
+    await act(async () => {
       settingsOption?.click();
       await Promise.resolve();
     });

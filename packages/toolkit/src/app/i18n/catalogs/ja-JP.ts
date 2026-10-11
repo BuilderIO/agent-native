@@ -161,6 +161,8 @@ const messages: ToolkitAgentChatTranslation = {
     "新しいアカウントを作成できるか確認しています。",
   "onboarding.builderActivationUnavailable":
     "このアプリでは新しいアカウントの作成が有効になっていません。既存のアカウントは接続できます。",
+  "onboarding.builderActivationUnavailableInMode":
+    "このモードでは新しいアカウントを有効化できません。既存のアカウントは引き続き接続できます。",
   "onboarding.builderActivationCheckFailed":
     "このアプリで新しいアカウントを作成できるか確認できませんでした。",
 

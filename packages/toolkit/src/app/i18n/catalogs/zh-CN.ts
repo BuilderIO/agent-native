@@ -148,6 +148,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking": "正在检查是否可以创建新账户。",
   "onboarding.builderActivationUnavailable":
     "此应用未启用新账户创建功能。你仍可连接现有账户。",
+  "onboarding.builderActivationUnavailableInMode":
+    "此模式下无法激活新账户。你仍然可以连接现有账户。",
   "onboarding.builderActivationCheckFailed":
     "无法确认此应用是否可以创建新账户。",
 

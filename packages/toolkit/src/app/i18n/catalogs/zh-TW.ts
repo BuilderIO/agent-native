@@ -149,6 +149,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
   "onboarding.builderActivationUnavailable":
     "此應用程式未啟用新帳戶建立功能。你仍可連結現有帳戶。",
+  "onboarding.builderActivationUnavailableInMode":
+    "此模式無法啟用新帳戶。你仍可連結現有帳戶。",
   "onboarding.builderActivationCheckFailed":
     "無法確認此應用程式是否可以建立新帳戶。",
 

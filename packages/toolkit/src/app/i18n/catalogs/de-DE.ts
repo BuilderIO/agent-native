@@ -164,6 +164,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Es wird geprüft, ob die Erstellung eines neuen Kontos verfügbar ist.",
   "onboarding.builderActivationUnavailable":
     "Die Erstellung neuer Konten ist für diese App nicht aktiviert. Du kannst ein bestehendes Konto verbinden.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Die Aktivierung eines neuen Kontos ist in diesem Modus nicht verfügbar. Du kannst weiterhin ein bestehendes Konto verbinden.",
   "onboarding.builderActivationCheckFailed":
     "Es konnte nicht geprüft werden, ob diese App neue Konten erstellen kann.",
 

@@ -249,6 +249,7 @@ export type BuilderConnectErrorKind = "status-read" | "connection" | "launch";
 export interface BuilderConnectFlow {
   configured: boolean;
   provisionAccount?: boolean;
+  statusCheckEnabled: boolean;
   statusResolved: boolean;
   statusReadSettledCount: number;
   envManaged: boolean;
@@ -2092,6 +2093,7 @@ export function useBuilderConnectFlow(
     configured,
     provisionAccount,
     codeChangeConfigured,
+    statusCheckEnabled: enabled,
     statusResolved,
     statusReadSettledCount,
     envManaged,

@@ -161,6 +161,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Comprobando si se pueden crear cuentas nuevas.",
   "onboarding.builderActivationUnavailable":
     "Esta aplicación no permite crear cuentas nuevas. Puedes conectar una cuenta existente.",
+  "onboarding.builderActivationUnavailableInMode":
+    "La activación de una cuenta nueva no está disponible en este modo. Aún puedes conectar una cuenta existente.",
   "onboarding.builderActivationCheckFailed":
     "No se pudo comprobar si esta aplicación permite crear cuentas nuevas.",
 

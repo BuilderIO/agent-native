@@ -155,6 +155,8 @@ const messages = {
     "Checking whether new account activation is available.",
   "onboarding.builderActivationUnavailable":
     "New account creation isn't enabled for this app. You can still connect an existing account.",
+  "onboarding.builderActivationUnavailableInMode":
+    "New account activation isn't available in this mode. You can still connect an existing account.",
   "onboarding.builderActivationCheckFailed":
     "Couldn't check whether this app can create new accounts.",
 
