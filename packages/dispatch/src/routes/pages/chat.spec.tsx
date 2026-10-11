@@ -9,6 +9,7 @@ import ChatRoute from "./chat";
 const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
   openWorkspaceApp: vi.fn(),
+  requestAgentTaskOpen: vi.fn(),
   workspaceApps: [
     {
       id: "content",
@@ -39,6 +40,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
   ) => navigate(path),
   sendToAgentChat: vi.fn(),
+  requestAgentTaskOpen: clientState.requestAgentTaskOpen,
 }));
 
 vi.mock("@agent-native/toolkit/app/chat/AgentChatHome", () => ({
@@ -122,6 +124,7 @@ describe("Dispatch ChatRoute", () => {
     clientState.surfaceProps = null;
     clientState.agents = [];
     clientState.openWorkspaceApp.mockReset();
+    clientState.requestAgentTaskOpen.mockReset();
     clientState.retryWorkspaceApps.mockReset();
     clientState.workspaceAppsError = null;
     clientState.workspaceApps = [
@@ -168,6 +171,43 @@ describe("Dispatch ChatRoute", () => {
       "dispatch.pages.suggestionAnalyticsAgents",
     ]);
     expect(clientState.surfaceProps?.afterComposerSlot).toBeTruthy();
+  });
+
+  it("opens a Dispatch run with its Agent Teams parent context", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={[
+            {
+              pathname: "/chat",
+              state: {
+                dispatchThread: {
+                  id: "run-open-1",
+                  threadId: "child-thread",
+                  parentThreadId: "parent-thread",
+                  description: "Review the Slides task",
+                  name: "Slides review",
+                },
+              },
+            },
+          ]}
+        >
+          <ChatRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(clientState.requestAgentTaskOpen).toHaveBeenCalledOnce();
+    expect(clientState.requestAgentTaskOpen).toHaveBeenCalledWith({
+      threadId: "child-thread",
+      parentThreadId: "parent-thread",
+      description: "Review the Slides task",
+      name: "Slides review",
+    });
   });
 
   it("renders the colored app directory below the empty chat composer", async () => {

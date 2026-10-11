@@ -70,6 +70,89 @@ describe("RunsTrayMenuItem", () => {
 
     expect(document.body.textContent).toContain("No recent runs");
   });
+
+  it("makes run titles keyboard-navigable menu items", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "menu-run-1",
+              kind: "harness",
+              source: "agent-harness",
+              title: "Review slides",
+              status: "completed",
+              goalId: "agent-harness",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-menu" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DropdownMenu open>
+          <DropdownMenuContent forceMount>
+            <RunsTrayMenuItem pollMs={0} />
+          </DropdownMenuContent>
+        </DropdownMenu>,
+      );
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Agent runs"),
+      );
+    });
+
+    const trigger = document.querySelector(
+      '[aria-label^="Agent runs"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    const openedThreads: unknown[] = [];
+    const onOpen = (event: Event) =>
+      openedThreads.push((event as CustomEvent).detail);
+    window.addEventListener("agent-chat:open-thread", onOpen);
+    try {
+      const titleItem = await vi.waitFor(() => {
+        const item = Array.from(
+          document.querySelectorAll<HTMLButtonElement>(
+            'button[role="menuitem"]',
+          ),
+        ).find((button) => button.textContent?.includes("Review slides"));
+        expect(item).toBeTruthy();
+        return item!;
+      });
+
+      expect(titleItem.hasAttribute("data-radix-collection-item")).toBe(true);
+      await act(async () => {
+        titleItem.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await vi.waitFor(() => expect(openedThreads).toHaveLength(1));
+      });
+      expect(openedThreads[0]).toMatchObject({ threadId: "thread-menu" });
+    } finally {
+      window.removeEventListener("agent-chat:open-thread", onOpen);
+    }
+  });
 });
 
 describe("RunsTray polling", () => {

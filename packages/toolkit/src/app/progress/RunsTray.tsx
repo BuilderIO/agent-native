@@ -16,6 +16,7 @@ import {
   Tooltip as DesignSystemTooltip,
 } from "@agent-native/toolkit/design-system";
 import {
+  DropdownMenuItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -379,6 +380,7 @@ export function RunsTray({
         onDismiss={dismissRun}
         onStop={stopRun}
         onOpenThread={openRunThread}
+        insideDropdownMenu={false}
       />
     </DesignSystemPopover>
   );
@@ -470,6 +472,7 @@ export function RunsTrayMenuItem({
           onDismiss={dismissRun}
           onStop={stopRun}
           onOpenThread={openRunThread}
+          insideDropdownMenu
         />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
@@ -484,6 +487,7 @@ function RunsTrayContent({
   onDismiss,
   onStop,
   onOpenThread,
+  insideDropdownMenu,
 }: {
   runs: AgentRunDto[];
   hasRuns: boolean;
@@ -492,6 +496,7 @@ function RunsTrayContent({
   onDismiss: (runId: string) => void;
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+  insideDropdownMenu: boolean;
 }) {
   const t = useT();
   return (
@@ -522,6 +527,7 @@ function RunsTrayContent({
               onDismiss={onDismiss}
               onStop={onStop}
               onOpenThread={onOpenThread}
+              insideDropdownMenu={insideDropdownMenu}
             />
           ))}
         </div>
@@ -707,11 +713,13 @@ function RunRow({
   onDismiss,
   onStop,
   onOpenThread,
+  insideDropdownMenu,
 }: {
   run: AgentRunDto;
   onDismiss: (runId: string) => void;
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+  insideDropdownMenu: boolean;
 }) {
   const t = useT();
   const formatters = useFormatters();
@@ -720,29 +728,62 @@ function RunRow({
   const isRunning = run.status === "running";
   const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
   const backgroundStatus = getBackgroundStatus(run);
+  const titleButton =
+    threadId && onOpenThread ? (
+      <button
+        type="button"
+        className="group flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onOpenThread(threadId, run)}
+      >
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+          <span className="truncate font-medium text-foreground group-hover:underline">
+            {run.title}
+          </span>
+          <IconExternalLink size={12} className="shrink-0" aria-hidden />
+          <span className="sr-only">{t("runsTray.open")}</span>
+        </span>
+        {run.step ? (
+          <span className="mt-0.5 max-w-full truncate text-xs text-muted-foreground">
+            {run.step}
+          </span>
+        ) : null}
+      </button>
+    ) : null;
+  const stopButton = canStop ? (
+    <button
+      type="button"
+      aria-label={t("runsTray.stopRun", { title: run.title })}
+      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-destructive"
+      onClick={() => onStop(run.id)}
+    >
+      <IconPlayerStop size={13} aria-hidden />
+    </button>
+  ) : null;
+  const dismissButton = !isRunning ? (
+    <button
+      type="button"
+      aria-label={t("runsTray.hideRun", { title: run.title })}
+      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+      onClick={() => onDismiss(run.id)}
+    >
+      <IconX size={13} aria-hidden />
+    </button>
+  ) : null;
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
       <div className="flex items-start justify-between gap-2">
-        {threadId && onOpenThread ? (
-          <button
-            type="button"
-            className="group flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => onOpenThread(threadId, run)}
-          >
-            <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
-              <span className="truncate font-medium text-foreground group-hover:underline">
-                {run.title}
-              </span>
-              <IconExternalLink size={12} className="shrink-0" aria-hidden />
-              <span className="sr-only">{t("runsTray.open")}</span>
-            </span>
-            {run.step ? (
-              <span className="mt-0.5 max-w-full truncate text-xs text-muted-foreground">
-                {run.step}
-              </span>
-            ) : null}
-          </button>
+        {titleButton ? (
+          insideDropdownMenu ? (
+            <DropdownMenuItem
+              asChild
+              className="min-w-0 flex-1 justify-start p-0"
+            >
+              {titleButton}
+            </DropdownMenuItem>
+          ) : (
+            titleButton
+          )
         ) : (
           <div className="min-w-0 flex-1">
             <div className="truncate font-medium text-foreground">
@@ -784,26 +825,20 @@ function RunRow({
           {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          {canStop ? (
-            <button
-              type="button"
-              aria-label={t("runsTray.stopRun", { title: run.title })}
-              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-destructive"
-              onClick={() => onStop(run.id)}
-            >
-              <IconPlayerStop size={13} aria-hidden />
-            </button>
-          ) : null}
-          {!isRunning ? (
-            <button
-              type="button"
-              aria-label={t("runsTray.hideRun", { title: run.title })}
-              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              onClick={() => onDismiss(run.id)}
-            >
-              <IconX size={13} aria-hidden />
-            </button>
-          ) : null}
+          {stopButton && insideDropdownMenu ? (
+            <DropdownMenuItem asChild className="h-6 w-6 justify-center p-0">
+              {stopButton}
+            </DropdownMenuItem>
+          ) : (
+            stopButton
+          )}
+          {dismissButton && insideDropdownMenu ? (
+            <DropdownMenuItem asChild className="h-6 w-6 justify-center p-0">
+              {dismissButton}
+            </DropdownMenuItem>
+          ) : (
+            dismissButton
+          )}
         </div>
       </div>
     </div>
