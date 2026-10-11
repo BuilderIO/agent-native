@@ -1063,6 +1063,45 @@ describe("update-slide", () => {
     ).toEqual(animations);
   });
 
+  it("refuses a content edit that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+          animations: [
+            {
+              id: "reveal-two",
+              elementIndex: 1,
+              elementPath: [1, 1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent:
+          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "slide-1",
+        animationId: "reveal-two",
+      },
+    });
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
   it("refuses a content edit that strands a reveal, with a typed error and no write", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

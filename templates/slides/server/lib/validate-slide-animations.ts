@@ -4,6 +4,7 @@ import { parseHTML } from "linkedom/worker";
 import {
   animationElementKey,
   getElementPreview,
+  getPersistedChildren,
   resolveRevealSteps,
   type AnimationTarget,
   type RevealOutcome,
@@ -28,7 +29,8 @@ export interface SlideAnimationBaseline {
 export type SlideAnimationRefusal =
   | RevealUnresolvedReason
   | "duplicate-id"
-  | "element-path-required";
+  | "element-path-required"
+  | "retargeted";
 
 function refuse(
   reason: SlideAnimationRefusal,
@@ -100,6 +102,130 @@ function unresolvedIdentities(baseline: SlideAnimationBaseline): Set<string> {
   );
 }
 
+// Node.TEXT_NODE; the global Node is not defined where this validator runs.
+const TEXT_NODE = 3;
+
+function persistedDescendants(root: Element): Element[] {
+  const elements: Element[] = [];
+  const visit = (parent: Element) => {
+    for (const child of getPersistedChildren(parent)) {
+      elements.push(child);
+      visit(child);
+    }
+  };
+  visit(root);
+  return elements;
+}
+
+// Tag, class, and the element's own text. Text inside child elements is left out,
+// so an edit deep in a container does not change the container's identity.
+function elementSignature(element: Element): string {
+  const ownText = Array.from(element.childNodes)
+    .filter((node) => node.nodeType === TEXT_NODE)
+    .map((node) => node.textContent ?? "")
+    .join("");
+  return JSON.stringify([
+    element.tagName.toLowerCase(),
+    element.getAttribute("class") ?? "",
+    ownText.replace(/\s+/g, " ").trim(),
+  ]);
+}
+
+/**
+ * Pairs each element of the baseline with the element it became after an edit,
+ * or leaves it unpaired. Exact matches anchor a longest common subsequence in
+ * document order. Between two anchors, elements pair up in order only when both
+ * runs hold the same number of elements, so an edit to an element's text or tag
+ * keeps its identity, while an inserted, removed, or reordered sibling breaks the
+ * pairing. Identical siblings are interchangeable by content, so an insertion among
+ * them can still pick the wrong match.
+ */
+function elementIdentities(
+  baseline: Element,
+  post: Element,
+): Map<Element, Element> {
+  const before = persistedDescendants(baseline);
+  const after = persistedDescendants(post);
+  const beforeKeys = before.map(elementSignature);
+  const afterKeys = after.map(elementSignature);
+  const n = before.length;
+  const m = after.length;
+
+  // ponytail: quadratic in one slide's element count; slides are small. Upgrade to
+  // a diff library if a slide ever grows into thousands of elements.
+  // common[i][j]: longest common subsequence of beforeKeys[i..] and afterKeys[j..].
+  const common = Array.from({ length: n + 1 }, () =>
+    new Array<number>(m + 1).fill(0),
+  );
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      common[i]![j] =
+        beforeKeys[i] === afterKeys[j]
+          ? common[i + 1]![j + 1]! + 1
+          : Math.max(common[i + 1]![j]!, common[i]![j + 1]!);
+    }
+  }
+  const anchors: Array<[number, number]> = [];
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (beforeKeys[i] === afterKeys[j]) {
+      anchors.push([i, j]);
+      i++;
+      j++;
+    } else if (common[i + 1]![j]! >= common[i]![j + 1]!) {
+      i++;
+    } else {
+      j++;
+    }
+  }
+
+  const identities = new Map<Element, Element>();
+  let fromBefore = 0;
+  let fromAfter = 0;
+  for (const [i, j] of [...anchors, [n, m] as [number, number]]) {
+    const gapBefore = before.slice(fromBefore, i);
+    const gapAfter = after.slice(fromAfter, j);
+    if (gapBefore.length === gapAfter.length) {
+      gapBefore.forEach((element, k) => identities.set(element, gapAfter[k]!));
+    }
+    if (i < n) identities.set(before[i]!, after[j]!);
+    fromBefore = i + 1;
+    fromAfter = j + 1;
+  }
+  return identities;
+}
+
+/**
+ * The index of the first kept reveal, or -1. A kept reveal has the same id, index,
+ * and path as a baseline reveal that resolved. Its path can still resolve after a
+ * sibling moves in front of the target, so the path alone cannot prove the target
+ * is the same element; the alignment has to.
+ */
+function retargetedRevealIndex(
+  baseline: SlideAnimationBaseline,
+  root: Element,
+  animations: readonly SlideAnimation[],
+): number {
+  const baselineRoot = slideRootOf(baseline.content);
+  if (!baselineRoot) return -1;
+  const priorTargets = new Map<string, Element>();
+  resolveRevealSteps(baselineRoot, baseline.animations).forEach(
+    (outcome, index) => {
+      if (outcome.ok) {
+        priorTargets.set(
+          revealIdentity(baseline.animations[index]!),
+          outcome.element,
+        );
+      }
+    },
+  );
+  const identities = elementIdentities(baselineRoot, root);
+  return resolveRevealSteps(root, animations).findIndex((outcome, index) => {
+    if (!outcome.ok) return false;
+    const prior = priorTargets.get(revealIdentity(animations[index]!));
+    return prior !== undefined && identities.get(prior) !== outcome.element;
+  });
+}
+
 // The same resolver the editor and the runtime use, so a save rejects exactly
 // what playback would fail to resolve, including "By paragraph" expansion.
 export function summarizeSlideAnimationTargets(
@@ -149,7 +275,7 @@ export function summarizeSlideAnimationTargets(
  * Refuses a save whose reveal list introduces a reveal that does not resolve.
  * A reveal the baseline already had unresolved (same id, same target) may stay
  * or leave the list, so a partial repair saves; only a new unresolved reveal,
- * or one a content change strands, is refused.
+ * or one a content change strands or retargets, is refused.
  */
 export function assertSlideAnimationsResolve({
   slideId,
@@ -206,7 +332,21 @@ export function assertSlideAnimationsResolve({
     (outcome, index): outcome is Extract<RevealOutcome, { ok: false }> =>
       !outcome.ok && !alreadyUnresolved.has(revealIdentity(animations[index]!)),
   );
-  if (!failure) return;
+  if (!failure) {
+    const retargeted =
+      baseline && root ? retargetedRevealIndex(baseline, root, animations) : -1;
+    if (retargeted === -1) return;
+    const moved = animations[retargeted]!;
+    refuse(
+      "retargeted",
+      `Cannot save animations for slide ${slideId}: ${formatTarget(moved)} now lands on a different element in the final HTML. A content change moved its target, for example by inserting, removing, or reordering a sibling before it. Re-read the final HTML and send the content and complete ordered animation list together.`,
+      {
+        slideId,
+        animationIndex: retargeted,
+        animationId: moved.id ?? null,
+      },
+    );
+  }
 
   const target = animations[failure.animationIndex];
   const targetDescription = target ? formatTarget(target) : "unknown step";

@@ -146,7 +146,7 @@ const SlideAnimationSchema = z.object({
 });
 
 const SLIDE_TRANSITION_DESCRIPTION =
-  "Transition between the previous slide and this one. It plays when the presenter moves across that boundary in either direction, and the later slide of the pair supplies the type and speed. One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents. Null resets to none. On patch-slide, omitting it keeps the current transition; on add-slide, omitting it means none.";
+  "Transition into this slide. It plays across the boundary before this slide, in either direction, and this slide, the later of the pair, supplies the type and speed. One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents. Null resets to none. On patch-slide, omitting it keeps the current transition; on add-slide, omitting it means none.";
 const SLIDE_TRANSITION_SPEED_DESCRIPTION =
   "Speed of this slide's transition, from 0 (slowest, 5.0 s) to 49 (fastest, 0.1 s). Null resets to the default 45 (0.5 s). On patch-slide, omitting it keeps the current speed; on add-slide, omitting it means the default 45 (0.5 s).";
 
@@ -178,7 +178,7 @@ const SlideFieldsSchema = z.object({
     .nullable()
     .optional()
     .describe(
-      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals; a content change that strands one fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals; a content change that strands one, or moves one onto a different element, fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
     ),
   splitByParagraph: z.boolean().nullable().optional(),
   skipped: z
@@ -327,6 +327,7 @@ const AddSlideOp = z.object({
       excalidrawData: z.string().optional(),
       transition: z
         .enum(SLIDE_TRANSITION_INPUTS)
+        .nullable()
         .optional()
         .describe(SLIDE_TRANSITION_DESCRIPTION),
       transitionSpeed: z
@@ -337,7 +338,13 @@ const AddSlideOp = z.object({
         .nullable()
         .optional()
         .describe(SLIDE_TRANSITION_SPEED_DESCRIPTION),
-      animations: z.array(SlideAnimationSchema).optional(),
+      animations: z
+        .array(SlideAnimationSchema)
+        .nullable()
+        .optional()
+        .describe(
+          "Complete ordered on-click reveal list for the new slide. Omitted, null, or [] means no reveals. Use elementPath from the final HTML and 0-based indexes.",
+        ),
       splitByParagraph: z.boolean().optional(),
       skipped: z.boolean().optional(),
     })
@@ -1063,7 +1070,11 @@ export function applyOperation(
         layout: fields.layout ?? "content",
       };
       delete newSlide.imageLoading;
-      for (const key of ["transition", "transitionSpeed"] as const) {
+      for (const key of [
+        "transition",
+        "transitionSpeed",
+        "animations",
+      ] as const) {
         const value = canonicalSlideFieldValue(key, newSlide[key]);
         if (value === null || value === undefined) delete newSlide[key];
         else newSlide[key] = value;
@@ -1253,7 +1264,7 @@ export default defineAction({
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
     "then patch content and the complete ordered animations list together. " +
     "A content patch that omits animations keeps the current reveals; one its " +
-    "change strands fails with a slide_animation_* error (400) and writes nothing. " +
+    "change strands or moves onto a different element fails with a slide_animation_* error (400) and writes nothing. " +
     "Send animations: [] to clear every reveal. " +
     "Use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +

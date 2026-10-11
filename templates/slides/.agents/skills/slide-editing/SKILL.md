@@ -163,5 +163,6 @@ right-click Skip slide does the same.
 
 ## Transitions
 
-Slide transitions (type and speed, Google Slides catalog) are set with
-`patch-slide`. Read `references/transitions.md` before changing them.
+Slide transitions (type and speed, Google Slides catalog) are set with the
+`patch-slide` op of `patch-deck`, or with its `add-slide` op on creation. Read
+`references/transitions.md` before changing them.

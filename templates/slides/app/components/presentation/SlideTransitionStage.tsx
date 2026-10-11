@@ -106,7 +106,11 @@ export function SlideTransitionStage({
       <div
         ref={outgoingRef}
         className="absolute inset-0 z-10"
-        style={{ willChange: "transform, opacity" }}
+        style={{
+          willChange: "transform, opacity",
+          backfaceVisibility: motion.outgoing.backfaceVisibility,
+        }}
+        aria-hidden="true"
       >
         <SlideRenderer
           slide={outgoing}
@@ -119,7 +123,10 @@ export function SlideTransitionStage({
       <div
         ref={incomingRef}
         className="absolute inset-0 z-20"
-        style={{ willChange: "transform, opacity" }}
+        style={{
+          willChange: "transform, opacity",
+          backfaceVisibility: motion.incoming.backfaceVisibility,
+        }}
       >
         <SlideRenderer
           slide={incoming}
@@ -248,7 +255,7 @@ export function SlideTransitionPreview({
           <button
             type="button"
             className={PREVIEW_CLOSE_CLASS}
-            aria-label={t("presentation.exitPresentation")}
+            aria-label={t("comments.close")}
           >
             <IconX className="h-5 w-5" />
           </button>

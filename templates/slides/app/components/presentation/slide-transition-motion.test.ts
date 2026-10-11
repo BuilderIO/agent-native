@@ -468,6 +468,34 @@ function tiltPeak(
   return peak;
 }
 
+describe("back face", () => {
+  it.each(["flip", "cube"] as const)(
+    "hides the back face of both %s layers, which turn past 90 degrees",
+    (type) => {
+      const motion = resolveSlideTransitionMotion(type, "forward", {
+        speed: 45,
+        reducedMotion: false,
+      });
+
+      expect(motion?.outgoing.backfaceVisibility).toBe("hidden");
+      expect(motion?.incoming.backfaceVisibility).toBe("hidden");
+    },
+  );
+
+  it.each(["dissolve", "fade", "slide-from-right", "gallery"] as const)(
+    "leaves %s layers showing their back face",
+    (type) => {
+      const motion = resolveSlideTransitionMotion(type, "forward", {
+        speed: 45,
+        reducedMotion: false,
+      });
+
+      expect(motion?.outgoing.backfaceVisibility).toBe("visible");
+      expect(motion?.incoming.backfaceVisibility).toBe("visible");
+    },
+  );
+});
+
 describe("gallery keyframes", () => {
   it("travels past one slide width: outgoing from 0 to -115%, incoming from +110% to 0", () => {
     expect(

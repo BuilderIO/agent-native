@@ -212,6 +212,75 @@ describe("save-time reveal validation against the stored list", () => {
   });
 });
 
+describe("save-time reveal identity across a content edit", () => {
+  const before = `<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>`;
+  const reveal = { id: "two", elementIndex: 1, elementPath: [1, 1] };
+  const saveWith = (
+    content: string,
+    animations: Parameters<
+      typeof assertSlideAnimationsResolve
+    >[0]["animations"] = [reveal],
+  ) =>
+    assertSlideAnimationsResolve({
+      slideId: "s1",
+      content,
+      animations,
+      baseline: { content: before, animations: [reveal] },
+    });
+  const box = (inner: string) =>
+    `<div class="fmd-slide"><h1>Title</h1><div class="text-box">${inner}</div></div>`;
+
+  it("refuses a sibling inserted before the target, even though its path still resolves", () => {
+    const error = refusalOf(() =>
+      saveWith(box("<p>New</p><p>One</p><p>Two</p>")),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "s1",
+        animationIndex: 0,
+        animationId: "two",
+      },
+    });
+  });
+
+  it("refuses a reorder that moves another sibling onto the target's path", () => {
+    const error = refusalOf(() => saveWith(box("<p>Two</p><p>One</p>")));
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
+  });
+
+  it("accepts a text edit to the target, which keeps its identity", () => {
+    expect(() => saveWith(box("<p>One</p><p>Two, revised</p>"))).not.toThrow();
+  });
+
+  it("accepts a target whose tag changes in place", () => {
+    expect(() => saveWith(box("<p>One</p><h2>Two</h2>"))).not.toThrow();
+  });
+
+  it("accepts a sibling appended after the target", () => {
+    expect(() =>
+      saveWith(box("<p>One</p><p>Two</p><p>Three</p>")),
+    ).not.toThrow();
+  });
+
+  it("accepts an insertion before the target when the reveal is re-pointed to its new path", () => {
+    expect(() =>
+      saveWith(box("<p>New</p><p>One</p><p>Two</p>"), [
+        { id: "two", elementIndex: 2, elementPath: [1, 2] },
+      ]),
+    ).not.toThrow();
+  });
+
+  it("accepts a save that leaves the content unchanged", () => {
+    expect(() => saveWith(before)).not.toThrow();
+  });
+});
+
 describe("save-time reveal validation of sanitizer-dropped targets", () => {
   it("refuses a reveal on an svg, which the runtime removes with its subtree", () => {
     const error = refusalOf(() =>

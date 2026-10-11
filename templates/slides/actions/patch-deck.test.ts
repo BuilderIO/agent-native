@@ -1022,6 +1022,17 @@ describe("applyOperation — add-slide", () => {
     });
   });
 
+  it("stores null transition and animations on an added slide as none", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      fields: { content: "<p>Copy</p>", transition: null, animations: null },
+    });
+    expect(deck.slides[1]).not.toHaveProperty("transition");
+    expect(deck.slides[1]).not.toHaveProperty("animations");
+  });
+
   it("is idempotent — duplicate delivery is silently ignored", () => {
     const deck = {
       slides: [
@@ -1680,6 +1691,31 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  it("accepts null transition and reveals on add-slide and patch-slide alike", () => {
+    const nullable = { transition: null, animations: null };
+    expect(
+      OperationSchema.safeParse({
+        op: "add-slide",
+        slideId: "slide-2",
+        fields: { content: "<p>New</p>", ...nullable },
+      }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: nullable,
+      }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        op: "add-slide",
+        slideId: "slide-2",
+        fields: { content: "<p>New</p>", transition: "wipe" },
+      }).success,
+    ).toBe(false);
   });
 
   it("requires a content hash and content-only fields for styleOnly patches", () => {
@@ -4129,6 +4165,56 @@ describe("run() — reveals through an agent content patch", () => {
         reason: "stale-path",
         slideId: "slide-1",
         animationId: "reveal-title",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("refuses a content patch that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+          animations: [
+            {
+              id: "reveal-two",
+              elementIndex: 1,
+              elementPath: [1, 1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                content:
+                  '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "slide-1",
+        animationIndex: 0,
+        animationId: "reveal-two",
       },
     });
     expect(lastUpdatedDeckData).toBeUndefined();

@@ -89,11 +89,52 @@ describe("SlideTransitionPreview", () => {
       <SlideTransitionPreview slides={slides} index={1} onClose={onClose} />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "presentation.exitPresentation" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "comments.close" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the outgoing layer from assistive technology, so the slide is read once", () => {
+    render(
+      <SlideTransitionPreview slides={slides} index={1} onClose={() => {}} />,
+    );
+
+    expect(
+      screen
+        .getByTestId("rendered-slide-1")
+        .parentElement?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByTestId("rendered-slide-2")
+        .parentElement?.getAttribute("aria-hidden"),
+    ).toBeNull();
+  });
+
+  it("hides the back face of both layers of a flip", () => {
+    const flipSlides = [
+      { id: "slide-1", content: "", notes: "", layout: "content" },
+      {
+        id: "slide-2",
+        content: "",
+        notes: "",
+        layout: "content",
+        transition: "flip",
+        transitionSpeed: 0,
+      },
+    ] as unknown as Slide[];
+    render(
+      <SlideTransitionPreview
+        slides={flipSlides}
+        index={1}
+        onClose={() => {}}
+      />,
+    );
+
+    for (const id of ["slide-1", "slide-2"]) {
+      const layer = screen.getByTestId(`rendered-${id}`).parentElement;
+      expect(layer?.style.backfaceVisibility).toBe("hidden");
+    }
   });
 });
 

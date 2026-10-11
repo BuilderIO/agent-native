@@ -11,6 +11,8 @@ interface LayerSpec {
   span: number;
   /** Defaults to linear. */
   easing?: string;
+  /** Set on layers that turn about their vertical axis, so the mirrored back face never shows. */
+  backfaceHidden?: boolean;
 }
 
 interface TransitionMotionSpec {
@@ -23,6 +25,8 @@ export interface LayerTiming {
   delay: number;
   duration: number;
   easing: string;
+  /** Held as the layer's style for the whole transition, not animated in the keyframes. */
+  backfaceVisibility: "hidden" | "visible";
 }
 
 export interface ResolvedSlideTransitionMotion {
@@ -147,6 +151,7 @@ const MOTION: Record<
         ],
         startAt: 0,
         span: 1,
+        backfaceHidden: true,
       },
       incoming: {
         keyframes: [
@@ -155,6 +160,7 @@ const MOTION: Record<
         ],
         startAt: 0,
         span: 1,
+        backfaceHidden: true,
       },
     };
   },
@@ -172,11 +178,13 @@ const MOTION: Record<
         keyframes: cubeFrames(outgoingHinge, (p) => turn * p),
         startAt: 0,
         span: 1,
+        backfaceHidden: true,
       },
       incoming: {
         keyframes: cubeFrames(incomingHinge, (p) => -turn * (1 - p)),
         startAt: 0,
         span: 1,
+        backfaceHidden: true,
       },
     };
   },
@@ -227,6 +235,7 @@ function layerTiming(layer: LayerSpec, durationMs: number): LayerTiming {
     delay: layer.startAt * durationMs,
     duration: layer.span * durationMs,
     easing: layer.easing ?? LINEAR,
+    backfaceVisibility: layer.backfaceHidden ? "hidden" : "visible",
   };
 }
 
