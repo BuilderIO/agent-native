@@ -2,10 +2,11 @@ const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const URL_USERINFO_PATTERN =
   /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^\s,;)}\]"'<>]*@)/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
-  /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9$]*(?:[._ -]+[A-Za-z0-9$]+)*)\1(\s*(?:=>|[:=])\s*)/gi;
+  /(?<![\w$])((?:\\+["']|["']))(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._ -]+[A-Za-z0-9$]+)*))\2\1(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?((?:authorization[ ]+(?:header|value)|auth[ ]+(?:header|value)|api[ ]+key[ ]+(?:used|provided|value)|access[ ]+key[ ]+id|(?:api|private|access|secret|signing|encryption)[ ]+key|[A-Za-z_$][A-Za-z0-9$]*[ ]+(?:token|secret|signature|password|passwd|pwd|pw|pass|passphrase|credential|credentials|cookie|authorization)))(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._-]+[A-Za-z0-9$]+)*))\6(\s*(?:=>|[:=])\s*)/gi;
 const ASSIGNMENT_BARE_VALUE_PATTERN =
   /^(?:((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
+const MAX_STRUCTURED_JSON_DEPTH = 128;
 
 function isSensitiveAssignmentKey(key: string): boolean {
   const words = key
@@ -32,9 +33,20 @@ function isSensitiveAssignmentKey(key: string): boolean {
     (suffix) =>
       compactKey.length > suffix.length && compactKey.endsWith(suffix),
   );
+  const normalizedWords = words.join(" ");
+  const hasReviewDescriptor =
+    normalizedWords === "authorization header" ||
+    normalizedWords === "authorization value" ||
+    normalizedWords === "auth" ||
+    normalizedWords === "auth header" ||
+    normalizedWords === "auth value" ||
+    normalizedWords === "api key used" ||
+    normalizedWords === "api key provided" ||
+    normalizedWords === "api key value";
 
   return (
     hasCredentialSuffix ||
+    hasReviewDescriptor ||
     lastWord === "token" ||
     lastWord === "secret" ||
     lastWord === "signature" ||
@@ -110,21 +122,32 @@ function findNextAssignment(
 ): { index: number; end: number; key: string; prefix: string } | null {
   const pattern = new RegExp(ASSIGNMENT_PREFIX_PATTERN.source, "gi");
   pattern.lastIndex = start;
-  while (true) {
-    const match = pattern.exec(value);
-    if (!match) return null;
-    const previous = match.index > 0 ? value[match.index - 1] : "";
-    if (previous && /[\w$]/.test(previous)) {
-      pattern.lastIndex = match.index + 1;
-      continue;
-    }
-    return {
-      index: match.index,
-      end: pattern.lastIndex,
-      key: match[2],
-      prefix: match[0],
-    };
+  const match = pattern.exec(value);
+  if (!match) return null;
+  const key = match[2] ?? match[4] ?? match[6];
+  if (!key) return null;
+  return {
+    index: match.index,
+    end: pattern.lastIndex,
+    key,
+    prefix: match[0],
+  };
+}
+
+function hasStructuredValueContinuation(value: string, start: number): boolean {
+  let cursor = start;
+  let hasSeparator = false;
+  while (/\s/.test(value[cursor] ?? "")) cursor += 1;
+  hasSeparator = cursor > start;
+  if (cursor >= value.length) return true;
+
+  if (value[cursor] === ",") {
+    hasSeparator = true;
+    cursor += 1;
+    while (/\s/.test(value[cursor] ?? "")) cursor += 1;
   }
+
+  return hasSeparator && findNextAssignment(value, cursor)?.index === cursor;
 }
 
 function findLineEnd(value: string, start: number): number {
@@ -156,6 +179,45 @@ function findPemBlockEnd(value: string, start: number): number | null {
   return value.length;
 }
 
+function findStructuredJsonValueEnd(
+  value: string,
+  start: number,
+): number | null {
+  let valueStart = start;
+  while (/\s/.test(value[valueStart] ?? "")) valueStart += 1;
+  const first = value[valueStart];
+  if (first !== "{" && first !== "[") return null;
+
+  const closers = [first === "{" ? "}" : "]"];
+  let inString = false;
+  for (let cursor = valueStart + 1; cursor < value.length; cursor += 1) {
+    const character = value[cursor];
+    if (inString) {
+      if (character === "\\") cursor += 1;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+    } else if (character === "{" || character === "[") {
+      if (closers.length >= MAX_STRUCTURED_JSON_DEPTH) return null;
+      closers.push(character === "{" ? "}" : "]");
+    } else if (character === "}" || character === "]") {
+      if (closers.pop() !== character) return null;
+      if (closers.length === 0) {
+        const valueEnd = cursor + 1;
+        try {
+          JSON.parse(value.slice(valueStart, valueEnd));
+        } catch {
+          return null;
+        }
+        return valueEnd;
+      }
+    }
+  }
+  return null;
+}
+
 function findJsonValueEnd(value: string, start: number): number | null {
   let valueStart = start;
   while (/\s/.test(value[valueStart] ?? "")) valueStart += 1;
@@ -173,27 +235,7 @@ function findJsonValueEnd(value: string, start: number): number | null {
       }
     }
   } else if (first === "{" || first === "[") {
-    const closers = [first === "{" ? "}" : "]"];
-    let inString = false;
-    for (let cursor = valueStart + 1; cursor < value.length; cursor += 1) {
-      const character = value[cursor];
-      if (inString) {
-        if (character === "\\") cursor += 1;
-        else if (character === '"') inString = false;
-        continue;
-      }
-      if (character === '"') {
-        inString = true;
-      } else if (character === "{" || character === "[") {
-        closers.push(character === "{" ? "}" : "]");
-      } else if (character === "}" || character === "]") {
-        if (closers.pop() !== character) return null;
-        if (closers.length === 0) {
-          valueEnd = cursor + 1;
-          break;
-        }
-      }
-    }
+    valueEnd = findStructuredJsonValueEnd(value, valueStart);
   } else {
     const primitive =
       /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
@@ -253,9 +295,14 @@ function redactAssignments(value: string, depth = 0): string {
     }
 
     if (isSensitive && startsStructuredValue) {
+      const jsonValueEnd = findStructuredJsonValueEnd(value, assignment.end);
       result += "[redacted]";
-      cursor = value.length;
-      searchFrom = value.length;
+      cursor =
+        jsonValueEnd !== null &&
+        hasStructuredValueContinuation(value, jsonValueEnd)
+          ? jsonValueEnd
+          : value.length;
+      searchFrom = cursor;
       continue;
     }
 

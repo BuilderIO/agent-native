@@ -187,6 +187,40 @@ describe("redactExportDiagnostic nested credential regressions", () => {
       ),
     ).toBe('payload={"password":"[redacted]","title":"Welcome"}');
   });
+
+  it("preserves diagnostic fields after balanced structured secret values", () => {
+    expect(
+      redactExportDiagnostic(
+        'token={"message":"literal } [ bracket","items":[{"ok":true}]} title=Welcome password=FAKE_SECRET',
+      ),
+    ).toBe("token=[redacted] title=Welcome password=[redacted]");
+    expect(redactExportDiagnostic('password=[{"k":"v"}] title=Welcome')).toBe(
+      "password=[redacted] title=Welcome",
+    );
+    expect(
+      redactExportDiagnostic(
+        'token={"a":1},title=Welcome password=FAKE_SECRET',
+      ),
+    ).toBe("token=[redacted],title=Welcome password=[redacted]");
+  });
+
+  it("fails closed when a structured sensitive value is malformed", () => {
+    expect(
+      redactExportDiagnostic('token={"nested":[1,2} title=FAKE_SECRET'),
+    ).toBe("token=[redacted]");
+    expect(
+      redactExportDiagnostic('token={"nested":[1,2],} title=FAKE_SECRET'),
+    ).toBe("token=[redacted]");
+    expect(redactExportDiagnostic('token={"a":1}RAW_SECRET')).toBe(
+      "token=[redacted]",
+    );
+    expect(redactExportDiagnostic('password=[{"k":"v"}]RAW_SECRET')).toBe(
+      "password=[redacted]",
+    );
+    expect(redactExportDiagnostic('token={"a":1}suffix=FAKE_SECRET')).toBe(
+      "token=[redacted]",
+    );
+  });
 });
 
 describe("redactExportDiagnostic truncated values", () => {
@@ -438,6 +472,96 @@ describe("redactExportDiagnostic compound-key and complexity regressions", () =>
       const { redactExportDiagnostic } = await import(${JSON.stringify(moduleUrl)});
       const input = ${JSON.stringify(input)};
       if (redactExportDiagnostic(input) !== input) process.exitCode = 1;
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "-e", childSource],
+      { encoding: "utf8", timeout: 3_000 },
+    );
+
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
+  });
+});
+
+describe("redactExportDiagnostic review labels and prose performance", () => {
+  it("redacts authorization and API key labels with descriptive words", () => {
+    const input = [
+      "Authorization header: Bearer FAKE_AUTHORIZATION",
+      "Authorization value: Bearer FAKE_AUTHORIZATION_VALUE",
+      "API key used: FAKE_API_KEY",
+      "API key provided: FAKE_PROVIDED_API_KEY",
+      "API key value: FAKE_API_KEY_VALUE",
+      "auth: Bearer FAKE_AUTH",
+      "auth header: Bearer FAKE_AUTH_HEADER",
+      "auth value: Bearer FAKE_AUTH_VALUE",
+      "Request failed Authorization header: Bearer FAKE_CONTEXT_AUTHORIZATION",
+      "Details API key used: FAKE_CONTEXT_API_KEY",
+      "title=Welcome token=FAKE_SAME_LINE_TOKEN",
+      "keyboard=music document_key=home",
+      "author=writer",
+      "apiKeyId=FAKE_IDENTIFIER",
+      "authType=optional",
+    ].join("\n");
+
+    expect(redactExportDiagnostic(input)).toBe(
+      [
+        "Authorization header: [redacted]",
+        "Authorization value: [redacted]",
+        "API key used: [redacted]",
+        "API key provided: [redacted]",
+        "API key value: [redacted]",
+        "auth: [redacted]",
+        "auth header: [redacted]",
+        "auth value: [redacted]",
+        "Request failed Authorization header: [redacted]",
+        "Details API key used: [redacted]",
+        "title=Welcome token=[redacted]",
+        "keyboard=music document_key=home",
+        "author=writer",
+        "apiKeyId=FAKE_IDENTIFIER",
+        "authType=optional",
+      ].join("\n"),
+    );
+  });
+
+  it("scans long repeated ordinary prose within a bounded time", () => {
+    const moduleUrl = new URL("./redact-diagnostic.ts", import.meta.url).href;
+    const childSource = `
+      const { redactExportDiagnostic } = await import(${JSON.stringify(moduleUrl)});
+      const prose = "word ".repeat(20_000);
+      const colonFields = "title:Welcome ".repeat(20_000);
+      const inputs = [
+        prose,
+        prose + ": value",
+        prose + "= value",
+        prose + "!: value",
+        prose + "!= value",
+        colonFields,
+      ];
+      for (const input of inputs) {
+        if (redactExportDiagnostic(input) !== input) process.exitCode = 1;
+      }
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "-e", childSource],
+      { encoding: "utf8", timeout: 3_000 },
+    );
+
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
+  });
+
+  it("scans repeated ordinary fields and still redacts a quoted credential at the end", () => {
+    const moduleUrl = new URL("./redact-diagnostic.ts", import.meta.url).href;
+    const childSource = `
+      const { redactExportDiagnostic } = await import(${JSON.stringify(moduleUrl)});
+      const input = "title=Welcome ".repeat(20_000) + '"token":"FAKE_REPEATED_TOKEN"';
+      const output = redactExportDiagnostic(input);
+      if (!output.endsWith('"token":"[redacted]"') || output.includes("FAKE_REPEATED_TOKEN")) {
+        process.exitCode = 1;
+      }
     `;
     const child = spawnSync(
       process.execPath,
