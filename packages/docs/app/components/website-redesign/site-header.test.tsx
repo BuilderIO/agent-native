@@ -65,6 +65,18 @@ describe("SiteHeader search", () => {
     expect(stickyHeader?.querySelector(".mobile-docs-nav")).toBeTruthy();
   });
 
+  it("layers the open mobile header menu above the docs bar", () => {
+    const { container } = renderHeader(1234, "/docs/");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle navigation menu" }),
+    );
+
+    const header = container.querySelector("header");
+    expect(header?.className).toContain("z-10");
+    expect(header?.querySelector(".absolute.top-full")).toBeTruthy();
+  });
+
   it("renders the server-provided GitHub star count", () => {
     renderHeader(4647);
     expect(

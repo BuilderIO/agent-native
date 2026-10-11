@@ -174,7 +174,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
 
   return (
     <div className="sticky top-0 z-50">
-      <header className="builder-brand-tokens relative h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]">
+      <header className="builder-brand-tokens relative z-10 h-[64px] w-full border-b border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] backdrop-blur-[12px]">
         <div className="mx-auto flex h-full w-full max-w-site items-center justify-between">
           <div className="flex items-center gap-[var(--spacing-8)]">
             <LogoContextMenu brandHref={localizedPath("/brand")}>
