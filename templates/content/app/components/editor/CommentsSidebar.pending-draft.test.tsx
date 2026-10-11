@@ -245,7 +245,7 @@ describe("new comment responsive draft", () => {
       anchorSuffix: " paragraph.",
       anchorStartOffset: 2,
       mentions: JSON.stringify([
-        { email: "reviewer@example.test", name: "Reviewer" },
+        { kind: "person", email: "reviewer@example.test", name: "Reviewer" },
       ]),
     });
   });

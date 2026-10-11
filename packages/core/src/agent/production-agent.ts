@@ -1817,7 +1817,11 @@ export interface ProductionAgentOptions {
     threadId: string,
     runId: string,
   ) => void | Promise<void>;
-  onEngineResolved?: (engine: AgentEngine, model: string) => void;
+  onEngineResolved?: (
+    engine: AgentEngine,
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
   resolveOwnerEmail?: (event: any) => string | Promise<string>;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   skipFilesContext?: boolean;
@@ -11303,7 +11307,7 @@ export function createProductionAgentHandler(
       engine.capabilities.vision === true,
     );
 
-    options.onEngineResolved?.(engine, effectiveModel);
+    options.onEngineResolved?.(engine, effectiveModel, reasoningEffort);
 
     console.log(
       `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} engineDefault=${engine.defaultModel} effort=${reasoningEffort ?? "unset"} turnId=${requestTurnId ?? "(none)"}`,

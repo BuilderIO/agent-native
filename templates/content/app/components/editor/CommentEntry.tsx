@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
+import {
+  commentMentionsForText,
+  personMentions,
+} from "@shared/comment-mentions";
 import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -26,7 +30,8 @@ import {
   modelDisplayName,
 } from "./agent-identity";
 import { useCommentDraft } from "./comment-drafts";
-import { CommentComposer, type MentionEntry } from "./CommentComposer";
+import { CommentComposer } from "./CommentComposer";
+import type { CommentIdentity } from "./CommentIdentity";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
 import {
   CommentAgentBadge,
@@ -36,18 +41,6 @@ import {
   renderCommentBody,
   useCommentTimestamp,
 } from "./CommentRow";
-
-function mentionsJsonFor(
-  text: string,
-  mentions: MentionEntry[],
-): string | undefined {
-  const present = mentions.filter((m) => text.includes(`@${m.name}`));
-  const seen = new Set<string>();
-  const deduped = present.filter((m) =>
-    seen.has(m.email) ? false : (seen.add(m.email), true),
-  );
-  return deduped.length ? JSON.stringify(deduped) : undefined;
-}
 
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
@@ -143,7 +136,10 @@ export function CommentEntry({
   const [editing, setEditing] = useState(false);
   const initialDraft = {
     text: comment.content,
-    mentions: comment.mentions,
+    mentions: personMentions(comment.mentions).map(({ email, name }) => ({
+      email,
+      name,
+    })),
     aiDraft: null,
   };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
@@ -157,6 +153,25 @@ export function CommentEntry({
   const visibleAuthor = aiAuthored
     ? agentDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);
+  const identity: CommentIdentity = aiAuthored
+    ? {
+        kind: "agent",
+        model: comment.author_model ?? null,
+        run: {
+          effort: comment.author_effort ?? null,
+          ranAt: comment.created_at,
+          threadId: comment.submission_thread_id ?? null,
+          canOpen:
+            !!currentUserEmail &&
+            currentUserEmail.toLowerCase() ===
+              comment.author_email.toLowerCase(),
+        },
+      }
+    : {
+        kind: "person",
+        email: comment.author_email,
+        name: comment.author_name ?? comment.author_email.split("@")[0],
+      };
   const canEdit =
     canComment &&
     !!currentUserEmail &&
@@ -240,8 +255,18 @@ export function CommentEntry({
             id: comment.id,
             documentId,
             content: submitted.text.trim(),
+            // The draft holds people; an agent mention stays while its
+            // name is still in the text.
             mentions:
-              mentionsJsonFor(submitted.text, submitted.mentions) ?? "[]",
+              commentMentionsForText(submitted.text, [
+                ...submitted.mentions.map((mention) => ({
+                  kind: "person" as const,
+                  ...mention,
+                })),
+                ...comment.mentions.filter(
+                  (mention) => mention.kind === "agent",
+                ),
+              ]) ?? "[]",
           },
           {
             onSuccess: close,
@@ -385,6 +410,7 @@ export function CommentEntry({
         )
       }
       name={visibleAuthor}
+      identity={identity}
       badge={<CommentAttributionBadge comment={comment} />}
       timestamp={{ ...time, dateTime: comment.created_at }}
       actions={

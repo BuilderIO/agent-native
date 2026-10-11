@@ -1453,6 +1453,12 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_imports_import_idx
           ON document_imports (import_id)`,
     },
+    {
+      version: 121,
+      name: "content-comment-ai-run-identity",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_effort TEXT;
+        ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS submission_thread_id TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

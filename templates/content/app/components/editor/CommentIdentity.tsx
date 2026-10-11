@@ -1,0 +1,285 @@
+import { requestAgentChatThreadOpen } from "@agent-native/core/client/agent-chat";
+import { emailToColor } from "@agent-native/core/client/collab";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
+import {
+  MentionChip,
+  type MentionItemMedia as MentionMedia,
+} from "@agent-native/toolkit/composer";
+import type { CommentMention } from "@shared/comment-mentions";
+import { IconExternalLink } from "@tabler/icons-react";
+import type { ReactElement } from "react";
+
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import { useMentionMembers } from "@/hooks/use-mention-members";
+
+import {
+  AgentAvatar,
+  agentDisplayName,
+  agentLogoEngine,
+  modelDisplayName,
+} from "./agent-identity";
+import { CommentAvatar } from "./CommentAvatar";
+
+/**
+ * Who a mention pill, an author avatar, or an author name stands for. An AI
+ * author also carries the run that wrote the comment; a mentioned agent has
+ * no run.
+ */
+export type CommentIdentity =
+  | { kind: "person"; email: string; name: string }
+  | {
+      kind: "agent";
+      model: string | null;
+      engine?: string | null;
+      provider?: string | null;
+      run?: CommentAgentRun;
+    };
+
+export interface CommentAgentRun {
+  effort: string | null;
+  ranAt: string | null;
+  /** The agent conversation that wrote the comment, when it was recorded. */
+  threadId: string | null;
+  /** Agent conversations are private to the person whose run it was. */
+  canOpen: boolean;
+}
+
+function initial(label: string) {
+  return (label.trim()[0] ?? "?").toUpperCase();
+}
+
+/** The avatar a person shows in the composer's mention menu and chips. */
+export function personMentionMedia(
+  email: string,
+  label: string,
+  avatarUrl: string | null | undefined,
+): MentionMedia {
+  return avatarUrl
+    ? { type: "image", src: avatarUrl, fit: "cover" }
+    : {
+        type: "text",
+        text: initial(label || email),
+        backgroundColor: emailToColor(email),
+      };
+}
+
+/** The provider logo an agent shows in the composer's mention menu and chips. */
+export function agentMentionMedia(
+  model: string,
+  engine: string | null | undefined,
+  provider: string | null | undefined,
+): MentionMedia {
+  const identity = resolveAgentProviderLogo(
+    agentLogoEngine(model, engine),
+    provider ?? undefined,
+  );
+  return identity.logoUrl
+    ? { type: "image", src: identity.logoUrl }
+    : { type: "text", text: initial(provider || modelDisplayName(model)) };
+}
+
+function identityOfMention(mention: CommentMention): CommentIdentity {
+  return mention.kind === "agent"
+    ? {
+        kind: "agent",
+        model: mention.model,
+        engine: mention.engine,
+        provider: mention.provider,
+      }
+    : { kind: "person", email: mention.email, name: mention.name };
+}
+
+/**
+ * A sent `@mention`, drawn like the composer chip it was typed as: avatar or
+ * provider logo, then the name.
+ */
+export function CommentMentionPill({ mention }: { mention: CommentMention }) {
+  const avatarUrl = useAvatarUrl(
+    mention.kind === "person" ? mention.email : null,
+  );
+  const media =
+    mention.kind === "agent"
+      ? agentMentionMedia(mention.model, mention.engine, mention.provider)
+      : personMentionMedia(mention.email, mention.name, avatarUrl);
+  return (
+    <CommentIdentityHoverCard identity={identityOfMention(mention)}>
+      <MentionChip
+        tabIndex={0}
+        data-comment-mention={mention.kind}
+        className="leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        icon={mention.kind === "agent" ? "agent" : "user"}
+        media={media}
+        label={
+          <>
+            <span className="sr-only">@</span>
+            {mention.name}
+          </>
+        }
+      />
+    </CommentIdentityHoverCard>
+  );
+}
+
+const REASONING_EFFORT_KEYS: Record<string, string> = {
+  auto: "agentChat.composer.reasoningEffort.auto",
+  none: "agentChat.composer.reasoningEffort.none",
+  minimal: "agentChat.composer.reasoningEffort.minimal",
+  low: "agentChat.composer.reasoningEffort.low",
+  medium: "agentChat.composer.reasoningEffort.medium",
+  high: "agentChat.composer.reasoningEffort.high",
+  xhigh: "agentChat.composer.reasoningEffort.xhigh",
+  max: "agentChat.composer.reasoningEffort.max",
+};
+
+const ROLE_KEYS: Record<string, string> = {
+  owner: "comments.identityRoleOwner",
+  admin: "comments.identityRoleAdmin",
+  member: "comments.identityRoleMember",
+};
+
+function IdentityDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate text-foreground">{value}</dd>
+    </>
+  );
+}
+
+function PersonIdentityCard({ email, name }: { email: string; name: string }) {
+  const t = useT();
+  const { data: members } = useMentionMembers();
+  const member = members?.find(
+    (candidate) => candidate.email.toLowerCase() === email.toLowerCase(),
+  );
+  const roleKey = member?.role ? ROLE_KEYS[member.role] : undefined;
+  const displayName = member?.name?.trim() || name || email.split("@")[0];
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <CommentAvatar email={email} name={displayName} className="size-9" />
+      <div className="grid min-w-0 gap-0.5">
+        <span className="truncate text-sm font-semibold">{displayName}</span>
+        <span className="truncate text-xs text-muted-foreground">{email}</span>
+        <span className="truncate text-xs text-muted-foreground">
+          {t("comments.identityPerson")}
+          {roleKey ? ` · ${t(roleKey)}` : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AgentIdentityCard({
+  identity,
+}: {
+  identity: Extract<CommentIdentity, { kind: "agent" }>;
+}) {
+  const t = useT();
+  const formatters = useFormatters();
+  const { run } = identity;
+  const name = run
+    ? agentDisplayName(identity.model)
+    : modelDisplayName(identity.model);
+  const ranAt = run?.ranAt ? new Date(run.ranAt) : null;
+  const effortKey = run?.effort ? REASONING_EFFORT_KEYS[run.effort] : undefined;
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <AgentAvatar
+          model={identity.model}
+          engine={identity.engine}
+          className="size-9"
+        />
+        <div className="grid min-w-0 gap-0.5">
+          <span className="truncate text-sm font-semibold">{name}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {t("comments.agentBadge")}
+            {identity.provider ? ` · ${identity.provider}` : ""}
+          </span>
+        </div>
+      </div>
+      {run ? (
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+          <IdentityDetail
+            label={t("comments.identityModel")}
+            value={modelDisplayName(identity.model)}
+          />
+          <IdentityDetail
+            label={t("comments.identityEffort")}
+            value={
+              run.effort
+                ? effortKey
+                  ? t(effortKey, { defaultValue: run.effort })
+                  : run.effort
+                : t("comments.identityNotRecorded")
+            }
+          />
+          <IdentityDetail
+            label={t("comments.identityRan")}
+            value={
+              ranAt && !Number.isNaN(ranAt.getTime())
+                ? formatters.formatDate(ranAt, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })
+                : t("comments.identityNotRecorded")
+            }
+          />
+        </dl>
+      ) : null}
+      {run?.threadId && run.canOpen ? (
+        <button
+          type="button"
+          data-comment-identity-open-run
+          onClick={() =>
+            requestAgentChatThreadOpen({ threadId: run.threadId! })
+          }
+          className="inline-flex h-7 items-center gap-1.5 justify-self-start rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconExternalLink size={14} />
+          {t("comments.identityOpenRun")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The one card behind every person or agent in a comment: mention pills,
+ * author avatars, and author names all open it.
+ */
+export function CommentIdentityHoverCard({
+  identity,
+  children,
+}: {
+  identity: CommentIdentity;
+  children: ReactElement;
+}) {
+  return (
+    <HoverCard openDelay={300} closeDelay={150}>
+      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      <HoverCardContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-64 p-3"
+        data-comment-identity-card={identity.kind}
+        // The card is portaled but still bubbles through React to the
+        // comment row, whose click selects the thread.
+        onClick={(event) => event.stopPropagation()}
+      >
+        {identity.kind === "person" ? (
+          <PersonIdentityCard email={identity.email} name={identity.name} />
+        ) : (
+          <AgentIdentityCard identity={identity} />
+        )}
+      </HoverCardContent>
+    </HoverCard>
+  );
+}

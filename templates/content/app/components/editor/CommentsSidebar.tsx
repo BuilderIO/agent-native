@@ -35,6 +35,10 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
+import {
+  commentMentionsForText,
+  type CommentAgentMention,
+} from "@shared/comment-mentions";
 import { suggestionDiffParts } from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
@@ -66,6 +70,7 @@ import {
 } from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
+import { modelDisplayName } from "./agent-identity";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   useCommentDraft,
@@ -73,6 +78,7 @@ import {
   useCommentPanelSession,
   type CommentDraft,
 } from "./comment-drafts";
+import type { CommentAiSelection } from "./CommentAiRecipient";
 import {
   CommentComposer,
   type CommentAiDraft,
@@ -132,17 +138,30 @@ function renderSuggestionText(
   return <SuggestionText content={content} context={context} />;
 }
 
-/** Mentions whose label still appears in the text, serialized for storage. */
+/**
+ * The people and the agent a comment mentions, for storage. The agent is the
+ * one the comment was sent to, named the way its composer chip reads.
+ */
 function mentionsJsonFor(
   text: string,
-  mentions: MentionEntry[],
+  people: MentionEntry[],
+  agent?: CommentAiSelection,
 ): string | undefined {
-  const present = mentions.filter((m) => text.includes(`@${m.name}`));
-  const seen = new Set<string>();
-  const deduped = present.filter((m) =>
-    seen.has(m.email) ? false : (seen.add(m.email), true),
-  );
-  return deduped.length ? JSON.stringify(deduped) : undefined;
+  const agentMention: CommentAgentMention[] = agent
+    ? [
+        {
+          kind: "agent",
+          model: agent.model,
+          engine: agent.engine,
+          provider: agent.provider,
+          name: modelDisplayName(agent.model),
+        },
+      ]
+    : [];
+  return commentMentionsForText(text, [
+    ...people.map((person) => ({ kind: "person" as const, ...person })),
+    ...agentMention,
+  ]);
 }
 
 function isAmbiguousCommentCreateError(error: unknown) {
@@ -1130,7 +1149,9 @@ export function CommentsSidebar({
     return () => clearTimeout(timer);
   }, [pendingFocus, presentation]);
 
-  const handlePendingSubmit = async (): Promise<{
+  const handlePendingSubmit = async (
+    agent?: CommentAiSelection,
+  ): Promise<{
     id: string;
     threadId: string;
   } | null> => {
@@ -1158,7 +1179,7 @@ export function CommentsSidebar({
         anchorPrefix: pendingComment?.anchor?.prefix,
         anchorSuffix: pendingComment?.anchor?.suffix,
         anchorStartOffset: pendingComment?.anchor?.startOffset,
-        mentions: mentionsJsonFor(pendingText, pendingMentions),
+        mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
       });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
@@ -1188,7 +1209,7 @@ export function CommentsSidebar({
   const handlePendingAiSubmit = async (selection: CommentAiSubmitPayload) => {
     if (!commentAi) return;
     const instructions = pendingText.trim();
-    const created = await handlePendingSubmit();
+    const created = await handlePendingSubmit(selection);
     if (!created) return;
     try {
       await startCommentAiSubmission(commentAi, {
@@ -1213,7 +1234,10 @@ export function CommentsSidebar({
 
   const handleReply = async (
     threadId: string,
-    { holdDraft = false } = {},
+    {
+      holdDraft = false,
+      agent,
+    }: { holdDraft?: boolean; agent?: CommentAiSelection } = {},
   ): Promise<{ id: string; operationId: string } | null> => {
     const { text: replyText, mentions: replyMentions } =
       replyDrafts.get(threadId);
@@ -1232,7 +1256,7 @@ export function CommentsSidebar({
       threadId,
       parentId: thread.comments[0]?.id,
       content: replyText.trim(),
-      mentions: mentionsJsonFor(replyText, replyMentions),
+      mentions: mentionsJsonFor(replyText, replyMentions, agent),
     });
     const clientOperationId =
       replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
@@ -1244,7 +1268,7 @@ export function CommentsSidebar({
         content: replyText.trim(),
         threadId,
         parentId: thread?.comments[0]?.id,
-        mentions: mentionsJsonFor(replyText, replyMentions),
+        mentions: mentionsJsonFor(replyText, replyMentions, agent),
       });
       replyDrafts.clearRetry(threadId, clientOperationId);
       if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
@@ -1600,7 +1624,10 @@ export function CommentsSidebar({
       const instructions = replyDrafts.get(thread.threadId).text.trim();
       if (!instructions) return;
       const rootCommentId = thread.comments[0].id;
-      const reply = await handleReply(thread.threadId, { holdDraft: true });
+      const reply = await handleReply(thread.threadId, {
+        holdDraft: true,
+        agent: selection,
+      });
       if (!reply) return;
       let outcome: "confirmed-start" | "busy" | "failed" = "failed";
       try {
@@ -2798,7 +2825,13 @@ function SuggestionThreadView({
         content: comment.body,
         mentions: comment.mentions.flatMap((mention) =>
           typeof mention.email === "string"
-            ? [{ email: mention.email, name: mention.label }]
+            ? [
+                {
+                  kind: "person" as const,
+                  email: mention.email,
+                  name: mention.label,
+                },
+              ]
             : [],
         ),
       })),
@@ -3435,6 +3468,15 @@ function ThreadView({
                   />
                 }
                 name={c.author_name ?? c.author_email.split("@")[0]}
+                identity={
+                  c.author_email
+                    ? {
+                        kind: "person",
+                        email: c.author_email,
+                        name: c.author_name ?? c.author_email.split("@")[0],
+                      }
+                    : undefined
+                }
                 badge={renderCommentBadge?.(c.id)}
                 timestamp={
                   index === 0 && timeLabel

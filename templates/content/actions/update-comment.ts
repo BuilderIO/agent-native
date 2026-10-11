@@ -7,35 +7,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
-
-type Mention = { email: string; name: string };
-
-function parseMentions(value: unknown): Mention[] {
-  let raw = value;
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed) return [];
-    try {
-      raw = JSON.parse(trimmed);
-    } catch {
-      throw new Error("Comment mentions metadata is not valid JSON");
-    }
-  }
-  if (!Array.isArray(raw)) {
-    throw new Error("Comment mentions metadata must be an array");
-  }
-  return raw.map((entry) => {
-    if (!entry || typeof entry !== "object") {
-      throw new Error("Comment mentions metadata contains an invalid entry");
-    }
-    const email = (entry as Record<string, unknown>).email;
-    const name = (entry as Record<string, unknown>).name;
-    if (typeof email !== "string" || !email) {
-      throw new Error("Comment mention email is required");
-    }
-    return { email, name: typeof name === "string" ? name : "" };
-  });
-}
+import {
+  parseCommentMentions,
+  serializeStoredCommentMentions,
+} from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
@@ -48,7 +23,9 @@ export default defineAction({
     mentions: z
       .union([z.string(), z.array(z.unknown())])
       .optional()
-      .describe("JSON-encoded array of {email, name} mentions"),
+      .describe(
+        'JSON-encoded mentions whose @name appears in the text. People: {"email","name"}; agents: {"kind":"agent","model","name"}',
+      ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
   run: async (args) => {
@@ -93,14 +70,16 @@ export default defineAction({
 
     const updatedAt = new Date().toISOString();
     const mentions =
-      args.mentions === undefined ? undefined : parseMentions(args.mentions);
+      args.mentions === undefined
+        ? undefined
+        : parseCommentMentions(args.mentions);
     const contentUpdates: Partial<typeof schema.documentComments.$inferInsert> =
       {
         updatedAt,
         ...(args.content !== undefined ? { content: args.content } : {}),
         ...(mentions !== undefined
           ? {
-              mentionsJson: mentions.length ? JSON.stringify(mentions) : null,
+              mentionsJson: serializeStoredCommentMentions(mentions),
             }
           : {}),
       };

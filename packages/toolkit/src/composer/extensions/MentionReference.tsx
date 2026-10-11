@@ -1,7 +1,7 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 
-import { MentionItemMedia } from "../MentionItemMedia.js";
+import { MentionChip } from "../MentionChip.js";
 import type { MentionItemMedia as MentionItemMediaValue } from "../types.js";
 
 function parseMentionItemMedia(
@@ -46,21 +46,16 @@ function parseMentionItemMedia(
 const MentionReferenceComponent = ({ node }: { node: any }) => {
   return (
     <NodeViewWrapper as="span" className="inline">
-      <span
-        className="inline-flex items-center gap-1 rounded-md border border-input bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground align-middle mx-0.5 max-w-[200px] select-none"
+      <MentionChip
+        className="select-none"
         title={node.attrs.refPath || node.attrs.refId || node.attrs.label}
         data-mention-reference=""
         data-mention-ref-type={node.attrs.refType || undefined}
         data-mention-ref-id={node.attrs.refId || undefined}
-      >
-        <MentionItemMedia
-          icon={node.attrs.icon}
-          media={node.attrs.media}
-          size="sm"
-          fallbackIcon="stack"
-        />
-        <span className="truncate">{node.attrs.label}</span>
-      </span>
+        icon={node.attrs.icon}
+        media={node.attrs.media}
+        label={node.attrs.label}
+      />
     </NodeViewWrapper>
   );
 };

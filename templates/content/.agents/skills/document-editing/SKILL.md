@@ -248,7 +248,7 @@ executing it; if Trash changes after review, create and inspect a new plan.
 
 Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.
 
-Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members, stored as a `mentions` array of `{email, name}`.
+Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members and agents. Keep the readable `@Name` in `content` and pass one `mentions` entry per name: `{"kind":"person","email","name"}` or `{"kind":"agent","model","name"}`. The app draws each matched name as a pill; a name with no entry stays plain text. An AI comment records its model, thinking effort, and agent conversation automatically.
 
 ```bash
 # List threads (returns anchor fields + parsed mentions)
@@ -260,7 +260,7 @@ pnpm action add-comment --documentId abc123 --content "Looks good"
 # Inline-anchored comment with a mention
 pnpm action add-comment --documentId abc123 --content "@Sam check this" \
   --quotedText "the second paragraph" --anchorPrefix "above " --anchorSuffix " here" \
-  --anchorStartOffset 120 --mentions '[{"email":"sam@x.com","name":"Sam"}]'
+  --anchorStartOffset 120 --mentions '[{"kind":"person","email":"sam@x.com","name":"Sam"}]'
 
 # Reply to a thread
 pnpm action add-comment --documentId abc123 --threadId t123 --content "Agreed"

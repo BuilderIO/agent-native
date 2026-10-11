@@ -3790,8 +3790,95 @@ describe("createProductionAgentHandler", () => {
       expect(onEngineResolved).toHaveBeenCalledWith(
         selectedEngine,
         "queued-model",
+        undefined,
       );
       expect(selectedEngine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
+  it("reports the run's resolved thinking effort with its engine", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "effort-report-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Effort report test",
+      defaultModel: "claude-sonnet-4-6",
+      supportedModels: ["claude-sonnet-4-6"],
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Effort report test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-effort-report",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-effort-message",
+              text: "Think it through",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "claude-sonnet-4-6",
+                reasoningEffort: "medium",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-effort-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Think it through",
+          threadId: "thread-effort-report",
+          queuedMessageId: "queued-effort-message",
+          queuedMessageClaimId: "queue-effort-claim",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "claude-sonnet-4-6",
+        "medium",
+      );
     } finally {
       resolveThreadAccess.mockRestore();
       unregisterAgentEngine(selectedEngineName);

@@ -1,8 +1,6 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
-import { emailToColor } from "@agent-native/core/client/collab";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { resolveAgentProviderLogo } from "@agent-native/core/client/resources";
 import {
   PromptComposer,
   type MentionItem,
@@ -35,7 +33,7 @@ import {
 import type { MentionMember } from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
-import { agentLogoEngine, modelDisplayName } from "./agent-identity";
+import { modelDisplayName } from "./agent-identity";
 import {
   CommentAiModelList,
   CommentAiSendControl,
@@ -44,6 +42,7 @@ import {
   type CommentAiMode,
   type CommentAiSelection,
 } from "./CommentAiRecipient";
+import { agentMentionMedia, personMentionMedia } from "./CommentIdentity";
 import { EmojiPickerPanel } from "./EmojiPicker";
 
 export interface MentionEntry {
@@ -103,13 +102,11 @@ const MEMBER_REFERENCE_TYPE = "content-comment-member";
 const MEMBER_AVATAR_PROBE_LIMIT = 40;
 
 function providerMedia(selection: CommentAiSelection) {
-  const identity = resolveAgentProviderLogo(
-    agentLogoEngine(selection.model, selection.engine),
+  return agentMentionMedia(
+    selection.model,
+    selection.engine,
     selection.provider,
   );
-  return identity.logoUrl
-    ? ({ type: "image", src: identity.logoUrl } as const)
-    : ({ type: "text", text: selection.provider.slice(0, 1) } as const);
 }
 
 function aiReference(draft: CommentAiDraft) {
@@ -128,10 +125,6 @@ function aiReference(draft: CommentAiDraft) {
 function editorPosition(text: string, offset: number) {
   const lines = text.slice(0, offset).split("\n");
   return lines.reduce((position, line) => position + line.length + 2, -1);
-}
-
-function memberInitial(member: MentionMember) {
-  return (mentionLabel(member)[0] ?? "?").toUpperCase();
 }
 
 /** Reports one member's avatar URL; renders nothing. */
@@ -286,7 +279,6 @@ export const CommentComposer = forwardRef<
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
       const label = mentionLabel(member);
-      const avatarUrl = avatarUrls[member.email];
       return {
         id: `member:${member.email}`,
         label,
@@ -295,13 +287,11 @@ export const CommentComposer = forwardRef<
         source: "content",
         refType: MEMBER_REFERENCE_TYPE,
         refId: member.email,
-        media: avatarUrl
-          ? ({ type: "image", src: avatarUrl, fit: "cover" } as const)
-          : ({
-              type: "text",
-              text: memberInitial(member),
-              backgroundColor: emailToColor(member.email),
-            } as const),
+        media: personMentionMedia(
+          member.email,
+          label,
+          avatarUrls[member.email],
+        ),
         metadata: { email: member.email, name: label },
       };
     });

@@ -290,13 +290,19 @@ describe("update-comment (action) — reopen permission", () => {
   it("updates mention metadata with edited content and clears removed mentions", async () => {
     await run({
       id: "c-1",
-      content: "Hello @Sam",
-      mentions: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+      content: "Hello @Sam and @Claude",
+      mentions: JSON.stringify([
+        { email: "sam@example.com", name: "Sam" },
+        { kind: "agent", model: "claude-sonnet-4-6", name: "Claude" },
+      ]),
     });
 
     expect(state.rows[0]).toMatchObject({
-      content: "Hello @Sam",
-      mentionsJson: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+      content: "Hello @Sam and @Claude",
+      mentionsJson: JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+        { kind: "agent", model: "claude-sonnet-4-6", name: "Claude" },
+      ]),
     });
 
     await run({ id: "c-1", content: "Hello", mentions: "[]" });

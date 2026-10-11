@@ -2478,17 +2478,6 @@ audio.media-block__content {
   text-decoration: none;
 }
 
-.comment-mention {
-  display: inline-block;
-  border: 1px solid hsl(var(--border));
-  border-radius: 999px;
-  padding: 0 7px;
-  line-height: 1.35;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  background-color: hsl(var(--muted) / 0.7);
-}
-
 /* Comment composer. Rests as a filled single-line field; expands into a
    bordered box with a toolbar once focused or filled. */
 [data-comment-composer] .comment-composer-area {
