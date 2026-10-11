@@ -840,6 +840,17 @@ describe("slide slash command menu", () => {
     expect(applyAuthoringCommand).not.toHaveBeenCalled();
   });
 
+  it("closes on Escape after a URL-like prefix and keeps the slash text", () => {
+    const prefix = "and/or https:/example.com ";
+    const { editingEl, textNode } = renderWithTypedSlash(prefix);
+
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    expect(keyDown(editingEl, "Escape")).toBe(false);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(textNode.data).toBe(`${prefix}/`);
+    expect(document.activeElement).toBe(editingEl);
+  });
+
   it("restores authored accessibility attributes when the menu closes", () => {
     const { editingEl, textNode } = renderMenu("", 0);
     const authored = {

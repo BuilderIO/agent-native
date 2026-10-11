@@ -563,7 +563,7 @@ export function SlideSlashCommandMenu({
     [editingEl],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editingEl || !menu) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
