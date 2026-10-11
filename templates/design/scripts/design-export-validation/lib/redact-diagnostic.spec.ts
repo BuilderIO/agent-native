@@ -336,3 +336,68 @@ describe("redactExportDiagnostic encoded field boundaries", () => {
     );
   });
 });
+
+describe("redactExportDiagnostic value boundaries", () => {
+  it("redacts a multiline PEM block and preserves fields after its footer", () => {
+    const input = [
+      "private_key=-----BEGIN PRIVATE KEY-----",
+      "FAKE_PEM_PAYLOAD_LINE",
+      "-----END PRIVATE KEY-----",
+      "keyboard=music",
+    ].join("\n");
+
+    expect(redactExportDiagnostic(input)).toBe(
+      "private_key=[redacted]\nkeyboard=music",
+    );
+  });
+
+  it("preserves JSON siblings after redacting a numeric password", () => {
+    expect(
+      redactExportDiagnostic(
+        'payload={"password":123,"user":"alice","keyboard":"music"}',
+      ),
+    ).toBe('payload={"password":[redacted],"user":"alice","keyboard":"music"}');
+  });
+
+  it("redacts URL userinfo containing path and at-sign delimiters", () => {
+    expect(redactExportDiagnostic("postgresql://user:pa/ss@host/db")).toBe(
+      "postgresql://[redacted]@host/db",
+    );
+    expect(redactExportDiagnostic("postgresql://user:p@ss@host/db")).toBe(
+      "postgresql://[redacted]@host/db",
+    );
+    expect(redactExportDiagnostic("postgresql://user:pa?ss@host/db")).toBe(
+      "postgresql://[redacted]@host/db",
+    );
+    expect(redactExportDiagnostic("postgresql://user:pa#ss@host/db")).toBe(
+      "postgresql://[redacted]@host/db",
+    );
+    expect(
+      redactExportDiagnostic("postgresql://user:p@ss@host/db, status=failed"),
+    ).toBe("postgresql://[redacted]@host/db, status=failed");
+    expect(redactExportDiagnostic("postgresql://host/db")).toBe(
+      "postgresql://host/db",
+    );
+  });
+
+  it("redacts credentials with alternate assignment delimiters or malformed values", () => {
+    expect(redactExportDiagnostic('{"password"=>"FAKE_SECRET"}')).toBe(
+      '{"password"=>"[redacted]"}',
+    );
+    expect(redactExportDiagnostic("password=<FAKE_SECRET>")).toBe(
+      "password=[redacted]",
+    );
+  });
+
+  it("classifies singular credential aliases but keeps ordinary fields", () => {
+    expect(redactExportDiagnostic("db_credential=FAKE_CREDENTIAL")).toBe(
+      "db_credential=[redacted]",
+    );
+    expect(redactExportDiagnostic("X-Amz-Credential=FAKE/abc")).toBe(
+      "X-Amz-Credential=[redacted]",
+    );
+    expect(redactExportDiagnostic("keyboard=music document_key=home")).toBe(
+      "keyboard=music document_key=home",
+    );
+  });
+});

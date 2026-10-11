@@ -1,7 +1,8 @@
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
-const URL_USERINFO_PATTERN = /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#@]*@/gi;
+const URL_USERINFO_PATTERN =
+  /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^\s,;)}\]"'<>]*@)/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
-  /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*[:=]\s*)/gi;
+  /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*(?:=>|[:=])\s*)/gi;
 const ASSIGNMENT_BARE_VALUE_PATTERN =
   /^(?:((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
@@ -26,6 +27,7 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "pw" ||
     lastWord === "pass" ||
     lastWord === "passphrase" ||
+    lastWord === "credential" ||
     lastWord === "credentials" ||
     lastWord === "cookie" ||
     lastWord === "authorization" ||
@@ -112,6 +114,82 @@ function findLineEnd(value: string, start: number): number {
   return offset < 0 ? value.length : start + offset;
 }
 
+function findPemBlockEnd(value: string, start: number): number | null {
+  const firstLineEnd = findLineEnd(value, start);
+  const firstLine = value.slice(start, firstLineEnd);
+  const beginMatch = /^\s*-----BEGIN ([A-Z0-9][A-Z0-9 -]*?)-----/.exec(
+    firstLine,
+  );
+  if (!beginMatch) return null;
+
+  const endMarker = `-----END ${beginMatch[1]}-----`;
+  let lineStart = firstLineEnd;
+  while (lineStart < value.length) {
+    if (value[lineStart] === "\r") lineStart += 1;
+    if (value[lineStart] === "\n") lineStart += 1;
+    const lineEnd = findLineEnd(value, lineStart);
+    const line = value.slice(lineStart, lineEnd);
+    if (line.startsWith(endMarker)) return lineEnd;
+    lineStart = lineEnd;
+  }
+
+  // Without a matching footer, hide the rest of the diagnostic rather than
+  // risk exposing an incomplete key block.
+  return value.length;
+}
+
+function findJsonValueEnd(value: string, start: number): number | null {
+  let valueStart = start;
+  while (/\s/.test(value[valueStart] ?? "")) valueStart += 1;
+  if (valueStart >= value.length) return null;
+
+  const first = value[valueStart];
+  let valueEnd: number | null = null;
+  if (first === '"') {
+    for (let cursor = valueStart + 1; cursor < value.length; cursor += 1) {
+      if (value[cursor] === "\\") {
+        cursor += 1;
+      } else if (value[cursor] === '"') {
+        valueEnd = cursor + 1;
+        break;
+      }
+    }
+  } else if (first === "{" || first === "[") {
+    const closers = [first === "{" ? "}" : "]"];
+    let inString = false;
+    for (let cursor = valueStart + 1; cursor < value.length; cursor += 1) {
+      const character = value[cursor];
+      if (inString) {
+        if (character === "\\") cursor += 1;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') {
+        inString = true;
+      } else if (character === "{" || character === "[") {
+        closers.push(character === "{" ? "}" : "]");
+      } else if (character === "}" || character === "]") {
+        if (closers.pop() !== character) return null;
+        if (closers.length === 0) {
+          valueEnd = cursor + 1;
+          break;
+        }
+      }
+    }
+  } else {
+    const primitive =
+      /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(
+        value.slice(valueStart),
+      );
+    if (primitive) valueEnd = valueStart + primitive[0].length;
+  }
+
+  if (valueEnd === null) return null;
+  let delimiter = valueEnd;
+  while (/\s/.test(value[delimiter] ?? "")) delimiter += 1;
+  return ",}]".includes(value[delimiter] ?? "") ? valueEnd : null;
+}
+
 function redactAssignments(value: string, depth = 0): string {
   let result = "";
   let cursor = 0;
@@ -143,6 +221,19 @@ function redactAssignments(value: string, depth = 0): string {
       continue;
     }
 
+    const isQuotedJsonProperty =
+      /^(?:\\+)?["']/.test(assignment.prefix) &&
+      /:\s*$/.test(assignment.prefix);
+    if (isSensitive && isQuotedJsonProperty && parsedValue?.kind !== "quoted") {
+      const jsonValueEnd = findJsonValueEnd(value, assignment.end);
+      if (jsonValueEnd !== null) {
+        result += "[redacted]";
+        cursor = jsonValueEnd;
+        searchFrom = cursor;
+        continue;
+      }
+    }
+
     if (isSensitive && startsStructuredValue) {
       result += "[redacted]";
       cursor = value.length;
@@ -162,13 +253,24 @@ function redactAssignments(value: string, depth = 0): string {
         result += `${parsedValue.opening}[redacted]${parsedValue.closing}`;
         cursor = parsedValue.end;
       } else {
-        // A bare secret may contain whitespace and assignment-like text, so
-        // redact through the line ending instead of guessing where it ends.
+        const pemBlockEnd = findPemBlockEnd(value, assignment.end);
         result += "[redacted]";
-        cursor = findLineEnd(value, assignment.end);
+        // Bare secrets can contain whitespace and assignment-like text. A PEM
+        // block has an explicit footer; otherwise consume through the line.
+        cursor = pemBlockEnd ?? findLineEnd(value, assignment.end);
       }
       searchFrom = cursor;
       continue;
+    }
+
+    if (isSensitive && !parsedValue) {
+      const remainder = value.slice(assignment.end);
+      if (remainder.trim().length > 0) {
+        result += "[redacted]";
+        cursor = findLineEnd(value, assignment.end);
+        searchFrom = cursor;
+        continue;
+      }
     }
 
     if (parsedValue?.kind === "quoted") {
