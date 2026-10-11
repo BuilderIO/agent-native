@@ -62,16 +62,22 @@ function positionUnits(node: ProseMirrorNode, units: string[] = []): string[] {
   return units;
 }
 
+interface DocumentSwap {
+  map: StepMap;
+  // The old document's changed span, when the swap only rewrites text there.
+  rewrite: { from: number; to: number } | null;
+}
+
 // A collaborative update, a reconcile, or a decision readback swaps in the
 // whole document, so its own mapping collapses every range inside it. Such a
 // swap maps through the one span where the documents stop naming the same
 // node types and text. A narrower change keeps its own mapping: deleting one
 // of two identical words reads, by text alone, as deleting the other.
-function swapMapping(
+function documentSwap(
   tr: Transaction,
   before: ProseMirrorNode,
   after: ProseMirrorNode,
-): StepMap | null {
+): DocumentSwap | null {
   const left = positionUnits(before);
   const right = positionUnits(after);
   let start = 0;
@@ -81,7 +87,8 @@ function swapMapping(
     left[start] === right[start]
   )
     start += 1;
-  if (start === left.length && start === right.length) return StepMap.empty;
+  if (start === left.length && start === right.length)
+    return { map: StepMap.empty, rewrite: null };
   const swapsDocument = tr.steps.some(
     (step, index) =>
       step instanceof ReplaceStep &&
@@ -99,7 +106,16 @@ function swapMapping(
     endLeft -= 1;
     endRight -= 1;
   }
-  return new StepMap([start, endLeft - start, endRight - start]);
+  const changed = [
+    ...left.slice(start, endLeft),
+    ...right.slice(start, endRight),
+  ];
+  return {
+    map: new StepMap([start, endLeft - start, endRight - start]),
+    rewrite: changed.some((unit) => unit.length > 1)
+      ? null
+      : { from: start, to: endLeft },
+  };
 }
 
 function buildDecorations(
@@ -167,16 +183,23 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          let swap: StepMap | null | undefined;
+          let swap: DocumentSwap | null | undefined;
           specs = specs.flatMap((s) => {
             const from = tr.mapping.map(s.from, 1);
             const to = tr.mapping.map(s.to, -1);
             if (to > from) return [{ threadId: s.threadId, from, to }];
             if (swap === undefined)
-              swap = swapMapping(tr, oldState.doc, newState.doc);
+              swap = documentSwap(tr, oldState.doc, newState.doc);
             if (!swap) return [];
-            const swappedFrom = swap.map(s.from, 1);
-            const swappedTo = swap.map(s.to, -1);
+            // A rewrite that cuts into a highlight takes in all of its new
+            // text, as an accepted edit re-anchors the thread's quote
+            // (shared/comment-reanchor.ts). Typing at its edge does not, and
+            // a change to blocks drops it to be found again by its quote.
+            const { rewrite } = swap;
+            const cuts =
+              !!rewrite && s.from < rewrite.to && s.to > rewrite.from;
+            const swappedFrom = swap.map.map(s.from, cuts ? -1 : 1);
+            const swappedTo = swap.map.map(s.to, cuts ? 1 : -1);
             return swappedTo > swappedFrom
               ? [{ threadId: s.threadId, from: swappedFrom, to: swappedTo }]
               : [];

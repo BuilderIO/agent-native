@@ -137,7 +137,21 @@ describe("CommentHighlight", () => {
     expect(highlighted(swap("New intro.", "ships Friday pm."))).toEqual([
       "Friday pm",
     ]);
-    expect(highlighted(swap("Intro.", "We ship Fri."))).toEqual([]);
+    // A rewrite that takes in the whole quote and more covers its new text,
+    // as accepting it re-anchors the quote.
+    expect(highlighted(swap("Intro.", "We ship Fri."))).toEqual([
+      "We ship Fri",
+    ]);
+    expect(highlighted(swap("Intro.", "Shipping happens!"))).toEqual([
+      "Shipping happens!",
+    ]);
+    expect(highlighted(swap("Intro.", "ships on Friday pm."))).toEqual([
+      "Friday pm",
+    ]);
+    expect(highlighted(swap("Intro.", "ships Friday pm now."))).toEqual([
+      "Friday pm",
+    ]);
+    expect(highlighted(swap("Intro.", "ships."))).toEqual([]);
   });
 
   it("drops a highlight whose word was deleted ahead of an identical one", () => {
