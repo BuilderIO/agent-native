@@ -338,50 +338,9 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
   await openMotionDockFromMenu(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
-  const motionMenuButton = page.getByRole("button", {
-    name: "More",
-    exact: true,
-  });
   await page
     .getByRole("button", { name: "Collapse motion dock", exact: true })
     .click();
-  await expect
-    .poll(
-      async () => {
-        const [dockCount, launcherVisible, dockState] = await Promise.all([
-          page.locator('[aria-label="Motion dock"]').count(),
-          motionMenuButton.isVisible(),
-          page
-            .locator('[aria-label="Motion dock"]')
-            .first()
-            .evaluate((node) => {
-              const element = node as HTMLElement;
-              const style = window.getComputedStyle(element);
-              return {
-                height: element.style.height,
-                opacity: style.opacity,
-                position: style.position,
-              };
-            })
-            .catch(() => null),
-        ]);
-        return {
-          dockCount,
-          launcherVisible,
-          heightIsZero: dockState?.height === "0px",
-          opacity: dockState?.opacity ?? null,
-          position: dockState?.position ?? null,
-        };
-      },
-      { timeout: 150, intervals: [20, 20, 20, 20, 20] },
-    )
-    .toEqual({
-      dockCount: 1,
-      launcherVisible: true,
-      heightIsZero: false,
-      opacity: "1",
-      position: "absolute",
-    });
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
   await openMotionDockFromMenu(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();

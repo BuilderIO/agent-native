@@ -34,6 +34,36 @@ async function action(
   return response.json();
 }
 
+type CanvasFrameGeometry = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z?: number;
+};
+
+async function readCanvasFrames(
+  request: APIRequestContext,
+  designId: string,
+): Promise<Record<string, CanvasFrameGeometry>> {
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design`,
+    { params: { id: designId, includeFileContent: "false" } },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const design = await response.json();
+  const data =
+    typeof design.data === "string" ? JSON.parse(design.data) : design.data;
+  if (!data || typeof data !== "object" || !data.canvasFrames) {
+    throw new Error("get-design returned no canvas frame geometry");
+  }
+  return data.canvasFrames as Record<string, CanvasFrameGeometry>;
+}
+
 async function createDesign(
   request: APIRequestContext,
   html: string,
@@ -1151,43 +1181,9 @@ test.describe("alt-drag duplicate (overview)", () => {
         x: (Math.max(box.x, 0) + Math.min(box.x + box.width, view.width)) / 2,
         y: (Math.max(box.y, 0) + Math.min(box.y + box.height, view.height)) / 2,
       };
-
-      const readFramePositionSnapshot = () =>
-        page.evaluate(() => {
-          const frames = Object.fromEntries(
-            Array.from(
-              document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-            ).map((node) => {
-              const firstLabelRow =
-                node.firstElementChild as HTMLElement | null;
-              const rawShellTop = Number.parseFloat(node.style.top);
-              const labelHeight =
-                Number.parseFloat(firstLabelRow?.style.height ?? "0") || 0;
-              return [
-                node.getAttribute("data-frame-id")!,
-                {
-                  left: Number.parseFloat(node.style.left),
-                  // The shell starts above its frame geometry by the rendered
-                  // title row; add that direct child back for position reads.
-                  top: rawShellTop + labelHeight,
-                },
-              ];
-            }),
-          );
-          return frames;
-        });
-      const beforeRecord = await (
-        await request.get(
-          `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-        )
-      ).json();
-      const beforeData =
-        typeof beforeRecord.data === "string"
-          ? JSON.parse(beforeRecord.data)
-          : beforeRecord.data;
-      const beforeStored = beforeData?.canvasFrames?.[fileIds[0]!];
-      expect(beforeStored).toBeTruthy();
-      const before = await readFramePositionSnapshot();
+      const beforeFrames = await readCanvasFrames(request, designId);
+      const sourceFrame = beforeFrames[fileIds[0]!];
+      if (!sourceFrame) throw new Error("Source frame has no saved geometry");
 
       await page.mouse.move(start.x, start.y);
       await page.keyboard.down("Alt");
@@ -1202,42 +1198,29 @@ test.describe("alt-drag duplicate (overview)", () => {
       await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
         timeout: 20_000,
       });
-      let after: Record<string, { left: number; top: number }> = {};
+      let afterFrames: Record<string, CanvasFrameGeometry> = {};
       let copyId = "";
       await expect
         .poll(
           async () => {
-            after = await readFramePositionSnapshot();
-            copyId = Object.keys(after).find((id) => id !== fileIds[0]) ?? "";
-            return (
-              Boolean(copyId) && after[copyId]!.left > before[fileIds[0]!]!.left
+            afterFrames = await readCanvasFrames(request, designId);
+            copyId =
+              Object.keys(afterFrames).find((id) => id !== fileIds[0]) ?? "";
+            const copyFrame = afterFrames[copyId];
+            return Boolean(
+              copyFrame &&
+              copyFrame.x > sourceFrame.x &&
+              copyFrame.y > sourceFrame.y,
             );
           },
           { timeout: 20_000 },
         )
         .toBe(true);
-      expect(after[fileIds[0]!]!.left).toBeCloseTo(
-        before[fileIds[0]!]!.left,
-        2,
-      );
-      expect(after[fileIds[0]!]!.top).toBeCloseTo(before[fileIds[0]!]!.top, 2);
-      const afterRecord = await (
-        await request.get(
-          `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-        )
-      ).json();
-      const afterData =
-        typeof afterRecord.data === "string"
-          ? JSON.parse(afterRecord.data)
-          : afterRecord.data;
-      const afterStored = afterData?.canvasFrames?.[fileIds[0]!];
-      expect(afterStored).toBeTruthy();
-      expect({ x: afterStored.x, y: afterStored.y }).toEqual({
-        x: beforeStored.x,
-        y: beforeStored.y,
-      });
+      expect(Object.keys(afterFrames)).toHaveLength(2);
+      expect(afterFrames[fileIds[0]!]).toEqual(sourceFrame);
       expect(copyId).toBeTruthy();
-      expect(after[copyId!]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
+      expect(afterFrames[copyId]!.x).toBeGreaterThan(sourceFrame.x);
+      expect(afterFrames[copyId]!.y).toBeGreaterThan(sourceFrame.y);
 
       const copyTitle = page.locator(
         `[data-frame-id="${copyId}"] [data-frame-title]`,
