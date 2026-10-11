@@ -6444,6 +6444,17 @@ describe("mountWebMcpActionRoutes", () => {
             requiresAuth: false,
           },
         } as any,
+        "authenticated-agent-read": {
+          tool: {
+            description: "Read through an authenticated agent",
+            parameters: { type: "object" },
+          },
+          run: privateRun,
+          http: { method: "GET" },
+          requiresAuth: false,
+          readOnly: true,
+          publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        } as any,
         "private-docs": {
           tool: {
             description: "Read private docs",
@@ -6512,6 +6523,19 @@ describe("mountWebMcpActionRoutes", () => {
     expect(publicRun).toHaveBeenCalledTimes(1);
     await expect(
       guessedPrivateRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(privateRun).not.toHaveBeenCalled();
+    const authenticatedAgentRoute = mounted.find(
+      ({ path }) =>
+        path === "/_agent-native/webmcp/actions/authenticated-agent-read",
+    );
+    expect(authenticatedAgentRoute).toBeDefined();
+    await expect(
+      authenticatedAgentRoute?.handler({
         _method: "POST",
         _headers: {},
         req: { json: async () => ({}) },

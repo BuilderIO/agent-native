@@ -36,7 +36,10 @@ jobs:
       MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
       MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
       PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+    # beta-e2e.yml's report job needs actions: read; without it GitHub refuses
+    # to start the run.
     permissions:
+      actions: read
       contents: read
 
   report:

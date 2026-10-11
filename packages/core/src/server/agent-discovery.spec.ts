@@ -18,6 +18,7 @@ import {
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
+import { resetBuiltinAgentsConfigForTests } from "./builtin-agents.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const resourceListMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ const DISCOVERY_ENV_KEYS = [
   "NODE_ENV",
   "AGENT_USER_EMAIL",
   "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "AGENT_NATIVE_BUILTIN_AGENTS_JSON",
   "WORKSPACE_GATEWAY_URL",
   "VITE_WORKSPACE_GATEWAY_URL",
   "APP_URL",
@@ -81,10 +83,12 @@ describe("agent discovery", () => {
     ) as typeof previousEnv;
     for (const key of DISCOVERY_ENV_KEYS) delete process.env[key];
     process.env.NODE_ENV = "test";
+    resetBuiltinAgentsConfigForTests();
   });
 
   afterEach(() => {
     for (const key of DISCOVERY_ENV_KEYS) restoreEnv(key, previousEnv[key]);
+    resetBuiltinAgentsConfigForTests();
   });
 
   it("derives built-in connected agents from public and default-agent production templates", () => {
@@ -274,6 +278,11 @@ describe("agent discovery", () => {
   });
 
   it("seeds built-in remote agents with production URLs only", () => {
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
     const seeded = getBuiltinAgentsForSeeding();
     expect(seeded.length).toBeGreaterThan(0);
     for (const agent of seeded) {
@@ -281,6 +290,9 @@ describe("agent discovery", () => {
       expect(agent.url).not.toContain("localhost");
       expect(agent.url).not.toContain("127.0.0.1");
     }
+    expect(seeded.find((agent) => agent.id === "design")?.url).toBe(
+      TEMPLATES.find((template) => template.name === "design")?.prodUrl,
+    );
   });
 
   it("uses local built-in agent URLs only for truly local runtimes", () => {
@@ -309,6 +321,177 @@ describe("agent discovery", () => {
     );
 
     expect(slides?.url).toBe("https://slides.agent-native.com");
+  });
+
+  it("uses a configured built-in URL in hosted agent discovery", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const design = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+
+    expect(design?.url).toBe("https://beta.design.agent-native.com");
+  });
+
+  it("keeps local URL preference ahead of configured built-in URLs", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const design = getBuiltinAgents("analytics", {
+      preferLocalUrls: true,
+    }).find((agent) => agent.id === "design");
+
+    expect(design?.url).toBe(
+      `http://localhost:${TEMPLATES.find((template) => template.name === "design")?.devPort}`,
+    );
+  });
+
+  it("keeps framework-monorepo local URLs ahead of configured built-in URLs", () => {
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+
+    const design = getBuiltinAgents("analytics").find(
+      (agent) => agent.id === "design",
+    );
+
+    expect(design?.url).toBe(
+      `http://localhost:${TEMPLATES.find((template) => template.name === "design")?.devPort}`,
+    );
+  });
+
+  it.each(["framework", "standalone"] as const)(
+    "keeps resolved built-in URLs over seeded defaults in a %s local runtime",
+    async (runtime) => {
+      const cwd =
+        runtime === "standalone"
+          ? vi
+              .spyOn(process, "cwd")
+              .mockReturnValue("/tmp/agent-discovery-isolated-workspace")
+          : undefined;
+      try {
+        process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+          urls: { design: "https://beta.design.agent-native.com" },
+        });
+        resetBuiltinAgentsConfigForTests();
+        const template = TEMPLATES.find((entry) => entry.name === "design");
+        if (!template?.prodUrl)
+          throw new Error("Design template must have a URL");
+        const manifest = JSON.stringify({
+          id: "design",
+          name: "Design",
+          url: template.prodUrl,
+        });
+        resourceListMock.mockResolvedValue([
+          { id: "design-resource", path: "remote-agents/design.json" },
+        ]);
+        resourceGetMock.mockResolvedValue({ content: manifest });
+        resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+          {
+            id: "design-resource",
+            owner: "__shared__",
+            path: "remote-agents/design.json",
+            content: manifest,
+          },
+        ]);
+        const expected =
+          runtime === "framework"
+            ? `http://localhost:${template.devPort}`
+            : "https://beta.design.agent-native.com";
+        expect(
+          (await discoverAgents("analytics")).find(
+            (agent) => agent.id === "design",
+          )?.url,
+        ).toBe(expected);
+        const directory = await discoverOrgDirectoryAgents("analytics");
+        expect(directory.status).toBe("available");
+        if (directory.status === "available") {
+          expect(
+            directory.agents.find((agent) => agent.id === "design")?.url,
+          ).toBe(expected);
+        }
+      } finally {
+        cwd?.mockRestore();
+      }
+    },
+  );
+
+  it("preserves remote-manifest and workspace-app precedence over configured URLs", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+      urls: { design: "https://beta.design.agent-native.com" },
+    });
+    resetBuiltinAgentsConfigForTests();
+    resourceListMock.mockResolvedValue([
+      { id: "design-resource", path: "remote-agents/design.json" },
+    ]);
+    const designProductionUrl = TEMPLATES.find(
+      (template) => template.name === "design",
+    )?.prodUrl;
+    if (!designProductionUrl)
+      throw new Error("Design template must have a URL");
+    resourceGetMock.mockResolvedValue({
+      content: JSON.stringify({
+        id: "design",
+        name: "Design",
+        url: designProductionUrl,
+      }),
+    });
+
+    const seededDesign = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+    expect(seededDesign?.url).toBe("https://beta.design.agent-native.com");
+
+    resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+      {
+        id: "design-resource",
+        owner: "__shared__",
+        path: "remote-agents/design.json",
+        content: JSON.stringify({
+          id: "design",
+          name: "Design",
+          url: designProductionUrl,
+        }),
+      },
+    ]);
+    const directoryResult = await discoverOrgDirectoryAgents("analytics");
+    expect(directoryResult.status).toBe("available");
+    if (directoryResult.status === "available") {
+      expect(
+        directoryResult.agents.find((agent) => agent.id === "design")?.url,
+      ).toBe("https://beta.design.agent-native.com");
+    }
+
+    resourceGetMock.mockResolvedValue({
+      content: JSON.stringify({
+        id: "design",
+        name: "Connected Design",
+        url: "https://connected-design.example.test",
+      }),
+    });
+    const remoteDesign = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+    expect(remoteDesign?.url).toBe("https://connected-design.example.test");
+
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [{ id: "design", name: "Workspace Design", path: "/design" }],
+    });
+    const workspaceDesign = (await discoverAgents("analytics")).find(
+      (agent) => agent.id === "design",
+    );
+
+    expect(workspaceDesign?.url).toBe("https://workspace.example.test/design");
   });
 
   it("keeps localhost built-in agent URLs when only a loopback app URL is configured", () => {

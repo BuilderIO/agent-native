@@ -532,7 +532,7 @@ async function performProfiledMarquee(
   page: Page,
   fileId: string,
   secondaryFileId: string,
-): Promise<void> {
+) {
   const frame = page
     .locator(`iframe[data-screen-iframe-id="${fileId}"]`)
     .contentFrame();
@@ -569,6 +569,7 @@ async function performProfiledMarquee(
   } finally {
     await page.keyboard.up(modifier);
   }
+  return { firstBox, secondLastBox, iframeBox, startPoint };
 }
 
 async function readMarqueeProfiler(
@@ -920,7 +921,11 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .locator('[aria-selected="true"]')
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
   await installMarqueeProfiler(page, fixture.fileIds[1]);
-  await performProfiledMarquee(page, fixture.fileIds[0], fixture.fileIds[1]);
+  const marqueeGesture = await performProfiledMarquee(
+    page,
+    fixture.fileIds[0],
+    fixture.fileIds[1],
+  );
   await expect
     .poll(
       () =>
@@ -954,6 +959,17 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .locator('[aria-selected="true"]')
     .evaluateAll((rows) => rows.map((row) => row.textContent?.trim() ?? ""));
   const marqueeProfiler = await readMarqueeProfiler(page);
+  await test.info().attach("marquee-collection-receipt", {
+    body: Buffer.from(
+      JSON.stringify({
+        fileIds: fixture.fileIds,
+        gesture: marqueeGesture,
+        profiler: marqueeProfiler,
+        selectedRows: marqueeSelectionAfterRows,
+      }),
+    ),
+    contentType: "application/json",
+  });
   expect(marqueeProfiler.bridgeMessageCount).toBeGreaterThan(0);
   expect(marqueeProfiler.bridgeReplyCount).toBeGreaterThanOrEqual(2);
   expect(marqueeProfiler.bridgeReplyCountAtMouseup).toBeLessThan(2);
