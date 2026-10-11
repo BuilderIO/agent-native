@@ -2223,6 +2223,40 @@ let musicAppDesktopShell: {
 } | null = null;
 const MUSIC_APP_WORKFLOW_BUDGET_MS = 21 * 60_000;
 let musicAppWorkflowStartedAt: number | null = null;
+const musicAppWorkflowPhaseStartedAt = new Map<string, number>();
+
+function reportMusicAppWorkflowTiming(
+  phase: string,
+  event: "start" | "end",
+  details: { testTimeoutMs?: number } = {},
+): void {
+  const now = performance.now();
+  const workflowElapsedMs =
+    musicAppWorkflowStartedAt === null
+      ? null
+      : Math.round(now - musicAppWorkflowStartedAt);
+  const phaseStartedAt = musicAppWorkflowPhaseStartedAt.get(phase);
+  const timing = {
+    phase,
+    event,
+    workflowElapsedMs,
+    remainingBudgetMs:
+      workflowElapsedMs === null
+        ? null
+        : Math.max(0, MUSIC_APP_WORKFLOW_BUDGET_MS - workflowElapsedMs),
+    ...details,
+    ...(event === "end" && phaseStartedAt !== undefined
+      ? { phaseDurationMs: Math.round(now - phaseStartedAt) }
+      : {}),
+  };
+
+  if (event === "start") {
+    musicAppWorkflowPhaseStartedAt.set(phase, now);
+  } else {
+    musicAppWorkflowPhaseStartedAt.delete(phase);
+  }
+  console.info("[music-app-workflow-timing]", JSON.stringify(timing));
+}
 
 function trackChatThread404s(page: Page) {
   const responses: Array<{ method: string; path: string; status: number }> = [];
@@ -2251,16 +2285,21 @@ test.describe("responsive music-app workflow", () => {
   }) => {
     test.setTimeout(MUSIC_APP_WORKFLOW_BUDGET_MS);
     musicAppWorkflowStartedAt = performance.now();
+    musicAppWorkflowPhaseStartedAt.clear();
+    reportMusicAppWorkflowTiming("workflow.desktop", "start");
     musicAppDesktopShell = null;
+    reportMusicAppWorkflowTiming("desktop.fixture", "start");
     const designId = await createFixtureDesign(
       page,
       `Responsive music app desktop ${Date.now()}`,
     );
+    reportMusicAppWorkflowTiming("desktop.fixture", "end");
     const chatThread404s = trackChatThread404s(page);
     await test.info().attach("workflow-identities-design", {
       body: JSON.stringify({ designId, screenIds: [] }, null, 2),
       contentType: "application/json",
     });
+    reportMusicAppWorkflowTiming("desktop.editor-open", "start");
     await page.setViewportSize({ width: 2800, height: 1600 });
     await gotoEditor(page, designId);
     const zoom = page
@@ -2271,6 +2310,7 @@ test.describe("responsive music-app workflow", () => {
     await zoom.click();
     await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
     await expect(zoom).toHaveText(/100%/);
+    reportMusicAppWorkflowTiming("desktop.editor-open", "end");
     let screenId = "";
     let shell: Locator;
     const before = await readDesign(page, designId);
@@ -2306,6 +2346,7 @@ test.describe("responsive music-app workflow", () => {
       }
     });
 
+    reportMusicAppWorkflowTiming("desktop.screen-and-layout", "start");
     await pickFrameMode(page, "Screen");
     const start = await emptyBoardPoint(page);
     await page.mouse.move(start.x, start.y);
@@ -3365,6 +3406,8 @@ test.describe("responsive music-app workflow", () => {
     });
     await captureEditorScreenshot(page, "music-app-desktop-editor.png");
 
+    reportMusicAppWorkflowTiming("desktop.screen-and-layout", "end");
+    reportMusicAppWorkflowTiming("desktop.mobile-and-layout", "start");
     const beforeMobile = await readDesign(page, designId);
     const existingMobileIds = new Set(
       beforeMobile.files?.map((file) => file.id),
@@ -3978,6 +4021,8 @@ test.describe("responsive music-app workflow", () => {
       ),
       contentType: "application/json",
     });
+    reportMusicAppWorkflowTiming("desktop.mobile-and-layout", "end");
+    reportMusicAppWorkflowTiming("workflow.desktop", "end");
   });
 
   test("create a responsive music-app tablet Screen from the desktop shell", async ({
@@ -3997,6 +4042,9 @@ test.describe("responsive music-app workflow", () => {
       MUSIC_APP_WORKFLOW_BUDGET_MS -
         (performance.now() - musicAppWorkflowStartedAt),
     );
+    reportMusicAppWorkflowTiming("workflow.tablet", "start", {
+      testTimeoutMs: Math.max(0, remainingBudgetMs),
+    });
     if (remainingBudgetMs <= 0) {
       throw new Error(
         "The desktop music-app phase exhausted the shared 21-minute workflow budget before the tablet phase could start",
@@ -4005,6 +4053,7 @@ test.describe("responsive music-app workflow", () => {
     test.setTimeout(remainingBudgetMs);
     const { designId, screenId, mobileScreenId } = musicAppDesktopShell;
     const chatThread404s = trackChatThread404s(page);
+    reportMusicAppWorkflowTiming("tablet.editor-open", "start");
     await page.setViewportSize({ width: 2800, height: 1600 });
     await gotoEditor(page, designId);
     const zoom = page
@@ -4021,6 +4070,8 @@ test.describe("responsive music-app workflow", () => {
     const filesBeforeTablet = new Set(
       (await readDesign(page, designId)).files?.map((file) => file.id),
     );
+    reportMusicAppWorkflowTiming("tablet.editor-open", "end");
+    reportMusicAppWorkflowTiming("tablet.duplicate-screen", "start");
     await selectScreenLayer(page, screenId);
     await page.keyboard.press("ControlOrMeta+d");
     let tabletScreenId = "";
@@ -4045,10 +4096,12 @@ test.describe("responsive music-app workflow", () => {
       ),
       contentType: "application/json",
     });
+    reportMusicAppWorkflowTiming("tablet.duplicate-screen", "end");
 
     const tabletShell = page.locator(
       `[data-screen-shell][data-frame-id="${tabletScreenId}"]`,
     );
+    reportMusicAppWorkflowTiming("tablet.rename-and-resize", "start");
     await selectScreenLayer(page, tabletScreenId);
     await expandAllLayers(page);
     await renameSelectedLayer(page, "Tablet - 1", "Tablet 1");
@@ -4067,19 +4120,28 @@ test.describe("responsive music-app workflow", () => {
       })
       .toEqual([768, 1366, 768, 1366]);
 
+    reportMusicAppWorkflowTiming("tablet.rename-and-resize", "end");
+    reportMusicAppWorkflowTiming("tablet.sizing", "start");
+    reportMusicAppWorkflowTiming("tablet.workspace-sizing", "start");
     await selectLayerInScreen(page, tabletScreenId, "Workspace");
     await setSizingMode(page, "W", "Fill container");
     await setSizingMode(page, "H", "Fill container");
+    reportMusicAppWorkflowTiming("tablet.workspace-sizing", "end");
     for (const cardName of [
       "Podcast card A",
       "Podcast card B",
       "Recent card A",
       "Recent card B",
     ]) {
+      const sizingPhase = `tablet.card-sizing.${cardName}`;
+      reportMusicAppWorkflowTiming(sizingPhase, "start");
       await selectLayerInScreen(page, tabletScreenId, cardName);
       await setSizingMode(page, "W", "Fill container");
+      reportMusicAppWorkflowTiming(sizingPhase, "end");
     }
+    reportMusicAppWorkflowTiming("tablet.sizing", "end");
 
+    reportMusicAppWorkflowTiming("tablet.validation-and-reload", "start");
     const tabletSaved = await readDesign(page, designId);
     const tabletSource =
       tabletSaved.files?.find((file) => file.id === tabletScreenId)?.content ??
@@ -4299,6 +4361,7 @@ test.describe("responsive music-app workflow", () => {
       body: JSON.stringify({ persistence, afterReloadMetrics }, null, 2),
       contentType: "application/json",
     });
+    reportMusicAppWorkflowTiming("tablet.validation-and-reload", "end");
     await test.info().attach("workflow-chat-thread-404s", {
       body: JSON.stringify(
         { count: chatThread404s.length, responses: chatThread404s },
@@ -4307,5 +4370,6 @@ test.describe("responsive music-app workflow", () => {
       ),
       contentType: "application/json",
     });
+    reportMusicAppWorkflowTiming("workflow.tablet", "end");
   });
 });

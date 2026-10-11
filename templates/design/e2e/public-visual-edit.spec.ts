@@ -14,6 +14,7 @@ import {
   type Browser,
   type Locator,
   type Page,
+  type Request,
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
@@ -58,6 +59,200 @@ type SignedOutPage = PageRuntimeErrors & {
   close: () => Promise<void>;
   mutationRequests: string[];
 };
+
+const ACTION_BATCH_PATH_SUFFIX = "/_agent-native/actions/get-actions-batch";
+const ACTION_ROUTE_PATH_PATTERN = /\/_agent-native\/actions\//;
+
+type ActionBatchRequestEntry = {
+  action: string;
+  query: string;
+};
+
+type ActionRequest = Pick<Request, "url" | "method" | "postDataJSON">;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = [...expected].sort();
+  return (
+    actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === expectedKeys[index])
+  );
+}
+
+function actionBatchRequests(
+  request: ActionRequest,
+): ActionBatchRequestEntry[] | null {
+  const pathname = new URL(request.url()).pathname;
+  if (
+    request.method() !== "POST" ||
+    !pathname.endsWith(ACTION_BATCH_PATH_SUFFIX)
+  ) {
+    return null;
+  }
+
+  let payload: unknown;
+  try {
+    payload = request.postDataJSON();
+  } catch {
+    return null;
+  }
+  if (!isRecord(payload) || !hasExactKeys(payload, ["requests"])) return null;
+  if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
+    return null;
+  }
+
+  const entries: ActionBatchRequestEntry[] = [];
+  for (const entry of payload.requests) {
+    if (
+      !isRecord(entry) ||
+      !hasExactKeys(entry, ["action", "query"]) ||
+      typeof entry.action !== "string" ||
+      entry.action.trim().length === 0 ||
+      typeof entry.query !== "string"
+    ) {
+      return null;
+    }
+    entries.push({ action: entry.action, query: entry.query });
+  }
+  return entries;
+}
+
+function actionBatchIncludesAction(
+  request: ActionRequest,
+  actionName: string,
+): boolean {
+  const pathname = new URL(request.url()).pathname;
+  if (
+    request.method() !== "POST" ||
+    !pathname.endsWith(ACTION_BATCH_PATH_SUFFIX)
+  ) {
+    return false;
+  }
+
+  let payload: unknown;
+  try {
+    payload = request.postDataJSON();
+  } catch {
+    return false;
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.requests)) return false;
+  return payload.requests.some(
+    (entry) => isRecord(entry) && entry.action === actionName,
+  );
+}
+
+function isActionMutationRequest(request: ActionRequest): boolean {
+  const pathname = new URL(request.url()).pathname;
+  return (
+    request.method() === "POST" &&
+    ACTION_ROUTE_PATH_PATTERN.test(pathname) &&
+    actionBatchRequests(request) === null
+  );
+}
+
+function fakeActionRequest({
+  path,
+  method,
+  payload,
+  parseError = false,
+}: {
+  path: string;
+  method: string;
+  payload?: unknown;
+  parseError?: boolean;
+}): ActionRequest {
+  return {
+    url: () => `http://localhost${path}`,
+    method: () => method,
+    postDataJSON: () => {
+      if (parseError) throw new Error("invalid JSON");
+      return payload;
+    },
+  };
+}
+
+test("public action request observer distinguishes read-only batches", () => {
+  const batchPath = ACTION_BATCH_PATH_SUFFIX;
+
+  expect(
+    isActionMutationRequest(
+      fakeActionRequest({
+        path: batchPath,
+        method: "POST",
+        payload: {
+          requests: [
+            { action: "get-design", query: "id=design-1" },
+            { action: "list-review-comments", query: "resourceId=design-1" },
+          ],
+        },
+      }),
+    ),
+  ).toBe(false);
+
+  for (const malformedBatch of [
+    fakeActionRequest({ path: batchPath, method: "POST", parseError: true }),
+    fakeActionRequest({
+      path: batchPath,
+      method: "POST",
+      payload: { requests: [] },
+    }),
+    fakeActionRequest({
+      path: batchPath,
+      method: "POST",
+      payload: { requests: [{ action: "get-design", query: "" }], extra: true },
+    }),
+    fakeActionRequest({
+      path: batchPath,
+      method: "POST",
+      payload: {
+        requests: [{ action: "get-design", query: "", extra: true }],
+      },
+    }),
+  ]) {
+    expect(isActionMutationRequest(malformedBatch)).toBe(true);
+  }
+
+  expect(
+    isActionMutationRequest(
+      fakeActionRequest({
+        path: "/_agent-native/actions/update-file",
+        method: "POST",
+        payload: { id: "file-1" },
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    isActionMutationRequest(
+      fakeActionRequest({
+        path: "/_agent-native/actions/get-design",
+        method: "GET",
+      }),
+    ),
+  ).toBe(false);
+  expect(
+    actionBatchIncludesAction(
+      fakeActionRequest({
+        path: batchPath,
+        method: "POST",
+        payload: {
+          requests: [
+            { action: "refresh-localhost-preview-token", query: "" },
+            { action: "get-design" },
+          ],
+          unexpected: true,
+        },
+      }),
+      "refresh-localhost-preview-token",
+    ),
+  ).toBe(true);
+});
 
 function ownScreenFrame(page: Page) {
   return page
@@ -928,12 +1123,15 @@ test.describe.serial("public visual edit", () => {
       `/design/${collaborationDesignId}`,
       (page) => {
         page.on("request", (request) => {
+          const pathname = new URL(request.url()).pathname;
           if (
-            new URL(request.url()).pathname.endsWith(
-              "/actions/refresh-localhost-preview-token",
+            pathname.endsWith("/actions/refresh-localhost-preview-token") ||
+            actionBatchIncludesAction(
+              request,
+              "refresh-localhost-preview-token",
             )
           ) {
-            previewCredentialRequests.push(request.url());
+            previewCredentialRequests.push(pathname);
           }
         });
       },
@@ -1725,9 +1923,8 @@ async function openSignedOutPage(
     pageErrors.push(error.message);
   });
   page.on("request", (request) => {
-    const url = request.url();
-    if (request.method() === "POST" && /\/_agent-native\/actions\//.test(url)) {
-      mutationRequests.push(url);
+    if (isActionMutationRequest(request)) {
+      mutationRequests.push(new URL(request.url()).pathname);
     }
   });
   beforeLoad?.(page);

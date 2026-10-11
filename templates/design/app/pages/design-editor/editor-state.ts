@@ -407,6 +407,7 @@ export function getUndoRedoPriorityOrder(
 export interface PendingLocalFileContent {
   content: string;
   startedAt: number;
+  deferCollabReconcile?: boolean;
   baseUpdatedAt?: string | null;
   baseContent?: string;
   identityMigrationSourceContent?: string;
@@ -420,6 +421,7 @@ export function createPendingLocalFileContent(args: {
   content: string;
   baseUpdatedAt?: string | null;
   identityMigrationSourceContent?: string;
+  deferCollabReconcile?: boolean;
 }): PendingLocalFileContent {
   const {
     current,
@@ -427,6 +429,7 @@ export function createPendingLocalFileContent(args: {
     content,
     baseUpdatedAt,
     identityMigrationSourceContent,
+    deferCollabReconcile,
   } = args;
   const sameContent = current?.content === content;
   const sameMigration =
@@ -446,6 +449,7 @@ export function createPendingLocalFileContent(args: {
         ? (file.content ?? "")
         : undefined,
     identityMigrationSourceContent,
+    ...(deferCollabReconcile ? { deferCollabReconcile: true } : {}),
     identityMigrationStoredContent:
       identityMigrationSourceContent === undefined
         ? undefined
@@ -477,6 +481,7 @@ export function restorePendingFileContent<
 ): T {
   if (
     pending.content !== expectedContent ||
+    pending.deferCollabReconcile ||
     pending.baseContent === undefined ||
     !Array.isArray(design.files)
   ) {
@@ -505,6 +510,7 @@ export function restorePendingFileContent<
 
 export interface FileContentSaveRequest {
   identityMigrationSourceContent?: string;
+  deferCollabReconcile?: boolean;
   unloadExpectedVersionHash?: string;
   id: string;
   content: string;

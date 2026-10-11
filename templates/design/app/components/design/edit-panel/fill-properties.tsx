@@ -24,6 +24,7 @@ import {
   ScrubInput,
   imageFillToBackgroundStyles,
   type DesignPaintType,
+  type ImageFillValue,
 } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
@@ -36,6 +37,7 @@ import {
   addFillLayerPatch,
   buildSolidFillLayer,
   buildGradientLayer,
+  fillLayerIndex,
   gradientLabel,
   isLayerHiddenBySize,
   joinCssLayers,
@@ -67,6 +69,7 @@ import type { CapturedStyleTarget } from "./style-change-types";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  StyleChangeMeta,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -167,6 +170,7 @@ export function FillProperties({
   cancelOpacityGestureOnHistoryUndo = false,
   onAddFill,
   capturedStyleTargets,
+  uploadScopeKey,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -179,6 +183,7 @@ export function FillProperties({
   cancelOpacityGestureOnHistoryUndo?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
+  uploadScopeKey?: string;
 }) {
   const t = useT();
   const commitImageFillPatch = (
@@ -321,6 +326,81 @@ export function FillProperties({
     };
   }
   const layerKeys = layerKeysRef.current.keys;
+  const imageFillUploadScopeKey = JSON.stringify([
+    uploadScopeKey ?? null,
+    fillStashKey,
+    fillProperty,
+    (capturedStyleTargets ?? []).map((target) => [
+      target.fileId,
+      target.layerId,
+      elementStableKey(target.elementInfo),
+    ]),
+  ]);
+  const imageFillUploadTargetKey = (layerKey: string) =>
+    JSON.stringify([imageFillUploadScopeKey, layerKey]);
+  const imageFillUploadTargetKeyForSelection = (selectedFillId: string) => {
+    const layerIndex = fillLayerIndex(selectedFillId);
+    const layerKey =
+      layerIndex === null
+        ? "base"
+        : (layerKeysRef.current.keys[layerIndex] ?? `index:${layerIndex}`);
+    return imageFillUploadTargetKey(layerKey);
+  };
+  const imageFillUploadContext = {
+    scopeKey: imageFillUploadScopeKey,
+    layerKeys: [...layerKeys],
+    backgroundLayers,
+    backgroundSizeLayers,
+    backgroundRepeatLayers,
+    backgroundPositionLayers,
+    onStyleChange,
+    onStylesChange,
+    capturedStyleTargets,
+  };
+  const latestImageFillUploadContextRef = useRef(imageFillUploadContext);
+  latestImageFillUploadContextRef.current = imageFillUploadContext;
+  const createImageFillUploadChange = (
+    layerKey: string,
+    capturedLayerIndex: number,
+  ) => {
+    const capturedContext = imageFillUploadContext;
+    return (value: ImageFillValue, meta?: StyleChangeMeta) => {
+      const latestContext = latestImageFillUploadContextRef.current;
+      const latestLayerIndex = latestContext.layerKeys.indexOf(layerKey);
+      if (
+        latestContext.scopeKey === capturedContext.scopeKey &&
+        latestLayerIndex < 0
+      ) {
+        return;
+      }
+      const useLatestContext =
+        latestContext.scopeKey === capturedContext.scopeKey &&
+        latestLayerIndex >= 0;
+      const context = useLatestContext ? latestContext : capturedContext;
+      const layerIndex = useLatestContext
+        ? latestLayerIndex
+        : capturedLayerIndex;
+      const patch = setImageFillLayerPatch(
+        {
+          backgroundImage: context.backgroundLayers,
+          backgroundSize: context.backgroundSizeLayers,
+          backgroundRepeat: context.backgroundRepeatLayers,
+          backgroundPosition: context.backgroundPositionLayers,
+        },
+        layerIndex,
+        imageFillToBackgroundStyles(value),
+      );
+      const commitMeta = context.capturedStyleTargets
+        ? { ...meta, capturedStyleTargets: context.capturedStyleTargets }
+        : meta;
+      commitStylePatch(
+        patch,
+        context.onStyleChange,
+        context.onStylesChange,
+        commitMeta,
+      );
+    };
+  };
 
   const handleFillVisibilityToggle = () => {
     onStyleChange(
@@ -592,6 +672,9 @@ export function FillProperties({
                       ? undefined
                       : commitImageFillPatch
                   }
+                  imageFillUploadTargetKeyForSelection={
+                    imageFillUploadTargetKeyForSelection
+                  }
                   supportedPaintTypes={
                     isVectorFillElement
                       ? ["solid", "linear", "radial"]
@@ -822,6 +905,7 @@ export function FillProperties({
                           touched or the fill type was switched. */}
                       <DesignColorPicker
                         key={`${layerKey}:${openFillPickerKey === pickerKey}`}
+                        uploadTargetKey={imageFillUploadTargetKey(layerKey)}
                         open={openFillPickerKey === pickerKey}
                         onOpenChange={(open) => {
                           setFillPickerOpen(pickerKey, open);
@@ -948,20 +1032,7 @@ export function FillProperties({
                         onImageFillChange={
                           isTextFillElement
                             ? undefined
-                            : (value) =>
-                                commitImageFillPatch(
-                                  setImageFillLayerPatch(
-                                    {
-                                      backgroundImage: backgroundLayers,
-                                      backgroundSize: backgroundSizeLayers,
-                                      backgroundRepeat: backgroundRepeatLayers,
-                                      backgroundPosition:
-                                        backgroundPositionLayers,
-                                    },
-                                    index,
-                                    imageFillToBackgroundStyles(value),
-                                  ),
-                                )
+                            : createImageFillUploadChange(layerKey, index)
                         }
                         paintType={
                           solidFillColor ? "solid" : (gradient?.type ?? "image")

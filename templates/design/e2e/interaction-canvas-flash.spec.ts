@@ -225,9 +225,15 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
-function isLightRgb(rgb: string): boolean {
-  if (rgb === "NO_CONTAINER") return false;
-  const [r, g, b] = rgb.split(",").map(Number);
+function isLightRgb(rgb: string | null | undefined): boolean {
+  if (typeof rgb !== "string" || rgb === "NO_CONTAINER") return false;
+  const channels = rgb
+    .replace(/^rgba?\(/, "")
+    .replace(/\)$/, "")
+    .split(/[,\s/]+/)
+    .map(Number);
+  const [r, g, b, alpha] = channels;
+  if (alpha === 0) return false;
   return r > 150 && g > 150 && b > 150;
 }
 
@@ -280,10 +286,24 @@ async function installRecorder(page: Page): Promise<void> {
               }
               const body = doc.body;
               const docEl = doc.documentElement;
+              if (!docEl) {
+                screens.push({
+                  screenId,
+                  accessible: true,
+                  readyState: doc.readyState,
+                  documentRootPresent: false,
+                  bodyBg: null,
+                  htmlClass: null,
+                  colorScheme: null,
+                  bridgeInstalled: false,
+                });
+                return;
+              }
               screens.push({
                 screenId,
                 accessible: true,
                 readyState: doc.readyState,
+                documentRootPresent: true,
                 bodyBg: body
                   ? doc.defaultView.getComputedStyle(body).backgroundColor
                   : null,
@@ -471,6 +491,79 @@ test.beforeAll(async ({}, testInfo) => {
     (testInfo.project.use as { baseURL?: string }).baseURL ??
     process.env.E2E_BASE_URL ??
     e2eBaseURL();
+});
+
+test("flash color detection recognizes CSS and screenshot samples", () => {
+  expect(isLightRgb("255,255,255")).toBe(true);
+  expect(isLightRgb("rgb(255, 255, 255)")).toBe(true);
+  expect(isLightRgb("rgba(255, 255, 255, 1)")).toBe(true);
+  expect(isLightRgb("rgba(255, 255, 255, 0)")).toBe(false);
+  expect(isLightRgb("rgb(26, 26, 26)")).toBe(false);
+  expect(isLightRgb(null)).toBe(false);
+});
+
+test("frame recorder continues while a preview document has no root", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("about:blank");
+  await page.evaluate(() => {
+    const iframe = document.createElement("iframe");
+    iframe.dataset.designPreviewIframe = "true";
+    iframe.dataset.screenIframeId = "recorder-transition";
+    iframe.srcdoc = "<html><body>Preview</body></html>";
+    document.body.append(iframe);
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          !!document.querySelector<HTMLIFrameElement>("iframe")?.contentDocument
+            ?.body,
+      ),
+    )
+    .toBe(true);
+  await installRecorder(page);
+  await page.evaluate(() =>
+    document
+      .querySelector<HTMLIFrameElement>("iframe")!
+      .contentDocument!.documentElement.remove(),
+  );
+  await startRecorder(page, "document-root-transition");
+  await page.evaluate(async () => {
+    for (let i = 0; i < 4; i += 1)
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    const doc =
+      document.querySelector<HTMLIFrameElement>("iframe")!.contentDocument!;
+    doc.open();
+    doc.write(
+      '<html><body style="background: #fff">Restored preview</body></html>',
+    );
+    doc.close();
+    for (let i = 0; i < 4; i += 1)
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+  });
+  const frames = await stopRecorder(page);
+  expect(errors).toEqual([]);
+  expect(frames.length).toBeGreaterThanOrEqual(4);
+  const screens = frames.flatMap((frame) => frame.screens);
+  expect(screens.some((screen) => screen.documentRootPresent === false)).toBe(
+    true,
+  );
+  expect(screens.some((screen) => screen.documentRootPresent === true)).toBe(
+    true,
+  );
+  expect(
+    screens.some(
+      (screen) =>
+        screen.documentRootPresent === true && isLightRgb(screen.bodyBg),
+    ),
+  ).toBe(true);
 });
 
 test.describe("canvas flash — transient capture, dark theme, multi-screen", () => {

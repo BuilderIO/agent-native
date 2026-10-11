@@ -74,7 +74,8 @@ export function runSeedCollabContent({
   };
   if (
     pendingLocalContent &&
-    pending.identityMigrationSourceContent === undefined
+    pending.identityMigrationSourceContent === undefined &&
+    !pending.deferCollabReconcile
   ) {
     if (text !== pendingLocalContent) {
       setCollabContent(pendingLocalContent);

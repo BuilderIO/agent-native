@@ -483,7 +483,12 @@ export interface UndoArgs {
   pendingLocalFileContentsRef: RefObject<
     Map<
       string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+      {
+        content: string;
+        startedAt: number;
+        baseUpdatedAt?: string | null;
+        deferCollabReconcile?: boolean;
+      }
     >
   >;
   pendingVisualStyleEditsRef: RefObject<PendingVisualStyleEdit[]>;
@@ -847,9 +852,13 @@ export function runUndo({
         clipboardPasteUndoStackRef.current.length - 1
       ];
     if (!clipboardPasteUndo) return false;
+    const pendingPasteContent = pendingLocalFileContentsRef.current.get(
+      clipboardPasteUndo.fileId,
+    );
     const currentContent =
-      pendingLocalFileContentsRef.current.get(clipboardPasteUndo.fileId)
-        ?.content ??
+      (pendingPasteContent?.deferCollabReconcile
+        ? undefined
+        : pendingPasteContent?.content) ??
       (clipboardPasteUndo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteUndo.fileId) ?? ""));

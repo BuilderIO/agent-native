@@ -224,7 +224,8 @@ export function useEditorLiveEditsAndPresence({
     : undefined;
   const activeReconcileFile =
     activePendingSource &&
-    activePendingSource.identityMigrationSourceContent === undefined
+    activePendingSource.identityMigrationSourceContent === undefined &&
+    !activePendingSource.deferCollabReconcile
       ? activeFile
       : (rawServerFilesByIdRef.current.get(activeFile?.id ?? "") ?? activeFile);
   const zoom = viewMode === "overview" ? overviewZoom : screenZoom;

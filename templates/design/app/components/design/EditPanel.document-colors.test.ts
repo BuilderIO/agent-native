@@ -22,7 +22,10 @@ import {
   selectionColorTargets,
   selectionColorValues,
 } from "./edit-panel/document-colors";
-import { extractDocumentColorPalette } from "./EditPanel";
+import {
+  extractDocumentColorPalette,
+  withCapturedSelectionColorScopeIdentities,
+} from "./EditPanel";
 import type { ElementInfo } from "./types";
 
 function fakeElement(computedStyles: Record<string, string>): ElementInfo {
@@ -35,6 +38,57 @@ function fakeElement(computedStyles: Record<string, string>): ElementInfo {
     isFlexContainer: false,
   };
 }
+
+describe("withCapturedSelectionColorScopeIdentities", () => {
+  it("adds only scope identity to persisted-source upload metadata", () => {
+    const content = '<div style="color: #123456"></div>';
+    const scopes = [
+      {
+        fileId: "file-b",
+        content,
+        projection: buildCodeLayerProjection(content),
+        sourceId: "node-b",
+        selector: ".b",
+        wholeDocument: false,
+      },
+      {
+        fileId: "file-a",
+        content,
+        projection: buildCodeLayerProjection(content),
+        wholeDocument: true,
+      },
+    ];
+    const meta = {
+      phase: "commit" as const,
+      requirePersistedSourceAcceptance: true,
+    };
+
+    expect(withCapturedSelectionColorScopeIdentities(scopes, meta)).toEqual({
+      ...meta,
+      capturedSelectionColorScopeIdentities: [
+        { fileId: "file-a", wholeDocument: true },
+        {
+          fileId: "file-b",
+          sourceId: "node-b",
+          selector: ".b",
+          wholeDocument: false,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(withCapturedSelectionColorScopeIdentities(scopes, meta)),
+    ).not.toContain(content);
+  });
+
+  it("preserves ordinary style metadata without adding scope identities", () => {
+    const meta = { phase: "commit" as const };
+
+    expect(withCapturedSelectionColorScopeIdentities([], meta)).toBe(meta);
+    expect(withCapturedSelectionColorScopeIdentities([], undefined)).toBe(
+      undefined,
+    );
+  });
+});
 
 describe("extractDocumentColorPalette", () => {
   it("collects hex colors from inline styles across multiple files", () => {

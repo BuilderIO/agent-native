@@ -1678,8 +1678,7 @@ test("K scales Screen contents and history as one root Frame edit", async ({
       throw new Error("Missing persisted Screen width for K scale");
     const scale = afterFrameWidth / beforeFrameWidth;
     const frameLabelChromeHeight =
-      (beforeShellBounds.height - beforeCardBounds.height) /
-      cameraBeforeGesture.scaleY;
+      beforeShellBounds.height - beforeCardBounds.height;
     const cardWidthBeforeInWorld =
       beforeCardBounds.width / cameraBeforeGesture.scaleX;
     const cardHeightBeforeInWorld =
@@ -1734,8 +1733,8 @@ test("K scales Screen contents and history as one root Frame edit", async ({
         `${phase} Screen card height in design coordinates`,
       ).toBeCloseTo(cardHeightBeforeInWorld * scale, 1);
       expect(
-        (outer.height - cardBounds.height) / currentCamera.scaleY,
-        `${phase} frame label chrome height in design coordinates`,
+        outer.height - cardBounds.height,
+        `${phase} frame label chrome height in viewport coordinates`,
       ).toBeCloseTo(frameLabelChromeHeight, 1);
       const actual = await layout.evaluate((element) => {
         const layoutStyle = getComputedStyle(element);

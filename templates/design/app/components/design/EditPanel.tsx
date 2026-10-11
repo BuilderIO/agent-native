@@ -170,6 +170,7 @@ import {
 import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
+  type CapturedSelectionColorScopeIdentity,
   type BreakpointOverrideFieldContext,
   type CapturedStyleTarget,
   type MotionKeyframeFieldContext,
@@ -1837,6 +1838,31 @@ function ExportPreviewDisclosure({
 
 const NO_SELECTION_ELEMENTS: ElementInfo[] = [];
 
+export function withCapturedSelectionColorScopeIdentities(
+  scopes: SelectionColorScope[],
+  meta?: StyleChangeMeta,
+): StyleChangeMeta | undefined {
+  if (!meta?.requirePersistedSourceAcceptance) return meta;
+
+  const identities: CapturedSelectionColorScopeIdentity[] = scopes
+    .map(({ fileId, sourceId, selector, wholeDocument }) => ({
+      fileId,
+      ...(sourceId !== undefined ? { sourceId } : {}),
+      ...(selector !== undefined ? { selector } : {}),
+      ...(wholeDocument !== undefined ? { wholeDocument } : {}),
+    }))
+    .sort((left, right) => {
+      const leftKey = JSON.stringify(left);
+      const rightKey = JSON.stringify(right);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+
+  return {
+    ...meta,
+    capturedSelectionColorScopeIdentities: identities,
+  };
+}
+
 export function SelectionColorsProperties({
   elements,
   scopes,
@@ -2120,6 +2146,11 @@ function GroupFillProperties({
 }) {
   const model = useMemo(() => selectionFillModel(scopes), [scopes]);
   const styles = useMemo(() => selectionFillInspectorStyles(model), [model]);
+  const metadataForFillUpload = useCallback(
+    (meta?: StyleChangeMeta) =>
+      withCapturedSelectionColorScopeIdentities(scopes, meta),
+    [scopes],
+  );
   const element = useMemo<ElementInfo>(
     () => ({
       tagName: "div",
@@ -2137,18 +2168,39 @@ function GroupFillProperties({
   );
   const onStyleChange = useCallback<StyleChangeHandler>(
     (property, value, meta) =>
-      onStylesChange?.({ ...styles, [property]: value }, meta),
-    [onStylesChange, styles],
+      onStylesChange?.(
+        { ...styles, [property]: value },
+        metadataForFillUpload(meta),
+      ),
+    [metadataForFillUpload, onStylesChange, styles],
   );
   const onBatchStyleChange = useCallback<StylesChangeHandler>(
-    (nextStyles, meta) => onStylesChange?.({ ...styles, ...nextStyles }, meta),
-    [onStylesChange, styles],
+    (nextStyles, meta) =>
+      onStylesChange?.(
+        { ...styles, ...nextStyles },
+        metadataForFillUpload(meta),
+      ),
+    [metadataForFillUpload, onStylesChange, styles],
   );
   const onAddFill = useCallback(() => {
     if (disabled || !onStylesChange) return null;
     const added = selectionFillAddedStyles(model, mostRecentFillColor);
     return onStylesChange(added.styles) ? added.open : null;
   }, [disabled, model, mostRecentFillColor, onStylesChange]);
+  const uploadScopeKey = JSON.stringify(
+    scopes
+      .map((scope) => [
+        scope.fileId,
+        scope.sourceId ?? "",
+        scope.selector ?? "",
+        scope.wholeDocument === true,
+      ])
+      .sort((left, right) => {
+        const leftKey = JSON.stringify(left);
+        const rightKey = JSON.stringify(right);
+        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+      }),
+  );
 
   return (
     <FillProperties
@@ -2159,6 +2211,7 @@ function GroupFillProperties({
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
       onAddFill={onAddFill}
+      uploadScopeKey={uploadScopeKey}
     />
   );
 }
@@ -2975,6 +3028,7 @@ export const EditPanel = memo(function EditPanel({
                       <FillProperties
                         key={`fill:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
+                        uploadScopeKey={selectedScreenElementSectionKey}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}

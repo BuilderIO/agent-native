@@ -142,6 +142,7 @@ export function runApplyLocalContentUpdate(
     clipboardMutation?: ClipboardContentMutationPublication;
     awaitSave?: boolean;
     selectionBefore?: YjsUndoSelectionSnapshot;
+    serverAccepted?: boolean;
   } = {},
 ): ApplyLocalContentUpdateResult {
   if (!activeFile || !canEditDesignRef.current) return { status: "refused" };
@@ -316,20 +317,22 @@ export function runApplyLocalContentUpdate(
     }
   }
   let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
-  if (options.persist === false && !needsIdentityMigration) {
-    cancelQueuedFileContentSave(activeFile.id);
-  } else {
-    const completion = queueFileContentSave(activeFile.id, nextContent, {
-      expectedVersionHash: sourceContentHash(
-        needsIdentityMigration
-          ? inputContent
-          : (options.sourceBaseContent ?? previousContent),
-      ),
-      syncCollab: !writeLiveDoc,
-      immediate: needsIdentityMigration ? true : options.immediateSave,
-      identityMigrationSourceContent,
-    });
-    if (completion instanceof Promise) saveCompletion = completion;
+  if (!options.serverAccepted) {
+    if (options.persist === false && !needsIdentityMigration) {
+      cancelQueuedFileContentSave(activeFile.id);
+    } else {
+      const completion = queueFileContentSave(activeFile.id, nextContent, {
+        expectedVersionHash: sourceContentHash(
+          needsIdentityMigration
+            ? inputContent
+            : (options.sourceBaseContent ?? previousContent),
+        ),
+        syncCollab: !writeLiveDoc,
+        immediate: needsIdentityMigration ? true : options.immediateSave,
+        identityMigrationSourceContent,
+      });
+      if (completion instanceof Promise) saveCompletion = completion;
+    }
   }
   return {
     status: "accepted",

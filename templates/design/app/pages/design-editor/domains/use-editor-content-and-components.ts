@@ -815,6 +815,7 @@ export function useEditorContentAndComponents({
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
+        serverAccepted?: boolean;
       } = {},
     ) => {
       if (
@@ -910,6 +911,7 @@ export function useEditorContentAndComponents({
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
+        serverAccepted?: boolean;
       } = {},
     ) => {
       if (options.persist !== false && !canApplyContentEdit(fileId)) {

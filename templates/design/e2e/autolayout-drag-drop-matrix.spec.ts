@@ -3240,11 +3240,27 @@ test.describe("auto-layout drag/drop matrix", () => {
     const design = await createDesign(request, {
       primaryHtml: MATRIX_HTML,
     });
+    const screenLocalGeometry = () =>
+      designFrame(page, design.primaryId)
+        .locator('[data-agent-native-node-id="free-shape"]')
+        .evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: style.left,
+            top: style.top,
+          };
+        });
     try {
       await gotoEditor(page, design.id);
       await page.keyboard.press("Shift+1");
       const source = await boxFor(page, design.primaryId, "free-shape");
       const before = { ...source };
+      const localBefore = await screenLocalGeometry();
       const orderBefore = (await rootChildren(page, design.primaryId)).map(
         (child) => child.id,
       );
@@ -3287,10 +3303,23 @@ test.describe("auto-layout drag/drop matrix", () => {
       }
       const dropped = await boxFor(page, design.primaryId, "free-shape");
       expect([dropped.x, dropped.y]).not.toEqual([before.x, before.y]);
+      await expect
+        .poll(async () => {
+          const geometry = await screenLocalGeometry();
+          return [geometry.x, geometry.y];
+        })
+        .not.toEqual([localBefore.x, localBefore.y]);
+      const localDropped = await screenLocalGeometry();
+      expect(localDropped.width).toBeCloseTo(localBefore.width, 0);
+      expect(localDropped.height).toBeCloseTo(localBefore.height, 0);
       await settleReload(page, design.primaryId);
-      const reloaded = await boxFor(page, design.primaryId, "free-shape");
-      expect(reloaded.x).toBeCloseTo(dropped.x, 0);
-      expect(reloaded.y).toBeCloseTo(dropped.y, 0);
+      const localReloaded = await screenLocalGeometry();
+      expect(localReloaded.x).toBeCloseTo(localDropped.x, 0);
+      expect(localReloaded.y).toBeCloseTo(localDropped.y, 0);
+      expect(localReloaded.width).toBeCloseTo(localDropped.width, 0);
+      expect(localReloaded.height).toBeCloseTo(localDropped.height, 0);
+      expect(localReloaded.left).toBe(localDropped.left);
+      expect(localReloaded.top).toBe(localDropped.top);
       await expect
         .poll(async () =>
           (await rootChildren(page, design.primaryId)).map((child) => child.id),
@@ -3308,6 +3337,21 @@ test.describe("auto-layout drag/drop matrix", () => {
     const design = await createDesign(request, {
       primaryHtml: FLOW_CHILD_FREE_CANVAS_HTML,
     });
+    const screenLocalGeometry = () =>
+      designFrame(page, design.primaryId)
+        .locator('[data-agent-native-node-id="flow-child"]')
+        .evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          const style = getComputedStyle(node);
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            left: style.left,
+            top: style.top,
+          };
+        });
     try {
       await gotoEditor(page, design.id);
       await selectLayer(page, "Flow child");
@@ -3450,6 +3494,7 @@ test.describe("auto-layout drag/drop matrix", () => {
             .evaluate((node) => getComputedStyle(node).position),
         )
         .toBe("absolute");
+      const droppedLocal = await screenLocalGeometry();
       const droppedHtml = await fileHtml(request, design.id, design.primaryId);
       const originEnd = droppedHtml.indexOf("</section>");
       const childIndex = droppedHtml.indexOf(
@@ -3465,9 +3510,16 @@ test.describe("auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.primaryId, "flow-peer"))
         .toBe("flow-origin");
-      const reloaded = await boxFor(page, design.primaryId, "flow-child");
-      expect(reloaded.x).toBeCloseTo(dropped.x, 0);
-      expect(reloaded.y).toBeCloseTo(dropped.y, 0);
+      const reloadedLocal = await screenLocalGeometry();
+      expect(reloadedLocal.x).toBeCloseTo(droppedLocal.x, 0);
+      expect(reloadedLocal.y).toBeCloseTo(droppedLocal.y, 0);
+      expect(reloadedLocal.width).toBeCloseTo(droppedLocal.width, 0);
+      expect(reloadedLocal.height).toBeCloseTo(droppedLocal.height, 0);
+      expect(reloadedLocal.left).toBe(droppedLocal.left);
+      expect(reloadedLocal.top).toBe(droppedLocal.top);
+      expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+        droppedHtml,
+      );
       await expect
         .poll(logicalRootOrder)
         .toEqual(["flow-origin", "flow-child"]);

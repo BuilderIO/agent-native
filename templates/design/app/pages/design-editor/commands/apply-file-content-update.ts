@@ -49,6 +49,7 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      serverAccepted?: boolean;
     },
   ) => void;
   applyLocalContentUpdate: (
@@ -68,6 +69,7 @@ export interface ApplyFileContentUpdateArgs {
       shaderWriteCompletion?: true;
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
+      serverAccepted?: boolean;
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesignRef: RefObject<boolean>;
@@ -143,6 +145,7 @@ export function runApplyFileContentUpdate(
     shaderWriteCompletion?: true;
     updatedAt?: string;
     clipboardMutation?: ClipboardContentMutationPublication;
+    serverAccepted?: boolean;
   } = {},
 ): ApplyFileContentUpdateResult {
   if (!canEditDesignRef.current) return { status: "refused" };
@@ -247,20 +250,22 @@ export function runApplyFileContentUpdate(
     );
   }
   let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
-  if (options.persist === false && !needsIdentityMigration) {
-    cancelQueuedFileContentSave(fileId);
-  } else {
-    const completion = queueFileContentSave(fileId, acceptedContent, {
-      expectedVersionHash: sourceContentHash(
-        needsIdentityMigration
-          ? nextContent
-          : (options.sourceBaseContent ?? previousContent),
-      ),
-      syncCollab,
-      immediate: true,
-      identityMigrationSourceContent,
-    });
-    if (completion instanceof Promise) saveCompletion = completion;
+  if (!options.serverAccepted) {
+    if (options.persist === false && !needsIdentityMigration) {
+      cancelQueuedFileContentSave(fileId);
+    } else {
+      const completion = queueFileContentSave(fileId, acceptedContent, {
+        expectedVersionHash: sourceContentHash(
+          needsIdentityMigration
+            ? nextContent
+            : (options.sourceBaseContent ?? previousContent),
+        ),
+        syncCollab,
+        immediate: true,
+        identityMigrationSourceContent,
+      });
+      if (completion instanceof Promise) saveCompletion = completion;
+    }
   }
   return {
     status: "accepted",

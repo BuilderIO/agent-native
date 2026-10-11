@@ -37,6 +37,10 @@ import {
 } from "./fill-properties";
 import { mixedElementFromSelection } from "./selection-helpers";
 
+const imageUploadState = vi.hoisted(() => ({
+  handlers: {} as Record<string, unknown>,
+}));
+
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -59,13 +63,29 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 vi.mock("../inspector", () => ({
-  DesignColorPicker: ({ trigger }: { trigger?: unknown }) => trigger as never,
+  DesignColorPicker: ({
+    trigger,
+    uploadTargetKey,
+    onImageFillChange,
+  }: {
+    trigger?: unknown;
+    uploadTargetKey?: string;
+    onImageFillChange?: (
+      value: { url: string; fit: string },
+      meta?: object,
+    ) => void;
+  }) => {
+    if (uploadTargetKey && onImageFillChange) {
+      imageUploadState.handlers[uploadTargetKey] = onImageFillChange;
+    }
+    return trigger as never;
+  },
   ScrubInput: () => null,
-  imageFillToBackgroundStyles: () => ({
-    backgroundImage: "",
-    backgroundSize: "",
-    backgroundRepeat: "",
-    backgroundPosition: "",
+  imageFillToBackgroundStyles: (value: { url: string; fit: string }) => ({
+    backgroundImage: `url("${value.url}")`,
+    backgroundSize: value.fit === "fit" ? "contain" : "cover",
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "center",
   }),
 }));
 
@@ -181,6 +201,224 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("rebuilds a delayed layer upload at that layer's latest reordered index", async () => {
+    imageUploadState.handlers = {};
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const makeElement = (backgroundImage: string) =>
+      element({
+        sourceId: "upload-reorder-target",
+        computedStyles: {
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage,
+          backgroundSize: "cover, contain",
+          backgroundRepeat: "no-repeat, repeat",
+          backgroundPosition: "center, top left",
+        },
+      });
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("first.png"), url("second.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const [firstTargetKey] = Object.keys(imageUploadState.handlers);
+    const completeFirstLayerUpload = imageUploadState.handlers[
+      firstTargetKey!
+    ] as (value: { url: string; fit: string }, meta?: object) => void;
+    const handles = host.querySelectorAll<HTMLElement>(
+      '[aria-label="editPanel.labels.reorderLayer"]',
+    );
+    const rows = [...handles].map(
+      (handle) => handle.parentElement?.parentElement as HTMLElement,
+    );
+    expect(handles).toHaveLength(2);
+    expect(rows).toHaveLength(2);
+
+    await act(async () => {
+      const dragStart = new Event("dragstart", { bubbles: true });
+      Object.defineProperty(dragStart, "dataTransfer", {
+        value: { setData: vi.fn(), effectAllowed: "" },
+      });
+      handles[0]!.dispatchEvent(dragStart);
+    });
+    await act(async () => {
+      const drop = new Event("drop", { bubbles: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { dropEffect: "" },
+      });
+      rows[1]!.dispatchEvent(drop);
+    });
+    onStyleChange.mockClear();
+    onStylesChange.mockClear();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("second.png"), url("first.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    await act(async () =>
+      completeFirstLayerUpload(
+        { url: "/uploaded.png", fit: "fit" },
+        { requirePersistedSourceAcceptance: true },
+      ),
+    );
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      {
+        backgroundImage: 'url("second.png"), url("/uploaded.png")',
+        backgroundSize: "cover, contain",
+        backgroundRepeat: "no-repeat, no-repeat",
+        backgroundPosition: "center, center",
+      },
+      { requirePersistedSourceAcceptance: true },
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("drops a delayed upload when its layer is removed from the same target", async () => {
+    imageUploadState.handlers = {};
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const makeElement = (backgroundImage: string) =>
+      element({
+        sourceId: "upload-removed-target",
+        computedStyles: {
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage,
+          backgroundSize: "cover, contain",
+          backgroundRepeat: "no-repeat, repeat",
+          backgroundPosition: "center, top left",
+        },
+      });
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("first.png"), url("second.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const [firstTargetKey] = Object.keys(imageUploadState.handlers);
+    const completeRemovedLayerUpload = imageUploadState.handlers[
+      firstTargetKey!
+    ] as (value: { url: string; fit: string }, meta?: object) => void;
+    const removeButtons = host.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.removeLayer"]',
+    );
+    expect(removeButtons).toHaveLength(2);
+    await act(async () => removeButtons[0]!.click());
+    onStyleChange.mockClear();
+    onStylesChange.mockClear();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("second.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    await act(async () =>
+      completeRemovedLayerUpload(
+        { url: "/uploaded.png", fit: "fit" },
+        { requirePersistedSourceAcceptance: true },
+      ),
+    );
+
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("keeps delayed uploads isolated when the same node moves to another scope", async () => {
+    imageUploadState.handlers = {};
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const firstScopeChange = vi.fn();
+    const secondScopeChange = vi.fn();
+    const sameNode = element({
+      sourceId: "same-node-id",
+      computedStyles: {
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: 'url("shared.png")',
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: sameNode,
+          onStyleChange: vi.fn(),
+          onStylesChange: firstScopeChange,
+          uploadScopeKey: "screen-a",
+        }),
+      );
+    });
+    const targetKey = Object.keys(imageUploadState.handlers)[0]!;
+    const completeFirstScopeUpload = imageUploadState.handlers[targetKey] as (
+      value: { url: string; fit: string },
+      meta?: object,
+    ) => void;
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: sameNode,
+          onStyleChange: vi.fn(),
+          onStylesChange: secondScopeChange,
+          uploadScopeKey: "screen-b",
+        }),
+      );
+    });
+    await act(async () =>
+      completeFirstScopeUpload(
+        { url: "/uploaded.png", fit: "fit" },
+        { requirePersistedSourceAcceptance: true },
+      ),
+    );
+
+    expect(firstScopeChange).toHaveBeenCalledWith(
+      {
+        backgroundImage: 'url("/uploaded.png")',
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      },
+      { requirePersistedSourceAcceptance: true },
+    );
+    expect(secondScopeChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("uses SVG paint controls for a selection of different vector shape tags", () => {
     const selected = mixedElementFromSelection([
       element({
