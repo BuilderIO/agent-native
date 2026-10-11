@@ -82,6 +82,7 @@ import {
 } from "@/lib/route-path";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
 import {
   commitAfterPaint,
   flushCommitsAfterPaint,
@@ -167,9 +168,12 @@ import {
   beginPendingTextDelivery,
   type BeginTextEditOptions,
   cancelPendingTextCapture,
+  cancelPendingTextHostCommit,
   isPendingTextInterceptionOpen,
+  isPendingTextRequestLive,
   onPendingTextCaptureCancel,
   owePendingTextCapture,
+  queuePendingTextHostCommit,
   registerTextEditOwner,
   releasePendingTextCapture,
   returnPendingTextCapture,
@@ -186,6 +190,14 @@ import {
   connectPrivateReplayScreenshotPreview,
   preparePrivateReplayScreenshotPreviewDocument,
 } from "./design-canvas/private-replay-screenshot-preview";
+import {
+  commitTextContentChange,
+  consumePendingTextCreation,
+  deferPendingTextCreationCleanup,
+  registerPendingTextCreation,
+  retainPendingTextCreationForActiveEdit,
+  type PendingTextCreationOwners,
+} from "./design-canvas/text-content-change-result";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
@@ -762,7 +774,7 @@ interface DesignCanvasProps {
       routePath?: string;
       relativeOperations?: Record<string, RelativeStyleOperation>;
     },
-  ) => void;
+  ) => TextCommitStatus | void;
   onTextEditingStateChange?: (
     state: Omit<TextEditingState, "screenId">,
   ) => void;
@@ -4485,20 +4497,48 @@ export function DesignCanvas({
             : undefined;
         if (selector) {
           const payload = e.data.payload;
+          const owner = capturedOwnerRef.current;
+          const sourceId =
+            payload &&
+            typeof payload === "object" &&
+            "sourceId" in payload &&
+            typeof payload.sourceId === "string"
+              ? payload.sourceId
+              : null;
+          // The bridge sends inactive state before this content message; consume
+          // the owner token now so later screen changes cannot erase its handoff.
+          const isPendingCreation = consumePendingTextCreation(
+            pendingTextCreationNodeOwnersRef.current,
+            owner,
+            sourceId,
+          );
           const routePath =
             typeof e.data.routePath === "string"
               ? e.data.routePath
               : (liveRoutePathRef.current ?? undefined);
           // The iframe shares this thread, so its ended edit only paints once the commit yields.
           commitAfterPaint(() => {
-            onTextContentChange?.(selector, value, payload, {
-              html,
-              originalValue,
-              originalHtml,
-              relativeOperations,
-              routePath,
+            commitTextContentChange({
+              owner,
+              nodeId: sourceId,
+              value,
+              isPendingTextCreation: isPendingCreation,
+              commit: () =>
+                onTextContentChange?.(selector, value, payload, {
+                  html,
+                  originalValue,
+                  originalHtml,
+                  relativeOperations,
+                  routePath,
+                }),
+              queueHostCommit: queuePendingTextHostCommit,
+              cancelHostCommit: cancelPendingTextHostCommit,
+              requestSnapshot: () => {
+                if (iframeRef.current?.isConnected) {
+                  requestSharedSnapshotAfterEdit();
+                }
+              },
             });
-            requestSharedSnapshotAfterEdit();
           });
         }
         return;
@@ -5003,6 +5043,11 @@ export function DesignCanvas({
           if (!capturedOwner) return;
           if (abandonedByUser) {
             cancelPendingTextCapture(capturedOwner, pendingNodeId);
+            deferPendingTextCreationCleanup(
+              pendingTextCreationNodeOwnersRef.current,
+              capturedOwner,
+              pendingNodeId,
+            );
           } else if (e.data.reason === "committed") {
             pendingTextEditRef.current =
               currentPending?.nodeId === pendingNodeId
@@ -5018,19 +5063,61 @@ export function DesignCanvas({
           typeof e.data.nodeId === "string" ? e.data.nodeId : "";
         const owner = capturedOwnerRef.current;
         if (owner && insertNodeId) {
+          const isPendingCreation = isPendingTextRequestLive(
+            owner,
+            insertNodeId,
+          );
           acknowledgePendingTextInsert(
             owner,
             insertNodeId,
             e.data.inserted === true,
           );
+          if (isPendingCreation && e.data.inserted === true) {
+            const activeTextEditIdentity = activeTextEditIdentityRef.current;
+            registerPendingTextCreation(
+              pendingTextCreationNodeOwnersRef.current,
+              owner,
+              insertNodeId,
+              activeTextEditIdentity?.owner === owner &&
+                activeTextEditIdentity.nodeId === insertNodeId,
+            );
+          }
         }
         return;
       }
       if (e.data.type === "text-editing-state") {
         const activatedSourceId =
           typeof e.data.sourceId === "string" ? e.data.sourceId : "";
+        const owner = capturedOwnerRef.current;
+        if (!e.data.active && owner && activatedSourceId) {
+          const activeTextEditIdentity = activeTextEditIdentityRef.current;
+          if (
+            activeTextEditIdentity?.owner === owner &&
+            activeTextEditIdentity.nodeId === activatedSourceId
+          ) {
+            activeTextEditIdentityRef.current = null;
+          }
+          // Empty Escape produces no following content message, so retire its
+          // token after a grace period that leaves the ordered bridge message
+          // pair (inactive, then content) time to arrive.
+          deferPendingTextCreationCleanup(
+            pendingTextCreationNodeOwnersRef.current,
+            owner,
+            activatedSourceId,
+          );
+        }
         if (e.data.active && activatedSourceId) {
-          const owner = capturedOwnerRef.current;
+          if (owner) {
+            activeTextEditIdentityRef.current = {
+              owner,
+              nodeId: activatedSourceId,
+            };
+            retainPendingTextCreationForActiveEdit(
+              pendingTextCreationNodeOwnersRef.current,
+              owner,
+              activatedSourceId,
+            );
+          }
           const pending = pendingTextEditRef.current;
           let buffered = "";
           if (pending && pending.nodeId === activatedSourceId) {
@@ -5884,6 +5971,13 @@ export function DesignCanvas({
 
   const capturedOwnerRef = useRef<string | null>(null);
   capturedOwnerRef.current = previewFrameId ? null : (screenId ?? null);
+  const pendingTextCreationNodeOwnersRef = useRef<PendingTextCreationOwners>(
+    new Map(),
+  );
+  const activeTextEditIdentityRef = useRef<{
+    owner: string;
+    nodeId: string;
+  } | null>(null);
 
   const beginTextEdit = useCallback(
     (nodeId: string, options?: BeginTextEditOptions): boolean => {
@@ -5992,6 +6086,13 @@ export function DesignCanvas({
     );
     return () => {
       unregister();
+      if (activeTextEditIdentityRef.current?.owner === owner) {
+        activeTextEditIdentityRef.current = null;
+      }
+      deferPendingTextCreationCleanup(
+        pendingTextCreationNodeOwnersRef.current,
+        owner,
+      );
       const pending = pendingTextEditRef.current;
       if (owner && pending) {
         returnPendingTextCapture(owner, pending.nodeId, pending.buffer);

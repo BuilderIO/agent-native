@@ -965,7 +965,7 @@ export function useEditorScreenChangeHandlers({
   >(
     (selector, value, info, details) => {
       if (!boardFileId) return;
-      handleScreenTextContentChange(
+      return handleScreenTextContentChange(
         boardFileId,
         selector,
         value,

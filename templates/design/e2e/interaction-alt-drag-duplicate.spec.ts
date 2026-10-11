@@ -1152,19 +1152,42 @@ test.describe("alt-drag duplicate (overview)", () => {
         y: (Math.max(box.y, 0) + Math.min(box.y + box.height, view.height)) / 2,
       };
 
-      const before = await page.evaluate(() =>
-        Object.fromEntries(
-          Array.from(
-            document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-          ).map((node) => [
-            node.getAttribute("data-frame-id")!,
-            {
-              left: Number.parseFloat(node.style.left),
-              top: Number.parseFloat(node.style.top),
-            },
-          ]),
-        ),
-      );
+      const readFramePositionSnapshot = () =>
+        page.evaluate(() => {
+          const frames = Object.fromEntries(
+            Array.from(
+              document.querySelectorAll<HTMLElement>("[data-frame-id]"),
+            ).map((node) => {
+              const firstLabelRow =
+                node.firstElementChild as HTMLElement | null;
+              const rawShellTop = Number.parseFloat(node.style.top);
+              const labelHeight =
+                Number.parseFloat(firstLabelRow?.style.height ?? "0") || 0;
+              return [
+                node.getAttribute("data-frame-id")!,
+                {
+                  left: Number.parseFloat(node.style.left),
+                  // The shell starts above its frame geometry by the rendered
+                  // title row; add that direct child back for position reads.
+                  top: rawShellTop + labelHeight,
+                },
+              ];
+            }),
+          );
+          return frames;
+        });
+      const beforeRecord = await (
+        await request.get(
+          `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+        )
+      ).json();
+      const beforeData =
+        typeof beforeRecord.data === "string"
+          ? JSON.parse(beforeRecord.data)
+          : beforeRecord.data;
+      const beforeStored = beforeData?.canvasFrames?.[fileIds[0]!];
+      expect(beforeStored).toBeTruthy();
+      const before = await readFramePositionSnapshot();
 
       await page.mouse.move(start.x, start.y);
       await page.keyboard.down("Alt");
@@ -1179,26 +1202,12 @@ test.describe("alt-drag duplicate (overview)", () => {
       await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
         timeout: 20_000,
       });
-      const readFramePositions = () =>
-        page.evaluate(() =>
-          Object.fromEntries(
-            Array.from(
-              document.querySelectorAll<HTMLElement>("[data-frame-id]"),
-            ).map((node) => [
-              node.getAttribute("data-frame-id")!,
-              {
-                left: Number.parseFloat(node.style.left),
-                top: Number.parseFloat(node.style.top),
-              },
-            ]),
-          ),
-        );
       let after: Record<string, { left: number; top: number }> = {};
       let copyId = "";
       await expect
         .poll(
           async () => {
-            after = await readFramePositions();
+            after = await readFramePositionSnapshot();
             copyId = Object.keys(after).find((id) => id !== fileIds[0]) ?? "";
             return (
               Boolean(copyId) && after[copyId]!.left > before[fileIds[0]!]!.left
@@ -1207,7 +1216,26 @@ test.describe("alt-drag duplicate (overview)", () => {
           { timeout: 20_000 },
         )
         .toBe(true);
-      expect(after[fileIds[0]!]).toEqual(before[fileIds[0]!]);
+      expect(after[fileIds[0]!]!.left).toBeCloseTo(
+        before[fileIds[0]!]!.left,
+        2,
+      );
+      expect(after[fileIds[0]!]!.top).toBeCloseTo(before[fileIds[0]!]!.top, 2);
+      const afterRecord = await (
+        await request.get(
+          `${BASE_URL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+        )
+      ).json();
+      const afterData =
+        typeof afterRecord.data === "string"
+          ? JSON.parse(afterRecord.data)
+          : afterRecord.data;
+      const afterStored = afterData?.canvasFrames?.[fileIds[0]!];
+      expect(afterStored).toBeTruthy();
+      expect({ x: afterStored.x, y: afterStored.y }).toEqual({
+        x: beforeStored.x,
+        y: beforeStored.y,
+      });
       expect(copyId).toBeTruthy();
       expect(after[copyId!]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
 

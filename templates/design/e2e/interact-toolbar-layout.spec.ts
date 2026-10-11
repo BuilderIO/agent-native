@@ -50,9 +50,13 @@ async function enterInteractAndSampleImmediately(
   const previewIframe = screenShell.locator(
     "iframe[data-design-preview-iframe]",
   );
+  await fullView.click();
+  await expect(previewIframe).toBeVisible();
   const previewIframeHandle = await previewIframe.elementHandle();
   if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
-  await fullView.click();
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
     "true",

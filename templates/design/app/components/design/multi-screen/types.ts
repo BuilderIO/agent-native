@@ -12,6 +12,8 @@ import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode, RefObject } from "react";
 
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
+
 import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
@@ -496,7 +498,7 @@ export interface MultiScreenCanvasProps {
     value: string,
     info?: ElementInfo,
     details?: { html?: string },
-  ) => void;
+  ) => TextCommitStatus | void;
   vectorEdit?: VectorEditOverlayState | null;
   gradientEditTarget?: GradientEditOverlayTarget | null;
   onDropFiles?: (
