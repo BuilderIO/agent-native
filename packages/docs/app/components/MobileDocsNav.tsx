@@ -58,7 +58,7 @@ export default function MobileDocsNav() {
   }, [open]);
 
   return (
-    <div ref={navRef} className="mobile-docs-nav lg:hidden">
+    <div ref={navRef} className="mobile-docs-nav z-0 lg:hidden">
       <button
         type="button"
         onClick={() => setOpen(!open)}

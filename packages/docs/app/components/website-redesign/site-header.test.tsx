@@ -73,7 +73,11 @@ describe("SiteHeader search", () => {
     );
 
     const header = container.querySelector("header");
-    expect(header?.className).toContain("z-10");
+    const docsBar = container.querySelector<HTMLDivElement>(".mobile-docs-nav");
+    const zIndexUtility = (element: HTMLElement | null) =>
+      Number(element?.className.match(/(?:^|\s)z-(\d+)(?:\s|$)/)?.[1]);
+
+    expect(zIndexUtility(header)).toBeGreaterThan(zIndexUtility(docsBar));
     expect(header?.querySelector(".absolute.top-full")).toBeTruthy();
   });
 
