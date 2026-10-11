@@ -110,6 +110,8 @@ export function SlideTransitionStage({
           willChange: "transform, opacity",
           backfaceVisibility: motion.outgoing.backfaceVisibility,
         }}
+        // aria-hidden alone leaves the layer's controls in the tab order.
+        inert
         aria-hidden="true"
       >
         <SlideRenderer

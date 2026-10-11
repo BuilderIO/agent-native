@@ -1,10 +1,9 @@
 # Slide transitions
 
-A slide's transition plays across the boundary before that slide, in Present
-and Presenter view, forward or backward. The later slide of the pair supplies the
-type and speed, and that later slide is always the one the transition leads into.
-So going backward across a boundary plays the transition of the slide you are
-leaving, not the transition of the slide you land on.
+A slide's transition belongs to the boundary before it. It plays across that
+boundary in Present and Presenter view, in either direction, and the later slide
+of the pair supplies the type and speed. Going backward plays it reversed, so the
+slide you leave supplies the transition, not the slide you land on.
 
 Set it with `patch-deck` `patch-slide`, or on creation with a `patch-deck`
 `add-slide` op. `update-slide` does not take transition fields.

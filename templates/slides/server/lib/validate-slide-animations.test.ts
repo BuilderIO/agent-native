@@ -210,6 +210,41 @@ describe("save-time reveal validation against the stored list", () => {
       }),
     ).not.toThrow();
   });
+
+  const grown = `<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p><p>Three</p></div></div>`;
+
+  it("refuses a stale reveal that an insert brings onto a new element, even with the same path", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: grown,
+        animations: [{ id: "late", elementIndex: 2, elementPath: [1, 2] }],
+        baseline: {
+          content,
+          animations: [{ id: "late", elementIndex: 2, elementPath: [1, 2] }],
+        },
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: { reason: "retargeted", animationId: "late" },
+    });
+  });
+
+  it("accepts a stale reveal that an insert reaches when the save repairs its path", () => {
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: grown,
+        animations: [{ id: "late", elementIndex: 2, elementPath: [1, 2] }],
+        baseline: {
+          content,
+          animations: [{ id: "late", elementIndex: 2, elementPath: [1, 5] }],
+        },
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("save-time reveal identity across a content edit", () => {
@@ -266,6 +301,22 @@ describe("save-time reveal identity across a content edit", () => {
     expect(() =>
       saveWith(box("<p>One</p><p>Two</p><p>Three</p>")),
     ).not.toThrow();
+  });
+
+  it("accepts a text edit to the target that also appends a sibling after it", () => {
+    expect(() =>
+      saveWith(box("<p>One</p><p>Two, revised</p><p>Three</p>")),
+    ).not.toThrow();
+  });
+
+  it("refuses a text edit to the target that also inserts a sibling before it", () => {
+    const error = refusalOf(() =>
+      saveWith(box("<p>One</p><p>Something new</p><p>Two, revised</p>")),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
   });
 
   it("accepts an insertion before the target when the reveal is re-pointed to its new path", () => {

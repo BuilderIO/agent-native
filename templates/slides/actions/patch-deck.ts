@@ -146,7 +146,7 @@ const SlideAnimationSchema = z.object({
 });
 
 const SLIDE_TRANSITION_DESCRIPTION =
-  "Transition into this slide. It plays across the boundary before this slide, in either direction, and this slide, the later of the pair, supplies the type and speed. One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents. Null resets to none. On patch-slide, omitting it keeps the current transition; on add-slide, omitting it means none.";
+  "Transition on the boundary before this slide. It plays in either direction, and this slide, the later of the pair, supplies the type and speed; backward plays it reversed. One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents. Null resets to none. On patch-slide, omitting it keeps the current transition; on add-slide, omitting it means none.";
 const SLIDE_TRANSITION_SPEED_DESCRIPTION =
   "Speed of this slide's transition, from 0 (slowest, 5.0 s) to 49 (fastest, 0.1 s). Null resets to the default 45 (0.5 s). On patch-slide, omitting it keeps the current speed; on add-slide, omitting it means the default 45 (0.5 s).";
 

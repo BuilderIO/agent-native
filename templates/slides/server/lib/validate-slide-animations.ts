@@ -131,14 +131,72 @@ function elementSignature(element: Element): string {
   ]);
 }
 
+function tagAndClass(element: Element): string {
+  return JSON.stringify([
+    element.tagName.toLowerCase(),
+    element.getAttribute("class") ?? "",
+  ]);
+}
+
+function wordSet(element: Element): Set<string> {
+  return new Set(
+    (element.textContent ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [],
+  );
+}
+
+// The candidate that shares the most words with the element, when that is unique
+// and shares at least one.
+function bestWordMatch(
+  element: Element,
+  candidates: Element[],
+): Element | undefined {
+  const words = wordSet(element);
+  const [best, next] = candidates
+    .map((candidate) => ({
+      candidate,
+      shared: [...wordSet(candidate)].filter((word) => words.has(word)).length,
+    }))
+    .sort((a, b) => b.shared - a.shared);
+  if (!best || best.shared === 0 || best.shared === next?.shared) return;
+  return best.candidate;
+}
+
+/**
+ * Pairs an unequal run by tag and class: each baseline element takes the one
+ * unclaimed element of its tag and class. When several share it, text decides, and
+ * only a unique best match pairs. An appended sibling and an inserted one can both
+ * share the target's tag and class, and position alone cannot tell which one the
+ * target became.
+ */
+function pairUnequalRun(
+  before: Element[],
+  after: Element[],
+  identities: Map<Element, Element>,
+): void {
+  const claimed = new Set<Element>();
+  for (const element of before) {
+    const key = tagAndClass(element);
+    const candidates = after.filter(
+      (candidate) => !claimed.has(candidate) && tagAndClass(candidate) === key,
+    );
+    const match =
+      candidates.length === 1
+        ? candidates[0]
+        : bestWordMatch(element, candidates);
+    if (!match) continue;
+    identities.set(element, match);
+    claimed.add(match);
+  }
+}
+
 /**
  * Pairs each element of the baseline with the element it became after an edit,
  * or leaves it unpaired. Exact matches anchor a longest common subsequence in
- * document order. Between two anchors, elements pair up in order only when both
- * runs hold the same number of elements, so an edit to an element's text or tag
- * keeps its identity, while an inserted, removed, or reordered sibling breaks the
- * pairing. Identical siblings are interchangeable by content, so an insertion among
- * them can still pick the wrong match.
+ * document order. Between two anchors, elements pair up in order when both runs
+ * hold the same number of elements; otherwise pairUnequalRun pairs them by tag and
+ * class. A text edit keeps its identity either way, while an inserted, removed, or
+ * reordered sibling breaks the pairing. Identical siblings are interchangeable by
+ * content, so an insertion among them can still pick the wrong match.
  */
 function elementIdentities(
   baseline: Element,
@@ -186,6 +244,8 @@ function elementIdentities(
     const gapAfter = after.slice(fromAfter, j);
     if (gapBefore.length === gapAfter.length) {
       gapBefore.forEach((element, k) => identities.set(element, gapAfter[k]!));
+    } else {
+      pairUnequalRun(gapBefore, gapAfter, identities);
     }
     if (i < n) identities.set(before[i]!, after[j]!);
     fromBefore = i + 1;
@@ -196,9 +256,10 @@ function elementIdentities(
 
 /**
  * The index of the first kept reveal, or -1. A kept reveal has the same id, index,
- * and path as a baseline reveal that resolved. Its path can still resolve after a
- * sibling moves in front of the target, so the path alone cannot prove the target
- * is the same element; the alignment has to.
+ * and path as a baseline reveal. Its path can still resolve after a sibling moves in
+ * front of the target, so the path alone cannot prove the target is the same element;
+ * the alignment has to. A baseline reveal that did not resolve has no target to keep,
+ * so once it resolves under the same path, the content has moved into that path.
  */
 function retargetedRevealIndex(
   baseline: SlideAnimationBaseline,
@@ -207,22 +268,23 @@ function retargetedRevealIndex(
 ): number {
   const baselineRoot = slideRootOf(baseline.content);
   if (!baselineRoot) return -1;
-  const priorTargets = new Map<string, Element>();
+  // null marks a baseline reveal that did not resolve.
+  const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(
     (outcome, index) => {
-      if (outcome.ok) {
-        priorTargets.set(
-          revealIdentity(baseline.animations[index]!),
-          outcome.element,
-        );
-      }
+      priorTargets.set(
+        revealIdentity(baseline.animations[index]!),
+        outcome.ok ? outcome.element : null,
+      );
     },
   );
   const identities = elementIdentities(baselineRoot, root);
   return resolveRevealSteps(root, animations).findIndex((outcome, index) => {
     if (!outcome.ok) return false;
     const prior = priorTargets.get(revealIdentity(animations[index]!));
-    return prior !== undefined && identities.get(prior) !== outcome.element;
+    if (prior === undefined) return false;
+    if (prior === null) return true;
+    return identities.get(prior) !== outcome.element;
   });
 }
 

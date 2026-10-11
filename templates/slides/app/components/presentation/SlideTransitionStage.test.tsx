@@ -94,21 +94,17 @@ describe("SlideTransitionPreview", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the outgoing layer from assistive technology, so the slide is read once", () => {
+  it("hides the outgoing layer from assistive technology and focus, so the slide is read once and its controls cannot take focus", () => {
     render(
       <SlideTransitionPreview slides={slides} index={1} onClose={() => {}} />,
     );
 
-    expect(
-      screen
-        .getByTestId("rendered-slide-1")
-        .parentElement?.getAttribute("aria-hidden"),
-    ).toBe("true");
-    expect(
-      screen
-        .getByTestId("rendered-slide-2")
-        .parentElement?.getAttribute("aria-hidden"),
-    ).toBeNull();
+    const outgoing = screen.getByTestId("rendered-slide-1").parentElement;
+    expect(outgoing?.getAttribute("aria-hidden")).toBe("true");
+    expect(outgoing?.hasAttribute("inert")).toBe(true);
+    const incoming = screen.getByTestId("rendered-slide-2").parentElement;
+    expect(incoming?.getAttribute("aria-hidden")).toBeNull();
+    expect(incoming?.hasAttribute("inert")).toBe(false);
   });
 
   it("hides the back face of both layers of a flip", () => {
