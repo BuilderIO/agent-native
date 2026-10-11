@@ -74,6 +74,15 @@ const card = () => document.querySelector("[data-comment-identity-card]");
 const nextTask = () =>
   act(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
+function hoverName() {
+  act(() => {
+    authorName().dispatchEvent(
+      new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }),
+    );
+    vi.advanceTimersByTime(300);
+  });
+}
+
 function press(target: Element, key: string) {
   act(() => {
     target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -110,17 +119,26 @@ describe("comment identity card", () => {
     const composer = host.querySelector("textarea")!;
     composer.focus();
 
-    act(() => {
-      authorName().dispatchEvent(
-        new PointerEvent("pointerover", {
-          bubbles: true,
-          pointerType: "mouse",
-        }),
-      );
-      vi.advanceTimersByTime(300);
-    });
+    hoverName();
 
     expect(card()).not.toBeNull();
     expect(document.activeElement).toBe(composer);
+  });
+
+  it("moves focus into a hover-opened card when Enter pins it, and Escape returns it", () => {
+    vi.useFakeTimers();
+    hoverName();
+    // Tabbing onto the name while the pointer holds its card open.
+    act(() => authorName().focus());
+
+    press(authorName(), "Enter");
+    act(() => vi.runOnlyPendingTimers());
+    expect(card()).not.toBeNull();
+    expect(card()!.contains(document.activeElement)).toBe(true);
+
+    press(document.activeElement!, "Escape");
+    act(() => vi.runOnlyPendingTimers());
+    expect(card()).toBeNull();
+    expect(document.activeElement).toBe(authorName());
   });
 });

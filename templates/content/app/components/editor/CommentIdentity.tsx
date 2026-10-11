@@ -279,6 +279,8 @@ export function CommentIdentityHoverCard({
   // the comment being typed.
   const openedByHover = useRef(false);
   const hoverTimer = useRef<number | undefined>(undefined);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
 
   const hover = (entering: boolean) => (event: PointerEvent<HTMLElement>) => {
@@ -297,6 +299,7 @@ export function CommentIdentityHoverCard({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
+        ref={triggerRef}
         asChild
         role="button"
         onPointerEnter={hover(true)}
@@ -306,8 +309,14 @@ export function CommentIdentityHoverCard({
           // leaving the card closes it.
           event.stopPropagation();
           window.clearTimeout(hoverTimer.current);
-          // Clicking a card the pointer already opened keeps it open.
-          if (open && openedByHover.current) event.preventDefault();
+          // Clicking a card the pointer already opened keeps it open, with
+          // focus inside as if the click had opened it; Radix only moves
+          // focus in when the card mounts.
+          if (open && openedByHover.current) {
+            event.preventDefault();
+            const card = cardRef.current;
+            (card?.querySelector<HTMLElement>("button") ?? card)?.focus();
+          }
           openedByHover.current = false;
         }}
         onKeyDown={(event) => {
@@ -319,6 +328,7 @@ export function CommentIdentityHoverCard({
         {children}
       </PopoverTrigger>
       <PopoverContent
+        ref={cardRef}
         side="top"
         align="start"
         sideOffset={6}
@@ -331,6 +341,13 @@ export function CommentIdentityHoverCard({
         }}
         onCloseAutoFocus={(event) => {
           if (openedByHover.current) event.preventDefault();
+        }}
+        // Radix counts focus moving onto the trigger as leaving the card, and
+        // then leaves focus on the page instead of the trigger when it closes.
+        onFocusOutside={(event) => {
+          if (triggerRef.current?.contains(event.target as Node)) {
+            event.preventDefault();
+          }
         }}
         // The card is portaled but still bubbles through React to the
         // comment row, whose click selects the thread.
