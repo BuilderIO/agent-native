@@ -574,16 +574,6 @@ describe("comments sidebar layout", () => {
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
-  it("recomputes anchors when comment indicators are restored", () => {
-    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
-    );
-  });
-
   it("keeps the pending composer in normal flow in the anchored card", () => {
     const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
       encoding: "utf8",

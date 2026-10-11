@@ -75,6 +75,7 @@ describe("VisualEditor comment highlights", () => {
     content: string,
     threads: CommentThread[],
     resetKey = "seed",
+    showCommentIndicators = true,
   ) {
     root.render(
       createElement(
@@ -93,6 +94,7 @@ describe("VisualEditor comment highlights", () => {
               ydoc: null,
               editable: true,
               commentThreads: threads,
+              showCommentIndicators,
             }),
           ),
         ),
@@ -192,6 +194,49 @@ describe("VisualEditor comment highlights", () => {
     await settle();
 
     expect(start()).toBe(1);
+  });
+
+  it("shows highlights again when comment indicators are restored", async () => {
+    await act(async () => render(BEFORE, [thread("t1")]));
+    await settle();
+    expect(highlighted("t1")).toBe("ships every Friday afternoon");
+
+    await act(async () => render(BEFORE, [thread("t1")], "seed", false));
+    await settle();
+    expect(highlighted("t1")).toBe("");
+
+    await act(async () => render(BEFORE, [thread("t1")], "seed", true));
+    await settle();
+    expect(highlighted("t1")).toBe("ships every Friday afternoon");
+  });
+
+  it("keeps a highlight on its copy when edits make its context match another", async () => {
+    const t1 = { ...thread("t1", "beta"), prefix: "Gamma ", suffix: "." };
+    await act(async () => render("Alpha beta. Gamma beta.", [t1]));
+    await settle();
+    const editor = (
+      container.querySelector(".ProseMirror") as HTMLElement & {
+        editor: Editor;
+      }
+    ).editor;
+    const start = () =>
+      commentHighlightKey
+        .getState(editor.state)!
+        .specs.find((spec) => spec.threadId === "t1")?.from;
+    expect(start()).toBe(19);
+
+    // The text before the second copy no longer reads "Gamma"; the first's does.
+    await act(async () => {
+      editor.commands.insertContentAt({ from: 13, to: 18 }, "Delta");
+      editor.commands.insertContentAt({ from: 1, to: 6 }, "Gamma");
+    });
+    expect(start()).toBe(19);
+
+    // The edits are saved and come back as the document's content.
+    await act(async () => render("Gamma beta. Delta beta.", [t1]));
+    await settle();
+
+    expect(start()).toBe(19);
   });
 
   it("keeps a thread's highlight on its copy when another thread changes", async () => {

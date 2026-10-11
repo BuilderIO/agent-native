@@ -197,7 +197,10 @@ describe("CommentHighlight", () => {
   it("drops a highlight whose word was deleted ahead of an identical one", () => {
     let state = EditorState.create({
       doc: doc("alpha alpha"),
-      plugins: [createCommentHighlightPlugin()],
+      // The quote is still in the document, as the copy that is left.
+      plugins: [
+        createCommentHighlightPlugin({ findQuote: () => ({ from: 1, to: 6 }) }),
+      ],
     });
     state = state.apply(
       state.tr.setMeta(commentHighlightKey, {

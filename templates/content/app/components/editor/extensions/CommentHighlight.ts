@@ -242,12 +242,17 @@ export function createCommentHighlightPlugin({
             if (!range) {
               if (swap === undefined)
                 swap = swapMapping(tr, oldState.doc, newState.doc);
-              if (swap) range = mapHighlight([swap], s.from, s.to);
+              // A swapped-in document with none of the highlight's text left
+              // falls back to its quote, as on a fresh load: a rewrite too
+              // large to diff in time drops text it never touched. A narrower
+              // edit that deletes the text takes the highlight with it, even
+              // where another copy of the quote remains.
+              if (swap)
+                range =
+                  mapHighlight([swap], s.from, s.to) ??
+                  findQuote?.(s.threadId, newState.doc) ??
+                  null;
             }
-            // A highlight with none of its text left falls back to its quote,
-            // as on a fresh load. A rewrite too large to diff in time drops
-            // text it never touched.
-            range ??= findQuote?.(s.threadId, newState.doc) ?? null;
             return range ? [{ threadId: s.threadId, ...range }] : [];
           });
           if (pending) {
