@@ -2201,6 +2201,7 @@ function mergeAgentKitEvents(
         Number.isFinite(merged[index].sequence)
           ? merged[index].sequence
           : Number.NaN,
+      sequenceEnd: getAgentKitEventSequenceEnd(merged[index]),
     }));
     runEvents.sort((left, right) => {
       if (
@@ -2212,9 +2213,39 @@ function mergeAgentKitEvents(
       }
       return left.order - right.order;
     });
-    runPositions.forEach((index, order) => {
-      merged[index] = { ...runEvents[order].event, sequence: order + 1 };
-    });
+    let nextSequence = 1;
+    for (const [
+      order,
+      { event, sequenceEnd, sequence },
+    ] of runEvents.entries()) {
+      const index = runPositions[order];
+      if (index === undefined) continue;
+      const span =
+        Number.isSafeInteger(sequenceEnd) &&
+        Number.isSafeInteger(sequence) &&
+        (sequenceEnd as number) >= sequence
+          ? (sequenceEnd as number) - sequence + 1
+          : 1;
+      if (event?.type === "x-agent-native.persisted-event-omission-range") {
+        const payload =
+          event.payload &&
+          typeof event.payload === "object" &&
+          !Array.isArray(event.payload)
+            ? event.payload
+            : {};
+        merged[index] = {
+          ...event,
+          sequence: nextSequence,
+          payload: {
+            ...payload,
+            lastSequence: nextSequence + span - 1,
+          },
+        };
+      } else {
+        merged[index] = { ...event, sequence: nextSequence };
+      }
+      nextSequence += span;
+    }
   }
   return merged;
 }
@@ -2265,6 +2296,8 @@ function mergeAgentKitEventSnapshotBatch(
     .map(({ event }) => event);
 }
 
+const MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE = 256;
+
 function getAgentKitEventSequence(event: unknown): number | undefined {
   if (!event || typeof event !== "object" || Array.isArray(event)) {
     return undefined;
@@ -2273,6 +2306,73 @@ function getAgentKitEventSequence(event: unknown): number | undefined {
   return typeof sequence === "number" && Number.isSafeInteger(sequence)
     ? sequence
     : undefined;
+}
+
+function getAgentKitEventSequenceEnd(event: unknown): number | undefined {
+  const sequence = getAgentKitEventSequence(event);
+  if (sequence === undefined) return undefined;
+  if (
+    !event ||
+    typeof event !== "object" ||
+    (event as Record<string, unknown>).type !==
+      "x-agent-native.persisted-event-omission-range"
+  ) {
+    return sequence;
+  }
+  const payload = (event as Record<string, unknown>).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+  const lastSequence = (payload as Record<string, unknown>).lastSequence;
+  return typeof lastSequence === "number" &&
+    Number.isSafeInteger(lastSequence) &&
+    lastSequence >= sequence &&
+    lastSequence - sequence < MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE
+    ? lastSequence
+    : undefined;
+}
+
+function hasContiguousAgentKitEventCoverage(
+  events: unknown[],
+  runId: string,
+  lastSequence: number,
+): boolean {
+  const runEvents = events
+    .filter(
+      (event) =>
+        event !== null &&
+        typeof event === "object" &&
+        !Array.isArray(event) &&
+        (event as Record<string, unknown>).runId === runId,
+    )
+    .map((event, order) => ({
+      event,
+      order,
+      sequence: getAgentKitEventSequence(event),
+      sequenceEnd: getAgentKitEventSequenceEnd(event),
+    }))
+    .sort((left, right) => {
+      if (
+        left.sequence !== undefined &&
+        right.sequence !== undefined &&
+        left.sequence !== right.sequence
+      ) {
+        return left.sequence - right.sequence;
+      }
+      return left.order - right.order;
+    });
+  let nextSequence = 1;
+  for (const event of runEvents) {
+    if (
+      event.sequence !== nextSequence ||
+      event.sequenceEnd === undefined ||
+      event.sequenceEnd < event.sequence
+    ) {
+      return false;
+    }
+    nextSequence = event.sequenceEnd + 1;
+  }
+  return nextSequence === lastSequence + 1;
 }
 
 function mergeAgentKitFullEventSnapshot(
@@ -2329,17 +2429,7 @@ function mergeAgentKitFullEventSnapshot(
       const runEvents = incomingEventsByRun.get(runId) ?? [];
       const incomingSequence = Math.max(
         incomingRunSequences.get(runId) ?? 0,
-        ...runEvents.map((event) => {
-          const sequence =
-            event && typeof event === "object"
-              ? (event as Record<string, unknown>).sequence
-              : undefined;
-          return typeof sequence === "number" &&
-            Number.isSafeInteger(sequence) &&
-            sequence >= 0
-            ? sequence
-            : 0;
-        }),
+        ...runEvents.map((event) => getAgentKitEventSequenceEnd(event) ?? 0),
       );
       if (runEvents.length === 0 || incomingSequence <= committedSequence) {
         protectedRunIds.add(runId);
@@ -2505,6 +2595,9 @@ function mergeAgentKitEventRunSnapshots(input: {
     );
     if (
       (hasKnownSequence && lastSequence < knownSequence) ||
+      (hasKnownSequence &&
+        lastSequence === knownSequence &&
+        !input.incomingReplacements.has(runId)) ||
       (hasCommittedSnapshot && lastSequence <= committedSequence)
     ) {
       staleRunIds.add(runId);
@@ -2646,7 +2739,7 @@ function mergeAgentKitEventRunSnapshots(input: {
     if (stagedEvents.length === batch.expectedEventCount) {
       const lastEventSequence = stagedEvents.reduce<number>(
         (maximum, event) => {
-          const sequence = getAgentKitEventSequence(event);
+          const sequence = getAgentKitEventSequenceEnd(event);
           return sequence !== undefined && sequence >= 0
             ? Math.max(maximum, sequence)
             : maximum;
@@ -2659,9 +2752,10 @@ function mergeAgentKitEventRunSnapshots(input: {
         );
       }
       if (
-        batch.lastSequence !== stagedEvents.length ||
-        stagedEvents.some(
-          (event, index) => getAgentKitEventSequence(event) !== index + 1,
+        !hasContiguousAgentKitEventCoverage(
+          stagedEvents,
+          runId,
+          batch.lastSequence,
         )
       ) {
         throw new TypeError(
@@ -2839,36 +2933,41 @@ function mergeAgentKitHistory(
     typeof existing === "object" &&
     !Array.isArray(existing);
   const snapshotDelta = next._snapshotDelta === true;
+  const incomingEvents = Array.isArray(next.events) ? next.events : [];
+  for (const event of incomingEvents) {
+    if (
+      event?.type === "x-agent-native.persisted-event-omission-range" &&
+      getAgentKitEventSequenceEnd(event) === undefined
+    ) {
+      throw new TypeError(
+        `Agent chat persisted omission ranges must cover at most ${MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE} event sequences.`,
+      );
+    }
+  }
   const incomingEventRunIds = new Set(
-    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+    incomingEvents.flatMap((event) =>
       typeof event?.runId === "string" ? [event.runId] : [],
     ),
   );
   const incomingRunStarts = new Set(
-    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+    incomingEvents.flatMap((event) =>
       typeof event?.runId === "string" && event.sequence === 1
         ? [event.runId]
         : [],
     ),
   );
   const incomingEventSequences = new Map<string, number>();
-  for (const event of Array.isArray(next.events) ? next.events : []) {
-    if (
-      typeof event?.runId !== "string" ||
-      typeof event.sequence !== "number" ||
-      !Number.isSafeInteger(event.sequence) ||
-      event.sequence < 0
-    ) {
+  for (const event of incomingEvents) {
+    if (typeof event?.runId !== "string") {
       continue;
     }
+    const sequenceEnd = getAgentKitEventSequenceEnd(event);
+    if (sequenceEnd === undefined || sequenceEnd < 0) continue;
     incomingEventSequences.set(
       event.runId,
-      Math.max(incomingEventSequences.get(event.runId) ?? 0, event.sequence),
+      Math.max(incomingEventSequences.get(event.runId) ?? 0, sequenceEnd),
     );
   }
-  const existingAgentKit = existingIsRecord
-    ? (existing as Record<string, any>)
-    : {};
   const eventRunSnapshotBatches = new Map<
     string,
     AgentKitEventRunSnapshotBatch
@@ -2912,50 +3011,18 @@ function mergeAgentKitHistory(
       typeof replacement?.runId === "string"
         ? incomingEventSequences.get(replacement.runId)
         : undefined;
-    const previousRunSequence = Array.isArray(existingAgentKit.runs)
-      ? existingAgentKit.runs.find((run: any) => run?.id === replacement?.runId)
-          ?.lastSequence
-      : undefined;
-    const previousWatermark =
-      existingAgentKit._eventRunWatermarks?.[replacement?.runId];
-    const previousCommitSequence = (
-      Array.isArray(
-        existingAgentKit._eventRunSnapshotCommits?.[replacement?.runId],
-      )
-        ? existingAgentKit._eventRunSnapshotCommits[replacement.runId]
-        : []
-    ).reduce(
-      (maximum: number, commit: any) =>
-        typeof commit?.lastSequence === "number" &&
-        Number.isSafeInteger(commit.lastSequence) &&
-        commit.lastSequence >= 0
-          ? Math.max(maximum, commit.lastSequence)
-          : maximum,
-      0,
-    );
-    const previousSequence = Math.max(
-      0,
-      ...(typeof previousRunSequence === "number" &&
-      Number.isSafeInteger(previousRunSequence) &&
-      previousRunSequence >= 0
-        ? [previousRunSequence]
-        : []),
-      ...(typeof previousWatermark === "number" &&
-      Number.isSafeInteger(previousWatermark) &&
-      previousWatermark >= 0
-        ? [previousWatermark]
-        : []),
-      previousCommitSequence,
-    );
     if (
       typeof replacement?.runId === "string" &&
       incomingRunStarts.has(replacement.runId) &&
       typeof replacement.lastSequence === "number" &&
       Number.isSafeInteger(replacement.lastSequence) &&
       replacement.lastSequence >= 1 &&
-      eventSequence !== undefined &&
-      (replacement.lastSequence <= eventSequence ||
-        replacement.lastSequence === previousSequence) &&
+      eventSequence === replacement.lastSequence &&
+      hasContiguousAgentKitEventCoverage(
+        incomingEvents,
+        replacement.runId,
+        replacement.lastSequence,
+      ) &&
       !eventRunSnapshotBatches.has(replacement.runId)
     ) {
       eventRunReplacements.set(

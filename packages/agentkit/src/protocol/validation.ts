@@ -90,6 +90,7 @@ export class AgentProtocolValidationError extends Error {
 export const MAX_AGENT_REQUEST_ATTACHMENTS = 20;
 export const MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS = 6_000_000;
 const MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS = 3_000_000;
+const MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE = 256;
 
 function record(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -1423,6 +1424,27 @@ export function parseAgentThreadSnapshot(
           `must be contiguous within each run; expected ${expectedSequence}`,
         );
       }
+      let sequenceEnd = parsed.sequence;
+      if (parsed.type === "x-agent-native.persisted-event-omission-range") {
+        const payload = record(
+          parsed.payload,
+          `${path}.events[${index}].payload`,
+        );
+        sequenceEnd = nonNegativeSafeInteger(
+          payload.lastSequence,
+          `${path}.events[${index}].payload.lastSequence`,
+        );
+        if (
+          sequenceEnd < parsed.sequence ||
+          sequenceEnd - parsed.sequence >=
+            MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE
+        ) {
+          throw new AgentProtocolValidationError(
+            `${path}.events[${index}].payload.lastSequence`,
+            `must cover at most ${MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE} event sequences`,
+          );
+        }
+      }
       if (eventIds.has(parsed.id)) {
         throw new AgentProtocolValidationError(
           `${path}.events[${index}].id`,
@@ -1430,7 +1452,7 @@ export function parseAgentThreadSnapshot(
         );
       }
       eventIds.add(parsed.id);
-      lastSequenceByRun.set(parsed.runId, parsed.sequence);
+      lastSequenceByRun.set(parsed.runId, sequenceEnd);
     });
   }
   const runIds = new Set<string>();

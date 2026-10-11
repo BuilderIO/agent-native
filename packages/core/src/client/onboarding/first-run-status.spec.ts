@@ -45,7 +45,7 @@ describe("first-run onboarding status", () => {
     );
   });
 
-  it("publishes an ineligible decision when the status request fails", async () => {
+  it("leaves the decision unresolved when the status request fails", async () => {
     const listener = vi.fn();
     window.addEventListener(
       FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
@@ -59,9 +59,38 @@ describe("first-run onboarding status", () => {
     await expect(fetchFirstRunOnboardingStatus()).rejects.toThrow(
       "first-run status: 503",
     );
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(
+      FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+      listener,
+    );
+  });
+
+  it("publishes only the successful decision after a transient failure", async () => {
+    const listener = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ firstRun: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    window.addEventListener(
+      FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+      listener,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchFirstRunOnboardingStatus()).rejects.toThrow(
+      "first-run status: 503",
+    );
+    expect(listener).not.toHaveBeenCalled();
+    await expect(fetchFirstRunOnboardingStatus()).resolves.toBe(true);
     expect(listener).toHaveBeenCalledOnce();
     expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
-      firstRun: false,
+      firstRun: true,
     });
     window.removeEventListener(
       FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
@@ -127,10 +156,7 @@ describe("first-run onboarding status", () => {
 
     await requestExpectation;
     expect(requestSignal?.aborted).toBe(true);
-    expect(listener).toHaveBeenCalledOnce();
-    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
-      firstRun: false,
-    });
+    expect(listener).not.toHaveBeenCalled();
     window.removeEventListener(
       FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
       listener,
@@ -166,10 +192,7 @@ describe("first-run onboarding status", () => {
 
     await requestExpectation;
     expect(requestSignal?.aborted).toBe(true);
-    expect(listener).toHaveBeenCalledOnce();
-    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
-      firstRun: false,
-    });
+    expect(listener).not.toHaveBeenCalled();
     window.removeEventListener(
       FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
       listener,

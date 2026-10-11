@@ -3029,6 +3029,112 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(saved.agentKit.suggestions).toEqual([]);
   });
 
+  it("compacts consecutive high-volume omitted events into bounded ranges", async () => {
+    const threadId = "thread-compact-events";
+    let threadData = JSON.stringify({ messages: [], agentKit: {} });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && init?.method === "PUT") {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+    });
+    const events: AgentEvent[] = [
+      {
+        id: "compact-run-start",
+        threadId,
+        runId: "run-compact",
+        sequence: 1,
+        occurredAt: "2026-09-26T00:00:01.000Z",
+        type: "run.started",
+      },
+      ...Array.from({ length: 1_000 }, (_, index) => ({
+        id: `compact-delta-${index + 1}`,
+        threadId,
+        runId: "run-compact",
+        sequence: index + 2,
+        occurredAt: "2026-09-26T00:00:02.000Z",
+        type: "message.delta" as const,
+        messageId: "assistant-stream",
+        text: "chunk",
+      })),
+      {
+        id: "compact-run-completed",
+        threadId,
+        runId: "run-compact",
+        sequence: 1_002,
+        occurredAt: "2026-09-26T00:00:03.000Z",
+        type: "run.completed",
+      },
+    ];
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        toolCalls: [],
+        widgets: [],
+        events,
+        runs: [
+          {
+            id: "run-compact",
+            threadId,
+            status: "completed",
+            lastSequence: 1_002,
+          },
+        ],
+      },
+    });
+
+    const saved = JSON.parse(threadData);
+    const omissionRanges = saved.agentKit.events.filter(
+      (event: AgentEvent) =>
+        event.type === "x-agent-native.persisted-event-omission-range",
+    );
+    expect(omissionRanges).toHaveLength(4);
+    expect(
+      omissionRanges.map((event: any) => [
+        event.sequence,
+        event.payload.lastSequence,
+      ]),
+    ).toEqual([
+      [2, 257],
+      [258, 513],
+      [514, 769],
+      [770, 1_001],
+    ]);
+    expect(saved.agentKit.events).toHaveLength(6);
+    expect(saved.agentKit._eventRunWatermarks).toEqual({
+      "run-compact": 1_002,
+    });
+
+    const restored = await transport.getThreadSnapshot?.({ threadId });
+    expect(restored?.events).toEqual(saved.agentKit.events);
+  });
+
   it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {
     const fetcher = vi.fn(async () =>
       json({

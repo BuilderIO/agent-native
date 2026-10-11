@@ -784,6 +784,43 @@ describe("AgentKit protocol validation", () => {
     expect(parseAgentThreadSnapshot(snapshot)).toMatchObject({
       activeRunIds: ["run-1"],
     });
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        runs: [{ ...snapshot.runs[0], lastSequence: 4 }],
+        events: [
+          { ...event, type: "run.started" },
+          {
+            ...event,
+            id: "event-omitted-range",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 3 },
+          },
+          {
+            ...event,
+            id: "event-completed",
+            sequence: 4,
+            type: "run.completed",
+          },
+        ],
+      }).events,
+    ).toHaveLength(3);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        events: [
+          { ...event, type: "run.started" },
+          {
+            ...event,
+            id: "event-omitted-range",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 259 },
+          },
+        ],
+      }),
+    ).toThrow("must cover at most 256 event sequences");
     expect(() =>
       parseAgentThreadSnapshot({
         ...snapshot,

@@ -1486,8 +1486,15 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
   });
 }
 
+const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
-  return events.flatMap((event): AgentEvent[] => {
+  const persisted: AgentEvent[] = [];
+  const lastOmissionByRun = new Map<
+    string,
+    { index: number; firstSequence: number; lastSequence: number }
+  >();
+  for (const event of events) {
     const base = () => {
       return {
         id: event.id,
@@ -1498,18 +1505,28 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       };
     };
     if (event.type === "run.started") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.completed" || event.type === "run.cancelled") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.failed") {
-      return [
-        { ...base(), type: event.type, error: persistedError(event.error) },
-      ];
+      persisted.push({
+        ...base(),
+        type: event.type,
+        error: persistedError(event.error),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.status") {
-      return [{ ...base(), type: event.type, status: event.status }];
+      persisted.push({ ...base(), type: event.type, status: event.status });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (
       event.type === "activity.started" ||
@@ -1517,53 +1534,76 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       event.type === "activity.completed"
     ) {
       const activity = event.activity;
-      return [
-        {
-          ...base(),
-          type: event.type,
-          activity: {
-            id: activity.id,
-            kind: activity.kind,
-            label: activity.label,
-            status: activity.status,
-            ...(activity.runId ? { runId: activity.runId } : {}),
-            ...(activity.agentId ? { agentId: activity.agentId } : {}),
-            ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
-            ...(activity.completedAt
-              ? { completedAt: activity.completedAt }
-              : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        activity: {
+          id: activity.id,
+          kind: activity.kind,
+          label: activity.label,
+          status: activity.status,
+          ...(activity.runId ? { runId: activity.runId } : {}),
+          ...(activity.agentId ? { agentId: activity.agentId } : {}),
+          ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
+          ...(activity.completedAt
+            ? { completedAt: activity.completedAt }
+            : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (
       event.type === "message.completed" &&
       event.message.role === "assistant"
     ) {
-      return [
-        {
-          ...base(),
-          type: event.type,
-          message: {
-            id: event.message.id,
-            role: event.message.role,
-            parts: event.message.parts.filter((part) => part.type === "text"),
-            ...(event.message.createdAt
-              ? { createdAt: event.message.createdAt }
-              : {}),
-            ...(event.message.status ? { status: event.message.status } : {}),
-          },
-        },
-      ];
-    }
-    return [
-      {
+      persisted.push({
         ...base(),
-        type: "x-agent-native.persisted-event-omission",
-        payload: { sourceType: event.type },
-      },
-    ];
-  });
+        type: event.type,
+        message: {
+          id: event.message.id,
+          role: event.message.role,
+          parts: event.message.parts.filter((part) => part.type === "text"),
+          ...(event.message.createdAt
+            ? { createdAt: event.message.createdAt }
+            : {}),
+          ...(event.message.status ? { status: event.message.status } : {}),
+        },
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    const previous = lastOmissionByRun.get(event.runId);
+    if (
+      previous &&
+      event.sequence === previous.lastSequence + 1 &&
+      event.sequence - previous.firstSequence + 1 <=
+        MAX_PERSISTED_EVENT_OMISSION_RANGE
+    ) {
+      const omitted = persisted[previous.index];
+      if (omitted) {
+        persisted[previous.index] = {
+          ...omitted,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: { lastSequence: event.sequence },
+        } as AgentEvent;
+      }
+      previous.lastSequence = event.sequence;
+      continue;
+    }
+    const index = persisted.length;
+    persisted.push({
+      ...base(),
+      type: "x-agent-native.persisted-event-omission",
+      payload: { sourceType: event.type },
+    });
+    lastOmissionByRun.set(event.runId, {
+      index,
+      firstSequence: event.sequence,
+      lastSequence: event.sequence,
+    });
+  }
+  return persisted;
 }
 
 function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
