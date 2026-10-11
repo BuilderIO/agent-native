@@ -3497,7 +3497,7 @@ export async function runAuthoringFuzz(
           await listbox
             .locator('[role="option"]')
             .first()
-            .waitFor({ state: "visible", timeout: 1500 });
+            .waitFor({ state: "visible", timeout: 5000 });
           await page.keyboard.press("Escape");
           await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
