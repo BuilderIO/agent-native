@@ -16,10 +16,19 @@ const globalCssSource = readFileSync(
 describe("EditorToolbar layout contract", () => {
   it("keeps the title input measuring its own width without flex-shrinking", () => {
     expect(editorToolbarSource).toContain(
-      'className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
+      '"min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
     );
     expect(editorToolbarSource).toContain(
       "style={{ width: `${titleInputWidth}px` }}",
+    );
+  });
+
+  it("hides the save status pill only inside a read-only directory widget", () => {
+    expect(editorToolbarSource).toContain(
+      "const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();",
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!readOnlyWidget && \(canEdit \|\| saveFailed\) && \(\s*<SaveStatusIndicator/,
     );
   });
 
@@ -71,6 +80,13 @@ describe("EditorToolbar layout contract", () => {
     expect(editorToolbarSource).not.toContain(
       '<DropdownMenuLabel>\n                  {t("editorToolbar.comments")}\n                </DropdownMenuLabel>',
     );
+  });
+
+  it("opens the deck in the app through the host bridge", () => {
+    expect(editorToolbarSource).toContain("openMcpAppHostLink(editorUrl)");
+    expect(
+      editorToolbarSource.match(/editorToolbar\.openInAgentNative/g),
+    ).toHaveLength(2);
   });
 
   it("lets the wide contextual toolbar scroll instead of clipping rare overflow", () => {

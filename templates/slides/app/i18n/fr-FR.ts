@@ -128,7 +128,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth n’est pas configuré pour ce déploiement.",
     googlePickerNeedsKeys:
-      "Google Picker nécessite GOOGLE_PICKER_API_KEY et GOOGLE_PICKER_APP_ID.",
+      "La navigation des fichiers Google Drive n’est pas configurée. Vous pouvez tout de même importer un document en collant son lien.",
     imageUploadFailed: "Échec de l’envoi de l’image",
     imageUploadNeedsBuilder:
       "Configurez un stockage d’objets pour téléverser des images : utilisez Builder.io (gratuit) ou ajoutez vos propres clés de stockage compatibles S3 dans Paramètres → Envois de fichiers.",
@@ -249,6 +249,7 @@ const messages = {
     importCompleteFile: "Fichier importé depuis {{fileName}}.",
     backToDecks: "Retour aux decks",
     toggleSlideList: "Afficher/masquer la liste des diapositives",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     designSystem: "Système de design",
     usingDesignSystem: "Utilisation de {{title}}",
     usingLinkedDesignSystem: "Utilisation d’un système de design lié",
@@ -263,6 +264,17 @@ const messages = {
     generateImage: "Générer une image",
     assetLibrary: "Bibliothèque de ressources",
     imageOptions: "Options de l’image",
+    videoPlayback: "Lecture vidéo",
+    autoplayVideo: "Lecture automatique",
+    loopVideo: "Lire en boucle",
+    videoUploading: "Envoi de la vidéo…",
+    videoAdded: "Vidéo ajoutée",
+    videoUploadFailed: "Échec de l’envoi de la vidéo",
+    videoUploadError: "Impossible d’envoyer cette vidéo.",
+    videoFormatUnsupported:
+      "Seules les vidéos MP4 et WebM sont prises en charge.",
+    videoTooLarge: "La vidéo ne peut pas dépasser 50 Mo.",
+    videoUploadNeedsBuilder: "Le stockage vidéo n’est pas configuré.",
     cropImage: "Recadrer l’image",
     cropHandle: "Recadrer l’image {{position}}",
     diagrams: "Diagrammes",
@@ -273,10 +285,21 @@ const messages = {
     convertMermaidFailed: "Échec de la conversion du diagramme",
     removeExcalidrawCanvas: "Supprimer le canevas Excalidraw",
     transition: "Transition",
-    transition_instant: "Instantanée",
+    transition_none: "Aucune",
+    transition_dissolve: "Fondu enchaîné",
     transition_fade: "Fondu",
-    transition_slide: "Glissement",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Glisser depuis la droite",
+    transition_slide_from_left: "Glisser depuis la gauche",
+    transition_flip: "Retournement",
+    transition_cube: "Cube rotatif",
+    transition_gallery: "Galerie",
+    transition_panel: "Transition de diapositive",
+    transition_speed: "Vitesse",
+    transition_slow: "Lente",
+    transition_fast: "Rapide",
+    transition_seconds: "{{seconds}} sec",
+    transition_apply_all: "Appliquer à toutes les diapositives",
+    transition_play: "Lire la transition",
     aspectRatio: "Format",
     setAspectRatio: "Définir le deck sur {{ratio}}",
     slideTools: "Outils de diapositive",
@@ -316,6 +339,9 @@ const messages = {
     conflictStatus: "Conflit de texte",
     conflictStatusDescription:
       "Vérifiez le texte en conflit avant d’enregistrer d’autres modifications.",
+    accessLost: "Accès perdu",
+    accessLostDescription:
+      "Votre accès à cette présentation a changé. Vos modifications restent à l'écran ; réessayez une fois l'accès rétabli ou téléchargez une sauvegarde.",
     reviewConflict: "Examiner le conflit",
     conflictTitle: "Conflit de texte sur la diapositive {{number}}",
     conflictDescription:
@@ -364,6 +390,7 @@ const messages = {
     googleSlidesCreated: "Ouvert dans Google Slides",
     googleSlidesCreatedHint:
       "Une copie de cette présentation a été créée dans votre Google Drive.",
+    googleSlidesGoTo: "Ouvrir dans Google Slides",
     duplicateDeck: "Dupliquer le deck",
   },
   share: {
@@ -593,7 +620,6 @@ const messages = {
     selectObject: "Sélectionner un objet à animer",
     addTransition: "Ajouter une transition",
     effect: "Effet",
-    trigger: "Déclencheur",
     onClick: "Au clic",
     byParagraph: "Par paragraphe",
     expand: "Développer la transition",
@@ -604,6 +630,13 @@ const messages = {
     clearAll: "Borrar todo",
     elements: "Elementos",
     autoFill: "Autorrellenar",
+    issueStalePath: "Cet objet n'est plus sur la diapositive.",
+    issueMissingElement: "Cet objet est introuvable sur la diapositive.",
+    issueDuplicate:
+      "Cette animation chevauche une autre animation de la diapositive.",
+    blocked:
+      "Supprimez ou corrigez l'animation non résolue pour enregistrer ou lire.",
+    changeNotApplied: "Cette modification n'a pas été appliquée.",
     noAnimatableElements:
       "No se detectaron elementos animables en esta diapositiva.",
   },
@@ -786,6 +819,10 @@ const messages = {
     exportFailed: "Error al exportar",
     agentRunFailed:
       "L’exécution de l’agent a échoué avant la création des diapositives. Consultez les détails dans le chat, puis réessayez.",
+    generationFailed:
+      "Les diapositives n’ont pas été créées. Consultez les détails dans le chat, puis réessayez.",
+    generationOutcomeUnresolved:
+      "Nous n’avons pas pu confirmer si les diapositives ont été créées. Vérifiez la présentation ou le chat, puis réessayez.",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

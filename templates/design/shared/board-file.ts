@@ -26,7 +26,7 @@ import {
 
 export const BOARD_FILENAME = "__board__.html";
 
-// guard:allow-raw-color — Figma's default shape paint (D9D9D9), independent of the document theme.
+// guard:allow-raw-color — neutral default shape paint, independent of the document theme.
 const DEFAULT_SHAPE_FILL = "rgb(217 217 217)";
 const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 

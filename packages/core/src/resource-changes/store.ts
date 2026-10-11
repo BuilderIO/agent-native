@@ -32,6 +32,7 @@ import {
   ensureTableExists,
   runGuardedDdl,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 export const RESOURCE_CHANGES_TABLE = "app_resource_changes";
 export const RESOURCE_CHANGE_CONSUMERS_TABLE = "app_resource_change_consumers";
@@ -118,10 +119,12 @@ export function ensureResourceChangeTables(
   injectedClient?: DbExec,
 ): Promise<void> {
   if (injectedClient) return ensureAll(injectedClient);
-  ensured ??= ensureAll().catch((error) => {
-    ensured = undefined;
-    throw error;
-  });
+  ensured ??= retainRequestDbPoolScope(
+    ensureAll().catch((error) => {
+      ensured = undefined;
+      throw error;
+    }),
+  );
   return ensured;
 }
 

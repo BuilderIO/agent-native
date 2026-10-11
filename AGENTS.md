@@ -368,6 +368,12 @@ instructions, and application state.
   improvement, behavior-affecting fix)? Record it from that app with
   `agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
   Skip refactors, tooling, and tests. See the `changelog` skill.
+- The Builder Code starter (`packages/core/src/templates/builder-code-starter`) is patches
+  over `templates/chat`. After editing Chat, run `pnpm guard:template-layers`.
+  If a patch fails, run `pnpm template-layer rebase builder-code-starter --out
+  .tmp/fs`, resolve conflicts keeping the starter's intent, then
+  `pnpm template-layer diff builder-code-starter --from .tmp/fs`. Never delete a
+  failing patch.
 
 ## Extensions
 

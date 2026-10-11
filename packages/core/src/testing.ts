@@ -28,3 +28,5 @@ export {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "./cli/design-connect.js";
+
+export { assertNoInlineImageBytes } from "./shared/inline-bytes.js";

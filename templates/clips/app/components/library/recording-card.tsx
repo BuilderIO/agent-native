@@ -392,7 +392,7 @@ export function RecordingCard({
                 checked={selected}
                 onClick={handleCheckbox}
                 className={cn(
-                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm backdrop-blur-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45",
+                  "pointer-events-auto absolute start-2 top-2 z-20 size-5 rounded border-background/80 bg-foreground/25 text-background opacity-70 shadow-sm transition-[background-color,border-color,opacity] hover:bg-foreground/45",
                   selectionMode || selected
                     ? "opacity-100 sm:opacity-100"
                     : "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
@@ -414,7 +414,7 @@ export function RecordingCard({
               )}
 
             {!displayFailed && !waitingForStorage && atRiskUpload && (
-              <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm backdrop-blur">
+              <div className="absolute inset-x-2 bottom-2 rounded-md border border-amber-500/30 bg-background/95 p-2 text-start shadow-sm">
                 <div className="flex items-start gap-2">
                   <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
                   <div className="min-w-0 flex-1">
@@ -432,7 +432,7 @@ export function RecordingCard({
             {(displayFailed || waitingForStorage) && (
               <div
                 className={cn(
-                  "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2.5 text-start shadow-sm backdrop-blur",
+                  "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2.5 text-start shadow-sm",
                   waitingForStorage
                     ? "border-primary/30"
                     : "border-destructive/30",

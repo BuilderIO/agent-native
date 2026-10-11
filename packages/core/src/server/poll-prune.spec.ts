@@ -2,6 +2,10 @@ import { PGlite } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DbExec, DbExecStatement } from "../db/client.js";
+import {
+  getOrCreateRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { runRecurringSweepHandlers } from "../jobs/sweep-hooks.js";
 import {
   AppSyncState,
@@ -104,6 +108,176 @@ describe("sync_events prune wiring", () => {
 
     await vi.waitFor(async () => expect(await remaining("old-")).toBe(0));
     expect(await remaining("")).toBe(1);
+  });
+
+  it("retains the request pool through detached event persistence and pruning", async () => {
+    let releaseWrite!: () => void;
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    let releasePrune!: () => void;
+    const pruneGate = new Promise<void>((resolve) => {
+      releasePrune = resolve;
+    });
+    let markPruneStarted!: () => void;
+    const pruneStarted = new Promise<void>((resolve) => {
+      markPruneStarted = resolve;
+    });
+    let poolEndCalls = 0;
+    const pool = {
+      async end() {
+        poolEndCalls++;
+      },
+    };
+    const baseDb = makeDb();
+    const db: DbExec = {
+      async execute(statement: DbExecStatement) {
+        getOrCreateRequestDbPool("sync-events-test", () => pool);
+        const query =
+          typeof statement === "string" ? { sql: statement } : statement;
+        if (/INSERT INTO sync_events/.test(query.sql)) {
+          markWriteStarted();
+          await writeGate;
+          if (poolEndCalls) throw new Error("pool closed during event write");
+        }
+        return baseDb.execute(statement);
+      },
+    };
+    const state = stateWith(db);
+    (state as unknown as { lastDurablePrune: number }).lastDurablePrune =
+      Date.now() - WRITE_THROTTLE_MS - 1;
+    const runPrune = state.pruneDurableEvents.bind(state);
+    vi.spyOn(state, "pruneDurableEvents").mockImplementation(
+      async (client, options) => {
+        getOrCreateRequestDbPool("sync-events-test", () => pool);
+        markPruneStarted();
+        await pruneGate;
+        if (poolEndCalls) throw new Error("pool closed during event prune");
+        return runPrune(client, options);
+      },
+    );
+
+    await runWithRequestDbPoolScope(true, undefined, () => {
+      state.recordChange(event);
+    });
+    await writeStarted;
+    expect(poolEndCalls).toBe(0);
+
+    releaseWrite();
+    await pruneStarted;
+    expect(poolEndCalls).toBe(0);
+
+    releasePrune();
+    await vi.waitFor(() => expect(poolEndCalls).toBe(1));
+    expect(await remaining("")).toBe(1);
+  });
+
+  it("keeps DB-assigned fallback persistence inside its retained request scope", async () => {
+    let releasePersist!: () => void;
+    const persistGate = new Promise<void>((resolve) => {
+      releasePersist = resolve;
+    });
+    let markPersistStarted!: () => void;
+    const persistStarted = new Promise<void>((resolve) => {
+      markPersistStarted = resolve;
+    });
+    let poolEndCalls = 0;
+    const pool = {
+      async end() {
+        poolEndCalls++;
+      },
+    };
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      dbAssignedVersions: true,
+    });
+    const internals = state as unknown as {
+      syncEventsInitPromise: Promise<boolean>;
+      recordChain: Promise<void>;
+      persistWithDbAssignedVersion: () => Promise<number | null>;
+      recoverCommittedVersion: () => Promise<number | null>;
+      alignVersionAllocator: () => Promise<void>;
+      persistSyncEvent: () => Promise<void>;
+    };
+    internals.syncEventsInitPromise = Promise.resolve(true);
+    internals.persistWithDbAssignedVersion = async () => null;
+    internals.recoverCommittedVersion = async () => null;
+    internals.alignVersionAllocator = async () => {};
+    internals.persistSyncEvent = async () => {
+      const activePool = getOrCreateRequestDbPool(
+        "sync-events-test",
+        () => pool,
+      );
+      markPersistStarted();
+      await persistGate;
+      if (poolEndCalls) throw new Error("pool closed during fallback write");
+      expect(activePool).toBe(pool);
+    };
+
+    let recordChain!: Promise<void>;
+    await runWithRequestDbPoolScope(true, undefined, () => {
+      state.recordChange(event);
+      recordChain = internals.recordChain;
+    });
+    await persistStarted;
+    expect(poolEndCalls).toBe(0);
+
+    releasePersist();
+    await recordChain;
+    expect(poolEndCalls).toBe(1);
+  });
+
+  it("retains the request pool while a detached access check resolves", async () => {
+    let releaseAccess!: () => void;
+    const accessGate = new Promise<void>((resolve) => {
+      releaseAccess = resolve;
+    });
+    let markAccessStarted!: () => void;
+    const accessStarted = new Promise<void>((resolve) => {
+      markAccessStarted = resolve;
+    });
+    let poolEndCalls = 0;
+    let accessQueryRan = false;
+    const pool = {
+      async end() {
+        poolEndCalls++;
+      },
+    };
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: async () => {
+        markAccessStarted();
+        await accessGate;
+        const activePool = getOrCreateRequestDbPool(
+          "sync-events-test",
+          () => pool,
+        );
+        if (poolEndCalls) throw new Error("pool closed during access check");
+        accessQueryRan = true;
+        expect(activePool).toBe(pool);
+        return { role: "viewer" };
+      },
+    });
+
+    await runWithRequestDbPoolScope(true, undefined, () => {
+      expect(
+        state.getChangeVisibilityForUser(
+          { resourceType: "deck", resourceId: "deck-1" },
+          "viewer@example.com",
+          undefined,
+        ),
+      ).toBe("pending");
+    });
+    await accessStarted;
+    expect(poolEndCalls).toBe(0);
+
+    releaseAccess();
+    await vi.waitFor(() => expect(poolEndCalls).toBe(1));
+    expect(accessQueryRan).toBe(true);
   });
 
   it("defers the first prune on a cold process until its throttle window", async () => {

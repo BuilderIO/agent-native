@@ -11,6 +11,11 @@ import {
 } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
+import {
+  readSourceIndex,
+  sourceIndexDictionaryEntries,
+} from "../server/lib/source-index-store.js";
 import { resolveDictionaryTrustDefaults } from "./data-dictionary-trust.js";
 import { cliBoolean } from "./schema-helpers.js";
 
@@ -26,7 +31,7 @@ function slugify(s: string): string {
 
 export default defineAction({
   description:
-    "Create or update a data dictionary entry — a reusable metric / table / column definition the analytics agent consults before writing SQL. Use this when you discover a new metric worth cataloging, or when the user asks to document / fix an existing one. Upserts by `id` (if omitted, one is derived from `metric`).",
+    "Create or update a data dictionary entry — a reusable metric / table / column definition the analytics agent consults before writing SQL. Use this when you discover a new metric worth cataloging, or when the user asks to document / fix an existing one. Upserts by `id` (if omitted, one is derived from `metric`). Org dictionary edits require an organization owner or admin.",
   schema: z.object({
     id: z
       .string()
@@ -113,11 +118,17 @@ export default defineAction({
     approved: cliBoolean
       .optional()
       .describe(
-        "Whether this entry has been reviewed and approved. Defaults to true for human-authored entries and false for AI-generated suggestions.",
+        "Whether this entry has been reviewed and approved. Defaults to false unless explicitly approved.",
       ),
     aiGenerated: cliBoolean
       .optional()
       .describe("True when the agent proposed this entry (vs. human-authored)"),
+    status: z
+      .enum(["active", "deprecated"])
+      .optional()
+      .describe(
+        "Lifecycle status from list-data-dictionary. Generated index entries use the current source index status; other updates preserve existing status and new entries default to active.",
+      ),
     sourceUrl: z
       .string()
       .optional()
@@ -127,6 +138,9 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    if (orgId) {
+      await requireAnalyticsAdminContext({ userEmail: email, orgId });
+    }
     const id = args.id?.trim() || slugify(args.metric);
     if (!id) {
       throw new Error(
@@ -143,6 +157,22 @@ export default defineAction({
         : await getUserSetting(email, key);
     } catch {
       // not found
+    }
+
+    let sourceStatus: "active" | "deprecated" | undefined;
+    if (orgId && id.startsWith("index-")) {
+      const sourceIndex = await readSourceIndex(orgId);
+      if (sourceIndex.status === "available") {
+        const sourceEntry = sourceIndexDictionaryEntries(
+          sourceIndex.bundle,
+        ).find((entry) => entry.id === id);
+        if (
+          sourceEntry?.status === "active" ||
+          sourceEntry?.status === "deprecated"
+        ) {
+          sourceStatus = sourceEntry.status;
+        }
+      }
     }
 
     const { approved, aiGenerated } = resolveDictionaryTrustDefaults(
@@ -179,6 +209,12 @@ export default defineAction({
       owner: args.owner ?? (existing as any)?.owner ?? "",
       approved,
       aiGenerated,
+      status:
+        sourceStatus ??
+        args.status ??
+        ((existing as { status?: unknown } | null)?.status === "deprecated"
+          ? "deprecated"
+          : "active"),
       sourceUrl: args.sourceUrl ?? (existing as any)?.sourceUrl ?? "",
       createdAt: (existing as any)?.createdAt ?? now,
       updatedAt: now,

@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-10
+
+### Changed
+
+- Zoom sources now import only recurring meeting series listed by meeting ID. A source with no approved series imports nothing, and meeting titles no longer select meetings.
+
+## 2026-10-07
+
+### Added
+
+- Zoom sources can import AI Companion meeting summaries, so meetings that were never recorded still reach Brain.
+
 ## 2026-10-06
 
 ### Added
@@ -18,6 +30,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Zoom transcripts now import. Zoom's account-wide recording list leaves out download links, so Brain now looks up each matching meeting to get its transcript. Each Zoom sync also lists which meetings matched or were skipped, and which files Zoom returned, to make problems easier to spot.
 - Zoom transcript imports work with the standard admin recording scope again instead of failing with a master-account scope error. Brain chat can now change a source's settings, such as a Zoom meeting filter; before, its updates were silently saved as empty.
 
 ## 2026-10-05

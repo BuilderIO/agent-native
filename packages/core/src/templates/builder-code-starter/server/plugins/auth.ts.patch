@@ -1,0 +1,17 @@
+===================================================================
+--- a/server/plugins/auth.ts
++++ b/server/plugins/auth.ts
+@@ -1,7 +1,8 @@
+-import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
++import { createAuthPlugin } from "@agent-native/core/server";
+ 
+-export default createToolkitAuthPlugin({
+-  workspaceAppPublicPaths: ["/"],
+-  rootAuth: true,
+-  marketing: false,
++// Email/password auth with optional Google OAuth (enabled automatically when
++// GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set). No marketing copy — a
++// blank app defines its own brand on the login page when it needs one by setting loginHtml in this config.
++export default createAuthPlugin({
++  rootAuth: false, // auth is not serverd on / by default
+ });

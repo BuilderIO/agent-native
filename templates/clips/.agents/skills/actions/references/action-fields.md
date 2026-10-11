@@ -16,6 +16,8 @@ Rules:
 - To override the inference on an unusual action (e.g. a `POST` that only reads), pass `readOnly: true` on the action definition.
 - To let a mutating action run concurrently with other same-turn tool calls, pass `parallelSafe: true`. Only do this when the action is internally concurrency-safe and order-independent (for example, it uses an app-level lock or idempotent upsert semantics). Mutating actions remain serialized by default.
 - If a successful call hands control to the user — it renders a question, an intake form, or anything else the turn must wait on — pass `endsTurn: true` and make it the first or only call in the turn. It stops subsequent model steps and later calls, but cannot undo calls emitted before it. Without it a completion guard sees a turn that legitimately paused as one that failed to finish. `endsTurn: true` also hides the action from MCP, WebMCP, and A2A callers by default (`isActionExposedToExternalAgents` in core `action.ts`) — an external host has no in-app chat to receive the answer on. Pass `mcpTool: true` alongside it only when an external caller can complete the same operation without that answer.
+- Read results persist in the browser per signed-in user and org, so a revisit paints the last result before it refetches. Pass `persistInBrowser: false` on a read that must not outlive the page (secrets, one-time codes, another user's private data). Mutations never persist.
+- MCP hosts read tool annotations to decide how carefully to treat a call. Every MCP catalog advertises declared `mcpAnnotations` (`readOnlyHint`, `destructiveHint`, `openWorldHint`, optional `idempotentHint`); otherwise `/mcp` derives only `readOnlyHint` and an approval-based `destructiveHint`. Declare them on any external write that removes, overwrites, or replaces user content — recoverable Trash included — and mark idempotency-key-guarded writes `idempotentHint: true`.
 
 Agents do NOT need to call `refresh-screen` after a normal action — it's already handled. `refresh-screen` is only needed when the agent mutates data via a path the framework can't see (e.g. writing to an external system the app mirrors) or when the agent wants to pass a `scope` hint for narrower invalidation.
 
@@ -114,8 +116,8 @@ A guard that throws denies with its own message; returning `false` denies
 generically; anything else (including `undefined`) allows. A guarded action
 needs a user identity, so an unattended CLI/cron caller with no user email is
 denied. `authorize` gates the operation; `accessFilter` / `assertAccess` still
-scope which rows a permitted caller may touch. See the `authentication` skill
-for `defineAppRoles` and the `sharing` skill for row scoping.
+scope which rows a permitted caller may touch. Use `agent-native-docs` to find
+the current authentication and sharing documentation when adding role checks.
 
 ## Human-in-the-Loop Approval (`needsApproval`)
 

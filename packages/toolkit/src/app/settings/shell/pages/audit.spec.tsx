@@ -165,6 +165,7 @@ describe("Audit log page", () => {
           event({ id: "human" }),
           event({
             id: "agent",
+            caller: "tool",
             actorKind: "agent",
             actorEmail: "member@example.com",
             summary: "Turned on Require citations",
@@ -191,6 +192,35 @@ describe("Audit log page", () => {
     expect(agent.textContent).not.toContain("member@example.com");
     expect(refused.textContent).toContain("Refused");
     expect(refused.textContent).toContain("Sep 23 · member@example.com");
+  });
+
+  it("names the protocol when an outside agent made the change", async () => {
+    callActionMock.mockResolvedValue(
+      page(
+        [
+          event({
+            caller: "mcp",
+            actorKind: "agent",
+            actorEmail: "bob@example.com",
+            summary: "Updated the form",
+            app: "forms",
+          }),
+        ],
+        null,
+      ),
+    );
+    await render();
+
+    const [row] = rows();
+    expect(row.textContent).toContain("Sep 23 · Forms · Agent via MCP");
+    expect(row.textContent).not.toContain("bob@example.com");
+
+    await act(async () => {
+      row.click();
+    });
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("Changed byAgent via MCP");
+    expect(dialog?.textContent).toContain("On behalf ofbob@example.com");
   });
 
   it("names the real count in Show N more and reveals the next page", async () => {

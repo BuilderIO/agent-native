@@ -47,7 +47,7 @@ describe("DesignWorkspaceRail", () => {
   it("collapses the active panel when its rail tab is clicked again", async () => {
     const rail = renderRail("file");
     await rail.mount();
-    await rail.click("designEditor.leftRail.file");
+    await rail.click("designEditor.leftRail.layers");
 
     expect(rail.onPanelChange).toHaveBeenCalledWith(null);
     rail.root.unmount();

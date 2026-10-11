@@ -63,7 +63,7 @@ catalog:
   "@types/react-dom": ^19.2.3
   "@vitejs/plugin-react": ^6.0.3
   clsx: ^2.1.1
-  h3: ^2.0.1-rc.20
+  h3: ^2.0.1
   highlight.js: ^11.11.1
   listhen: ^1.9.1
   linkedom: ^0.18.13

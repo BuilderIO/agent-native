@@ -725,7 +725,10 @@ function AgentTab({
     (needsScopedAgentContext &&
       (createAgentLink.isPending || !agentContextUrl));
   const agentCopyValue = agentLink
-    ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
+    ? t("shareDialog.agentPrompt", {
+        agentContextUrl: agentLink,
+        shareWithAgents: t("shareDialog.shareWithAgents"),
+      })
     : "";
 
   const openAgentDestination = (destination: AgentShareDestination) => {

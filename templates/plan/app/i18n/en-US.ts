@@ -629,7 +629,12 @@ const messages = {
       createAccountFailed: "Could not create account.",
       emailSignInFailed: "Could not sign in with email.",
       verifyEmail:
-        "Check your email to verify the account, then reopen this link.",
+        "Check your email and open the verification link. It will return you to this plan; if asked, sign in below with the same email.",
+      resendVerification: "Resend verification email",
+      resendingVerification: "Sending verification email…",
+      verificationEmailResent: "Verification email sent.",
+      verificationEmailFailed:
+        "Could not resend the verification email. Try again.",
       notFoundTitle: "Plan not found",
       requestAccessTitle: "Request access to this plan",
       signInTitle: "Sign in to view this plan",

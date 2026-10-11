@@ -53,4 +53,19 @@ describe("ejected catalog wrappers", () => {
       "sentry",
     );
   });
+
+  it("includes dbt in the ejected workspace and provider API catalogs", () => {
+    expect(getWorkspaceConnectionProvider("dbt")).toMatchObject({
+      id: "dbt",
+      configurationFields: [
+        { key: "semanticLayerBaseUrl" },
+        { key: "semanticLayerEnvironmentId" },
+      ],
+    });
+    expect(getProviderApiConfig("dbt")).toMatchObject({
+      id: "dbt",
+      defaultBaseUrl: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+    });
+    expect(listProviderApiIdsForTemplateUse("analytics")).toContain("dbt");
+  });
 });

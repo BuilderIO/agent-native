@@ -65,14 +65,16 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
-          geometryById={{
-            a: { x: 0, y: 0, width: 400, height: 200 },
-            b: { x: 600, y: 0, width: 400, height: 100 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              a: { x: 0, y: 0, width: 400, height: 200 },
+              b: { x: 600, y: 0, width: 400, height: 100 },
+            },
+            onPrimaryContentHeightChange,
           }}
           onPick={() => {}}
-          onSelectionChange={onSelectionChange}
-          onPrimaryContentHeightChange={onPrimaryContentHeightChange}
+          selection={{ onSelectionChange }}
         />,
       );
     });
@@ -186,23 +188,27 @@ describe("frame hit-testing uses rendered (content-fit) geometry", () => {
             },
           ]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           readOnly
-          selectedScreenIds={[
-            "remote-settings",
-            "remote-library",
-            "localhost-settings",
-            "same-origin",
-            "hostile-fusion",
-            "inline",
-          ]}
-          geometryById={{
-            "remote-settings": { x: 0, y: 0, width: 400, height: 300 },
-            "remote-library": { x: 500, y: 0, width: 400, height: 300 },
-            "localhost-settings": { x: 1000, y: 0, width: 400, height: 300 },
-            "same-origin": { x: 0, y: 400, width: 400, height: 300 },
-            "hostile-fusion": { x: 500, y: 400, width: 400, height: 300 },
-            inline: { x: 1000, y: 0, width: 400, height: 300 },
+          selection={{
+            selectedScreenIds: [
+              "remote-settings",
+              "remote-library",
+              "localhost-settings",
+              "same-origin",
+              "hostile-fusion",
+              "inline",
+            ],
+          }}
+          geometry={{
+            geometryById: {
+              "remote-settings": { x: 0, y: 0, width: 400, height: 300 },
+              "remote-library": { x: 500, y: 0, width: 400, height: 300 },
+              "localhost-settings": { x: 1000, y: 0, width: 400, height: 300 },
+              "same-origin": { x: 0, y: 400, width: 400, height: 300 },
+              "hostile-fusion": { x: 500, y: 400, width: 400, height: 300 },
+              inline: { x: 1000, y: 0, width: 400, height: 300 },
+            },
           }}
           onPick={() => {}}
         />,

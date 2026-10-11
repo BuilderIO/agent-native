@@ -5,7 +5,7 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
 
 # 자동화
 
-**자동화**는 일정에 따라 또는 이벤트가 발생할 때 에이전트가 실행하는 작업입니다: _X가 발생하면 Y를 수행_. **Scheduled**와 **Event**는 두 가지 트리거 유형이며 별도 제품이 아닙니다.
+**자동화**는 일정에 따라, 이벤트가 발생할 때, 또는 웹훅이 호출될 때 에이전트가 실행하는 작업입니다: _X가 발생하면 Y를 수행_. **Scheduled**, **Event**, **Webhook**은 트리거 유형이며 별도 제품이 아닙니다.
 
 프레임워크는 원래 예약 자동화를 **Recurring Jobs**로 제공했습니다. 이 이름과 `jobs/<name>.md` 경로, `manage-jobs` 도구는 호환성을 위해 유지됩니다. 새 가이드에서는 **Automations**를 포괄적인 이름으로 사용합니다. 기존 예약 작업, 조직 범위 또는 고급 필드는 [Recurring Jobs](/docs/recurring-jobs)를 참조하세요.
 
@@ -21,7 +21,7 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -55,14 +55,21 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
 
 </Diagram>
 
-## 두 가지 트리거 유형 {#trigger-types}
+## 트리거 유형 {#trigger-types}
 
-| 유형       | 다음 경우에 실행                                         | 키 필드           |
-| ---------- | -------------------------------------------------------- | ----------------- |
-| `schedule` | 크론 표현식이 일치합니다(반복 작업과 동일)               | `schedule` (크론) |
-| `event`    | 프레임워크 이벤트 버스에서 일치하는 이벤트가 발생합니다. | `event` (이름)    |
+| 유형       | 다음 경우에 실행                                         | 키 필드                |
+| ---------- | -------------------------------------------------------- | ---------------------- |
+| `schedule` | 크론 표현식이 일치합니다(반복 작업과 동일)               | `schedule` (크론)      |
+| `event`    | 프레임워크 이벤트 버스에서 일치하는 이벤트가 발생합니다. | `event` (이름)         |
+| `webhook`  | 자동화의 비밀 웹훅 URL로 HTTP `POST`가 도착합니다        | 생성할 때 반환되는 URL |
 
-이벤트 트리거에는 전송 전 이벤트 페이로드에 대해 Haiku가 평가한 자연어 문자열인 `condition`가 포함될 수 있습니다. 조건이 일치하지 않으면 자동화가 자동으로 건너뜁니다.
+이벤트 및 웹훅 트리거에는 `condition`을 포함할 수 있습니다. 이는 전송 전에 모델이 페이로드에 대해 확인하는 자연어 문자열입니다. 조건이 일치하지 않으면 자동화를 건너뛰고 `skipped` 상태가 기록됩니다. 조건을 평가할 수 없으면 자동화는 실행되지 않습니다. [조건](#conditions)을 참조하세요.
+
+### 웹훅 트리거 {#webhook-triggers}
+
+웹훅 자동화를 만들면 `/_agent-native/automations/webhook/<token>` 형식의 URL 경로가 반환됩니다. 토큰이 비밀이므로 이 URL은 호출하는 서비스에만 전달하세요. 이 URL로 보내는 각 `POST`가 자동화의 페이로드가 되며 최대 64KB입니다. JSON 콘텐츠 유형으로 보낸 본문은 파싱되고 그 외 본문은 텍스트로 전달됩니다. 엔드포인트는 `202`로 응답하고 자동화를 백그라운드에서 실행합니다.
+
+안정적인 이벤트 ID를 `X-Webhook-Event-Id`, `X-Event-Id`, `X-GitHub-Delivery` 헤더 중 하나로 보내거나 JSON 본문의 최상위 문자열 `id`로 보내세요. 같은 ID로 반복된 요청은 다시 대기열에 추가되지 않으며, 중복으로 표시된 `200` 응답을 받습니다. ID는 중복 요청만 막습니다. 실패한 실행은 재시도될 수 있으며, 그 재시도에서 실패한 실행이 이미 일으킨 부작용이 반복될 수 있습니다. 요청이 최종적으로 실패하면 해당 ID가 해제되고, 이후 같은 ID로 들어온 요청은 새 요청으로 대기열에 추가됩니다.
 
 ## 자동화 생성 {#creating}
 
@@ -74,7 +81,9 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
 
 ### Automations UI에서
 
-전체 Agent 페이지에서 **Automations**를 열어 예약 및 이벤트 트리거 자동화를 확인하고 관리합니다. 호환성 URL은 계속 `/agent#jobs`이므로 기존 링크와 북마크가 작동합니다.
+**Settings › Automations**를 엽니다. 예약, 이벤트, 웹훅 트리거 자동화를 확인하고 상태 점검, 즉시 실행, 일시 중지 및 재개, 삭제를 할 수 있는 주요 위치입니다. 이전 `/agent#jobs` 링크는 이곳으로 리디렉션됩니다.
+
+**Run now**는 자동화를 테스트하는 가장 빠른 방법입니다. 자동화의 지침을 실제 부작용과 함께 즉시 실행합니다. 트리거와 조건은 건너뛰며 다음 예약 실행은 바뀌지 않습니다. 단, 예외가 하나 있습니다. 프레임워크가 자동화를 일시 중지한 경우, 실행이 성공하면 자동화가 다시 켜지고 예약 자동화는 다음 실행이 다시 계산됩니다. 에이전트도 `manage-automations`와 `action=run-now`로 같은 일을 할 수 있습니다.
 
 <Callout tone="warning">
 
@@ -106,7 +115,7 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
     {
       lines: "6",
       label: "게이트",
-      note: "발송 전 페이로드에 대해 Haiku가 평가하는 선택적 자연어 `condition`입니다.",
+      note: "발송 전 페이로드에 대해 모델이 확인하는 선택적 자연어 `condition`입니다.",
     },
     {
       lines: "12",
@@ -120,15 +129,15 @@ description: "자연어 조건을 사용한 이벤트 트리거 및 예약 자�
 
 자동화는 [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter)의 모든 필드를 공유합니다. 다음 추가 필드는 이벤트 트리거, 조건 및 실행 모드를 제어합니다.
 
-| 필드          | 유형                      | 기본값       | 설명                                                                                                                                            |
-| ------------- | ------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"` | 자동화 실행 방법                                                                                                                                |
-| `event`       | 문자열                    | _(선택사항)_ | 구독할 이벤트 이름(이벤트 트리거에만 해당)                                                                                                      |
-| `condition`   | 문자열                    | _(선택사항)_ | 배송 전 자연어 조건 평가                                                                                                                        |
-| `mode`        | `"agentic"`               | `"agentic"`  | 전체 에이전트 루프(유일하게 지원되는 모드). `"deterministic"`는 제거되었습니다 — 구현된 적이 없으며, 이를 설정한 자동화는 실행된 적이 없습니다. |
-| `domain`      | 문자열                    | _(선택사항)_ | 그룹화 태그(메일, 캘린더, 클립 등)                                                                                                              |
+| 필드          | 유형                                     | 기본값       | 설명                                                                                                                                            |
+| ------------- | ---------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"` | 자동화 실행 방법                                                                                                                                |
+| `event`       | 문자열                                   | _(선택사항)_ | 구독할 이벤트 이름(이벤트 트리거에만 해당)                                                                                                      |
+| `condition`   | 문자열                                   | _(선택사항)_ | 배송 전 자연어 조건 평가(이벤트 및 웹훅 트리거)                                                                                                 |
+| `mode`        | `"agentic"`                              | `"agentic"`  | 전체 에이전트 루프(유일하게 지원되는 모드). `"deterministic"`는 제거되었습니다 — 구현된 적이 없으며, 이를 설정한 자동화는 실행된 적이 없습니다. |
+| `domain`      | 문자열                                   | _(선택사항)_ | 그룹화 태그(메일, 캘린더, 클립 등)                                                                                                              |
 
-이벤트 트리거의 경우 `schedule`는 `""`(비어 있음)입니다. 일정 트리거의 경우 cron 표현식을 전달합니다. 또한 디스패처는 스케줄러와 동일한 관리형 `lastRun` / `lastStatus` / `lastError` 필드를 작성하고 조건이 false로 평가되면 `"skipped"` 상태도 작성합니다.
+이벤트 또는 웹훅 트리거의 경우 `schedule`는 `""`(비어 있음)입니다. 일정 트리거의 경우 cron 표현식을 전달합니다. 또한 디스패처는 스케줄러와 동일한 관리형 `lastRun` / `lastStatus` / `lastError` 필드를 작성하고 조건이 false로 평가되면 `"skipped"` 상태도 함께 작성합니다. 조건을 평가할 수 없을 때 무엇이 기록되는지는 [조건](#conditions)을 참조하세요.
 
 ## 이벤트 버스 {#event-bus}
 
@@ -186,12 +195,17 @@ emit(
 
 ## 조건 {#conditions}
 
-조건은 이벤트 페이로드에 대해 Claude Haiku가 평가한 자연어 문자열입니다. 이는 생성 작업이 아닌 예/아니요 분류입니다.
+조건은 이벤트 또는 웹훅 페이로드에 대해 모델이 확인하는 자연어 문자열입니다. 이는 생성 작업이 아닌 예/아니요 분류입니다.
 
 - **비어 있거나 누락된 조건** = 무조건적(항상 실행됨).
-- 결과는 5분 TTL 및 500개 항목 LRU 캐시로 기억됩니다(조건의 SHA-256 + 페이로드).
-- 페이로드는 Haiku로 보내기 전에 4000자로 잘립니다.
-- API 실패 시 조건은 `false`로 평가됩니다(안전한 기본값 - 자동화를 건너뜁니다).
+- 결과는 5분 동안 캐시되며 키는 조건과 페이로드의 SHA-256 해시이고 항목은 최대 500개입니다.
+- 페이로드는 모델로 보내기 전에 4000자로 잘립니다.
+
+<Callout tone="info">
+
+평가할 수 없는 조건은 일치로도 불일치로도 간주되지 않으며 자동화는 실행되지 않습니다. 공급자 오류가 발생하면 `lastStatus: error`가 기록되고 그 이유는 `lastError`에 남으며 이벤트는 재시도됩니다. 조건을 평가할 API 키가 없으면 이벤트 자동화는 일치하는 이벤트마다 오류를 기록하고, 3회 연속 발생하면 스스로 일시 중지됩니다. 키를 사용할 수 있게 되면 실행 중인 스케줄러가 약 15분 이내에 자동으로 다시 켭니다. 스케줄러가 실행되지 않는 호스트에서는 **Settings › Automations**에서 다시 켜세요. 같은 상태의 웹훅 자동화는 일시 중지되지 않습니다. 전송이 실패하고 재시도됩니다.
+
+</Callout>
 
 조건의 예:
 
@@ -228,7 +242,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 키는 자동화 사용을 위해 사용자 또는 에이전트가 생성한 임시 비밀입니다(예: `SLACK_WEBHOOK`, `HUBSPOT_API_KEY`). 템플릿 정의 메타데이터나 온보딩 단계가 없다는 점에서 등록된 비밀(`registerRequiredSecret`)과 다릅니다.
 
 - UI 또는 `/_agent-native/secrets/adhoc` API 설정을 통해 생성되었습니다.
-- 각 키에는 키를 보낼 수 있는 원본을 제한하는 **URL 허용 목록**이 있을 수 있습니다(원본 수준 일치).
+- API로 만든 키에는 키를 보낼 수 있는 원본을 제한하는 `urlAllowlist`를 포함할 수 있습니다(원본 수준 일치). Settings에서 추가한 키에는 허용 목록이 없습니다.
 - 원시 값은 AI에 노출되지 않습니다. 에이전트의 컨텍스트에는 `${keys.NAME}` 자리 표시자만 나타납니다.
 - 해결 방법은 사용자 범위에서 작업 공간 범위로 대체되므로 사용자는 공유 키를 재정의할 수 있습니다.
 
@@ -236,14 +250,16 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 개인 및 조직 자동화는 `action` 매개변수와 함께 `manage-automations`를 사용합니다.
 
-| 액션          | 목적                                                                 |
-| ------------- | -------------------------------------------------------------------- |
-| `list-events` | 설명 및 페이로드 스키마와 함께 등록된 모든 이벤트 검색               |
-| `list`        | 상태와 함께 모든 자동화를 나열합니다. 도메인별로 필터링하거나 활성화 |
-| `define`      | 새 자동화 만들기(이름, 트리거 유형, 이벤트, 조건, 본문)              |
-| `update`      | 기존 자동화 업데이트(활성화, 조건, 본문)                             |
-| `delete`      | 자동화 삭제(항상 사용자가 먼저 확인)                                 |
-| `fire-test`   | `test.event.fired` 이벤트를 내보내 자동화를 검증합니다               |
+| 액션          | 목적                                                                               |
+| ------------- | ---------------------------------------------------------------------------------- |
+| `list-events` | 설명 및 페이로드 스키마와 함께 등록된 모든 이벤트 검색                             |
+| `list-hosts`  | 페어링된 실행 호스트를 나열합니다. 자동화에 호스트를 할당하기 전에 사용합니다      |
+| `list`        | 상태와 함께 모든 자동화를 나열합니다. 도메인별로 필터링하거나 활성화               |
+| `define`      | 새 자동화 만들기(이름, 트리거 유형, 이벤트, 조건, 본문)                            |
+| `update`      | 기존 자동화 업데이트(활성화, 조건, 본문)                                           |
+| `delete`      | 자동화 삭제(항상 사용자가 먼저 확인)                                               |
+| `run-now`     | 자동화 하나를 실제 부작용과 함께 즉시 실행합니다. 트리거와 조건은 건너뜁니다       |
+| `fire-test`   | `test.event.fired` 이벤트를 내보냅니다. 해당 이벤트를 구독하는 자동화만 반응합니다 |
 
 추가 도구: `web-request` — `${keys.NAME}` 대체 기능이 있는 아웃바운드 HTTP.
 
@@ -251,22 +267,23 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## API 엔드포인트 {#api}
 
-| 엔드포인트                             | 방법   | 설명                           |
-| -------------------------------------- | ------ | ------------------------------ |
-| `/_agent-native/automations`           | GET    | 모든 자동화 나열(구문 분석됨)  |
-| `/_agent-native/automations/fire-test` | POST   | `test.event.fired` 이벤트 발생 |
-| `/_agent-native/secrets/adhoc`         | GET    | 임시 키 나열(값 없음)          |
-| `/_agent-native/secrets/adhoc`         | POST   | 임시 키 생성 또는 업데이트     |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | 임시 키 삭제                   |
+| 엔드포인트                                  | 방법   | 설명                           |
+| ------------------------------------------- | ------ | ------------------------------ |
+| `/_agent-native/automations`                | GET    | 모든 자동화 나열(구문 분석됨)  |
+| `/_agent-native/automations/fire-test`      | POST   | `test.event.fired` 이벤트 발생 |
+| `/_agent-native/automations/webhook/:token` | POST   | 웹훅 자동화 트리거             |
+| `/_agent-native/secrets/adhoc`              | GET    | 임시 키 나열(값 없음)          |
+| `/_agent-native/secrets/adhoc`              | POST   | 임시 키 생성 또는 업데이트     |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE | 임시 키 삭제                   |
 
-<Endpoint id="doc-block-1mmnbgv" title={"테스트 이벤트 실행"} method="POST" path="/_agent-native/automations/fire-test" summary={"이벤트로 트리거되는 자동화를 검증하려면 test.event.fired 이벤트를 내보냅니다."} responses={[
+<Endpoint id="doc-block-1mmnbgv" title={"테스트 이벤트 실행"} method="POST" path="/_agent-native/automations/fire-test" summary={"test.event.fired 이벤트를 내보내 해당 이벤트를 구독하는 자동화를 검증합니다."} responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+`test.event.fired`를 구독하는 자동화에 대해 이벤트 경로(일치, 소유자 범위, 조건)를 확인합니다. 이 이벤트만 내보내므로 `calendar.booking.created` 같은 실제 이벤트를 수신하는 자동화는 트리거할 수 없습니다. 실제 자동화를 시험하려면 **Run now**를 사용하세요. `manage-automations`의 `fire-test` 액션과 동일합니다.
 
 </Endpoint>
 
@@ -296,8 +313,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

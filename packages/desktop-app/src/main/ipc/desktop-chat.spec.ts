@@ -38,6 +38,7 @@ import {
   desktopTerminalOpenCodeEnvironment,
   closeDesktopChatRelay,
   getDesktopBuilderGatewayRunnerEnvironment,
+  getDesktopBuilderConnectionStatus,
   getDesktopAppMcpAuthorization,
   openDesktopBuilderConnect,
   registerDesktopChatIpc,
@@ -397,6 +398,7 @@ describe("managed Builder Desktop relay", () => {
     const targetHeaders = new Map<string, string>();
     let targetUrl = "";
     let requestBody = "";
+    let failBuilderStatus = false;
     let provisionRequest: { url: string; init?: RequestInit } | undefined;
     const upstreamRequest = new EventEmitter() as EventEmitter & {
       abort: ReturnType<typeof vi.fn>;
@@ -452,6 +454,7 @@ describe("managed Builder Desktop relay", () => {
           });
         }
         if (requestUrl.includes("/_agent-native/connection-status/builder")) {
+          if (failBuilderStatus) throw new TypeError("fetch failed");
           return new Response(
             JSON.stringify({
               configured: true,
@@ -481,6 +484,13 @@ describe("managed Builder Desktop relay", () => {
     });
 
     try {
+      failBuilderStatus = true;
+      await expect(getDesktopBuilderConnectionStatus()).resolves.toEqual({
+        state: "unavailable",
+        error: "Could not check Builder.io connection status.",
+      });
+      failBuilderStatus = false;
+
       const environment = await getDesktopBuilderGatewayRunnerEnvironment();
       expect(environment.status.state).toBe("connected");
       expect(environment.env?.BUILDER_PUBLIC_KEY).toBe("desktop-relay");

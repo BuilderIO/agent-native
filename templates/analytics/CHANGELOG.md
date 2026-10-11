@@ -3,6 +3,163 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-11
+
+### Improved
+
+- Analytics finds data definitions faster and identifies user-organization relationships more clearly.
+
+## 2026-10-10
+
+### Improved
+
+- Long session recordings start playback while remaining chunks load.
+- Read only the event fields needed for onboarding journeys.
+- The source index reports tracking calls with event names it cannot resolve, making event coverage gaps easier to spot.
+- The data index preserves dbt's declared primary entity separately from its row grain.
+
+### Fixed
+
+- Analytics discovery preserves source and freshness details when saved dictionary entries contain blank fields.
+- Analytics now shows BigQuery recommendations only when they apply and marks unavailable index counts clearly.
+- Onboarding journey queries reuse a single event read while preserving exact output attribution
+- Reduce duplicate reads when loading organization onboarding journeys
+- Replay friction scores now count rage clicks that span recording uploads.
+- Session summaries count replay errors and failed requests across uploads without double-counting retries
+- Storyboard export failures now report bounded handoff diagnostics without exposing raw exceptions.
+
+### Changed
+
+- Definitions and the source index now live on one Semantic layer page, which replaces the Source Status and Data Dictionary pages.
+
+## 2026-10-09
+
+### Added
+
+- Analytics can query owner-defined dbt metrics through a workspace connection
+- Compare later onboarding activity across first-party sessions and apps, with unknown identities and incomplete observation windows called out.
+- Dashboard folders can now sync with a GitHub repo folder: pull only the panels that changed in GitHub, or export app changes as a pull request, without overwriting edits made elsewhere in the app.
+- Dashboards can filter by several values at once with multi-select filters.
+- Journey capture can render recorded media in Chromium and save visible prompt provenance locally.
+- Review source connections and export the data dictionary from one status page
+
+### Improved
+
+- Analytics prioritizes reviewed definitions over broad generated matches, keeps exact runnable panels discoverable, reports source-index quality accurately, and continues BigQuery searches without repeating metadata reads.
+- Ask chats now open on their own shareable URL at /ask/<id>, and /ask always starts a blank chat.
+- Dashboard filters support searching, selecting all values, or keeping only one value.
+- Data Sources now lists integrations in the same rows as Settings, with connected sources first and setup in a side sheet.
+- Approved metric definitions rank ahead of dashboard examples for exact name searches.
+- Generated source entries now appear in data dictionary browsing, and new entries remain unapproved until reviewed.
+- Journey captures can check replay media and optionally save a private, bounded copy of visible user messages.
+- Onboarding journey event reads avoid an unused identity scan, cap query cost, and mark follow-up coverage incomplete when results are too large
+- Onboarding journeys now honor the selected date range when reading events.
+- Onboarding summaries return journey counts without waiting for replay metadata.
+- Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
+- Onboarding journeys now show later activity within a chosen window, mark no-later results as right-censored, and identify when follow-up counts are incomplete.
+- You can add app origins to a public key's replay allowlist without replacing its existing origins.
+
+### Fixed
+
+- First-party BigQuery dashboards use date-bounded weekly activity queries on both saved dashboard versions
+- GitHub source connections use dedicated OAuth app credentials, separate from sign-in.
+- Journey screenshots account for legacy clipping when checking embedded replay content.
+- Journey trees remain available when a matching recording is not visible
+- Onboarding journey queries avoid redundant event reads
+- Onboarding journeys can find recordings from exact replay links even when session IDs differ
+- Onboarding journey summaries load reliably for organizations using Builder Analytics.
+- Replay screenshots finish loading fonts before capture.
+- Replay screenshots support modern CSS colors.
+- Existing chat threads keep the composer anchored at the bottom while their messages load.
+- Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
+- Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
+- Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
+- Session recordings keep their full history and performance insights across browser session changes and large replays.
+- Large onboarding journeys keep their step counts when follow-up coverage exceeds query limits
+
+### Removed
+
+- Removed the default HTTP 5xx spike alert, since server responses are no longer recorded as analytics events
+
+## 2026-10-08
+
+### Added
+
+- Opted-in pre-auth recordings appear in Sessions as anonymous replays
+- Agents can build the onboarding journey tree with drop-off per step and render a screenshot of each step from session replays.
+
+### Improved
+
+- Set a chart's time range from its options menu.
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+- Sessions can show playable anonymous recordings without labeling them as signup-page captures.
+- Session replay screenshots capture directly without requesting screen sharing.
+
+### Fixed
+
+- Analytics journey paths group short resource IDs consistently across apps
+- Analytics keeps onboarding counts complete when only standalone setup events exceed the journey read limit.
+- Onboarding journey trees show Home chat setup choices in a separately counted tree and group equivalent artifact screens.
+- Agent-shared recording links now load across batched playback chunks
+- Fixed onboarding journey queries against BigQuery.
+- Session replay agent links can read their recording manifest and playback chunks.
+- Onboarding journey screenshots include dialogs at the recorded viewport. The
+  capture manifest discloses that remote assets were not fetched.
+- Onboarding journey replay links and screenshots now align with the selected step's recording timestamp.
+- Onboarding journeys preserve each skipped setup step
+- Onboarding journeys use the current Builder setup label
+- Analytics now reports uncertain storyboard saves without implying the export definitely failed.
+- Replay screenshot exports now report upload timeouts and incomplete cleanup.
+- Storyboard exports now ask you to check Design when Analytics cannot confirm a save.
+
+## 2026-10-07
+
+### Added
+
+- Selected session replays can be captured at exact timestamps and sent together to a private Design storyboard.
+- Session replay screenshots can be copied directly into Design.
+
+### Improved
+
+- Analytics chat follows short follow-ups like "what about EMEA?" and recovers from an unknown BigQuery column in one step
+- Thumbs-down on a chat answer now offers quick reasons and a Copy details button that copies the run id and thread link for a report
+
+### Fixed
+
+- Analytics now treats chart filter changes as data requests and reports when reference catalogs are incomplete.
+- Analytics chat no longer stays on "running" after the agent has finished; the thread reloads so the change is visible without asking again
+- Analytics chat stops retrying a data source that is not connected and says who can connect it
+- Analytics keeps S3 replay setup available when storage status cannot be checked.
+- Automatic learning captures stay private to the user, and shared learning updates require approval.
+- Builder storage setup now waits for renewed file access before confirming it is ready.
+- Personal Analytics memories stay limited to unscoped conversations, keeping organization-specific guidance from following users between organizations.
+- Session replay storyboard screenshots upload directly to Design's private storage, so Analytics does not need its own blob storage provider.
+- Session replay screenshot export captures readable video frames and safe poster images.
+
+## 2026-10-06
+
+### Added
+
+- Save a screenshot of any visible moment in a session replay.
+- Save exact session replay screens as PNG screenshots.
+- Session replays can be saved as screenshots without the replay controls.
+
+### Improved
+
+- Session replays now show the date and time the session started, and the Sessions list shows start times in a shorter, easier-to-scan format.
+- Agent dashboard edits are now checked against the live chart before they save, so the agent no longer reports a chart change that did not happen.
+
+### Fixed
+
+- Collaborators see a consistent dashboard after simultaneous edits
+- Dashboard edits stay in sync when simultaneous updates occur.
+- Dashboard filter "Mine" now lists every dashboard you own (including ones you've shared) and no longer includes installed demos or items shared with you
+- Return each dashboard mutation's own written value even when another update lands immediately afterward
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Dashboard edits now report no change when the selected panels already match the requested values or order.
+- Dashboard mutation results now report only changes that were actually saved.
+- Refreshing a BigQuery dashboard panel now fetches current data.
+
 ## 2026-10-05
 
 ### Improved

@@ -200,7 +200,18 @@ describe("CommentComposer rich recipient", () => {
       ),
     ).toBe(false);
 
-    await typeRichEditorText(editor(), "AI ");
+    // A recipient comes only from an explicit pick, not from typing past it.
+    await typeRichEditorText(editor(), "AI");
+    await act(async () => {
+      editor().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(editor().textContent).toContain("GPT-5.6 Luna");
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
   });

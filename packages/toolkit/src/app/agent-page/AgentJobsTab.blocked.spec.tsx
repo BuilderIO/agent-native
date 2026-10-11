@@ -129,6 +129,49 @@ describe("AgentJobsTab blocked automation", () => {
     expect(container.textContent).toContain(BLOCKED_REASON);
   });
 
+  it("shows a declared no-op as skipped without a failure warning", () => {
+    const reason = "No urgent mail found.";
+    jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
+      queryResult(
+        scope === "user"
+          ? [
+              {
+                ...blockedJob("skipped", reason),
+                lastRun: "2026-07-31T17:04:14.688Z",
+              },
+            ]
+          : [],
+      ),
+    );
+    jobMocks.useAutomationRuns.mockReturnValue(
+      queryResult([
+        {
+          id: "skip-1",
+          runId: "skip-1",
+          threadId: "skip-thread",
+          status: "skipped",
+          startedAt: Date.now(),
+          finishedAt: Date.now() + 1000,
+          error: reason,
+          errorCode: null,
+        },
+      ]),
+    );
+    act(() => root.render(<AgentJobsTab />));
+    expect(container.textContent).toContain("skipped");
+    expect(container.textContent).toContain(reason);
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    const detailsButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "View details",
+    );
+    act(() => detailsButton?.click());
+    expect(document.body.textContent).toContain(reason);
+    expect(document.body.textContent).not.toContain(
+      "This automation is not running",
+    );
+    expect(document.body.querySelector(".text-destructive")).toBeNull();
+  });
+
   it("reports last run as Never rather than the time of a skipped tick", () => {
     act(() => {
       root.render(<AgentJobsTab />);

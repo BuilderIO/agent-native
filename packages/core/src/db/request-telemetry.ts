@@ -115,10 +115,32 @@ export function runWithDatabaseRequestTelemetry<T>(
   return getStorage().run(telemetry, fn);
 }
 
+const storagesWithoutEnterWith = new WeakSet<TelemetryStorage>();
+
+/**
+ * Returns false when the runtime cannot scope telemetry to the rest of the
+ * request. workerd's AsyncLocalStorage implements `run()` but throws from
+ * `enterWith()`, and a throw here escapes the Nitro request hook and skips
+ * every hook after it, including the framework route readiness gate.
+ */
 export function enterDatabaseRequestTelemetry(
   telemetry: DatabaseRequestTelemetry,
-): void {
-  getStorage().enterWith(telemetry);
+): boolean {
+  const storage = getStorage();
+  if (storage === NOOP_STORAGE || storagesWithoutEnterWith.has(storage)) {
+    return false;
+  }
+  try {
+    storage.enterWith(telemetry);
+    return true;
+  } catch (error) {
+    storagesWithoutEnterWith.add(storage);
+    console.warn(
+      "[db] Per-request database telemetry is unavailable: AsyncLocalStorage.enterWith() failed on this runtime.",
+      error,
+    );
+    return false;
+  }
 }
 
 export function beginDatabaseOperation(

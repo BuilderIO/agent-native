@@ -13,6 +13,12 @@ import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import {
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
@@ -45,6 +51,25 @@ function warnA2AUnauthOnce(): void {
     "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint runs unauthenticated. " +
       "This is allowed in development but blocked in production. Set A2A_SECRET before deploying.",
   );
+}
+
+const warnedDemotions = new Set<string>();
+// A token that asserts a user but resolves to an organization principal is the
+// signature of misaligned A2A secrets; without this the only symptom is every
+// delegated call from that org failing later with no verified user. Keyed by
+// org and cause so a changed cause logs again. Never log the secret or the
+// asserted email.
+function warnUserAssertionDemotedOnce(
+  orgId: string,
+  payload: jose.JWTPayload,
+  reason: string,
+): void {
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) return;
+  const key = `${orgId}\n${reason}`;
+  if (warnedDemotions.has(key)) return;
+  warnedDemotions.add(key);
+  // eslint-disable-next-line no-console
+  console.warn(`[a2a] orgId=${orgId} ${reason}`);
 }
 
 /**
@@ -351,6 +376,11 @@ async function verifyA2ATokenInternal(
           if (!claims) {
             return { payload: { email: null, orgDomain: null } };
           }
+          warnUserAssertionDemotedOnce(
+            organization.orgId,
+            payload,
+            "user assertion demoted: org secret equals deploy secret",
+          );
           return {
             payload: {
               email: null,
@@ -421,6 +451,11 @@ async function verifyA2ATokenInternal(
   const claims = organizationPrincipalClaims(payload, organization);
   if (!claims) return { payload: { email: null, orgDomain: null } };
 
+  warnUserAssertionDemotedOnce(
+    organization.orgId,
+    payload,
+    "user token verified only with org secret",
+  );
   return {
     payload: {
       email: null,
@@ -668,7 +703,10 @@ export function mountA2A(
         return { ok: true };
       } catch (err: any) {
         console.error("[a2a] process-task failed:", err);
-        setResponseStatus(event, 500);
+        setResponseStatus(
+          event,
+          err instanceof ServicePrincipalRefusedError ? err.statusCode : 500,
+        );
         return { error: err?.message ?? "process-task failed" };
       }
     }),
@@ -691,6 +729,7 @@ export function mountA2A(
       let verifiedOrgDomain: string | null = null;
       let verifiedOrgId: string | undefined;
       let verifiedIdentityAssurance: "user" | "organization" | undefined;
+      let servicePrincipalAllowedActions: string[] | null | undefined;
       let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
       let bearerTokenVerified = false;
@@ -725,6 +764,36 @@ export function mountA2A(
             error: {
               code: -32003,
               message: "A2A identity verification is temporarily unavailable",
+            },
+          };
+        }
+        try {
+          const admission = await assertServicePrincipalMayRun(
+            tokenPayload.email,
+            verifiedOrgId,
+          );
+          if (parseServiceIdentityEmail(tokenPayload.email)) {
+            servicePrincipalAllowedActions = admission.allowedActions;
+          }
+        } catch (error) {
+          if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+          if (error.statusCode === 403) {
+            await recordServicePrincipalDenial({
+              email: tokenPayload.email,
+              orgId: verifiedOrgId,
+              actionName: "a2a:admission",
+              caller: "a2a",
+              error,
+            });
+          }
+          setResponseStatus(event, error.statusCode);
+          return {
+            jsonrpc: "2.0",
+            id: null,
+            error: {
+              code: error.statusCode === 503 ? -32003 : -32001,
+              message: error.message,
+              data: { errorCode: error.errorCode },
             },
           };
         }
@@ -820,6 +889,10 @@ export function mountA2A(
       }
       if (verifiedOrgId) {
         event.context.__a2aVerifiedOrgId = verifiedOrgId;
+      }
+      if (servicePrincipalAllowedActions !== undefined) {
+        event.context.__a2aServicePrincipalAllowedActions =
+          servicePrincipalAllowedActions;
       }
 
       const body = await readBody(event);

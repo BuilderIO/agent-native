@@ -1,4 +1,8 @@
 import {
+  injectSessionReplayIframeBootstrap,
+  RRWEB_RECORD_IFRAME_CDN_URL,
+} from "@agent-native/core/client/host";
+import {
   parse,
   parseFragment,
   serialize,
@@ -31,7 +35,10 @@ if (window.navigation) window.navigation.addEventListener('navigate', function(e
 });
 </script>`;
 
-export function templatePreviewDocument(html: string): string {
+export function templatePreviewDocument(
+  html: string,
+  { recordSessionReplay = false }: { recordSessionReplay?: boolean } = {},
+): string {
   const runtimes = localRuntimeUrls();
   const document = parse(withLocalRuntimes(html, runtimes));
   const renderOrigins = new Set<string>();
@@ -76,9 +83,16 @@ export function templatePreviewDocument(html: string): string {
   if (!head || !("childNodes" in head))
     throw new Error("Preview document has no head");
   const origins = [...renderOrigins].join(" ");
+  const scriptSources = [
+    "'unsafe-inline' 'unsafe-eval'",
+    runtimes.tailwind,
+    runtimes.alpine,
+    ...(recordSessionReplay ? [RRWEB_RECORD_IFRAME_CDN_URL] : []),
+    ...renderOrigins,
+  ].join(" ");
   const policy = [
     "default-src 'none'",
-    `script-src 'unsafe-inline' 'unsafe-eval' ${runtimes.tailwind} ${runtimes.alpine} ${origins}`,
+    `script-src ${scriptSources}`,
     `style-src 'unsafe-inline' ${origins}`,
     `img-src data: blob: ${origins}`,
     `font-src data: ${origins} https://fonts.gstatic.com`,
@@ -94,5 +108,8 @@ export function templatePreviewDocument(html: string): string {
   );
   for (const node of security.childNodes) node.parentNode = head;
   head.childNodes.unshift(...security.childNodes);
-  return serialize(document);
+  const serialized = serialize(document);
+  return recordSessionReplay
+    ? injectSessionReplayIframeBootstrap(serialized)
+    : serialized;
 }

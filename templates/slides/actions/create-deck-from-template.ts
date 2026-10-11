@@ -159,7 +159,7 @@ export default defineAction({
       })),
     };
     try {
-      await addDeck.run({ deck }, ctx);
+      await addDeck.run({ deck, creationMethod: "template" }, ctx);
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;
       if (newId) {

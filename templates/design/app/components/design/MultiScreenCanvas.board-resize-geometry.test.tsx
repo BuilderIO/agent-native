@@ -4,10 +4,11 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { MultiScreenCanvasProps } from "./multi-screen/types";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
 type BoardSelectionWorldBoundsChange = NonNullable<
-  ComponentProps<typeof MultiScreenCanvas>["onBoardSelectionWorldBoundsChange"]
+  MultiScreenCanvasProps["onBoardSelectionWorldBoundsChange"]
 >;
 type BoardSelectionWorldBounds = Exclude<
   Parameters<BoardSelectionWorldBoundsChange>[0],
@@ -17,7 +18,7 @@ type RenderCanvasOptions = {
   boardFileId?: string;
   boardFileContent?: string;
   screens?: ComponentProps<typeof MultiScreenCanvas>["screens"];
-  geometryById?: ComponentProps<typeof MultiScreenCanvas>["geometryById"];
+  geometryById?: MultiScreenCanvasProps["geometryById"];
   onBoardSelectionWorldBoundsChange?: BoardSelectionWorldBoundsChange;
   selectedLayerSelectorGroupsByScreen?: Record<string, string[][]>;
   boardSelectedSelector?: string;
@@ -53,19 +54,21 @@ function renderCanvas(
     <MultiScreenCanvas
       screens={options.screens ?? []}
       zoom={100}
-      geometryById={options.geometryById ?? {}}
-      boardFileId={options.boardFileId ?? "board"}
-      boardFileContent={options.boardFileContent ?? BOARD_CONTENT}
-      boardFrameGeometry={boardFrameGeometry}
-      boardIsActive
-      onBoardSelectionWorldBoundsChange={
-        options.onBoardSelectionWorldBoundsChange
-      }
-      selectedLayerSelectorGroupsByScreen={
-        options.selectedLayerSelectorGroupsByScreen
-      }
-      boardSelectedSelector={options.boardSelectedSelector ?? BOARD_SELECTOR}
-      boardSelectedSourceId={options.boardSelectedSourceId ?? "rect-1"}
+      geometry={{ geometryById: options.geometryById ?? {} }}
+      board={{
+        boardFileId: options.boardFileId ?? "board",
+        boardFileContent: options.boardFileContent ?? BOARD_CONTENT,
+        boardFrameGeometry,
+        boardIsActive: true,
+        onBoardSelectionWorldBoundsChange:
+          options.onBoardSelectionWorldBoundsChange,
+        boardSelectedSelector: options.boardSelectedSelector ?? BOARD_SELECTOR,
+        boardSelectedSourceId: options.boardSelectedSourceId ?? "rect-1",
+      }}
+      selection={{
+        selectedLayerSelectorGroupsByScreen:
+          options.selectedLayerSelectorGroupsByScreen,
+      }}
       onPick={() => {}}
     />
   );

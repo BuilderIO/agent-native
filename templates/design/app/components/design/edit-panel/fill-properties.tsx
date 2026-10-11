@@ -28,7 +28,7 @@ import {
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
-import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import {
@@ -62,7 +62,7 @@ import {
   cssColorOrFallback,
   swatchStyle,
 } from "./position-helpers";
-import { isMixedValue } from "./selection-helpers";
+import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type { CapturedStyleTarget } from "./style-change-types";
 import type {
   BreakpointOverrideFieldContext,
@@ -196,7 +196,7 @@ export function FillProperties({
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
   const isTextFillElement = shouldUseTextFill(element, styles);
-  const isVectorFillElement = isVectorShapeElement(element);
+  const isVectorFillElement = isVectorShapeSelection(element);
   const fillProperty = isTextFillElement
     ? "color"
     : isVectorFillElement
@@ -240,7 +240,10 @@ export function FillProperties({
   const renderedFillValue = isTextFillElement
     ? styles.color || ""
     : isVectorFillElement
-      ? element.inlineStyles?.["--an-vector-fill-gradient"] || styles.fill || ""
+      ? element.inlineStyles?.["--an-vector-fill-gradient"] ||
+        styles["--an-vector-fill-gradient"] ||
+        styles.fill ||
+        ""
       : styles.backgroundColor || "";
   const authoredFillValue = isVectorFillElement
     ? (element.inlineStyles?.["--an-vector-fill-gradient"] ??
@@ -269,11 +272,12 @@ export function FillProperties({
   );
   const fillIsMixed =
     isMixedValue(fillValue) ||
-    isMixedValue(styles.backgroundImage) ||
-    isMixedValue(styles.backgroundSize) ||
-    isMixedValue(styles.backgroundRepeat) ||
-    isMixedValue(styles.backgroundPosition) ||
-    (isTextFillElement && isMixedValue(styles.backgroundClip));
+    (!isVectorFillElement &&
+      (isMixedValue(styles.backgroundImage) ||
+        isMixedValue(styles.backgroundSize) ||
+        isMixedValue(styles.backgroundRepeat) ||
+        isMixedValue(styles.backgroundPosition) ||
+        (isTextFillElement && isMixedValue(styles.backgroundClip))));
   const hasBackgroundLayer =
     !isVectorFillElement && backgroundLayers.length > 0;
   const authoredFill = authoredFillValue?.trim().toLowerCase();
@@ -418,6 +422,14 @@ export function FillProperties({
       return;
     }
     if (fillIsMixed) {
+      if (isVectorFillElement) {
+        commitStylePatch(
+          { fill: DEFAULT_SHAPE_FILL },
+          onStyleChange,
+          onStylesChange,
+        );
+        return;
+      }
       const replacement: Record<string, string> = isTextFillElement
         ? {
             color: "#000000", // guard:allow-raw-color — a concrete fallback for mixed text paint.
@@ -457,10 +469,9 @@ export function FillProperties({
       backgroundPositionLayers,
     });
     if (addFillPatch.backgroundImage !== undefined) {
-      layerKeysRef.current.keys = [
-        nextLayerKey(),
-        ...layerKeysRef.current.keys,
-      ];
+      const addedLayerKey = nextLayerKey();
+      layerKeysRef.current.keys = [addedLayerKey, ...layerKeysRef.current.keys];
+      setOpenFillPickerKey(`${fillStashKey}:${addedLayerKey}`);
     }
     commitStylePatch(addFillPatch, onStyleChange, onStylesChange);
   };
@@ -506,7 +517,7 @@ export function FillProperties({
       {fillIsMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : hasVisibleFill ? (

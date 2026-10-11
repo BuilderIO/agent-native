@@ -8,7 +8,7 @@ import {
 } from "./image-element-fill";
 
 describe("image scale modes", () => {
-  it("reads Figma's scale modes back from object-fit and the crop marker", () => {
+  it("reads imported scale modes back from object-fit and the crop marker", () => {
     expect(imageScaleModeFromStyles({ objectFit: "cover" })).toBe("fill");
     expect(imageScaleModeFromStyles({ objectFit: "contain" })).toBe("fit");
     expect(imageScaleModeFromStyles({ objectFit: "fill" })).toBe("fill");
@@ -43,7 +43,7 @@ describe("image scale modes", () => {
 });
 
 describe("image adjustments", () => {
-  it("writes Figma's measured strength and keeps unrelated filters", () => {
+  it("writes the configured adjustment strength and keeps unrelated filters", () => {
     expect(
       imageAdjustmentFilter("blur(4px)", {
         opacity: 100,

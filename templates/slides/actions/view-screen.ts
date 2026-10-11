@@ -372,6 +372,7 @@ export default defineAction({
           kind?: string;
           tagName?: string;
           imageSrc?: string;
+          videoSrc?: string;
           style?: Record<string, unknown>;
         }>;
       } | null;
@@ -403,6 +404,8 @@ export default defineAction({
           for (const [index, item] of selection.items.entries()) {
             const isImageSelection =
               item.kind === "image" || item.tagName?.toLowerCase() === "img";
+            const isVideoSelection =
+              item.kind === "video" || item.tagName?.toLowerCase() === "video";
             lines.push(
               `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
             );
@@ -425,6 +428,10 @@ export default defineAction({
               lines.push(
                 "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
               );
+            } else if (isVideoSelection) {
+              lines.push(
+                "videoStatus: video selection has no editable text content; use update-slide to change its source or playback attributes",
+              );
             } else if (item.text) {
               lines.push(`text: ${item.text}`);
               if (!item.selectedText) {
@@ -444,6 +451,7 @@ export default defineAction({
               }
             }
             if (item.imageSrc) lines.push(`imageSrc: ${item.imageSrc}`);
+            if (item.videoSrc) lines.push(`videoSrc: ${item.videoSrc}`);
             if (item.style) {
               lines.push(`style: ${JSON.stringify(item.style)}`);
             }

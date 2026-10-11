@@ -1985,7 +1985,7 @@ describe("vector edit: hit-test priority (handles over anchors when overlapping)
   });
 });
 
-describe("computeAltHoverMeasurement (Figma-parity alt-hover distance lines)", () => {
+describe("computeAltHoverMeasurement (alt-hover distance lines)", () => {
   function bounds(x: number, y: number, w: number, h: number): FrameBounds {
     const b = getFrameGroupBounds([
       { id: "x", geometry: makeGeom(x, y, w, h) },

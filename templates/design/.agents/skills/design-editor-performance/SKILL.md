@@ -47,7 +47,7 @@ warm count are constants at the top of `MultiScreenCanvas.tsx`.
   which replaces its last list, and admission waits for each result. Workers
   take one job at a time, so a pan never buries the screens now in view.
   Don't parse a screen on mount.
-- **In `DesignEditor.tsx`, never capture a heavy value in a hook.** A
+- **In the editor's hooks (`design-editor/domains/use-editor-*.ts`), never capture a heavy value.** A
   `useCallback` or `useMemo` that closes over a projection, tree, layer model or
   file content pins that render, and every render chained behind it. Take
   trees and node maps from `cachedCodeLayerTree` / `cachedCodeLayerNodeById`

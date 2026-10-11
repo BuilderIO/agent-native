@@ -226,3 +226,187 @@ describe("AppSyncState multi-app isolation", () => {
     expect(resolveAccess).not.toHaveBeenCalled();
   });
 });
+
+describe("AppSyncState first event after an access check miss", () => {
+  const resourceEvent = {
+    source: "collab",
+    type: "change",
+    key: "doc-1",
+    owner: "writer@example.com",
+    resourceType: "document",
+    resourceId: "doc-1",
+  };
+
+  it("delivers a resource event in the same read once its access check settles", async () => {
+    const resolveAccess = vi.fn(
+      () =>
+        new Promise<{ ok: true }>((resolve) =>
+          setTimeout(() => resolve({ ok: true }), 50),
+        ),
+    );
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess,
+    });
+    state.recordChange(resourceEvent);
+
+    const result = await state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      false,
+    );
+
+    expect(result.events).toMatchObject([{ resourceId: "doc-1" }]);
+    expect(result.cursorLimited).toBeUndefined();
+    expect(resolveAccess).toHaveBeenCalledOnce();
+  });
+
+  it("stops waiting after a second when the access check never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = new AppSyncState({
+        getDb: () => makeDb(),
+        resolveAccess: () => new Promise(() => {}),
+      });
+      state.recordChange(resourceEvent);
+
+      const pending = state.getCombinedChangesSinceForUser(
+        0,
+        "reader@example.com",
+        undefined,
+        false,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(result.events).toEqual([]);
+      expect(result.cursorLimited).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves the input cursor when a pending durable read cannot advance", async () => {
+    vi.useFakeTimers();
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange(resourceEvent);
+
+    const pending = state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 0, id: "baseline" },
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    const result = await pending;
+
+    expect(result).toEqual({
+      version: 0,
+      cursor: "0.baseline",
+      cursorLimited: true,
+      events: [],
+    });
+  });
+
+  it("does not wait for an unrelated access check when a durable read hits the row limit", async () => {
+    vi.useFakeTimers();
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const rows = Array.from({ length: 1_001 }, (_, i) => ({
+      id: `row-${i}`,
+      version: 6 + i,
+      event_json: JSON.stringify({
+        source: "action",
+        type: "change",
+        key: "k",
+      }),
+    }));
+    const db = {
+      execute: vi.fn(async (query: string | { sql: string }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        return {
+          rows: sql.includes("event_json") ? rows : [],
+          rowsAffected: 0,
+        };
+      }),
+    };
+    const state = new AppSyncState({ getDb: () => db });
+    (state as any).accessInFlight.set("unrelated", new Promise(() => {}));
+
+    let settled = false;
+    const read = state
+      .getCombinedChangesSinceForUser(5, "reader@example.com", undefined, true)
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(settled).toBe(true);
+    expect(await read).toMatchObject({ cursorLimited: true });
+    expect(db.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not wait for a pending check beyond the boundary the durable read stopped at", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000_000);
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const rows = Array.from({ length: 1_001 }, (_, i) => ({
+      id: `row-${i}`,
+      version: 6 + i,
+      event_json: JSON.stringify({
+        source: "action",
+        type: "change",
+        key: "k",
+      }),
+    }));
+    const db = {
+      execute: vi.fn(async (query: string | { sql: string }) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        return {
+          rows: sql.startsWith("SELECT id, version, event_json") ? rows : [],
+          rowsAffected: 0,
+        };
+      }),
+    };
+    const state = new AppSyncState({
+      getDb: () => db,
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange(resourceEvent);
+
+    let settled = false;
+    const read = state
+      .getCombinedChangesSinceForUser(5, "reader@example.com", undefined, true)
+      .then((result) => {
+        settled = true;
+        return result;
+      });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(settled).toBe(true);
+    expect(await read).toMatchObject({ version: 1_005, cursorLimited: true });
+  });
+
+  it("does not wait when the read is not blocked on an access check", async () => {
+    const state = new AppSyncState({
+      getDb: () => makeDb(),
+      resolveAccess: () => new Promise(() => {}),
+    });
+    state.recordChange({ ...resourceEvent, owner: "reader@example.com" });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      0,
+      "reader@example.com",
+      undefined,
+      false,
+    );
+
+    expect(result.events).toMatchObject([{ resourceId: "doc-1" }]);
+  });
+});

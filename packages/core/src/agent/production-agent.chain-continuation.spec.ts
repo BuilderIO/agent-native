@@ -10,6 +10,7 @@ import {
 } from "./durable-background.js";
 import {
   chainServerDrivenContinuation,
+  DurableAttachmentReferenceRequiredError,
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
@@ -207,7 +208,45 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();
-    await runChain(h, { run });
+    await runChain(h, {
+      run,
+      requestBody: {
+        message: "a very large user message",
+        history: [{ role: "user", content: "x".repeat(1000) }],
+        threadId: "thread-1",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            data: "data:image/png;base64,INLINE_CONTINUATION_IMAGE_BYTES",
+            url: "https://files.example.test/screen-resized.png",
+            referenceUrl: "https://files.example.test/screen-original.png",
+          },
+        ],
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+            url: "https://files.example.test/reference-resized.png",
+            referenceUrl: "https://files.example.test/reference-original.png",
+          },
+        ],
+        structuredHistory: [
+          {
+            role: "user",
+            parts: [
+              {
+                type: "image",
+                data: "data:image/png;base64,aGlzdG9yeS1pbWFnZS1maXh0dXJl",
+                url: "https://files.example.test/history.png",
+              },
+            ],
+          },
+        ],
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: "run-chunk0" },
+      },
+    });
 
     expect(h.callOrder).toEqual(["insertRun", "dispatch", "markTerminal"]);
 
@@ -222,6 +261,21 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");
+    expect(insertOptions.dispatchPayload).not.toContain("INLINE_");
+    expect(payload.attachments[0]).toEqual({
+      type: "image",
+      name: "screen.png",
+      url: "https://files.example.test/screen-resized.png",
+      referenceUrl: "https://files.example.test/screen-original.png",
+    });
+    expect(payload.attachments[0].data).toBeUndefined();
+    expect(payload.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
+    expect(payload.structuredHistory[0].parts[0].data).toBeUndefined();
     expect(payload[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toBeUndefined();
     expect(payload[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]).toBe(
       "run_timeout",
@@ -471,6 +525,38 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       );
     },
   );
+
+  it("does not fall back to inline dispatch when a background image lacks a durable reference", async () => {
+    const h = makeHarness();
+    await runChain(h, {
+      requestBody: {
+        message: "continue the image design",
+        attachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      },
+    });
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+    );
+    expect(h.deps.setRunError).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+      expect.stringContaining("Configure file storage"),
+    );
+  });
 
   it("refuses to chain when the SQL per-turn run budget is exhausted (cross-chain loop killer)", async () => {
     const h = makeHarness({

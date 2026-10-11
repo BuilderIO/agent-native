@@ -53,6 +53,7 @@ import type {
   SubmitContentDatabaseFormRequest,
   SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
+  UpdateDatabaseItemRequest,
   UpdateContentDatabasePersonalViewRequest,
   ValidateBuilderSourceExecutionRequest,
   DocumentPropertyRelationTarget,
@@ -1046,6 +1047,30 @@ export function useAddDatabaseItem(documentId: string) {
             applyOptimisticItemToContentDatabase(current, data.createdItem!),
         );
       }
+      void queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      void queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(documentId),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.receipt.target.databaseId,
+      });
+    },
+  });
+}
+
+export function useUpdateDatabaseItem(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseRowMutationResult,
+    UpdateDatabaseItemRequest
+  >("update-database-item", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { readOceanColors } from "./brand-colors.js";
+import { HERO_BOTTOM_FADE_START_PERCENT } from "./hero-layout.js";
 import type { OceanRenderer } from "./renderer.js";
-import { OCEAN_TUNING } from "./tuning.js";
 
 const FADE_IN_MS = 700;
 const RENDERER_INIT_TIMEOUT_MS = 30_000;
@@ -206,7 +206,7 @@ export function HeroOceanBackground({
     };
   }, [frameRate]);
 
-  const { bottomFadeStartPercent } = OCEAN_TUNING;
+  const bottomFadeStartPercent = HERO_BOTTOM_FADE_START_PERCENT;
   const mask =
     bottomFadeStartPercent >= 100
       ? undefined

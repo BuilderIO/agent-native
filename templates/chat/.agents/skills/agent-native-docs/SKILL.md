@@ -33,44 +33,49 @@ From a generated app directory:
 
 ```bash
 pnpm action framework-search --pattern "defineAction"
-pnpm action framework-search --pattern "templates/*/actions/*.ts" --mode glob --scope source
+pnpm action framework-search \
+  --pattern "defineAction" \
+  --scope source \
+  --path "templates/*/actions/*.ts"
 pnpm action framework-search --pattern "Agent(?:Panel|Sidebar)" --mode regex --scope source
 ```
 
 Use `framework-search` first when a question may cross the docs and source
-boundary. It searches the version-matched framework docs, runtime-visible
-skills, readable Core or Toolkit package source, and first-party template
-corpus in one bounded read-only call. Use `scope: docs` or `scope: source` to
-narrow it, then use the existing focused readers for the page or file you need.
+boundary. It searches version-matched framework docs, runtime-visible skills,
+readable Core or Toolkit package source, and first-party template source when
+the optional corpus is installed, in one bounded read-only call. Use
+`scope: docs` or `scope: source` to narrow it, then use the focused readers for
+the page or file you need.
 
-The same tool is available in the headless `pnpm agent` loop and every built-in
-app agent. Its default substring mode is safest for ordinary questions; use
-`glob` for wildcard paths, `sql-like` for `%` and `_` wildcards, and `regex`
-for precise structural matches. Results are bounded, so refine the pattern or
-path instead of treating a truncated result as exhaustive.
+The headless `pnpm agent` loop and built-in app agents expose read-only
+`framework-search`, `docs-search`, and `source-search` tools when Core's docs
+scripts are bundled. The default substring mode is safest for ordinary
+questions; use `glob` for wildcard paths, `sql-like` for `%` and `_` wildcards,
+and `regex` for precise structural matches. Results are bounded, so refine the
+pattern or path instead of treating a truncated result as exhaustive.
 
 From a generated app directory, the lower-level readers remain available:
 
 ```bash
-pnpm action docs-search --query "<feature>"
-pnpm action docs-search --slug <slug>
+pnpm action docs-search --query "actions"
+pnpm action docs-search --slug actions-defining
 pnpm action docs-search --list
-pnpm action source-search --query "<pattern>"
+pnpm action source-search --query "defineAction"
 pnpm action source-search --path templates/plan/AGENTS.md
 pnpm action source-search --path templates/chat/actions/hello.ts
 pnpm action source-search --list
 ```
 
-If source-search reports that template source is unavailable, install the
-corpus package at the same version as Core:
+If a search reports that the optional first-party template corpus is not
+installed, add it at the same version as Core:
 
 ```bash
-pnpm add -D @agent-native/core-corpus@<installed-core-version>
+core_version=$(node -p 'require("./node_modules/@agent-native/core/package.json").version')
+pnpm add -D "@agent-native/core-corpus@$core_version"
 ```
 
-The headless `pnpm agent` loop and built-in app agent also expose read-only
-`framework-search`, `docs-search`, and `source-search` tools. Use the unified
-tool for discovery, then the focused tools for full page or file reads.
+Use the unified tool for discovery, then the focused tools for full page or
+file reads.
 
 If the action runner is unavailable, search the package directly:
 
@@ -108,8 +113,8 @@ pattern from scratch:
 rg -n "drag.*drop|reorder" node_modules/@agent-native/core-corpus/corpus/templates
 
 # Grab a proven action file as a starting point, then adapt names/schema
-cp node_modules/@agent-native/core-corpus/corpus/templates/mail/actions/archive-email.ts \
-   actions/archive-item.ts
+cp node_modules/@agent-native/core-corpus/corpus/templates/chat/actions/hello.ts \
+   actions/greet.ts
 
 # Read the framework's own implementation behind an API
 rg -n "defineAction" node_modules/@agent-native/core/dist/action.js
@@ -123,20 +128,22 @@ hand-duplicating framework logic.
 
 ## Useful Slugs
 
-| Need                           | Slugs                                                         |
-| ------------------------------ | ------------------------------------------------------------- |
-| Actions and typed client calls | `actions`, `client`                                           |
-| SQL, auth, access, sharing     | `database`, `authentication`, `security`, `sharing`           |
-| UI state visible to the agent  | `context-awareness`                                           |
-| Headless and chat-first apps   | `pure-agent-apps`, `agent-surfaces`, `using-your-agent`       |
-| Automations and schedules      | `automations`, `recurring-jobs`                               |
+| Need                           | Slugs |
+| ------------------------------ | ----- |
+| Define and call actions        | `actions-overview`, `actions-defining`, `actions-advanced` |
+| Typed client calls and data    | `client-overview`, `client-entry-points`, `client-data` |
+| SQL, auth, access, sharing     | `postgres`, `server-database`, `authentication`, `security`, `sharing` |
+| UI state visible to the agent  | `context-awareness` |
+| Headless and chat-first apps   | `pure-agent-apps`, `agent-surfaces`, `using-your-agent` |
+| Automations and schedules      | `automations`, `recurring-jobs` |
 | Cross-app and external agents  | `a2a-protocol`, `external-agents`, `mcp-protocol`, `mcp-apps` |
-| Skills and instructions        | `skills-guide`, `writing-agent-instructions`                  |
+| Skills and instructions        | `skills-guide`, `writing-agent-instructions` |
 
 ## Don't
 
 - Do not rely on memory for framework APIs when package docs are present.
-- Do not add custom REST wrappers for app data before reading `actions`.
+- Do not add custom REST wrappers for app data before reading
+  `actions-overview` and `actions-defining`.
 - Do not add inline LLM calls before reading `using-your-agent` and
   `agent-surfaces`.
 - Do not copy framework runtime internals when a public API or narrow UI copy

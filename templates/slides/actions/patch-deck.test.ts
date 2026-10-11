@@ -1,6 +1,10 @@
-import { isAgentActionStopError } from "@agent-native/core";
+import {
+  isActionContractError,
+  isAgentActionStopError,
+} from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { getPreset } from "../app/lib/design-systems.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import { hashSlideContent } from "../shared/slide-fit";
@@ -8,10 +12,11 @@ import {
   applyOperation,
   assertPatchedSlideAnimationsResolve,
   assertSourceImportSlidesCovered,
-  clearOmittedAnimationsForAgentContentPatches,
+  isMcpWidgetPatchAllowed,
   isAgentPatchCaller,
   OperationSchema,
   resolveDeckColumnUpdates,
+  slideAnimationBaselines,
   withDeckLock,
   type Operation,
 } from "./patch-deck";
@@ -24,6 +29,11 @@ vi.mock("../app/lib/normalize-slide-padding.js", () => ({
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 let mockDeckRow: Record<string, unknown> | undefined;
 let lastUpdatedDeckData: string | undefined;
@@ -145,6 +155,20 @@ vi.mock("../server/lib/deck-versions.js", async (importOriginal) => {
   };
 });
 
+const realSlideChecks = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("../shared/blank-slide.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../shared/blank-slide.js")>();
+  return {
+    ...actual,
+    isRealSlide: (slide: unknown) => {
+      realSlideChecks.count += 1;
+      return actual.isRealSlide(slide);
+    },
+  };
+});
+
 async function runPatchDeckAction(args: any, context?: any) {
   const deck = JSON.parse(String(mockDeckRow?.data ?? "{}"));
   const slides = Array.isArray(deck.slides) ? deck.slides : [];
@@ -167,6 +191,18 @@ async function runPatchDeckAction(args: any, context?: any) {
       })
     : args.operations;
   return patchDeckAction.run({ ...args, operations }, context);
+}
+
+function widgetWriteContext(overrides: Record<string, unknown> = {}) {
+  return {
+    caller: "mcp-widget-write",
+    mcpDirectoryWidgetWrite: {
+      appId: "slides",
+      resourceIds: { deckId: "deck-1" },
+      actionNames: ["patch-deck"],
+    },
+    ...overrides,
+  };
 }
 
 describe("applyOperation — patch-slide", () => {
@@ -199,6 +235,38 @@ describe("applyOperation — patch-slide", () => {
       baseFields: { background: { present: true, value: null } },
     });
     expect(deck.slides[0].background).toBeUndefined();
+  });
+
+  it.each([
+    ["instant", "none"],
+    ["slide", "slide-from-right"],
+    ["zoom", "dissolve"],
+    ["flip", "flip"],
+  ])("stores the canonical transition for input %s", (input, canonical) => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transition: input },
+    });
+    expect(deck.slides[0].transition).toBe(canonical);
+  });
+
+  it("stores transitionSpeed and clears it on an explicit null", () => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transitionSpeed: 30 },
+    });
+    expect(deck.slides[0].transitionSpeed).toBe(30);
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transitionSpeed: null },
+    });
+    expect(deck.slides[0]).not.toHaveProperty("transitionSpeed");
   });
 
   it("treats omitted speaker notes as the blank UI baseline", () => {
@@ -937,6 +1005,34 @@ describe("applyOperation — add-slide", () => {
     expect(copy.imageLoading).toBeUndefined();
   });
 
+  it("stores the canonical transition and speed on an added slide", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      fields: {
+        content: "<p>Copy</p>",
+        transition: "zoom",
+        transitionSpeed: 20,
+      },
+    });
+    expect(deck.slides[1]).toMatchObject({
+      transition: "dissolve",
+      transitionSpeed: 20,
+    });
+  });
+
+  it("stores null transition and animations on an added slide as none", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      fields: { content: "<p>Copy</p>", transition: null, animations: null },
+    });
+    expect(deck.slides[1]).not.toHaveProperty("transition");
+    expect(deck.slides[1]).not.toHaveProperty("animations");
+  });
+
   it("is idempotent — duplicate delivery is silently ignored", () => {
     const deck = {
       slides: [
@@ -1259,6 +1355,15 @@ describe("animation target validation", () => {
     assertPatchedSlideAnimationsResolve(deck, operations);
   };
 
+  const refusalOf = (run: () => void) => {
+    try {
+      run();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected the reveal list to be refused");
+  };
+
   it("accepts paths that resolve in the final slide HTML", () => {
     expect(() =>
       applyAndValidate(
@@ -1403,7 +1508,51 @@ describe("animation target validation", () => {
     ).not.toThrow();
   });
 
-  it("clears omitted animations when an agent revises slide content", () => {
+  it("keeps omitted reveals through a content patch that they still resolve in", () => {
+    const retitled =
+      '<div class="fmd-slide"><div><h2>New title</h2></div><div><p>Body</p></div></div>';
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const baselines = slideAnimationBaselines(deck);
+    const operations: Operation[] = [
+      { op: "patch-slide", slideId: "s1", fields: { content: retitled } },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    assertPatchedSlideAnimationsResolve(deck, operations, { baselines });
+
+    expect(deck.slides[0].animations).toEqual([animation()]);
+  });
+
+  it("refuses a content patch that strands an omitted reveal, with a typed error", () => {
+    const stranded = '<div class="fmd-slide"><div>New</div></div>';
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const baselines = slideAnimationBaselines(deck);
+    const operations: Operation[] = [
+      { op: "patch-slide", slideId: "s1", fields: { content: stranded } },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+
+    expect(
+      refusalOf(() =>
+        assertPatchedSlideAnimationsResolve(deck, operations, { baselines }),
+      ),
+    ).toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "s1",
+        animationId: "reveal-title",
+      },
+    });
+  });
+
+  it("clears every reveal only when the patch sends an empty list", () => {
     const deck = {
       slides: [{ id: "s1", content, animations: [animation()] }],
     };
@@ -1411,14 +1560,16 @@ describe("animation target validation", () => {
       {
         op: "patch-slide",
         slideId: "s1",
-        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+        fields: {
+          content: '<div class="fmd-slide"><div>New</div></div>',
+          animations: [],
+        },
       },
     ];
 
-    for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+    applyAndValidate(deck, operations);
 
-    expect(deck.slides[0].animations).toBeUndefined();
+    expect(deck.slides[0].animations).toEqual([]);
   });
 
   it("preserves imported animations for source-preserving content patches", () => {
@@ -1447,34 +1598,9 @@ describe("animation target validation", () => {
       },
     ];
 
+    const baselines = slideAnimationBaselines(deck);
     for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations, {
-      sourceImport,
-    });
-
-    expect(deck.slides[0].animations).toEqual(animations);
-  });
-
-  it("does not clear a separate explicit animation patch", () => {
-    const animations = [animation()];
-    const deck = {
-      slides: [{ id: "s1", content, animations }],
-    };
-    const operations: Operation[] = [
-      {
-        op: "patch-slide",
-        slideId: "s1",
-        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
-      },
-      {
-        op: "patch-slide",
-        slideId: "s1",
-        fields: { animations },
-      },
-    ];
-
-    for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+    assertPatchedSlideAnimationsResolve(deck, operations, { baselines });
 
     expect(deck.slides[0].animations).toEqual(animations);
   });
@@ -1494,8 +1620,7 @@ describe("animation target validation", () => {
       },
     ];
 
-    for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+    applyAndValidate(deck, operations);
 
     expect(deck.slides[0].animations).toEqual(nextAnimations);
   });
@@ -1566,6 +1691,31 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  it("accepts null transition and reveals on add-slide and patch-slide alike", () => {
+    const nullable = { transition: null, animations: null };
+    expect(
+      OperationSchema.safeParse({
+        op: "add-slide",
+        slideId: "slide-2",
+        fields: { content: "<p>New</p>", ...nullable },
+      }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: nullable,
+      }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        op: "add-slide",
+        slideId: "slide-2",
+        fields: { content: "<p>New</p>", transition: "wipe" },
+      }).success,
+    ).toBe(false);
   });
 
   it("requires a content hash and content-only fields for styleOnly patches", () => {
@@ -1777,6 +1927,782 @@ describe("run() — asynchronous layout fit metadata", () => {
     };
   });
 
+  it.each([
+    { visibility: "public" },
+    { shareToken: "share-token" },
+    { designSystemId: "another-design-system" },
+    { generationContext: { prompt: "unrelated" } },
+  ])("rejects widget writes to unrelated deck metadata: %o", async (fields) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [{ op: "patch-deck-fields", fields }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("allows widget title and slide edits while preserving normal callers", async () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { op: "patch-deck-fields", fields: { title: "Updated" } },
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: {
+            content:
+              '<div class="fmd-slide"><h1 style="left: 24px; width: 280px; color: #123456">Updated</h1></div>',
+            background: "#101010",
+          },
+          baseContentHash: hashSlideContent("<div>One</div>"),
+          baseFields: { background: { present: false } },
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("frontend", [
+        { op: "patch-deck-fields", fields: { visibility: "public" } },
+      ]),
+    ).toBe(true);
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Updated" } },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "<div>Edited in widget</div>",
+              background: "#101010",
+            },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+            baseFields: { background: { present: false } },
+          },
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            afterSlideId: "slide-2",
+            fields: {
+              content: "<div>New widget slide</div>",
+              notes: "",
+              layout: "blank",
+              background: "#202020",
+              layoutWarningDismissed: false,
+            },
+          },
+          { op: "delete-slide", slideId: "slide-2" },
+          { op: "reorder-slides", orderedIds: ["slide-3", "slide-1"] },
+        ],
+      },
+      widgetWriteContext(),
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.title).toBe("Updated");
+    expect(savedDeck.slides).toMatchObject([
+      {
+        id: "slide-3",
+        content: "<div>New widget slide</div>",
+        layoutWarningDismissed: false,
+      },
+      {
+        id: "slide-1",
+        content: "<div>Edited in widget</div>",
+        background: "#101010",
+      },
+    ]);
+  });
+
+  it("allows widget tweaks only from the opened deck's preset", () => {
+    const tweakDefinitions = getPreset("light").tweaks;
+    const validOperation = {
+      op: "patch-deck-fields" as const,
+      fields: {
+        tweaks: { accentColor: "#2563EB", paperBackground: "white" },
+      },
+    };
+
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [validOperation], {
+        tweakDefinitions,
+      }),
+    ).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#00E5FF" } },
+          },
+        ],
+        { tweakDefinitions },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { customCss: "background: url(...)" } },
+          },
+        ],
+        { tweakDefinitions },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              title: "Updated",
+              tweaks: { accentColor: "#2563EB" },
+            },
+          },
+        ],
+        { tweakDefinitions },
+      ),
+    ).toBe(false);
+  });
+
+  it("persists a valid scoped widget tweak selection on its deck", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        designSystemId: "light",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#2563EB" } },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    );
+
+    expect(JSON.parse(String(mockDeckRow.data)).tweaks).toEqual({
+      accentColor: "#2563EB",
+    });
+  });
+
+  it("rejects a widget tweak value unavailable to the deck's preset", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        designSystemId: "light",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#00E5FF" } },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("allows widget background and slide-rail edits within the deck", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: {
+            content: "<div>Edited</div>",
+            background: "#000000",
+          },
+          baseContentHash: "source-hash",
+          baseFields: {
+            background: { present: true, value: "#ffffff" },
+          },
+        },
+        {
+          op: "add-slide",
+          slideId: "slide-3",
+          afterSlideId: "slide-2",
+          fields: {
+            content: "<div>New</div>",
+            notes: "",
+            layout: "blank",
+            background: "#000000",
+            layoutWarningDismissed: true,
+          },
+        },
+        { op: "delete-slide", slideId: "slide-2" },
+        { op: "reorder-slides", orderedIds: ["slide-3", "slide-1"] },
+      ]),
+    ).toBe(true);
+  });
+
+  it("denies unlisted passthrough fields on widget slide creation", () => {
+    const operation = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields: {
+        content: "<div>New</div>",
+        linkedResourceId: "design-system-1",
+      },
+    } as unknown as Operation;
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
+      false,
+    );
+  });
+
+  it("allows boolean overflow-warning state on copied widget slides", () => {
+    const addSlide = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields: {
+        content: "<div>New</div>",
+        layoutWarningDismissed: false,
+      },
+    } as unknown as Operation;
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [addSlide])).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          ...addSlide,
+          fields: {
+            content: "<div>New</div>",
+            layoutWarningDismissed: "false",
+          },
+        } as unknown as Operation,
+      ]),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["layoutFitRevision", "client-revision"],
+    ["imageLoading", true],
+    ["imagePrompt", "Generate a landscape"],
+  ])("rejects widget writes to internal slide field %s", (field, value) => {
+    const fields = { content: "<div>New</div>", [field]: value };
+    const addOperation = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields,
+    } as unknown as Operation;
+    const patchOperation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields,
+      baseContentHash: "source-hash",
+    } as unknown as Operation;
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [addOperation])).toBe(
+      false,
+    );
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [patchOperation])).toBe(
+      false,
+    );
+  });
+
+  it("allows only baseline-checked widget overflow-warning dismissal patches", async () => {
+    const dismissal: Operation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { layoutWarningDismissed: true },
+      baseFields: { layoutWarningDismissed: { present: false } },
+    };
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [dismissal])).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          ...dismissal,
+          fields: { layoutWarningDismissed: false },
+          baseFields: undefined,
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { ...dismissal, baseFields: undefined },
+      ]),
+    ).toBe(false);
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [dismissal],
+      },
+      widgetWriteContext(),
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.slides[0].layoutWarningDismissed).toBe(true);
+  });
+
+  it("restores a dismissed widget overflow warning from its exact baseline", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+    const restoration: Operation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { layoutWarningDismissed: false },
+      baseFields: { layoutWarningDismissed: { present: true, value: true } },
+    };
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [restoration])).toBe(
+      true,
+    );
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [restoration],
+      },
+      widgetWriteContext(),
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.slides[0].layoutWarningDismissed).toBe(false);
+  });
+
+  it("rejects a widget warning restoration with a stale baseline", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { layoutWarningDismissed: false },
+            baseFields: { layoutWarningDismissed: { present: false } },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ errorCode: "slide_field_stale" });
+    expect(
+      JSON.parse(String(mockDeckRow?.data)).slides[0].layoutWarningDismissed,
+    ).toBe(true);
+  });
+
+  it("rejects extra widget operation metadata", () => {
+    const operations = [
+      {
+        op: "patch-deck-fields",
+        fields: { title: "Updated" },
+        resourceId: "another-deck",
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "<div>Edited</div>" },
+        baseContentHash: "source-hash",
+        sourceImport: { sourceDeckId: "another-deck" },
+      },
+      {
+        op: "add-slide",
+        slideId: "slide-3",
+        fields: { content: "<div>New</div>" },
+        linkedResourceId: "design-system-1",
+      },
+      { op: "delete-slide", slideId: "slide-2", deckId: "another-deck" },
+      {
+        op: "reorder-slides",
+        orderedIds: ["slide-2", "slide-1"],
+        expectedUpdatedAt: "stale-revision",
+      },
+    ] as unknown as Operation[];
+
+    for (const operation of operations) {
+      expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
+        false,
+      );
+    }
+  });
+
+  it("requires exact snapshots and content hashes for widget slide patches", () => {
+    const operations = [
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { background: "#000000" },
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { background: "#000000" },
+        baseFields: {
+          background: { present: false },
+          notes: { present: false },
+        },
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "<div>Edited</div>" },
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { background: "#000000" },
+        baseContentHash: "source-hash",
+        baseFields: { background: { present: false } },
+      },
+    ] as unknown as Operation[];
+
+    for (const operation of operations) {
+      expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
+        false,
+      );
+    }
+  });
+
+  it("still denies source rewrites and creative-context metadata to widgets", () => {
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+        { rewriteSource: true },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+        { hasCreativeContext: true },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+        { requireAllSourceSlides: true },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Rewritten</div>" },
+          baseContentHash: "source-hash",
+          preserveSource: false,
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-deck-fields",
+          fields: { title: "Updated", visibility: "public" },
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("rejects widget content patches with extra stale-write metadata", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Changed</div>" },
+          baseContentHash: "source-hash",
+          baseFields: {},
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("renames through the widget but leaves deck access to the share actions", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { op: "patch-deck-fields", fields: { title: "Renamed" } },
+      ]),
+    ).toBe(true);
+    for (const fields of [{ visibility: "public" }, { shareToken: "token" }]) {
+      for (const options of [undefined, { tweakDefinitions: [] }]) {
+        expect(
+          isMcpWidgetPatchAllowed(
+            "mcp-widget-write",
+            [{ op: "patch-deck-fields", fields }],
+            options,
+          ),
+        ).toBe(false);
+      }
+    }
+  });
+
+  it.each([
+    ["source-import metadata", { rewriteSource: true }],
+    [
+      "creative-context metadata",
+      { creativeContext: { contextModeOverride: "off" } },
+    ],
+    ["source coverage metadata", { requireAllSourceSlides: true }],
+  ])("rejects widget writes to %s before writing", async (_name, extraArgs) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        ...extraArgs,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { title: "Updated" },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("requires a loaded deck revision for widget saves", async () => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_revision_required",
+      statusCode: 409,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it.each([
+    ["missing grant", { caller: "mcp-widget-write" }],
+    [
+      "wrong app",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "design",
+          resourceIds: { deckId: "deck-1" },
+          actionNames: ["patch-deck"],
+        },
+      }),
+    ],
+    [
+      "wrong deck",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-elsewhere" },
+          actionNames: ["patch-deck"],
+        },
+      }),
+    ],
+    [
+      "missing action",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-1" },
+          actionNames: [],
+        },
+      }),
+    ],
+  ])("fails closed for a widget patch with %s", async (_name, context) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      context,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects widget writes when stored slide IDs are not unique", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "duplicate-slide", content: "First" },
+        { id: "duplicate-slide", content: "Second" },
+      ],
+    });
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "duplicate_deck_slide_ids",
+      statusCode: 409,
+      details: { slideId: "duplicate-slide" },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale widget slide-rail writes", async () => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2025-12-31T23:59:59.000Z",
+        },
+        operations: [{ op: "delete-slide", slideId: "slide-2" }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ errorCode: "deck_revision_conflict" });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("keeps structural and metadata operations available to normal callers", () => {
+    const operations: Operation[] = [
+      { op: "delete-slide", slideId: "slide-1" },
+      {
+        op: "add-slide",
+        slideId: "slide-3",
+        fields: { content: "<div>New slide</div>" },
+      },
+      { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "Presenter notes" },
+      },
+      { op: "patch-deck-fields", fields: { visibility: "public" } },
+    ];
+
+    expect(isMcpWidgetPatchAllowed("frontend", operations)).toBe(true);
+    expect(isMcpWidgetPatchAllowed("tool", operations)).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("tool", operations, {
+        rewriteSource: true,
+        hasCreativeContext: true,
+      }),
+    ).toBe(true);
+  });
+
   it.each(["tool", "webmcp"] as const)(
     "rejects an agent add that would exceed the persisted target for %s callers",
     async (caller) => {
@@ -1805,20 +2731,358 @@ describe("run() — asynchronous layout fit metadata", () => {
         { caller },
       ).catch((caught: unknown) => caught);
 
-      expect(isAgentActionStopError(error)).toBe(true);
+      expect(isActionContractError(error)).toBe(true);
+      expect(isAgentActionStopError(error)).toBe(false);
       expect(error).toMatchObject({
-        name: "AgentActionStopError",
+        name: "ActionContractError",
         errorCode: "target_slide_count_reached",
+        statusCode: 409,
         details: {
           deckId: "deck-1",
           currentSlideCount: 8,
+          realSlideCount: 8,
           projectedSlideCount: 9,
           targetSlideCount: 8,
         },
+        message: expect.stringContaining("add-slide"),
       });
+      expect((error as Error).message).toContain(
+        "targetSlideCountOverride set to the new total of real slides",
+      );
       expect(lastUpdatedDeckData).toBeUndefined();
     },
   );
+
+  describe("blank placeholders and the persisted target", () => {
+    const blank = '<div class="fmd-slide"></div>';
+
+    function seedDeck(blankCount: number, realCount: number, target: number) {
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        generationContext: { targetSlideCount: target },
+        slides: [
+          ...Array.from({ length: blankCount }, (_, index) => ({
+            id: `blank-${index + 1}`,
+            content: blank,
+          })),
+          ...Array.from({ length: realCount }, (_, index) => ({
+            id: `real-${index + 1}`,
+            content: `<div>Real ${index + 1}</div>`,
+          })),
+        ],
+      });
+    }
+
+    const addSlide = (slideId: string) => ({
+      op: "add-slide",
+      slideId,
+      fields: { content: `<div>${slideId}</div>` },
+    });
+
+    it("does not count default blank slides toward the target", async () => {
+      seedDeck(10, 1, 11);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [addSlide("slide-new")],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(12);
+    });
+
+    it("counts blanks filled by the same patch and reports the real count", async () => {
+      seedDeck(3, 1, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            ...["blank-1", "blank-2"].map((slideId) => ({
+              op: "patch-slide",
+              slideId,
+              fields: { content: `<div>${slideId} filled</div>` },
+            })),
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          currentSlideCount: 4,
+          realSlideCount: 1,
+          projectedSlideCount: 4,
+          targetSlideCount: 3,
+        },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("frees room when the same patch turns a real slide blank", async () => {
+      seedDeck(0, 3, 3);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "real-1",
+              fields: { content: blank },
+            },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(4);
+    });
+
+    it("counts a blank slide that the same patch draws on", async () => {
+      seedDeck(1, 2, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "blank-1",
+              fields: {
+                excalidrawData: JSON.stringify({ elements: [{ id: "r-1" }] }),
+              },
+            },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: { realSlideCount: 2, projectedSlideCount: 4 },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("frees room when the same patch deletes a real slide", async () => {
+      seedDeck(0, 3, 3);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            { op: "delete-slide", slideId: "real-1" },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(3);
+    });
+
+    it("does not free room when the same patch deletes a blank slide", async () => {
+      seedDeck(1, 3, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            { op: "delete-slide", slideId: "blank-1" },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: { realSlideCount: 3, projectedSlideCount: 4 },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("does not count a blank slide the same patch adds", async () => {
+      seedDeck(0, 3, 3);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-new",
+              fields: { content: blank },
+            },
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(4);
+    });
+
+    it("tells the model how many more slides fit when the deck is under target", async () => {
+      seedDeck(0, 8, 10);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [1, 2, 3, 4, 5].map((n) => addSlide(`slide-new-${n}`)),
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          realSlideCount: 8,
+          projectedSlideCount: 13,
+          targetSlideCount: 10,
+        },
+      });
+      const { message } = error as Error;
+      expect(message).toContain("at most 2 more real slides in this patch");
+      expect(message).not.toContain("targetSlideCountOverride");
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("counts the slides the same patch fills when it says how many more fit", async () => {
+      seedDeck(2, 2, 5);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            ...["blank-1", "blank-2"].map((slideId) => ({
+              op: "patch-slide",
+              slideId,
+              fields: { content: `<div>${slideId} filled</div>` },
+            })),
+            addSlide("slide-new-1"),
+            addSlide("slide-new-2"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          realSlideCount: 2,
+          projectedSlideCount: 6,
+          targetSlideCount: 5,
+        },
+      });
+      const { message } = error as Error;
+      expect(message).toContain("at most 1 more real slides in this patch");
+      expect(message).not.toContain("at most 3");
+    });
+
+    it("asks for the patch without add-slide when its fills already reach the target", async () => {
+      seedDeck(2, 1, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            ...["blank-1", "blank-2"].map((slideId) => ({
+              op: "patch-slide",
+              slideId,
+              fields: { content: `<div>${slideId} filled</div>` },
+            })),
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      const { message } = error as Error;
+      expect(message).toContain("without its add-slide operations");
+      expect(message).toContain("3 of 3 real slides");
+      expect(message).not.toContain("at most");
+      expect(message).not.toContain("cannot change the target");
+    });
+
+    it("keeps the override guidance once the real slides reach the target", async () => {
+      seedDeck(0, 10, 10);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [addSlide("slide-new")],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      const { message } = error as Error;
+      expect(message).toContain("targetSlideCountOverride");
+      expect(message).not.toContain("at most");
+      expect(message).not.toContain("cannot change the target");
+    });
+
+    it.each([
+      [
+        "a batch without an add-slide operation",
+        { target: 3, caller: "tool", operation: "patch" },
+      ],
+      [
+        "a deck without a persisted target",
+        { target: null, caller: "tool", operation: "add" },
+      ],
+      ["an editor save", { target: 3, caller: "frontend", operation: "add" }],
+    ])("does not parse any slide for %s", async (_name, scenario) => {
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        ...(scenario.target === null
+          ? {}
+          : { generationContext: { targetSlideCount: scenario.target } }),
+        slides: [
+          { id: "real-1", content: "<div>Real 1</div>" },
+          { id: "real-2", content: "<div>Real 2</div>" },
+        ],
+      });
+      const operation =
+        scenario.operation === "add"
+          ? addSlide("slide-new")
+          : {
+              op: "patch-slide",
+              slideId: "real-1",
+              fields: { notes: "Presenter notes" },
+            };
+      realSlideChecks.count = 0;
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [operation],
+        },
+        { caller: scenario.caller },
+      );
+
+      expect(lastUpdatedDeckData).toBeDefined();
+      expect(realSlideChecks.count).toBe(0);
+    });
+  });
 
   it("requires a source hash for every agent slide content replacement", async () => {
     const error = await patchDeckAction
@@ -1896,6 +3160,72 @@ describe("run() — asynchronous layout fit metadata", () => {
       statusCode: 409,
     });
     expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("reports hygiene warnings for agent patches, only for slides it changed", async () => {
+    const stale = "<div><svg></svg><p>One</p></div>";
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: stale },
+        { id: "slide-2", content: "<div>Two</div>" },
+      ],
+    });
+
+    const result = (await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div><svg></svg><p>One!</p></div>" },
+            baseContentHash: hashSlideContent(stale),
+          },
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            fields: {
+              content: "<div><footer>03 / 12</footer><svg></svg></div>",
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    // slide-1 kept the svg it already had; only the new slide is blamed.
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        count: 1,
+        slideIds: ["slide-3"],
+      }),
+      expect.objectContaining({ code: "typed-page-number" }),
+    ]);
+    expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(3);
+  });
+
+  it("leaves the editor's patch result free of hygiene warnings", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+    });
+
+    const result = await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div><svg></svg></div>" },
+        },
+      ],
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
   });
 
   it("keeps reveal metadata when patch-deck applies a styleOnly batch", async () => {
@@ -2738,7 +4068,7 @@ describe("run() — no-op content patches leave the slide alone", () => {
     expect(persisted.slides[0].content).toBe("<div>One</div>");
   });
 
-  it("drops reveals on a slide whose content really changed", async () => {
+  it("keeps a reveal that still resolves after the slide's content really changed", async () => {
     await runPatchDeckAction(
       {
         deckId: "deck-1",
@@ -2755,7 +4085,260 @@ describe("run() — no-op content patches leave the slide alone", () => {
     );
 
     const persisted = JSON.parse(lastUpdatedDeckData!);
-    expect(persisted.slides[0].animations).toBeUndefined();
+    expect(persisted.slides[0].content).toBe("<div>One restyled</div>");
+    expect(persisted.slides[0].animations).toHaveLength(1);
+  });
+});
+
+describe("run() — reveals through an agent content patch", () => {
+  const revealedContent =
+    '<div class="fmd-slide"><div><h2>Title</h2></div><div><p>Body</p></div></div>';
+  const reveal = {
+    id: "reveal-title",
+    elementIndex: 0,
+    elementPath: [0, 0],
+    type: "fade",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: revealedContent, animations: [reveal] },
+        ],
+      }),
+    };
+  });
+
+  it("keeps the stored reveals when a content patch omits animations", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content:
+                '<div class="fmd-slide"><div><h2>New title</h2></div><div><p>Body</p></div></div>',
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].animations).toEqual([
+      reveal,
+    ]);
+  });
+
+  it("refuses a content patch that strands a stored reveal, with a typed error and no write", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                content: '<div class="fmd-slide"><div>New</div></div>',
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationId: "reveal-title",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("refuses a content patch that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+          animations: [
+            {
+              id: "reveal-two",
+              elementIndex: 1,
+              elementPath: [1, 1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                content:
+                  '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "slide-1",
+        animationIndex: 0,
+        animationId: "reveal-two",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("clears the stored reveals when the patch sends animations: []", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: '<div class="fmd-slide"><div>New</div></div>',
+              animations: [],
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].animations).toEqual([]);
+  });
+});
+
+describe("run() — partial repair of a stored reveal list", () => {
+  const twoStale = '<div class="fmd-slide"><div><p>Body</p></div></div>';
+  const ok = {
+    id: "ok",
+    elementIndex: 0,
+    elementPath: [0, 0],
+    type: "fade",
+  };
+  const staleA = {
+    id: "gone-a",
+    elementIndex: 0,
+    elementPath: [9],
+    type: "fade",
+  };
+  const staleB = {
+    id: "gone-b",
+    elementIndex: 0,
+    elementPath: [8],
+    type: "fade",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: twoStale,
+            animations: [ok, staleA, staleB],
+          },
+        ],
+      }),
+    };
+  });
+
+  it("saves removing one stored unresolved reveal while another stays unresolved", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { animations: [ok, staleB] },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides[0].animations.map(
+        (animation: { id: string }) => animation.id,
+      ),
+    ).toEqual(["ok", "gone-b"]);
+  });
+
+  it("refuses a new unresolved reveal even while stored unresolved reveals remain", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                animations: [
+                  ok,
+                  staleA,
+                  staleB,
+                  {
+                    id: "new",
+                    elementIndex: 0,
+                    elementPath: [7],
+                    type: "fade",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      details: { animationId: "new" },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
   });
 });
 
@@ -2920,6 +4503,169 @@ describe("run() — reveals survive a non-content field change", () => {
     const persisted = JSON.parse(lastUpdatedDeckData!);
     expect(persisted.slides[0].animations).toHaveLength(1);
     expect(persisted.slides[0].notes).toBe("new");
+  });
+});
+
+describe("run() — refused reveal writes return typed 400s", () => {
+  const content = '<div class="fmd-slide"><h1>One</h1><p>Two</p></div>';
+  const reveal = (overrides: Record<string, unknown> = {}) => ({
+    id: "reveal-one",
+    elementIndex: 0,
+    elementPath: [0],
+    type: "fade",
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content, animations: [reveal()] }],
+      }),
+    };
+  });
+
+  const refusedAnimations = (animations: unknown[], caller = "tool") =>
+    runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { animations },
+          },
+        ],
+      },
+      { caller },
+    );
+
+  it("returns slide_animation_stale_path with the reveal id and no write", async () => {
+    await expect(
+      refusedAnimations([reveal({ id: "gone", elementPath: [9, 9] })]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationIndex: 0,
+        animationId: "gone",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("returns slide_animation_missing_element when the slide has no .fmd-slide root", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [{ id: "slide-1", content: "<div>Loose</div>" }],
+    });
+    await expect(refusedAnimations([reveal()])).rejects.toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      statusCode: 400,
+      details: { reason: "missing-element", slideId: "slide-1" },
+    });
+  });
+
+  it("returns slide_animation_element_path_required for an agent's elementIndex-only reveal", async () => {
+    await expect(
+      refusedAnimations([{ id: "legacy", elementIndex: 0, type: "fade" }]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_element_path_required",
+      statusCode: 400,
+      details: { reason: "element-path-required", animationId: "legacy" },
+    });
+  });
+
+  it("returns slide_animation_duplicate_after_expansion when a paragraph step hides an earlier reveal's box", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><div class="text"><p>A</p><p>B</p></div></div>',
+          animations: [],
+        },
+      ],
+    });
+    await expect(
+      refusedAnimations([
+        reveal({ id: "box", elementPath: [0] }),
+        reveal({ id: "paras", elementPath: [0], byParagraph: true }),
+      ]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_duplicate_after_expansion",
+      statusCode: 400,
+      details: { reason: "duplicate-after-expansion", animationId: "paras" },
+    });
+  });
+
+  it("rejects a repeated reveal id with slide_animation_duplicate_id", async () => {
+    await expect(
+      refusedAnimations([
+        reveal({ id: "same", elementPath: [0] }),
+        reveal({ id: "same", elementPath: [1] }),
+      ]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_duplicate_id",
+      statusCode: 400,
+      details: {
+        reason: "duplicate-id",
+        animationIndex: 1,
+        animationId: "same",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("validates add-slide reveals with the same resolver", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: {
+                content: '<div class="fmd-slide"><h1>New</h1></div>',
+                animations: [reveal({ id: "new-reveal", elementPath: [7] })],
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: { slideId: "slide-2", animationId: "new-reveal" },
+    });
+  });
+
+  it("rejects an unknown reveal type on add-slide at schema parse, like patch-slide", () => {
+    const operation = (animations: unknown[]) => ({
+      op: "add-slide",
+      slideId: "slide-2",
+      fields: { content, animations },
+    });
+    expect(
+      OperationSchema.safeParse(operation([reveal({ type: "wipe" })])).success,
+    ).toBe(false);
+    expect(
+      OperationSchema.safeParse(operation([reveal({ type: "zoom" })])).success,
+    ).toBe(true);
   });
 });
 
@@ -3980,5 +5726,277 @@ describe("run() — deck history", () => {
       chatContext: { runId: "run-1", turnId: "turn-1" },
     });
     expect(JSON.parse(mockDeckRow!.data as string).slides).toHaveLength(6);
+  });
+});
+
+describe("run() — tracking", () => {
+  const ctx = { caller: "frontend" } as never;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextDeckWriteMiss = undefined;
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        generationContext: { generationAttemptId: "attempt-1" },
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  function trackedNames() {
+    return mockTrack.mock.calls.map(([name]) => name);
+  }
+
+  it("emits deck_edited once for a slide content patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_edited"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      caller: "frontend",
+      output_id: "deck-1",
+      edit_mode: "patch_deck",
+      change_kinds: ["content", "reorder"],
+      slides_changed: 2,
+      slide_count: 2,
+      generation_attempt_id: "attempt-1",
+    });
+  });
+
+  it("emits nothing for a title-only patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Renamed deck" } },
+        ],
+      },
+      ctx,
+    );
+
+    expect(lastUpdatedDeckData).toBeDefined();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("emits deck_creation_started when a new generation attempt is persisted", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              generationContext: {
+                originalPrompt: "Board update",
+                files: [],
+                mode: "new",
+                generationAttemptId: "attempt-2",
+              },
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_creation_started"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-2",
+      is_retry: true,
+    });
+  });
+});
+
+describe("run() — slide transition writes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: '<div class="fmd-slide"><h1>One</h1></div>',
+          },
+          {
+            id: "slide-2",
+            content: '<div class="fmd-slide"><h1>Two</h1></div>',
+          },
+        ],
+      }),
+    };
+  });
+
+  it("stores the canonical transition and the speed for a legacy input", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { transition: "slide", transitionSpeed: 30 },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[1]).toMatchObject({
+      transition: "slide-from-right",
+      transitionSpeed: 30,
+    });
+  });
+
+  it.each([50, -1, 2.5])(
+    "rejects transitionSpeed %s before anything is written",
+    async (transitionSpeed) => {
+      await expect(
+        runPatchDeckAction(
+          {
+            deckId: "deck-1",
+            operations: [
+              {
+                op: "patch-slide",
+                slideId: "slide-2",
+                fields: { transitionSpeed },
+              },
+            ],
+          },
+          { caller: "tool" },
+        ),
+      ).rejects.toThrow(/transitionSpeed/);
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
+  // The editor snapshots null for a field get-deck reads as absent, so these
+  // writes send {present:true,value:null} rather than {present:false}.
+  function storeSlideOneFields(fields: Record<string, unknown>) {
+    const deck = JSON.parse(String(mockDeckRow!.data));
+    deck.slides[0] = { ...deck.slides[0], ...fields };
+    mockDeckRow = { ...mockDeckRow, data: JSON.stringify(deck) };
+  }
+
+  function writeSlideOneFields(
+    fields: Record<string, unknown>,
+    baseFields: Record<string, unknown>,
+  ) {
+    return runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          { op: "patch-slide", slideId: "slide-1", fields, baseFields },
+        ],
+      },
+      {},
+    );
+  }
+
+  it("saves a transition on a slide with no stored transition", async () => {
+    await writeSlideOneFields(
+      { transition: "dissolve" },
+      { transition: { present: true, value: null } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].transition).toBe(
+      "dissolve",
+    );
+  });
+
+  it("saves a speed on a slide with no stored speed", async () => {
+    await writeSlideOneFields(
+      { transitionSpeed: 30 },
+      { transitionSpeed: { present: true, value: null } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].transitionSpeed).toBe(30);
+  });
+
+  it("clears a stored speed with null", async () => {
+    storeSlideOneFields({ transitionSpeed: 30 });
+    await writeSlideOneFields(
+      { transitionSpeed: null },
+      { transitionSpeed: { present: true, value: 30 } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0]).not.toHaveProperty(
+      "transitionSpeed",
+    );
+  });
+
+  it.each([
+    {
+      field: "transition",
+      stored: { transition: "fade" },
+      fields: { transition: "dissolve" },
+      baseFields: { transition: { present: true, value: null } },
+    },
+    {
+      field: "transitionSpeed",
+      stored: { transitionSpeed: 20 },
+      fields: { transitionSpeed: 30 },
+      baseFields: { transitionSpeed: { present: true, value: null } },
+    },
+  ])(
+    "still rejects a stale $field snapshot",
+    async ({ field, stored, fields, baseFields }) => {
+      storeSlideOneFields(stored);
+      await expect(
+        writeSlideOneFields(fields, baseFields),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "slide_field_stale",
+        details: { slideId: "slide-1", field },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
+  it("lets a widget write the transition together with its speed", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { transition: "fade", transitionSpeed: 30 },
+          baseFields: {
+            transition: { present: false },
+            transitionSpeed: { present: false },
+          },
+        },
+      ]),
+    ).toBe(true);
   });
 });

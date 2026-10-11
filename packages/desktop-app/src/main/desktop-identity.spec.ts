@@ -401,6 +401,131 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).toHaveBeenCalledOnce();
   });
 
+  it("starts email verification recovery after an unverified signup", async () => {
+    const authority = authorityFixture();
+    const externalAuthentication = deferred<boolean>();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/register")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/_agent-native/auth/login")) {
+        return new Response(JSON.stringify({ error: "Email not verified" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/_agent-native/auth/magic-link")) {
+        return new Response(
+          JSON.stringify({ flowId: "flow_123", verifier: "verifier_123" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      throw new Error(`Unexpected identity request: ${url}`);
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    const finishExternalAuthentication = vi
+      .spyOn(
+        broker as unknown as {
+          finishExternalAuthentication: (...args: never[]) => Promise<boolean>;
+        },
+        "finishExternalAuthentication",
+      )
+      .mockReturnValue(externalAuthentication.promise);
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-up",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "Account created. Check your email to verify it, then sign in.",
+    });
+
+    expect(identityFetch).toHaveBeenCalledTimes(3);
+    expect(identityFetch).toHaveBeenNthCalledWith(
+      3,
+      `${authority.origin}/_agent-native/auth/magic-link`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          email: "steve@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      }),
+    );
+    expect(finishExternalAuthentication).toHaveBeenCalledWith(
+      authority,
+      "flow_123",
+      "verifier_123",
+      expect.any(Number),
+    );
+    expect(broker.getStatus()).toBe("signing-in");
+
+    externalAuthentication.resolve(true);
+    await externalAuthentication.promise;
+  });
+
+  it("does not use email verification recovery for other signup 403s", async () => {
+    const authority = authorityFixture();
+    const identityFetch = vi.fn(async (url: string) => {
+      if (url.endsWith("/_agent-native/auth/register")) {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.endsWith("/_agent-native/auth/login")) {
+        return new Response(
+          JSON.stringify({ error: "Google sign-in is required." }),
+          {
+            status: 403,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      throw new Error(`Unexpected identity request: ${url}`);
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(
+      broker.authenticateWithPassword({
+        mode: "sign-up",
+        email: "steve@example.com",
+        password: "not-logged-or-stored",
+      }),
+    ).resolves.toEqual({ ok: false, error: "Google sign-in is required." });
+    expect(identityFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("times out while reading a stalled magic-link response body", async () => {
     vi.useFakeTimers();
     try {

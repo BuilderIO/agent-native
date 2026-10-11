@@ -16,7 +16,7 @@ const PNG_FIXTURE = path.resolve(
 );
 const SVG_FIXTURE = path.resolve(
   import.meta.dirname,
-  "fixtures/sonora-play-button.svg",
+  "fixtures/play-button-icon.svg",
 );
 const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <main data-agent-native-node-id="upload-root" data-agent-native-layer-name="Root" style="position:relative;width:640px;height:480px">
@@ -351,7 +351,7 @@ async function uploadBeforePickerCloses(
     const responseBody = await response.text();
     expect(response.status(), responseBody).toBe(200);
     const payload = JSON.parse(responseBody) as { url?: string };
-    expect(payload.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(payload.url).toMatch(/^\/api\/qa-import-assets\//);
     await assertImageSavedAndRendered(
       page,
       designId,
@@ -471,7 +471,7 @@ async function uploadAfterPickerCloses(
     const clientBody = await clientResponse.text();
     expect(clientResponse.status(), clientBody).toBe(200);
     const clientPayload = JSON.parse(clientBody) as { url?: string };
-    expect(clientPayload.url).toMatch(/^\/api\/qa-figma-import-assets\//);
+    expect(clientPayload.url).toMatch(/^\/api\/qa-import-assets\//);
     expect(uploadPayload?.url).toBe(clientPayload.url);
     await assertImageSavedAndRendered(
       page,

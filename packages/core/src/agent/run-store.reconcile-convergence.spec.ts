@@ -98,4 +98,23 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
     expect(run?.status).toBe("errored");
     expect(client.execute.mock.calls.length - before).toBeLessThan(12);
   });
+
+  it("selects the newest continuation when runs share a start time", async () => {
+    const threadId = "thread-same-start-time";
+    const turnId = "turn-same-start-time";
+    await insertRun("run-first-continuation", threadId, turnId);
+    await insertRun("run-latest-continuation", threadId, turnId);
+    await (
+      await pglite.prepare(
+        "UPDATE agent_runs SET started_at = ? WHERE thread_id = ?",
+      )
+    ).run(1, threadId);
+
+    const run = await getRunByThread(threadId, {
+      includeTerminal: true,
+      turnId,
+    });
+
+    expect(run?.id).toBe("run-latest-continuation");
+  });
 });

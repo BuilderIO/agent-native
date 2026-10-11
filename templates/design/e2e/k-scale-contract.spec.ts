@@ -132,7 +132,9 @@ async function enterFocusedEditMode(page: Page) {
     .locator('button[title="index.html"]');
   await home.click();
   await expect(home).toHaveAttribute("aria-current", "page");
-  await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="edit"]')
+    .press("Enter");
   await expect(
     page
       .locator("iframe[data-design-preview-iframe]")

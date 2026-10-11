@@ -162,7 +162,7 @@ test("a wheel burst over screen content does not log a scroll Intervention", asy
   const interventions: string[] = [];
   page.on("console", (message) => {
     const text = message.text();
-    if (/intervention/i.test(text)) interventions.push(text);
+    if (text.toLowerCase().includes("intervention")) interventions.push(text);
   });
   try {
     await openOverview(page, designId);
@@ -175,6 +175,34 @@ test("a wheel burst over screen content does not log a scroll Intervention", asy
     await page.waitForTimeout(600);
 
     expect(interventions).toEqual([]);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("the zoom percentage input updates the overview canvas scale", async ({
+  page,
+  request,
+}) => {
+  const { designId } = await createDesign(request);
+  try {
+    await openOverview(page, designId);
+    const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomControl.click();
+    const zoomInput = page.getByRole("textbox", { name: "Zoom percentage" });
+    await zoomInput.fill("25%");
+    await zoomInput.press("Enter");
+    await expect(zoomControl).toHaveText("25%");
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("zoom"))
+      .toBe("25");
+
+    await expect
+      .poll(async () => {
+        const scale = await worldScale(page);
+        return scale !== null && Math.abs(scale - 0.25) <= 0.005;
+      })
+      .toBe(true);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

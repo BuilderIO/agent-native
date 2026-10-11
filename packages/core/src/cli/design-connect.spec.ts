@@ -23,6 +23,7 @@ import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
   deriveDesignPreviewAttestationSignature,
+  deriveDesignScopedReadOnlyPreviewToken,
   deriveDesignScopedLiveEditCapability,
   deriveDesignScopedLiveEditRegistrationCapability,
   parseDesignConnectArgs,
@@ -3495,7 +3496,7 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
-  it("carries the preview token from Vite HMR updates into module requests", async () => {
+  it("carries a public design-scoped preview token from Vite HMR updates into module requests", async () => {
     const root = tmpDir();
     const devPort = await freePort();
     const port = await freePort();
@@ -3542,13 +3543,17 @@ describe("design connect bridge endpoints", () => {
       port,
     });
     const bridge = await startDesignConnectBridge(manifest);
+    const publicPreviewToken = deriveDesignScopedReadOnlyPreviewToken(
+      bridge.bridgeToken,
+      "design-one",
+    );
     let client: WebSocket | null = null;
     let rawServerClose: Promise<void> | null = null;
     let socketCloseTimeout: NodeJS.Timeout | undefined;
     try {
       const bridgeOrigin = `http://127.0.0.1:${port}`;
       client = new WebSocket(
-        `${bridgeOrigin}/@vite/client?previewToken=${bridge.previewToken}`,
+        `${bridgeOrigin}/@vite/client?previewToken=${publicPreviewToken}`,
         "vite-hmr",
         { origin: "null" },
       );
@@ -3575,8 +3580,9 @@ describe("design connect bridge endpoints", () => {
       );
       expect(moduleUpdate?.acceptedPath).toBe(moduleUpdate?.path);
       expect(moduleUpdate?.timestamp).toBe(
-        `123&previewToken=${bridge.previewToken}`,
+        `123&previewToken=${publicPreviewToken}`,
       );
+      expect(moduleUpdate?.timestamp).not.toContain(bridge.previewToken);
       expect(upstreamRequests).toEqual([]);
 
       const module = await getText(
@@ -3953,6 +3959,146 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+    }
+  });
+
+  it("limits public design preview tokens to reads and their registered design", async () => {
+    const root = tmpDir();
+    let upstreamMutationCount = 0;
+    let upstreamUpgradeCount = 0;
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/public-document") {
+        res
+          .writeHead(200, { "content-type": "text/html" })
+          .end(
+            '<html><head></head><body><script src="/app.js"></script></body></html>',
+          );
+        return;
+      }
+      if (req.method !== "GET") upstreamMutationCount += 1;
+      res.setHeader("content-type", "text/plain");
+      res.end(req.method === "GET" ? "preview" : "mutated");
+    });
+    devServer.on("upgrade", () => {
+      upstreamUpgradeCount += 1;
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const publicPreviewToken = deriveDesignScopedReadOnlyPreviewToken(
+      bridge.bridgeToken,
+      "design-one",
+    );
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const preview = await getText(
+        `${base}/screen?previewToken=${encodeURIComponent(publicPreviewToken)}`,
+      );
+      expect(preview.status).toBe(200);
+      expect(preview.body).toBe("preview");
+
+      const publicDocument = await getText(
+        `${base}/public-document?previewToken=${encodeURIComponent(publicPreviewToken)}`,
+        { "sec-fetch-dest": "document" },
+      );
+      expect(publicDocument.status).toBe(200);
+      expect(publicDocument.body).toContain(publicPreviewToken);
+      expect(publicDocument.body).not.toContain(bridge.previewToken);
+
+      const mutation = await postJson(
+        `${base}/mutate`,
+        { value: "no" },
+        { "x-design-preview-token": publicPreviewToken },
+      );
+      expect(mutation.status).toBe(403);
+      expect(upstreamMutationCount).toBe(0);
+
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+          bridgeKey: "public-preview",
+          designId: "design-one",
+        },
+        {
+          "x-design-preview-token": publicPreviewToken,
+          "x-agent-native-live-edit-registration-capability":
+            deriveDesignScopedLiveEditRegistrationCapability(
+              bridge.bridgeToken,
+              "design-one",
+            ),
+        },
+      );
+      expect(registration.status).toBe(200);
+
+      const wrongDesignRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+          bridgeKey: "other-design-preview",
+          designId: "design-two",
+        },
+        {
+          "x-design-preview-token": publicPreviewToken,
+          "x-agent-native-live-edit-registration-capability":
+            deriveDesignScopedLiveEditRegistrationCapability(
+              bridge.bridgeToken,
+              "design-two",
+            ),
+        },
+      );
+      expect(wrongDesignRegistration.status).toBe(403);
+
+      const nonHmrUpgradeResponse = await new Promise<string>(
+        (resolve, reject) => {
+          const socket = net.connect(port, "127.0.0.1", () => {
+            socket.write(
+              [
+                `GET /socket?previewToken=${encodeURIComponent(publicPreviewToken)} HTTP/1.1`,
+                `Host: 127.0.0.1:${port}`,
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Version: 13",
+                "",
+                "",
+              ].join("\r\n"),
+            );
+          });
+          const timeout = setTimeout(() => {
+            socket.destroy();
+            reject(new Error("non-HMR WebSocket upgrade did not finish"));
+          }, 2_000);
+          socket.once("data", (data) => {
+            clearTimeout(timeout);
+            resolve(data.toString("utf8"));
+            socket.destroy();
+          });
+          socket.once("error", (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+        },
+      );
+      expect(nonHmrUpgradeResponse).toMatch(/^HTTP\/1\.1 403 Forbidden/);
+      expect(upstreamUpgradeCount).toBe(0);
+    } finally {
+      await Promise.all([
+        new Promise<void>((resolve) => bridge.server.close(() => resolve())),
+        new Promise<void>((resolve) => devServer.close(() => resolve())),
+      ]);
     }
   });
 

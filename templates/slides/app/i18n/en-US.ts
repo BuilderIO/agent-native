@@ -126,7 +126,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth is not configured for this deployment.",
     googlePickerNeedsKeys:
-      "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
+      "Google Drive file browsing isn't configured. You can still import a document by pasting its link.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
       "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
@@ -240,6 +240,7 @@ const messages = {
     importCompleteFile: "File imported from {{fileName}}.",
     backToDecks: "Back to decks",
     toggleSlideList: "Toggle slide list",
+    openInAgentNative: "Open in Agent-Native",
     designSystem: "Design system",
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
@@ -254,6 +255,16 @@ const messages = {
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
     imageOptions: "Image options",
+    videoPlayback: "Video playback",
+    autoplayVideo: "Autoplay",
+    loopVideo: "Loop video",
+    videoUploading: "Uploading video…",
+    videoAdded: "Video added",
+    videoUploadFailed: "Video upload failed",
+    videoUploadError: "Could not upload this video.",
+    videoFormatUnsupported: "Only MP4 and WebM videos are supported.",
+    videoTooLarge: "Videos must be 50 MB or smaller.",
+    videoUploadNeedsBuilder: "Video storage is not configured.",
     cropImage: "Crop image",
     cropHandle: "Crop image {{position}}",
     diagrams: "Diagrams",
@@ -264,10 +275,21 @@ const messages = {
     convertMermaidFailed: "Failed to convert diagram",
     removeExcalidrawCanvas: "Remove Excalidraw Canvas",
     transition: "Transition",
-    transition_instant: "Instant",
+    transition_none: "None",
+    transition_dissolve: "Dissolve",
     transition_fade: "Fade",
-    transition_slide: "Slide",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Slide from right",
+    transition_slide_from_left: "Slide from left",
+    transition_flip: "Flip",
+    transition_cube: "Cube",
+    transition_gallery: "Gallery",
+    transition_panel: "Slide transition",
+    transition_speed: "Speed",
+    transition_slow: "Slow",
+    transition_fast: "Fast",
+    transition_seconds: "{{seconds}} s",
+    transition_apply_all: "Apply to all slides",
+    transition_play: "Play transition",
     aspectRatio: "Aspect Ratio",
     setAspectRatio: "Set deck to {{ratio}}",
     slideTools: "Slide tools",
@@ -306,6 +328,9 @@ const messages = {
     conflictStatus: "Text conflict",
     conflictStatusDescription:
       "Review the conflicting text before saving more changes.",
+    accessLost: "Access lost",
+    accessLostDescription:
+      "Your access to this deck changed. Your edits stay on screen; retry once access is restored, or download a backup.",
     reviewConflict: "Review conflict",
     conflictTitle: "Slide {{number}} has a text conflict",
     conflictDescription:
@@ -353,6 +378,7 @@ const messages = {
     googleSlidesCreated: "Exported to Google Slides",
     googleSlidesCreatedHint:
       "A copy of this deck was created in your Google Drive.",
+    googleSlidesGoTo: "Go to Google Slides",
     duplicateDeck: "Duplicate deck",
   },
   share: {
@@ -578,7 +604,6 @@ const messages = {
     selectObject: "Select an object to animate",
     addTransition: "Add transition",
     effect: "Effect",
-    trigger: "Trigger",
     onClick: "On click",
     byParagraph: "By paragraph",
     expand: "Expand transition",
@@ -589,6 +614,11 @@ const messages = {
     clearAll: "Clear all",
     elements: "Elements",
     autoFill: "Auto-fill",
+    issueStalePath: "This object is no longer on the slide.",
+    issueMissingElement: "This object could not be found on the slide.",
+    issueDuplicate: "This reveal overlaps another reveal on the slide.",
+    blocked: "Remove or fix the unresolved reveal to save or play.",
+    changeNotApplied: "This change was not applied.",
     noAnimatableElements: "No animatable elements detected on this slide.",
   },
   generateSlides: {
@@ -764,6 +794,10 @@ const messages = {
     exportFailed: "Export failed",
     agentRunFailed:
       "The agent run failed before creating any slides. Check the chat for details, then try again.",
+    generationFailed:
+      "Slides weren't created. Check the chat for details, then try again.",
+    generationOutcomeUnresolved:
+      "We couldn't confirm whether slides were created. Check the deck or chat, then try again.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",

@@ -18,7 +18,6 @@ import {
   watchChatRequests,
 } from "../lib/chat";
 import { authenticatedEntryPath, chatSites, originFor } from "../lib/fleet";
-import { quarantineChatHostSpend } from "../lib/quarantine";
 
 skipUnlessAuthed();
 
@@ -76,7 +75,6 @@ for (const site of sites) {
     test("completes and restores a turn on luna without an error state", async ({
       browser,
     }) => {
-      quarantineChatHostSpend(site.id);
       const context = await signedInContext(browser, site);
       try {
         await assertSignedInOnBeta(context, site);
@@ -163,7 +161,6 @@ for (const site of sites) {
     });
 
     test("clears the stop button when a turn ends", async ({ browser }) => {
-      quarantineChatHostSpend(site.id);
       const context = await signedInContext(browser, site);
       try {
         const page = await context.newPage();

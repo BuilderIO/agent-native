@@ -453,7 +453,7 @@ describe("NewWorkspaceAppFlow", () => {
     });
     expect(builderConnectFlowState.start).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("Create and activate");
-    expect(document.body.textContent).toContain("I have a Builder.io account");
+    expect(document.body.textContent).toContain("Use Builder.io");
 
     const activateButton = findButton(document.body, "Create and activate");
     act(() => {

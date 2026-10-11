@@ -47,9 +47,11 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 export const DEV_ACTION_ROUTE = "/_agent-native/dev/action";
 export const DEV_DB_QUERY_ROUTE = "/_agent-native/dev/db-query";
+export const DEV_DB_MIGRATE_ROUTE = "/_agent-native/dev/db-migrate";
 export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
@@ -297,7 +299,12 @@ export function mountDevActionForwardRoute(
         (await resolveDevUserEmail());
       const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
 
-      return runWithRequestContext({ userEmail, orgId }, async () => {
+      const context = {
+        userEmail,
+        orgId,
+        requestOrigin: getForwardedRequestOrigin(event),
+      };
+      return runWithRequestContext(context, async () => {
         try {
           const ctx: ActionRunContext = {
             userEmail: getRequestUserEmail(),
@@ -325,32 +332,40 @@ export function mountDevActionForwardRoute(
   );
 }
 
+async function rejectNonDevRequest(
+  event: H3Event,
+): Promise<{ ok: false; error: string } | null> {
+  const { isLoopbackRequest } = await import("./auth.js");
+  if (resolveDeployEnvironment() === "production") {
+    setResponseStatus(event, 401);
+    return { ok: false, error: "Not available outside local development." };
+  }
+  if (!isLoopbackRequest(event)) {
+    setResponseStatus(event, 401);
+    return {
+      ok: false,
+      error: "This endpoint only accepts loopback requests.",
+    };
+  }
+  const expectedToken = resolveExpectedDevActionToken();
+  const providedToken = getHeader(event, DEV_ACTION_TOKEN_HEADER);
+  if (
+    !expectedToken ||
+    !providedToken ||
+    !timingSafeTokenEqual(providedToken, expectedToken)
+  ) {
+    setResponseStatus(event, 401);
+    return { ok: false, error: "Invalid or missing dev token." };
+  }
+  return null;
+}
+
 export function mountDevDbQueryForwardRoute(nitroApp: any): void {
   getH3App(nitroApp).use(
     DEV_DB_QUERY_ROUTE,
     defineEventHandler(async (event: H3Event) => {
-      const { isLoopbackRequest } = await import("./auth.js");
-      if (resolveDeployEnvironment() === "production") {
-        setResponseStatus(event, 401);
-        return { ok: false, error: "Not available outside local development." };
-      }
-      if (!isLoopbackRequest(event)) {
-        setResponseStatus(event, 401);
-        return {
-          ok: false,
-          error: "This endpoint only accepts loopback requests.",
-        };
-      }
-      const expectedToken = resolveExpectedDevActionToken();
-      const providedToken = getHeader(event, DEV_ACTION_TOKEN_HEADER);
-      if (
-        !expectedToken ||
-        !providedToken ||
-        !timingSafeTokenEqual(providedToken, expectedToken)
-      ) {
-        setResponseStatus(event, 401);
-        return { ok: false, error: "Invalid or missing dev token." };
-      }
+      const rejection = await rejectNonDevRequest(event);
+      if (rejection) return rejection;
 
       // coercion-ok: an unparseable body isn't distinguished from a
       // well-formed one missing `sql` — both fail the same explicit
@@ -383,6 +398,87 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
           return { ok: false, error: error?.message ?? String(error) };
         }
       });
+    }),
+  );
+}
+
+async function importDevMigrationModule(specifier: string): Promise<any> {
+  // Static adapter imports pull the local PGlite runtime into hosted bundles.
+  return import(/* @vite-ignore */ specifier);
+}
+
+export function mountDevDbMigrateForwardRoute(nitroApp: any): void {
+  getH3App(nitroApp).use(
+    DEV_DB_MIGRATE_ROUTE,
+    defineEventHandler(async (event: H3Event) => {
+      const rejection = await rejectNonDevRequest(event);
+      if (rejection) return rejection;
+
+      // coercion-ok: an unparseable body isn't distinguished from a
+      // well-formed one missing `migrationsFolder` — both fail the same
+      // explicit check right below with a 500.
+      const body = (await readBody(event).catch(() => null)) as {
+        migrationsFolder?: unknown;
+        migrationsTable?: unknown;
+        migrationsSchema?: unknown;
+      } | null;
+      if (
+        typeof body?.migrationsFolder !== "string" ||
+        !body.migrationsFolder
+      ) {
+        setResponseStatus(event, 500);
+        return {
+          ok: false,
+          error: "Request body must include migrationsFolder.",
+        };
+      }
+      const appRoot = process.cwd();
+      const migrationsFolder = path.resolve(appRoot, body.migrationsFolder);
+      const relative = path.relative(appRoot, migrationsFolder);
+      if (
+        relative === ".." ||
+        relative.startsWith(".." + path.sep) ||
+        path.isAbsolute(relative)
+      ) {
+        setResponseStatus(event, 500);
+        return {
+          ok: false,
+          error: "migrationsFolder must be inside the app directory.",
+        };
+      }
+
+      try {
+        const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
+        const { getPgliteClient, isPgliteUrl } =
+          await import("../db/client.js");
+        if (!isPgliteUrl(databaseUrl)) {
+          setResponseStatus(event, 400);
+          return {
+            ok: false,
+            error:
+              "The dev server database is not PGlite; run drizzle-kit migrate directly.",
+          };
+        }
+        const { drizzle } =
+          await importDevMigrationModule("drizzle-orm/pglite");
+        const { migrate } = await importDevMigrationModule(
+          "drizzle-orm/pglite/migrator",
+        );
+        const client = await getPgliteClient(databaseUrl);
+        await migrate(drizzle(client), {
+          migrationsFolder,
+          ...(typeof body.migrationsTable === "string"
+            ? { migrationsTable: body.migrationsTable }
+            : {}),
+          ...(typeof body.migrationsSchema === "string"
+            ? { migrationsSchema: body.migrationsSchema }
+            : {}),
+        });
+        return { ok: true };
+      } catch (error: any) {
+        setResponseStatus(event, 500);
+        return { ok: false, error: error?.message ?? String(error) };
+      }
     }),
   );
 }

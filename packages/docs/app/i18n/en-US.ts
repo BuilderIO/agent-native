@@ -674,7 +674,7 @@ const enUS = {
         "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
     },
     design: {
-      replaces: "Agent-Native Figma",
+      replaces: "Agent-Native Design studio",
       description:
         "Turns prompts into interactive designs that follow your design system and improve with agent feedback.",
     },
@@ -1435,7 +1435,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "Open-Source Figma alternative",
+      s006: "Open-source design workspace",
       s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
@@ -1874,7 +1874,6 @@ const enUS = {
       heroDescription:
         "Plans is a free and open-source visual planning tool for reviewing your coding agent's approach, giving feedback, and understanding code changes through diagrams, wireframes, and annotated code.",
       heroCta: "Plan visually",
-      heroSecondaryCta: "Open Plans",
       useCasesHeading: "What can you do with Plans?",
       useCasesBody:
         "Review an implementation approach, work through an interface, or understand a completed change with your AI coding agent.",
@@ -2166,6 +2165,8 @@ const enUS = {
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
     loadError: "Could not load the latest desktop installer.",
+    mountError:
+      "The desktop download page could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",
     unavailable: "Installer unavailable for this platform",
@@ -2586,11 +2587,12 @@ const enUS = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Other Platforms",
     ssrCaching: "SSR Caching",
     deploymentEnvironmentVariables: "Deployment: Environment Variables",
@@ -2683,6 +2685,7 @@ const enUS = {
     planAutomations: "Events & Automations",
     planLocalAndDesktop: "Local Files & Desktop",
     planDevelopers: "Developer Guide",
+    turnIntoApp: "Turn Into App",
     prVisualRecap: "PR Visual Recap",
     planPluginMarketplace: "Plan Plugin & Marketplace",
     slides: "Slides",

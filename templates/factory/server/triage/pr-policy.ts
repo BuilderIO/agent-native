@@ -499,6 +499,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       ) ||
       normalized.startsWith("templates/plan/server/plan-content.") ||
       normalized.startsWith(
+        "templates/design/server/routes/api/qa-import-assets/",
+      ) ||
+      normalized.startsWith(
         "templates/design/server/routes/api/qa-figma-import-assets/",
       ) ||
       normalized.startsWith(

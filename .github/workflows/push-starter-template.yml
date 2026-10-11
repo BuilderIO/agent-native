@@ -1,10 +1,11 @@
-name: Push chat template to starter
+name: Push Builder Code starter template to starter
 
 on:
   push:
     branches: [main]
     paths:
       - "templates/chat/**"
+      - "packages/core/src/templates/builder-code-starter/**"
       - ".github/workflows/push-starter-template.yml"
   repository_dispatch:
     types: [agent-native-packages-published]
@@ -69,11 +70,14 @@ jobs:
       - if: steps.gate.outputs.publishable == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Materialize post-processed templates/chat
+      # builder-code-starter is a layer over templates/chat: materialize copies Chat,
+      # then applies the starter's deletions, unified-diff patches, new files,
+      # and package.json fields.
+      - name: Materialize the bundled builder-code-starter template
         if: steps.gate.outputs.publishable == 'true'
         run: >-
           pnpm exec tsx packages/core/src/cli/index.ts template materialize
-          --template chat --out ./dist/template
+          --template builder-code-starter --name app --out ./dist/template
 
       - name: Pin toolkit to the published core's compatible range
         if: steps.gate.outputs.publishable == 'true'
@@ -149,5 +153,5 @@ jobs:
             echo "template branch already up to date."
             exit 0
           fi
-          git commit -m "chore: sync template from templates/chat@${SRC_SHA}"
+          git commit -m "chore: sync template from builder-code-starter@${SRC_SHA}"
           git push origin template

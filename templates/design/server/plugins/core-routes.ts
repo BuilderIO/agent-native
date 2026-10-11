@@ -1,5 +1,10 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
 
+import {
+  DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
+  isDesignGenerationAttemptId,
+} from "../../shared/generation-provenance.js";
+
 export function resolveDesignOpenPath({
   view,
   params,
@@ -8,9 +13,16 @@ export function resolveDesignOpenPath({
   params: Record<string, string>;
 }): string | null {
   if (params.designId) {
-    return params.screen
-      ? `/design/${params.designId}?editorView=overview&screen=${params.screen}`
-      : `/design/${params.designId}`;
+    const search = new URLSearchParams();
+    if (params.screen) {
+      search.set("editorView", "overview");
+      search.set("screen", params.screen);
+    }
+    const generationAttemptId = params[DESIGN_GENERATION_ATTEMPT_QUERY_PARAM];
+    if (isDesignGenerationAttemptId(generationAttemptId)) {
+      search.set(DESIGN_GENERATION_ATTEMPT_QUERY_PARAM, generationAttemptId);
+    }
+    return `/design/${params.designId}${search.size ? `?${search}` : ""}`;
   }
   if (view === "editor") return "/home";
   return null;

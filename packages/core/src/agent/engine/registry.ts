@@ -37,10 +37,7 @@ import {
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
-import {
-  BUILDER_CLAUDE_SONNET_MODEL_ID,
-  CLAUDE_SONNET_MODEL_ID,
-} from "../model-config.js";
+import { normalizeModelForEngine } from "../model-version.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   AI_SDK_ANTHROPIC_DEFAULT_BASE_URL,
@@ -213,109 +210,10 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
-interface ParsedVersionedModelId {
-  family: string;
-  version: number[];
-  suffix: string;
-}
-
-function parseVersionedModelId(model: string): ParsedVersionedModelId | null {
-  const match =
-    /^(?<family>.+?)[-.](?<version>\d+(?:[-.]\d+)*)(?<suffix>(?:[-.][a-z][a-z0-9]*)*)$/i.exec(
-      model.trim().toLowerCase(),
-    );
-  const groups = match?.groups;
-  if (!groups?.family || !groups.version) return null;
-
-  const version = groups.version.split(/[-.]/).map((part) => Number(part));
-  if (version.some((part) => !Number.isSafeInteger(part))) return null;
-
-  return {
-    family: groups.family,
-    version,
-    suffix: groups.suffix ?? "",
-  };
-}
-
-function compareModelVersions(left: number[], right: number[]): number {
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    const delta = (left[index] ?? 0) - (right[index] ?? 0);
-    if (delta !== 0) return delta;
-  }
-  return 0;
-}
-
-function findLatestSupportedVersionMatch(
-  candidate: string,
-  supportedModels: readonly string[],
-): string | undefined {
-  const parsedCandidate = parseVersionedModelId(candidate);
-  if (!parsedCandidate) return undefined;
-
-  let best: { model: string; version: number[] } | undefined;
-  for (const supportedModel of supportedModels) {
-    const parsedSupported = parseVersionedModelId(supportedModel);
-    if (!parsedSupported) continue;
-    if (parsedSupported.family !== parsedCandidate.family) continue;
-    if (parsedSupported.suffix !== parsedCandidate.suffix) continue;
-    if (
-      best &&
-      compareModelVersions(parsedSupported.version, best.version) <= 0
-    ) {
-      continue;
-    }
-    best = { model: supportedModel, version: parsedSupported.version };
-  }
-
-  return best?.model;
-}
-
-export interface NormalizeModelOptions {
-  preserveCustomModels?: boolean;
-  acceptsCustomModels?: boolean;
-}
-
-export function normalizeModelForEngine(
-  engine: Pick<
-    AgentEngine,
-    | "name"
-    | "defaultModel"
-    | "supportedModels"
-    | "acceptsCustomModels"
-    | "preserveCustomModels"
-  >,
-  model: string | null | undefined,
-  options: NormalizeModelOptions = {},
-): string {
-  const candidate = typeof model === "string" ? model.trim() : "";
-  if (!candidate) return engine.defaultModel;
-
-  if (engine.preserveCustomModels || options.preserveCustomModels) {
-    return candidate;
-  }
-
-  if (engine.supportedModels.length === 0) return candidate;
-
-  if (candidate === "auto" || engine.supportedModels.includes(candidate)) {
-    return candidate;
-  }
-
-  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
-    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
-      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
-      ? CLAUDE_SONNET_MODEL_ID
-      : candidate;
-  }
-
-  const versionMatch = findLatestSupportedVersionMatch(
-    candidate,
-    engine.supportedModels,
-  );
-  if (versionMatch) return versionMatch;
-
-  return engine.defaultModel;
-}
+export {
+  normalizeModelForEngine,
+  type NormalizeModelOptions,
+} from "../model-version.js";
 
 type ModelResolvableEngine = Pick<
   AgentEngine,
@@ -524,6 +422,74 @@ async function usableEnvCredentialMatch(
   return null;
 }
 
+/** Whether a deployment credential can serve this engine for the current request. */
+export async function isDeploymentEngineUsableForRequest(
+  entry: AgentEngineEntry,
+): Promise<boolean> {
+  if (!isAgentEnginePackageInstalled(entry)) return false;
+  if (entry.name === "ai-sdk:ollama") {
+    return isDeploymentProviderEndpointUsable(entry);
+  }
+  for (const set of envCredentialSetsForEntry(entry)) {
+    if (
+      !set.envVars.every(
+        (key) =>
+          canUseDeployCredentialFallbackForRequest(key) &&
+          !!readDeployCredentialEnv(key),
+      )
+    ) {
+      continue;
+    }
+    if (await isEnvCredentialSetUsable(set)) {
+      return isDeploymentProviderEndpointUsable(entry);
+    }
+  }
+  return false;
+}
+
+async function isDeploymentProviderEndpointUsable(
+  entry: Pick<AgentEngineEntry, "name">,
+): Promise<boolean> {
+  const endpointConfig =
+    entry.name === "ai-sdk:ollama"
+      ? {
+          envVar: OLLAMA_BASE_URL_ENV_VAR,
+          provider: "Ollama",
+          required: true,
+          isOllama: true,
+        }
+      : entry.name === "ai-sdk:openai"
+        ? {
+            envVar: OPENAI_BASE_URL_ENV_VAR,
+            provider: "OpenAI",
+            required: false,
+            isOllama: false,
+          }
+        : undefined;
+  if (!endpointConfig) return true;
+
+  const endpoint = canUseDeployCredentialFallbackForRequest(
+    endpointConfig.envVar,
+  )
+    ? readDeployCredentialEnv(endpointConfig.envVar)
+    : undefined;
+  if (!endpoint) return !endpointConfig.required;
+
+  try {
+    await validateProviderBaseUrl(endpoint, {
+      allowPrivate: true,
+      isOllama: endpointConfig.isOllama,
+    });
+  } catch (error) {
+    console.warn(
+      `[agent-engine] Invalid deployment ${endpointConfig.provider} endpoint; provider unavailable.`,
+      { error: error instanceof Error ? error.message : String(error) },
+    );
+    return false;
+  }
+  return true;
+}
+
 export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
@@ -572,6 +538,7 @@ function shouldTraceEngineDetection(): boolean {
  */
 export async function detectEngineFromUserSecrets(
   identity?: BuilderCredentialLookupIdentity,
+  options: { isBuilderConnectionUsable?: () => Promise<boolean> } = {},
 ): Promise<AgentEngineEntry | null> {
   const traceLookup = shouldTraceEngineDetection();
   let email = identity?.userEmail?.trim() || undefined;
@@ -605,22 +572,23 @@ export async function detectEngineFromUserSecrets(
     return null;
   }
 
+  const isBuilderConnectionUsable =
+    options.isBuilderConnectionUsable ??
+    (() => hasUsableBuilderConnection(identity));
   const firstEntry = _registry.values().next().value;
   if (
     !getAppConfig().agent.preferBringYourOwnKey &&
     firstEntry?.name === "builder" &&
     isAgentEnginePackageInstalled(firstEntry) &&
     firstEntry.requiredEnvVars.length > 0 &&
-    (await hasUsableBuilderConnection(identity))
+    (await isBuilderConnectionUsable())
   ) {
     return firstEntry;
   }
 
-  let secretsPrefetched = false;
+  let secretsPrefetch: Promise<void> | null = null;
   const prefetchCandidateSecrets = async (): Promise<void> => {
-    if (secretsPrefetched) return;
-    secretsPrefetched = true;
-    await prefetchSecrets([
+    secretsPrefetch ??= prefetchSecrets([
       ...new Set(
         [..._registry.values()]
           .filter(
@@ -630,46 +598,58 @@ export async function detectEngineFromUserSecrets(
           .flatMap((entry) => entry.requiredEnvVars.flatMap(secretKeyNames)),
       ),
     ]);
+    await secretsPrefetch;
   };
 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
     if (entry.name === "builder") {
-      return hasUsableBuilderConnection(identity);
+      return isBuilderConnectionUsable();
     }
     await prefetchCandidateSecrets();
-    for (const key of entry.requiredEnvVars) {
-      if (!(await resolveUsableProviderSecret(key))) return false;
-    }
-    return true;
+    const resolvedKeys = await Promise.all(
+      entry.requiredEnvVars.map((key) => resolveUsableProviderSecret(key)),
+    );
+    return resolvedKeys.every(Boolean);
+  };
+
+  const selectUsableEntry = async (
+    candidates: AgentEngineEntry[],
+  ): Promise<AgentEngineEntry | null> => {
+    const results = await Promise.all(
+      candidates.map(async (entry) => ({
+        entry,
+        usable: await hasAllKeys(entry),
+      })),
+    );
+    return results.find((result) => result.usable)?.entry ?? null;
   };
 
   const preferByo = getAppConfig().agent.preferBringYourOwnKey;
   if (preferByo) {
-    for (const entry of _registry.values()) {
-      if (entry.name === "builder") continue;
-      if (await hasAllKeys(entry)) {
-        if (traceLookup) {
-          console.log(
-            `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
-          );
-        }
-        return entry;
+    const byoEntry = await selectUsableEntry(
+      [..._registry.values()].filter((entry) => entry.name !== "builder"),
+    );
+    if (byoEntry) {
+      if (traceLookup) {
+        console.log(
+          `[engine-detect] result=${byoEntry.name} email=${email} orgId=${orgId ?? "(none)"} byo=true`,
+        );
       }
+      return byoEntry;
     }
     // No BYO key matched — fall through to include Builder as fallback.
   }
 
-  for (const entry of _registry.values()) {
-    if (await hasAllKeys(entry)) {
-      if (traceLookup) {
-        console.log(
-          `[engine-detect] result=${entry.name} email=${email} orgId=${orgId ?? "(none)"}`,
-        );
-      }
-      return entry;
+  const detected = await selectUsableEntry([..._registry.values()]);
+  if (detected) {
+    if (traceLookup) {
+      console.log(
+        `[engine-detect] result=${detected.name} email=${email} orgId=${orgId ?? "(none)"}`,
+      );
     }
+    return detected;
   }
   if (traceLookup) {
     console.log(

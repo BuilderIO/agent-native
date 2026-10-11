@@ -30,9 +30,8 @@
  *     Remove all motion-preview inline-style overrides and the in-memory
  *     track list. Called when the dock is closed or the timeline is discarded.
  *
- * Easing parity: per-segment easing reads the ease of the keyframe LEAVING
- * each interval (CSS keyframe semantics — equivalently, Figma's easing INTO
- * the next keyframe). Supported forms: CSS keywords, cubic-bezier(...),
+ * Per-segment easing reads the ease of the keyframe LEAVING each interval,
+ * following CSS keyframe timing semantics. Supported forms: CSS keywords, cubic-bezier(...),
  * steps(...), CSS linear(...) stop lists, and real spring physics via
  * spring(bounce[, settle]) tokens — keep the samplers in sync with
  * shared/motion-easing.ts. Playback modes (loop/once/ping-pong) live in the

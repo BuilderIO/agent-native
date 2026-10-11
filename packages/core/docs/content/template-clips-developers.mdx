@@ -91,11 +91,21 @@ Every operation is a TypeScript file in `templates/clips/actions/`, auto-mounted
 
 ### Screen Memory (Rewind)
 
-| Action                                                                                                                          | What it does                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Read the local Rewind buffer                                    |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | The review-and-approve flow for adding Rewind history to a clip |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Apply an approved extension; force the clip private first       |
+| Action                                                                                                                          | What it does                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Read the local Rewind buffer                                                                                                                              |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | Deprecated compatibility actions. The editor option that used them is removed; use `request-recording-context` for earlier screen time                    |
+| `apply-rewind-extension`                                                                                                        | Deprecated compatibility action. Applies an approved extension for the removed editor option                                                              |
+| `make-recording-private-for-rewind`                                                                                             | Force the clip private first                                                                                                                              |
+| `request-recording-context`                                                                                                     | Owner only. Ask for earlier screen time before a clip started; the clip becomes private                                                                   |
+| `request-recording-context` (`deviceId`)                                                                                        | Optional. Stamps the item with the device that recorded the clip, so only that device's desktop exports it. Absent means no device on file                |
+| `list-recording-context`                                                                                                        | The clip's active earlier-screen-time item: its windows and status (viewer access)                                                                        |
+| `list-pending-recording-context`                                                                                                | Pending items on clips you own, for the desktop export worker                                                                                             |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | Optional. With `deviceId`, returns only items this device captured plus items with no device on file. Without it, the list is unfiltered (legacy clients) |
+| `update-recording-context`                                                                                                      | Desktop worker reports an item as `processing`, `ready`, or `failed`                                                                                      |
+| `set-recording-context-window`                                                                                                  | Trim an item inside its 5-minute original window; it returns to `pending` and re-exports                                                                  |
+| `remove-recording-context`                                                                                                      | Owner only. Remove an item and trash its footage recording. The desktop edit view and the Transcript tab's panel both call it                             |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | Desktop app only (Tauri commands, not actions). Build or delete a local preview of a window. Never uploaded                                               |
 
 ### Cross-app & insights
 
@@ -123,6 +133,19 @@ Every operation is a TypeScript file in `templates/clips/actions/`, auto-mounted
 | `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | Resume playback; full transcript and diagnostics                                         |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | The anonymous, third-party embedding flow. See [Embed Clips](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | The embedded bug-report launcher and Chrome extension diagnostics                        |
+
+## Browser diagnostics
+
+The Chrome extension attaches console and network diagnostics to a recording, and `save-browser-diagnostics` stores them. Every console and network entry carries a `tabId`.
+
+| Topic         | Behavior                                                                                                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs          | Up to five per recording: the start tab, then tabs active in the last 10 minutes, most recent first. A tab the user switches to during the recording is attached too. |
+| Over five     | The least recently active tab other than the focused one is detached. Its entries so far stay in the recording.                                                       |
+| Lookback      | Up to 30 seconds before the recording started, limited by the page's own console history and resource timing list. These entries have negative `elapsedMs`.           |
+| `tabId`       | Set on every console and network entry.                                                                                                                               |
+| `method`      | `"UNKNOWN"` on lookback network entries, which come from resource timing and have no HTTP method. Live requests report the method.                                    |
+| Not collected | Request and response bodies and headers. Console and network entries are redacted before upload.                                                                      |
 
 ## Data model
 

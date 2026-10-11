@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
@@ -41,6 +39,7 @@ import {
   type PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 
+import { readDesignEditorSource } from "../read-design-editor-source";
 import {
   createLinkedComponentMutationQueue,
   type LinkedComponentActionResult,
@@ -788,10 +787,7 @@ describe("single-screen linked component history", () => {
   });
 });
 
-const editorSource = readFileSync(
-  new URL("../../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 function editorCallback(pattern: RegExp, bindings: Record<string, unknown>) {
   const source = editorSource.match(pattern)?.[1];
   if (!source) throw new Error("Editor history callback not found");

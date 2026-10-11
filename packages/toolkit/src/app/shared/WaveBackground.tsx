@@ -2,9 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { HeroOceanBackground } from "./ocean/hero-ocean-background.js";
 import { probeWebgpuSupport } from "./ocean/webgpu-support.js";
-import { WebGlWaveBackground } from "./WebGlWaveBackground.js";
 
-type Background = "probing" | "ocean-loading" | "ocean" | "fallback";
+type Background = "probing" | "ocean-loading" | "ocean" | "empty";
 
 export interface WaveBackgroundProps {
   className?: string;
@@ -15,46 +14,65 @@ export function WaveBackground({ className = "" }: WaveBackgroundProps) {
 
   useEffect(() => {
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    if (reduced?.matches) {
-      setBackground("fallback");
-      return;
-    }
-
     let cancelled = false;
-    void probeWebgpuSupport().then((support) => {
-      if (!cancelled) {
-        setBackground(support === "supported" ? "ocean-loading" : "fallback");
-      }
-    });
+    let probeId = 0;
 
-    const demoteToFallback = () => {
-      if (!cancelled) setBackground("fallback");
+    const checkSupport = async () => {
+      const currentProbe = ++probeId;
+      if (reduced?.matches) {
+        setBackground("empty");
+        return;
+      }
+
+      setBackground("probing");
+      try {
+        const support = await probeWebgpuSupport();
+        if (cancelled || currentProbe !== probeId) return;
+        if (support === "supported") {
+          setBackground("ocean-loading");
+          return;
+        }
+        if (support === "probe-failed") {
+          console.error(
+            "Could not check WebGPU support for the wave background",
+          );
+        }
+        setBackground("empty");
+      } catch (error) {
+        if (cancelled || currentProbe !== probeId) return;
+        console.error(
+          "Could not check WebGPU support for the wave background",
+          error,
+        );
+        setBackground("empty");
+      }
     };
-    reduced?.addEventListener("change", demoteToFallback);
+
+    const handleMotionPreferenceChange = () => {
+      void checkSupport();
+    };
+
+    void checkSupport();
+    reduced?.addEventListener("change", handleMotionPreferenceChange);
     return () => {
       cancelled = true;
-      reduced?.removeEventListener("change", demoteToFallback);
+      reduced?.removeEventListener("change", handleMotionPreferenceChange);
     };
   }, []);
 
-  const handleOceanError = useCallback(() => setBackground("fallback"), []);
+  const handleOceanError = useCallback((error: unknown) => {
+    console.error("Could not start the ocean wave background", error);
+    setBackground("empty");
+  }, []);
   const handleOceanReady = useCallback(() => setBackground("ocean"), []);
 
+  if (background !== "ocean-loading" && background !== "ocean") return null;
+
   return (
-    <>
-      {background !== "ocean" ? (
-        <WebGlWaveBackground
-          className={className}
-          style={{ opacity: "var(--b-hero-shader-opacity, 0.3)" }}
-        />
-      ) : null}
-      {background === "ocean-loading" || background === "ocean" ? (
-        <HeroOceanBackground
-          className={className}
-          onError={handleOceanError}
-          onReady={handleOceanReady}
-        />
-      ) : null}
-    </>
+    <HeroOceanBackground
+      className={className}
+      onError={handleOceanError}
+      onReady={handleOceanReady}
+    />
   );
 }

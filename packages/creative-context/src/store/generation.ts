@@ -1,5 +1,5 @@
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
 import {
@@ -78,11 +78,54 @@ export async function recordGenerationCreativeContext(
     contextPackId: string | null;
     reuseLabels: CreativeContextReuseLabel[];
     elementProvenance?: CreativeContextElementProvenance[];
+    onlyIfMissing?: boolean;
   },
   options: {
     db?: any;
     artifactAccess?: GenerationArtifactAccessProof;
   } = {},
+): Promise<CreativeContextGenerationRecord> {
+  return recordGenerationCreativeContextInternal(input, options, false);
+}
+
+export async function recordGenerationCreativeContextFromSnapshot(
+  input: {
+    appId: string;
+    artifactType: string;
+    artifactId: string;
+    contextMode: "off" | "auto" | "pinned";
+    contextPackId: string | null;
+    reuseLabels: CreativeContextReuseLabel[];
+    elementProvenance?: CreativeContextElementProvenance[];
+    onlyIfMissing?: boolean;
+  },
+  options: {
+    db?: any;
+    artifactAccess?: GenerationArtifactAccessProof;
+  } = {},
+): Promise<CreativeContextGenerationRecord> {
+  if (!input.onlyIfMissing) {
+    throw new Error("Creative Context snapshots must be recorded idempotently");
+  }
+  return recordGenerationCreativeContextInternal(input, options, true);
+}
+
+async function recordGenerationCreativeContextInternal(
+  input: {
+    appId: string;
+    artifactType: string;
+    artifactId: string;
+    contextMode: "off" | "auto" | "pinned";
+    contextPackId: string | null;
+    reuseLabels: CreativeContextReuseLabel[];
+    elementProvenance?: CreativeContextElementProvenance[];
+    onlyIfMissing?: boolean;
+  },
+  options: {
+    db?: any;
+    artifactAccess?: GenerationArtifactAccessProof;
+  },
+  fromValidatedSnapshot: boolean,
 ): Promise<CreativeContextGenerationRecord> {
   const elementProvenance =
     input.elementProvenance ??
@@ -99,7 +142,7 @@ export async function recordGenerationCreativeContext(
     reuseLabels: input.reuseLabels,
     elementProvenance,
   });
-  if (input.contextPackId) {
+  if (input.contextPackId && !fromValidatedSnapshot) {
     await assertAccess(
       "creative-context-pack",
       input.contextPackId,
@@ -108,7 +151,7 @@ export async function recordGenerationCreativeContext(
       { skipResourceBody: true },
     );
   }
-  if (input.contextPackId) {
+  if (input.contextPackId && !fromValidatedSnapshot) {
     const { getDb, schema } = getCreativeContext();
     const db = options.db ?? getDb();
     const members = await db
@@ -156,18 +199,64 @@ export async function recordGenerationCreativeContext(
     ownerEmail: actor.ownerEmail,
     orgId: options.artifactAccess ? actor.orgId : null,
   };
-  await db.insert(schema.generationRecords).values(row);
-  await getCreativeContext().projections?.generation?.record({
-    appId: input.appId,
-    artifactType: input.artifactType,
-    artifactId: input.artifactId,
-    contextPackId: input.contextPackId,
-    elementProvenance,
-  });
-  return {
-    ...row,
-    elementProvenance: parseJson(row.elementProvenance, []),
+  let recorded: {
+    record: CreativeContextGenerationRecord;
+    inserted: boolean;
   };
+  if (input.onlyIfMissing) {
+    // Matching retries can reach separate server processes, so coordinate in Postgres.
+    const scopeKey = options.artifactAccess
+      ? ["org", actor.orgId, input.appId, input.artifactType, input.artifactId]
+      : [
+          "owner",
+          actor.ownerEmail,
+          input.appId,
+          input.artifactType,
+          input.artifactId,
+        ];
+    recorded = await db.transaction(async (tx: any) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`creative-context-generation:${JSON.stringify(scopeKey)}`}, 0::bigint))`,
+      );
+      const existing = await getGenerationCreativeContext(
+        {
+          appId: input.appId,
+          artifactType: input.artifactType,
+          artifactId: input.artifactId,
+        },
+        { artifactAccess: options.artifactAccess, db: tx },
+      );
+      if (existing) return { record: existing, inserted: false };
+
+      await tx.insert(schema.generationRecords).values(row);
+      return {
+        record: {
+          ...row,
+          elementProvenance: parseJson(row.elementProvenance, []),
+        },
+        inserted: true,
+      };
+    });
+  } else {
+    await db.insert(schema.generationRecords).values(row);
+    recorded = {
+      record: {
+        ...row,
+        elementProvenance: parseJson(row.elementProvenance, []),
+      },
+      inserted: true,
+    };
+  }
+  if (recorded.inserted || input.onlyIfMissing) {
+    await getCreativeContext().projections?.generation?.record({
+      appId: recorded.record.appId,
+      artifactType: recorded.record.artifactType,
+      artifactId: recorded.record.artifactId,
+      contextPackId: recorded.record.contextPackId,
+      elementProvenance: recorded.record.elementProvenance,
+    });
+  }
+  return recorded.record;
 }
 
 export async function getGenerationCreativeContext(
@@ -178,6 +267,7 @@ export async function getGenerationCreativeContext(
   },
   options: {
     artifactAccess?: GenerationArtifactAccessProof;
+    db?: any;
   } = {},
 ): Promise<CreativeContextGenerationRecord | null> {
   const { getDb, schema } = getCreativeContext();
@@ -192,8 +282,11 @@ export async function getGenerationCreativeContext(
   }
   const actorScope = options.artifactAccess
     ? eq(schema.generationRecords.orgId, actor.orgId!)
-    : eq(schema.generationRecords.ownerEmail, actor.ownerEmail);
-  const rows = await getDb()
+    : and(
+        eq(schema.generationRecords.ownerEmail, actor.ownerEmail),
+        isNull(schema.generationRecords.orgId),
+      );
+  const rows = await (options.db ?? getDb())
     .select()
     .from(schema.generationRecords)
     .where(

@@ -5,6 +5,7 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
+const mockLoadScreenshotImage = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrameFromFile = vi.hoisted(() => vi.fn());
 const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
 const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
@@ -30,16 +31,19 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestURL: (event: { url: string }) => new URL(event.url),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
 }));
 
 vi.mock("../../lib/public-agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
+  describeAgentAccessFailure: (failure: unknown) => failure,
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
   loadRecordingMediaFile: (...args: unknown[]) =>
     mockLoadRecordingMediaFile(...args),
+  loadScreenshotImage: (...args: unknown[]) => mockLoadScreenshotImage(...args),
   RecordingMediaFetchError: class RecordingMediaFetchError extends Error {
     statusCode: number;
     constructor(message: string, statusCode = 502) {
@@ -123,6 +127,10 @@ describe("agent-frame.jpg route", () => {
       mimeType: "video/webm",
       cleanup: mockCleanupMediaFile,
     });
+    mockLoadScreenshotImage.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "image/png",
+    });
     mockExtractJpegFrameFromFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockProbeMediaDurationMsFromFile.mockResolvedValue(null);
     mockCleanupMediaFile.mockResolvedValue(undefined);
@@ -163,6 +171,10 @@ describe("agent-frame.jpg route", () => {
     const result = (await handler(event as any)) as Record<string, unknown>;
 
     expect(result.redactionPending).toBe(true);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      nextStep: expect.stringContaining("redactions"),
+    });
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 409);
     expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
   });
@@ -195,6 +207,95 @@ describe("agent-frame.jpg route", () => {
 
     expect(Buffer.from(result as Buffer)).toEqual(Buffer.from([1, 2, 3]));
     expect(mockLoadRecordingMediaFile).toHaveBeenCalled();
+  });
+
+  it.each(["uploading", "processing"])(
+    "returns retry guidance without fetching frames while a clip is %s",
+    async (status) => {
+      mockLoadPublicAgentAccess.mockResolvedValue({
+        ok: true,
+        access: makeAccess({ recording: { id: `clip-${status}`, status } }),
+      });
+
+      const event = makeEvent({ id: `clip-${status}`, atMs: "1000" });
+      const result = await handler(event as any);
+
+      expect(event.status).toBe(409);
+      expect(headerValue(event, "Retry-After")).toBe("15");
+      expect(result).toMatchObject({
+        failureKind: "processing",
+        retryAfterSeconds: 15,
+        nextStep: expect.stringContaining("Wait 15 seconds"),
+      });
+      expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+      expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("returns a terminal frame failure without loading media for failed clips", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: { id: "failed-clip", status: "failed" },
+      }),
+    });
+
+    const event = makeEvent({ id: "failed-clip", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(409);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      error: expect.stringContaining("recording failed"),
+      nextStep: expect.stringContaining("Do not request frame URLs again"),
+    });
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("reports legacy Loom embeds as unsupported without retry guidance", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          sourceAppName: "Loom",
+          sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+          videoUrl: "/api/video/rec-1",
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({
+      failureKind: "unsupported",
+      nextStep: expect.stringContaining("reimport the video into Clips"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain("Retry");
+    expect(mockLoadRecordingMediaFile).not.toHaveBeenCalled();
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch a screenshot while its clip is still processing", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({
+        recording: {
+          id: "processing-screenshot",
+          kind: "image",
+          status: "processing",
+        },
+      }),
+    });
+
+    const event = makeEvent({ id: "processing-screenshot", atMs: "0" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(409);
+    expect(result).toMatchObject({ failureKind: "processing" });
+    expect(mockLoadScreenshotImage).not.toHaveBeenCalled();
   });
 
   it("caches anonymous public frames without shared caching", async () => {
@@ -272,7 +373,7 @@ describe("agent-frame.jpg route", () => {
       .mockRejectedValueOnce(
         new MockVideoFrameExtractionError(
           "No frame was available at that timestamp.",
-          "NO_VIDEO",
+          "NO_FRAME_AT_TIMESTAMP",
         ),
       )
       .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
@@ -335,7 +436,7 @@ describe("agent-frame.jpg route", () => {
       .mockRejectedValueOnce(
         new MockVideoFrameExtractionError(
           "No frame was available at that timestamp.",
-          "NO_VIDEO",
+          "NO_FRAME_AT_TIMESTAMP",
         ),
       )
       .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
@@ -354,10 +455,139 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
-  it("returns media fetch status when recording bytes cannot be loaded", async () => {
+  it("marks a missing stored video as a media failure", async () => {
     mockLoadRecordingMediaFile.mockRejectedValue(
       new RecordingMediaFetchError(
-        "Recording media could not be fetched.",
+        "Recording media fetch failed: HTTP 404 Not Found",
+        404,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(404);
+    expect(result).toEqual({
+      failureKind: "media",
+      error: "Recording media fetch failed: HTTP 404 Not Found",
+      nextStep: expect.stringContaining(
+        "another Share with agents link will not restore it",
+      ),
+    });
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("does not suggest retrying storage access failures as transient", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media fetch failed: HTTP 403 Forbidden",
+        403,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(403);
+    expect(result).toMatchObject({
+      failureKind: "media",
+      nextStep: expect.stringContaining("media-storage issue"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain(
+      "Retry once",
+    );
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("classifies unauthorized stored-media access as a media failure", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media fetch failed: HTTP 401 Unauthorized",
+        401,
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(401);
+    expect(result).toMatchObject({
+      failureKind: "media",
+      nextStep: expect.stringContaining("media-storage issue"),
+    });
+    expect((result as { nextStep: string }).nextStep).not.toContain(
+      "Retry once",
+    );
+    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+  });
+
+  it("marks frame extraction failures as processing, not missing media", async () => {
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "FFmpeg is not available",
+        "FFMPEG_UNAVAILABLE",
+      ),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(503);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      error: "FFmpeg is not available",
+      nextStep: expect.stringContaining("Retry once"),
+    });
+  });
+
+  it("does not suggest timestamp retries when the recording has no video track", async () => {
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "This recording does not contain a video track.",
+        "NO_VIDEO_TRACK",
+      ),
+    );
+
+    const event = makeEvent({ id: "audio-only", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({
+      failureKind: "unsupported",
+      nextStep: expect.stringContaining("has no video track"),
+    });
+    expect((result as { nextStep: string }).nextStep).toContain(
+      "Do not retry with another timestamp",
+    );
+    expect(mockProbeMediaDurationMsFromFile).not.toHaveBeenCalled();
+  });
+
+  it("does not suggest timestamp retries when the stored recording is empty", async () => {
+    mockExtractJpegFrameFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "Recording media is empty.",
+        "EMPTY_MEDIA",
+      ),
+    );
+
+    const event = makeEvent({ id: "empty-recording", atMs: "1000" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(422);
+    expect(result).toMatchObject({ failureKind: "processing" });
+    expect((result as { nextStep: string }).nextStep).toContain(
+      "Do not retry with another timestamp",
+    );
+    expect((result as { nextStep: string }).nextStep).toContain(
+      "replace or reupload",
+    );
+    expect(mockProbeMediaDurationMsFromFile).not.toHaveBeenCalled();
+  });
+
+  it("classifies interrupted media downloads without timestamp retry advice", async () => {
+    mockLoadRecordingMediaFile.mockRejectedValue(
+      new RecordingMediaFetchError(
+        "Recording media download failed while reading the response body.",
         502,
       ),
     );
@@ -366,9 +596,31 @@ describe("agent-frame.jpg route", () => {
     const result = await handler(event as any);
 
     expect(event.status).toBe(502);
-    expect(result).toEqual({
-      error: "Recording media could not be fetched.",
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      nextStep: expect.stringContaining("Retry once"),
     });
-    expect(mockExtractJpegFrameFromFile).not.toHaveBeenCalled();
+    expect((result as { nextStep: string }).nextStep).not.toContain(
+      "different timestamp",
+    );
+  });
+
+  it("marks unavailable screenshot assets as media failures", async () => {
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ recording: { kind: "image" } }),
+    });
+    mockLoadScreenshotImage.mockRejectedValue(
+      new RecordingMediaFetchError("Screenshot media is missing.", 404),
+    );
+
+    const event = makeEvent({ id: "rec-1", atMs: "0" });
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(404);
+    expect(result).toMatchObject({
+      failureKind: "media",
+      error: "Screenshot media is missing.",
+    });
   });
 });

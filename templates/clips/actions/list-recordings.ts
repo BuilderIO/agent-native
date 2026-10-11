@@ -118,6 +118,11 @@ export default defineAction({
       .string()
       .nullish()
       .describe("Filter to recordings carrying this tag"),
+    recordingIds: z
+      .array(z.string().min(1))
+      .max(100)
+      .optional()
+      .describe("Restrict results to these recording IDs"),
     kind: z
       .enum(["video", "image", "all"])
       .default("all")
@@ -166,6 +171,14 @@ export default defineAction({
         },
       ),
     ];
+
+    if (args.recordingIds) {
+      whereClauses.push(
+        args.recordingIds.length
+          ? inArray(schema.recordings.id, args.recordingIds)
+          : sql`1 = 0`,
+      );
+    }
 
     const orgId = await getActiveOrganizationId();
 

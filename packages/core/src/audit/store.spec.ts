@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
-import type { AuditEvent } from "./types.js";
+import type { AuditActorKind, AuditEvent } from "./types.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
@@ -164,7 +164,12 @@ describe("audit store filters + ordering", () => {
       }),
     );
     await insertAuditEvent(
-      makeEvent({ targetType: "doc", actorKind: "human", status: "error" }),
+      makeEvent({
+        targetType: "doc",
+        caller: "frontend",
+        actorKind: "human",
+        status: "error",
+      }),
     );
 
     expect(
@@ -189,6 +194,36 @@ describe("audit store filters + ordering", () => {
       ),
     ).toHaveLength(1);
   });
+
+  it.each(["mcp", "webmcp", "a2a"])(
+    "reads legacy %s rows as the agent in reads and filters",
+    async (caller) => {
+      await insertAuditEvent(
+        makeEvent({ id: "legacy-human", caller, actorKind: "human" }),
+      );
+      await insertAuditEvent(
+        makeEvent({ id: "legacy-system", caller, actorKind: "system" }),
+      );
+      await insertAuditEvent(
+        makeEvent({ id: "click", caller: "frontend", actorKind: "human" }),
+      );
+      await insertAuditEvent(
+        makeEvent({ id: "service", caller, actorKind: "service" }),
+      );
+      const scope = { userEmail: "alice@x.com" };
+      const ids = async (actorKind: AuditActorKind) =>
+        (await queryAuditEvents(scope, { actorKind })).map((e) => e.id).sort();
+
+      const legacy = await getAuditEventById("legacy-human", scope);
+      expect(legacy?.actorKind).toBe("agent");
+      const service = await getAuditEventById("service", scope);
+      expect(service?.actorKind).toBe("service");
+      expect(await ids("agent")).toEqual(["legacy-human", "legacy-system"]);
+      expect(await ids("human")).toEqual(["click"]);
+      expect(await ids("system")).toEqual([]);
+      expect(await ids("service")).toEqual(["service"]);
+    },
+  );
 
   it("returns newest first and respects the limit", async () => {
     await insertAuditEvent(makeEvent({ createdAt: 100 }));

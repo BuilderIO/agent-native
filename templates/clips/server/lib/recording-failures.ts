@@ -69,9 +69,18 @@ export function normalizeRecordingPlatform(value: unknown): RecordingPlatform {
     : "unknown";
 }
 
-export function recordingTrackingSource(userId: string) {
-  const authUserId = getRequestContext()?.authUserId;
-  return { userId, ...(authUserId ? { authUserId } : {}) };
+export function recordingTrackingSource(
+  userId: string,
+  browserSessionId?: string,
+) {
+  const requestContext = getRequestContext();
+  const authUserId = requestContext?.authUserId;
+  const sessionId = browserSessionId ?? requestContext?.browserSessionId;
+  return {
+    userId,
+    ...(authUserId ? { authUserId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+  };
 }
 
 export function trackRecordingFailure(params: {
@@ -82,6 +91,7 @@ export function trackRecordingFailure(params: {
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
+  browserSessionId?: string;
 }): void {
   try {
     track(
@@ -104,7 +114,7 @@ export function trackRecordingFailure(params: {
           ? { http_status: params.httpStatus }
           : {}),
       },
-      recordingTrackingSource(params.userId),
+      recordingTrackingSource(params.userId, params.browserSessionId),
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not affect recording recovery.

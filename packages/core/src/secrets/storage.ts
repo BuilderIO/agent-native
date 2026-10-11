@@ -16,6 +16,8 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { invalidateAgentEngineStatusCache } from "../server/agent-engine-status-cache.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
@@ -32,7 +34,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = APP_SECRETS_CREATE_SQL.replace(
         /\bINTEGER\b/g,
         "BIGINT",
@@ -58,6 +60,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -154,6 +157,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   });
   invalidateRequestSecret(args);
   invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
   return String(rows[0]?.id ?? id);
 }
 
@@ -460,6 +464,15 @@ export interface SecretMeta {
   updatedAt: number;
 }
 
+export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [ref.scope, ref.scopeId, ref.key],
+  });
+  return rows.length > 0;
+}
+
 export async function readAppSecretMeta(
   ref: SecretRef,
 ): Promise<SecretMeta | null> {
@@ -574,5 +587,6 @@ export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   });
   invalidateRequestSecret(ref);
   invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
   return rowsAffected > 0;
 }

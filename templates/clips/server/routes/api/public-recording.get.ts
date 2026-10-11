@@ -1,5 +1,7 @@
 import {
   getSession,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   signScopedAgentAccessToken,
   signShortLivedToken,
   verifyScopedAgentAccessToken,
@@ -10,7 +12,6 @@ import {
   defineEventHandler,
   getHeader,
   getQuery,
-  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   setCookie,
@@ -90,7 +91,7 @@ function isHttpsRequest(event: H3Event): boolean {
     if (xfProto && String(xfProto).split(",")[0].trim() === "https") {
       return true;
     }
-    const requestUrl = getRequestURL(event);
+    const requestUrl = getForwardedRequestURL(event);
     if (requestUrl.protocol === "https:") return true;
     const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
     if (appUrl.startsWith("https://")) return true;
@@ -442,7 +443,7 @@ export default defineEventHandler(async (event) => {
         : undefined;
   const agentContextUrl = canExposeAgentContext
     ? buildAgentApiUrls(recordingId, {
-        origin: getRequestURL(event).origin,
+        origin: getForwardedRequestOrigin(event),
         basePath: appBasePath(),
         token: agentToken,
       }).contextUrl

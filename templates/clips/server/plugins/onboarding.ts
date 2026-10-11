@@ -11,7 +11,7 @@ import {
 } from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
-const basePlugin = createOnboardingPlugin();
+const basePlugin = createOnboardingPlugin({ appId: "clips" });
 
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
@@ -22,7 +22,8 @@ export default async (nitroApp: any): Promise<void> => {
   registerOnboardingStep({
     id: "file-storage",
     order: 15,
-    required: true,
+    // Local recordings work before users connect remote storage.
+    required: false,
     title: "Connect storage",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage.",

@@ -4,6 +4,7 @@ export const DESKTOP_SETTINGS_TABS = [
   "rewind",
   "meetings",
   "dictation",
+  "labs",
   "advanced",
 ] as const;
 

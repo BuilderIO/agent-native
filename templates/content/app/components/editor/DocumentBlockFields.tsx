@@ -51,6 +51,7 @@ interface DocumentBlockFieldsProps {
   databaseId: string | null;
   databaseDocumentId: string | null;
   canEdit: boolean;
+  usePagePropertiesOnly?: boolean;
   suggesting?: boolean;
   enteringSuggestion?: boolean;
   onPrimaryFieldAvailabilityChange?: (
@@ -276,6 +277,7 @@ export function DocumentBlockFields({
   databaseId,
   databaseDocumentId,
   canEdit,
+  usePagePropertiesOnly = false,
   suggesting = false,
   enteringSuggestion = false,
   onPrimaryFieldAvailabilityChange,
@@ -288,21 +290,26 @@ export function DocumentBlockFields({
     () => documentPropertiesPlaceholder(documentId, databaseId, pageProperties),
     [databaseId, documentId, pageProperties],
   );
-  const query = useDocumentProperties(documentId, databaseId, { placeholder });
+  const query = useDocumentProperties(documentId, databaseId, {
+    enabled: !usePagePropertiesOnly,
+    placeholder,
+  });
+  const propertiesData = usePagePropertiesOnly ? placeholder : query.data;
+  const hasQueryError = !usePagePropertiesOnly && query.isError;
   const canEditFields =
     canEdit &&
-    query.data?.canEditValues === true &&
+    propertiesData?.canEditValues === true &&
     databaseId !== null &&
     databaseDocumentId !== null;
-  const properties = query.data?.properties ?? [];
+  const properties = propertiesData?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
     [properties],
   );
 
-  const loaded = isLoadedForDocument(documentId, databaseId, query.data);
+  const loaded = isLoadedForDocument(documentId, databaseId, propertiesData);
   const state = blockFieldsRenderState({ loaded, blockFields });
-  const primaryAvailable = !query.isError && primaryBlocksFieldAvailable(state);
+  const primaryAvailable = !hasQueryError && primaryBlocksFieldAvailable(state);
   const scope = `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
   useLayoutEffect(() => {
     onPrimaryFieldAvailabilityChange?.(scope, primaryAvailable);
@@ -310,7 +317,7 @@ export function DocumentBlockFields({
 
   // A failed property read is not an empty field list. Rendering the editor in
   // that state could bind the body before we know which storage target owns it.
-  if (query.isError) {
+  if (hasQueryError) {
     return (
       <div
         className={cn(BLOCK_FIELDS_GRID, "gap-1")}

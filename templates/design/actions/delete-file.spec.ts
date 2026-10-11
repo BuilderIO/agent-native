@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+
 const mocks = vi.hoisted(() => {
   const fileSelectChain = {
     from: vi.fn(),
@@ -51,6 +53,7 @@ const mocks = vi.hoisted(() => {
   txSnapshotSelectChain.where.mockReturnValue(txSnapshotSelectChain);
 
   const txDeleteChain = { where: vi.fn() };
+  const txInsertChain = { values: vi.fn() };
   const txUpdateChain = { set: vi.fn(), where: vi.fn() };
   txUpdateChain.set.mockReturnValue(txUpdateChain);
 
@@ -65,6 +68,7 @@ const mocks = vi.hoisted(() => {
       return txSelectChain;
     }),
     delete: vi.fn(() => txDeleteChain),
+    insert: vi.fn(() => txInsertChain),
     update: vi.fn(() => txUpdateChain),
     execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
@@ -90,6 +94,7 @@ const mocks = vi.hoisted(() => {
       email: "orgMembers.email",
     },
     txDeleteChain,
+    txInsertChain,
     txUpdateChain,
     accessFilter: vi.fn(() => ({ access: true })),
     assertAccess: vi.fn(),
@@ -167,6 +172,15 @@ vi.mock("../server/db/index.js", () => ({
       designId: "visualEditSnapshots.designId",
       fileId: "visualEditSnapshots.fileId",
       blobHandle: "visualEditSnapshots.blobHandle",
+    },
+    designScreenRestoreClaims: {
+      id: "designScreenRestoreClaims.id",
+      designId: "designScreenRestoreClaims.designId",
+      sourceFileId: "designScreenRestoreClaims.sourceFileId",
+      snapshot: "designScreenRestoreClaims.snapshot",
+      consumedAt: "designScreenRestoreClaims.consumedAt",
+      restoredFileId: "designScreenRestoreClaims.restoredFileId",
+      createdAt: "designScreenRestoreClaims.createdAt",
     },
   },
 }));
@@ -266,6 +280,7 @@ describe("delete-file", () => {
     mocks.txShareSelectChain.for.mockResolvedValue([]);
     mocks.txMemberSelectChain.for.mockResolvedValue([]);
     mocks.txSnapshotSelectChain.for.mockResolvedValue([]);
+    mocks.txInsertChain.values.mockResolvedValue([]);
     mocks.deleteVisualEditSnapshotBlobs.mockReset();
     mocks.txSelectChain.limit.mockResolvedValue([]);
     mocks.txDesignSelectChain.from.mockReturnValue(mocks.txDesignSelectChain);
@@ -695,6 +710,7 @@ describe("delete-file", () => {
       },
     });
     expect(data.updatedAt).toBe(mocks.designUpdatedAt);
+    expect(mocks.tx.insert).not.toHaveBeenCalled();
   });
 
   it("returns the authoritative locked file snapshot for session undo", async () => {
@@ -745,6 +761,53 @@ describe("delete-file", () => {
         },
       ],
     });
+  });
+
+  it("stores a content fingerprint for deleted connection metadata", async () => {
+    mocks.designData.screenMetadata["file-b"] = {
+      title: "Delete",
+      connectionId: "screen-connection",
+    };
+    mocks.designData.localhostScreens["file-b"] = {
+      sourceType: "localhost",
+      connectionId: "localhost-connection",
+    };
+
+    const result = await action.run({ id: "file-b" });
+    const deletedFile = result.deletedFiles[0];
+    const [claim] = mocks.txInsertChain.values.mock.calls[0] as [
+      {
+        id: string;
+        designId: string;
+        sourceFileId: string;
+        snapshot: string;
+      },
+    ];
+
+    expect(deletedFile).toMatchObject({
+      restoreClaimId: claim.id,
+      restoreSourceFileId: "file-b",
+    });
+    expect(claim).toMatchObject({
+      designId: "design_123",
+      sourceFileId: "file-b",
+    });
+    const storedSnapshot = JSON.parse(claim.snapshot);
+    expect(storedSnapshot).toEqual({
+      filename: "b.html",
+      fileType: "html",
+      contentHashes: screenRestoreContentHashes("<main>Delete</main>", "html"),
+      screenMetadata: {
+        title: "Delete",
+        connectionId: "screen-connection",
+      },
+      localhostScreen: {
+        sourceType: "localhost",
+        connectionId: "localhost-connection",
+      },
+    });
+    expect(storedSnapshot.content).toBeUndefined();
+    expect(claim.snapshot).not.toContain("<main>Delete</main>");
   });
 
   it("deletes a multi-screen selection with one durable checkpoint", async () => {
@@ -851,7 +914,7 @@ describe("delete-file", () => {
     expect(mocks.tx.delete).not.toHaveBeenCalled();
   });
 
-  it("keeps the final user screen when the board file is also present", async () => {
+  it("deletes the final user screen while preserving the board file", async () => {
     mocks.fileSelectChain.limit.mockResolvedValue([
       {
         id: "file-b",
@@ -868,11 +931,11 @@ describe("delete-file", () => {
 
     await expect(
       action.run({ id: "file-b", allowLockedLayers: true }),
-    ).rejects.toThrow(/at least one user screen/i);
-    expect(mocks.tx.delete).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ id: "file-b", deleted: true });
+    expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
   });
 
-  it("serializes concurrent deletes so only one can remove the final screen", async () => {
+  it("serializes concurrent deletes of the last user screens", async () => {
     let currentFiles = [
       { id: "file-a", filename: "a.html", fileType: "html" },
       { id: "file-b", filename: "b.html", fileType: "html" },
@@ -924,12 +987,14 @@ describe("delete-file", () => {
     ]);
 
     expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(
-      1,
+      2,
     );
     expect(results.filter(({ status }) => status === "rejected")).toHaveLength(
-      1,
+      0,
     );
-    expect(currentFiles.filter((file) => file.id !== "board")).toHaveLength(1);
+    expect(currentFiles).toEqual([
+      { id: "board", filename: "__board__.html", fileType: "html" },
+    ]);
   });
 
   it("does not retain a checkpoint when the delete transaction rolls back", async () => {

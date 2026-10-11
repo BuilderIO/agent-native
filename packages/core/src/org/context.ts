@@ -10,6 +10,7 @@ import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
+  getVerifiedServiceIdentityFromEvent,
   getRequestContext,
   hasExplicitPersonalOrgScope,
 } from "../server/request-context.js";
@@ -275,6 +276,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const sessionOrgRole = normalizeOrgRole(session.orgRole);
 
   const requestContext = getRequestContext();
+  const verifiedServiceIdentity = getVerifiedServiceIdentityFromEvent(event);
   const serviceRole = implicitServiceOrgRole({
     email,
     orgId: sessionOrgId,
@@ -283,13 +285,34 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
         ? null
         : (requestContext?.orgId ?? sessionOrgId),
   });
-  if (serviceRole && sessionOrgId) {
-    return {
-      email,
-      orgId: sessionOrgId,
-      orgName: null,
-      role: serviceRole,
-    };
+  if (
+    serviceRole &&
+    sessionOrgId &&
+    verifiedServiceIdentity &&
+    verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
+      email.trim().toLowerCase() &&
+    verifiedServiceIdentity.orgId === sessionOrgId
+  ) {
+    const organization = await getDbExec().execute({
+      sql: `SELECT identity_authority, identity_id
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [sessionOrgId],
+    });
+    const metadata = organization.rows[0] as
+      | { identity_authority?: unknown; identity_id?: unknown }
+      | undefined;
+    if (
+      metadata &&
+      !String(metadata.identity_authority ?? "").trim() &&
+      !String(metadata.identity_id ?? "").trim()
+    ) {
+      return {
+        email,
+        orgId: sessionOrgId,
+        orgName: null,
+        role: serviceRole,
+      };
+    }
   }
 
   const exec = getDbExec();
@@ -943,50 +966,38 @@ async function releaseClaim(
 }
 
 export async function getOrgDomain(orgId: string): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
-      args: [orgId],
-    });
-    if (!rows[0]) return null;
-    const domain = String((rows[0] as any).allowed_domain || "");
-    return domain || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const domain = String((rows[0] as any).allowed_domain || "");
+  return domain || null;
 }
 
 export async function getOrgA2ASecret(orgId: string): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
-      args: [orgId],
-    });
-    if (!rows[0]) return null;
-    const secret = String((rows[0] as any).a2a_secret || "");
-    return secret || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+    args: [orgId],
+  });
+  if (!rows[0]) return null;
+  const secret = String((rows[0] as any).a2a_secret || "");
+  return secret || null;
 }
 
 export async function getA2ASecretByDomain(
   domain: string,
 ): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    const { rows } = await exec.execute({
-      sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
-      args: [domain.toLowerCase()],
-    });
-    if (!rows[0]) return null;
-    const secret = String((rows[0] as any).a2a_secret || "");
-    return secret || null;
-  } catch {
-    return null;
-  }
+  const exec = getDbExec();
+  const { rows } = await exec.execute({
+    sql: `SELECT a2a_secret FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [domain.toLowerCase()],
+  });
+  if (!rows[0]) return null;
+  const secret = String((rows[0] as any).a2a_secret || "");
+  return secret || null;
 }
 
 export async function resolveOrgByDomain(

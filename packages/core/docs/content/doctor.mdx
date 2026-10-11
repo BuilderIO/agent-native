@@ -22,13 +22,9 @@ your code, it only reports.
 agent-native doctor
 ```
 
-Every scaffolded app and workspace gets the collision-free
-`pnpm agent-native:doctor` command. When a template does not already define its
-own `doctor` script, the CLI also adds the shorter `pnpm doctor` alias:
-
-```bash
-pnpm doctor
-```
+Scaffolded apps and workspaces expose this check as `pnpm agent-native:doctor`.
+Use that exact script; `pnpm doctor` runs pnpm's own command rather than the
+scaffolded check.
 
 The full framework-repository `pnpm guards` suite remains a monorepo check;
 generated projects use this version-matched portable Doctor surface instead.

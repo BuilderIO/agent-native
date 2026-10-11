@@ -52,6 +52,7 @@ export async function forkAndResubmitMobileMessage(
   client: AgentKitController,
   threadId: string,
   sourceMessageId: string,
+  beforeFork: () => void | Promise<void>,
   text?: string,
 ): Promise<AgentThread> {
   const thread = await client.loadThread(threadId);
@@ -76,6 +77,7 @@ export async function forkAndResubmitMobileMessage(
     (message) => message.id === userMessage.id,
   );
   const previousMessage = thread.messages[userIndex - 1];
+  await beforeFork();
   const forkedThread = await client.forkThread(threadId, previousMessage?.id);
   const metadata = userMessage.metadata;
 

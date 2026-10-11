@@ -80,6 +80,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
           contentKey="screen-a"
           screenId="screen-a"
           sourceType="localhost"
+          connectionId="localhost_connection"
           bridgeUrl={BRIDGE_URL}
           previewToken={PREVIEW_TOKEN}
           liveEditCapability="bridge-restart-live-capability"

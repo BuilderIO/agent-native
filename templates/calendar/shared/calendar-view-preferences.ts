@@ -19,12 +19,16 @@ export type CalendarColorMode = "multi" | "single";
 export const MIN_CALENDAR_DAYS = 1;
 export const MAX_CALENDAR_DAYS = 31;
 export const DEFAULT_CALENDAR_DAYS = 7;
+export const MIN_ALL_DAY_MAX_HEIGHT = 48;
+export const MAX_ALL_DAY_MAX_HEIGHT = 320;
+export const DEFAULT_ALL_DAY_MAX_HEIGHT = 88;
 
 export type CalendarColorSourceKey = string;
 
 export interface CalendarViewPreferences {
   hideWeekends: boolean;
   numberOfDays: number;
+  allDayMaxHeight: number;
   showDeclinedEvents: boolean;
   showWeekNumbers: boolean;
   /** @deprecated kept for back-compat migration; use accountColorModes */
@@ -40,6 +44,7 @@ export interface CalendarViewPreferences {
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   hideWeekends: false,
   numberOfDays: DEFAULT_CALENDAR_DAYS,
+  allDayMaxHeight: DEFAULT_ALL_DAY_MAX_HEIGHT,
   showDeclinedEvents: true,
   showWeekNumbers: false,
   colorMode: "multi",
@@ -54,6 +59,12 @@ export function normalizeNumberOfDays(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value)
     ? Math.min(MAX_CALENDAR_DAYS, Math.max(MIN_CALENDAR_DAYS, value))
     : DEFAULT_CALENDAR_DAYS;
+}
+
+export function normalizeAllDayMaxHeight(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(MAX_ALL_DAY_MAX_HEIGHT, Math.max(MIN_ALL_DAY_MAX_HEIGHT, value))
+    : DEFAULT_ALL_DAY_MAX_HEIGHT;
 }
 
 export function isEventVisibleForDeclinedPreference(
@@ -128,6 +139,7 @@ export function normalizeCalendarViewPreferences(
     next.hideWeekends = input.hideWeekends;
   }
   next.numberOfDays = normalizeNumberOfDays(input.numberOfDays);
+  next.allDayMaxHeight = normalizeAllDayMaxHeight(input.allDayMaxHeight);
   if (typeof input.showDeclinedEvents === "boolean") {
     next.showDeclinedEvents = input.showDeclinedEvents;
   }
@@ -156,6 +168,7 @@ export function calendarViewPreferencesEqual(
   return (
     a.hideWeekends === b.hideWeekends &&
     a.numberOfDays === b.numberOfDays &&
+    a.allDayMaxHeight === b.allDayMaxHeight &&
     a.showDeclinedEvents === b.showDeclinedEvents &&
     a.showWeekNumbers === b.showWeekNumbers &&
     a.colorMode === b.colorMode &&
