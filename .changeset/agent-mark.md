@@ -3,4 +3,4 @@
 "@agent-native/creative-context": patch
 ---
 
-Export a shared `AgentMark` icon for agent identity and use it in the creative context panel.
+Export a shared `AgentMark` icon for agent identity and use the same mark in the creative context panel.

@@ -2,7 +2,6 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useUploadResource } from "@agent-native/core/client/uploads";
 import type { AgentPageScope } from "@agent-native/toolkit/app/agent-page";
 import { useOrg } from "@agent-native/toolkit/app/org";
-import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +108,7 @@ import {
   type CreativeContextRootRecommendation,
   type CreativeContextRecommendationProvider,
 } from "./actions.js";
+import { AgentMark } from "./AgentMark";
 import {
   useCreativeContextState,
   type CreativeContextMode,
