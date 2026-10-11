@@ -139,6 +139,9 @@ describe("CommentHighlight", () => {
     ]);
     // Separate edits on either side of the quote leave its text alone.
     expect(
+      highlighted(swap("New intro.", "ships Friday pm.", "Added.")),
+    ).toEqual(["Friday pm"]);
+    expect(
       highlighted(swap("Intro.", "Team ships Friday pm, always.")),
     ).toEqual(["Friday pm"]);
     expect(highlighted(swap("Intro.", "ships on Friday pm."))).toEqual([
@@ -147,9 +150,9 @@ describe("CommentHighlight", () => {
     expect(highlighted(swap("Intro.", "ships Friday pm now."))).toEqual([
       "Friday pm",
     ]);
-    // A rewrite that takes in the quote and the words around it covers what
-    // replaced them.
-    expect(highlighted(swap("Intro.", "X."))).toEqual(["X"]);
+    // Nothing is left of a quote rewritten from end to end, and a
+    // collaborator's rewrite does not re-anchor it.
+    expect(highlighted(swap("Intro.", "X."))).toEqual([]);
     // A copy of the quote added ahead of it does not take its highlight.
     expect(
       commentHighlightKey.getState(

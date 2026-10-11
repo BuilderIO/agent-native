@@ -82,7 +82,10 @@ function positionText(doc: ProseMirrorNode, codes: Map<string, string>) {
 // whole document, so its own mapping collapses every range inside it. Such a
 // swap maps through a diff of the two documents' node types and text. A
 // narrower change keeps its own mapping: deleting one of two identical words
-// reads, by text alone, as deleting the other.
+// reads, by text alone, as deleting the other. Either way a highlight keeps
+// only what is left of its text. It never takes in text that replaced all of
+// it: only an accepted edit re-anchors the thread's quote, not a
+// collaborator's rewrite.
 function swapMapping(
   tr: Transaction,
   before: ProseMirrorNode,
@@ -197,14 +200,8 @@ export function createCommentHighlightPlugin() {
             if (swap === undefined)
               swap = swapMapping(tr, oldState.doc, newState.doc);
             if (!swap) return [];
-            // An end inside text the swap replaced moves out to take in the
-            // replacement, as accepting an edit re-anchors the thread's quote.
-            const start = swap.mapResult(s.from, 1);
-            const end = swap.mapResult(s.to, -1);
-            const swappedFrom = start.deletedAcross
-              ? swap.map(s.from, -1)
-              : start.pos;
-            const swappedTo = end.deletedAcross ? swap.map(s.to, 1) : end.pos;
+            const swappedFrom = swap.map(s.from, 1);
+            const swappedTo = swap.map(s.to, -1);
             return swappedTo > swappedFrom
               ? [{ threadId: s.threadId, from: swappedFrom, to: swappedTo }]
               : [];
