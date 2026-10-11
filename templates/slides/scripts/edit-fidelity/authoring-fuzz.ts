@@ -1020,6 +1020,9 @@ export async function runAuthoringFuzz(
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
   const reloadNavigationRequests = new Map<any, number>();
   let reloadNavigationStartedAt: number | null = null;
+  // Diagnostic only: reloadNavigationStartedAt resets after each reload, but a
+  // late failure can still be logged after that. This keeps the latest start.
+  let lastReloadStartedAt: number | null = null;
   const pendingSaveConflicts: Promise<void>[] = [];
   const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
@@ -1135,7 +1138,7 @@ export async function runAuthoringFuzz(
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled || isBrowserSessionPath(pathname)) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} startOffsetMs=${requestStartedAt === undefined || reloadNavigationStartedAt === null ? "n/a" : requestStartedAt - reloadNavigationStartedAt}`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}`,
       );
     }
     if (
@@ -4914,6 +4917,7 @@ export async function runAuthoringFuzz(
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
       reloadNavigationStartedAt = Date.now();
+      lastReloadStartedAt = reloadNavigationStartedAt;
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
         if (traceEnabled) {
