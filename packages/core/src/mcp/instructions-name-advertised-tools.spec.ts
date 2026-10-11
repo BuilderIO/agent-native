@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   LOAD_TIMEOUT_MS,
+  defaultProductionTools,
   loadAppCatalogs,
   type AppCatalog,
 } from "./advertised-catalog.harness.js";
@@ -143,7 +144,7 @@ const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
 
 function rulesFor(app: AppCatalog): ReferenceRules {
   return {
-    advertised: new Set(app.catalogs.default.map((tool) => tool.name)),
+    advertised: new Set(defaultProductionTools(app).map((tool) => tool.name)),
     notToolNames: {
       ...NOT_TOOL_NAMES["*"],
       ...NOT_TOOL_NAMES[app.appId],
@@ -269,7 +270,7 @@ describe("static MCP instructions name only advertised tools", () => {
         } else if (
           scope !== "*" &&
           owners.every((app) =>
-            app.catalogs.default.some((tool) => tool.name === token),
+            defaultProductionTools(app).some((tool) => tool.name === token),
           )
         ) {
           stale.push(

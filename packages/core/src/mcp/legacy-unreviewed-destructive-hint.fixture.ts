@@ -8,8 +8,9 @@
 //
 // The list may only shrink. To clear an entry, declare `mcpAnnotations` on the
 // action (readOnlyHint, destructiveHint, openWorldHint) and delete the entry
-// here, then lower LEGACY_UNREVIEWED_COUNT. A new mutating tool must declare
-// `mcpAnnotations` instead of being added here.
+// here. A new mutating tool must declare `mcpAnnotations` instead of being
+// added here: guard:no-new-legacy-mcp-hints fails on any id a branch adds,
+// and reads this file expecting the `section: ["name", ...]` shape below.
 export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
   core: [
     "activate-browser",
@@ -1531,5 +1532,3 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "upsert-workspace-user-group",
   ],
 };
-
-export const LEGACY_UNREVIEWED_COUNT = 1485;

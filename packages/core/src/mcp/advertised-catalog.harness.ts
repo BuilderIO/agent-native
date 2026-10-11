@@ -8,7 +8,10 @@ import { createApp } from "h3";
 import { vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import {
+  coreActionLoaderEntries,
+  loadActionsFromStaticRegistry,
+} from "../server/action-discovery.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { createMCPServerForRequest, type MCPConfig } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
@@ -29,17 +32,82 @@ export interface AdvertisedTool {
   };
 }
 
-export interface AppCatalog {
-  appId: string;
-  /** What the plugin hands `mountMCP`: the app's real external surface. */
-  config: MCPConfig;
-  /** Action names the template itself defines; the rest come from the framework. */
-  templateActionNames: ReadonlySet<string>;
+/**
+ * A deployment shape whose catalog is checked. Code execution registers
+ * different tools (`run-code`, and `bash`/`edit`/`write` when trusted), and a
+ * dev server swaps in the full action surface for an authenticated caller.
+ */
+export interface Surface {
+  name: string;
+  /** `AGENT_MODE=production` unless this is a dev server. */
+  dev: boolean;
+  /** `AGENT_PROD_CODE_EXECUTION`; dev always has run-code and ignores it. */
+  codeExecution: "off" | "sandboxed" | "trusted";
+  /** The caller is authenticated, which selects `productionActions` in dev. */
+  fullSurface: boolean;
+}
+
+export const SURFACES: readonly Surface[] = [
+  {
+    name: "production, code execution off",
+    dev: false,
+    codeExecution: "off",
+    fullSurface: false,
+  },
+  {
+    name: "production, sandboxed code execution",
+    dev: false,
+    codeExecution: "sandboxed",
+    fullSurface: false,
+  },
+  {
+    name: "production, trusted code execution",
+    dev: false,
+    codeExecution: "trusted",
+    fullSurface: false,
+  },
+  {
+    name: "dev, authenticated full surface",
+    dev: true,
+    codeExecution: "off",
+    fullSurface: true,
+  },
+];
+
+export interface SurfaceCatalog {
+  surface: Surface;
   /** `tools/list` as a client reads it, per catalog mode. */
   catalogs: { default: AdvertisedTool[]; full: AdvertisedTool[] };
-  /** What `ActionEntry` declares for each advertised tool name. */
+  /** What `ActionEntry` declares for each tool this surface can advertise. */
   entries: Record<string, ActionEntry>;
+}
+
+export interface AppCatalog {
+  appId: string;
+  /** Action names the template itself defines; the rest come from the framework. */
+  templateActionNames: ReadonlySet<string>;
+  /**
+   * The app mounts MCP from a plugin of its own instead of the agent chat
+   * plugin, so it has no code-execution tools to vary by deployment.
+   */
+  ownMcpMount: boolean;
+  /**
+   * Tools only a dev server advertises, each backed by a file in the app's
+   * own `actions/` or `scripts/` folder. A dev server wraps every such file
+   * (helper modules and one-off CLI scripts included) as a tool for its
+   * authenticated owner; no deployment registers them, so they carry no
+   * declaration. Anything else that only the dev surface advertises is not in
+   * this set and is checked like any other tool.
+   */
+  devDiscoveredTools: ReadonlySet<string>;
+  surfaces: SurfaceCatalog[];
+  /** Static instructions, as a plain production deployment's catalog sends them. */
   instructions: string;
+}
+
+/** The default catalog of a plain production deployment (code execution off). */
+export function defaultProductionTools(app: AppCatalog): AdvertisedTool[] {
+  return app.surfaces[0]!.catalogs.default;
 }
 
 export function templateIdsWithAgentChat(): string[] {
@@ -78,6 +146,35 @@ export function loadActionsStrictly(
     );
   }
   return loaded;
+}
+
+/**
+ * `mergeCoreSharingActions` skips a framework action whose import throws or
+ * whose module is not an action. Import every loader entry here first so such
+ * a failure fails the run instead of shrinking every app's catalog. The list
+ * is the loader's own, not a copy.
+ */
+export async function assertCoreActionLoadersAreValid(): Promise<number> {
+  const entries = coreActionLoaderEntries();
+  const failures: string[] = [];
+  for (const [name, loader] of entries) {
+    try {
+      const definition = (await loader()).default;
+      if (!definition?.tool || typeof definition.run !== "function") {
+        failures.push(`${name}: the module has no default action`);
+      }
+    } catch (error) {
+      failures.push(
+        `${name}: import failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
+    }
+  }
+  if (entries.length === 0 || failures.length > 0) {
+    throw new Error(
+      `Core action loader entries are not all valid (${entries.length} entries):\n${failures.join("\n")}`,
+    );
+  }
+  return entries.length;
 }
 
 const captured = {
@@ -171,7 +268,7 @@ function createCloseHooks() {
 
 async function listAdvertised(
   config: MCPConfig,
-  fullCatalog: boolean,
+  request: { fullCatalog: boolean; fullSurface: boolean },
 ): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
   const server = await createMCPServerForRequest(
     config,
@@ -184,7 +281,8 @@ async function listAdvertised(
     {
       transport: "http",
       inlineMcpApps: false,
-      ...(fullCatalog ? { fullCatalog } : {}),
+      ...(request.fullCatalog ? { fullCatalog: true } : {}),
+      ...(request.fullSurface ? { fullSurface: true } : {}),
     },
   );
   const [clientTransport, serverTransport] =
@@ -203,17 +301,100 @@ async function listAdvertised(
   return { tools, instructions };
 }
 
+// Runs the app's plugin once under the surface's environment and returns the
+// config it mounted.
+async function mountedConfig(
+  label: string,
+  appId: string,
+  projectRoot: string,
+  plugin: (nitroApp: unknown) => void,
+): Promise<{ config: MCPConfig; ownMount: boolean }> {
+  const mountsBefore = captured.mounts.length;
+  const initsBefore = captured.initPromises.length;
+  const { hooks, close } = createCloseHooks();
+  const nitroApp = { h3App: createApp(), h3: { "~middleware": [] }, hooks };
+  plugin(nitroApp);
+  const init = captured.initPromises[initsBefore];
+  if (!init) throw new Error(`${label}: the plugin did not start init.`);
+  try {
+    // A rejected init is a loud failure here, not an app without MCP.
+    await init;
+  } finally {
+    await close();
+  }
+  let ownMount = false;
+  if (captured.mounts.length === mountsBefore) {
+    // Plan turns the plugin's own mount off and mounts MCP from a plugin of
+    // its own, so that plugin is the app's real catalog boundary.
+    ownMount = true;
+    const ownMountPath = path.join(projectRoot, "server/plugins/00-mcp.ts");
+    if (!fs.existsSync(ownMountPath)) {
+      throw new Error(
+        `${label}: the agent chat plugin mounted no MCP server (its init may have failed and fallen back), and templates/${appId} has no 00-mcp.ts plugin that does.`,
+      );
+    }
+    const { default: mountOwnMcp } = await import(
+      pathToFileURL(ownMountPath).href
+    );
+    mountOwnMcp(nitroApp);
+    if (captured.mounts.length === mountsBefore) {
+      throw new Error(
+        `templates/${appId}/server/plugins/00-mcp.ts mounted nothing.`,
+      );
+    }
+  }
+  return {
+    config: captured.mounts.at(-1) as unknown as MCPConfig,
+    ownMount,
+  };
+}
+
+function advertisedNames(surface: SurfaceCatalog): string[] {
+  return [...surface.catalogs.default, ...surface.catalogs.full].map(
+    (tool) => tool.name,
+  );
+}
+
+// See AppCatalog.devDiscoveredTools.
+function devDiscoveredTools(
+  projectRoot: string,
+  surfaces: SurfaceCatalog[],
+): Set<string> {
+  const deployed = new Set(
+    surfaces
+      .filter(({ surface }) => !surface.dev)
+      .flatMap((surface) => advertisedNames(surface)),
+  );
+  const discovered = new Set<string>();
+  for (const surface of surfaces.filter(({ surface }) => surface.dev)) {
+    for (const name of advertisedNames(surface)) {
+      if (
+        !deployed.has(name) &&
+        ["actions", "scripts"].some((dir) =>
+          fs.existsSync(path.join(projectRoot, dir, `${name}.ts`)),
+        )
+      ) {
+        discovered.add(name);
+      }
+    }
+  }
+  return discovered;
+}
+
 /**
  * Builds every template's MCP catalog the way a deployed app does: through its
  * real agent-chat plugin, then `createMCPServerForRequest`, in the default and
- * full-catalog modes. Apps whose plugin does not mount MCP are omitted.
+ * full-catalog modes, for each deployment shape in SURFACES.
  */
-export async function loadAppCatalogs(): Promise<AppCatalog[]> {
-  vi.stubEnv("AGENT_MODE", "production");
+export async function loadAppCatalogs(
+  only?: readonly string[],
+): Promise<AppCatalog[]> {
+  await assertCoreActionLoadersAreValid();
   stubPluginSideEffects();
   const results: AppCatalog[] = [];
   try {
     for (const appId of templateIdsWithAgentChat()) {
+      if (only && !only.includes(appId)) continue;
       const projectRoot = path.join(repoRoot, "templates", appId);
       generateActionRegistryForProject(projectRoot);
       const registry = await import(
@@ -232,53 +413,61 @@ export async function loadAppCatalogs(): Promise<AppCatalog[]> {
           `templates/${appId}/server/plugins/agent-chat.ts did not create an agent chat plugin for "${appId}".`,
         );
       }
-      const mountsBefore = captured.mounts.length;
-      const initsBefore = captured.initPromises.length;
-      const { hooks, close } = createCloseHooks();
-      plugin({ h3App: createApp(), hooks });
-      const init = captured.initPromises[initsBefore];
-      if (!init) throw new Error(`${appId}: the plugin did not start init.`);
-      try {
-        // A rejected init is a loud failure here, not an app without MCP.
-        await init;
-      } finally {
-        await close();
-      }
-      if (captured.mounts.length === mountsBefore) {
-        // Plan turns the plugin's own mount off and mounts MCP from a plugin of
-        // its own, so that plugin is the app's real catalog boundary.
-        const ownMount = path.join(projectRoot, "server/plugins/00-mcp.ts");
-        if (!fs.existsSync(ownMount)) {
-          throw new Error(
-            `templates/${appId} has an agent chat plugin but mounted no MCP server, and has no 00-mcp.ts plugin that does.`,
-          );
-        }
-        const { default: mountOwnMcp } = await import(
-          pathToFileURL(ownMount).href
-        );
-        mountOwnMcp({ h3App: createApp(), hooks });
-        if (captured.mounts.length === mountsBefore) {
-          throw new Error(
-            `templates/${appId}/server/plugins/00-mcp.ts mounted nothing.`,
-          );
-        }
-      }
-      const config = captured.mounts.at(-1) as unknown as MCPConfig;
 
-      const defaultCatalog = await listAdvertised(config, false);
-      const fullCatalog = await listAdvertised(config, true);
-      const entries = {
-        ...getBuiltinCrossAppTools(config),
-        ...config.actions,
-        ...(config.productionActions ?? {}),
-      };
+      // The app runs from its own folder: a dev server discovers loose files
+      // there, and trusted code execution roots its shell there.
+      const cwd = vi.spyOn(process, "cwd").mockReturnValue(projectRoot);
+      const surfaces: SurfaceCatalog[] = [];
+      let instructions = "";
+      let ownMcpMount = false;
+      try {
+        for (const surface of SURFACES) {
+          // Every input the plugin reads is set explicitly so a developer's
+          // shell cannot change which catalog is under test.
+          vi.stubEnv("AGENT_MODE", surface.dev ? "development" : "production");
+          vi.stubEnv("AGENT_PROD_CODE_EXECUTION", surface.codeExecution);
+          const mounted = await mountedConfig(
+            `${appId} (${surface.name})`,
+            appId,
+            projectRoot,
+            plugin,
+          );
+          const { config } = mounted;
+          ownMcpMount = mounted.ownMount;
+          const request = { fullSurface: surface.fullSurface };
+          const defaultCatalog = await listAdvertised(config, {
+            ...request,
+            fullCatalog: false,
+          });
+          const fullCatalog = await listAdvertised(config, {
+            ...request,
+            fullCatalog: true,
+          });
+          if (surfaces.length === 0) instructions = defaultCatalog.instructions;
+          surfaces.push({
+            surface,
+            catalogs: {
+              default: defaultCatalog.tools,
+              full: fullCatalog.tools,
+            },
+            entries: {
+              ...getBuiltinCrossAppTools(config),
+              ...(surface.fullSurface && config.productionActions
+                ? config.productionActions
+                : config.actions),
+            },
+          });
+        }
+      } finally {
+        cwd.mockRestore();
+      }
       results.push({
         appId,
-        config,
         templateActionNames: new Set(Object.keys(templateActions)),
-        catalogs: { default: defaultCatalog.tools, full: fullCatalog.tools },
-        entries,
-        instructions: defaultCatalog.instructions,
+        ownMcpMount,
+        devDiscoveredTools: devDiscoveredTools(projectRoot, surfaces),
+        surfaces,
+        instructions,
       });
     }
   } finally {

@@ -147,6 +147,9 @@ Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-source-reading-tests` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
+`no-new-legacy-mcp-hints` is the exception: it compares the frozen MCP
+`destructiveHint` baseline with the merge base and fails on any added id, with
+no opt-out. A new mutating tool declares `mcpAnnotations` on its action.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via

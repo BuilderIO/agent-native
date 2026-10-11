@@ -2,14 +2,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   LOAD_TIMEOUT_MS,
+  SURFACES,
   loadAppCatalogs,
-  type AdvertisedTool,
   type AppCatalog,
+  type SurfaceCatalog,
 } from "./advertised-catalog.harness.js";
-import {
-  LEGACY_UNREVIEWED,
-  LEGACY_UNREVIEWED_COUNT,
-} from "./legacy-unreviewed-destructive-hint.fixture.js";
+import { LEGACY_UNREVIEWED } from "./legacy-unreviewed-destructive-hint.fixture.js";
 
 const FIXTURE =
   "packages/core/src/mcp/legacy-unreviewed-destructive-hint.fixture.ts";
@@ -37,34 +35,64 @@ const DECLARATION_NOT_ADVERTISED_UNTIL_6836 = new Set([
   "slides/update-slide",
 ]);
 
+// The same for framework tools, which every app that registers them shares, so
+// they are listed by name instead of once per app.
+const FRAMEWORK_DECLARATION_NOT_ADVERTISED_UNTIL_6836 = new Set([
+  "bash",
+  "edit",
+  "write",
+]);
+
 let apps: AppCatalog[] = [];
 
 beforeAll(async () => {
   apps = await loadAppCatalogs();
 }, LOAD_TIMEOUT_MS);
 
-function advertisedIn(app: AppCatalog): Map<string, AdvertisedTool[]> {
-  const byName = new Map<string, AdvertisedTool[]>();
-  for (const tool of [...app.catalogs.default, ...app.catalogs.full]) {
-    byName.set(tool.name, [...(byName.get(tool.name) ?? []), tool]);
-  }
-  return byName;
+type Hint = "readOnlyHint" | "destructiveHint" | "openWorldHint";
+const HINTS: readonly Hint[] = [
+  "readOnlyHint",
+  "destructiveHint",
+  "openWorldHint",
+];
+
+// Every (tool, catalog) pair an app advertises, over every deployment surface
+// and both catalog modes. Files a dev server wraps as tools are left out (see
+// AppCatalog.devDiscoveredTools).
+function advertisements(app: AppCatalog) {
+  return app.surfaces.flatMap((surface: SurfaceCatalog) =>
+    (["default", "full"] as const).flatMap((mode) =>
+      surface.catalogs[mode]
+        .filter(
+          (tool) =>
+            !(surface.surface.dev && app.devDiscoveredTools.has(tool.name)),
+        )
+        .map((tool) => ({
+          tool,
+          entry: surface.entries[tool.name],
+        })),
+    ),
+  );
 }
 
 // A tool is mutating when any catalog advertises it as not read-only.
 function mutatingToolNames(app: AppCatalog): string[] {
-  return [...advertisedIn(app)]
-    .filter(([, tools]) =>
-      tools.some((tool) => tool.annotations.readOnlyHint !== true),
-    )
-    .map(([name]) => name)
-    .filter((name) => !SERVER_DECIDED_TOOLS.has(name));
+  return [
+    ...new Set(
+      advertisements(app)
+        .filter(({ tool }) => tool.annotations.readOnlyHint !== true)
+        .map(({ tool }) => tool.name),
+    ),
+  ].filter((name) => !SERVER_DECIDED_TOOLS.has(name));
 }
 
 function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
-  return (
-    typeof app.entries[name]?.mcpAnnotations?.destructiveHint === "boolean"
-  );
+  return advertisements(app)
+    .filter(({ tool }) => tool.name === name)
+    .every(
+      ({ entry }) =>
+        typeof entry?.mcpAnnotations?.destructiveHint === "boolean",
+    );
 }
 
 // Legacy entries are keyed by whose action the tool is: the template's own
@@ -79,21 +107,42 @@ function undeclaredMutatingTools(app: AppCatalog): string[] {
   );
 }
 
-function declaredMismatches(): string[] {
-  const mismatches: string[] = [];
+// "<app>/<tool>" for every tool whose advertised hints differ from its
+// declaration, with whether the framework declares it for all apps.
+function declaredMismatches(): Array<{ key: string; frameworkName?: string }> {
+  const mismatches = new Map<string, { key: string; frameworkName?: string }>();
   for (const app of apps) {
-    for (const [name, tools] of advertisedIn(app)) {
-      const declared = app.entries[name]?.mcpAnnotations;
-      if (!declared) continue;
-      const differs = tools.some((tool) =>
-        (["readOnlyHint", "destructiveHint", "openWorldHint"] as const).some(
-          (hint) => declared[hint] !== tool.annotations[hint],
-        ),
-      );
-      if (differs) mismatches.push(`${app.appId}/${name}`);
+    for (const { tool, entry } of advertisements(app)) {
+      const declared = entry?.mcpAnnotations;
+      if (
+        declared &&
+        HINTS.some((hint) => declared[hint] !== tool.annotations[hint])
+      ) {
+        const key = `${app.appId}/${tool.name}`;
+        mismatches.set(key, {
+          key,
+          ...(app.templateActionNames.has(tool.name)
+            ? {}
+            : { frameworkName: tool.name }),
+        });
+      }
     }
   }
-  return mismatches;
+  return [...mismatches.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function isPendingUntil6836({
+  key,
+  frameworkName,
+}: {
+  key: string;
+  frameworkName?: string;
+}): boolean {
+  return (
+    DECLARATION_NOT_ADVERTISED_UNTIL_6836.has(key) ||
+    (frameworkName !== undefined &&
+      FRAMEWORK_DECLARATION_NOT_ADVERTISED_UNTIL_6836.has(frameworkName))
+  );
 }
 
 describe("MCP destructiveHint contract over each app's real catalog", () => {
@@ -109,17 +158,39 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
       ]),
     );
     for (const app of apps) {
+      const [production] = app.surfaces;
       expect(
-        app.catalogs.full.map((tool) => tool.name),
+        production!.catalogs.full.map((tool) => tool.name),
         `${app.appId}: framework tools are missing from the full catalog`,
       ).toContain("manage-automations");
       expect(
-        app.catalogs.default.map((tool) => tool.name),
+        production!.catalogs.default.map((tool) => tool.name),
         `${app.appId}: tool-search is missing from the default catalog`,
       ).toContain("tool-search");
-      expect(app.catalogs.full.length).toBeGreaterThan(
-        app.catalogs.default.length,
-      );
+      expect(app.surfaces.map(({ surface }) => surface)).toEqual(SURFACES);
+    }
+  });
+
+  it("covers the code-execution tools that only some deployments register", () => {
+    const fullTools = (app: AppCatalog, index: number) =>
+      app.surfaces[index]!.catalogs.full.map((tool) => tool.name);
+    const [off, sandboxed, trusted, dev] = [0, 1, 2, 3];
+    const codingTools = ["bash", "edit", "write"];
+    for (const app of apps.filter((candidate) => !candidate.ownMcpMount)) {
+      const label = (index: number) =>
+        `${app.appId}: ${app.surfaces[index]!.surface.name}`;
+      expect(fullTools(app, off), label(off)).not.toContain("run-code");
+      for (const index of [sandboxed, trusted, dev]) {
+        expect(fullTools(app, index), label(index)).toContain("run-code");
+      }
+      for (const index of [off, sandboxed]) {
+        expect(fullTools(app, index), label(index)).not.toContain("bash");
+      }
+      for (const index of [trusted, dev]) {
+        expect(fullTools(app, index), label(index)).toEqual(
+          expect.arrayContaining(codingTools),
+        );
+      }
     }
   });
 
@@ -141,7 +212,8 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
       undeclared,
       "These MCP tools can change data but declare no destructiveHint. Add `mcpAnnotations: { readOnlyHint, destructiveHint, openWorldHint }` " +
         "to the action (destructiveHint is true when it deletes, overwrites, or replaces user content, recoverable Trash included). " +
-        `Do not add them to ${FIXTURE}: that baseline is frozen and may only shrink. Hosts use the hint to decide when to ask the user first.`,
+        `Do not add them to ${FIXTURE}: that baseline is frozen and may only shrink (guard:no-new-legacy-mcp-hints rejects added ids). ` +
+        "Hosts use the hint to decide when to ask the user first.",
     ).toEqual([]);
   });
 
@@ -160,50 +232,52 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     );
     expect(
       stale,
-      `These ${FIXTURE} entries name a tool that was removed, is read-only, is not advertised, or now declares mcpAnnotations. Delete them and lower LEGACY_UNREVIEWED_COUNT.`,
+      `These ${FIXTURE} entries name a tool that was removed, is read-only, is not advertised, or now declares mcpAnnotations. Delete them.`,
     ).toEqual([]);
   });
 
-  it("freezes the legacy baseline size", () => {
+  it("lists each legacy tool once", () => {
     const names = Object.entries(LEGACY_UNREVIEWED).flatMap(
-      ([section, section_names]) =>
-        section_names.map((name) => `${section}/${name}`),
+      ([section, sectionNames]) =>
+        sectionNames.map((name) => `${section}/${name}`),
     );
-    expect(
-      new Set(names).size,
-      "A tool is listed twice in the legacy baseline.",
-    ).toBe(names.length);
-    expect(
-      names.length,
-      names.length > LEGACY_UNREVIEWED_COUNT
-        ? `${FIXTURE} grew. Do not add tools to the legacy baseline: declare mcpAnnotations on the new action instead.`
-        : `${FIXTURE} shrank. Lower LEGACY_UNREVIEWED_COUNT to ${names.length} so the freed room cannot be reused.`,
-    ).toBe(LEGACY_UNREVIEWED_COUNT);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it("advertises the declared hints wherever the derived hints already agree", () => {
     expect(
-      declaredMismatches().filter(
-        (key) => !DECLARATION_NOT_ADVERTISED_UNTIL_6836.has(key),
-      ),
+      declaredMismatches()
+        .filter((mismatch) => !isPendingUntil6836(mismatch))
+        .map(({ key }) => key),
       "A catalog advertises hints that differ from the action's declared mcpAnnotations.",
     ).toEqual([]);
   });
 
   // On main the default and full catalogs derive their hints and ignore the
   // declaration, so this fails. Once #6836 lands it passes: remove `.fails`
-  // and DECLARATION_NOT_ADVERTISED_UNTIL_6836 together.
+  // and both DECLARATION_NOT_ADVERTISED_UNTIL_6836 sets together.
   it.fails("advertises the declared hints on every declared tool (#6836)", () => {
-    expect(declaredMismatches()).toEqual([]);
+    expect(declaredMismatches().map(({ key }) => key)).toEqual([]);
   });
 
-  it("keeps the pending-#6836 list limited to declarations that still mismatch", () => {
-    const mismatching = new Set(declaredMismatches());
-    expect(
-      [...DECLARATION_NOT_ADVERTISED_UNTIL_6836].filter(
-        (key) => !mismatching.has(key),
+  it("keeps the pending-#6836 lists limited to declarations that still mismatch", () => {
+    const mismatches = declaredMismatches();
+    const mismatchingKeys = new Set(mismatches.map(({ key }) => key));
+    const mismatchingFramework = new Set(
+      mismatches.flatMap(({ frameworkName }) =>
+        frameworkName ? [frameworkName] : [],
       ),
-      "These now advertise their declaration: remove them from DECLARATION_NOT_ADVERTISED_UNTIL_6836.",
+    );
+    expect(
+      [
+        ...[...DECLARATION_NOT_ADVERTISED_UNTIL_6836].filter(
+          (key) => !mismatchingKeys.has(key),
+        ),
+        ...[...FRAMEWORK_DECLARATION_NOT_ADVERTISED_UNTIL_6836].filter(
+          (name) => !mismatchingFramework.has(name),
+        ),
+      ],
+      "These now advertise their declaration: remove them from the DECLARATION_NOT_ADVERTISED_UNTIL_6836 lists.",
     ).toEqual([]);
   });
 });
