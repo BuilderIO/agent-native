@@ -8,6 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 let steps: OnboardingStepStatus[] = [];
+let onboardingError: string | null = null;
+let refresh = vi.fn(async () => {});
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
   trackOnboardingEvent: vi.fn(),
@@ -16,7 +18,8 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
     currentStepId: steps[0]?.id ?? null,
     dismissed: false,
     loading: false,
-    refresh: async () => {},
+    error: onboardingError,
+    refresh,
     complete: vi.fn(),
     dismiss: vi.fn(),
   }),
@@ -28,6 +31,7 @@ vi.mock("@agent-native/core/client/use-dev-mode", () => ({
   useDevMode: () => ({ isDevMode: false }),
 }));
 
+import { OnboardingBanner } from "./OnboardingBanner.js";
 import { OnboardingPanel } from "./OnboardingPanel.js";
 
 function json(body: unknown): Response {
@@ -69,8 +73,27 @@ afterEach(() => {
   container?.remove();
   root = null;
   container = null;
+  steps = [];
+  onboardingError = null;
+  refresh = vi.fn(async () => {});
   vi.unstubAllGlobals();
 });
+
+async function renderOnboarding(child: React.ReactNode): Promise<void> {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  await act(async () => {
+    root!.render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>{child}</TooltipProvider>
+      </QueryClientProvider>,
+    );
+  });
+}
 
 async function saveAs(
   role: "member" | "admin",
@@ -155,5 +178,53 @@ describe("onboarding form save scope", () => {
     root = null;
     const [secretSave] = await saveAs("admin", "scoped-secrets");
     expect(secretSave.body.scope).toBe("workspace");
+  });
+
+  it("shows and retries an unavailable summary when no steps loaded", async () => {
+    onboardingError = "summary: 503";
+    refresh = vi.fn(async () => {});
+    await renderOnboarding(<OnboardingPanel />);
+
+    expect(
+      container?.querySelector('[role="alert"]')?.textContent,
+    ).toBeTruthy();
+    const retry = container?.querySelector<HTMLButtonElement>(
+      '[data-testid="onboarding-summary-retry"]',
+    );
+    expect(retry).not.toBeNull();
+    await act(async () => {
+      retry?.click();
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("keeps known steps visible while showing a summary retry state", async () => {
+    steps = [formStep()];
+    onboardingError = "summary: 503";
+    await renderOnboarding(<OnboardingPanel />);
+
+    expect(container?.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container?.textContent).toContain("Example keys");
+    expect(
+      container?.querySelector('[data-testid="onboarding-summary-retry"]'),
+    ).not.toBeNull();
+  });
+
+  it("shows a retry action on the banner when its summary is unavailable", async () => {
+    onboardingError = "summary: 503";
+    refresh = vi.fn(async () => {});
+    await renderOnboarding(<OnboardingBanner />);
+
+    expect(
+      container?.querySelector('[role="alert"]')?.textContent,
+    ).toBeTruthy();
+    const retry = container?.querySelector<HTMLButtonElement>(
+      '[data-testid="onboarding-summary-retry"]',
+    );
+    expect(retry).not.toBeNull();
+    await act(async () => {
+      retry?.click();
+    });
+    expect(refresh).toHaveBeenCalledOnce();
   });
 });
