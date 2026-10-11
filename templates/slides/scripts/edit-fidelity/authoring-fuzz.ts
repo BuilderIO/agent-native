@@ -1073,6 +1073,11 @@ export async function runAuthoringFuzz(
       ) {
         return;
       }
+      // Diagnostic only: CI runs without tracing, so record which browser-session
+      // requests were watched and pending at reload when an unexpected error lands.
+      console.log(
+        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${reloadNavigationStartedAt === null ? "n/a" : Date.now() - reloadNavigationStartedAt} text=${JSON.stringify(text.slice(0, 240))} reloadPending=${JSON.stringify(reloadNavigationCandidates.map(({ pathname, ageMs }) => ({ pathname, ageMs: Math.round(ageMs) })))} watched=${JSON.stringify([...watchedRequests.entries()].map(([request, startedAt]) => ({ pathname: new URL(request.url()).pathname, method: request.method(), ageMs: Date.now() - startedAt, pendingAtReload: reloadNavigationRequests.has(request) })))}`,
+      );
       pageErrors.push(text);
     };
     if (!isFirefoxBrowserSessionConsoleError(consoleText)) {
@@ -1102,7 +1107,7 @@ export async function runAuthoringFuzz(
     const url = request.url();
     const pathname = new URL(url).pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
-    if (traceEnabled) {
+    if (traceEnabled || isBrowserSessionPath(pathname)) {
       console.log(
         `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation}`,
       );
