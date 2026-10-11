@@ -7,6 +7,7 @@
  */
 import type { DbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 export const IDENTITY_RETIRED_EMAILS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS identity_retired_emails (
   -- guard:allow-identity-column — the retired address itself; rekey and offboarding never rewrite it
@@ -18,7 +19,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = ensureTableExists(
+    const _initPromiseWithRequestDbPoolScope = ensureTableExists(
       "identity_retired_emails",
       IDENTITY_RETIRED_EMAILS_CREATE_SQL,
     )
@@ -27,6 +28,7 @@ export async function ensureTable(): Promise<void> {
         _initPromise = undefined;
         throw error;
       });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

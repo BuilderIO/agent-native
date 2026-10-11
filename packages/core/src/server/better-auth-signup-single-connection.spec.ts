@@ -36,6 +36,22 @@ async function bootSignUp(env: Record<string, string>) {
   return { auth: await getBetterAuth(), pglite, stats };
 }
 
+async function bootWorkerAuthDatabase() {
+  vi.stubEnv("DATABASE_URL", SINGLE_CONNECTION_NEON_URL);
+  vi.stubEnv("DB_OP_TIMEOUT_MS", "250");
+  vi.stubGlobal("__cf_env", {});
+
+  const { pool, stats } = await createSingleConnectionNeonPool();
+  const { getRuntimeDatabaseUrl, sharedDbPool } =
+    await import("../db/client.js");
+  const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+  const poolFacade = sharedDbPool("neon", url, () => pool);
+
+  const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+
+  return { buildDatabaseConfig, pool, poolFacade, stats, url };
+}
+
 async function mountEmailAuthLandingHandler() {
   const app = { use: vi.fn() };
   const { autoMountAuth } = await import("./auth.js");
@@ -94,6 +110,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
   afterEach(async () => {
     const { closeDbExec } = await import("../db/client.js");
     await closeDbExec();
+    vi.doUnmock("drizzle-orm/neon-serverless");
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -121,6 +138,54 @@ describe("password sign-up on a one-connection Neon pool", () => {
       1,
     );
     expect(stats.maxWaiting).toBe(0);
+  });
+
+  it("detects sibling Drizzle queries inside a Better Auth Worker transaction", async () => {
+    const { buildDatabaseConfig, pool, poolFacade, stats, url } =
+      await bootWorkerAuthDatabase();
+    const { runWithRequestDbPoolScope } =
+      await import("../db/request-pool-context.js");
+    const { resolveSharedDbPool } = await import("../db/client.js");
+    const { buildResilientNeonPool } = await import("../db/create-get-db.js");
+    const { DbPoolSelfDeadlockError } =
+      await import("../db/pool-self-deadlock.js");
+    const db = {
+      transaction: async (run: (transaction: any) => unknown) => {
+        const client = await pool.connect();
+        try {
+          return await run({
+            execute: async () => ({ rows: [], rowCount: 0 }),
+            session: {},
+          });
+        } finally {
+          client.release();
+        }
+      },
+    };
+    vi.doMock("drizzle-orm/neon-serverless", () => ({
+      drizzle: () => db,
+    }));
+
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      const adapterFactory = (await buildDatabaseConfig()) as any;
+      const adapter = adapterFactory({});
+      const siblingPool = buildResilientNeonPool(poolFacade, () =>
+        resolveSharedDbPool("neon", url, poolFacade),
+      );
+
+      const startedAt = Date.now();
+      const failure = await adapter.options.adapterConfig
+        .transaction(async () => siblingPool.query("SELECT 2"))
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+
+      expect(failure).toBeInstanceOf(DbPoolSelfDeadlockError);
+      expect(Date.now() - startedAt).toBeLessThan(200);
+      expect(stats.maxWaiting).toBe(0);
+      expect(pool.options.max).toBe(1);
+    });
   });
 
   // With verification required, signUpEmail creates no session and awaits

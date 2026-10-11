@@ -9,6 +9,7 @@ import {
   ensureIndexExists,
   ensureColumnExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { accessFilter, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import {
@@ -37,7 +38,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureDataProgramTables(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const integerType = "BIGINT";
       const runsCreateSql = dataProgramRunsCreateSql(integerType);
 
@@ -72,6 +73,7 @@ export async function ensureDataProgramTables(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

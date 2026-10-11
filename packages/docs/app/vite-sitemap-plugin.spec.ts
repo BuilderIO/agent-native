@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { DOCS_LOCALES } from "./components/docs-locale";
 import {
   SITE_URL,
   buildAgentWebPages,
@@ -94,42 +95,90 @@ describe("docs agent web generation", () => {
     }
   });
 
-  it("includes standalone Chat app creation guidance in generated llms.txt", () => {
-    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-web-"));
-    fs.mkdirSync(path.join(outputRoot, "build", "client"), { recursive: true });
+  describe("generated files", () => {
+    let outputRoot: string;
+    let clientDir: string;
 
-    try {
-      const plugin = sitemapPlugin();
-      const configResolved = plugin.configResolved;
-      const resolveConfig =
-        typeof configResolved === "function"
-          ? configResolved
-          : configResolved?.handler;
-      resolveConfig?.call({} as never, { root: outputRoot } as never);
+    beforeAll(() => {
+      outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-web-"));
+      clientDir = path.join(outputRoot, "build", "client");
+      fs.mkdirSync(clientDir, { recursive: true });
+      runSitemapPluginBuild(outputRoot);
+    }, AGENT_WEB_GENERATION_TIMEOUT_MS);
 
-      const closeBundleHook = plugin.closeBundle;
-      const closeBundle =
-        typeof closeBundleHook === "function"
-          ? closeBundleHook
-          : closeBundleHook?.handler;
-      if (!closeBundle) {
-        throw new Error("Agent Web plugin has no closeBundle hook");
-      }
-      closeBundle.call({ info: () => {} } as never);
+    afterAll(() => {
+      fs.rmSync(outputRoot, { recursive: true, force: true });
+    });
 
-      const llms = fs.readFileSync(
-        path.join(outputRoot, "build", "client", "llms.txt"),
-        "utf8",
-      );
+    it("includes standalone Chat app creation guidance in generated llms.txt", () => {
+      const llms = fs.readFileSync(path.join(clientDir, "llms.txt"), "utf8");
       expect(llms).toContain(
         "npx --yes @agent-native/core@latest create <name> --standalone --template chat",
       );
       expect(llms).toContain(
         "read AGENTS.md and the `build-an-app` and `adding-a-feature` skills",
       );
-    } finally {
-      fs.rmSync(outputRoot, { recursive: true, force: true });
-    }
+    });
+
+    it("publishes a sitemap index with one sitemap per locale", () => {
+      const locales = DOCS_LOCALES.map((locale) => locale.toLowerCase());
+      const index = fs.readFileSync(
+        path.join(clientDir, "sitemap.xml"),
+        "utf8",
+      );
+
+      expect(index).toContain(
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+      );
+      expect(locsIn(index)).toEqual([
+        `${SITE_URL}/sitemap-en-us.xml`,
+        ...locales
+          .filter((locale) => locale !== "en-us")
+          .sort()
+          .map((locale) => `${SITE_URL}/sitemap-${locale}.xml`),
+      ]);
+      expect(
+        fs
+          .readdirSync(clientDir)
+          .filter((file) => /^sitemap-.+\.xml$/.test(file))
+          .sort(),
+      ).toEqual(locales.map((locale) => `sitemap-${locale}.xml`).sort());
+    });
+
+    it("lists every page in exactly one per-locale sitemap", () => {
+      const locales = DOCS_LOCALES.map((locale) => locale.toLowerCase());
+      const urlsByLocale = new Map(
+        locales.map((locale) => [
+          locale,
+          locsIn(
+            fs.readFileSync(
+              path.join(clientDir, `sitemap-${locale}.xml`),
+              "utf8",
+            ),
+          ),
+        ]),
+      );
+
+      expect(Array.from(urlsByLocale.values()).flat().sort()).toEqual(
+        pages.map((page) => `${SITE_URL}${page.path}`).sort(),
+      );
+      expect(urlsByLocale.get("en-us")).toEqual(
+        expect.arrayContaining([
+          `${SITE_URL}/`,
+          `${SITE_URL}/docs/`,
+          `${SITE_URL}/apps/`,
+        ]),
+      );
+      for (const [locale, urls] of urlsByLocale) {
+        expect(urls.length).toBeGreaterThan(0);
+        for (const url of urls) {
+          const firstSegment = new URL(url).pathname.split("/")[1]!;
+          expect(locales.includes(firstSegment) ? firstSegment : "en-us").toBe(
+            locale,
+          );
+        }
+      }
+    });
   });
 
   it("localizes legal links in localized Markdown mirrors", () => {
@@ -185,3 +234,27 @@ describe("docs agent web generation", () => {
     expect(bare).toEqual([]);
   });
 });
+
+function runSitemapPluginBuild(outputRoot: string) {
+  const plugin = sitemapPlugin();
+  const configResolved = plugin.configResolved;
+  const resolveConfig =
+    typeof configResolved === "function"
+      ? configResolved
+      : configResolved?.handler;
+  resolveConfig?.call({} as never, { root: outputRoot } as never);
+
+  const closeBundleHook = plugin.closeBundle;
+  const closeBundle =
+    typeof closeBundleHook === "function"
+      ? closeBundleHook
+      : closeBundleHook?.handler;
+  if (!closeBundle) {
+    throw new Error("Agent Web plugin has no closeBundle hook");
+  }
+  closeBundle.call({ info: () => {} } as never);
+}
+
+function locsIn(xml: string): string[] {
+  return Array.from(xml.matchAll(/<loc>([^<]+)<\/loc>/g), (match) => match[1]!);
+}

@@ -78,6 +78,18 @@ export const categoryOrder: DataSourceCategory[] = [
   "seo",
 ];
 
+/**
+ * Logo ids in the shared logo table (mcpIntegrationLogo). An id missing from
+ * this map uses its source id as the logo id; no logo there means a Tabler icon.
+ */
+export const DATA_SOURCE_LOGO_IDS: Record<string, string> = {
+  gcloud: "google-cloud",
+  "google-sheets-export": "google-sheets",
+  twitter: "x",
+  builder: "builder-cms",
+  commonroom: "common-room",
+};
+
 export const dataSources: DataSource[] = [
   {
     id: "google-analytics",

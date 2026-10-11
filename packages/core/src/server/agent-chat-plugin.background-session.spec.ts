@@ -107,6 +107,7 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "../agent/engine/types.js";
+import * as chatThreadStore from "../chat-threads/store.js";
 import {
   createThread,
   getThread,
@@ -207,8 +208,9 @@ beforeAll(async () => {
   // authenticated as OWNER.
   h3App.use((event) => {
     const anonymous = event.req.headers.get("x-test-anonymous") === "1";
+    const ownerless = event.req.headers.get("x-test-ownerless") === "1";
     seedAgentRunOwnerContext(event, {
-      owner: anonymous ? "anonymous-owner@example.com" : OWNER,
+      owner: ownerless ? "" : anonymous ? "anonymous-owner@example.com" : OWNER,
       anonymous,
       orgId: null,
     });
@@ -360,6 +362,98 @@ describe("background agent sessions through the agent-chat plugin", () => {
         terminalReason: snapshot.terminalReason ?? null,
       })
       .toEqual({ status: "completed", terminalReason: "done" });
+  });
+
+  it("checks thread scope and access before replaying a completed non-vision turn", async () => {
+    const scope = { type: "workspace-app", id: "analytics" };
+    const session = {
+      message: "Resolve this comment",
+      operationId: "comment-ai-scope-operation",
+      threadId: "comment-ai-scope-thread",
+      engine: ENGINE_NAME,
+      scope,
+    };
+    const first = startBackgroundAgentSession(session);
+    await first.accepted;
+    await settle(first.completion);
+    const engineMessageCount = engineMessages.length;
+
+    const wrongScopeReplay = startBackgroundAgentSession({
+      ...session,
+      scope: { ...scope, id: "another-app" },
+    });
+    const wrongScopeResult = await settle(wrongScopeReplay.accepted);
+    expect(wrongScopeResult).toContain("HTTP 404");
+
+    const denyAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue(null);
+    try {
+      const deniedReplay = startBackgroundAgentSession(session);
+      const deniedResult = await settle(deniedReplay.accepted);
+      expect(deniedResult).toContain("HTTP 404");
+      expect(denyAccess).toHaveBeenCalledWith(
+        OWNER,
+        session.threadId,
+        "editor",
+        { orgId: undefined },
+      );
+    } finally {
+      denyAccess.mockRestore();
+    }
+
+    expect(
+      agentChatPosts(session.threadId).map(({ status }) => status),
+    ).toEqual([200, 404, 404]);
+    expect(engineMessages).toHaveLength(engineMessageCount);
+    expect(
+      await userMessagesFor(session.threadId, session.operationId),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a saved thread request without an owner while allowing a fresh request", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
+    const threadId = "ownerless-saved-thread";
+    await createThread(OWNER, { id: threadId });
+    const engineMessageCount = engineMessages.length;
+
+    try {
+      const freshResponse = await fetch("/_agent-native/agent-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-ownerless": "1",
+        },
+        body: JSON.stringify({ message: "Fresh request", engine: ENGINE_NAME }),
+      });
+      expect(freshResponse.status).toBe(200);
+      await freshResponse.text();
+      const freshEngineMessageCount = engineMessages.length;
+      expect(freshEngineMessageCount).toBeGreaterThan(engineMessageCount);
+
+      const savedResponse = await fetch("/_agent-native/agent-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-test-ownerless": "1",
+        },
+        body: JSON.stringify({
+          message: "Read the saved thread",
+          engine: ENGINE_NAME,
+          threadId,
+        }),
+      });
+      expect(savedResponse.status).toBe(404);
+      expect(await savedResponse.json()).toEqual({ error: "Thread not found" });
+      expect(engineMessages).toHaveLength(freshEngineMessageCount);
+    } finally {
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+    }
   });
 
   it("rehydrates an uploaded PDF in the durable worker before sending it to the engine", async () => {

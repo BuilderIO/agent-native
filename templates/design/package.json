@@ -8,6 +8,7 @@
     "build": "agent-native build && tsx scripts/check-client-server-boundary.ts",
     "start": "agent-native start",
     "test": "vitest --run",
+    "test:perf": "vitest --run --config vitest.perf.config.ts shared/html-integrity.perf.spec.ts --maxWorkers=1 --no-file-parallelism",
     "typecheck": "agent-native typecheck && pnpm exec tsc --noEmit -p app/components/design/bridge/tsconfig.json",
     "codegen:bridge": "tsx app/components/design/bridge/codegen.ts",
     "migrate:production": "tsx scripts/migrate-production.ts",

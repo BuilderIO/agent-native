@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "wartet",
   "agent.completed": "hat die Arbeit abgeschlossen",
   "agent.failed": "braucht Aufmerksamkeit",
+  "agent.failureReason.failed": "Nicht abgeschlossen",
+  "agent.failureReason.setup": "Einrichtung nötig",
+  "agent.failureReason.auth": "Zugriff abgelehnt",
+  "agent.failureReason.timeout": "Zeitüberschreitung",
+  "agent.failureReason.budget": "Zeit abgelaufen",
+  "agent.failureReason.response": "Kein brauchbares Ergebnis",
   "agent.closed": "wurde geschlossen",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
@@ -87,6 +93,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
     "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteReviewedPromptLabel":
+    "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
@@ -130,7 +138,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
-  "onboarding.builderSignInWithAccount": "Builder.io verwenden",
+  "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -167,6 +175,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
     "Dein Builder.io-Konto wird erstellt und die kostenlosen Credits werden aktiviert.",
+  "onboarding.builderCancelPending": "Verbindungsstatus wird überprüft…",
   "onboarding.builderConnectionDescription":
     "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
   "onboarding.builderReadyWithCodeChanges":
@@ -821,9 +830,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
   "recovery.continueUnavailable":
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
+  "errorMessages.invalidAttachmentNamed":
+    "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
-  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.deferredSubmissionFailed":
     "Diese Nachricht konnte nicht gesendet werden. Prüfe deine Verbindung oder Chat-Einstellungen und versuche es erneut.",
   "recovery.credentialRejected":

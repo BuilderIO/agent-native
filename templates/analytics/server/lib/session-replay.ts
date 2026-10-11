@@ -72,6 +72,7 @@ import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
 } from "./session-event-index.js";
+import { countReplayRageClicks } from "./session-friction-detector.js";
 import {
   finalizeReplayFriction,
   getSessionFrictionCoverageStart,
@@ -200,12 +201,21 @@ export interface ParsedSessionReplayIngest {
   errorCount: number;
   networkErrorCount: number;
   rageClickCount: number;
+  /** Values supplied as cumulative snapshots by older replay clients. */
+  signalOverrides?: Partial<ReplaySignalCounts>;
   privacyMode: string;
   status: "active" | "completed";
   metadata: Record<string, unknown>;
   /** Derived from the upload's rrweb events; never taken from client metadata. */
   viewport?: RecordedReplayViewport | null;
   chunks: NormalizedSessionReplayChunk[];
+}
+
+interface ReplaySignalCounts {
+  pageCount: number;
+  errorCount: number;
+  networkErrorCount: number;
+  rageClickCount: number;
 }
 
 export interface SessionRecordingSummary {
@@ -854,6 +864,40 @@ function numberFrom(...values: unknown[]): number | null {
   return null;
 }
 
+function replaySignalOverrides(
+  body: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+): Partial<ReplaySignalCounts> {
+  const pageCount = numberFrom(
+    body.pageCount,
+    body.page_count,
+    metadata.pageCount,
+  );
+  const errorCount = numberFrom(
+    body.errorCount,
+    body.error_count,
+    metadata.errorCount,
+  );
+  const networkErrorCount = numberFrom(
+    body.networkErrorCount,
+    body.network_error_count,
+    metadata.networkErrorCount,
+  );
+  const rageClickCount = numberFrom(
+    body.rageClickCount,
+    body.rage_click_count,
+    body.rageClicks,
+    metadata.rageClickCount,
+    metadata.rageClicks,
+  );
+  return {
+    ...(pageCount === null ? {} : { pageCount }),
+    ...(errorCount === null ? {} : { errorCount }),
+    ...(networkErrorCount === null ? {} : { networkErrorCount }),
+    ...(rageClickCount === null ? {} : { rageClickCount }),
+  };
+}
+
 export interface ReplayViewport {
   width: number;
   height: number;
@@ -981,74 +1025,6 @@ function replayConsoleRepeat(payload: Record<string, unknown>): number {
 }
 
 const RRWEB_INCREMENTAL_SNAPSHOT = 3;
-const RRWEB_MOUSE_INTERACTION_SOURCE = 2;
-const RRWEB_MOUSE_CLICK = 2;
-const RAGE_CLICK_MIN_CLICKS = 3;
-const RAGE_CLICK_WINDOW_MS = 1_000;
-const RAGE_CLICK_RADIUS_PX = 30;
-
-interface ReplayClickPoint {
-  at: number;
-  x: number;
-  y: number;
-  target: number | null;
-}
-
-function replayClickPoint(event: unknown): ReplayClickPoint | null {
-  const record = replayRecord(event);
-  if (replayInteger(record.type) !== RRWEB_INCREMENTAL_SNAPSHOT) return null;
-  const data = replayRecord(record.data);
-  if (replayInteger(data.source) !== RRWEB_MOUSE_INTERACTION_SOURCE)
-    return null;
-  if (replayInteger(data.type) !== RRWEB_MOUSE_CLICK) return null;
-  const at = replayInteger(record.timestamp);
-  if (at === null) return null;
-  return {
-    at,
-    x: replayInteger(data.x) ?? 0,
-    y: replayInteger(data.y) ?? 0,
-    target: replayInteger(data.id),
-  };
-}
-
-function sameRageClickTarget(
-  cluster: ReplayClickPoint,
-  click: ReplayClickPoint,
-): boolean {
-  if (cluster.target !== null && click.target !== null) {
-    return cluster.target === click.target;
-  }
-  return (
-    Math.abs(cluster.x - click.x) <= RAGE_CLICK_RADIUS_PX &&
-    Math.abs(cluster.y - click.y) <= RAGE_CLICK_RADIUS_PX
-  );
-}
-
-function countRageClicks(events: unknown[]): number {
-  let rageClicks = 0;
-  let cluster: ReplayClickPoint | null = null;
-  let clusterSize = 0;
-  for (const event of events) {
-    const click = replayClickPoint(event);
-    if (!click) continue;
-    const active = cluster;
-    if (
-      active &&
-      click.at - active.at <= RAGE_CLICK_WINDOW_MS &&
-      click.at >= active.at &&
-      sameRageClickTarget(active, click)
-    ) {
-      clusterSize += 1;
-      active.at = click.at;
-      if (clusterSize === RAGE_CLICK_MIN_CLICKS) rageClicks += 1;
-      continue;
-    }
-    cluster = click;
-    clusterSize = 1;
-  }
-  return rageClicks;
-}
-
 function deriveReplaySignals({
   body,
   metadata,
@@ -1133,7 +1109,7 @@ function deriveReplaySignals({
         body.rageClicks,
         metadata.rageClickCount,
         metadata.rageClicks,
-      ) ?? countRageClicks(events),
+      ) ?? countReplayRageClicks(events),
     privacyMode:
       replayString(body.privacyMode) ||
       replayString(body.privacy_mode) ||
@@ -1141,6 +1117,16 @@ function deriveReplaySignals({
       "unknown",
     viewport: extractReplayViewport(events),
   };
+}
+
+function replaySignalUpdate(
+  column: AnyColumn,
+  override: number | undefined,
+  delta: number,
+) {
+  return override === undefined
+    ? sql`${column} + ${delta}`
+    : sql`greatest(${column}, ${override})`;
 }
 
 export function parseSessionReplayIngestPayload(
@@ -1226,6 +1212,7 @@ export function parseSessionReplayIngestPayload(
     context,
     hostname,
   });
+  const signalOverrides = replaySignalOverrides(body, metadata);
   const startedAt =
     replayTimestamp(body.startedAt ?? body.startTime ?? body.timestamp) ||
     replayMinIso(chunks.map((chunk) => chunk.startedAt)) ||
@@ -1286,6 +1273,7 @@ export function parseSessionReplayIngestPayload(
     errorCount: signals.errorCount,
     networkErrorCount: signals.networkErrorCount,
     rageClickCount: signals.rageClickCount,
+    ...(Object.keys(signalOverrides).length ? { signalOverrides } : {}),
     privacyMode: signals.privacyMode,
     status,
     metadata,
@@ -1747,10 +1735,10 @@ export async function recordSessionReplayChunks(
         startedAt: clampedInput.startedAt,
         endedAt: clampedInput.endedAt,
         durationMs: clampedInput.durationMs,
-        pageCount: clampedInput.pageCount,
-        errorCount: clampedInput.errorCount,
-        networkErrorCount: clampedInput.networkErrorCount,
-        rageClickCount: clampedInput.rageClickCount,
+        pageCount: 0,
+        errorCount: 0,
+        networkErrorCount: 0,
+        rageClickCount: 0,
         privacyMode: clampedInput.privacyMode,
         firstUrl: clampedInput.url,
         lastUrl: clampedInput.url,
@@ -1910,6 +1898,16 @@ export async function recordSessionReplayChunks(
   const allChunks = [...existingChunks, ...rowsToInsert].map((chunk: any) =>
     clampReplayChunkTiming(chunk, ingestedAt),
   );
+  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
+  const acceptedChunks = clampedInput.chunks.filter((chunk) =>
+    insertedSeqs.has(chunk.seq),
+  );
+  const signalDeltas = deriveReplaySignals({
+    body: {},
+    metadata: {},
+    chunks: acceptedChunks,
+    url: wasEmptyRecording ? clampedInput.url : null,
+  });
   const chunkCount = allChunks.length;
   const eventCount = allChunks.reduce(
     (sum, chunk: any) => sum + Number(chunk.eventCount ?? 0),
@@ -1941,14 +1939,18 @@ export async function recordSessionReplayChunks(
     clampedInput.metadata,
     clampedInput.viewport,
   );
-  const errorCount = Math.max(
-    Number(recording.errorCount ?? 0),
-    clampedInput.errorCount,
-  );
-  const rageClickCount = Math.max(
-    Number(recording.rageClickCount ?? 0),
-    clampedInput.rageClickCount,
-  );
+  const signalOverrides = clampedInput.signalOverrides ?? {};
+  let errorCount =
+    signalOverrides.errorCount === undefined
+      ? Number(recording.errorCount ?? 0) + signalDeltas.errorCount
+      : Math.max(Number(recording.errorCount ?? 0), signalOverrides.errorCount);
+  let rageClickCount =
+    signalOverrides.rageClickCount === undefined
+      ? Number(recording.rageClickCount ?? 0) + signalDeltas.rageClickCount
+      : Math.max(
+          Number(recording.rageClickCount ?? 0),
+          signalOverrides.rageClickCount,
+        );
   const recordingEnded =
     clampedInput.status === "completed" || recording.status === "completed";
   const recordedSessionId =
@@ -1963,19 +1965,25 @@ export async function recordSessionReplayChunks(
     startedAt,
     endedAt,
     durationMs,
-    chunkCount,
-    eventCount,
-    totalBytes,
-    pageCount: Math.max(
-      Number(recording.pageCount ?? 0),
-      clampedInput.pageCount,
+    chunkCount: sql`${schema.sessionRecordings.chunkCount} + ${rowsToInsert.length}`,
+    eventCount: sql`${schema.sessionRecordings.eventCount} + ${rowsToInsert.reduce((sum, row) => sum + Number(row.eventCount ?? 0), 0)}`,
+    totalBytes: sql`${schema.sessionRecordings.totalBytes} + ${rowsToInsert.reduce((sum, row) => sum + Number(row.byteLength ?? 0), 0)}`,
+    pageCount: sql`greatest(${schema.sessionRecordings.pageCount}, ${signalOverrides.pageCount ?? clampedInput.pageCount})`,
+    errorCount: replaySignalUpdate(
+      schema.sessionRecordings.errorCount,
+      signalOverrides.errorCount,
+      signalDeltas.errorCount,
     ),
-    errorCount,
-    networkErrorCount: Math.max(
-      Number(recording.networkErrorCount ?? 0),
-      clampedInput.networkErrorCount,
+    networkErrorCount: replaySignalUpdate(
+      schema.sessionRecordings.networkErrorCount,
+      signalOverrides.networkErrorCount,
+      signalDeltas.networkErrorCount,
     ),
-    rageClickCount,
+    rageClickCount: replaySignalUpdate(
+      schema.sessionRecordings.rageClickCount,
+      signalOverrides.rageClickCount,
+      signalDeltas.rageClickCount,
+    ),
     privacyMode:
       clampedInput.privacyMode !== "unknown"
         ? clampedInput.privacyMode
@@ -2029,10 +2037,29 @@ export async function recordSessionReplayChunks(
           )
           .onConflictDoNothing();
       }
-      await tx
+      const [updatedRecording] = await tx
         .update(schema.sessionRecordings)
         .set(recordingUpdate)
-        .where(eq(schema.sessionRecordings.id, recording.id));
+        .where(eq(schema.sessionRecordings.id, recording.id))
+        .returning({
+          errorCount: schema.sessionRecordings.errorCount,
+          rageClickCount: schema.sessionRecordings.rageClickCount,
+        });
+      if (!updatedRecording) {
+        throw new Error("Replay recording disappeared during ingest");
+      }
+      const persistedErrorCount = Number(updatedRecording.errorCount);
+      const persistedRageClickCount = Number(updatedRecording.rageClickCount);
+      if (
+        !Number.isSafeInteger(persistedErrorCount) ||
+        persistedErrorCount < 0 ||
+        !Number.isSafeInteger(persistedRageClickCount) ||
+        persistedRageClickCount < 0
+      ) {
+        throw new Error("Replay recording signal counts are invalid");
+      }
+      errorCount = persistedErrorCount;
+      rageClickCount = persistedRageClickCount;
     });
     uploadedBlobHandles.length = 0;
   } catch (error) {
@@ -2040,7 +2067,6 @@ export async function recordSessionReplayChunks(
     throw error;
   }
 
-  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
   await recordReplayFriction({
     recordingId: recording.id,
     sessionId: recordedSessionId,
@@ -2052,6 +2078,11 @@ export async function recordSessionReplayChunks(
       .map((chunk) => ({ seq: chunk.seq, inlineData: chunk.inlineData })),
     errorCount,
     rageClickCount,
+    rageClickDelta:
+      signalOverrides.rageClickCount === undefined
+        ? signalDeltas.rageClickCount
+        : 0,
+    rageClickCountOverridden: signalOverrides.rageClickCount !== undefined,
     recordingEnded,
     readStoredChunks: storedReplayChunkReader(recording.id),
     ingestedAt,

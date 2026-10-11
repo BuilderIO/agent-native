@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { offboardMember } from "../../identity/offboard.js";
 import { requireOrgMember } from "../actions.js";
+import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 
 export default defineAction({
   description:
@@ -50,10 +51,16 @@ export default defineAction({
       throw new Error(
         "Transfer target must be an active member of this organization.",
       );
-    return offboardMember(getDbExec(), targetEmail, {
-      transferTo: successorEmail,
-      orgId: caller.orgId,
-      actorEmail: caller.email,
-    });
+    try {
+      return await offboardMember(getDbExec(), targetEmail, {
+        transferTo: successorEmail,
+        orgId: caller.orgId,
+        actorEmail: caller.email,
+      });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
+    }
   },
 });

@@ -76,6 +76,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:meeting_participants": "child rows scoped through meetings",
   "clips:organization_settings": "org-level settings accessed by actions",
   "clips:recording_comments": "child rows scoped through recordings",
+  "clips:recording_context_items":
+    "child rows scoped through recordings; every action checks access on the parent recording",
   "clips:recording_ctas": "child rows scoped through recordings",
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_playback_positions":

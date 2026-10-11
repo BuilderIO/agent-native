@@ -1,11 +1,4 @@
 export const TOP_BAR_HEIGHT_PX = 48;
-const MINIMAL_UI_BAR_GAP_PX = 12;
-
-export function minimalUiBarTopPaddingPx(widgetEmbed: boolean): number {
-  return widgetEmbed
-    ? TOP_BAR_HEIGHT_PX + MINIMAL_UI_BAR_GAP_PX
-    : MINIMAL_UI_BAR_GAP_PX;
-}
 
 /**
  * Which shells render the docked top bar. Every control the bar carries (mode
@@ -18,15 +11,12 @@ export function isTopBarVisible({
   isVisualEditSurface,
   minimalUi,
   uiHidden,
-  widgetEmbed = false,
 }: {
   embedded: boolean;
   isVisualEditSurface: boolean;
   minimalUi: boolean;
   uiHidden: boolean;
-  widgetEmbed?: boolean;
 }): boolean {
   if (uiHidden || isVisualEditSurface) return false;
-  if (widgetEmbed) return true;
   return !embedded && !minimalUi;
 }

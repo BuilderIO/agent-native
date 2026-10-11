@@ -56,6 +56,10 @@ export interface JourneyLayoutNode {
   layers?: number;
   /** Cards with a captured date get a footer line under the stack. */
   footer?: boolean;
+  /** Optional dimensions for a generated summary stub. */
+  stubSize?: { width: number; height: number };
+  /** Space needed for the label on this node's incoming edge. */
+  edgeLabelSize?: { width: number; height: number };
 }
 
 export interface PlacedNode {
@@ -130,9 +134,12 @@ interface Sized {
   width: number;
   height: number;
   frontHeight: number;
+  verticalInset: number;
   imageHeight: number;
   layers: number;
   footerHeight: number;
+  edgeLabelWidth: number;
+  edgeLabelHeight: number;
   band: number;
   children: Sized[];
   x: number;
@@ -140,16 +147,39 @@ interface Sized {
 }
 
 function size(node: JourneyLayoutNode, cardWidth: number): Sized {
+  const edgeLabelWidth = node.edgeLabelSize?.width ?? LABEL_WIDTH;
+  const edgeLabelHeight = node.edgeLabelSize?.height ?? LABEL_HEIGHT;
+  if (
+    !Number.isFinite(edgeLabelWidth) ||
+    edgeLabelWidth < 1 ||
+    !Number.isFinite(edgeLabelHeight) ||
+    edgeLabelHeight < 1
+  ) {
+    throw new JourneyLayoutError("Edge-label dimensions must be positive.");
+  }
   if (node.kind === "stub") {
+    const width = node.stubSize?.width ?? STUB_WIDTH;
+    const height = node.stubSize?.height ?? STUB_HEIGHT;
+    if (
+      !Number.isFinite(width) ||
+      width < 1 ||
+      !Number.isFinite(height) ||
+      height < 1
+    ) {
+      throw new JourneyLayoutError("Stub dimensions must be positive.");
+    }
     return {
       node,
       depth: 0,
-      width: STUB_WIDTH,
-      height: STUB_HEIGHT,
-      frontHeight: STUB_HEIGHT,
+      width,
+      height,
+      frontHeight: height,
+      verticalInset: 0,
       imageHeight: 0,
       layers: 0,
       footerHeight: 0,
+      edgeLabelWidth,
+      edgeLabelHeight,
       band: 0,
       children: [],
       x: 0,
@@ -159,15 +189,20 @@ function size(node: JourneyLayoutNode, cardWidth: number): Sized {
   const card = cardSize(cardWidth, node.frame, undefined, node.headerHeight);
   const layers = node.layers ?? 0;
   const footerHeight = node.footer ? FOOTER_GAP + FOOTER_HEIGHT : 0;
+  const contentHeight = card.height + layers * STACK_STEP + footerHeight;
+  const verticalInset = Math.max(0, (edgeLabelHeight - card.height) / 2);
   return {
     node,
     depth: 0,
     width: card.width,
-    height: card.height + layers * STACK_STEP + footerHeight,
+    height: Math.max(edgeLabelHeight, contentHeight + verticalInset),
     frontHeight: card.height,
+    verticalInset,
     imageHeight: card.imageHeight,
     layers,
     footerHeight,
+    edgeLabelWidth,
+    edgeLabelHeight,
     band: 0,
     children: [],
     x: 0,
@@ -242,8 +277,16 @@ function place(
   const first = entry.children[0]!;
   const last = entry.children[entry.children.length - 1]!;
   const anchor =
-    (first.y + first.frontHeight / 2 + last.y + last.frontHeight / 2) / 2;
-  const desired = Math.round(anchor - entry.frontHeight / 2);
+    (first.y +
+      first.verticalInset +
+      first.frontHeight / 2 +
+      last.y +
+      last.verticalInset +
+      last.frontHeight / 2) /
+    2;
+  const desired = Math.round(
+    anchor - entry.frontHeight / 2 - entry.verticalInset,
+  );
   entry.y = Math.min(top + entry.band - entry.height, Math.max(top, desired));
 }
 
@@ -303,10 +346,14 @@ export function layoutJourney(
     );
   }
   const columnX: number[] = [];
+  const columnGap = Math.max(
+    COLUMN_GAP,
+    ELBOW_OFFSET + Math.max(...ordered.map((entry) => entry.edgeLabelWidth)),
+  );
   let left = 0;
   columnWidths.forEach((width, depth) => {
     columnX[depth] = left;
-    left += width + COLUMN_GAP;
+    left += width + columnGap;
   });
 
   if (options.verticalLayout === "depth") {
@@ -347,7 +394,7 @@ export function layoutJourney(
   const placed: PlacedNode[] = sized.map((entry) => {
     const rect: Rect = {
       x: entry.x,
-      y: entry.y,
+      y: entry.y + entry.verticalInset,
       width: entry.width,
       height: entry.frontHeight,
     };
@@ -406,10 +453,10 @@ export function layoutJourney(
       toKey: entry.node.key,
       points,
       labelRect: {
-        x: Math.round((midX + x2) / 2 - LABEL_WIDTH / 2),
-        y: y2 - LABEL_HEIGHT / 2,
-        width: LABEL_WIDTH,
-        height: LABEL_HEIGHT,
+        x: Math.round((midX + x2) / 2 - entry.edgeLabelWidth / 2),
+        y: Math.round(y2 - entry.edgeLabelHeight / 2),
+        width: entry.edgeLabelWidth,
+        height: entry.edgeLabelHeight,
       },
     });
   }

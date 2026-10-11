@@ -1,14 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown } from "@tabler/icons-react";
 import type { CSSProperties, ReactNode } from "react";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { EditorMode } from "@/pages/design-editor/types";
 
@@ -39,7 +31,6 @@ export function EditorTopBar({
   leftInset,
   narrowLeftInset,
   inspectorWidth,
-  widgetLayout = false,
 }: {
   mode: EditorMode;
   onModeChange: (mode: EditorMode) => void;
@@ -56,14 +47,11 @@ export function EditorTopBar({
   narrowLeftInset: number;
   /** Docked inspector width; presence and actions span it. Omit when it is hidden. */
   inspectorWidth?: number;
-  /** Keep the title, Share, mode switch, and zoom inside a narrow MCP widget. */
-  widgetLayout?: boolean;
 }) {
   const t = useT();
   const visibleModes = EDITOR_TOP_BAR_MODES.filter((entry) =>
     modes.includes(entry.mode),
   );
-  const activeMode = visibleModes.find((entry) => entry.mode === mode);
   return (
     <div
       data-design-top-bar
@@ -75,12 +63,7 @@ export function EditorTopBar({
           "--top-bar-inspector": `${inspectorWidth ?? 0}px`,
         } as CSSProperties
       }
-      className={cn(
-        "absolute left-[var(--top-bar-left-narrow)] right-0 top-0 z-[60] grid h-12 items-center overflow-hidden border-b border-border bg-[var(--design-editor-panel-bg)] transition-[left] duration-150 ease-out motion-reduce:transition-none md:left-[var(--top-bar-left)]",
-        widgetLayout
-          ? "grid-cols-[max-content_minmax(0,1fr)_max-content] gap-1 px-1.5 py-2 sm:px-2"
-          : "grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] gap-1 p-2 sm:gap-2",
-      )}
+      className="absolute left-[var(--top-bar-left-narrow)] right-0 top-0 z-[60] grid h-12 grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] items-center gap-1 overflow-hidden border-b border-border bg-[var(--design-editor-panel-bg)] p-2 transition-[left] duration-150 ease-out motion-reduce:transition-none sm:gap-2 md:left-[var(--top-bar-left)]"
     >
       <div className="flex min-w-0 items-center">
         {visibleModes.length > 0 ? (
@@ -88,10 +71,7 @@ export function EditorTopBar({
             role="group"
             aria-label={t("designEditor.topBar.modeSwitch")}
             data-design-mode-switch
-            className={cn(
-              "shrink-0 items-center rounded-lg bg-muted p-0.5",
-              widgetLayout ? "hidden min-[640px]:flex" : "flex",
-            )}
+            className="flex shrink-0 items-center rounded-lg bg-muted p-0.5"
           >
             {visibleModes.map((entry) => {
               const active = entry.mode === mode;
@@ -115,75 +95,16 @@ export function EditorTopBar({
             })}
           </div>
         ) : null}
-        {widgetLayout && visibleModes.length > 0 ? (
-          <div
-            data-design-widget-mode-switch
-            className="flex min-w-0 items-center min-[640px]:hidden"
-          >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("designEditor.topBar.modeSwitch")}
-                  data-design-widget-mode-trigger
-                  className="flex h-7 max-w-[6.5rem] min-w-0 items-center gap-1 rounded-md border border-border px-2 text-xs font-medium text-foreground"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {activeMode ? t(activeMode.labelKey) : null}
-                  </span>
-                  <IconChevronDown className="size-3 shrink-0 opacity-60" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="design-editor-app-menu-content min-w-[9rem]"
-              >
-                <DropdownMenuRadioGroup
-                  value={mode}
-                  onValueChange={(value) => {
-                    const nextMode = visibleModes.find(
-                      (entry) => entry.mode === value,
-                    );
-                    if (nextMode) onModeChange(nextMode.mode);
-                  }}
-                >
-                  {visibleModes.map((entry) => (
-                    <DropdownMenuRadioItem
-                      key={entry.mode}
-                      value={entry.mode}
-                      data-widget-design-mode={entry.mode}
-                    >
-                      {t(entry.labelKey)}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ) : null}
       </div>
       <div
         data-design-top-bar-center
-        className={cn(
-          "flex min-w-0 items-center justify-center",
-          widgetLayout && "w-full px-1",
-        )}
+        className="flex min-w-0 items-center justify-center"
       >
         {center}
       </div>
-      <div
-        className={cn(
-          "flex min-w-0 items-center justify-end",
-          widgetLayout ? "gap-1.5" : "gap-2",
-        )}
-      >
+      <div className="flex min-w-0 items-center justify-end gap-2">
         {zoomControl ? (
-          <div
-            className={cn(
-              "shrink-0 items-center",
-              widgetLayout ? "flex" : "hidden sm:flex",
-            )}
-          >
+          <div className="hidden shrink-0 items-center sm:flex">
             {zoomControl}
           </div>
         ) : null}
@@ -191,12 +112,11 @@ export function EditorTopBar({
           data-design-top-bar-inspector-zone
           className={cn(
             "flex min-w-0 shrink-0 items-center justify-end gap-3",
-            !widgetLayout &&
-              inspectorWidth !== undefined &&
+            inspectorWidth !== undefined &&
               "lg:min-w-[calc(var(--top-bar-inspector)-8px)]",
           )}
         >
-          {presence && !widgetLayout ? (
+          {presence ? (
             <div className="hidden shrink-0 items-center lg:flex">
               {presence}
             </div>

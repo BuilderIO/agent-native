@@ -64,6 +64,9 @@ export default {
     journeyTitleAppBandsSummary: "{from} 至 {to} · 各應用程式獨立群組{partial}",
     sessionCount: "{count} 個工作階段",
     otherPaths: "其他路徑",
+    otherBranchesShown: "已顯示 {shown}/{total} 個分支",
+    otherBranchDetailsUnavailable: "此旅程樹未提供分支詳細資料",
+    otherBranchSourceKey: "來源步驟鍵：{key}",
     htmlLanguage: "zh-TW",
   },
   composer: { menu: { integrations: "整合" } },
@@ -1741,9 +1744,11 @@ export default {
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
     imageAttachmentUnavailable:
-      "無法將此圖片準備為視覺輸入。請附加較小的 PNG、JPG、GIF 或 WebP 檔案。",
+      "無法準備此圖片以供上傳。請嘗試使用 JPG、PNG、GIF 或 WebP 圖片。",
+    imageAttachmentTooLarge:
+      "每張圖片最大 {{perFile}} MB，所有圖片合計最大 {{total}} MB。",
     attachmentsTooLarge:
-      "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
+      "圖片會自動最佳化。最佳化後的圖片和其他檔案總大小不得超過 {{max}} MB。",
     failedToSubmitPrompt: "無法提交提示",
     skipPrompt: "略過提示",
     startBlankCanvas: "從空白畫布開始",

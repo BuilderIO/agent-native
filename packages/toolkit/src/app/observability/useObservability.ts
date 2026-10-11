@@ -12,7 +12,9 @@ import type {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-const BASE = agentNativePath("/_agent-native/observability");
+function observabilityBase(): string {
+  return agentNativePath("/_agent-native/observability");
+}
 
 function fetchJson<T>(url: string): Promise<T> {
   return fetch(url).then((r) => {
@@ -35,7 +37,10 @@ export function useObservabilityOverview(sinceDays = 7) {
   const sinceMs = Date.now() - sinceDays * 86_400_000;
   return useQuery({
     queryKey: ["observability", "overview", sinceDays],
-    queryFn: () => fetchJson<ObservabilityOverview>(`${BASE}?since=${sinceMs}`),
+    queryFn: () =>
+      fetchJson<ObservabilityOverview>(
+        `${observabilityBase()}?since=${sinceMs}`,
+      ),
     refetchInterval: 30_000,
   });
 }
@@ -62,7 +67,7 @@ export function useTraces(sinceDays = 7, limit = 100) {
     queryKey: ["observability", "traces", sinceDays, limit],
     queryFn: () =>
       fetchJson<TraceSummary[]>(
-        `${BASE}/traces?since=${sinceMs}&limit=${limit}`,
+        `${observabilityBase()}/traces?since=${sinceMs}&limit=${limit}`,
       ),
     refetchInterval: 30_000,
   });
@@ -147,7 +152,9 @@ export function useTraceDetail(runId: string | null) {
   return useQuery({
     queryKey: ["observability", "trace", runId],
     queryFn: () =>
-      fetchJson<TraceDetail>(`${BASE}/traces/${encodeURIComponent(runId!)}`),
+      fetchJson<TraceDetail>(
+        `${observabilityBase()}/traces/${encodeURIComponent(runId!)}`,
+      ),
     enabled: !!runId,
   });
 }
@@ -168,15 +175,17 @@ export function usePromoteTraceEval() {
   return useMutation({
     mutationFn: async (payload: {
       runId: string;
+      reviewedPrompt: string;
       mustContain?: string;
       datasetName?: string;
     }) => {
       const res = await fetch(
-        `${BASE}/traces/${encodeURIComponent(payload.runId)}/promote`,
+        `${observabilityBase()}/traces/${encodeURIComponent(payload.runId)}/promote`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            reviewedPrompt: payload.reviewedPrompt,
             ...(payload.mustContain
               ? { mustContain: payload.mustContain }
               : {}),
@@ -241,7 +250,7 @@ export function useFeedbackList(
     ],
     queryFn: () =>
       fetchJson<FeedbackEntry[]>(
-        `${BASE}/feedback?since=${sinceMs}&limit=${limit}${typeQuery}`,
+        `${observabilityBase()}/feedback?since=${sinceMs}&limit=${limit}${typeQuery}`,
       ),
     enabled: cacheOrgId !== undefined,
     refetchInterval: 30_000,
@@ -260,7 +269,9 @@ export function useFeedbackStats(sinceDays = 7, cacheOrgId?: string | null) {
   return useQuery({
     queryKey: ["observability", "feedback-stats", cacheOrgId, sinceDays],
     queryFn: () =>
-      fetchJson<FeedbackStats>(`${BASE}/feedback/stats?since=${sinceMs}`),
+      fetchJson<FeedbackStats>(
+        `${observabilityBase()}/feedback/stats?since=${sinceMs}`,
+      ),
     enabled: cacheOrgId !== undefined,
     refetchInterval: 30_000,
   });
@@ -277,7 +288,7 @@ export function useSubmitFeedback() {
       value?: string;
       userId?: string;
     }) => {
-      const res = await fetch(`${BASE}/feedback`, {
+      const res = await fetch(`${observabilityBase()}/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -323,7 +334,9 @@ export function useSatisfaction(sinceDays = 7) {
   return useQuery({
     queryKey: ["observability", "satisfaction", sinceDays],
     queryFn: () =>
-      fetchJson<SatisfactionScore[]>(`${BASE}/satisfaction?since=${sinceMs}`),
+      fetchJson<SatisfactionScore[]>(
+        `${observabilityBase()}/satisfaction?since=${sinceMs}`,
+      ),
     refetchInterval: 30_000,
   });
 }
@@ -338,7 +351,10 @@ export function useEvalStats(sinceDays = 7) {
   const sinceMs = Date.now() - sinceDays * 86_400_000;
   return useQuery({
     queryKey: ["observability", "eval-stats", sinceDays],
-    queryFn: () => fetchJson<EvalStats>(`${BASE}/evals/stats?since=${sinceMs}`),
+    queryFn: () =>
+      fetchJson<EvalStats>(
+        `${observabilityBase()}/evals/stats?since=${sinceMs}`,
+      ),
     refetchInterval: 30_000,
   });
 }
@@ -375,7 +391,7 @@ export function useExperiments() {
           items: Experiment[];
           nextCursor: { createdAt: number; id: string } | null;
           hasMore: boolean;
-        }>(`${BASE}/experiments?${query}`);
+        }>(`${observabilityBase()}/experiments?${query}`);
         experiments.push(...page.items);
         if (!page.hasMore || !page.nextCursor) return experiments;
         const next = page.nextCursor;
@@ -393,7 +409,9 @@ export function useExperimentDetail(id: string | null) {
   return useQuery({
     queryKey: ["observability", "experiment", id],
     queryFn: () =>
-      fetchJson<Experiment>(`${BASE}/experiments/${encodeURIComponent(id!)}`),
+      fetchJson<Experiment>(
+        `${observabilityBase()}/experiments/${encodeURIComponent(id!)}`,
+      ),
     enabled: !!id,
   });
 }
@@ -415,7 +433,7 @@ export function useExperimentResults(id: string | null) {
     queryKey: ["observability", "experiment-results", id],
     queryFn: () =>
       fetchJson<ExperimentMetricResult[]>(
-        `${BASE}/experiments/${encodeURIComponent(id!)}/results`,
+        `${observabilityBase()}/experiments/${encodeURIComponent(id!)}/results`,
       ),
     enabled: !!id,
   });

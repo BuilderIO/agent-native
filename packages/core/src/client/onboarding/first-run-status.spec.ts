@@ -121,7 +121,9 @@ describe("first-run onboarding status", () => {
     const requestExpectation = expect(request).rejects.toThrow(
       "first-run status timed out",
     );
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(listener).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
 
     await requestExpectation;
     expect(requestSignal?.aborted).toBe(true);
@@ -158,7 +160,9 @@ describe("first-run onboarding status", () => {
     const requestExpectation = expect(request).rejects.toThrow(
       "first-run status timed out",
     );
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(listener).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
 
     await requestExpectation;
     expect(requestSignal?.aborted).toBe(true);

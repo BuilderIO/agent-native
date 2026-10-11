@@ -1,3 +1,4 @@
+import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cache";
 import {
   agentNativePath,
   frameworkRoutePrefix,
@@ -500,6 +501,24 @@ export function AppProviders({
     );
   }
 
+  const sessionGated = (
+    <RequireSession bypass={sessionBypass} fallback={fallback}>
+      {sessionBypass ? (
+        children
+      ) : (
+        <>
+          <AgentEngineReadinessBootstrap />
+          <FirstRunOnboardingStartupGate
+            suppressSurface={skipFirstRunOnboarding}
+            fallback={fallback}
+          >
+            {children}
+          </FirstRunOnboardingStartupGate>
+        </>
+      )}
+    </RequireSession>
+  );
+
   return (
     <>
       <McpAppWidgetBootScript />
@@ -526,21 +545,13 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
         >
-          <RequireSession bypass={sessionBypass} fallback={fallback}>
-            {sessionBypass ? (
-              children
-            ) : (
-              <>
-                <AgentEngineReadinessBootstrap />
-                <FirstRunOnboardingStartupGate
-                  suppressSurface={skipFirstRunOnboarding}
-                  fallback={fallback}
-                >
-                  {children}
-                </FirstRunOnboardingStartupGate>
-              </>
-            )}
-          </RequireSession>
+          {sessionBypass ? (
+            sessionGated
+          ) : (
+            // Outside RequireSession on purpose: inside it, a signed-out session
+            // unmounts the gate before it can clear the stored results.
+            <ActionQueryCacheGate>{sessionGated}</ActionQueryCacheGate>
+          )}
         </ProvidersInner>
       </ClientOnly>
     </>

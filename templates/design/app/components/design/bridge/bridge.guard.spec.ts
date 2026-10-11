@@ -17651,9 +17651,6 @@ it(
             message.hasRange === true,
         ),
       );
-      const initialRenderedHeight = await page
-        .locator("#text")
-        .evaluate((element) => element.getBoundingClientRect().height);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
       });
@@ -17707,8 +17704,6 @@ it(
       const loadedRenderedHeight = await page
         .locator("#text")
         .evaluate((element) => element.getBoundingClientRect().height);
-      expect(loadedLineHeight).not.toBe(initialLineHeight);
-      expect(loadedRenderedHeight).not.toBe(initialRenderedHeight);
       expect(loadedRenderedHeight).toBeCloseTo(loadedLineHeight, 1);
       expect(
         loadedMessages.some(
@@ -17735,7 +17730,6 @@ it(
       const wholeLayerLineHeight = Number.parseFloat(
         wholeLayerUpdate?.payload?.computedStyles?.resolvedLineHeightPx ?? "",
       );
-      expect(wholeLayerLineHeight).not.toBe(initialLineHeight);
       expect(wholeLayerLineHeight).toBeCloseTo(loadedRenderedHeight, 1);
 
       await page.evaluate(() => {

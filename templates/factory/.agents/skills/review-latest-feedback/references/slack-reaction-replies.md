@@ -22,12 +22,17 @@ or owner is assigned, state the exact handoff and that gap in the reply and
 ledger. Do not create or promise a ticket without authorization. Never imply a
 partial fix resolved the whole report.
 
-For beta app fixes, check the matching merge-triggered publisher. While it is
-queued or running, say what changed and that it should be on beta within about
-24 hours. If it succeeds, report beta publication as complete; that does not
-prove independent runtime behavior. If the run is missing or fails, omit the
-ETA and state the next action and owner. Keep verification and rollout details
-in the recap. For packages, state availability without verification details.
+For beta app fixes, check the matching merge-triggered publisher, but keep its
+details in the recap. In the reply, link the merged PR and say it merged, then
+give the beta status in plain language. Say the behavior is live on beta only
+after checking it there. While publication is queued or running, say the update
+should arrive within about 24 hours. If publication finished but the app or
+behavior is unavailable to check, say the beta update is out and briefly name
+what could not be checked. If the publisher is missing or failed, give no ETA
+and state the next action and owner. Leave commit hashes, branch names, CI
+results, workflow or publisher details, and run IDs out of reporter replies.
+For packages, link the merged PR and state availability without verification
+details.
 
 Read back the reaction and reply as the invoking identity before recording the
 item as replied.

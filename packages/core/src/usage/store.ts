@@ -5,6 +5,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
@@ -201,7 +202,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureUsageTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS token_usage (
           id BIGINT PRIMARY KEY,
@@ -290,6 +291,7 @@ export async function ensureUsageTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

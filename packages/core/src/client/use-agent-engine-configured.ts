@@ -7,6 +7,7 @@ import {
   type AgentEngineConfiguredState,
   type AgentEngineReadinessSource,
 } from "./agent-engine-readiness.js";
+import { useSessionPreloading } from "./use-session.js";
 
 export {
   fetchAgentEngineConfiguredState,
@@ -41,8 +42,12 @@ export function useAgentEngineConfigured(
   options?: UseAgentEngineConfiguredOptions,
 ): UseAgentEngineConfiguredResult {
   const [, forceRender] = useReducer((revision: number) => revision + 1, 0);
+  // A hinted load mounts the app before the session is known, and the status
+  // probe answers for one account. It waits for the session as onboarding does.
+  const preloading = useSessionPreloading();
 
   useEffect(() => {
+    if (preloading) return;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let retryAttempt = 0;
@@ -97,7 +102,7 @@ export function useAgentEngineConfigured(
       if (retryTimer !== undefined) clearTimeout(retryTimer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [enabled, options?.source, options?.tabId, options?.threadId]);
+  }, [enabled, preloading, options?.source, options?.tabId, options?.threadId]);
 
   const effectiveState = enabled
     ? getAgentEngineReadiness(options?.source)

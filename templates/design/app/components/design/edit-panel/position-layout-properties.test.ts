@@ -77,6 +77,73 @@ describe("measuredPositionOffset", () => {
 });
 
 describe("measuredPositionValue", () => {
+  it("keeps authored transforms and Position edits invariant under a board render offset", () => {
+    const boardSelected = element({
+      boundingRect: { x: 4216, y: 2128, width: 80, height: 40 },
+      positionReferenceRect: { x: 4096, y: 2048, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 4096, y: 2048 },
+      inlineStyles: {
+        left: "100px",
+        top: "80px",
+        transform: "translateX(20px)",
+      },
+      computedStyles: { left: "100px", top: "80px" },
+    });
+    const screenSelected = element({
+      boundingRect: { x: 120, y: 80, width: 80, height: 40 },
+      positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      inlineStyles: {
+        left: "100px",
+        top: "80px",
+        transform: "translateX(20px)",
+      },
+      computedStyles: { left: "100px", top: "80px" },
+    });
+
+    expect(measuredPositionValue(boardSelected, "x")).toBe("120px");
+    expect(measuredPositionValue(boardSelected, "y")).toBe("80px");
+    expect(authoredPositionPatch(boardSelected, "x", 130)).toEqual(
+      authoredPositionPatch(screenSelected, "x", 130),
+    );
+    expect(authoredPositionPatch(boardSelected, "x", 130)).toEqual({
+      left: "110px",
+    });
+  });
+
+  it("keeps right/bottom anchored no-inline fallbacks independent of board translation", () => {
+    const boardSelected = element({
+      boundingRect: { x: 4196, y: 2148, width: 80, height: 40 },
+      positionReferenceRect: { x: 4096, y: 2048, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 4096, y: 2048 },
+      inlineStyles: { right: "20px", bottom: "30px" },
+      computedStyles: {
+        left: "auto",
+        right: "20px",
+        top: "auto",
+        bottom: "30px",
+      },
+    });
+    const screenSelected = element({
+      boundingRect: { x: 100, y: 100, width: 80, height: 40 },
+      positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      inlineStyles: { right: "20px", bottom: "30px" },
+      computedStyles: {
+        left: "auto",
+        right: "20px",
+        top: "auto",
+        bottom: "30px",
+      },
+    });
+
+    expect(measuredPositionValue(boardSelected, "x")).toBe("100px");
+    expect(measuredPositionValue(boardSelected, "y")).toBe("100px");
+    expect(authoredPositionPatch(boardSelected, "x", 120)).toEqual(
+      authoredPositionPatch(screenSelected, "x", 120),
+    );
+  });
+
   it("maps live CSS drag deltas through a transformed containing block", () => {
     const selected = element({
       boundingRect: { x: 240, y: 150, width: 240, height: 30 },

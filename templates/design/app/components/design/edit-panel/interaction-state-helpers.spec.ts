@@ -9,6 +9,10 @@ import {
   elementWithInteractionStateStyles,
   resolveInteractionStateValue,
 } from "./interaction-state-helpers";
+import {
+  isVectorShapeSelection,
+  mixedElementFromSelection,
+} from "./selection-helpers";
 
 function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -105,6 +109,21 @@ describe("resolveInteractionStateValue", () => {
 });
 
 describe("elementWithInteractionStateStyles", () => {
+  it("preserves vector classification for projected mixed SVG selections", () => {
+    const base = mixedElementFromSelection([
+      makeElement({ tagName: "path", primitiveKind: "path" }),
+      makeElement({ tagName: "rect", primitiveKind: "rect" }),
+    ]);
+    expect(base && isVectorShapeSelection(base)).toBe(true);
+
+    const projected = elementWithInteractionStateStyles(base!, {
+      fill: "#f00",
+    });
+
+    expect(projected).not.toBe(base);
+    expect(isVectorShapeSelection(projected)).toBe(true);
+  });
+
   it("projects kebab-case state values into both authored and computed inspector reads", () => {
     const base = makeElement({
       computedStyles: { backgroundColor: "white", opacity: "1" },

@@ -74,6 +74,8 @@ Saving never ends Suggesting mode; only the author's own switch does. Reloading 
 
 Agents propose body suggestions through `suggest-document-edit` (Content action, `mcpTool` with a fully typed agent input schema): the agent supplies the document id, its `baseRevision` from `get-document`, an `idempotencyKey`, and exact find/replace text; the action resolves the match, builds the full before/after Markdown payload and the contextual anchor, and delegates to `create-resource-suggestion` so access, idempotent replay, threads, and notifications stay in one path. Malformed or stale calls fail with errors that name the fix (`SUGGESTION_FIND_NOT_FOUND`, `SUGGESTION_FIND_AMBIGUOUS`, `SUGGESTION_EDIT_PROTOCOL_REQUIRED`). The generic action's Markdown payload errors also state the expected object shape. Focused Content db tests cover creation, idempotent replay, missing and ambiguous finds, the external-caller protocol, and proposals on ordinary database-item Pages. Acceptance tests cover primary Blocks-field reconciliation across multiple collection memberships.
 
+`create-resource-suggestion` accepts `supersedes`: the author's own earlier pending suggestions on the same resource become `superseded`, with a durable decision record and resolved discussion, in the same transaction that creates the replacement. Already decided suggestions are left alone, another author's or another resource's suggestion is refused, and an exact retry replays without superseding twice (`supersede.spec.ts`). Content uses it so a revised Comment AI proposal replaces the requester's earlier pending one from that thread.
+
 ## Proof plan
 
 1. Create, edit, submit, accept, reject, defer, supersede, and expire human and agent suggestions.

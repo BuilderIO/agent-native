@@ -2195,6 +2195,8 @@ const esES = {
     downloadStarted: "Descarga iniciada",
     downloadAgain: "¿No funcionó? Intenta descargar de nuevo",
     loadError: "No se pudo cargar el instalador de escritorio más reciente.",
+    mountError:
+      "La página de descarga de escritorio no pudo encontrar su ruta en el espacio de trabajo. Pide al administrador del espacio que revise la configuración de la ruta de la aplicación.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
     retry: "Reintentar",
     unavailable: "Instalador no disponible para esta plataforma",

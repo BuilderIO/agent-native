@@ -7,7 +7,6 @@ import {
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
 
-const AGENT_COMPLETION_SOUND_URL = appPath("/agent-completion.mp3");
 const DEFAULT_TAB_ID = "__default__";
 
 function getTabId(detail: unknown): string {
@@ -79,7 +78,7 @@ export function AgentCompletionSound() {
         return;
       }
 
-      const audio = new Audio(AGENT_COMPLETION_SOUND_URL);
+      const audio = new Audio(appPath("/agent-completion.mp3"));
       audio.volume = 0.5;
       void audio.play().catch(() => {
         // Browsers may reject playback until the user has interacted with the page.

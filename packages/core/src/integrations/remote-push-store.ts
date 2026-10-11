@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type {
   PublicRemotePushRegistration,
   RemotePushNotification,
@@ -54,7 +55,7 @@ function buildCreateNotificationsSql(): string {
 
 export async function ensureTables(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createRegistrationsSql = buildCreateRegistrationsSql();
       const createNotificationsSql = buildCreateNotificationsSql();
       await ensureTableExists(
@@ -105,6 +106,7 @@ export async function ensureTables(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

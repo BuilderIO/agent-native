@@ -653,6 +653,21 @@ Before advancing a replay cursor, validate the entire received batch with
 `parseAgentEventSequence()`, which rejects the batch when the first event does
 not follow `afterSequence` or any later event leaves a sequence gap.
 
+`AgentKitController.persistThreadSnapshot()` resolves when persistence is
+unsupported or succeeds. It also resolves when a write is cancelled or deferred
+by the snapshot queue; that does not confirm the snapshot was saved. Unexpected
+transport failures reject. Use `persistThreadSnapshotWithResult()` when the
+caller needs to distinguish a saved snapshot: it returns `true` on success,
+`false` on failure, cancellation, or deferral, and `undefined` when the transport
+does not support snapshot writes.
+
+```ts
+const saved = await controller.persistThreadSnapshotWithResult(threadId);
+if (saved === false) {
+  // Keep the snapshot available for retry or report the save failure.
+}
+```
+
 ### Approval decisions
 
 Every `AgentApprovalResponse` carries an explicit provider-neutral `decision` of
@@ -679,15 +694,22 @@ The lifecycle is explicit and replayable. `connection.requested` moves through
 `requested` and `connecting`, then `connection.updated` settles as `connected`,
 `declined`, or `failed`. Clients answer with `resolveConnectionRequest`, and
 transports resume the exact blocked run only after a connected response. Failed
-requests remain visible and retryable.
+requests remain visible and retryable. A `requested` or `connecting` request is
+dropped when its run fails or is cancelled, and when a newer run starts in the
+thread (a reloaded snapshot applies the same rule by run start time). The
+request of a run that completed while waiting stays until a newer run starts.
 
 The request intentionally has no URL, credential, token, or scope fields. The
 host resolves `provider` through its authenticated connection catalog and owns
 OAuth, credential storage, grants, and scope policy, which keeps contextual
 cards demand-driven without letting agent-authored data define a setup endpoint
 or permission set. Agent-Native carries this provider-only shape through
-authenticated A2A task metadata too, so a delegated agent pauses the caller's
-visible run instead of degrading the dependency into an opaque remote failure.
+authenticated A2A task metadata too, so a delegated agent's connection need
+never degrades into an opaque remote failure. The model-driven agent call
+returns a tool result saying the peer needs the provider connected in its own
+app and must not be retried, and blocks that peer for the rest of the turn; an
+@-mention delegated before the agent loop reports it as an error-marked agent
+response. Neither pauses the caller's visible run.
 
 ### Errors, correlation, and metadata
 

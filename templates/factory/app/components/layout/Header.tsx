@@ -19,7 +19,8 @@ const pageTitleKeys: Record<string, string> = {
 };
 
 function resolveTitle(pathname: string, t: (key: string) => string): string {
-  if (pageTitleKeys[pathname]) return t(pageTitleKeys[pathname]);
+  const titlePath = pathname.startsWith("/chat/") ? "/chat" : pathname;
+  if (pageTitleKeys[titlePath]) return t(pageTitleKeys[titlePath]);
   if (pathname.startsWith("/extensions")) return t("navigation.extensions");
   return APP_TITLE;
 }

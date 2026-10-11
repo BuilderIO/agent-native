@@ -646,6 +646,8 @@ const messages = {
     promoteMustContain: "जवाब में यह होना चाहिए…",
     promoteMustContainOptional: "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
     promoteMustContainLabel: "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+    promoteReviewedPromptLabel:
+      "मैन्युअल रूप से समीक्षा किया गया प्रॉम्प्ट (प्रोडक्शन से कभी स्वतः कॉपी नहीं किया जाता)",
     promoteNeedsContains:
       "इस रन में कोई सफल टूल कॉल नहीं है। eval में प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
     spans: "Spans",

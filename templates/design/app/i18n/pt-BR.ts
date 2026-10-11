@@ -69,6 +69,10 @@ export default {
       "{from} a {to} · coortes separadas por aplicativo{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
+    otherBranchesShown: "Exibindo {shown} de {total} ramificações",
+    otherBranchDetailsUnavailable:
+      "Os detalhes das ramificações não estão disponíveis nesta árvore de jornada",
+    otherBranchSourceKey: "Chave da etapa de origem: {key}",
     htmlLanguage: "pt-BR",
   },
   composer: { menu: { integrations: "Integrações" } },
@@ -1715,9 +1719,11 @@ export default {
     assetsNoImageUrl: "Assets não retornou uma URL de imagem.",
     failedToUploadFile: "Falha ao carregar o arquivo",
     imageAttachmentUnavailable:
-      "Não foi possível preparar esta imagem como referência visual. Anexe um arquivo PNG, JPG, GIF ou WebP menor.",
+      "Não foi possível preparar esta imagem para envio. Tente uma imagem JPG, PNG, GIF ou WebP.",
+    imageAttachmentTooLarge:
+      "Cada imagem pode ter até {{perFile}} MB, com um total máximo de {{total}} MB para imagens.",
     attachmentsTooLarge:
-      "Esses anexos são grandes demais. Os envios são limitados a {{max}} MB no total — anexe menos arquivos ou arquivos menores.",
+      "As imagens são otimizadas automaticamente. O total das imagens otimizadas e dos outros arquivos não pode passar de {{max}} MB.",
     failedToSubmitPrompt: "Não foi possível enviar o prompt",
     skipPrompt: "Pular prompt",
     startBlankCanvas: "Começar com uma tela em branco",

@@ -220,18 +220,27 @@ describe("designCanvasIntentDirectives", () => {
     expect(text).not.toContain("After responsive app generation");
   });
 
-  it("sends extra artwork versions to their own exact-size calls instead of device frames", () => {
+  it("keeps exact-size artwork device-free even when the prompt names variants", () => {
     const text = designGenerationDirectives(
       "design-1",
       null,
       0,
       "Create a LinkedIn ad with desktop and mobile versions",
     ).join("\n");
-    expect(text).toContain("pass `devices: []` to `generate-design`.");
-    expect(text).toContain(
-      "give any other requested size or version its own call at that exact size",
-    );
-    expect(text).not.toContain("explicitly asks for device variants");
+    expect(text).toContain("Pass `devices: []` to `generate-design`");
+    expect(text).toContain("even if the prompt mentions device versions");
+  });
+
+  it("uses only prompt-named variants for a weak fixed-artwork inference", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a promo banner with desktop and mobile versions",
+    ).join("\n");
+    expect(text).toContain('Pass `devices: ["desktop", "mobile"]`');
+    expect(text).toContain("user explicitly requested desktop and mobile");
+    expect(text).not.toContain("model-suggested");
   });
 
   it("keeps responsive screenshots for app UI even when it mentions advertising", () => {
@@ -287,6 +296,27 @@ describe("variant content directives", () => {
     expect(
       variantContentDirective("Explore 3 directions for a todo app", null, 1),
     ).toContain(COMPLETE);
+  });
+
+  it("keeps full HTML requirements in fixed-canvas and reference-image generation prompts", () => {
+    for (const directives of [
+      designGenerationDirectives(
+        "design-1",
+        null,
+        0,
+        "Explore 3 directions for a LinkedIn ad",
+      ),
+      designGenerationDirectives(
+        "design-1",
+        null,
+        1,
+        "Explore 3 directions for a todo app",
+      ),
+    ]) {
+      const text = directives.join("\n");
+      expect(text).toContain(COMPLETE);
+      expect(text).not.toContain(OMIT);
+    }
   });
 });
 

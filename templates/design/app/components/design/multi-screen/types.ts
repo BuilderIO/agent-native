@@ -904,6 +904,7 @@ export interface PanDragState {
   type: "pan";
   originClient: Point;
   originPan: Point;
+  originZoom: number;
 }
 
 export interface DraftMoveDragState {

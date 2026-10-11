@@ -5,6 +5,16 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
+const routeParams = vi.hoisted(() => ({
+  threadId: undefined as string | undefined,
+}));
+const threadUrlSyncs = vi.hoisted(
+  () =>
+    [] as Array<{
+      routeThreadId: string | null;
+      getPath: (threadId: string | null) => string;
+    }>,
+);
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   markAgentChatHomeHandoff: vi.fn(),
@@ -12,13 +22,16 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app/chat", () => ({
-  AgentChatHome: (props: Record<string, unknown>) => (
-    <div>
-      {props.homeIntroSlot as React.ReactNode}
-      <div data-testid="chat-composer" />
-      {props.afterComposerSlot as React.ReactNode}
-    </div>
-  ),
+  AgentChatHome: (props: Record<string, unknown>) => {
+    threadUrlSyncs.push(props.threadUrlSync as (typeof threadUrlSyncs)[number]);
+    return (
+      <div>
+        {props.homeIntroSlot as React.ReactNode}
+        <div data-testid="chat-composer" />
+        {props.afterComposerSlot as React.ReactNode}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -84,7 +97,7 @@ vi.mock("@/lib/chat", () => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => vi.fn(),
-  useParams: () => ({ threadId: undefined }),
+  useParams: () => routeParams,
 }));
 
 import CreatePage from "./home";
@@ -136,5 +149,28 @@ describe("Assets Create chat home", () => {
       submit: false,
       openSidebar: false,
     });
+  });
+
+  it("route-controls the thread: /home starts blank and /chat/:id keeps its id", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    threadUrlSyncs.length = 0;
+
+    act(() => root.render(<CreatePage />));
+    const createSync = threadUrlSyncs[threadUrlSyncs.length - 1];
+    expect(createSync?.routeThreadId).toBeNull();
+    expect(createSync?.getPath(null)).toBe("/home");
+    expect(createSync?.getPath("thread-1")).toBe("/chat/thread-1");
+
+    routeParams.threadId = "thread-1";
+    try {
+      act(() => root.render(<CreatePage />));
+    } finally {
+      routeParams.threadId = undefined;
+    }
+    expect(threadUrlSyncs[threadUrlSyncs.length - 1]?.routeThreadId).toBe(
+      "thread-1",
+    );
   });
 });

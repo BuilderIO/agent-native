@@ -955,6 +955,10 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       queue: (text: string) => controller.queueMessage({ threadId, text }),
       queueMessage: (input: Omit<SendMessageInput, "threadId">) =>
         controller.queueMessage({ ...input, threadId }),
+      reserveQueuedMessage: (text: string, onLocalSubmit?: () => void) =>
+        controller.reserveQueuedMessage({ threadId, text }, onLocalSubmit),
+      cancelQueuedMessageReservation: (messageId: string) =>
+        controller.cancelQueuedMessageReservation(threadId, messageId),
       cancel: (runId: string) => controller.cancelRun(threadId, runId),
       canContinueRun: controller.supportsRunContinuation?.() === true,
       continueRun: (runId: string) =>

@@ -16,7 +16,7 @@ const PNG_FIXTURE = path.resolve(
 );
 const SVG_FIXTURE = path.resolve(
   import.meta.dirname,
-  "fixtures/sonora-play-button.svg",
+  "fixtures/play-button-icon.svg",
 );
 const HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
 <main data-agent-native-node-id="upload-root" data-agent-native-layer-name="Root" style="position:relative;width:640px;height:480px">

@@ -11,8 +11,8 @@ function hydratedEditorChromeBridgeScript(): string {
       .replace("__EDITOR_CHROME_SCALE_X__", "1")
       .replace("__EDITOR_CHROME_SCALE_Y__", "1")
       .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
-      // This suite exercises the board's Figma click-through policy. Screen
-      // content intentionally uses direct single-click selection instead.
+      // This suite exercises the board's click-through policy. Screen content
+      // intentionally uses direct single-click selection instead.
       .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "true")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
       .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")

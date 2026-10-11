@@ -30,6 +30,12 @@ import {
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
+  decodeSearchCursor,
+  matchSearchFields,
+  paginateSearchResults,
+  searchTerms,
+} from "./analytics-term-matcher.js";
+import {
   parseDashboardCertification,
   type DashboardCertification,
 } from "./dashboard-certification.js";
@@ -367,6 +373,7 @@ function escapeLikeLiteral(value: string): string {
 
 type DashboardReferenceSearchQuery = {
   phrase: string;
+  search: string;
   terms: string[];
 };
 
@@ -376,7 +383,8 @@ function dashboardReferenceSearchQuery(
   const phrase = search.trim().replace(/\s+/g, " ").toLowerCase();
   return {
     phrase,
-    terms: phrase.split(" ").filter(Boolean).slice(0, 8),
+    search: search.trim(),
+    terms: searchTerms(search).slice(0, 8),
   };
 }
 
@@ -408,17 +416,24 @@ function dashboardReferenceMatch(
     description: dashboardReferenceFieldText(row.description),
     config: dashboardReferenceFieldText(row.config),
   } satisfies Record<DashboardReferenceRecord["matchedFields"][number], string>;
+  const fieldWeights = { id: 30, name: 80, description: 45, config: 10 };
+  const matches = matchSearchFields(
+    query.search,
+    Object.entries(fields).map(([field, value]) => ({
+      value,
+      weight: fieldWeights[field as keyof typeof fieldWeights],
+    })),
+  );
+  if (matches.score <= 0) return null;
   const matchedFields = Object.entries(fields)
-    .filter(([, value]) => query.terms.some((term) => value.includes(term)))
+    .filter(
+      ([, value]) =>
+        matchSearchFields(query.search, [{ value, weight: 1 }]).score > 0,
+    )
     .map(
       ([field]) => field as DashboardReferenceRecord["matchedFields"][number],
     );
-  const matchedTerms = query.terms.filter((term) =>
-    Object.values(fields).some((value) => value.includes(term)),
-  ).length;
-  if (matchedTerms !== query.terms.length) return null;
-
-  let score = matchedTerms * 100;
+  let score = matches.score;
   for (const [field, value] of Object.entries(fields)) {
     const weight =
       field === "name"
@@ -1155,8 +1170,41 @@ export async function searchDashboardReferences(
   limit = 8,
   dbOverride?: any,
 ): Promise<DashboardReferenceRecord[]> {
+  const result = await searchDashboardReferencesPage(
+    ctx,
+    search,
+    limit,
+    undefined,
+    dbOverride,
+  );
+  return result.results;
+}
+
+export type DashboardReferenceSearchPage = {
+  results: DashboardReferenceRecord[];
+  searched: number;
+  of: number;
+  truncated: boolean;
+  nextPage: string | null;
+};
+
+export async function searchDashboardReferencesPage(
+  ctx: AccessCtx,
+  search: string,
+  limit = 8,
+  nextPage?: string,
+  dbOverride?: any,
+): Promise<DashboardReferenceSearchPage> {
   const query = dashboardReferenceSearchQuery(search);
-  if (!query.phrase || query.terms.length === 0) return [];
+  if (!query.phrase || query.terms.length === 0) {
+    return {
+      results: [],
+      searched: 0,
+      of: 0,
+      truncated: false,
+      nextPage: null,
+    };
+  }
   const boundedLimit = Math.min(
     Math.max(Number.isFinite(limit) ? Math.trunc(limit) : 8, 1),
     MAX_DASHBOARD_REFERENCE_RESULTS,
@@ -1175,10 +1223,7 @@ export async function searchDashboardReferences(
     );
   };
   const phraseMatch = wildcardMatches(query.phrase);
-  const tokenMatch =
-    query.terms.length === 1
-      ? wildcardMatches(query.terms[0]!)
-      : and(...query.terms.map(wildcardMatches));
+  const tokenMatch = or(...query.terms.map(wildcardMatches));
   const where = and(
     access,
     isNull(schema.dashboards.archivedAt),
@@ -1201,12 +1246,14 @@ export async function searchDashboardReferences(
     .from(schema.dashboards)
     .where(where)
     .orderBy(desc(schema.dashboards.updatedAt))
-    .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES);
+    .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES + 1);
+  const candidateTruncated = rows.length > MAX_DASHBOARD_REFERENCE_CANDIDATES;
+  const candidates = rows.slice(0, MAX_DASHBOARD_REFERENCE_CANDIDATES);
 
   const ranked: Array<{
     record: DashboardReferenceRecord;
     score: number;
-  }> = rows
+  }> = candidates
     .map((row: any) => {
       let description =
         typeof row.description === "string" ? row.description : null;
@@ -1248,7 +1295,9 @@ export async function searchDashboardReferences(
     ranked.map(({ record }) => `${record.kind}:${record.id}`),
   );
   const allSettings = await getScopedLegacySettings(ctx);
+  let searchedLegacySettings = 0;
   for (const [key, value] of Object.entries(allSettings)) {
+    searchedLegacySettings += 1;
     const scope = legacyDashboardReferenceScope(key, ctx);
     if (
       !scope ||
@@ -1293,14 +1342,23 @@ export async function searchDashboardReferences(
     await assertNoOwnedReferenceHiddenByScope(db, ctx, search, query);
   }
 
-  return ranked
+  const ordered = ranked
     .sort(
       (a, b) =>
         b.score - a.score ||
         b.record.updatedAt.localeCompare(a.record.updatedAt),
     )
-    .slice(0, boundedLimit)
     .map(({ record }) => record);
+  const cursorSearch = `dashboard-references\n${query.phrase}`;
+  const page = paginateSearchResults({
+    search: cursorSearch,
+    results: ordered,
+    searched: candidates.length + searchedLegacySettings,
+    limit: boundedLimit,
+    offset: decodeSearchCursor(cursorSearch, nextPage),
+    truncated: candidateTruncated,
+  });
+  return { ...page, results: page.results };
 }
 
 async function assertNoOwnedReferenceHiddenByScope(

@@ -1,11 +1,12 @@
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const nowDefault = "NOW()::text";
       const createSql = `
         CREATE TABLE IF NOT EXISTS _collab_docs (
@@ -27,6 +28,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

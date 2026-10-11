@@ -167,7 +167,7 @@ describe("test-title production guard", () => {
       "templates/design/app/tests/Canvas.tsx",
       "templates/design/app/Editor.fixture.tsx",
       "templates/design/e2e/helper.ts",
-      "docs/design-parity.md",
+      "docs/search-architecture.md",
     ]) {
       assert.equal(isTestOnlyPath(path), false, path);
     }

@@ -100,6 +100,83 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("propagates snapshot cancellation and does not retry after abort", async () => {
+    const threadId = "cancelled-snapshot";
+    const calls: Array<{ method: string; init?: RequestInit }> = [];
+    let threadReads = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        calls.push({ method, init });
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          threadReads += 1;
+          return threadReads === 1
+            ? json({ error: "Not found" }, 404)
+            : json({
+                id: threadId,
+                threadData: JSON.stringify({ messages: [] }),
+              });
+        }
+        if (url.endsWith("/threads") && method === "POST") {
+          return json({ error: "Already exists" }, 409);
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true },
+            );
+          });
+        }
+        return json({ error: "Unexpected request" }, 500);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    const abortController = new AbortController();
+
+    try {
+      const persistence = transport.persistThreadSnapshot?.(
+        {
+          threadId,
+          snapshot: {
+            id: threadId,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:01.000Z",
+            messages: [
+              {
+                id: "user-message",
+                role: "user",
+                parts: [{ type: "text", text: "Save this message" }],
+              },
+            ],
+          },
+        },
+        { signal: abortController.signal },
+      );
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+      abortController.abort();
+
+      await expect(persistence).rejects.toMatchObject({ name: "AbortError" });
+      expect(calls.map(({ method }) => method)).toEqual([
+        "GET",
+        "POST",
+        "GET",
+        "PUT",
+      ]);
+      expect(
+        calls.every(({ init }) => init?.signal === abortController.signal),
+      ).toBe(true);
+    } finally {
+      abortController.abort();
+      await transport.dispose();
+    }
+  });
+
   it("uses the transport engine when checking AI readiness", async () => {
     resetAgentEngineReadinessForTests();
     const localFetch = vi.fn(async () => json({ chatEligible: true }));
@@ -262,6 +339,56 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
       expect.objectContaining({ id: "prompt-1", role: "user" }),
     ]);
+  });
+
+  it("scrubs inline image data before sending a thread snapshot PUT", async () => {
+    const threadId = "snapshot-inline-image-data";
+    const inlineData = "data:image/png;base64,INLINE_SNAPSHOT_PIXELS";
+    let savedBody: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes(`/threads/${threadId}`) && init?.method === "PUT") {
+          savedBody = String(init.body);
+          return json({ ok: true });
+        }
+        if (url.includes(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ agentKit: { messages: [] } }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        messages: [
+          {
+            id: "user-image-prompt",
+            role: "user",
+            parts: [
+              { type: "text", text: `Describe this reference: ${inlineData}` },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(savedBody).toBeDefined();
+    expect(savedBody).not.toContain("data:image/");
+    expect(savedBody).not.toContain("INLINE_SNAPSHOT_PIXELS");
+    expect(savedBody).toContain("[inline image/png data omitted]");
+    await transport.dispose();
   });
 
   it("merges raced snapshot widgets by their globally unique ID", async () => {
@@ -2145,6 +2272,33 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  it.each([
+    "data:image/png;base64,INLINE_QUEUE_PIXELS",
+    { type: "image", source: { type: "base64", data: "INLINE_QUEUE_PIXELS" } },
+  ])(
+    "rejects inline image bytes in queued metadata before sending",
+    async (image) => {
+      const fetcher = vi.fn(async () =>
+        json({ error: "Unexpected request" }, 500),
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher as typeof fetch,
+      });
+
+      await expect(
+        transport.queueMessage?.({
+          threadId: "thread-queue-inline-metadata",
+          text: "Continue",
+          metadata: { custom: { image } },
+        }),
+      ).rejects.toThrow("queuedMessage.metadata");
+
+      expect(fetcher).not.toHaveBeenCalled();
+      await transport.dispose();
+    },
+  );
+
   it("appends queue messages from independent transports without replacing snapshots", async () => {
     const persisted: Array<Record<string, unknown>> = [];
     const fetcher = vi.fn(
@@ -3068,7 +3222,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
 
     // A server that applies the same merge a client thread PUT goes through.
-    function threadServer(initial: unknown) {
+    function threadServer(initial: unknown, threadId = "thread-refused") {
       let repo = initial;
       const transport = createAgentNativeAgentKitTransport({
         fetch: vi.fn(
@@ -3083,7 +3237,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               return json({ ok: true });
             }
             return json({
-              id: "thread-refused",
+              id: threadId,
               createdAt: "2026-10-01T00:00:00.000Z",
               updatedAt: "2026-10-01T00:00:01.000Z",
               threadData: JSON.stringify(repo),
@@ -3115,6 +3269,195 @@ describe("createAgentNativeAgentKitTransport", () => {
         submittedTurnId: "turn-1",
       },
     };
+
+    it("restores the selected model and request mode needed by Continue", async () => {
+      const threadId = "thread-continue-selection";
+      const transport = threadServer({}, threadId);
+      const selected = {
+        id: "user-selected-model",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Continue the design" }],
+        metadata: {
+          model: "provider/model-v2",
+          engine: "openai",
+          effort: "high",
+          requestMode: "plan",
+          opaqueValue: "drop this unrelated metadata",
+          custom: {
+            agentNativeRecoveryOfRunId: "run-needing-continue",
+            opaqueValue: "drop this custom metadata",
+          },
+        },
+      };
+      const dataUrlSelection = {
+        id: "user-invalid-selection",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Invalid selection" }],
+        metadata: {
+          model: "data:image/png;base64,not-model-metadata",
+          engine: "x".repeat(257),
+          effort: "invalid",
+          requestMode: "continue",
+        },
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [selected, dataUrlSelection],
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({ threadId });
+
+      expect(reloaded?.messages.map((message) => message.id)).toEqual([
+        "user-selected-model",
+        "user-invalid-selection",
+      ]);
+      expect(reloaded?.messages[0]?.metadata).toEqual({
+        model: "provider/model-v2",
+        engine: "openai",
+        effort: "high",
+        requestMode: "plan",
+        custom: { agentNativeRecoveryOfRunId: "run-needing-continue" },
+      });
+      expect(reloaded?.messages[1]?.metadata).toBeUndefined();
+      await transport.dispose();
+    });
+
+    it("persists only durable retry image fields needed by Continue after reload", async () => {
+      const threadId = "thread-continue-resized-image";
+      const transport = threadServer({}, threadId);
+      const userMessage = {
+        id: "user-resized-image",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Continue with this image" }],
+        metadata: {
+          custom: {
+            agentNativeRetryRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                url: "https://files.example.test/reference-resized.png",
+                referenceUrl:
+                  "https://files.example.test/reference-original.png",
+                data: "data:image/png;base64,inline-pixels-must-not-persist",
+                ignoredField: "drop this field",
+              },
+              {
+                type: "image",
+                name: "inline-only.png",
+                contentType: "image/png",
+                url: "data:image/png;base64,inline-url-must-not-persist",
+              },
+              {
+                type: "image",
+                name: "inline-with-durable-reference.png",
+                contentType: "image/png",
+                url: "data:image/png;base64,inline-url-must-not-persist",
+                referenceUrl:
+                  "https://files.example.test/reference-fallback.png",
+              },
+              {
+                type: "image",
+                name: "signed-url.png",
+                contentType: "image/png",
+                url: "https://files.example.test/signed.png?token=signed-url-secret",
+                referenceUrl:
+                  "https://files.example.test/signed-reference.png#private-fragment",
+              },
+              {
+                type: "image",
+                name: "short-base64-url.png",
+                contentType: "image/png",
+                url: "AQID",
+              },
+              {
+                type: "image",
+                name: "short-base64-reference.png",
+                contentType: "image/png",
+                url: "https://files.example.test/reference-with-short-base64.png",
+                referenceUrl: "AQIDBA==",
+              },
+              {
+                type: "image",
+                name: "credential-url.png",
+                contentType: "image/png",
+                url: "https://user:password-secret@files.example.test/private.png",
+              },
+              {
+                type: "image",
+                name: "insecure-url.png",
+                contentType: "image/png",
+                url: "http://files.example.test/insecure.png",
+              },
+              {
+                type: "image",
+                name: "relative-url.png",
+                contentType: "image/png",
+                url: "/uploads/reference.png",
+              },
+            ],
+          },
+        },
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId,
+        snapshot: {
+          id: threadId,
+          createdAt: "2026-10-01T00:00:00.000Z",
+          updatedAt: "2026-10-01T00:00:01.000Z",
+          messages: [userMessage],
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({ threadId });
+      const serializedReload = JSON.stringify(reloaded);
+
+      expect(reloaded?.messages[0]?.metadata).toEqual({
+        custom: {
+          agentNativeRetryRequestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-resized.png",
+              referenceUrl: "https://files.example.test/reference-original.png",
+            },
+            {
+              type: "image",
+              name: "inline-with-durable-reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-fallback.png",
+            },
+            {
+              type: "image",
+              name: "short-base64-reference.png",
+              contentType: "image/png",
+              url: "https://files.example.test/reference-with-short-base64.png",
+            },
+          ],
+        },
+      });
+      expect(serializedReload).toContain(
+        "https://files.example.test/reference-resized.png",
+      );
+      expect(serializedReload).not.toContain("inline-pixels-must-not-persist");
+      expect(serializedReload).not.toContain("inline-url-must-not-persist");
+      expect(serializedReload).not.toContain("data:image");
+      expect(serializedReload).not.toContain("signed-url-secret");
+      expect(serializedReload).not.toContain("private-fragment");
+      expect(serializedReload).not.toContain("password-secret");
+      expect(serializedReload).not.toContain("AQID");
+      expect(serializedReload).not.toContain("AQIDBA==");
+      expect(serializedReload).not.toContain("insecure.png");
+      expect(serializedReload).not.toContain("/uploads/reference.png");
+      expect(serializedReload).not.toContain("ignoredField");
+      await transport.dispose();
+    });
 
     it("keeps its marker and retry context when the client saves the loaded thread and reloads", async () => {
       const transport = threadServer(serverRefusal());
@@ -3425,15 +3768,29 @@ describe("createAgentNativeAgentKitTransport", () => {
     successorFailed?: boolean;
     /** The text of each message the open page saved for run-1, run-2's included. */
     pageSaw?: string[];
+    /** Zero-based indexes of pageSaw messages completed by run-1. */
+    completedPageSaw?: number[];
+    otherTurnAnswer?: string;
+    successorReplyText?: string;
   }) {
-    const streamed = (id: string, sequence: number) => ({
-      id: `run-1:${sequence}`,
-      type: "message.created",
+    const streamed = (
+      id: string,
+      sequence: number,
+      runId = "run-1",
+      type = "message.created",
+      text = "",
+    ) => ({
+      id: `${runId}:${sequence}`,
+      type,
       threadId: "thread-recovered",
-      runId: "run-1",
+      runId,
       sequence,
       occurredAt: "2026-10-05T17:00:50.000Z",
-      message: { id, role: "assistant", parts: [] },
+      message: {
+        id,
+        role: "assistant",
+        parts: text ? [{ type: "text", text }] : [],
+      },
     });
     return {
       id: "thread-recovered",
@@ -3463,13 +3820,37 @@ describe("createAgentNativeAgentKitTransport", () => {
                     status: input.successorFailed
                       ? { type: "incomplete", reason: "error" }
                       : { type: "complete", reason: "stop" },
-                    content: [{ type: "text", text: "Refund handled." }],
+                    content: [
+                      {
+                        type: "text",
+                        text: input.successorReplyText ?? "Refund handled.",
+                      },
+                    ],
                     metadata: {
                       runId: "run-2",
                       custom: { turnId: "turn-1", foldedRunIds: ["run-2"] },
                     },
                   },
                   parentId: "server-user-run-1",
+                },
+              ]
+            : []),
+          ...(input.otherTurnAnswer
+            ? [
+                {
+                  message: {
+                    id: "server-user-run-3",
+                    role: "user",
+                    status: "complete",
+                    content: [{ type: "text", text: "Check the shipment" }],
+                    metadata: {
+                      custom: {
+                        submittedRunId: "run-3",
+                        submittedTurnId: "turn-2",
+                      },
+                    },
+                  },
+                  parentId: null,
                 },
               ]
             : []),
@@ -3488,10 +3869,53 @@ describe("createAgentNativeAgentKitTransport", () => {
               status: "complete",
               parts: text ? [{ type: "text", text }] : [],
             })),
+            ...(input.otherTurnAnswer
+              ? [
+                  {
+                    id: "user-3",
+                    role: "user",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Check the shipment" }],
+                    metadata: { custom: { submittedRunId: "run-3" } },
+                  },
+                  {
+                    id: "assistant-other-turn",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: input.otherTurnAnswer }],
+                    metadata: {
+                      runId: "run-3",
+                      custom: { turnId: "turn-2" },
+                    },
+                  },
+                ]
+              : []),
           ],
-          events: (input.pageSaw ?? []).map((_text, index) =>
-            streamed(`assistant-${index + 1}`, index + 1),
-          ),
+          events: [
+            ...(input.pageSaw ?? []).map((_text, index) =>
+              streamed(`assistant-${index + 1}`, index + 1),
+            ),
+            ...(input.completedPageSaw ?? []).map((index) =>
+              streamed(
+                `assistant-${index + 1}`,
+                (input.pageSaw?.length ?? 0) + index + 1,
+                "run-1",
+                "message.completed",
+                input.pageSaw?.[index] ?? "",
+              ),
+            ),
+            ...(input.otherTurnAnswer
+              ? [
+                  streamed(
+                    "assistant-other-turn",
+                    1,
+                    "run-3",
+                    "message.completed",
+                    input.otherTurnAnswer,
+                  ),
+                ]
+              : []),
+          ],
           runs: [
             {
               id: "run-1",
@@ -3500,6 +3924,18 @@ describe("createAgentNativeAgentKitTransport", () => {
               lastSequence: 0,
               ...input.run1,
             },
+            ...(input.otherTurnAnswer
+              ? [
+                  {
+                    id: "run-3",
+                    threadId: "thread-recovered",
+                    startedAt: "2026-10-05T17:00:48.000Z",
+                    lastSequence: 1,
+                    status: "completed",
+                    activeMessageId: "assistant-other-turn",
+                  },
+                ]
+              : []),
           ],
           activeRunIds: [],
         },
@@ -3594,6 +4030,58 @@ describe("createAgentNativeAgentKitTransport", () => {
         parts: [{ type: "text", text: "Refund handled." }],
       },
     ]);
+    await transport.dispose();
+  });
+
+  it("replaces a completed divergent same-turn answer and preserves another turn", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: { status: "completed" },
+                successorReply: true,
+                successorReplyText: "The refund was returned to your card.",
+                pageSaw: ["The refund was returned to your original payment."],
+                completedPageSaw: [0],
+                otherTurnAnswer: "The shipment is on its way.",
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    const assistantMessages = snapshot?.messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessages?.map((message) => message.id).sort()).toEqual([
+      "assistant-other-turn",
+      "server-run-2",
+    ]);
+    expect(assistantMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "server-run-2",
+          parts: [
+            { type: "text", text: "The refund was returned to your card." },
+          ],
+        }),
+        expect.objectContaining({
+          id: "assistant-other-turn",
+          parts: [{ type: "text", text: "The shipment is on its way." }],
+        }),
+      ]),
+    );
+    expect(snapshot?.messages.map((message) => message.id)).toContain("user-3");
     await transport.dispose();
   });
 
@@ -4416,6 +4904,16 @@ describe("createAgentNativeAgentKitTransport", () => {
         createdAt: "2026-08-29T00:02:00.000Z",
       },
     ];
+    let threadData = JSON.stringify({
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "Review the release" }],
+        },
+      ],
+      queuedMessages,
+    });
     let activeRunChecks = 0;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -4430,16 +4928,7 @@ describe("createAgentNativeAgentKitTransport", () => {
             title: "Release review",
             createdAt: "2026-08-29T00:00:00.000Z",
             updatedAt: "2026-08-29T00:01:00.000Z",
-            threadData: JSON.stringify({
-              messages: [
-                {
-                  id: "user-1",
-                  role: "user",
-                  content: [{ type: "text", text: "Review the release" }],
-                },
-              ],
-              queuedMessages,
-            }),
+            threadData,
           });
         }
         if (url.endsWith("/threads/thread-1/queued")) {
@@ -4467,6 +4956,13 @@ describe("createAgentNativeAgentKitTransport", () => {
             });
           }
           return json({ queuedMessages });
+        }
+        if (
+          url.endsWith("/threads/thread-1") &&
+          String(init?.method).toUpperCase() === "PUT"
+        ) {
+          threadData = JSON.parse(String(init?.body)).threadData;
+          return json({ ok: true });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           const stream = [
@@ -4544,6 +5040,13 @@ describe("createAgentNativeAgentKitTransport", () => {
         claimId: expect.any(String),
       },
     ]);
+    expect(JSON.parse(threadData).agentKit.messages).toContainEqual(
+      expect.objectContaining({
+        id: "queued-1",
+        role: "user",
+        parts: [{ type: "text", text: "Continue after approval" }],
+      }),
+    );
     expect(activeRunChecks).toBe(1);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
@@ -5817,8 +6320,9 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("normalizes a resumed runtime ID in the active-run snapshot", async () => {
+  it("preserves a paused protocol run when Core reports the turn as terminal", async () => {
     const threadId = "thread-active-runtime-alias";
+    let approvalPending = true;
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeKnownEvent> {
       yield {
         type: "approval-request",
@@ -5841,11 +6345,17 @@ describe("createAgentNativeAgentKitTransport", () => {
         });
       }
       if (url.includes(`/runs/active?threadId=${threadId}`)) {
-        return json({
-          active: true,
-          status: "running",
-          runId: "runtime-after-approval",
-        });
+        return approvalPending
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "runtime-before-approval",
+            })
+          : json({
+              active: true,
+              status: "running",
+              runId: "runtime-after-approval",
+            });
       }
       return json({ error: "Not found" }, 404);
     });
@@ -5892,6 +6402,16 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect(next.done).toBe(false);
       if (next.value?.type === "approval.requested") break;
     }
+    const pausedSnapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(pausedSnapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        status: "awaiting_approval",
+      }),
+    );
+    expect(pausedSnapshot?.activeRunIds).toContain(runId);
+    approvalPending = false;
     const resumed = await transport.resumeRun?.({
       threadId,
       runId,
@@ -7672,6 +8192,17 @@ describe("createAgentNativeAgentKitTransport", () => {
                     id: "user-1",
                     role: "user",
                     parts: [{ type: "text", text: "Review it" }],
+                    metadata: {
+                      custom: {
+                        legacyImage: {
+                          type: "image",
+                          name: "legacy-reference.png",
+                          data: "data:image/png;base64,LEGACY_FORK_PIXEL_URL",
+                          base64: "LEGACY_FORK_RAW_BASE64",
+                          url: "data:image/png;base64,LEGACY_FORK_PIXEL_URL",
+                        },
+                      },
+                    },
                   },
                   {
                     id: "assistant-1",
@@ -7784,6 +8315,12 @@ describe("createAgentNativeAgentKitTransport", () => {
     };
     expect(forkBody.source?.messageCount).toBe(2);
     expect(forkBody.source?.fromMessageId).toBe("assistant-1");
+    const serializedForkSource = JSON.stringify(
+      JSON.parse(forkBody.source?.threadData ?? "{}"),
+    );
+    expect(serializedForkSource).not.toContain("data:image/");
+    expect(serializedForkSource).not.toContain("LEGACY_FORK_RAW_BASE64");
+    expect(serializedForkSource).toContain('"omitted":"inline-bytes"');
     expect(
       JSON.parse(forkBody.source?.threadData ?? "{}").messages,
     ).toHaveLength(1);

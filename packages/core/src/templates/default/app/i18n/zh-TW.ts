@@ -627,6 +627,7 @@ const messages = {
     promoteMustContain: "回覆必須包含…",
     promoteMustContainOptional: "回覆中要檢查的選填文字…",
     promoteMustContainLabel: "在升級後的評估回覆中檢查的文字",
+    promoteReviewedPromptLabel: "手動審核的提示（不會從正式環境自動複製）",
     promoteNeedsContains:
       "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再將其升級為評測。",
     spans: "Spans",

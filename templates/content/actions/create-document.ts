@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import { defineAction, embedApp } from "@agent-native/core";
@@ -60,6 +61,28 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+
+type CreationTransactionWrite = {
+  documentId: string;
+  write: (tx: ReturnType<typeof getDb>) => Promise<void>;
+};
+
+const creationTransactionWrite =
+  new AsyncLocalStorage<CreationTransactionWrite>();
+
+/**
+ * Runs `create` so that `write` executes inside the transaction that inserts
+ * page `documentId`, letting a caller's own rows commit or roll back with the
+ * page itself. A request that replays an existing page inserts nothing, so
+ * `write` doesn't run and `create` still resolves.
+ */
+export function withinDocumentCreation<T>(
+  documentId: string,
+  write: CreationTransactionWrite["write"],
+  create: () => Promise<T>,
+): Promise<T> {
+  return creationTransactionWrite.run({ documentId, write }, create);
+}
 
 function nanoid(size = 12): string {
   const chars =
@@ -837,6 +860,10 @@ export default defineAction({
             userEmail: currentUserEmail,
             orgId: orgId ?? undefined,
           });
+          const scoped = creationTransactionWrite.getStore();
+          if (scoped?.documentId === id) {
+            await scoped.write(tx as unknown as ReturnType<typeof getDb>);
+          }
           return true;
         });
         measurement.outcome = insertedDocument ? "written" : "replayed";

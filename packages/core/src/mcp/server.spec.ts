@@ -239,21 +239,44 @@ vi.mock("../server/embed-route.js", () => ({
     `/_agent-native/embed/start?ticket=${encodeURIComponent(ticket)}`,
 }));
 
-// The real write-scope builder, with a switch to make its scope unmintable.
-const writeScopeOverride = vi.hoisted(() => ({ unmintable: false }));
+// Keep real capability builders except when testing scope construction failures.
+const capabilityScopeOverride = vi.hoisted(() => ({
+  writeUnmintable: false,
+  readUnmintable: false,
+  readCapabilityInputs: vi.fn(),
+  readCapabilityResults: vi.fn(),
+  writeCapabilityInputs: vi.fn(),
+  writeCapabilityResults: vi.fn(),
+}));
 vi.mock("../shared/embed-auth.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../shared/embed-auth.js")>();
   return {
     ...actual,
+    createMcpDirectoryWidgetReadCapability: (
+      input: Parameters<
+        typeof actual.createMcpDirectoryWidgetReadCapability
+      >[0],
+    ) => {
+      capabilityScopeOverride.readCapabilityInputs(input);
+      const scope = capabilityScopeOverride.readUnmintable
+        ? undefined
+        : actual.createMcpDirectoryWidgetReadCapability(input);
+      capabilityScopeOverride.readCapabilityResults(scope);
+      return scope;
+    },
     createMcpDirectoryWidgetWriteCapability: (
       input: Parameters<
         typeof actual.createMcpDirectoryWidgetWriteCapability
       >[0],
-    ) =>
-      writeScopeOverride.unmintable
+    ) => {
+      capabilityScopeOverride.writeCapabilityInputs(input);
+      const scope = capabilityScopeOverride.writeUnmintable
         ? undefined
-        : actual.createMcpDirectoryWidgetWriteCapability(input),
+        : actual.createMcpDirectoryWidgetWriteCapability(input);
+      capabilityScopeOverride.writeCapabilityResults(scope);
+      return scope;
+    },
   };
 });
 
@@ -2803,7 +2826,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     )!;
 
     afterEach(() => {
-      writeScopeOverride.unmintable = false;
+      capabilityScopeOverride.writeUnmintable = false;
+      capabilityScopeOverride.readUnmintable = false;
+      capabilityScopeOverride.readCapabilityInputs.mockClear();
+      capabilityScopeOverride.readCapabilityResults.mockClear();
+      capabilityScopeOverride.writeCapabilityInputs.mockClear();
+      capabilityScopeOverride.writeCapabilityResults.mockClear();
     });
 
     it("degrades to a read-only ticket when the write scope itself is unmintable", async () => {
@@ -2811,7 +2839,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        writeScopeOverride.unmintable = true;
+        capabilityScopeOverride.writeUnmintable = true;
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
         const created = await callCreate(contentTemplate);
@@ -2842,17 +2870,61 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        // An id past the 256-character cap invalidates the read scope as
-        // well as the write scope, so no widget capability can be built.
-        const id = "x".repeat(257);
+        capabilityScopeOverride.writeUnmintable = true;
+        capabilityScopeOverride.readUnmintable = true;
+        capabilityScopeOverride.readCapabilityInputs.mockClear();
+        capabilityScopeOverride.readCapabilityResults.mockClear();
+        capabilityScopeOverride.writeCapabilityInputs.mockClear();
+        capabilityScopeOverride.writeCapabilityResults.mockClear();
         embedSessionMocks.createEmbedSessionTicket.mockClear();
 
-        const created = await callCreate({
-          ...contentTemplate,
-          result: { id, spaceId: id },
-        } as unknown as typeof contentTemplate);
+        const created = await callCreate(contentTemplate);
 
         expect(created.result.isError).not.toBe(true);
+        expect(
+          capabilityScopeOverride.writeCapabilityInputs,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          capabilityScopeOverride.writeCapabilityInputs.mock.calls[0]?.[0],
+        ).toMatchObject({
+          appId: "content",
+          resourceUri: "ui://content/shell-v69",
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+        });
+        expect(
+          capabilityScopeOverride.writeCapabilityResults,
+        ).toHaveBeenCalledWith(undefined);
+        expect(
+          capabilityScopeOverride.readCapabilityInputs,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          capabilityScopeOverride.readCapabilityInputs.mock.calls[0]?.[0],
+        ).toMatchObject({
+          appId: "content",
+          resourceUri: "ui://content/shell-v69",
+          resourceIds: {
+            documentId: "page-1",
+            resourceType: "document",
+            spaceId: "space-1",
+          },
+          actionArguments: expect.objectContaining({
+            "get-document": { id: "page-1" },
+            "get-content-navigation-context": { id: "page-1" },
+          }),
+        });
+        expect(
+          capabilityScopeOverride.readCapabilityResults,
+        ).toHaveBeenCalledWith(undefined);
+        expect(created.result.structuredContent).toMatchObject(
+          contentTemplate.result,
+        );
+        expect(created.result.content[0].text).toBe(
+          "create-document completed for page-1.",
+        );
         expect(
           embedSessionMocks.createEmbedSessionTicket,
         ).not.toHaveBeenCalled();
@@ -8282,6 +8354,94 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
+
+  it.each([
+    { label: "cleared description", description: "" },
+    { label: "long description", description: "Sync history. ".repeat(400) },
+  ])(
+    "returns database rows over the SDK after oversized view metadata ($label)",
+    async ({ description }) => {
+      const propertyIds = Array.from({ length: 60 }, (_, i) => `property-${i}`);
+      const database = {
+        id: "collection-fixture",
+        documentId: "collection-page-fixture",
+        title: "Task board",
+        description,
+        viewConfig: {
+          views: Array.from({ length: 4 }, (_, i) => ({
+            id: `view-${i}`,
+            columnWidths: Object.fromEntries(
+              propertyIds.map((id) => [id, 180]),
+            ),
+            propertyOrderIds: propertyIds,
+            tableColumnOrderIds: propertyIds,
+            hiddenPropertyIds: propertyIds.slice(2),
+          })),
+        },
+      };
+      expect(JSON.stringify(database.viewConfig).length).toBeGreaterThan(2000);
+      const items = [1, 2, 3].map((rank) => ({
+        id: `membership-${rank}`,
+        document: { id: `page-${rank}`, title: `Task ${rank}` },
+        properties: [
+          { definition: { id: "rank", name: "Rank" }, value: rank },
+          { definition: { id: "status", name: "Status" }, value: "todo" },
+        ],
+      }));
+      const payloads = {
+        "get-content-database": {
+          database,
+          properties: [
+            { id: "rank", name: "Rank" },
+            { id: "status", name: "Status" },
+          ],
+          items,
+          pagination: {
+            limit: 3,
+            offset: 0,
+            totalItems: 6,
+            returnedItems: 3,
+            hasMore: true,
+          },
+        },
+        "describe-content-database": {
+          database,
+          properties: [
+            { id: "rank", name: "Rank" },
+            { id: "status", name: "Status" },
+          ],
+        },
+        "get-document": {
+          database,
+          content: "Page body after collection metadata.",
+        },
+      };
+      const actions = Object.fromEntries(
+        Object.entries(payloads).map(([name, payload]) => [
+          name,
+          {
+            tool: { description: name },
+            http: { method: "GET" as const },
+            readOnly: true,
+            run: async () => payload,
+          },
+        ]),
+      );
+      const { client } = await createModernClient({ ...config, actions });
+      try {
+        for (const [name, payload] of Object.entries(payloads)) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).not.toBe(true);
+          const block = result.content[0];
+          if (block.type !== "text") throw new Error("Expected query text");
+          expect(JSON.parse(block.text)).toEqual(payload);
+          expect(result.structuredContent).toEqual(payload);
+        }
+      } finally {
+        await client.close();
+      }
+    },
+  );
 
   it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
     const readConfig = {

@@ -8,9 +8,8 @@ export function computeCanvasFitZoom({
   canvasHeight,
   horizontalPadding = 0,
   verticalPadding = 0,
-  fillViewport = false,
   minZoom = MIN_CANVAS_ZOOM,
-  maxZoom = fillViewport ? MAX_CANVAS_ZOOM : 100,
+  maxZoom = 100,
 }: {
   viewportWidth: number;
   viewportHeight?: number;
@@ -18,9 +17,6 @@ export function computeCanvasFitZoom({
   canvasHeight?: number;
   horizontalPadding?: number;
   verticalPadding?: number;
-  /** Scale past 100% and keep sub-percent precision so the canvas spans the
-   * viewport exactly instead of stopping up to a percent short. */
-  fillViewport?: boolean;
   minZoom?: number;
   maxZoom?: number;
 }) {
@@ -44,9 +40,8 @@ export function computeCanvasFitZoom({
       ? ((viewportHeight - Math.max(0, verticalPadding)) / canvasHeight) * 100
       : widthZoom;
 
-  const fitZoom = Math.min(widthZoom, heightZoom);
   return Math.max(
     minZoom,
-    Math.min(maxZoom, fillViewport ? fitZoom : Math.floor(fitZoom)),
+    Math.min(maxZoom, Math.floor(Math.min(widthZoom, heightZoom))),
   );
 }

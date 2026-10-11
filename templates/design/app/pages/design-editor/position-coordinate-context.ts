@@ -11,7 +11,90 @@ type PositionTransform = NonNullable<
   ElementInfo["positionContainingBlockTransform"]
 >;
 
+export type PositionCoordinateRenderOffset = { x: number; y: number };
+
 const IDENTITY_TRANSFORM: PositionTransform = { a: 1, b: 0, c: 0, d: 1 };
+const BOARD_CONTENT_OFFSET_X_ATTRIBUTE = "data-agent-native-content-offset-x";
+const BOARD_CONTENT_OFFSET_Y_ATTRIBUTE = "data-agent-native-content-offset-y";
+
+function boardRenderOffsetRoot(element: Element): Element | null {
+  const body = element.ownerDocument.body;
+  if (!body) return null;
+
+  let root = element;
+  while (root.parentElement && root.parentElement !== body) {
+    root = root.parentElement;
+  }
+  return root.parentElement === body &&
+    root.hasAttribute("data-agent-native-node-id")
+    ? root
+    : null;
+}
+
+function positionOriginWithRenderOffset(
+  origin: { x: number; y: number },
+  renderOffsetRoot: Element | null,
+  originElement: Element | null,
+  renderOffset: PositionCoordinateRenderOffset,
+): { x: number; y: number } {
+  if (
+    !renderOffsetRoot ||
+    (originElement && renderOffsetRoot.contains(originElement))
+  ) {
+    return origin;
+  }
+  return {
+    x: origin.x + renderOffset.x,
+    y: origin.y + renderOffset.y,
+  };
+}
+
+export function positionCoordinateRenderOffsetForWindow(
+  view: Window,
+): PositionCoordinateRenderOffset | null {
+  try {
+    const offsetStyle = view.document.querySelector(
+      "style[data-agent-native-content-offset]",
+    );
+    if (!offsetStyle) return { x: 0, y: 0 };
+    const xAttribute = offsetStyle.getAttribute(
+      BOARD_CONTENT_OFFSET_X_ATTRIBUTE,
+    );
+    const yAttribute = offsetStyle.getAttribute(
+      BOARD_CONTENT_OFFSET_Y_ATTRIBUTE,
+    );
+    const x = xAttribute?.trim() ? Number(xAttribute) : Number.NaN;
+    const y = yAttribute?.trim() ? Number(yAttribute) : Number.NaN;
+    const cssOffset: PositionCoordinateRenderOffset | null =
+      Number.isFinite(x) && Number.isFinite(y)
+        ? { x, y }
+        : (() => {
+            const match =
+              /translate:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))px\s+(-?(?:\d+(?:\.\d*)?|\.\d+))px/u.exec(
+                offsetStyle.textContent ?? "",
+              );
+            return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+          })();
+    if (!cssOffset) return null;
+    const body = view.document.body;
+    if (!body) return null;
+
+    // The injected translate is on a direct body child. Map its CSS-pixel
+    // vector through body/html transforms and zoom, but leave the root's own
+    // authored transform alone because CSS applies `translate` outside it.
+    const ancestorTransform = containingBlockTransform(body, view);
+    const offset = {
+      x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
+      y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y,
+    };
+    return Number.isFinite(offset.x) && Number.isFinite(offset.y)
+      ? offset
+      : null;
+  } catch {
+    // coercion-ok: denied preview DOM reads mean the offset is unknown; callers skip the whole coordinate measurement.
+    return null;
+  }
+}
 
 function documentRect(element: Element, view: Window) {
   const rect = element.getBoundingClientRect();
@@ -191,6 +274,7 @@ function paddingEdgeOrigin(
 export function measurePositionCoordinateContext(
   element: Element,
   view: Window,
+  renderOffset: PositionCoordinateRenderOffset,
 ): PositionCoordinateContext {
   let frame = element.parentElement;
   while (frame && frame.getAttribute("data-an-primitive") !== "frame") {
@@ -201,9 +285,10 @@ export function measurePositionCoordinateContext(
   const isFixed = view.getComputedStyle(element).position === "fixed";
   const scrollX = view.scrollX;
   const scrollY = view.scrollY;
+  const renderOffsetRoot = boardRenderOffsetRoot(element);
   const containingBlock = positionContainingBlock(element, view);
   const fixedWithoutContainingBlock = isFixed && !containingBlock;
-  const positionReferenceRect = fixedWithoutContainingBlock
+  const rawPositionReferenceRect = fixedWithoutContainingBlock
     ? {
         x: scrollX,
         y: scrollY,
@@ -218,12 +303,28 @@ export function measurePositionCoordinateContext(
           width: documentRoot.clientWidth,
           height: documentRoot.clientHeight,
         };
+  const normalizedPositionReferenceOrigin = positionOriginWithRenderOffset(
+    rawPositionReferenceRect,
+    renderOffsetRoot,
+    fixedWithoutContainingBlock ? null : frame,
+    renderOffset,
+  );
+  const positionReferenceRect = {
+    ...normalizedPositionReferenceOrigin,
+    width: rawPositionReferenceRect.width,
+    height: rawPositionReferenceRect.height,
+  };
   if (!containingBlock) {
     return {
       positionReferenceRect,
-      positionContainingBlockOrigin: fixedWithoutContainingBlock
-        ? { x: scrollX, y: scrollY }
-        : { x: 0, y: 0 },
+      positionContainingBlockOrigin: positionOriginWithRenderOffset(
+        fixedWithoutContainingBlock
+          ? { x: scrollX, y: scrollY }
+          : { x: 0, y: 0 },
+        renderOffsetRoot,
+        null,
+        renderOffset,
+      ),
       positionContainingBlockTransform: IDENTITY_TRANSFORM,
     };
   }
@@ -231,10 +332,11 @@ export function measurePositionCoordinateContext(
   const transform = containingBlockTransform(containingBlock, view);
   return {
     positionReferenceRect,
-    positionContainingBlockOrigin: paddingEdgeOrigin(
+    positionContainingBlockOrigin: positionOriginWithRenderOffset(
+      paddingEdgeOrigin(containingBlock, view, transform),
+      renderOffsetRoot,
       containingBlock,
-      view,
-      transform,
+      renderOffset,
     ),
     positionContainingBlockTransform: transform,
   };

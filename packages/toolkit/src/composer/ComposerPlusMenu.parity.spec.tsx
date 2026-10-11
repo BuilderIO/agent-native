@@ -411,6 +411,7 @@ describe("shared default action preservation", () => {
           content: "# Test skill\nDo the test.",
           mimeType: "text/markdown",
           shared: false,
+          uniqueSkillPath: true,
         }),
       }),
     );

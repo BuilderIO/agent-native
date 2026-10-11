@@ -64,6 +64,9 @@ export default {
     journeyTitleAppBandsSummary: "{from} 至 {to} · 各应用独立队列{partial}",
     sessionCount: "{count} 个会话",
     otherPaths: "其他路径",
+    otherBranchesShown: "已显示 {shown}/{total} 个分支",
+    otherBranchDetailsUnavailable: "此旅程树未提供分支详情",
+    otherBranchSourceKey: "来源步骤键：{key}",
     htmlLanguage: "zh-CN",
   },
   composer: { menu: { integrations: "集成" } },
@@ -1637,9 +1640,11 @@ export default {
     assetsNoImageUrl: "Assets 未返回图片 URL。",
     failedToUploadFile: "上传文件失败",
     imageAttachmentUnavailable:
-      "无法将此图片准备为视觉输入。请附加较小的 PNG、JPG、GIF 或 WebP 文件。",
+      "无法准备此图片以供上传。请尝试使用 JPG、PNG、GIF 或 WebP 图片。",
+    imageAttachmentTooLarge:
+      "每张图片最大 {{perFile}} MB，所有图片合计最大 {{total}} MB。",
     attachmentsTooLarge:
-      "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
+      "图片会自动优化。优化后的图片和其他文件总大小不得超过 {{max}} MB。",
     failedToSubmitPrompt: "无法提交提示",
     skipPrompt: "跳过提示",
     startBlankCanvas: "从空白画布开始",

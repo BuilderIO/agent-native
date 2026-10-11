@@ -177,11 +177,11 @@ test.describe("Cmd+G group", () => {
     const expectedRight = Math.max(red.x + red.width, green.x + green.width);
     expect(
       group!.x,
-      `standard: group bounds are the union of children. Expected left ${Math.round(expectedLeft)}, got ${Math.round(group!.x)}`,
+      `group bounds are the union of children. Expected left ${Math.round(expectedLeft)}, got ${Math.round(group!.x)}`,
     ).toBeCloseTo(expectedLeft, -1);
     expect(
       group!.x + group!.width,
-      `standard: group bounds are the union of children. Expected right ${Math.round(expectedRight)}, got ${Math.round(group!.x + group!.width)}`,
+      `group bounds are the union of children. Expected right ${Math.round(expectedRight)}, got ${Math.round(group!.x + group!.width)}`,
     ).toBeCloseTo(expectedRight, -1);
 
     await page.keyboard.press(`${MOD}+z`);
@@ -229,13 +229,13 @@ test.describe("Cmd+G group", () => {
     expect(greenIdx, "green not found (-1)").toBeGreaterThan(-1);
     expect(
       groupIdx,
-      `standard: a group of non-adjacent children is placed at the topmost selected child's ` +
+      `a group of non-adjacent children is placed at the topmost selected child's ` +
         `z-position (Blue's), so it must land AFTER Green in DOM order. Group is at source ` +
         `index ${groupIdx}, Green at ${greenIdx} (group must be > green).`,
     ).toBeGreaterThan(greenIdx);
   });
 
-  test("Cmd+G on a single selected element wraps it in a Group (standard allows single-layer groups)", async ({
+  test("Cmd+G on a single selected element wraps it in a Group", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -326,7 +326,7 @@ test.describe("Cmd+G group", () => {
     );
     expect(
       ["rgba(0, 0, 0, 0)", "transparent"],
-      `standard: a Group has no fill; the gap between its children (e.g. the notch between ` +
+      `a Group has no fill; the gap between its children (e.g. the notch between ` +
         `Red and Green) must stay transparent, not paint a solid box. Computed background: ${bg}`,
     ).toContain(bg);
   });
@@ -360,7 +360,7 @@ test.describe("Cmd+Opt+G frame selection", () => {
     ).toContain(bg);
     expect(
       overflow,
-      `standard-interaction-spec.md Part 3 line 330: Frame selection (⌥⌘G) clip content is OFF ` +
+      `Frame selection (Alt+Cmd+G) leaves clip content OFF ` +
         `(unlike a frame drawn with the F tool, which clips). Computed overflow: ${overflow}`,
     ).not.toBe("hidden");
   });
@@ -376,7 +376,7 @@ test.describe("Cmd+Opt+G frame selection", () => {
 
     await expect(
       layersTree(page).getByRole("treeitem").filter({ hasText: "Frame" }),
-      `standard frames a single selected object; trace: ${JSON.stringify(await dump(page))}`,
+      `Cmd+Alt+G frames a single selected object; trace: ${JSON.stringify(await dump(page))}`,
     ).toHaveCount(1);
   });
 

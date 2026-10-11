@@ -20,6 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 export const RECAP_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -51,13 +52,14 @@ function buildRecapImagesCreateSql(): string {
 
 export async function ensureRecapImageTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const recapImagesCreateSql = buildRecapImagesCreateSql();
       await ensureTableExists("recap_images", recapImagesCreateSql);
     })().catch((error) => {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

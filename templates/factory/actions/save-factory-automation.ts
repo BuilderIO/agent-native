@@ -19,6 +19,9 @@ import {
   clampInboxLimit,
   clampWorkLimit,
   normalizeUserPrompt,
+  QA_AGENT_NATIVE_SLACK_CHANNEL_ID,
+  QA_AGENT_NATIVE_SLACK_CHANNEL_NAME,
+  requiresSlackFindingsDestination,
   readConfigSavedAt,
   readFactoryAutomationConfig,
   readPromptVersion,
@@ -148,10 +151,15 @@ export default defineAction({
     if (scheduleMode === "daily" && !timezone) {
       throw new Error("Choose a timezone for a daily schedule.");
     }
-    const nextSlackChannelId =
-      input.slackChannelId !== undefined
+    const reportsFindings = requiresSlackFindingsDestination(current);
+    const nextSlackChannelId = reportsFindings
+      ? QA_AGENT_NATIVE_SLACK_CHANNEL_ID
+      : input.slackChannelId !== undefined
         ? input.slackChannelId.trim()
         : current.slackChannelId;
+    const nextSlackWorkspace = reportsFindings
+      ? "primary"
+      : (input.slackWorkspace ?? current.slackWorkspace);
     const nextRepository =
       input.repository !== undefined
         ? input.repository.trim()
@@ -187,6 +195,13 @@ export default defineAction({
           slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
           verb: "saving",
         });
+        if (requiresSlackFindingsDestination(current)) {
+          await assertFactoryConnectorReady("slack", userEmail, {
+            orgId,
+            slackWorkspace: nextSlackWorkspace,
+            verb: "saving",
+          });
+        }
       } catch (error) {
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(
@@ -207,10 +222,11 @@ export default defineAction({
     }
     const config = {
       ...current,
-      slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+      slackWorkspace: nextSlackWorkspace,
       slackChannelId: nextSlackChannelId,
-      slackChannelName:
-        input.slackChannelName !== undefined
+      slackChannelName: reportsFindings
+        ? QA_AGENT_NATIVE_SLACK_CHANNEL_NAME
+        : input.slackChannelName !== undefined
           ? input.slackChannelName.trim()
           : current.slackChannelName,
       repository: nextRepository,

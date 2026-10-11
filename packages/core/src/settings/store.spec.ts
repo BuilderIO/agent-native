@@ -88,6 +88,31 @@ describe("settings store", () => {
     expect(result).toEqual({ value: "dark" });
   });
 
+  it("rejects nested inline image bytes before setting writes", async () => {
+    await putSetting("safe", { nested: { enabled: true } });
+    await expect(getSetting("safe")).resolves.toEqual({
+      nested: { enabled: true },
+    });
+
+    const unsafe = {
+      nested: {
+        attachment: { type: "image", data: "data:image/png;base64,ZmFrZQ==" },
+      },
+    };
+    rawClient.execute.mockClear();
+    await expect(putSetting("unsafe", unsafe)).rejects.toThrow(/stores inline/);
+    expect(rawClient.execute).not.toHaveBeenCalled();
+
+    await expect(
+      mutateSetting("safe", () => ({ settings: unsafe })),
+    ).rejects.toThrow(/stores inline/);
+    const writes = rawClient.execute.mock.calls.filter(([input]) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      return /^\s*(insert|update|delete)\b/i.test(sql);
+    });
+    expect(writes).toHaveLength(0);
+  });
+
   it("returns null for a missing key", async () => {
     const result = await getSetting("does-not-exist");
     expect(result).toBeNull();

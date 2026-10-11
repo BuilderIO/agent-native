@@ -8,7 +8,10 @@ import type {
   PostAuthDesignIntent,
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
-import { measurePositionCoordinateContext } from "@/pages/design-editor/position-coordinate-context";
+import {
+  measurePositionCoordinateContext,
+  positionCoordinateRenderOffsetForWindow,
+} from "@/pages/design-editor/position-coordinate-context";
 
 export function designSelectionStateKeys(): string[] {
   return designSelectionStateKeysForTab(getBrowserTabId());
@@ -238,9 +241,14 @@ export function withMeasuredGeometry(
         : node.parentElement;
     const parentBox = parent?.getBoundingClientRect();
     const view = frame.contentWindow;
-    const positionCoordinateContext = view
-      ? measurePositionCoordinateContext(node, view)
-      : undefined;
+    const renderOffset = view
+      ? positionCoordinateRenderOffsetForWindow(view)
+      : null;
+    const positionCoordinateContext =
+      view && renderOffset
+        ? measurePositionCoordinateContext(node, view, renderOffset)
+        : undefined;
+    if (!positionCoordinateContext) return info;
     const scrollX = view?.scrollX ?? 0;
     const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);

@@ -1,3 +1,4 @@
+import { AGENT_CALL_FAILURE_REASON_KEYS } from "@agent-native/core/client/agent-chat";
 import { describe, expect, it } from "vitest";
 
 import { toolkitMessagesForLocale, TOOLKIT_LOCALES } from "./catalog.js";
@@ -46,6 +47,16 @@ describe("Toolkit app messages", () => {
         expect(translated.length / required.length, locale).toBeGreaterThan(
           0.9,
         );
+      }
+    }
+  });
+
+  it("defines every agent call failure reason the chat runtime can report", () => {
+    expect(AGENT_CALL_FAILURE_REASON_KEYS.length).toBeGreaterThan(1);
+    for (const locale of TOOLKIT_LOCALES) {
+      const messages = flatten(toolkitMessagesForLocale(locale));
+      for (const key of AGENT_CALL_FAILURE_REASON_KEYS) {
+        expect(messages[key], `${locale}:${key}`).toEqual(expect.any(String));
       }
     }
   });

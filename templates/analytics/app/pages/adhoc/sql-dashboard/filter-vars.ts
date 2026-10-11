@@ -20,7 +20,7 @@ const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date-range",
   "toggle-date",
 ]);
-const FILTER_TYPES: DashboardFilter["type"][] = [
+export const FILTER_TYPES: DashboardFilter["type"][] = [
   "date",
   "date-range",
   "select",

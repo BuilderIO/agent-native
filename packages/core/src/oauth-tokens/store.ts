@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
@@ -45,7 +46,7 @@ function oauthTokensTable(): string {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const table = oauthTokensTable();
       const createSql = `
@@ -90,6 +91,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

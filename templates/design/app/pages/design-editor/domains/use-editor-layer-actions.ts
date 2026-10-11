@@ -49,7 +49,10 @@ import {
 import { getLocalhostRouteSourceFile } from "../editor-state";
 import { getBodyInlineStyles } from "../html-layer-positioning";
 import { deriveStatePreviewTarget } from "../pending-edits";
-import { measurePositionCoordinateContext } from "../position-coordinate-context";
+import {
+  measurePositionCoordinateContext,
+  positionCoordinateRenderOffsetForWindow,
+} from "../position-coordinate-context";
 import {
   isScreenRootElementInfo,
   resolveMarqueeAdditive,
@@ -91,10 +94,10 @@ function readRenderedLayerInfo(
       if (!element) continue;
       const computed = preview.getComputedStyle(element);
       const parent = element.parentElement;
-      const positionCoordinateContext = measurePositionCoordinateContext(
-        element,
-        preview,
-      );
+      const renderOffset = positionCoordinateRenderOffsetForWindow(preview);
+      const positionCoordinateContext = renderOffset
+        ? measurePositionCoordinateContext(element, preview, renderOffset)
+        : undefined;
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
         : undefined;
@@ -931,21 +934,22 @@ export function useEditorLayerActions({
       ) {
         return;
       }
+      if (
+        !measured.positionReferenceRect ||
+        !measured.positionContainingBlockOrigin ||
+        !measured.positionContainingBlockTransform
+      ) {
+        return;
+      }
       const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
-      renderedElementInfoByLayerKeyRef.current.set(
-        `${owner.fileId}:${owner.node.id}`,
-        measured,
-      );
-      if (stableId) {
-        renderedElementInfoByLayerKeyRef.current.set(
-          `${owner.fileId}:${stableId}`,
-          measured,
-        );
+      const ownerId = stableId ?? bridgeSourceIdForCodeLayerNode(owner.node);
+      const layerKey = `${owner.fileId}:${owner.node.id}`;
+      const stableKey = stableId ? `${owner.fileId}:${stableId}` : undefined;
+      renderedElementInfoByLayerKeyRef.current.set(layerKey, measured);
+      if (stableKey) {
+        renderedElementInfoByLayerKeyRef.current.set(stableKey, measured);
       }
       if (selectedLayerIdsStateRef.current.includes(layerId)) {
-        const ownerId =
-          owner.node.dataAttributes["data-agent-native-node-id"] ??
-          bridgeSourceIdForCodeLayerNode(owner.node);
         const mergeMeasured = (current: ElementInfo | null) => {
           if (!current) return measured;
           const currentId = current.sourceId ?? current.runtimeSourceId;
@@ -957,14 +961,11 @@ export function useEditorLayerActions({
             boundingRect: measured.boundingRect,
             parentBoundingRect:
               measured.parentBoundingRect ?? current.parentBoundingRect,
-            positionReferenceRect:
-              measured.positionReferenceRect ?? current.positionReferenceRect,
+            positionReferenceRect: measured.positionReferenceRect,
             positionContainingBlockOrigin:
-              measured.positionContainingBlockOrigin ??
-              current.positionContainingBlockOrigin,
+              measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
-              measured.positionContainingBlockTransform ??
-              current.positionContainingBlockTransform,
+              measured.positionContainingBlockTransform,
             computedStyles: {
               ...measured.computedStyles,
               ...current.computedStyles,

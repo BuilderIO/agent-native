@@ -4,6 +4,7 @@ import {
   CARD_HEADER_HEIGHT,
   CARD_PROVENANCE_HEADER_HEIGHT,
   COLUMN_GAP,
+  ELBOW_OFFSET,
   JourneyLayoutError,
   LABEL_HEIGHT,
   ROW_GAP,
@@ -179,6 +180,57 @@ describe("layoutJourney", () => {
     }
   });
 
+  it("reserves the full corridor for long labels and sizes summary stubs", () => {
+    const layout = layoutJourney(
+      [
+        { key: "parent", parentKey: null, kind: "card" },
+        {
+          key: "child",
+          parentKey: "parent",
+          kind: "card",
+          edgeLabelSize: { width: 240, height: 260 },
+        },
+        {
+          key: "child-2",
+          parentKey: "parent",
+          kind: "card",
+          edgeLabelSize: { width: 200, height: 180 },
+        },
+        {
+          key: "other",
+          parentKey: "parent",
+          kind: "stub",
+          stubSize: { width: 320, height: 112 },
+        },
+      ],
+      { cardWidth: 200 },
+    );
+    const byKey = new Map(layout.nodes.map((node) => [node.key, node]));
+    const parent = byKey.get("parent")!;
+    const child = byKey.get("child")!;
+    const other = byKey.get("other")!;
+    const edge = layout.edges.find((candidate) => candidate.toKey === "child")!;
+    const secondEdge = layout.edges.find(
+      (candidate) => candidate.toKey === "child-2",
+    )!;
+
+    expect(
+      child.rect.x - (parent.rect.x + parent.rect.width),
+    ).toBeGreaterThanOrEqual(ELBOW_OFFSET + 240);
+    expect(edge.labelRect.width).toBe(240);
+    expect(edge.labelRect.height).toBe(260);
+    expect(edge.labelRect.x).toBeGreaterThanOrEqual(
+      parent.rect.x + parent.rect.width,
+    );
+    expect(edge.labelRect.x + edge.labelRect.width).toBeLessThanOrEqual(
+      child.rect.x,
+    );
+    expect(intersects(edge.labelRect, secondEdge.labelRect)).toBe(false);
+    expect(other.rect.width).toBe(320);
+    expect(other.rect.height).toBe(112);
+    expect(intersects(child.footprint, other.footprint)).toBe(false);
+  });
+
   it("lays out several roots top to bottom and is deterministic", () => {
     const forest: JourneyLayoutNode[] = [
       { key: "r1", parentKey: null, kind: "card", footer: true },
@@ -191,6 +243,19 @@ describe("layoutJourney", () => {
     expect(r2!.footprint.y).toBeGreaterThan(
       r1!.footprint.y + r1!.footprint.height,
     );
+  });
+
+  it("lays out a 2,000-node path without overflowing the call stack", () => {
+    const nodes: JourneyLayoutNode[] = Array.from(
+      { length: 2_000 },
+      (_, index) => ({
+        key: `n${index}`,
+        parentKey: index === 0 ? null : `n${index - 1}`,
+        kind: "card",
+      }),
+    );
+
+    expect(layoutJourney(nodes, { cardWidth: 120 }).nodes).toHaveLength(2_000);
   });
 
   it("rejects duplicate keys, missing parents, stub parents and cycles", () => {

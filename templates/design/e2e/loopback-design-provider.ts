@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 
@@ -7,6 +7,7 @@ const source = await readFile(
   "utf8",
 );
 const port = Number(process.env.E2E_LOOPBACK_PORT ?? 41999);
+const instanceId = process.env.E2E_LOOPBACK_INSTANCE_ID ?? randomUUID();
 let requestId = 0;
 const callNames: string[] = [];
 const modelsSeen: string[] = [];
@@ -154,7 +155,10 @@ function tool(
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (req.method === "GET" && url.pathname === "/v1/models") {
-    res.writeHead(200, { "content-type": "application/json" });
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "x-agent-native-loopback-instance": instanceId,
+    });
     res.end(
       JSON.stringify({ object: "list", data: [{ id: "agentkit-loopback" }] }),
     );

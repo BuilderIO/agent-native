@@ -22,6 +22,24 @@ interface FooterColumn {
   links: FooterLink[];
 }
 
+// Mirrors the `templates` catalog in ../TemplateCard (a test keeps them in
+// sync). Importing the catalog would pull card components and screenshot
+// data into the root bundle that every page loads.
+export const FOOTER_APPS: ReadonlyArray<{ slug: string; name: string }> = [
+  { slug: "clips", name: "Clips" },
+  { slug: "plan", name: "Plans" },
+  { slug: "design", name: "Design" },
+  { slug: "content", name: "Content" },
+  { slug: "slides", name: "Slides" },
+  { slug: "analytics", name: "Analytics" },
+  { slug: "mail", name: "Mail" },
+  { slug: "forms", name: "Forms" },
+  { slug: "assets", name: "Assets" },
+  { slug: "calendar", name: "Calendar" },
+  { slug: "dispatch", name: "Dispatch" },
+  { slug: "chat", name: "Chat" },
+];
+
 function footerColumns(
   t: (key: string) => string,
   localizedPath: (path: string) => string,
@@ -30,12 +48,27 @@ function footerColumns(
     {
       title: t("homepage.footer.framework"),
       links: [
+        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
+        {
+          label: t("nav.whatIsAgentNative"),
+          href: localizedPath("/docs/what-is-agent-native"),
+        },
+        {
+          label: t("nav.keyConcepts"),
+          href: localizedPath("/docs/key-concepts"),
+        },
         {
           label: t("homepage.footer.download"),
           href: localizedPath("/download"),
         },
-        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
       ],
+    },
+    {
+      title: t("homepage.footer.apps"),
+      links: FOOTER_APPS.map((app) => ({
+        label: app.name,
+        href: localizedPath(`/apps/${app.slug}`),
+      })),
     },
     {
       title: t("homepage.footer.ecosystem"),
@@ -61,6 +94,10 @@ function footerColumns(
     {
       title: t("homepage.footer.legal"),
       links: [
+        {
+          label: t("legal.about.eyebrow"),
+          href: localizedPath("/about"),
+        },
         {
           label: t("homepage.footer.privacyPolicy"),
           href: localizedPath("/privacy"),

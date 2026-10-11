@@ -54,13 +54,11 @@ export default function CreatePage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: chatThreadPath,
-        navigate,
-      }
-    : undefined;
+  const threadUrlSync = {
+    routeThreadId: threadId ?? null,
+    getPath: chatThreadPath,
+    navigate,
+  };
   const imageModelMenu = useImageModelMenu(threadId);
 
   useEffect(() => {

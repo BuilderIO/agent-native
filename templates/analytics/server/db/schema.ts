@@ -29,6 +29,7 @@ export const dashboards = table("dashboards", {
   hiddenBy: text("hidden_by"),
   folderId: text("folder_id"),
   updatedBy: text("updated_by"),
+  githubSyncState: text("github_sync_state"),
   ...ownableColumns(),
 });
 
@@ -45,6 +46,7 @@ export const dashboardFolders = table("dashboard_folders", {
   scope: text("scope", { enum: ["personal", "shared"] }).notNull(),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  githubSync: text("github_sync"),
   ...ownableColumns(),
 });
 
@@ -742,6 +744,30 @@ export const analyticsDbAdminConnections = table(
     orgUpdatedIdx: index("analytics_db_admin_connections_org_updated_idx").on(
       connection.orgId,
       connection.updatedAt,
+    ),
+  }),
+);
+
+export const sourceIndexRuns = table(
+  "source_index_runs",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    status: text("status", {
+      enum: ["running", "succeeded", "failed"],
+    }).notNull(),
+    trigger: text("trigger", { enum: ["manual", "scheduled"] }).notNull(),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+    entryCount: integer("entry_count"),
+    sourceRevisions: text("source_revisions").notNull().default("{}"),
+    error: text("error"),
+    createdByEmail: text("created_by_email"),
+  },
+  (run) => ({
+    orgStartedIdx: index("source_index_runs_org_started_idx").on(
+      run.orgId,
+      run.startedAt,
     ),
   }),
 );

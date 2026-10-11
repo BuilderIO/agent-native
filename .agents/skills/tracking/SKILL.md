@@ -379,20 +379,20 @@ Other framework-level baseline events:
   hidden; `replaceState` keeps it, so redirects land on the final route.
   Measured with native `PerformanceObserver`s; `configureTracking({
   webVitals: false })` turns it off. Each page view also marks the replay.
-- `http.response` from Nitro request/response hooks, with normalized path,
-  status, request duration, first-request-in-isolate cold marker, process age,
-  framework readiness wait, deploy/runtime fingerprint, database
-  connection/query counts and timings, retries, timeouts, and failures. It also
-  emits `Server-Timing` for `app`, `startup`, `db`, `db-connect`, and
-  `db-slowest` plus an `X-Agent-Native-Request-Id` correlation header where
-  applicable. Query text and parameters are never captured.
-  Database activity that begins during the first two minutes of process/plugin
-  initialization is reported separately as `startup_db_*` on the first
-  framework request that passes the readiness gate.
-  Slow, cold-isolate, server failures, and 4xx action routes are always
-  retained; fast successful requests default to 10% sampling. Override with
-  `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
-  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
+- Request timing is an OpenTelemetry `http.server` span, not a product event. Each
+  framework HTTP request records method, bounded route template, status code,
+  first-request-in-isolate cold marker, framework readiness wait, and database
+  operation count and wall time. The span goes only to the registered
+  OpenTelemetry provider and never reaches analytics providers, so it cannot
+  fire product alerts. Its status is `error` for 5xx responses only. Ingest
+  endpoints, `/api/analytics/replay`, and `AGENT_NATIVE_HTTP_TELEMETRY_DISABLED`
+  record no span. Cold or 1 s-plus requests also write an
+  `agent-native.slow_request` log line with process age, readiness wait, and
+  database timings. Responses carry `Server-Timing` for `app`, `startup`, `db`,
+  `db-connect`, and `db-slowest` (plus `startup-db-*` for initialization
+  database work) and an `X-Agent-Native-Request-Id` header where applicable.
+  Query text and parameters are never captured. There is no sampling knob for
+  this span; export volume is governed by the OpenTelemetry sampler.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
@@ -433,8 +433,8 @@ and, for names in `LEGACY_TRACKING_EVENT_NAME_ALIASES`, emit a canonical alias
 with `legacy_event_name` and `canonical_event_name` provenance properties. Use
 the canonical alias for new dashboards and new call sites; do not normalize
 historical warehouse rows or add new legacy names. Provider/framework names
-such as `$ai_*`, `$mcp_*`, `$exception`, `action.response`, `app.first_action`,
-and `http.response` are intentional exceptions.
+such as `$ai_*`, `$mcp_*`, `$exception`, `action.response`, and
+`app.first_action` are intentional exceptions.
 
 ## Provider Interface
 

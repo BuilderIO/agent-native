@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { deleteDocumentImports } from "../server/lib/document-imports.js";
 import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
@@ -985,6 +986,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await deleteDocumentImports(db, documentIdBatch);
     await db
       .delete(schema.documentSyncLinks)
       .where(

@@ -58,6 +58,8 @@ describe("DesignCanvas embedded frame backgrounds", () => {
     expect(content).toContain("data-agent-native-frame-background");
     expect(content).toContain("background:hsl(0 0% 10%)");
     expect(content).toContain("data-agent-native-content-offset");
+    expect(content).toContain('data-agent-native-content-offset-x="-100"');
+    expect(content).toContain('data-agent-native-content-offset-y="-200"');
     expect(content).toContain("translate:-100px -200px");
     expect(content).toContain('data-agent-native-node-id="rect"');
   });

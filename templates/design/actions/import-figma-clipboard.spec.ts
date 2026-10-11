@@ -157,7 +157,7 @@ describe("import-figma-clipboard", () => {
     expect(saveArgs.files[0].filename).toBe("Hero.html");
   });
 
-  it("imports exact selected node ids from a current binary-only Figma clipboard without heuristic file matching", async () => {
+  it("imports selected node ids from binary-only clipboard metadata without heuristic file matching", async () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {
         expect(path).toBe(`/files/${FILE_KEY}/nodes`);
@@ -298,7 +298,7 @@ describe("import-figma-clipboard", () => {
     });
   });
 
-  it("returns setup guidance instead of throwing when current Figma clipboard has no visible fallback and the token is missing", async () => {
+  it("returns setup guidance when clipboard metadata has no visible fallback and the token is missing", async () => {
     mocks.executeProviderApiRequest.mockRejectedValue(
       new Error("figma credential not configured. Tried: FIGMA_ACCESS_TOKEN"),
     );

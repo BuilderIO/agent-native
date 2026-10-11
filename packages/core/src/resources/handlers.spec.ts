@@ -4,6 +4,7 @@ const mockResourceGet = vi.fn();
 const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourcePutIfAbsent = vi.fn();
+const mockResourcePutIfCurrent = vi.fn();
 const mockResourceDelete = vi.fn();
 const mockResourceDeleteIfCurrent = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("./store.js", () => ({
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourcePutIfAbsent: (...args: any[]) => mockResourcePutIfAbsent(...args),
+  resourcePutIfCurrent: (...args: any[]) => mockResourcePutIfCurrent(...args),
   resourceDelete: (...args: any[]) => mockResourceDelete(...args),
   resourceDeleteIfCurrent: (...args: any[]) =>
     mockResourceDeleteIfCurrent(...args),
@@ -153,7 +155,9 @@ describe("resource handlers", () => {
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockResourceGet.mockResolvedValue(null);
+    mockResourceGetByPath.mockReset().mockResolvedValue(null);
     mockResourcePutIfAbsent.mockResolvedValue(null);
+    mockResourcePutIfCurrent.mockReset().mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
@@ -591,6 +595,628 @@ Legacy webhook.`,
 
       expect(result).toEqual(existing);
       expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("creates an uploaded skill at the next path when the requested one exists", async () => {
+      mockResourceGetByPath.mockResolvedValue({
+        id: "existing-skill",
+        content: "---\nname: different-skill\n---\nDifferent skill",
+        updatedAt: 1000,
+      });
+      const created = {
+        id: "new-skill",
+        path: "skills/review-feedback-2/SKILL.md",
+        owner: "test@test.com",
+        content: "new content",
+      };
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/review-feedback/SKILL.md",
+          content: "new content",
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        1,
+        "test@test.com",
+        "skills/review-feedback/SKILL.md",
+        "new content",
+        "text/markdown",
+        undefined,
+      );
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        "skills/review-feedback-2/SKILL.md",
+        "new content",
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("updates an existing uploaded skill when its declared name matches", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/review-feedback/SKILL.md",
+        content: "---\nname: review-feedback\n---\nOld",
+        updatedAt: 123,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew",
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
+        owner: "test@test.com",
+        path: existing.path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        mimeType: "text/markdown",
+      });
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "test@test.com",
+        existing.path,
+        updated.content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("updates a name-less uploaded skill using its path-derived name", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/uploaded-skill/SKILL.md",
+        content: "# Old uploaded skill",
+        updatedAt: 123,
+      };
+      const updated = { ...existing, content: "# New uploaded skill" };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
+        owner: "test@test.com",
+        path: existing.path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        mimeType: "text/markdown",
+      });
+    });
+
+    it("preserves an explicitly named skill on a name-less path collision", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill/SKILL.md",
+        content: "---\nname: create-skill\n---\nExisting named skill",
+        updatedAt: 123,
+      };
+      const created = {
+        id: "new-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill-2/SKILL.md",
+        content: "# New nameless skill",
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/create-skill/SKILL.md",
+          content: created.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        created.path,
+        created.content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("preserves a name-less skill on a declared-name path collision", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill/SKILL.md",
+        content: "# Existing name-less skill",
+        updatedAt: 123,
+      };
+      const content = "---\nname: create-skill\n---\nNew named skill";
+      const created = {
+        id: "new-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill-2/SKILL.md",
+        content,
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        created.path,
+        content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("retries a same-name upload after a concurrent update wins", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/review-feedback/SKILL.md",
+        content: "---\nname: review-feedback\n---\nOld",
+        updatedAt: 123,
+      };
+      const concurrentlyUpdated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nIntervening",
+        updatedAt: 124,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew",
+      };
+      mockResourcePutIfAbsent.mockResolvedValue(null);
+      mockResourceGetByPath
+        .mockResolvedValueOnce(existing)
+        .mockResolvedValueOnce(concurrentlyUpdated);
+      mockResourcePutIfCurrent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfCurrent).toHaveBeenLastCalledWith({
+        owner: "test@test.com",
+        path: existing.path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: concurrentlyUpdated.updatedAt,
+        expectedContent: concurrentlyUpdated.content,
+        mimeType: "text/markdown",
+      });
+    });
+
+    it("preserves upload metadata when updating an existing named skill", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/review-feedback/SKILL.md",
+        content: "---\nname: review-feedback\n---\nOld",
+        updatedAt: 123,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew",
+      };
+      const metadata = { source: "upload" };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          metadata,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata }),
+      );
+    });
+
+    it("keeps different declared names at the same slug in separate paths", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/release-notes/SKILL.md",
+        content: "---\nname: release-notes\n---\nExisting",
+      };
+      const created = {
+        id: "new-skill",
+        owner: "test@test.com",
+        path: "skills/release-notes-2/SKILL.md",
+        content: "---\nname: Release Notes\n---\nNew",
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/release-notes/SKILL.md",
+          content: created.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        created.path,
+        created.content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it.each(["skills/review-feedback.md", "skills/Review-feedback/SKILL.md"])(
+      "rejects a non-canonical unique skill path: %s",
+      async (path) => {
+        const result = await handleCreateResource({
+          _body: { path, content: "new content", uniqueSkillPath: true },
+        });
+
+        expect(lastStatus).toBe(400);
+        expect(result).toEqual({
+          error: "uniqueSkillPath requires skills/<name>/SKILL.md",
+        });
+        expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      },
+    );
+
+    it("avoids shadowing a legacy shared skill during organization upload", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      mockResourceGetByPath.mockImplementation(async (owner, path, options) =>
+        owner === "__shared__" &&
+        path === "skills/review-feedback/SKILL.md" &&
+        options?.orgId === "org-1"
+          ? { id: "legacy-skill" }
+          : null,
+      );
+      const created = {
+        id: "new-skill",
+        path: "skills/review-feedback-2/SKILL.md",
+        owner: "__organization__:org-1",
+        content: "new content",
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/review-feedback/SKILL.md",
+          content: "new content",
+          mimeType: "text/markdown",
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+        1,
+        "__shared__",
+        "skills/review-feedback/SKILL.md",
+        { orgId: "org-1" },
+      );
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        "skills/review-feedback-2/SKILL.md",
+        "new content",
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("updates an existing organization skill when a legacy shared path collides", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const path = "skills/review-feedback/SKILL.md";
+      const legacy = {
+        id: "legacy-skill",
+        owner: "__shared__",
+        path,
+        content: "---\nname: review-feedback\n---\nLegacy",
+        updatedAt: 1000,
+      };
+      const existing = {
+        id: "org-skill",
+        owner: "__organization__:org-1",
+        path,
+        content: "---\nname: review-feedback\n---\nOld org version",
+        updatedAt: 1000,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew org version",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(legacy)
+        .mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
+        owner: "__organization__:org-1",
+        path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        mimeType: "text/markdown",
+      });
+    });
+
+    it("skips personal skill paths with a different name for organization uploads", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const requestedPath = "skills/release-notes/SKILL.md";
+      const personalByPath = new Map([
+        [
+          requestedPath,
+          {
+            id: "personal-release-notes",
+            owner: "test@test.com",
+            path: requestedPath,
+            content: "---\nname: Release Notes Archive\n---\nPersonal",
+          },
+        ],
+        [
+          "skills/release-notes-2/SKILL.md",
+          {
+            id: "personal-other-release-notes",
+            owner: "test@test.com",
+            path: "skills/release-notes-2/SKILL.md",
+            content: "---\nname: Other Release Notes\n---\nPersonal",
+          },
+        ],
+      ]);
+      mockResourceGetByPath.mockImplementation(async (owner, path, options) => {
+        if (owner === "__shared__") return null;
+        if (owner === "test@test.com") return personalByPath.get(path) ?? null;
+        if (
+          owner === "__organization__:org-1" &&
+          path === requestedPath &&
+          options?.orgId === "org-1"
+        ) {
+          return {
+            id: "hidden-organization-skill",
+            owner,
+            path,
+            content: "---\nname: Release Notes\n---\nOld org skill",
+            updatedAt: 1000,
+          };
+        }
+        return null;
+      });
+      const content = "---\nname: Release Notes\n---\nNew org skill";
+      const created = {
+        id: "organization-release-notes",
+        owner: "__organization__:org-1",
+        path: "skills/release-notes-3/SKILL.md",
+        content,
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: requestedPath,
+          content,
+          mimeType: "text/markdown",
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "test@test.com",
+        requestedPath,
+        { orgId: "org-1" },
+      );
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "test@test.com",
+        "skills/release-notes-2/SKILL.md",
+        { orgId: "org-1" },
+      );
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        created.path,
+        content,
+        "text/markdown",
+        undefined,
+      );
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+    });
+
+    it("keeps the canonical path when a personal skill has the same name", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const path = "skills/release-notes/SKILL.md";
+      mockResourceGetByPath.mockImplementation(async (owner, candidatePath) =>
+        owner === "test@test.com" && candidatePath === path
+          ? {
+              id: "personal-release-notes",
+              owner,
+              path,
+              content: "---\nname: Release Notes\n---\nPersonal",
+            }
+          : null,
+      );
+      const content = "---\nname: Release Notes\n---\nOrganization";
+      const created = {
+        id: "organization-release-notes",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      await handleCreateResource({
+        _body: {
+          path,
+          content,
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        path,
+        content,
+        undefined,
+        undefined,
+      );
+    });
+
+    it("does not shadow a named personal skill with a path-derived organization upload", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const path = "skills/create-skill/SKILL.md";
+      const personal = {
+        id: "personal-create-skill",
+        owner: "test@test.com",
+        path,
+        content: "---\nname: create-skill\n---\nPersonal skill",
+      };
+      mockResourceGetByPath.mockImplementation(async (owner, candidatePath) =>
+        owner === "test@test.com" && candidatePath === path ? personal : null,
+      );
+      const content = "# Organization skill without a declared name";
+      const created = {
+        id: "organization-create-skill",
+        owner: "__organization__:org-1",
+        path: "skills/create-skill-2/SKILL.md",
+        content,
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path,
+          content,
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        created.path,
+        content,
+        undefined,
+        undefined,
+      );
     });
 
     it("creates shared resource when shared flag is set", async () => {

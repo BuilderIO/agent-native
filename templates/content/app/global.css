@@ -149,18 +149,6 @@
   fill: var(--notion-logo-mark);
 }
 
-/* An MCP App host (ChatGPT, Codex, Claude) owns the chrome around its widget,
-   so the document fills the pane from the first pixel: the page column
-   (max-w-3xl) widens so a wide pane is not left with a narrow strip of text,
-   and the lead-in above the title shortens. */
-html[data-agent-native-mcp-widget] .agent-native-app-main {
-  --container-3xl: 64rem;
-}
-
-html[data-agent-native-mcp-widget] .agent-native-app-main .group\/title {
-  padding-top: 1.5rem;
-}
-
 @container agent-native-main (min-width: 560px) {
   .content-database-calendar-undated-grid,
   .content-database-gallery-grid {

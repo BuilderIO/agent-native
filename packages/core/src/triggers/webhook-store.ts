@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { JobFrontmatter } from "../jobs/frontmatter.js";
 import type { Resource } from "../resources/store.js";
 import {
@@ -40,7 +41,7 @@ function secretRef(
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const createSql = `CREATE TABLE IF NOT EXISTS automation_webhook_tokens (
   token_hash TEXT PRIMARY KEY,
@@ -63,6 +64,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { configureClientRouterBasename } from "@agent-native/core/client/api-path";
 import {
   installRouteChunkRecovery,
   stripBuildCompatibilityCacheBuster,
@@ -20,19 +20,7 @@ if (hydratedLocale && hydratedLocale !== "en-US") {
   }
 }
 
-const basePath = appBasePath();
-const pathname = window.location.pathname;
-const routerBasePath =
-  basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
-    ? basePath
-    : "";
-
-const context = (
-  window as Window & { __reactRouterContext?: { basename?: string } }
-).__reactRouterContext;
-if (context) {
-  context.basename = routerBasePath;
-}
+configureClientRouterBasename();
 
 hydrateRoot(document, <HydratedRouter />);
 stripBuildCompatibilityCacheBuster();

@@ -12,6 +12,7 @@ import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { formsAskThreadPath, isFormsAskPath } from "@/lib/chat-route";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
@@ -29,7 +30,7 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const isAskRoute = location.pathname === "/ask";
+  const isAskRoute = isFormsAskPath(location.pathname);
   // Settings brings its own navigation, header, and agent toggle, so it
   // renders full width.
   const isSettingsRoute = isSettingsPathname(location.pathname);
@@ -42,6 +43,7 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: "forms",
     chatPath: "/ask",
+    isChatPath: isFormsAskPath,
     requireActiveHandoff: true,
   });
 
@@ -62,9 +64,13 @@ export function Layout({ children }: LayoutProps) {
     !isAskRoute &&
     !isSettingsRoute;
 
-  function openAskAgentFullscreen() {
+  // The sidebar passes its active thread id, so fullscreen keeps that thread.
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/ask");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      formsAskThreadPath(threadId ?? null),
+    );
   }
 
   return (

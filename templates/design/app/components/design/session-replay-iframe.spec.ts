@@ -61,9 +61,10 @@ describe("Design session replay iframe wiring", () => {
       ),
     ]) {
       expect(block).toContain("src={previewUrl}");
-      expect(block).toContain(
-        "srcDoc={previewUrl ? undefined : srcdocWithHitTest}",
+      expect(block).toMatch(
+        /srcDoc=\{\s*previewUrl \? undefined : privateScreenshotPreview\.html\s*\}/,
       );
+      expect(block).toContain("onStaticPreviewLoad?.(");
       expect(block).toContain("sandbox={getDesignCanvasIframeSandbox({");
       expect(block).toContain("externalPreview: Boolean(previewUrl)");
       expect(block).toContain("readOnly: true");

@@ -943,11 +943,7 @@ function ToolCallDisplayGeneric({
     : null;
   const resultPayload = toolResultPayload(result, t("agentChat.tool.result"));
 
-  const displayName = isAgentCall
-    ? isRunning
-      ? t("agentChat.tool.askingAgent", { agent: agentName })
-      : t("agentChat.tool.askedAgent", { agent: agentName })
-    : toolLabel(t, toolName);
+  const displayName = toolLabel(t, toolName);
   const rowContext = isAgentCall ? null : resolveToolCallRowContext(args);
 
   const canExpand = isAgentCall
@@ -1181,9 +1177,11 @@ function AgentCallCell({
     toolCount,
     inlineSegments.length,
   );
-  const label = isRunning
-    ? t("agentChat.tool.askingAgent", { agent: agentName })
-    : t("agentChat.tool.askedAgent", { agent: agentName });
+  const label = isError
+    ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
+    : isRunning
+      ? t("agentChat.tool.askingAgent", { agent: agentName })
+      : t("agentChat.tool.askedAgent", { agent: agentName });
   const workContent = work ? (
     <div className="space-y-1">
       {Array.from({ length: workItemCount }, (_, index) => {

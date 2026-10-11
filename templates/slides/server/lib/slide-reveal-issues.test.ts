@@ -28,7 +28,7 @@ describe("slideRevealIssues", () => {
     ).toEqual([{ index: 0, id: "legacy", code: "missing-element" }]);
   });
 
-  it("records a by-paragraph step that lands on another reveal's element as duplicate-after-expansion", () => {
+  it("does not flag a by-paragraph reveal whose step is another reveal's element, since that reveal plays the step", () => {
     expect(
       slideRevealIssues({
         id: "slide-1",
@@ -44,7 +44,7 @@ describe("slideRevealIssues", () => {
           },
         ],
       }),
-    ).toEqual([{ index: 1, id: "all", code: "duplicate-after-expansion" }]);
+    ).toEqual([]);
   });
 
   it("names the stored entry, not its position among the kept reveals", () => {

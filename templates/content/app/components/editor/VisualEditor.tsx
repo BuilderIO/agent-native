@@ -23,6 +23,7 @@ import {
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -84,7 +85,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -1583,6 +1583,8 @@ interface VisualEditorProps {
     markdown: string,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
+  /** Opens the import dialog for a drop that carries Markdown files. */
+  onImportFiles?: (files: File[]) => void;
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
@@ -1591,8 +1593,6 @@ interface VisualEditorProps {
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
   directoryWidgetEditing?: boolean;
-  /** Where the widget's docked formatting toolbar renders, under the page toolbar. */
-  widgetFormattingSlot?: HTMLElement | null;
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
@@ -3035,6 +3035,7 @@ export function VisualEditor({
   onChange,
   onSaveContent,
   onEscape,
+  onImportFiles,
   ydoc,
   observeLiveBody = false,
   collabSynced = true,
@@ -3042,7 +3043,6 @@ export function VisualEditor({
   user,
   editable = true,
   directoryWidgetEditing = false,
-  widgetFormattingSlot = null,
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
@@ -3304,6 +3304,8 @@ export function VisualEditor({
 
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onImportFilesRef = useRef(onImportFiles);
+  onImportFilesRef.current = onImportFiles;
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -3445,9 +3447,6 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
-  const historyControllerRef = useRef<VisualEditorHistoryController | null>(
-    null,
-  );
   const acknowledgedRestoreRef = useRef<{
     documentId: string | null;
     content: string;
@@ -3477,6 +3476,18 @@ export function VisualEditor({
         class: "notion-editor",
       },
       handleDrop(view, event) {
+        const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
+        if (
+          view.editable &&
+          onImportFilesRef.current &&
+          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+        ) {
+          // Images dropped beside Markdown belong to the import, not the page.
+          event.preventDefault();
+          setIsDraggingMedia(false);
+          onImportFilesRef.current(droppedFiles);
+          return true;
+        }
         if (view.editable) markUserEditIntent();
         setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
@@ -3766,11 +3777,10 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
-      historyControllerRef.current = null;
       onHistoryControllerChange?.(null);
       return;
     }
-    const historyController: VisualEditorHistoryController = {
+    onHistoryControllerChange?.({
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
       replaceWithAuthoritativeContent: (snapshot) => {
@@ -3804,19 +3814,14 @@ export function VisualEditor({
         }
         return applied;
       },
-    };
-    historyControllerRef.current = historyController;
-    onHistoryControllerChange?.(historyController);
+    });
     const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     };
     deliveredHistoryStateRef.current = initialHistoryState;
     onHistoryStateChange?.(initialHistoryState);
-    return () => {
-      historyControllerRef.current = null;
-      onHistoryControllerChange?.(null);
-    };
+    return () => onHistoryControllerChange?.(null);
   }, [
     editor,
     documentId,
@@ -4641,15 +4646,6 @@ export function VisualEditor({
     );
   }
 
-  const widgetFormattingToolbar = (
-    <BubbleToolbar
-      docked
-      editor={editor}
-      onUndo={() => historyControllerRef.current?.undo()}
-      onRedo={() => historyControllerRef.current?.redo()}
-    />
-  );
-
   return (
     <div
       ref={wrapperRef}
@@ -4661,13 +4657,7 @@ export function VisualEditor({
         containerRef={wrapperRef}
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
-      {editable && directoryWidgetEditing ? (
-        widgetFormattingSlot ? (
-          createPortal(widgetFormattingToolbar, widgetFormattingSlot)
-        ) : (
-          <div className="sticky top-0 z-10">{widgetFormattingToolbar}</div>
-        )
-      ) : editable ? (
+      {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (

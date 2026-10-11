@@ -42,6 +42,10 @@ const ACTIVE_STATUSES = new Set<CommentAiRequest["status"]>([
   "running",
   "refreshing",
 ]);
+
+export function isCommentAiRequestActive(request: CommentAiRequest) {
+  return ACTIVE_STATUSES.has(request.status);
+}
 const ACTIVE_REQUEST_REFETCH_INTERVAL_MS = 1_500;
 /** A result this recent on first load still counts as just finished. */
 const FRESH_RESOLUTION_WINDOW_MS = 2 * 60_000;
@@ -291,6 +295,23 @@ export function latestCommentAiRequest(
     .sort(
       (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
     )[0];
+}
+
+/**
+ * Whether AI is starting or running on a thread from this tab. Requests list
+ * only the caller's own, so a teammate's run on the same thread is not seen.
+ * A request marked for review after its dispatch went unacknowledged does not
+ * count: its run may never have started, which would hold decisions forever,
+ * and a run that did start arrives as a new suggestion or, once the thread's
+ * quote has moved, is refused.
+ */
+export function isCommentAiWorkingOn(
+  commentAi: Pick<CommentAiController, "requests" | "startingThreadIds">,
+  threadId: string,
+) {
+  if (commentAi.startingThreadIds.has(threadId)) return true;
+  const request = latestCommentAiRequest(commentAi.requests, threadId);
+  return Boolean(request && isCommentAiRequestActive(request));
 }
 
 function sessionReceipt(request: CommentAiRequest) {

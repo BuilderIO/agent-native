@@ -669,6 +669,8 @@ const messages = {
     promoteMustContainOptional: "Texto opcional a verificar na resposta…",
     promoteMustContainLabel:
       "Texto a verificar na resposta da avaliação promovida",
+    promoteReviewedPromptLabel:
+      "Prompt revisado manualmente (nunca copiado da produção)",
     promoteNeedsContains:
       "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",

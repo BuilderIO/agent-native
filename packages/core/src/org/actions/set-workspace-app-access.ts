@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { orgAdminAudit } from "../../audit/org-admin.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
+import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 
 const modeSchema = z.enum(["all", "restricted", "disabled"]);
 
@@ -39,6 +40,7 @@ export default defineAction({
         caller.orgId,
       ],
     });
+    invalidateMemberOrgCaches();
     return { appId, mode };
   },
 });

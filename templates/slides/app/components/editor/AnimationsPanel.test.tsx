@@ -108,13 +108,14 @@ describe("AnimationsPanel", () => {
 
   it("says a refused add was not applied, not that the stored reveals are blocked", () => {
     const onUpdateSlide = vi.fn();
-    const withListReveal = {
+    const paragraphSlide = {
       ...slide,
+      content: `<div class="fmd-slide"><div class="list"><p>First</p><p>Second</p></div></div>`,
       animations: [
         {
           id: "list",
-          elementIndex: 2,
-          elementPath: [2],
+          elementIndex: 0,
+          elementPath: [0, 0],
           byParagraph: true,
           type: "fade" as const,
         },
@@ -122,11 +123,11 @@ describe("AnimationsPanel", () => {
     };
     render(
       <AnimationsPanel
-        slide={withListReveal}
+        slide={paragraphSlide}
         selectedTarget={{
           elementIndex: 0,
-          elementPath: [2, 0],
-          preview: "First point",
+          elementPath: [0],
+          preview: "First",
         }}
         onUpdateSlide={onUpdateSlide}
         onClose={vi.fn()}

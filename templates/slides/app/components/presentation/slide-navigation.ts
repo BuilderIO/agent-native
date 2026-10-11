@@ -101,12 +101,23 @@ function nextConsumesBuildStep(
   );
 }
 
+/** A prev press steps back through the displayed slide's builds before it leaves the slide. */
+function prevConsumesBuildStep(state: SlideNavigationState): boolean {
+  return (
+    !state.flight &&
+    state.targetIndex === state.displayedIndex &&
+    state.buildStep > 0
+  );
+}
+
 export function canCommand(
   state: SlideNavigationState,
   layout: SlideNavigationLayout,
   command: SlideNavigationCommand,
 ): boolean {
-  if (command === "prev") return state.targetIndex > 0;
+  if (command === "prev") {
+    return state.targetIndex > 0 || prevConsumesBuildStep(state);
+  }
   return (
     state.targetIndex < layout.stepCounts.length - 1 ||
     nextConsumesBuildStep(state, layout)
@@ -175,6 +186,9 @@ export function reduceSlideNavigation(
     case "command": {
       if (slideCount === 0) return state;
       if (action.command === "prev") {
+        if (prevConsumesBuildStep(state)) {
+          return { ...state, buildStep: state.buildStep - 1 };
+        }
         const targetIndex = Math.max(0, state.targetIndex - 1);
         if (targetIndex === state.targetIndex) return state;
         return settle({ ...state, targetIndex }, layout, true);

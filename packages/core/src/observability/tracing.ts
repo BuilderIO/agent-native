@@ -96,7 +96,6 @@ const TRACKING_SPAN_NAMES = new Map([
   ["action.response", "action.client"],
   ["action_completed", "action.server"],
   ["action_failed", "action.server"],
-  ["http.response", "http.server"],
   ["$ai_generation", "llm.generation"],
   ["$ai_trace", "llm.trace"],
   ["agent_run_terminal", "agent.run.terminal"],
@@ -353,7 +352,7 @@ export function withAgentSpanContext<T>(
 export function endAgentSpan(
   span: AgentSpan | null,
   result: {
-    status?: "success" | "error";
+    status?: "success" | "error" | "unset";
     errorMessage?: string | null;
     attributes?: Record<string, AgentSpanAttributeValue | null | undefined>;
     endTime?: number;
@@ -372,7 +371,7 @@ export function endAgentSpan(
       if (result.errorMessage) {
         span.recordException({ message: result.errorMessage });
       }
-    } else {
+    } else if (result.status !== "unset") {
       span.setStatus({ code: SPAN_STATUS_OK });
     }
   } catch {

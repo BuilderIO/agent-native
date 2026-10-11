@@ -7,6 +7,7 @@ const mockGetTraceSummaries = vi.hoisted(() => vi.fn());
 const mockGetTraceSummary = vi.hoisted(() => vi.fn());
 const mockInsertFeedback = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
+const mockReadBodyWithSizeLimit = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockGetFeedback = vi.hoisted(() => vi.fn());
 const mockGetFeedbackStats = vi.hoisted(() => vi.fn());
@@ -63,6 +64,8 @@ vi.mock("../server/request-context.js", () => ({
 
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
+  readBodyWithSizeLimit: (...args: unknown[]) =>
+    mockReadBodyWithSizeLimit(...args),
 }));
 
 vi.mock("../tracking/registry.js", () => ({
@@ -72,6 +75,7 @@ vi.mock("../tracking/registry.js", () => ({
 vi.mock("./actions/promote-trace-eval.js", () => ({
   promoteTraceEvalFromStore: (...args: unknown[]) =>
     mockPromoteTraceEvalFromStore(...args),
+  PROMOTE_TRACE_EVAL_BODY_LIMIT: 24_000,
 }));
 
 vi.mock("./store.js", () => ({
@@ -1003,7 +1007,12 @@ describe("observability routes", () => {
   });
 
   it("promotes a completed trace through POST /traces/:runId/promote", async () => {
-    mockReadBody.mockResolvedValue({ mustContain: "30 days" });
+    mockReadBodyWithSizeLimit.mockResolvedValue({
+      reviewedPrompt: "show active users daily",
+      reviewedHistory: [{ role: "user", text: "compare last month" }],
+      mustContain: "30 days",
+      datasetName: "weekly analytics dataset",
+    });
     mockPromoteTraceEvalFromStore.mockResolvedValue({
       sourceRunId: "run-1",
       dataset: { id: "ds-1", name: "from-trace:run-1" },
@@ -1017,14 +1026,20 @@ describe("observability routes", () => {
       dataset: { id: "ds-1" },
     });
     expect(mockPromoteTraceEvalFromStore).toHaveBeenCalledWith(
-      { runId: "run-1", mustContain: "30 days", datasetName: undefined },
+      {
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        reviewedHistory: [{ role: "user", text: "compare last month" }],
+        mustContain: "30 days",
+        datasetName: "weekly analytics dataset",
+      },
       { userId: "alice@example.com" },
     );
   });
 
   it("maps a typed promote failure onto the HTTP status", async () => {
     const { ActionContractError } = await import("../action.js");
-    mockReadBody.mockResolvedValue({});
+    mockReadBodyWithSizeLimit.mockResolvedValue({});
     mockPromoteTraceEvalFromStore.mockRejectedValue(
       new ActionContractError("Run is not completed", {
         errorCode: "run_not_completed",
@@ -1042,7 +1057,7 @@ describe("observability routes", () => {
   });
 
   it("rejects an unreadable promote body instead of promoting", async () => {
-    mockReadBody.mockRejectedValue(new Error("Unexpected token"));
+    mockReadBodyWithSizeLimit.mockRejectedValue(new Error("Unexpected token"));
     const handler = createObservabilityHandler() as any;
     const event = createEvent("/traces/run-1/promote", "POST");
 
@@ -1054,7 +1069,7 @@ describe("observability routes", () => {
   });
 
   it("rejects a non-object promote body instead of promoting", async () => {
-    mockReadBody.mockResolvedValue(["not", "options"]);
+    mockReadBodyWithSizeLimit.mockResolvedValue(["not", "options"]);
     const handler = createObservabilityHandler() as any;
     const event = createEvent("/traces/run-1/promote", "POST");
 
@@ -1062,6 +1077,24 @@ describe("observability routes", () => {
       error: "Invalid JSON body",
     });
     expect(event._status).toBe(400);
+    expect(mockPromoteTraceEvalFromStore).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized promote bodies with HTTP 413 before promotion", async () => {
+    mockReadBodyWithSizeLimit.mockRejectedValue(
+      Object.assign(new Error("Request body too large"), { statusCode: 413 }),
+    );
+    const handler = createObservabilityHandler() as any;
+    const event = createEvent("/traces/run-1/promote", "POST");
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Request body too large",
+    });
+    expect(event._status).toBe(413);
+    expect(mockReadBodyWithSizeLimit).toHaveBeenCalledWith(
+      event,
+      expect.any(Number),
+    );
     expect(mockPromoteTraceEvalFromStore).not.toHaveBeenCalled();
   });
 });

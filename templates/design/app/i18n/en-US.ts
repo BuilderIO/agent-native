@@ -1633,9 +1633,11 @@ export default {
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
     imageAttachmentUnavailable:
-      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
+      "We couldn't prepare this image for upload. Try a JPG, PNG, GIF, or WebP image.",
+    imageAttachmentTooLarge:
+      "Images can be up to {{perFile}} MB each, with {{total}} MB total.",
     attachmentsTooLarge:
-      "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
+      "Images are optimized automatically. Optimized images and other files must fit within {{max}} MB total.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
     startBlankCanvas: "Start with a blank canvas",

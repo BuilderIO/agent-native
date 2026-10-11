@@ -107,6 +107,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "完全な接続ページを開いて、OAuth を完了できないクライアント用のトークンを作成します。",
   mcpOpenConnectPage: "完全な接続ページを開く",
+  mcpIdentityError: "このアプリの接続情報を読み込めませんでした。",
+  mcpRetry: "再試行",
   mcpConnect: mcpConnectMessages,
 };
 

@@ -78,6 +78,7 @@ function safePredicate(tokens: AgentSqlToken[], alias: string): string | null {
 export function firstPartyEventPushdownPredicates(
   sql: string,
   sourceIndex: number,
+  { allowDirectSource = false }: { allowDirectSource?: boolean } = {},
 ): string[] {
   const tokens = lexAgentSql(sql, { dialect: "bigquery" });
   const depths: number[] = [];
@@ -95,33 +96,103 @@ export function firstPartyEventPushdownPredicates(
       if (open !== undefined) pairs.set(open, index);
     }
   }
-  if (wrapper === undefined || tokens[wrapper - 1]?.value !== "from") return [];
-  const close = pairs.get(wrapper);
-  if (close === undefined) return [];
-  let aliasIndex = close + 1;
-  if (tokens[aliasIndex]?.value === "as") aliasIndex++;
-  const alias = tokens[aliasIndex];
-  if (!alias || !["word", "quoted-identifier"].includes(alias.kind)) return [];
-  const depth = depths[wrapper];
-  let select = wrapper - 2;
-  while (
-    select >= 0 &&
-    !(depths[select] === depth && tokens[select].value === "select")
-  )
-    select--;
-  if (select < 0) return [];
-  // A preceding FROM means this derived source belongs to a join/comma list.
-  if (
-    tokens
-      .slice(select, wrapper - 1)
-      .some(
-        (token, index) =>
-          depths[select + index] === depth && token.value === "from",
+  let alias: AgentSqlToken | undefined;
+  let depth: number | undefined;
+  let where: number | undefined;
+  if (wrapper !== undefined && tokens[wrapper - 1]?.value === "from") {
+    const close = pairs.get(wrapper);
+    if (close === undefined) return [];
+    let aliasIndex = close + 1;
+    if (tokens[aliasIndex]?.value === "as") aliasIndex++;
+    alias = tokens[aliasIndex];
+    if (!alias || !["word", "quoted-identifier"].includes(alias.kind))
+      return [];
+    depth = depths[wrapper];
+    let select = wrapper - 2;
+    while (
+      select >= 0 &&
+      !(depths[select] === depth && tokens[select].value === "select")
+    )
+      select--;
+    if (select < 0) return [];
+    // A preceding FROM means this derived source belongs to a join/comma list.
+    if (
+      tokens
+        .slice(select, wrapper - 1)
+        .some(
+          (token, index) =>
+            depths[select + index] === depth && token.value === "from",
+        )
+    )
+      return [];
+    where = aliasIndex + 1;
+  } else {
+    if (!allowDirectSource) return [];
+    const sourceTokenIndex = tokens.findIndex(
+      (token) => token.start <= sourceIndex && token.end > sourceIndex,
+    );
+    if (sourceTokenIndex < 0) return [];
+    depth = depths[sourceTokenIndex];
+    let select = sourceTokenIndex - 1;
+    while (
+      select >= 0 &&
+      !(depths[select] === depth && tokens[select].value === "select")
+    )
+      select--;
+    if (select < 0) return [];
+    const source = tokens[sourceTokenIndex];
+    let aliasIndex = sourceTokenIndex + 1;
+    if (tokens[aliasIndex]?.value === "as") aliasIndex++;
+    const aliasCandidate = tokens[aliasIndex];
+    const reserved = new Set([
+      "where",
+      "join",
+      "left",
+      "right",
+      "inner",
+      "outer",
+      "cross",
+      "full",
+      "group",
+      "having",
+      "qualify",
+      "order",
+      "limit",
+      "union",
+      "except",
+      "intersect",
+      "window",
+    ]);
+    alias =
+      aliasCandidate &&
+      ["word", "quoted-identifier"].includes(aliasCandidate.kind) &&
+      !reserved.has(aliasCandidate.value.toLowerCase())
+        ? aliasCandidate
+        : source;
+    where = sourceTokenIndex + 1;
+    while (
+      where < tokens.length &&
+      !(depths[where] === depth && tokens[where].value === "where")
+    ) {
+      if (
+        depths[where] < depth ||
+        (depths[where] === depth &&
+          ["group", "having", "qualify", "order", "limit", "union"].includes(
+            tokens[where].value,
+          ))
       )
+        return [];
+      where++;
+    }
+  }
+  if (
+    where === undefined ||
+    tokens[where]?.value !== "where" ||
+    depths[where] !== depth
   )
     return [];
-  const where = aliasIndex + 1;
-  if (tokens[where]?.value !== "where" || depths[where] !== depth) return [];
+  const sourceAlias = alias?.value;
+  if (!sourceAlias) return [];
   const predicates: AgentSqlToken[][] = [[]];
   let between = false;
   for (let index = where + 1; index < tokens.length; index++) {
@@ -170,7 +241,7 @@ export function firstPartyEventPushdownPredicates(
     predicates[predicates.length - 1].push(token);
   }
   return predicates.flatMap((predicate) => {
-    const safe = safePredicate(predicate, alias.value);
+    const safe = safePredicate(predicate, sourceAlias);
     return safe === null ? [] : [safe];
   });
 }

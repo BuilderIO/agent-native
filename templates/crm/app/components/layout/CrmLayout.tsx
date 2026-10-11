@@ -27,6 +27,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { crmAskThreadPath, isCrmAskPath } from "@/lib/ask-route";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { isCrmSettingsRoute } from "./layout-route-policy";
@@ -36,7 +37,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const isAskRoute = location.pathname === "/ask";
+  const isAskRoute = isCrmAskPath(location.pathname);
   // Settings brings its own navigation, header, and agent-panel toggle, so it
   // replaces CRM's sidebar and mobile header instead of nesting inside them.
   const fullWidthSettings = isCrmSettingsRoute(location.pathname);
@@ -78,7 +79,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
   const handoffPending = isAgentChatHomeHandoffActive("crm");
   useAgentChatHomeHandoffLinks({
     storageKey: "crm",
-    chatPath: "/ask",
+    isChatPath: isCrmAskPath,
     requireActiveHandoff: false,
   });
 
@@ -162,9 +163,12 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         openOnChatRunning={handoffActive}
         scope={dashboardScope}
         chatHistory={dashboardChatHistory}
-        onFullscreenRequest={() => {
+        onFullscreenRequest={(threadId?: string) => {
           focusAgentChat();
-          navigateWithAgentChatViewTransition(navigate, "/ask");
+          navigateWithAgentChatViewTransition(
+            navigate,
+            crmAskThreadPath(threadId ?? null),
+          );
         }}
         emptyStateText="Ask CRM about your connected records"
         suggestions={[

@@ -119,25 +119,6 @@ describe("DocumentToolbar in an MCP App widget", () => {
     return byLabel<HTMLAnchorElement>("editor.toolbar.openInAgentNative");
   }
 
-  async function openPageActions() {
-    const trigger = byLabel<HTMLButtonElement>(
-      "editor.toolbar.morePageActions",
-    );
-    expect(trigger).not.toBeNull();
-    await act(async () => {
-      trigger!.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
-    });
-    return Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    );
-  }
-
   // Records whether the component's own handler cancelled the click, then
   // cancels it so happy-dom does not navigate.
   function clickLink(link: Element) {
@@ -164,8 +145,30 @@ describe("DocumentToolbar in an MCP App widget", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        mocks.fetchUrls.push(String(input));
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const href = String(input);
+        if (
+          href.includes("/_agent-native/actions/get-actions-batch") &&
+          init?.method === "POST"
+        ) {
+          // Same-tick GETs travel as one batch POST. Record each logical request
+          // and answer every item, as the real batch route does.
+          const { requests } = JSON.parse(String(init.body)) as {
+            requests: Array<{ action: string; query: string }>;
+          };
+          for (const { action, query } of requests) {
+            mocks.fetchUrls.push(
+              `/_agent-native/actions/${action}${query ? `?${query}` : ""}`,
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              results: requests.map(() => ({ status: 200, body: {} })),
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        mocks.fetchUrls.push(href);
         return new Response("{}", {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -201,49 +204,30 @@ describe("DocumentToolbar in an MCP App widget", () => {
     },
   );
 
-  it("lets the page title use the room the bar has, which the app caps at 14rem", async () => {
+  it("caps the page title at 14rem, as the app does", async () => {
+    const pageTitleClass = () =>
+      byLabel("editor.toolbar.pageBreadcrumb")?.querySelector("span.truncate")
+        ?.className;
+
     await renderToolbar(1040);
-    const widgetTitle = byLabel("editor.toolbar.pageBreadcrumb")?.querySelector(
-      "span.truncate",
-    );
-    expect(widgetTitle?.textContent).toBe("Roadmap");
-    expect(widgetTitle?.className).not.toContain("max-w-56");
+    const widgetTitle = pageTitleClass();
+    expect(widgetTitle).toContain("max-w-56");
 
     mocks.widget.inWidget = false;
     mocks.widget.write = false;
     await renderToolbar(1040);
-    const appTitle = byLabel("editor.toolbar.pageBreadcrumb")?.querySelector(
-      "span.truncate",
-    );
-    expect(appTitle?.textContent).toBe("Roadmap");
-    expect(appTitle?.className).toContain("max-w-56");
+    expect(pageTitleClass()).toBe(widgetTitle);
   });
 
-  it("shows Open inline from 480px and in the page-actions menu under it", async () => {
-    for (const width of [1040, 620, 480]) {
+  it("keeps Open inline at every width, with no page-actions menu to fold it into", async () => {
+    for (const width of [1040, 620, 480, 479, 400, 360]) {
       await renderToolbar(width);
       const link = openLink();
       expect(link?.getAttribute("href")).toBe(PAGE_URL);
       expect(link?.getAttribute("target")).toBe("_blank");
       expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
       expect(byLabel("editor.toolbar.morePageActions")).toBeNull();
-    }
-
-    for (const width of [479, 400, 360]) {
-      await renderToolbar(width);
-      expect(openLink()).toBeNull();
-      const items = await openPageActions();
-      // The menu holds the one item: nothing from the app's page actions.
-      expect(items.map((item) => item.textContent)).toEqual([
-        "editor.toolbar.openInAgentNative",
-      ]);
-      expect(items[0].getAttribute("href")).toBe(PAGE_URL);
       expect(byLabel("editor.toolbar.share")).not.toBeNull();
-      await act(async () => {
-        document.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
-      });
     }
   });
 
@@ -317,26 +301,33 @@ describe("DocumentToolbar in an MCP App widget", () => {
     expect(trigger?.className).not.toContain("size-11");
   });
 
-  it("sizes every control in the bar for touch, and the bar stays 48px", async () => {
+  it("draws the app's bar with Share at the 32px the other apps' widgets use", async () => {
+    const measure = () => ({
+      bar: container.querySelector<HTMLElement>(
+        "[data-editor-selection-continuation]",
+      )?.className,
+      share: byLabel("editor.toolbar.share")?.parentElement?.className,
+      copy: byLabel("editor.toolbar.copyPageLink")?.className,
+    });
+
     await renderToolbar(1040);
-    const bar = container.querySelector<HTMLElement>(
-      "[data-editor-selection-continuation]",
-    );
-    expect(bar?.className).toContain("h-12");
+    const widget = measure();
+    expect(widget.bar).toContain("h-12");
+    // The joined control sizes its children, so the height is on the group.
+    expect(widget.share).toContain("[&>*]:h-8");
+    expect(widget.share).not.toContain("[&>*]:h-9");
+    expect(widget.share).not.toContain("[&>*]:h-11");
+    expect(openLink()?.className).toContain("size-9");
+    expect(openLink()?.className).not.toContain("size-11");
 
-    const group = byLabel("editor.toolbar.share")!.parentElement!;
-    expect(group.className).toContain("[&>*]:h-11");
-    expect(group.className).toContain("[&>*]:min-w-11");
-    expect(group.className).not.toContain("[&>*]:h-9");
-    expect(openLink()?.className).toContain("size-11");
-
-    await renderToolbar(360);
-    expect(byLabel("editor.toolbar.morePageActions")?.className).toContain(
-      "size-11",
-    );
-    expect(byLabel("editor.toolbar.morePageActions")?.className).not.toContain(
-      "h-9",
-    );
+    mocks.widget.inWidget = false;
+    mocks.widget.write = false;
+    await renderToolbar(1040, { readOnly: false });
+    const app = measure();
+    expect(app.share).toContain("[&>*]:h-9");
+    expect(app.share).not.toContain("[&>*]:h-8");
+    expect(app.bar).toEqual(widget.bar);
+    expect(app.copy).toEqual(widget.copy);
   });
 
   describe("the Open link", () => {
@@ -386,13 +377,11 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(open).not.toHaveBeenCalled();
     });
 
-    it("works from the page-actions menu", async () => {
+    it("works at a phone's width", async () => {
       mocks.openLink.mockReturnValue(Promise.resolve(true));
       await renderToolbar(360);
 
-      const [item] = await openPageActions();
-
-      expect(clickLink(item)).toBe(true);
+      expect(clickLink(openLink()!)).toBe(true);
       expect(mocks.openLink).toHaveBeenCalledExactlyOnceWith(PAGE_URL);
     });
   });
@@ -417,15 +406,11 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(byLabel("editor.toolbar.share")).toBeNull();
     });
 
-    it("holds the Open link in the menu of a narrow read-only widget", async () => {
+    it("keeps the Open link in a narrow read-only widget", async () => {
       mocks.widget.write = false;
       await renderToolbar(360, { canEdit: false });
 
-      const items = await openPageActions();
-
-      expect(items.map((item) => item.textContent)).toEqual([
-        "editor.toolbar.openInAgentNative",
-      ]);
+      expect(openLink()).not.toBeNull();
       expect(byLabel("editor.toolbar.share")).toBeNull();
     });
   });
@@ -510,7 +495,8 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(props.hideInSearchControl).toBeUndefined();
       expect(props.agentTabContent).toBeUndefined();
       expect(props.shareTabs).toBeUndefined();
-      expect(props.quickCopy.className).toContain("[&>*]:h-11");
+      // The popover's own trigger group matches the one drawn before it.
+      expect(props.quickCopy.className).toBe("[&>*]:h-8");
       expect(requests()).toEqual([]);
     });
 

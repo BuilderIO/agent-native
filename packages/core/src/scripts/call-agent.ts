@@ -21,6 +21,7 @@ import {
   resolveRemoteAgentToken,
 } from "../a2a/remote-agent-auth.js";
 import type {
+  A2AConnectionRequestMetadata,
   A2ACorrelationMetadata,
   A2AHandlerResult,
   A2ASourceContext,
@@ -139,10 +140,12 @@ function terminalTaskError(value: unknown): {
   taskId?: string;
   responseText?: string;
   errorCode?: string;
+  connectionProvider?: string;
 } | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.name !== "A2ATaskTerminalError") return null;
+  const connectionProvider = connectionRequestProvider(candidate.task);
   return {
     state: stringifyValue(candidate.state ?? "failed"),
     ...(typeof candidate.taskId === "string"
@@ -154,7 +157,104 @@ function terminalTaskError(value: unknown): {
     ...(typeof candidate.errorCode === "string"
       ? { errorCode: candidate.errorCode }
       : {}),
+    ...(connectionProvider ? { connectionProvider } : {}),
   };
+}
+
+// Only the typed code decides, so a peer whose answer merely mentions a
+// credential is never skipped. permanent_precondition and a typed LLM credential
+// failure (missing_credentials, or a provider rejection such as http_401,
+// http_403, invalid_api_key) block the peer for the rest of the turn. Budget and
+// timeout codes stay retryable, and so does a2a_auth_rejected: that is the
+// caller's own auth to the peer, not the peer's LLM credential. The text that
+// told the model not to retry is also what a retry is answered with, so each
+// cause stays named as what it is.
+function recordChildTaskFailure(
+  context: ActionRunContext | undefined,
+  targetHandle: string,
+  agentName: string,
+  terminal: { state: string; errorCode?: string },
+  detail: string,
+): { permanentText?: string; terminalCode: string } {
+  const cause =
+    terminal.errorCode === "permanent_precondition"
+      ? `The ${agentName} agent could not complete this delegated request because one of its actions hit a permanent precondition.`
+      : isLlmCredentialError(undefined, terminal.errorCode)
+        ? formatLlmCredentialErrorMessage({ agentName })
+        : undefined;
+  const permanentText = cause
+    ? `${cause} Do not call ${agentName} again this turn; continue with other sources.` +
+      (detail ? `\n\nRemote detail:\n${wrapDiagnosticSnippet(detail)}` : "")
+    : undefined;
+  if (permanentText) {
+    context?.blockedA2ATargets?.set(targetHandle, permanentText);
+  }
+  return {
+    permanentText,
+    terminalCode:
+      terminal.errorCode === "permanent_precondition"
+        ? "a2a_child_permanent_precondition"
+        : (terminal.errorCode ?? terminal.state),
+  };
+}
+
+const CONNECTION_REQUEST_REASONS = new Set<unknown>([
+  "connect",
+  "grant",
+  "reauthorize",
+  "admin_required",
+] satisfies A2AConnectionRequestMetadata["reason"][]);
+
+// Mirrors the validation in production-agent.ts parseA2AConnectionRequest; only
+// the provider is needed to word the result.
+function connectionRequestProvider(task: unknown): string | undefined {
+  const request = (task as Task | undefined)?.status?.message?.metadata
+    ?.agentNativeConnectionRequest as
+    | Partial<A2AConnectionRequestMetadata>
+    | undefined;
+  if (
+    !request ||
+    typeof request !== "object" ||
+    request.version !== 1 ||
+    !CONNECTION_REQUEST_REASONS.has(request.reason)
+  ) {
+    return;
+  }
+  const provider =
+    typeof request.provider === "string" ? request.provider.trim() : "";
+  return provider && provider.length <= 120 ? provider : undefined;
+}
+
+// A connection is made by the user in the peer app; the model can neither
+// supply it nor wait for it, so the peer is blocked for the rest of the turn.
+function inputRequiredOutcome(
+  context: ActionRunContext | undefined,
+  targetHandle: string,
+  agentName: string,
+  agentIdOrName: string,
+  terminal: {
+    taskId?: string;
+    responseText?: string;
+    errorCode?: string;
+    connectionProvider?: string;
+  },
+): { text: string; terminalCode: string } {
+  const provider = terminal.connectionProvider;
+  if (!provider) {
+    return {
+      text: formatInputRequiredWaitInstruction(
+        agentName,
+        terminal,
+        agentIdOrName,
+      ),
+      terminalCode: terminal.errorCode ?? "input_required",
+    };
+  }
+  const text =
+    `The ${agentName} agent needs ${provider} connected by the user in ${agentName}. ` +
+    `Do not retry or wait for it; continue without ${agentName} for this part, or tell the user to connect ${provider} in ${agentName}.`;
+  context?.blockedA2ATargets?.set(targetHandle, text);
+  return { text, terminalCode: "connection_required" };
 }
 
 class A2AInvocationError extends Error {
@@ -756,9 +856,7 @@ export async function run(
   const blockedReason = context?.blockedA2ATargets?.get(targetHandle);
   if (blockedReason !== undefined) {
     throw new A2AInvocationError(
-      `Not calling ${agent.name} again this turn: its earlier delegated call ` +
-        "hit a permanent precondition. Continue with other sources.\n\nRemote detail:\n" +
-        wrapDiagnosticSnippet(blockedReason),
+      `Not calling ${agent.name} again this turn.\n\n${blockedReason}`,
       { errorCode: "a2a_target_blocked_this_turn" },
     );
   }
@@ -1107,41 +1205,38 @@ export async function run(
           terminalStatus = "pending";
           const terminal = terminalTaskError(pollErr)!;
           invocationTaskId = terminal.taskId;
-          invocationTerminalCode = terminal.errorCode ?? "input_required";
-          responseText = formatInputRequiredWaitInstruction(
+          const inputRequired = inputRequiredOutcome(
+            context,
+            targetHandle,
             agent.name,
-            terminal,
             agentIdOrName,
+            terminal,
           );
+          invocationTerminalCode = inputRequired.terminalCode;
+          responseText = inputRequired.text;
         } else if (terminalTaskError(pollErr)) {
           terminalStatus = "error";
           const terminal = terminalTaskError(pollErr)!;
           invocationTaskId = terminal.taskId;
-          const childPermanentPrecondition =
-            terminal.errorCode === "permanent_precondition";
-          invocationTerminalCode = childPermanentPrecondition
-            ? "a2a_child_permanent_precondition"
-            : (terminal.errorCode ?? terminal.state);
           const detail = expandRelativeUrls(
             terminal.responseText ?? pollErr?.message ?? "unknown failure",
             agent.url,
           );
-          if (childPermanentPrecondition) {
-            context.blockedA2ATargets?.set(targetHandle, detail);
-            responseText =
-              `The ${agent.name} agent could not complete this delegated request because one of its actions hit a permanent precondition. ` +
-              `Do not call ${agent.name} again this turn; continue with other sources.` +
-              (detail
-                ? `\n\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
-                : "");
-          } else {
-            responseText =
-              `Error: The ${agent.name} agent ended ${terminal.state}` +
+          const childFailure = recordChildTaskFailure(
+            context,
+            targetHandle,
+            agent.name,
+            terminal,
+            detail,
+          );
+          invocationTerminalCode = childFailure.terminalCode;
+          responseText =
+            childFailure.permanentText ??
+            `Error: The ${agent.name} agent ended ${terminal.state}` +
               (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
               (detail
                 ? `\nRemote detail:\n${wrapDiagnosticSnippet(detail)}`
                 : "");
-          }
         } else {
           terminalStatus = "error";
           const authFailure = remoteAgentAuthFailure(
@@ -1274,46 +1369,61 @@ export async function run(
       });
     }
     const msg = err?.message ?? String(err);
+    const terminal = terminalTaskError(err);
+    // A waiting task has not failed, so its state decides before any check of
+    // its prose for a credential, as on the streaming path.
+    if (terminal?.state === "input-required") {
+      invocationStatus = "pending";
+      invocationTaskId = terminal.taskId;
+      const inputRequired = inputRequiredOutcome(
+        context,
+        targetHandle,
+        agent.name,
+        agentIdOrName,
+        terminal,
+      );
+      invocationTerminalCode = inputRequired.terminalCode;
+      return inputRequired.text;
+    }
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
       err,
     );
-    if (credentialMessage) return credentialMessage;
-    const terminal = terminalTaskError(err);
-    if (terminal?.state === "input-required") {
-      invocationStatus = "pending";
-      invocationTaskId = terminal.taskId;
-      invocationTerminalCode = terminal.errorCode ?? "input_required";
-      return formatInputRequiredWaitInstruction(
-        agent.name,
-        terminal,
-        agentIdOrName,
-      );
+    if (credentialMessage) {
+      // A typed credential failure returns here before the terminal branch
+      // below, so the peer must be blocked and the outcome typed on this path
+      // too.
+      if (terminal) {
+        invocationTaskId = terminal.taskId;
+        invocationTerminalCode = recordChildTaskFailure(
+          context,
+          targetHandle,
+          agent.name,
+          terminal,
+          terminal.responseText ?? "",
+        ).terminalCode;
+      }
+      return credentialMessage;
     }
     if (terminal) {
       invocationStatus = "error";
       invocationTaskId = terminal.taskId;
-      const childPermanentPrecondition =
-        terminal.errorCode === "permanent_precondition";
-      invocationTerminalCode = childPermanentPrecondition
-        ? "a2a_child_permanent_precondition"
-        : (terminal.errorCode ?? terminal.state);
+      const childFailure = recordChildTaskFailure(
+        context,
+        targetHandle,
+        agent.name,
+        terminal,
+        terminal.responseText ?? "",
+      );
+      invocationTerminalCode = childFailure.terminalCode;
       const detail = terminal.responseText
         ? `\nRemote detail:\n${wrapDiagnosticSnippet(terminal.responseText)}`
         : "";
-      if (childPermanentPrecondition) {
-        context?.blockedA2ATargets?.set(
-          targetHandle,
-          terminal.responseText ?? "",
-        );
-      }
       throw new A2AInvocationError(
-        childPermanentPrecondition
-          ? `The ${agent.name} agent could not complete this delegated request because one of its actions hit a permanent precondition. ` +
-              `Do not call ${agent.name} again this turn; continue with other sources.${detail}`
-          : `Error calling ${agent.name}: remote task ${terminal.state}` +
-              (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-              detail,
+        childFailure.permanentText ??
+          `Error calling ${agent.name}: remote task ${terminal.state}` +
+            (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+            detail,
         {
           taskId: terminal.taskId,
           errorCode: invocationTerminalCode,

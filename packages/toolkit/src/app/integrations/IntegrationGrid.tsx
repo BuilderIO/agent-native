@@ -72,7 +72,7 @@ export function IntegrationGrid({
                 {item.logo}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
                     {item.name}
                   </h3>
@@ -87,7 +87,7 @@ export function IntegrationGrid({
                   {item.status ? (
                     <span
                       className={cn(
-                        "shrink-0 text-[11px] font-medium text-muted-foreground",
+                        "min-w-0 truncate text-[11px] font-medium text-muted-foreground",
                         item.statusClassName,
                       )}
                     >

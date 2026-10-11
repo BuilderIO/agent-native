@@ -67,6 +67,7 @@ import type { EditorScreenRendering } from "./domains/use-editor-screen-renderin
 import type { EditorSelectionAndStyles } from "./domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "./domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "./domains/use-editor-tools-and-vectors";
+import { inspectorFitsViewport } from "./editor-chrome";
 import {
   LOCALHOST_COMPILED_SOURCE_EXTENSIONS,
   LOCALHOST_WRITE_EXTENSIONS,
@@ -167,6 +168,7 @@ export function renderDesignEditorView({
     embedded,
     isVisualEditSurface,
     widgetEmbed,
+    minimalUiLocked,
     hostOwnsChrome,
     hostEmbeddedEditor,
     mode,
@@ -428,6 +430,7 @@ export function renderDesignEditorView({
     canEditDesign,
     canCommentDesign,
     hasActiveFile: Boolean(activeFile),
+    scopedWidget: widgetEmbed,
   });
   const activeRuntimeSourceLocationSnapshotFailed =
     activeRuntimeProjectionEligible &&
@@ -856,7 +859,7 @@ export function renderDesignEditorView({
     widgetEmbed,
   });
 
-  const minimalUiToggle = (
+  const minimalUiToggle = minimalUiLocked ? null : (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
@@ -910,16 +913,21 @@ export function renderDesignEditorView({
       compact,
     });
 
-  const publishWaitlistControl = renderPublishWaitlistControl({
-    editorCore,
-    editorGenerationAndAccess,
-    editorActiveScreenAndGeometry,
-    editorCanvasAndScreens,
-    editorScreenInspector,
-    editorLayerActions,
-  });
+  // Preview opens a window outside the host and Publish joins a waitlist the
+  // widget's write ticket cannot write, so a widget has neither.
+  const publishWaitlistControl = widgetEmbed
+    ? null
+    : renderPublishWaitlistControl({
+        editorCore,
+        editorGenerationAndAccess,
+        editorActiveScreenAndGeometry,
+        editorCanvasAndScreens,
+        editorScreenInspector,
+        editorLayerActions,
+      });
 
-  // Non-widget minimal UI has no top bar, so its floating bar reuses these controls.
+  // The controls below live in two places: the top bar (docked editor) and
+  // the minimal-UI right bar (which has no top bar). Build each once.
   const presenceControl = hostEmbeddedEditor ? null : (
     <PresenceBar
       activeUsers={mergePresenceUsers(
@@ -1108,11 +1116,8 @@ export function renderDesignEditorView({
     isVisualEditSurface,
     minimalUi,
     uiHidden,
-    widgetEmbed,
   });
   const topBarControlsVisible = !initialGenerationChromeLimited;
-  const topBarZoomControlVisible =
-    topBarControlsVisible && !responsiveInteractActive;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
   const topBarShowsModes =
@@ -1125,9 +1130,7 @@ export function renderDesignEditorView({
     }
     handleModeChange(next);
   };
-  const topBarActions = widgetEmbed ? (
-    renderShareControl(true)
-  ) : (
+  const topBarActions = (
     <>
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
@@ -1157,11 +1160,12 @@ export function renderDesignEditorView({
     selectedLayerIds,
     selectedScreenGeometry,
   });
-  // Below md the inspector panel is display:none and the Sheet below carries
-  // it, so the panel must neither inset the canvas nor displace the toolbar.
+  // Below md the docked inspector panel is display:none and the Sheet below
+  // carries it, so the panel must neither inset the canvas nor displace the
+  // toolbar. Minimal UI floats the panel at every width instead.
   const rightSidebarVisible =
     !hostOwnsChrome &&
-    !isMobileViewport &&
+    inspectorFitsViewport({ minimalUi, isMobileViewport }) &&
     !uiHidden &&
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
@@ -1390,22 +1394,18 @@ export function renderDesignEditorView({
             mode={mode}
             onModeChange={handleTopBarModeChange}
             modes={topBarShowsModes ? undefined : []}
-            center={widgetEmbed && minimalUi ? projectTitleControl : undefined}
-            widgetLayout={widgetEmbed}
             zoomControl={
-              topBarZoomControlVisible ? renderZoomControl("topbar") : null
+              topBarControlsVisible && !responsiveInteractActive
+                ? renderZoomControl("topbar")
+                : null
             }
-            presence={
-              topBarControlsVisible && !widgetEmbed ? presenceControl : null
-            }
+            presence={topBarControlsVisible ? presenceControl : null}
             actions={topBarControlsVisible ? topBarActions : null}
             leftInset={chromeInsetLeft}
             narrowLeftInset={
               leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
             }
-            inspectorWidth={
-              rightSidebarVisible && !minimalUi ? rightSidebarWidth : undefined
-            }
+            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
           />
         ) : null}
         {renderLeftSidebar({
@@ -1487,6 +1487,7 @@ export function renderDesignEditorView({
               onScale={handleScaleTool}
               onMediaFiles={handleDesignMediaFiles}
               onCommentPin={handlePinToolToggle}
+              canComment={canCommentDesign}
               onModeChange={handleModeChange}
               showModeTabs={!topBarVisible}
             />
@@ -1563,11 +1564,9 @@ export function renderDesignEditorView({
           editorModes,
           projectTitleControl,
           minimalUiToggle,
-          renderZoomControl,
           localPreviewRow,
           rightSidebarActions,
           topBarVisible,
-          topBarZoomVisible: topBarZoomControlVisible,
           renderResponsiveInteractBar,
           rightSidebarVisible,
           editPanelProps,
@@ -1580,7 +1579,6 @@ export function renderDesignEditorView({
         editorHistory,
         editorLiveEditsAndPresence,
         editorContentAndComponents,
-        minimalInspectorHasSelection,
         editPanelProps,
       })}
 

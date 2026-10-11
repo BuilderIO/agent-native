@@ -6,6 +6,7 @@ import {
   buildMarkdownResponseHeaders,
   buildRobotsTxt,
   buildPageJsonLd,
+  buildSitemapIndexXml,
   buildSitemapXml,
   estimateMarkdownTokens,
   markdownFilePathForPage,
@@ -48,6 +49,119 @@ describe("agent web generators", () => {
     expect(sitemap).toContain("<loc>https://www.agent-native.com/docs</loc>");
     expect(sitemap).toContain("<lastmod>2026-05-14</lastmod>");
   });
+
+  it("keeps a single urlset sitemap.xml without sitemapGroup", () => {
+    const pages = [
+      { path: "/", title: "Home", lastmod: "2026-05-01" },
+      { path: "/es-es/docs/", title: "Docs", lastmod: "2026-05-02" },
+    ];
+    const files = buildAgentWebStaticFiles({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com",
+      config,
+      pages,
+    });
+
+    expect(files.map((file) => file.path)).toEqual([
+      "robots.txt",
+      "sitemap.xml",
+      "llms.txt",
+      "llms-full.txt",
+    ]);
+    expect(files.find((file) => file.path === "sitemap.xml")?.content).toBe(
+      buildSitemapXml(pages, "https://www.agent-native.com"),
+    );
+  });
+
+  it("splits sitemap.xml into an index and one urlset per sitemapGroup", () => {
+    const pages = [
+      { path: "/", title: "Home", lastmod: "2026-05-01" },
+      { path: "/docs/", title: "Docs", lastmod: "2026-05-03T09:00:00Z" },
+      { path: "/es-es/docs/", title: "Docs ES", lastmod: "2026-04-20" },
+      { path: "/de-de/docs/", title: "Docs DE" },
+    ];
+    const files = buildAgentWebStaticFiles({
+      siteName: "Agent-Native",
+      siteUrl: "https://www.agent-native.com/",
+      config,
+      pages,
+      sitemapGroup: (page) =>
+        page.path.split("/")[1]?.match(/^[a-z]{2}-[a-z]{2}$/)?.[0] ?? "EN-US",
+    });
+    const byPath = new Map(files.map((file) => [file.path, file.content]));
+
+    expect(files.map((file) => file.path)).toEqual([
+      "robots.txt",
+      "sitemap.xml",
+      "sitemap-en-us.xml",
+      "sitemap-de-de.xml",
+      "sitemap-es-es.xml",
+      "llms.txt",
+      "llms-full.txt",
+    ]);
+    expect(byPath.get("sitemap.xml"))
+      .toBe(`<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://www.agent-native.com/sitemap-en-us.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.agent-native.com/sitemap-de-de.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://www.agent-native.com/sitemap-es-es.xml</loc>
+  </sitemap>
+</sitemapindex>
+`);
+    expect(byPath.get("sitemap-en-us.xml")).toBe(
+      buildSitemapXml(pages.slice(0, 2), "https://www.agent-native.com/"),
+    );
+    expect(byPath.get("sitemap-es-es.xml")).toBe(
+      buildSitemapXml([pages[2]!], "https://www.agent-native.com/"),
+    );
+    expect(byPath.get("sitemap-de-de.xml")).toBe(
+      buildSitemapXml([pages[3]!], "https://www.agent-native.com/"),
+    );
+  });
+
+  it("builds a sitemap index with escaped absolute locations", () => {
+    expect(
+      buildSitemapIndexXml(
+        [
+          { path: "/sitemap-a&b.xml", lastmod: "2026-01-02" },
+          { path: "/sitemap-c.xml" },
+        ],
+        "https://example.com/",
+      ),
+    ).toBe(`<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://example.com/sitemap-a&amp;b.xml</loc>
+    <lastmod>2026-01-02</lastmod>
+  </sitemap>
+  <sitemap>
+    <loc>https://example.com/sitemap-c.xml</loc>
+  </sitemap>
+</sitemapindex>
+`);
+  });
+
+  it.each(["", "../en-us", "en/us", "en_us", "-en", "en.xml"])(
+    "throws when sitemapGroup returns the unsafe key %j",
+    (key) => {
+      expect(() =>
+        buildAgentWebStaticFiles({
+          siteName: "Agent-Native",
+          siteUrl: "https://www.agent-native.com",
+          config,
+          pages: [{ path: "/docs/", title: "Docs" }],
+          sitemapGroup: () => key,
+        }),
+      ).toThrow(
+        `sitemapGroup returned ${JSON.stringify(key)} for /docs/; sitemap group keys must match`,
+      );
+    },
+  );
 
   it("builds llms files and Markdown mirrors from one page list", () => {
     const files = buildAgentWebStaticFiles({

@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -1782,6 +1783,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "session-recordings-client-started-at-index",
       run: repairAnalyticsReplayLinkIndexes,
       sql: { postgres: "SELECT 1" },
+    },
+    {
+      version: 165,
+      name: "dashboard-github-sync-state",
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS github_sync_state TEXT`,
+    },
+    {
+      version: 166,
+      name: "dashboard-folder-github-sync",
+      sql: `ALTER TABLE dashboard_folders ADD COLUMN IF NOT EXISTS github_sync TEXT`,
+    },
+    {
+      version: 167,
+      name: "source-index-runs-table",
+      sql: SOURCE_INDEX_RUNS_MIGRATION_SQL.join(";\n"),
     },
   ],
   { table: "analytics_migrations" },

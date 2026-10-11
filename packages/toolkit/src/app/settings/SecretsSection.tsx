@@ -47,8 +47,18 @@ const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
 const OUTLINE_LINK_CLASSNAME =
   "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
-const ENDPOINT = agentNativePath("/_agent-native/secrets");
 const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
+
+function secretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets");
+}
+
+function fetchResolvedPath(
+  resolvePath: () => string,
+  init?: RequestInit,
+): Promise<Response> {
+  return Promise.resolve().then(() => fetch(resolvePath(), init));
+}
 
 function hasValueInEffect(secret: SecretStatus): boolean {
   return secret.status === "set" || secret.status === "invalid";
@@ -375,11 +385,14 @@ function SecretCard({
     if (!value.trim() || busy) return;
     setBusy("save");
     try {
-      const res = await fetch(`${ENDPOINT}/${encodeURIComponent(secret.key)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: value.trim() }),
-      });
+      const res = await fetchResolvedPath(
+        () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: value.trim() }),
+        },
+      );
       if (!res.ok) {
         const err = await res
           .json()
@@ -394,6 +407,8 @@ function SecretCard({
       setToastAndClear("ok", "Saved");
       notifySecretsChanged();
       onChanged();
+    } catch {
+      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
       setBusy(null);
     }
@@ -403,10 +418,13 @@ function SecretCard({
     if (busy) return;
     setBusy("delete");
     try {
-      const res = await fetch(`${ENDPOINT}/${encodeURIComponent(secret.key)}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetchResolvedPath(
+        () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
       if (!res.ok) {
         const err = await res
           .json()
@@ -419,6 +437,8 @@ function SecretCard({
       setConfirmDelete(false);
       notifySecretsChanged();
       onChanged();
+    } catch {
+      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
       setBusy(null);
     }
@@ -429,8 +449,8 @@ function SecretCard({
     const isCandidate = candidateValue !== undefined;
     setBusy(isCandidate ? "test-candidate" : "test");
     try {
-      const res = await fetch(
-        `${ENDPOINT}/${encodeURIComponent(secret.key)}/test`,
+      const res = await fetchResolvedPath(
+        () => `${secretsEndpoint()}/${encodeURIComponent(secret.key)}/test`,
         {
           method: "POST",
           ...(isCandidate
@@ -461,6 +481,8 @@ function SecretCard({
               : t("secrets.testFailed")),
         );
       }
+    } catch {
+      setToastAndClear("err", t("agentChat.common.chunkLoadFailed"));
     } finally {
       setBusy(null);
     }
@@ -840,7 +862,9 @@ interface AdHocKey {
   managedBy?: { id: string; owner: string; route: string };
 }
 
-const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
+function adHocSecretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets/adhoc");
+}
 
 /** One name can be listed once per scope, so rows are told apart by both. */
 function adHocKeyId(key: AdHocKey): string {
@@ -863,6 +887,7 @@ function AdHocKeysSection({
   const t = useT();
   const [keys, setKeys] = useState<AdHocKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [formName, setFormName] = useState("");
   const [formValue, setFormValue] = useState("");
@@ -905,7 +930,8 @@ function AdHocKeysSection({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(ADHOC_ENDPOINT)
+    setLoadFailed(false);
+    void fetchResolvedPath(adHocSecretsEndpoint)
       .then(async (r) => {
         if (!r.ok) throw new Error(`Failed to load (${r.status})`);
         return (await r.json()) as AdHocKey[];
@@ -914,12 +940,13 @@ function AdHocKeysSection({
         if (!cancelled) {
           setKeys(data);
           setLoading(false);
+          setLoadFailed(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setKeys([]);
           setLoading(false);
+          setLoadFailed(true);
         }
       });
     return () => {
@@ -943,7 +970,7 @@ function AdHocKeysSection({
     setFormBusy(true);
     setFormError(null);
     try {
-      const res = await fetch(ADHOC_ENDPOINT, {
+      const res = await fetchResolvedPath(adHocSecretsEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -965,8 +992,8 @@ function AdHocKeysSection({
       showToast("ok", "Key saved");
       notifySecretsChanged();
       reload();
-    } catch (err: any) {
-      setFormError(err?.message ?? "Failed to save");
+    } catch {
+      setFormError(t("agentChat.common.chunkLoadFailed"));
     } finally {
       setFormBusy(false);
     }
@@ -976,6 +1003,7 @@ function AdHocKeysSection({
     formDescription,
     formScope,
     formBusy,
+    t,
     resetForm,
     showToast,
     reload,
@@ -985,8 +1013,9 @@ function AdHocKeysSection({
     async (key: AdHocKey) => {
       setDeletingId(adHocKeyId(key));
       try {
-        const res = await fetch(
-          `${ADHOC_ENDPOINT}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
+        const res = await fetchResolvedPath(
+          () =>
+            `${adHocSecretsEndpoint()}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
           {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
@@ -1010,11 +1039,13 @@ function AdHocKeysSection({
         setConfirmDeleteId(null);
         notifySecretsChanged();
         reload();
+      } catch {
+        showToast("err", t("agentChat.common.chunkLoadFailed"));
       } finally {
         setDeletingId(null);
       }
     },
-    [showToast, reload],
+    [showToast, reload, t],
   );
 
   return (
@@ -1093,15 +1124,41 @@ function AdHocKeysSection({
               )}
             </Button>
           </div>
-          {formError && <p className="text-[10px] text-red-500">{formError}</p>}
+          {formError && (
+            <p className="text-[10px] text-destructive" role="alert">
+              {formError}
+            </p>
+          )}
         </div>
       )}
 
-      {loading ? (
-        <SettingsSkeleton lines={2} />
-      ) : keys.length === 0 && !showForm && showEmptyState ? (
-        <p className="text-[10px] text-muted-foreground">No keys added yet.</p>
-      ) : keys.length > 0 ? (
+      {loading && keys.length === 0 && <SettingsSkeleton lines={2} />}
+      {loadFailed && (
+        <div
+          className="flex items-center gap-2 text-xs text-destructive"
+          role="alert"
+        >
+          <span>{t("agentChat.common.chunkLoadFailed")}</span>
+          <Button
+            type="button"
+            intent="neutral"
+            emphasis="outline"
+            onClick={reload}
+          >
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
+      )}
+      {!loading &&
+        !loadFailed &&
+        keys.length === 0 &&
+        !showForm &&
+        showEmptyState && (
+          <p className="text-[10px] text-muted-foreground">
+            No keys added yet.
+          </p>
+        )}
+      {keys.length > 0 && (
         <div className="overflow-hidden rounded-md border border-border">
           {keys.map((key) => (
             <div
@@ -1227,11 +1284,12 @@ function AdHocKeysSection({
             </div>
           ))}
         </div>
-      ) : null}
+      )}
 
       {toast && (
         <p
           className={`text-[10px] ${toast.kind === "ok" ? "text-green-500" : "text-red-500"}`}
+          role={toast.kind === "err" ? "alert" : undefined}
         >
           {toast.text}
         </p>

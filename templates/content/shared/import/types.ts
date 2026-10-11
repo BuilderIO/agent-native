@@ -7,6 +7,9 @@ import type { PMDoc } from "../nfm";
  */
 export type ImportNoteSeverity = "converted" | "kept" | "lost";
 
+/** History `operation` for the groups an import writes. */
+export const IMPORT_CONTENT_OPERATION = "import-content";
+
 export const IMPORT_NOTE_SEVERITY = {
   "footnotes-moved-to-end": "converted",
   "github-alert-to-callout": "converted",

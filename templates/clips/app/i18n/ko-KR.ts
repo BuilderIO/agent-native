@@ -1,5 +1,65 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  lookbackContext: {
+    includeLast: "마지막 구간 포함",
+    whatIsThis: "이것은 무엇입니까?",
+    off: "끔",
+    custom: "사용자 지정…",
+    customLabel: "사용자 지정 길이",
+    customAmount: "길이",
+    customUnit: "단위",
+    unitSeconds: "초",
+    unitMinutes: "분",
+    customSave: "길이 사용",
+    customErrorEmpty: "길이를 입력하세요.",
+    customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
+    customErrorTooLong: "5분 이하로 입력하세요.",
+    turnOnRewind: "Rewind 켜기",
+    rewindOffTitle: "Rewind 켜기",
+    rewindOffBody:
+      "Rewind는 화면의 로컬 기록을 보관하므로 녹화 전 마지막 몇 분을 포함할 수 있습니다. 영상은 포함하거나 승인한 경우에만 업로드됩니다.",
+    requestFailed:
+      "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
+    localOnlyUnavailable:
+      "로컬 전용 녹화에는 이전 화면 시간이 저장되지 않습니다.",
+    saving: "녹화 전 {{window}} 저장 중…",
+    ready: "녹화 전 {{window}} 포함",
+    failed: "이전 화면 시간을 저장할 수 없습니다",
+    unreadable: "이전 화면 시간을 확인할 수 없습니다",
+    edit: "편집",
+    editTitle: "이전 화면 시간",
+    editSave: "저장",
+    editFailed: "구간을 저장할 수 없습니다. 다시 시도하세요.",
+    previewPreparing: "미리 보기 준비 중…",
+    previewFailed: "미리 보기를 준비할 수 없습니다.",
+    previewLabel: "이전 화면 시간 미리 보기",
+    retry: "다시 시도",
+    playSelection: "선택 영역 재생",
+    removeFailed: "삭제한 녹화의 이전 화면 시간을 제거할 수 없습니다.",
+    removeFailedAction: "이전 화면 시간을 제거할 수 없습니다. 다시 시도하세요.",
+    removeAction: "이전 화면 시간 제거",
+    removeConfirmTitle: "이전 화면 시간을 제거할까요?",
+    removeConfirmBody:
+      "영상은 휴지통으로 이동되며 이 클립에는 더 이상 포함되지 않습니다.",
+    removeConfirm: "제거",
+    removed: "이전 화면 시간을 제거했습니다",
+    scrubberFromBefore: "{{offset}} 전부터",
+    scrubberFromStart: "녹화 시작부터",
+    scrubberToBefore: "{{offset}} 전까지",
+    scrubberToStart: "녹화 시작까지",
+    scrubberLength: "길이",
+    scrubberStartHandle: "구간 시작",
+    scrubberEndHandle: "구간 끝",
+    tab: "컨텍스트",
+    label: "녹화 전 화면",
+    window: "녹화 전 {{start}}–{{end}}",
+    savingEarlierTime: "이전 화면 시간 저장 중…",
+    loadFailed: "이전 화면 시간을 불러올 수 없습니다.",
+    empty: "이 클립에 첨부된 이전 화면 시간이 없습니다.",
+    larger: "확대",
+    editHint: "Clips Desktop에서 구간을 편집하세요.",
+    waitingOtherDevice: "이 클립을 녹화한 기기 대기 중",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Builder.io 사용",
@@ -754,6 +814,8 @@ const messages = {
     switchToNightly: "Nightly 빌드로 전환",
     switchToStable: "안정 버전 빌드로 전환",
     retry: "다시 시도",
+    mountError:
+      "Clips가 이 워크스페이스에서 경로를 찾지 못했습니다. 워크스페이스 관리자에게 앱 마운트 구성을 확인해 달라고 요청하세요.",
     heroDescription:
       "화면, 카메라, 화면 + 카메라용 메뉴 막대 레코더입니다. 원클릭 시작, 드래그 가능한 카메라 버블, 중지 시 즉시 공유 링크.",
     versionReleased: "버전 {{version}} — {{date}} 출시",
@@ -815,6 +877,9 @@ const messages = {
     labWisprFlow: "음성 받아쓰기",
     labWisprFlowDescription:
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
+    labLookbackContext: "이전 화면 시간 포함",
+    labLookbackContextDescription:
+      "녹화 시작 전 최대 5분의 화면 시간을 자동으로 수집되는 참고 정보로 첨부합니다.",
     uploadWorkspaceTitle: "활성 워크스페이스",
     uploadWorkspaceDescription:
       "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",
@@ -2152,21 +2217,6 @@ const messages = {
     guideStartTitle: "Click Start notes (현지화됨)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
-  },
-  rewindExtension: {
-    title: "이전에 있었던 내용 추가",
-    description:
-      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
-    progressLabel: "Rewind 기록 처리 진행률",
-    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
-    privateFirstDescription:
-      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
-    makePrivateContinue: "비공개로 설정하고 계속",
-    add30Seconds: "이전 30초 추가",
-    add5Minutes: "이전 5분 추가",
-    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
-    privateReady:
-      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
   },
   browserDiagnostics: {
     debug: "디버그",

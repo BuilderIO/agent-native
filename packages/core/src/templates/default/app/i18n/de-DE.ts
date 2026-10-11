@@ -669,6 +669,8 @@ const messages = {
       "Optionaler Text, nach dem in der Antwort gesucht wird…",
     promoteMustContainLabel:
       "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+    promoteReviewedPromptLabel:
+      "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
     promoteNeedsContains:
       "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, den die Antwort enthalten muss, bevor du sie in eine Eval überführst.",
     spans: "Spans",

@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import createSuggestion from "@agent-native/core/review/suggestions/actions/create-resource-suggestion";
-import { and, eq } from "drizzle-orm";
+import listSuggestions from "@agent-native/core/review/suggestions/actions/list-resource-suggestions";
+import { and, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 
 import { markdownSuggestionOperation } from "../app/components/editor/suggestions/markdown-operation.js";
-import { schema } from "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
 import {
   CommentAiOperationError,
   commentThreadDigest,
@@ -24,7 +25,14 @@ import { addCommentWithGuard, commentIdForIdempotency } from "./add-comment.js";
 
 const payloadSchema = z.object({
   attemptId: z.string().min(1),
-  summary: z.string().trim().min(1).max(500),
+  summary: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .describe(
+      "One or two sentences to the commenter about this change, including anything they should check; shown on the suggestion in their comment thread",
+    ),
   find: z
     .string()
     .min(1)
@@ -35,6 +43,45 @@ const payloadSchema = z.object({
     .max(24000)
     .describe("Proposed replacement; canonical text remains unchanged"),
 });
+
+/**
+ * Earlier pending proposals the requester got in this thread are replaced by
+ * a revision instead of stacking up. Only requests made before this one count,
+ * so a retry builds the same list and its creation receipt still matches.
+ */
+async function supersededSuggestionIds(
+  request: Awaited<ReturnType<typeof requireCommentAiRequest>>,
+  ctx: Parameters<typeof listSuggestions.run>[1],
+) {
+  const earlier = await getDb()
+    .select({ id: schema.commentAiRequests.id })
+    .from(schema.commentAiRequests)
+    .where(
+      and(
+        eq(schema.commentAiRequests.documentId, request.documentId),
+        eq(schema.commentAiRequests.threadId, request.threadId),
+        eq(schema.commentAiRequests.requesterEmail, request.requesterEmail),
+        lt(schema.commentAiRequests.createdAt, request.createdAt),
+      ),
+    );
+  if (!earlier.length) return [];
+  const earlierIds = new Set(earlier.map((row) => row.id));
+  const { suggestions } = await listSuggestions.run(
+    { resourceType: "document", resourceId: request.documentId },
+    ctx,
+  );
+  return suggestions
+    .filter(
+      (suggestion) =>
+        suggestion.adapterKind === CONTENT_DOCUMENT_SUGGESTION_ADAPTER &&
+        suggestion.authorEmail === request.requesterEmail &&
+        suggestion.metadata?.sourceThreadId === request.threadId &&
+        earlierIds.has(String(suggestion.metadata?.commentAiRequestId)),
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(-20)
+    .map((suggestion) => suggestion.id);
+}
 
 function suggestionResult(request: CommentAiRequest) {
   if (!request.result?.suggestionId) {
@@ -65,7 +112,7 @@ function targetError(kind: "missing" | "ambiguous" | "overlapping") {
 
 export default defineAction({
   description:
-    "Create one anchored suggestion against the latest Page text and link it to the original feedback. Pass the latest attemptId from get-comment-ai-context. Unrelated edits are tolerated when the exact target remains unique; missing or repeated targets become typed review conflicts.",
+    "Create one anchored suggestion against the latest Page text and link it to the original feedback. Pass the latest attemptId from get-comment-ai-context. Unrelated edits are tolerated when the exact target remains unique; missing or repeated targets become typed review conflicts. A new suggestion on the same comment replaces the requester's earlier pending one, so never ask them to reject it.",
   schema: payloadSchema,
   run: async (args, ctx) => {
     const request = await requireCommentAiRequest("suggest");
@@ -93,8 +140,10 @@ export default defineAction({
           false,
         );
       }
+      const supersedes = await supersededSuggestionIds(request, ctx);
       const suggestion = await createSuggestion.run(
         {
+          ...(supersedes.length ? { supersedes } : {}),
           resourceType: "document",
           resourceId: request.documentId,
           adapterKind: CONTENT_DOCUMENT_SUGGESTION_ADAPTER,

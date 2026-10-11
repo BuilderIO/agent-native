@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 
 import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
 import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
@@ -17,6 +17,18 @@ export {
   hasSessionHint,
   isSessionNavigationPending,
 } from "../shared/ssr-session-bootstrap.js";
+
+/**
+ * True while the app tree is mounted hidden ahead of the session read (a hinted
+ * load). Identity-scoped onboarding reads and their events hold until it clears,
+ * so they never record under the anonymous fallback identity. Other effects in
+ * the tree run during the preload; each one must be safe before the session.
+ */
+export const SessionPreloadContext = createContext(false);
+
+export function useSessionPreloading(): boolean {
+  return useContext(SessionPreloadContext);
+}
 
 /**
  * What the session endpoint said that the page acted on: a signed-out body,
@@ -235,27 +247,27 @@ function resetSessionCache(): void {
   staleSessionRecheck = undefined;
 }
 
-function notifySessionSubscribers(): void {
+function notifySessionSubscribers(): Promise<void> {
   if (snapshotListeners.size === 0) {
     // Nobody is showing the last answer, so it is not kept as a hint either.
     resolveGeneration += 1;
     activeResolveGeneration = 0;
     if (snapshot.status !== "signing-out") snapshot = LOADING_SNAPSHOT;
-    return;
+    return Promise.resolve();
   }
-  void resolveSession();
+  return resolveSession();
 }
 
-function invalidateSessionCache(): void {
+function invalidateSessionCache(): Promise<void> {
   resetSessionCache();
   invalidateClientStatusRequest(SESSION_STATUS_PATH);
-  notifySessionSubscribers();
+  return notifySessionSubscribers();
 }
 
 function rereadSession(): void {
   resetSessionCache();
   expireClientStatusResult(SESSION_STATUS_PATH);
-  notifySessionSubscribers();
+  void notifySessionSubscribers();
 }
 
 /**
@@ -303,8 +315,8 @@ function installSessionInvalidationListeners(): void {
   window.addEventListener("focus", revalidateStaleSession);
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
-      invalidateSessionCache();
-      setTimeout(invalidateSessionCache, SESSION_CACHE_TTL_MS);
+      void invalidateSessionCache();
+      setTimeout(() => void invalidateSessionCache(), SESSION_CACHE_TTL_MS);
     }
   });
   document.addEventListener("visibilitychange", () => {
@@ -314,10 +326,14 @@ function installSessionInvalidationListeners(): void {
   });
 }
 
-export function notifySessionInvalidated(): void {
-  if (typeof window === "undefined") return;
+/**
+ * Resolves once the session is re-read, so the new identity is in place before
+ * callers refetch anything that is scoped by it.
+ */
+export function notifySessionInvalidated(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
   installSessionInvalidationListeners();
-  invalidateSessionCache();
+  const reread = invalidateSessionCache();
   try {
     window.localStorage.setItem(
       SESSION_INVALIDATION_STORAGE_KEY,
@@ -326,6 +342,7 @@ export function notifySessionInvalidated(): void {
   } catch (error) {
     console.warn("Unable to broadcast session invalidation", error);
   }
+  return reread;
 }
 
 export function isSigningOut(): boolean {
@@ -371,7 +388,7 @@ export function recheckSessionAfterUnauthorized(): void {
   }
   lastUnauthorizedRecheckAt = now;
   installSessionInvalidationListeners();
-  invalidateSessionCache();
+  void invalidateSessionCache();
 }
 
 export function beginSignOut(): void {
@@ -379,12 +396,12 @@ export function beginSignOut(): void {
   publishSessionIdentity(null);
   snapshot = { session: null, status: "signing-out", error: null };
   for (const listener of snapshotListeners) listener();
-  invalidateSessionCache();
+  void invalidateSessionCache();
 }
 
 export function completeSignOut(): void {
   notifyParentAuthState("unauthenticated");
-  notifySessionInvalidated();
+  void notifySessionInvalidated();
 }
 
 function fetchSharedSession(): Promise<SessionRead> {

@@ -112,7 +112,7 @@ describe("slide navigation", () => {
     expect(landed.buildStep).toBe(0);
   });
 
-  it("never spends a prev press on build steps and lands backward fully built", () => {
+  it("lands backward fully built when a prev press leaves an unbuilt slide", () => {
     const l = layout(["none", "dissolve"], [2, 3]);
 
     const onFirstSlide = command(createSlideNavigation(0), l, "prev");

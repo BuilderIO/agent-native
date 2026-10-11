@@ -819,9 +819,11 @@ export default defineAction({
     const localFilesState = await readAppState("local-files");
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
+    const importState = await readAppStateForCurrentTab("content-import");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (importState) screen.contentImport = importState;
     if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 

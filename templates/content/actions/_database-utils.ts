@@ -18,6 +18,7 @@ import {
   eq,
   exists,
   inArray,
+  isNotNull,
   isNull,
   or,
   sql,
@@ -1414,31 +1415,27 @@ export async function getContentDatabaseResponse(
 
 export async function isSoftDeletedDatabaseDocument(documentId: string) {
   const db = getDb();
-  const [ownedDatabase] = await db
+  const [deletedDatabase] = await db
     .select({ id: schema.contentDatabases.id })
     .from(schema.contentDatabases)
-    .where(
+    .leftJoin(
+      schema.contentDatabaseItems,
       and(
-        eq(schema.contentDatabases.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+        eq(schema.contentDatabaseItems.databaseId, schema.contentDatabases.id),
+        eq(schema.contentDatabaseItems.documentId, documentId),
       ),
-    );
-  if (ownedDatabase) return true;
-
-  const [databaseItem] = await db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
     )
     .where(
       and(
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        sql`${schema.contentDatabases.deletedAt} IS NOT NULL`,
+        isNotNull(schema.contentDatabases.deletedAt),
+        or(
+          eq(schema.contentDatabases.documentId, documentId),
+          isNotNull(schema.contentDatabaseItems.id),
+        ),
       ),
-    );
-  return !!databaseItem;
+    )
+    .limit(1);
+  return !!deletedDatabase;
 }
 
 export async function getDatabaseByDocumentId(
@@ -1486,7 +1483,23 @@ export function listDatabaseItemsByDocumentId(
       item: schema.contentDatabaseItems,
       database: schema.contentDatabases,
       sourceId: schema.contentDatabaseSourceRows.sourceId,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+      sourceDocumentId: schema.contentDatabaseSourceRows.documentId,
+      sourceType: schema.contentDatabaseSources.sourceType,
       bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
+      queueSourceId: schema.contentDatabaseBodyHydrationQueue.sourceId,
+      queueSourceRowId: schema.contentDatabaseBodyHydrationQueue.sourceRowId,
+      bodyHydrationQueueExists: exists(
+        db
+          .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(
+            eq(
+              schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+              schema.contentDatabaseItems.id,
+            ),
+          ),
+      ),
     })
     .from(schema.contentDatabaseItems)
     .innerJoin(
@@ -1498,6 +1511,13 @@ export function listDatabaseItemsByDocumentId(
       eq(
         schema.contentDatabaseSourceRows.databaseItemId,
         schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
       ),
     )
     .leftJoin(
@@ -1536,60 +1556,20 @@ export function listDatabaseItemsByDocumentId(
     );
 }
 
-export async function getBuilderBodyHydrationMembershipByDocumentId(
+export function getBuilderBodyHydrationMembershipFromDatabaseItems(
   documentId: string,
-  db = getDb(),
+  rows: Awaited<ReturnType<typeof listDatabaseItemsByDocumentId>>,
 ) {
-  const rows = await db
-    .select({
-      item: schema.contentDatabaseItems,
-      database: schema.contentDatabases,
-      sourceId: schema.contentDatabaseSourceRows.sourceId,
-      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
-      bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
-      queueSourceId: schema.contentDatabaseBodyHydrationQueue.sourceId,
-      queueSourceRowId: schema.contentDatabaseBodyHydrationQueue.sourceRowId,
-    })
-    .from(schema.contentDatabaseSourceRows)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(
-        schema.contentDatabaseSources.id,
-        schema.contentDatabaseSourceRows.sourceId,
-      ),
-    )
-    .innerJoin(
-      schema.contentDatabaseItems,
-      eq(
-        schema.contentDatabaseItems.id,
-        schema.contentDatabaseSourceRows.databaseItemId,
-      ),
-    )
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-    )
-    .leftJoin(
-      schema.contentDatabaseBodyHydrationQueue,
-      eq(
-        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        schema.contentDatabaseItems.id,
-      ),
-    )
-    .where(
-      and(
-        eq(schema.contentDatabaseSourceRows.documentId, documentId),
-        eq(schema.contentDatabaseItems.documentId, documentId),
-        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
-        isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
-
   const boundRows = rows.filter(
     (row) =>
-      !row.bodyHydrationQueueId ||
-      (row.queueSourceId === row.sourceId &&
-        row.queueSourceRowId === row.sourceRowId),
+      row.sourceType === "builder-cms" &&
+      row.sourceDocumentId === documentId &&
+      row.sourceId !== null &&
+      row.sourceRowId !== null &&
+      (!row.bodyHydrationQueueExists ||
+        (row.bodyHydrationQueueId !== null &&
+          row.queueSourceId === row.sourceId &&
+          row.queueSourceRowId === row.sourceRowId)),
   );
   if (boundRows.length === 0) return null;
 

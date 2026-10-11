@@ -429,6 +429,9 @@ describe("engineMessagesToAnthropic", () => {
 
     const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
     const replay = anthropic[2].content as any[];
+    const backfilled = backfillEngineMessagesToolResults(messages);
+
+    expect(backfilled[2]?.content[0]).toMatchObject({ isError: true });
 
     expect(replay[0]).toMatchObject({
       type: "tool_result",

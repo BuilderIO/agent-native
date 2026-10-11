@@ -447,7 +447,7 @@ describe("bounded .fig decoding", () => {
     expect(decoded.document).toBeNull();
   });
 
-  it("accepts current Figma schemas whose NodeChange message has 2000 fields", () => {
+  it("accepts a generated NodeChange schema with 2000 fields", () => {
     const fields = Array.from(
       { length: 2000 },
       (_, index) => `string field${index} = ${index + 1};`,

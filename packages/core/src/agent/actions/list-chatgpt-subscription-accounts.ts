@@ -8,6 +8,7 @@ export default defineAction({
     "List the current user's saved ChatGPT registrations without exposing credentials.",
   schema: z.object({}),
   http: { method: "GET" },
+  persistInBrowser: false,
   run: async (_args, ctx) => {
     const email = ctx?.userEmail;
     if (!email) fail("Not authenticated.", { statusCode: 401 });

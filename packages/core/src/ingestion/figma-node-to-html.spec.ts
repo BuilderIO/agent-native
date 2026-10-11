@@ -15,7 +15,7 @@ function overlappingRow(itemSpacing: number): FigmaNode {
     id: "1:1",
     name: "Row",
     type: "FRAME",
-    absoluteBoundingBox: box(0, 0, 1440, 773),
+    absoluteBoundingBox: box(0, 0, 1200, 600),
     layoutMode: "HORIZONTAL",
     itemSpacing,
     paddingLeft: 100,
@@ -25,14 +25,14 @@ function overlappingRow(itemSpacing: number): FigmaNode {
         id: "1:2",
         name: "Wide",
         type: "FRAME",
-        absoluteBoundingBox: box(100, 0, 1240, 773),
+        absoluteBoundingBox: box(100, 0, 1000, 600),
         layoutSizingHorizontal: "FIXED",
       },
       {
         id: "1:3",
         name: "Illustration",
         type: "FRAME",
-        absoluteBoundingBox: box(973, 0, 692, 648),
+        absoluteBoundingBox: box(733, 0, 600, 500),
         layoutSizingHorizontal: "FIXED",
       },
     ],
@@ -264,19 +264,19 @@ describe("an empty auto-layout frame that hugs", () => {
 describe("mirrored nodes", () => {
   function flippedGroup(): FigmaNode {
     return {
-      id: "1:1",
-      name: "Frame",
+      id: "mirror-root",
+      name: "Mirror frame",
       type: "FRAME",
-      absoluteBoundingBox: box(0, 0, 359, 394),
+      absoluteBoundingBox: box(0, 0, 120, 80),
       children: [
         {
-          id: "1:2",
-          name: "Illustration",
+          id: "mirror-child",
+          name: "Mirror content",
           type: "GROUP",
-          absoluteBoundingBox: box(0, 0, 359, 394),
-          size: { x: 359, y: 394 },
+          absoluteBoundingBox: box(0, 0, 120, 80),
+          size: { x: 120, y: 80 },
           relativeTransform: [
-            [-1, 0, 359],
+            [-1, 0, 120],
             [0, 1, 0],
           ],
           rotation: Math.PI,
@@ -293,7 +293,7 @@ describe("mirrored nodes", () => {
 
   it("counts the matrix path as exact, not approximated", () => {
     const { fidelity } = mapFigmaNodeToHtml(flippedGroup(), {});
-    const entry = fidelity.entries.find((e) => e.nodeId === "1:2");
+    const entry = fidelity.entries.find((e) => e.nodeId === "mirror-child");
     expect(entry?.level).toBe("exact");
   });
 
@@ -310,26 +310,26 @@ describe("mirrored nodes", () => {
 describe("space-between rows ignore itemSpacing", () => {
   function logoRow(align?: string): FigmaNode {
     return {
-      id: "1:1",
-      name: "Logotypes",
+      id: "logo-row-root",
+      name: "Row",
       type: "FRAME",
-      absoluteBoundingBox: box(0, 0, 1440, 48),
+      absoluteBoundingBox: box(0, 0, 400, 48),
       layoutMode: "HORIZONTAL",
       layoutSizingHorizontal: "FIXED",
-      itemSpacing: 206,
+      itemSpacing: 24,
       primaryAxisAlignItems: align,
       children: [
         {
-          id: "1:2",
-          name: "A",
+          id: "logo-first",
+          name: "First",
           type: "FRAME",
-          absoluteBoundingBox: box(100, 0, 124, 48),
+          absoluteBoundingBox: box(20, 0, 48, 48),
         },
         {
-          id: "1:3",
-          name: "B",
+          id: "logo-second",
+          name: "Second",
           type: "FRAME",
-          absoluteBoundingBox: box(320, 0, 126, 48),
+          absoluteBoundingBox: box(180, 0, 48, 48),
         },
       ],
     } as FigmaNode;
@@ -338,12 +338,12 @@ describe("space-between rows ignore itemSpacing", () => {
   it("drops the stale gap under SPACE_BETWEEN", () => {
     const { html } = mapFigmaNodeToHtml(logoRow("SPACE_BETWEEN"), {});
     expect(html).toContain("justify-content: space-between");
-    expect(html).not.toContain("column-gap: 206px");
+    expect(html).not.toContain("column-gap: 24px");
   });
 
   it("keeps the gap under normal alignment", () => {
     const { html } = mapFigmaNodeToHtml(logoRow("MIN"), {});
-    expect(html).toContain("column-gap: 206px");
+    expect(html).toContain("column-gap: 24px");
   });
 });
 
@@ -463,31 +463,31 @@ describe("a rotated auto-layout child occupies its rotated footprint", () => {
 describe("a HUG container holding a cross-axis FILL child", () => {
   function card(): FigmaNode {
     return {
-      id: "1:1",
+      id: "card-root",
       name: "Card",
       type: "FRAME",
-      absoluteBoundingBox: box(0, 0, 387, 331),
+      absoluteBoundingBox: box(0, 0, 320, 240),
       layoutMode: "VERTICAL",
       layoutSizingHorizontal: "FIXED",
-      paddingLeft: 35,
-      paddingRight: 35,
+      paddingLeft: 16,
+      paddingRight: 16,
       children: [
         {
-          id: "1:2",
+          id: "card-content",
           name: "Content",
           type: "FRAME",
-          absoluteBoundingBox: box(35, 0, 317, 251),
+          absoluteBoundingBox: box(16, 0, 288, 180),
           layoutMode: "VERTICAL",
           layoutSizingHorizontal: "HUG",
           children: [
             {
-              id: "1:3",
-              name: "Person",
+              id: "card-fill-child",
+              name: "Content row",
               type: "FRAME",
-              absoluteBoundingBox: box(35, 0, 317, 103),
+              absoluteBoundingBox: box(16, 0, 288, 60),
               layoutMode: "HORIZONTAL",
               layoutSizingHorizontal: "FILL",
-              paddingRight: 76,
+              paddingRight: 24,
             },
           ],
         },
@@ -497,7 +497,7 @@ describe("a HUG container holding a cross-axis FILL child", () => {
 
   it("uses the resolved width rather than hugging max-content", () => {
     const { html } = mapFigmaNodeToHtml(card(), {});
-    expect(html).toContain("width: 317px");
+    expect(html).toContain("width: 288px");
   });
 
   it("still hugs when no child fills the cross axis", () => {
@@ -604,7 +604,7 @@ describe("underline placement", () => {
 describe("line break handling", () => {
   function label(characters: string, lineTypes?: string[]): FigmaNode {
     return {
-      id: "1:1",
+      id: "line-text",
       name: "Point",
       type: "TEXT",
       absoluteBoundingBox: box(0, 0, 312, 40),
@@ -623,11 +623,8 @@ describe("line break handling", () => {
   });
 
   it("preserves a break that has no line-count marker as text", () => {
-    const { html } = mapFigmaNodeToHtml(
-      label("Get started for free.\rAdd your whole team.", ["NONE"]),
-      {},
-    );
-    expect(html).toContain("Get started for free. Add your whole team.");
+    const { html } = mapFigmaNodeToHtml(label("Alpha\rBeta", ["NONE"]), {});
+    expect(html).toContain("Alpha Beta");
   });
 
   it("drops a trailing break when no line count is present", () => {
@@ -662,11 +659,8 @@ describe("line break handling", () => {
   });
 
   it("drops a trailing space after the final line", () => {
-    const { html } = mapFigmaNodeToHtml(
-      label("Our Working Process ", ["NONE"]),
-      {},
-    );
-    expect(html).toContain(">Our Working Process<");
+    const { html } = mapFigmaNodeToHtml(label("Label ", ["NONE"]), {});
+    expect(html).toContain(">Label<");
   });
 
   it("keeps a trailing break as its own empty line when marked", () => {
@@ -710,7 +704,7 @@ describe("rounded input height for a hugging text box", () => {
           style: {
             fontFamily: "Space Grotesk",
             fontSize: 30,
-            lineHeightPx: 38.279998779296875,
+            lineHeightPx: 38.25,
             textAutoResize: autoResize,
           },
         },
@@ -957,32 +951,34 @@ describe("zero-thickness vector geometry", () => {
 describe("image crop (STRETCH with an image transform)", () => {
   function cropped(transform?: number[][]): FigmaNode {
     return {
-      id: "1:1",
-      name: "Illustration",
+      id: "crop-node",
+      name: "Crop sample",
       type: "RECTANGLE",
-      absoluteBoundingBox: box(0, 0, 200, 100),
+      absoluteBoundingBox: box(0, 0, 180, 120),
       fills: [
         {
           type: "IMAGE",
           scaleMode: "STRETCH",
-          imageRef: "abc",
+          imageRef: "local-image",
           ...(transform ? { imageTransform: transform } : {}),
         },
       ],
     } as FigmaNode;
   }
-  const urls = { imageFillUrls: { abc: "https://example.test/i.png" } };
+  const urls = {
+    imageFillUrls: { "local-image": "https://example.test/i.png" },
+  };
 
   it("zooms the box onto the cropped sub-rectangle", () => {
     const { html } = mapFigmaNodeToHtml(
       cropped([
-        [0.5, 0, 0.1],
-        [0, 0.25, 0.2],
+        [1 / 3, 0, 1 / 6],
+        [0, 1 / 2, 1 / 4],
       ]),
       urls,
     );
-    expect(html).toContain("background-size: 400px 400px");
-    expect(html).toContain("background-position: -40px -80px");
+    expect(html).toContain("background-size: 540px 240px");
+    expect(html).toContain("background-position: -90px -60px");
   });
 
   it("stays a plain stretch when there is no transform", () => {
@@ -992,12 +988,12 @@ describe("image crop (STRETCH with an image transform)", () => {
 
   it("sends a rotated crop to the raster fallback instead of stretching it", () => {
     const node = cropped([
-      [0.5, 0.3, 0.1],
-      [0.3, 0.25, 0.2],
+      [1 / 3, 1 / 12, 1 / 6],
+      [1 / 10, 1 / 2, 1 / 4],
     ]);
     const { html } = mapFigmaNodeToHtml(node, {
       ...urls,
-      fallbackImageUrls: { "1:1": "https://example.test/rendered.png" },
+      fallbackImageUrls: { "crop-node": "https://example.test/rendered.png" },
     });
     expect(html).toContain("<img");
     expect(html).toContain("rendered.png");
@@ -1008,19 +1004,19 @@ describe("image crop (STRETCH with an image transform)", () => {
 describe("a hugging text box uses the rounded input width as a minimum", () => {
   function label(): FigmaNode {
     return {
-      id: "1:1",
+      id: "width-row",
       name: "Row",
       type: "FRAME",
       absoluteBoundingBox: box(0, 0, 400, 40),
       layoutMode: "HORIZONTAL",
       children: [
         {
-          id: "1:2",
-          name: "Nav item",
+          id: "width-label",
+          name: "Text",
           type: "TEXT",
-          absoluteBoundingBox: box(0, 0, 70, 40),
+          absoluteBoundingBox: box(0, 0, 64, 40),
           layoutSizingHorizontal: "HUG",
-          characters: "Pricing",
+          characters: "Item",
           style: { fontFamily: "Inter", fontSize: 16, lineHeightPx: 20 },
         },
       ],
@@ -1029,13 +1025,13 @@ describe("a hugging text box uses the rounded input width as a minimum", () => {
 
   it("uses it as a minimum width", () => {
     const { html } = mapFigmaNodeToHtml(label(), {});
-    expect(html).toContain("min-width: 70px");
+    expect(html).toContain("min-width: 64px");
   });
 
   it("does not pin the width, which would force the text to wrap", () => {
     const { html } = mapFigmaNodeToHtml(label(), {});
     expect(html).toContain("width: auto");
-    expect(html).not.toMatch(/(?<!min-)width: 70px/);
+    expect(html).not.toMatch(/(?<!min-)width: 64px/);
   });
 
   it("preserves an explicit minWidth", () => {
@@ -1043,7 +1039,7 @@ describe("a hugging text box uses the rounded input width as a minimum", () => {
     node.children![0]!.minWidth = 120;
     const { html } = mapFigmaNodeToHtml(node, {});
     expect(html).toContain("min-width: 120px");
-    expect(html).not.toMatch(/min-width: 70px/);
+    expect(html).not.toMatch(/min-width: 64px/);
   });
 });
 
@@ -1143,15 +1139,15 @@ describe("imported drop shadows render behind the layer", () => {
 });
 
 describe("per-side strokes use centered edge geometry", () => {
-  function footer(strokeAlign: string): FigmaNode {
+  function edgeSample(strokeAlign: string): FigmaNode {
     return {
-      id: "1:1",
-      name: "Rectangle 19",
+      id: "edge-sample",
+      name: "Edge sample",
       type: "RECTANGLE",
-      absoluteBoundingBox: box(0, 0, 1440, 505),
+      absoluteBoundingBox: box(0, 0, 240, 160),
       fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
       strokes: [
-        { type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 0.17 },
+        { type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 0.25 },
       ],
       strokeWeight: 1,
       strokeAlign,
@@ -1160,26 +1156,26 @@ describe("per-side strokes use centered edge geometry", () => {
   }
 
   it("straddles the edge, half inside and half out", () => {
-    const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
-    expect(html).toContain("inset 0px 0.5px 0 0 rgba(0, 0, 0, 0.17)");
-    expect(html).toContain("0px -0.5px 0 0 rgba(0, 0, 0, 0.17)");
+    const { html } = mapFigmaNodeToHtml(edgeSample("CENTER"), {});
+    expect(html).toContain("inset 0px 0.5px 0 0 rgba(0, 0, 0, 0.25)");
+    expect(html).toContain("0px -0.5px 0 0 rgba(0, 0, 0, 0.25)");
     expect(html).not.toContain("border-top");
   });
 
   it("keeps an INSIDE stroke wholly inside", () => {
-    const { html } = mapFigmaNodeToHtml(footer("INSIDE"), {});
-    expect(html).toContain("inset 0px 1px 0 0 rgba(0, 0, 0, 0.17)");
+    const { html } = mapFigmaNodeToHtml(edgeSample("INSIDE"), {});
+    expect(html).toContain("inset 0px 1px 0 0 rgba(0, 0, 0, 0.25)");
     expect(html).not.toContain("0px -1px 0 0");
   });
 
   it("keeps an OUTSIDE stroke wholly outside", () => {
-    const { html } = mapFigmaNodeToHtml(footer("OUTSIDE"), {});
-    expect(html).toContain("0px -1px 0 0 rgba(0, 0, 0, 0.17)");
+    const { html } = mapFigmaNodeToHtml(edgeSample("OUTSIDE"), {});
+    expect(html).toContain("0px -1px 0 0 rgba(0, 0, 0, 0.25)");
     expect(html).not.toContain("inset 0px");
   });
 
   it("does not reduce the content box size", () => {
-    const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
+    const { html } = mapFigmaNodeToHtml(edgeSample("CENTER"), {});
     expect(html).not.toContain("border");
   });
 });

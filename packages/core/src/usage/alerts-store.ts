@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   deleteNotification,
   notifyWithDelivery,
@@ -191,7 +192,7 @@ function ruleIdFor(
 
 export async function ensureTables(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const tableSql = `CREATE TABLE IF NOT EXISTS usage_alert_rules (
         id TEXT PRIMARY KEY,
         scope TEXT NOT NULL,
@@ -246,6 +247,7 @@ export async function ensureTables(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   await initPromise;
 }

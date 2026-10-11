@@ -139,6 +139,57 @@ describe("framework request handler", () => {
     vi.unstubAllEnvs();
   });
 
+  it("scopes shared database pools to each Cloudflare H3 request", async () => {
+    const workerGlobal = globalThis as typeof globalThis & {
+      __env__?: unknown;
+    };
+    const previousEnvironment = Object.getOwnPropertyDescriptor(
+      workerGlobal,
+      "__env__",
+    );
+    workerGlobal.__env__ = {};
+    try {
+      const { sharedDbPool } = await import("../db/client.js");
+      const nitroApp = createNitroApp();
+      getH3App(nitroApp);
+
+      const pools: Array<{
+        query: () => Promise<void>;
+        end: () => Promise<void>;
+      }> = [];
+      const pool = sharedDbPool(
+        "framework-request-test",
+        "postgres://db.test/app",
+        () => {
+          const created = {
+            query: vi.fn(async () => {}),
+            end: vi.fn(async () => {}),
+          };
+          pools.push(created);
+          return created;
+        },
+      );
+      nitroApp.h3["~middleware"].push(
+        async (_event: any, next: () => unknown) => {
+          await pool.query();
+          return next();
+        },
+      );
+
+      await dispatch(nitroApp, "/api/pool-scope");
+
+      expect(pools).toHaveLength(1);
+      expect(pools[0]?.query).toHaveBeenCalledOnce();
+      expect(pools[0]?.end).toHaveBeenCalledOnce();
+    } finally {
+      if (previousEnvironment) {
+        Object.defineProperty(workerGlobal, "__env__", previousEnvironment);
+      } else {
+        delete workerGlobal.__env__;
+      }
+    }
+  });
+
   it("lets a handler's own request context shadow the boundary store", async () => {
     const nitroApp = createNitroApp();
     getH3App(nitroApp);

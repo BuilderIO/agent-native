@@ -408,4 +408,247 @@ describe("requireOrgMemberForUserShares: true", () => {
   });
 });
 
+describe("assertSharingChange", () => {
+  const refusal = "This doc is held for review.";
+  const raceRefusal = "A context item landed while this doc was being shared.";
+  let seen: Array<{ id: string; change: unknown }>;
+
+  beforeEach(async () => {
+    seen = [];
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "Restricted Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      allowPublic: true,
+      requireOrgMemberForUserShares: true,
+      assertSharingChange: ({ resource, change }) => {
+        seen.push({ id: resource.id, change });
+        if (resource.id === "doc-guarded") throw new ForbiddenError(refusal);
+        // A "doc-raced" change passes its first call, the check before the
+        // write. The second call, after the write, stands in for a context
+        // item that committed in between, so it refuses.
+        if (
+          resource.id.startsWith("doc-raced") &&
+          seen.filter((s) => s.id === resource.id).length > 1
+        ) {
+          throw new ForbiddenError(raceRefusal);
+        }
+      },
+    });
+    await insertDoc({ id: "doc-guarded" });
+    await insertDoc({ id: "doc-open" });
+  });
+
+  it("refuses an org or public visibility change the hook rejects", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-guarded",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-guarded",
+          visibility: "public",
+        }),
+      ).rejects.toThrow(refusal);
+    });
+
+    const rows = (await pglite
+      .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
+      .all("doc-guarded")) as Array<{ visibility: string }>;
+    expect(rows[0]?.visibility).toBe("private");
+  });
+
+  it("passes the row and change kind, and skips the hook when visibility is unchanged", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-open",
+        visibility: "org",
+      });
+      await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-open",
+        visibility: "org",
+      });
+      await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-guarded",
+        visibility: "private",
+      });
+    });
+
+    // Each change is checked before and after its write.
+    expect(seen).toEqual([
+      { id: "doc-open", change: { kind: "visibility", visibility: "org" } },
+      { id: "doc-open", change: { kind: "visibility", visibility: "org" } },
+    ]);
+  });
+
+  it("refuses a share grant the hook rejects before writing a share row", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-guarded",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    const shares = await pglite
+      .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
+      .all("doc-guarded");
+    expect(shares).toEqual([]);
+    expect(seen).toEqual([{ id: "doc-guarded", change: { kind: "grant" } }]);
+  });
+
+  it("allows a share grant and visibility change the hook accepts", async () => {
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-open",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).resolves.toMatchObject({ updated: false });
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-open",
+          visibility: "org",
+        }),
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
+    });
+    expect(seen.map((s) => s.change)).toEqual([
+      { kind: "grant" },
+      { kind: "grant" },
+      { kind: "visibility", visibility: "org" },
+      { kind: "visibility", visibility: "org" },
+    ]);
+    const shares = await pglite
+      .prepare("SELECT role FROM restricted_doc_shares WHERE resource_id = ?")
+      .all("doc-open");
+    expect(shares).toEqual([{ role: "viewer" }]);
+    const rows = (await pglite
+      .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
+      .all("doc-open")) as Array<{ visibility: string }>;
+    expect(rows[0]?.visibility).toBe("org");
+  });
+
+  it("removes a new share that the post-write check refuses, then rethrows", async () => {
+    await insertDoc({ id: "doc-raced" });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-raced",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "viewer",
+          notify: false,
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const shares = await pglite
+      .prepare("SELECT * FROM restricted_doc_shares WHERE resource_id = ?")
+      .all("doc-raced");
+    expect(shares).toEqual([]);
+    expect(
+      seen.filter((s) => s.id === "doc-raced").map((s) => s.change),
+    ).toEqual([{ kind: "grant" }, { kind: "grant" }]);
+  });
+
+  it("restores an updated share to its previous role when the post-write check refuses", async () => {
+    await insertDoc({ id: "doc-raced-update" });
+    await db.insert(docShares).values({
+      id: "existing-share",
+      resourceId: "doc-raced-update",
+      principalType: "user",
+      principalId: orgMemberEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-raced-update",
+          principalType: "user",
+          principalId: orgMemberEmail,
+          role: "editor",
+          notify: false,
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const shares = await pglite
+      .prepare(
+        "SELECT id, role FROM restricted_doc_shares WHERE resource_id = ?",
+      )
+      .all("doc-raced-update");
+    expect(shares).toEqual([{ id: "existing-share", role: "viewer" }]);
+  });
+
+  it("restores the visibility when the post-write check refuses the change", async () => {
+    await insertDoc({ id: "doc-raced-visibility" });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-raced-visibility",
+          visibility: "org",
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const rows = (await pglite
+      .prepare("SELECT visibility FROM restricted_docs WHERE id = ?")
+      .all("doc-raced-visibility")) as Array<{ visibility: string }>;
+    expect(rows[0]?.visibility).toBe("private");
+  });
+
+  it("detaches the organization that a refused visibility change attached", async () => {
+    await db.insert(docs).values({
+      id: "doc-raced-unscoped",
+      title: "doc-raced-unscoped",
+      ownerEmail,
+      orgId: null,
+      visibility: "private",
+    });
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-raced-unscoped",
+          visibility: "org",
+        }),
+      ).rejects.toThrow(raceRefusal);
+    });
+
+    const rows = (await pglite
+      .prepare("SELECT visibility, org_id FROM restricted_docs WHERE id = ?")
+      .all("doc-raced-unscoped")) as Array<{
+      visibility: string;
+      org_id: string | null;
+    }>;
+    expect(rows).toEqual([{ visibility: "private", org_id: null }]);
+  });
+});
+
 export type _RoleType = ShareRole;

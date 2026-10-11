@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
-  CHUNK_RECOVERY_QUERY_VALUE,
   ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_RELOAD_AT_KEY,
@@ -42,6 +43,7 @@ function installBootstrap(
   runInNewContext(ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT, {
     Date: { now: () => 2_000_000 },
     URL,
+    URLSearchParams,
     window: windowState,
     document: {
       addEventListener: (
@@ -87,20 +89,22 @@ describe("route chunk recovery bootstrap", () => {
 
     expect(assign).toHaveBeenCalledOnce();
     const retryUrl = new URL(assign.mock.calls[0]?.[0]);
-    expect(retryUrl.pathname).toBe("/apps");
+    expect(retryUrl.pathname).toBe(`/apps${CHUNK_RECOVERY_PATH_SUFFIX}`);
     expect(retryUrl.searchParams.get("tab")).toBe("activity");
-    expect(retryUrl.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
-      CHUNK_RECOVERY_QUERY_VALUE,
+    expect(retryUrl.searchParams.has(CHUNK_RECOVERY_QUERY_PARAM)).toBe(false);
+    expect(retryUrl.searchParams.has(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)).toBe(
+      false,
     );
-    expect(
-      retryUrl.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM),
-    ).toBeTruthy();
-    expect(retryUrl.hash).toBe("#latest");
+    const recoveryHash = new URLSearchParams(retryUrl.hash.slice(1));
+    expect(recoveryHash.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)).toBeTruthy();
+    expect(recoveryHash.get(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM)).toBe(
+      "#latest",
+    );
     expect(sessionValues.get(STALE_CHUNK_RELOAD_AT_KEY)).toBe("2000000");
     expect(stopImmediatePropagation).toHaveBeenCalledOnce();
   });
 
-  it("replaces arbitrary recovery markers with the fixed marker", () => {
+  it("replaces legacy arbitrary recovery markers with the fixed recovery path", () => {
     const { assign, onError } = installBootstrap(
       `https://example.test/apps?${CHUNK_RECOVERY_QUERY_PARAM}=arbitrary`,
     );
@@ -116,11 +120,31 @@ describe("route chunk recovery bootstrap", () => {
     });
 
     expect(assign).toHaveBeenCalledOnce();
-    expect(
-      new URL(assign.mock.calls[0]?.[0]).searchParams.get(
-        CHUNK_RECOVERY_QUERY_PARAM,
-      ),
-    ).toBe(CHUNK_RECOVERY_QUERY_VALUE);
+    const recoveryUrl = new URL(assign.mock.calls[0]?.[0]);
+    expect(recoveryUrl.pathname).toBe(`/apps${CHUNK_RECOVERY_PATH_SUFFIX}`);
+    expect(recoveryUrl.searchParams.has(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
+      false,
+    );
+  });
+
+  it("does not retry a failure while already on the recovery path", () => {
+    for (const trailingSlash of ["", "/"]) {
+      const { assign, onError } = installBootstrap(
+        `https://example.test/apps${CHUNK_RECOVERY_PATH_SUFFIX}${trailingSlash}`,
+      );
+
+      onError({
+        target: {
+          getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+          hasAttribute: () => false,
+          rel: "modulepreload",
+          tagName: "LINK",
+        },
+        stopImmediatePropagation: vi.fn(),
+      });
+
+      expect(assign).not.toHaveBeenCalled();
+    }
   });
 
   it("keeps the reload cooldown when session storage is unavailable", () => {

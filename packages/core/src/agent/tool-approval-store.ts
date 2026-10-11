@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
@@ -19,7 +20,7 @@ let policyInitPromise: Promise<void> | undefined;
 
 export async function ensureAgentToolApprovalTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       await ensureTableExists(
         "agent_tool_approvals",
         AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
@@ -40,13 +41,14 @@ export async function ensureAgentToolApprovalTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
 
 export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
   if (!policyInitPromise) {
-    policyInitPromise = (async () => {
+    const policyInitPromiseWithRequestDbPoolScope = (async () => {
       await ensureTableExists(
         "agent_tool_approval_policies",
         AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
@@ -59,6 +61,9 @@ export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
       policyInitPromise = undefined;
       throw error;
     });
+    policyInitPromise = retainRequestDbPoolScope(
+      policyInitPromiseWithRequestDbPoolScope,
+    );
   }
   return policyInitPromise;
 }

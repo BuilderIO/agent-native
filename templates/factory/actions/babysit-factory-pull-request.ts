@@ -680,7 +680,7 @@ export default defineAction({
         return vetoHeldPing("duplicate-comment");
       }
 
-      const comment = await github.createIssueComment(
+      const comment = await github.createPullRequestComment(
         repository,
         pullRequestNumber,
         BABYSIT_COMMENT_V2,

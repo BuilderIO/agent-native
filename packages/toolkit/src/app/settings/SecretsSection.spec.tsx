@@ -12,8 +12,16 @@ import { SecretsSection } from "./SecretsSection.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
+const { mountFailurePaths } = vi.hoisted(() => ({
+  mountFailurePaths: new Set<string>(),
+}));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
-  agentNativePath: (path: string) => path,
+  agentNativePath: (path: string) => {
+    if (mountFailurePaths.has(path))
+      throw new Error("Workspace mount unavailable");
+    return path;
+  },
   appMountedPath: (path: string) => path,
 }));
 
@@ -157,6 +165,7 @@ describe("SecretsSection", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mountFailurePaths.clear();
     vi.stubGlobal(
       "ResizeObserver",
       class ResizeObserver {
@@ -175,6 +184,7 @@ describe("SecretsSection", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    mountFailurePaths.clear();
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -234,6 +244,101 @@ describe("SecretsSection", () => {
     expect(secretRequests).toBe(2);
     expect(container.textContent).toContain("OpenAI API key");
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("surfaces a synchronous ad hoc secret path failure and retries it", async () => {
+    mountFailurePaths.add("/_agent-native/secrets/adhoc");
+
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+    expect(container.textContent).not.toContain("CUSTOM_TOKEN");
+
+    mountFailurePaths.clear();
+    await click(findButton("Retry"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("CUSTOM_TOKEN");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("surfaces and recovers from a synchronous custom-key save path failure", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await openNewMenu();
+    const customItem = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).find((item) => item.textContent?.includes("Custom key"));
+    await click(customItem);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Key name"]',
+    );
+    const valueInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Secret value"]',
+    );
+    expect(nameInput).toBeTruthy();
+    expect(valueInput).toBeTruthy();
+    await act(async () => {
+      const setInputValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setInputValue.call(nameInput, "CUSTOM_TOOL_KEY");
+      nameInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      setInputValue.call(valueInput, "safe-test-value");
+      valueInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    mountFailurePaths.add("/_agent-native/secrets/adhoc");
+    await click(findButton("Save"));
+    expect(container.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+
+    mountFailurePaths.clear();
+    await click(findButton("Save"));
+    expect(container.textContent).toContain("Key saved");
+  });
+
+  it("surfaces and recovers from a synchronous secret save path failure", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await openRow("OpenAI API key");
+    await click(findButton("Rotate"));
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="OpenAI API key"]',
+    );
+    expect(input).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "replacement-test-key");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    mountFailurePaths.add("/_agent-native/secrets");
+    await click(findButton("Save"));
+    expect(container.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+
+    mountFailurePaths.clear();
+    await click(findButton("Save"));
+    expect(container.textContent).toContain("Saved");
   });
 
   it("aborts the request on unmount without logging a load error", async () => {

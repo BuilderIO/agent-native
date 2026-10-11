@@ -157,6 +157,114 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("preserves the live board offset when refreshing Position geometry", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const offset = doc.createElement("style");
+    offset.setAttribute("data-agent-native-content-offset", "");
+    offset.setAttribute("data-agent-native-content-offset-x", "4096");
+    offset.setAttribute("data-agent-native-content-offset-y", "2048");
+    doc.head.appendChild(offset);
+    const target = doc.createElement("div");
+    target.id = "node-a";
+    target.setAttribute("data-agent-native-node-id", "node-a");
+    target.style.position = "absolute";
+    doc.body.appendChild(target);
+    target.getBoundingClientRect = () =>
+      ({ x: 4096, y: 2048, width: 100, height: 40 }) as DOMRect;
+    try {
+      const measured = withMeasuredGeometry(makeInfo("node-a"));
+      expect(measured.boundingRect).toMatchObject({ x: 4096, y: 2048 });
+      expect(measured.positionReferenceRect).toMatchObject({
+        x: 4096,
+        y: 2048,
+      });
+      expect(measured.positionContainingBlockOrigin).toEqual({
+        x: 4096,
+        y: 2048,
+      });
+    } finally {
+      iframe.remove();
+    }
+  });
+
+  it("retains one consistent geometry snapshot when the offset becomes unreadable", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const offset = doc.createElement("style");
+    offset.setAttribute("data-agent-native-content-offset", "");
+    offset.setAttribute("data-agent-native-content-offset-x", "4096");
+    offset.setAttribute("data-agent-native-content-offset-y", "2048");
+    doc.head.appendChild(offset);
+    const boardRoot = doc.createElement("div");
+    boardRoot.setAttribute("data-agent-native-node-id", "board-root");
+    const frame = doc.createElement("div");
+    frame.setAttribute("data-an-primitive", "frame");
+    frame.setAttribute("data-agent-native-node-id", "frame-a");
+    frame.style.position = "relative";
+    const target = doc.createElement("div");
+    target.id = "node-a";
+    target.setAttribute("data-agent-native-node-id", "node-a");
+    target.style.position = "absolute";
+    boardRoot.appendChild(frame);
+    frame.appendChild(target);
+    doc.body.appendChild(boardRoot);
+    let moved = false;
+    frame.getBoundingClientRect = () =>
+      (moved
+        ? { x: 5000, y: 3000, width: 900, height: 700 }
+        : { x: 4096, y: 2048, width: 800, height: 600 }) as DOMRect;
+    target.getBoundingClientRect = () =>
+      (moved
+        ? { x: 5020, y: 3030, width: 120, height: 60 }
+        : { x: 4100, y: 2050, width: 100, height: 40 }) as DOMRect;
+    const originalQuerySelector = doc.querySelector.bind(doc);
+
+    try {
+      const previous = withMeasuredGeometry(makeInfo("node-a"));
+      expect(previous.boundingRect).toEqual({
+        x: 4100,
+        y: 2050,
+        width: 100,
+        height: 40,
+      });
+      expect(previous.parentBoundingRect).toEqual({
+        x: 4096,
+        y: 2048,
+        width: 800,
+        height: 600,
+      });
+      expect(previous.positionReferenceRect).toEqual({
+        x: 4096,
+        y: 2048,
+        width: 800,
+        height: 600,
+      });
+
+      moved = true;
+      vi.spyOn(doc, "querySelector").mockImplementation((selector) => {
+        if (selector === "style[data-agent-native-content-offset]") {
+          throw new DOMException(
+            "Offset style is unavailable",
+            "SecurityError",
+          );
+        }
+        return originalQuerySelector(selector);
+      });
+
+      const measured = withMeasuredGeometry(previous);
+
+      expect(measured).toBe(previous);
+    } finally {
+      vi.restoreAllMocks();
+      iframe.remove();
+    }
+  });
+
   it("refreshes live element and parent geometry with the position context", () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

@@ -34,7 +34,8 @@ export function embeddedContentOffsetCss(x: number, y: number): string {
 
 export function embeddedContentOffsetStyle(x: number, y: number): string {
   const css = embeddedContentOffsetCss(x, y);
-  return css ? `<style data-agent-native-content-offset>${css}</style>` : "";
+  if (!css) return "";
+  return `<style data-agent-native-content-offset data-agent-native-content-offset-x="${Math.round(x)}" data-agent-native-content-offset-y="${Math.round(y)}">${css}</style>`;
 }
 
 function injectEmbeddedFrameStyle(content: string, style: string): string {

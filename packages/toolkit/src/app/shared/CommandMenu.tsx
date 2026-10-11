@@ -54,7 +54,6 @@ import React, {
   type ReactNode,
 } from "react";
 
-import { BuilderSetupCard } from "../chat/chat/run-recovery.js";
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
 
@@ -628,9 +627,7 @@ export function CommandMenu({
             showSignOutRow ||
             Boolean(results)) && <CommandSeparator />}
           <div className="p-1">
-            {providerStatus === "missing" ? (
-              <BuilderSetupCard attached fullWidth layout="sidebar" />
-            ) : providerStatus === "unavailable" ? (
+            {providerStatus === "unavailable" ? (
               <div
                 className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
                 role="status"

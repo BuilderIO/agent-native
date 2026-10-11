@@ -455,7 +455,11 @@ function validateMessagePart(value: unknown, path: string): void {
           "inline file data cannot be persisted in a queue",
         );
       }
-      if (part.omitted !== undefined && part.omitted !== "inline-bytes") {
+      if (
+        part.omitted !== undefined &&
+        part.omitted !== "inline-bytes" &&
+        part.omitted !== "unsafe-url"
+      ) {
         throw new AgentProtocolValidationError(
           `${path}.omitted`,
           "unsupported omission marker",

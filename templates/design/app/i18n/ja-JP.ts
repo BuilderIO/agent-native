@@ -67,6 +67,10 @@ export default {
       "{from} から {to} · アプリごとの別コホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
+    otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
+    otherBranchDetailsUnavailable:
+      "このジャーニーツリーには分岐の詳細がありません",
+    otherBranchSourceKey: "元のステップキー: {key}",
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
@@ -1718,9 +1722,11 @@ export default {
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
     imageAttachmentUnavailable:
-      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
+      "この画像をアップロード用に準備できませんでした。JPG、PNG、GIF、WebP 画像をお試しください。",
+    imageAttachmentTooLarge:
+      "画像は1枚あたり最大{{perFile}} MB、合計{{total}} MBまで添付できます。",
     attachmentsTooLarge:
-      "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
+      "画像は自動で最適化されます。最適化後の画像とその他のファイルの合計は{{max}} MB以内にしてください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",
     skipPrompt: "プロンプトをスキップ",
     startBlankCanvas: "空白のキャンバスから始める",

@@ -43,11 +43,18 @@ address available for initial setup and recovery.
 
 ## Company credentials and roles
 
-An organization owner or admin can save an organization-scoped LLM key from
-the provider setup screen. Agent-Native's provider setup saves these keys only
-for the organization, so members use the same company key. Personal rows from
-older deployments are removed when an organization key is saved, or can be
-removed from the provider setup screen before switching over.
+For an administered deployment, an organization owner or admin saves the company
+LLM key for the organization from the provider setup screen and turns on
+**Restrict personal API keys** (`manage-provider-key-policy`) to keep members
+on company providers. The restriction prevents members from saving or using
+personal provider keys; their stored keys are preserved and work again when
+the setting is turned off. Owners and admins can still keep a personal key as
+a fallback.
+
+Without the restriction, members save provider keys personally and see no scope
+picker. Owners and admins save for the organization by default and can pick
+**Personal**. Members run on their own key first; owners and admins run on the
+organization's key first. See [Settings roles](/docs/toolkit-settings#roles).
 
 The provider model field lists the current curated models for each provider as
 suggestions. Enter a provider-supported model ID directly when the catalog has

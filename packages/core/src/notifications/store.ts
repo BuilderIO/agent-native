@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
@@ -20,7 +21,7 @@ function normalizeLimit(value: number | undefined, fallback = 50): number {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
@@ -59,6 +60,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

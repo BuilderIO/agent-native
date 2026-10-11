@@ -973,7 +973,7 @@ test("pasting a PNG identifies its image inspector and persists Fit, Crop, adjus
   const { designId, screenId } = await createDesign(page);
   const fixture = path.resolve(
     import.meta.dirname,
-    "fixtures/responsive-card-art-photo.png",
+    "fixtures/card-art-photo.png",
   );
   const bytes = [...(await readFile(fixture))];
   const assetUrl = "/e2e-assets/clipboard-image.png";

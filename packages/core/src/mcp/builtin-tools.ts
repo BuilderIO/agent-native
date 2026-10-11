@@ -63,7 +63,11 @@ class AskAppInlineDeadlineError extends Error {
   }
 }
 
-type AskAppRequestMeta = { origin?: string; basePath?: string };
+type AskAppRequestMeta = {
+  origin?: string;
+  basePath?: string;
+  localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
+};
 
 interface AskAppRoute {
   app: string;
@@ -71,6 +75,18 @@ interface AskAppRoute {
   routedVia: "local" | "a2a";
   requestOrigin?: string;
   note?: string;
+}
+
+function localClientForRoute(
+  config: MCPConfig,
+  route: AskAppRoute,
+  requestMeta?: AskAppRequestMeta,
+): import("../a2a/mcp-task-client.js").McpAgentTaskClient | undefined {
+  return route.routedVia === "local" &&
+    route.app.toLowerCase() === currentAppId(config) &&
+    route.origin === selfA2AEndpointUrl(requestMeta)
+    ? requestMeta?.localAgentTaskClient
+    : undefined;
 }
 
 interface AskAppTaskResult {
@@ -323,10 +339,20 @@ async function createA2AClientForAskApp(
   origin: string,
   requestOrigin?: string,
   deadline?: number,
+  localClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
 ): Promise<{
-  client: import("../a2a/client.js").A2AClient;
+  client: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   metadata: Record<string, unknown>;
 }> {
+  if (localClient && getRequestUserEmail()?.trim()) {
+    return {
+      client: localClient,
+      metadata: {
+        ...(getRequestUserEmail() ? { userEmail: getRequestUserEmail() } : {}),
+        ...(requestOrigin ? { requestOrigin } : {}),
+      },
+    };
+  }
   const { A2AClient } = await import("../a2a/client.js");
   const { resolveA2ACallerAuth } = await import("../a2a/caller-auth.js");
   const auth = await resolveA2ACallerAuth({
@@ -375,7 +401,7 @@ async function runBeforeAskAppDeadline<T>(
 }
 
 async function waitForA2ATask(
-  client: import("../a2a/client.js").A2AClient,
+  client: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
   initialTask: Task,
   deadline: number | undefined,
 ): Promise<Task> {
@@ -438,6 +464,7 @@ async function submitAskAppA2ATask(
   issuerAudience: string,
   message: string,
   maxWaitMs: number,
+  localClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
   const submissionDeadline =
@@ -446,6 +473,7 @@ async function submitAskAppA2ATask(
     route.origin,
     route.requestOrigin,
     submissionDeadline,
+    localClient,
   );
   const idempotencyKey = await askAppIdempotencyKey(
     route,
@@ -483,8 +511,14 @@ async function fetchAskAppA2ATask(
   route: AskAppRoute,
   taskId: string,
   taskHandle?: string,
+  localClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient,
 ): Promise<AskAppTaskResult> {
-  const { client } = await createA2AClientForAskApp(route.origin);
+  const { client } = await createA2AClientForAskApp(
+    route.origin,
+    undefined,
+    undefined,
+    localClient,
+  );
   const maxAttempts = ASK_APP_STATUS_RETRY_DELAYS_MS.length + 1;
   for (
     let attempt = 0;
@@ -541,6 +575,14 @@ function isTransientAskAppStatusError(err: unknown): boolean {
 function askAppStatusErrorCategory(
   err: unknown,
 ): AskAppStatusErrorCategory | null {
+  const statusCode =
+    err != null && typeof err === "object" && "statusCode" in err
+      ? err.statusCode
+      : undefined;
+  if (statusCode === 429) return "rate_limited";
+  if ([500, 502, 503, 504].includes(statusCode as number))
+    return "upstream_5xx";
+  if (statusCode === 401 || statusCode === 403) return null;
   const message =
     err instanceof Error
       ? err.message
@@ -1226,6 +1268,7 @@ function askAppTool(
           issuerAudience ?? "",
           message,
           maxWaitMs,
+          requestMeta?.localAgentTaskClient,
         );
       }
 
@@ -1306,7 +1349,12 @@ function askAppStatusTool(
         ) {
           throw new Error("Invalid or expired ask_app task handle.");
         }
-        return fetchAskAppA2ATask(verified.route, verified.taskId, taskHandle);
+        return fetchAskAppA2ATask(
+          verified.route,
+          verified.taskId,
+          taskHandle,
+          localClientForRoute(config, verified.route, requestMeta),
+        );
       }
 
       const taskId = suppliedTaskId;
@@ -1323,7 +1371,12 @@ function askAppStatusTool(
         requestedApp,
         requestMeta,
       );
-      return fetchAskAppA2ATask(route, taskId);
+      return fetchAskAppA2ATask(
+        route,
+        taskId,
+        undefined,
+        localClientForRoute(config, route, requestMeta),
+      );
     },
   };
 }

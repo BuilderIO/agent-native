@@ -29,7 +29,9 @@ Mantenha um endereço de administrador de bootstrap verificado disponível para 
 
 ## Chaves e funções da empresa
 
-Um proprietário ou administrador pode salvar uma chave LLM da organização. A configuração do provedor salva essas chaves somente para a organização, então todos usam a mesma chave da empresa. Linhas pessoais de versões antigas são removidas ao salvar uma chave da organização, ou podem ser removidas antes na configuração do provedor.
+Em uma implantação administrada, um proprietário ou administrador salva a chave LLM da empresa para a organização na configuração do provedor e ativa **Restringir chaves de API pessoais** (`manage-provider-key-policy`) para manter os membros nos provedores da empresa. A restrição impede que os membros salvem ou usem chaves pessoais de provedores; as chaves armazenadas são preservadas e voltam a funcionar quando a configuração é desativada. Proprietários e administradores ainda podem manter uma chave pessoal como alternativa.
+
+Sem a restrição, os membros salvam chaves de provedores pessoalmente e não veem um seletor de escopo. Proprietários e administradores salvam para a organização por padrão e podem escolher **Pessoal**. Os membros usam primeiro sua própria chave; proprietários e administradores usam primeiro a chave da organização. Consulte [Funções nas configurações](/docs/toolkit-settings#roles).
 
 O campo de modelo mostra os modelos atuais como sugestões e aceita qualquer ID de modelo compatível com o provedor ou gateway.
 

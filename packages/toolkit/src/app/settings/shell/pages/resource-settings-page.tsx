@@ -3,7 +3,6 @@ import { useOrg } from "@agent-native/core/client/org";
 import type { ResourceView } from "@agent-native/core/client/resources/resource-views";
 import {
   useCreateResource,
-  useResourceTree,
   type ResourceMeta,
 } from "@agent-native/core/client/resources/use-resources";
 import { useUploadResource } from "@agent-native/core/client/uploads/use-upload-resource";
@@ -45,6 +44,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { uploadedSkillSlug } from "../../../../skill-upload.js";
 import { PromptComposer } from "../../../chat/index.js";
 import type { ResourceSettingsGroupConfig } from "../../../resources/index.js";
 import {
@@ -52,7 +52,6 @@ import {
   normalizeResourceFileName,
   requestSkillFromAgent,
   ResourcesPanel,
-  slugifyName,
 } from "../../../resources/index.js";
 
 /** Filled by the panel with a function that opens a resource in its editor. */
@@ -201,27 +200,6 @@ export function useSeedResource(onCreated: (resource: ResourceMeta) => void) {
   return { seed, isPending: create.isPending };
 }
 
-function uniqueSkillPath(slug: string, taken: ReadonlySet<string>): string {
-  let path = `skills/${slug}/SKILL.md`;
-  for (let n = 2; taken.has(path.toLowerCase()); n += 1) {
-    path = `skills/${slug}-${n}/SKILL.md`;
-  }
-  return path;
-}
-
-function collectPaths(
-  nodes: readonly { path: string; children?: unknown[] }[],
-  into: Set<string>,
-): Set<string> {
-  for (const node of nodes) {
-    into.add(node.path.toLowerCase());
-    if (Array.isArray(node.children)) {
-      collectPaths(node.children as { path: string }[], into);
-    }
-  }
-  return into;
-}
-
 /** Skills "Add skill": describe it to the agent, or upload a SKILL.md. */
 export function AddSkillMenu({
   scope,
@@ -236,7 +214,6 @@ export function AddSkillMenu({
   const [describing, setDescribing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const create = useCreateResource();
-  const tree = useResourceTree(scope);
 
   const uploadSkill = async (file: File) => {
     let content: string;
@@ -248,16 +225,15 @@ export function AddSkillMenu({
       );
       return;
     }
-    const baseName = file.name.replace(/\.[^./]+$/, "");
-    const slug = slugifyName(
-      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-    );
-    const path = uniqueSkillPath(
-      slug,
-      collectPaths(tree.data ?? [], new Set<string>()),
-    );
+    const slug = uploadedSkillSlug(file.name, content);
     create.mutate(
-      { path, content, mimeType: "text/markdown", shared: scope === "shared" },
+      {
+        path: `skills/${slug}/SKILL.md`,
+        content,
+        mimeType: "text/markdown",
+        shared: scope === "shared",
+        uniqueSkillPath: true,
+      },
       {
         onSuccess: onCreated,
         onError: () => {

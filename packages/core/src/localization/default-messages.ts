@@ -144,6 +144,8 @@ const messages = {
     mcpStaticTokenDescription:
       "Open the full connect page to create a token for clients that cannot complete OAuth.",
     mcpOpenConnectPage: "Open full connect page",
+    mcpIdentityError: "Couldn't load this app's connection details.",
+    mcpRetry: "Try again",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -1836,6 +1838,8 @@ const messages = {
     promoteMustContain: "Reply must contain…",
     promoteMustContainOptional: "Optional text to check for in the reply…",
     promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteReviewedPromptLabel:
+      "Manually reviewed prompt (never copied from production)",
     promoteNeedsContains:
       "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",

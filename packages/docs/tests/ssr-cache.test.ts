@@ -5,6 +5,8 @@ import path from "node:path";
 import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHUNK_RECOVERY_BROWSER_CACHE_CONTROL } from "../../core/src/shared/cache-control.js";
+import { CHUNK_RECOVERY_PATH_SUFFIX } from "../../core/src/shared/route-chunk-recovery-bootstrap.js";
 import {
   renderNetlifyHeaders,
   writeNetlifyHeaders,
@@ -39,9 +41,7 @@ describe("Docs SSR cache key wrapper", () => {
 
     applyDocsSsrCacheKeyHeaders(headers);
 
-    expect(headers.get("netlify-vary")).toBe(
-      "query=_routes|index|__agentNativeChunkRecovery",
-    );
+    expect(headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("preserves full-query variation for query-sensitive docs responses", () => {
@@ -54,15 +54,23 @@ describe("Docs SSR cache key wrapper", () => {
     expect(headers.get("netlify-vary")).toBe("query");
   });
 
-  it("includes the fixed recovery dimension in the docs cache key", () => {
+  it("varies on only the exact legacy recovery query key", () => {
+    const headers = new Headers();
+
+    applyDocsSsrCacheKeyHeaders(headers, { varyByLegacyRecovery: true });
+
+    expect(headers.get("netlify-vary")).toBe(
+      "query=_routes|index|__agentNativeChunkRecovery",
+    );
+  });
+
+  it("does not vary on a recovery nonce now that recovery uses a path alias", () => {
     vi.stubEnv("NETLIFY", "true");
     const headers = new Headers();
 
     applyDocsSsrCacheKeyHeaders(headers);
 
-    expect(headers.get("netlify-vary")).toBe(
-      "query=_routes|index|__agentNativeChunkRecovery",
-    );
+    expect(headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
   it("recognizes the cloud tab URL with a trailing slash or data suffix", () => {
@@ -81,6 +89,73 @@ describe("Docs SSR cache key wrapper", () => {
         new URL("https://www.agent-native.com/docs/?tab=local"),
       ),
     ).toBe(false);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs${CHUNK_RECOVERY_PATH_SUFFIX}?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs.data${CHUNK_RECOVERY_PATH_SUFFIX}/?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs${CHUNK_RECOVERY_PATH_SUFFIX}.data?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isCloudGettingStartedPath(
+        new URL(
+          `https://www.agent-native.com/docs${CHUNK_RECOVERY_PATH_SUFFIX}/_.data?tab=cloud`,
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("applies mutable community caching to recovery data responses", () => {
+    for (const suffix of [".data", "/_.data"]) {
+      const headers = new Headers({
+        ...resolveSsrCacheHeaders({}),
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "content-type": "text/x-script",
+      });
+
+      applyCommunityAppSsrCacheHeaders(
+        headers,
+        `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}${suffix}`,
+      );
+
+      expect(headers.get("cache-control")).toBe(
+        CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      );
+      expect(headers.get("cdn-cache-control")).toBe("no-store");
+      expect(headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    }
+  });
+
+  it("bypasses CDN caches for legacy recovery", () => {
+    const headers = new Headers({
+      ...resolveSsrCacheHeaders({}),
+      "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      "content-type": "text/html; charset=utf-8",
+    });
+
+    applyCommunityAppSsrCacheHeaders(headers, "/apps/community/foo/", 200, {
+      isLegacyRecovery: true,
+    });
+
+    expect(headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(headers.get("cdn-cache-control")).toBe("no-store");
+    expect(headers.get("netlify-cdn-cache-control")).toBe("no-store");
   });
 
   it("keeps mutable community app routes in the durable cache", () => {
@@ -98,6 +173,21 @@ describe("Docs SSR cache key wrapper", () => {
     expect(communityHeaders.get("netlify-cdn-cache-control")).toBe(
       "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600",
     );
+
+    const recoveryHeaders = new Headers({
+      ...resolveSsrCacheHeaders({}),
+      "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      "content-type": "text/html; charset=utf-8",
+    });
+    applyCommunityAppSsrCacheHeaders(
+      recoveryHeaders,
+      `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}/`,
+    );
+    expect(recoveryHeaders.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(recoveryHeaders.get("cdn-cache-control")).toBe("no-store");
+    expect(recoveryHeaders.get("netlify-cdn-cache-control")).toBe("no-store");
 
     const staticHeaders = new Headers();
     applyCommunityAppSsrCacheHeaders(staticHeaders, "/docs/getting-started/");
@@ -127,6 +217,20 @@ describe("Docs SSR cache key wrapper", () => {
     expect(disabledHeaders.get("cache-control")).toBe("no-store");
     expect(disabledHeaders.get("cdn-cache-control")).toBe("no-store");
     expect(disabledHeaders.get("netlify-cdn-cache-control")).toBe("no-store");
+
+    const disabledRecoveryHeaders = new Headers({
+      ...resolveSsrCacheHeaders(),
+      "content-type": "text/html; charset=utf-8",
+    });
+    applyCommunityAppSsrCacheHeaders(
+      disabledRecoveryHeaders,
+      `/apps/community/foo${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
+    expect(disabledRecoveryHeaders.get("cache-control")).toBe("no-store");
+    expect(disabledRecoveryHeaders.get("cdn-cache-control")).toBe("no-store");
+    expect(disabledRecoveryHeaders.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
   });
 
   it("does not cache auth-shaped or non-SSR community responses", () => {

@@ -65,7 +65,12 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/app/progress", () => ({
-  RunsTray: () => null,
+  RunsTray: () => <div data-testid="runs-tray" />,
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  AgentToggleButton: () => <button type="button" data-testid="agent-toggle" />,
 }));
 
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
@@ -171,6 +176,7 @@ type ShareButtonProps = {
   resourceId?: string;
   resourceTitle?: string;
   panelTitle?: string;
+  triggerClassName?: string;
   shareUrl?: string;
   showShareLinks?: boolean;
   secondaryShareUrl?: string;
@@ -296,7 +302,7 @@ describe("<EditorToolbar>", () => {
     </TooltipProvider>
   );
 
-  it("keeps the embedded toolbar to the title, Share and slide editing controls", () => {
+  it("shows the app's top bar in a widget minus what the host and the widget grant own", () => {
     mocks.widgetEmbed.value = true;
     const onTitleChange = vi.fn();
     render(widgetToolbar({ onTitleChange }));
@@ -305,6 +311,10 @@ describe("<EditorToolbar>", () => {
     expect(title).toHaveProperty("readOnly", false);
     fireEvent.change(title, { target: { value: "Renamed" } });
     expect(onTitleChange).toHaveBeenCalledWith("Renamed");
+    // The title sizes to its text exactly as in the app; it does not give way
+    // to the other controls.
+    expect(title.className).toContain("shrink-0");
+    expect(title.className).not.toContain("truncate");
 
     expect(mocks.shareButton).toHaveBeenCalled();
     const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
@@ -317,15 +327,42 @@ describe("<EditorToolbar>", () => {
     // widget grant does not carry.
     expect(shareProps.shareTabs).toBeUndefined();
     expect(shareProps.basicSharingOnly).toBe(true);
-    expect(shareProps.mobileSheet).toBe(true);
+    // Share is the app's popover, not a widget-only bottom sheet.
+    expect(shareProps.mobileSheet).toBeFalsy();
 
-    expect(screen.queryByText("editorToolbar.present")).toBeNull();
+    expect(screen.getByText("editorToolbar.present")).toBeTruthy();
+    // The host owns navigation and chat.
     expect(screen.queryByLabelText("editorToolbar.backToDecks")).toBeNull();
+    expect(screen.queryByTestId("agent-toggle")).toBeNull();
+    expect(screen.queryByTestId("runs-tray")).toBeNull();
     screen.getByRole("button", { name: "editorToolbar.more" }).click();
     expect(screen.queryByText("editorToolbar.comments")).toBeNull();
     expect(screen.queryByText("editorToolbar.savedVersions")).toBeNull();
     expect(screen.queryByText("editorToolbar.importFile")).toBeNull();
     expect(mocks.exportMenu).not.toHaveBeenCalled();
+  });
+
+  it("keeps the same Share component and sizing in and out of a widget", () => {
+    render(widgetToolbar());
+    const standard = mocks.shareButton.mock.calls.at(-1)![0];
+    cleanup();
+    mocks.shareButton.mockClear();
+
+    mocks.widgetEmbed.value = true;
+    render(widgetToolbar());
+    const embedded = mocks.shareButton.mock.calls.at(-1)![0];
+
+    expect(embedded.mobileSheet).toBe(standard.mobileSheet);
+    expect(embedded.triggerClassName).toBe(standard.triggerClassName);
+    expect(embedded.showShareLinks).toBe(standard.showShareLinks);
+  });
+
+  it("keeps the way back to the deck list and the agent controls outside the widget", () => {
+    render(widgetToolbar());
+
+    expect(screen.getByLabelText("editorToolbar.backToDecks")).toBeTruthy();
+    expect(screen.getByTestId("agent-toggle")).toBeTruthy();
+    expect(screen.getByTestId("runs-tray")).toBeTruthy();
   });
 
   it("keeps the creative context tab in Share outside the widget", () => {

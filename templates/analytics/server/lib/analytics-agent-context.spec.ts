@@ -80,8 +80,13 @@ describe("retrieveAnalyticsPromptReferences", () => {
     vi.clearAllMocks();
     mocks.searchAnalyticsQueryCatalog.mockResolvedValue({
       candidates: [candidates[1], candidates[0], candidates[2]],
+      searched: 3,
+      of: 3,
+      truncated: false,
+      nextPage: null,
       searchedDashboardCount: 2,
       dashboardSearchTruncated: false,
+      dashboardDetailHydrationTruncated: false,
       dashboardSearchStatus: "available",
       searchedDictionaryEntryCount: 1,
       dictionarySearchTruncated: false,
@@ -589,6 +594,10 @@ describe("retrieveAnalyticsPromptReferences", () => {
     // coverage because a relevant reference can be outside the returned rows.
     it.each([
       ["dashboard", { dashboardSearchTruncated: true }],
+      [
+        "dashboard detail hydration",
+        { dashboardDetailHydrationTruncated: true },
+      ],
       ["dictionary", { dictionarySearchTruncated: true }],
     ])(
       "preserves hits but reports a truncated %s search as failed",

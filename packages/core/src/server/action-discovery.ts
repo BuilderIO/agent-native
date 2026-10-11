@@ -440,6 +440,8 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
   "set-tool-approval-policy",
+  // The client's same-tick GET batching depends on it, so it cannot be gated.
+  "get-actions-batch",
 ]);
 
 export async function mergeCoreSharingActions(
@@ -961,6 +963,7 @@ export async function mergeCoreSharingActions(
     ],
     ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
+    ["get-actions-batch", () => import("./get-actions-batch.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

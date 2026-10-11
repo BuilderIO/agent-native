@@ -1,3 +1,5 @@
+import { resolveSameOriginRoutePath } from "@/lib/route-path";
+
 import { hasNativeWebMcpHost } from "./VisualEditWebMcp";
 
 export const NO_SELECTORS: string[] = [];
@@ -9,8 +11,8 @@ export function previewUrlAtLiveRoute(
   if (!previewUrl || !routePath) return previewUrl;
   try {
     const base = new URL(previewUrl);
-    const route = new URL(routePath, base.origin);
-    if (route.origin !== base.origin) return previewUrl;
+    const route = resolveSameOriginRoutePath(base.origin, routePath);
+    if (!route) return previewUrl;
     base.pathname = route.pathname;
     base.search = route.search;
     base.hash = route.hash;

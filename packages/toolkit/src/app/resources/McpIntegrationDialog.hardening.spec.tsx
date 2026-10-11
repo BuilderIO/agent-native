@@ -15,6 +15,10 @@ const mocks = vi.hoisted(() => ({
   settings: vi.fn(),
   create: vi.fn(),
   close: vi.fn(),
+  resolvePath: vi.fn((path: string) => path),
+}));
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: mocks.resolvePath,
 }));
 vi.mock("../shared/index.js", async (original) => ({
   ...(await original<typeof import("../shared/index.js")>()),
@@ -51,6 +55,7 @@ describe("legacy integration setup routing", () => {
   const figma = DEFAULT_MCP_INTEGRATIONS.find((entry) => entry.id === "figma")!;
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resolvePath.mockImplementation((path) => path);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     container = document.createElement("div");
@@ -174,6 +179,37 @@ describe("legacy integration setup routing", () => {
     );
     expect(mocks.oauth).toHaveBeenCalledTimes(1);
     expect(mocks.settings).not.toHaveBeenCalled();
+  });
+
+  it("shows a translated error when the OAuth start path cannot be resolved", async () => {
+    const integration = {
+      ...figma,
+      id: "managed-example",
+      managedOAuth: true,
+      apiFallback: undefined,
+    };
+    await render({
+      initialIntegrationId: integration.id,
+      integrations: [integration],
+      oauthReady: true,
+    });
+    mocks.resolvePath.mockImplementation(() => {
+      throw new Error(
+        "Cannot resolve workspace app mount path without explicit mount metadata.",
+      );
+    });
+
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click(),
+    );
+
+    expect(document.body.textContent).toContain("Connection error");
+    expect(document.body.textContent).not.toContain(
+      "Cannot resolve workspace app mount path",
+    );
+    expect(mocks.oauth).not.toHaveBeenCalled();
   });
 
   it("prevents a custom connection to the known restricted Figma endpoint from starting OAuth", async () => {

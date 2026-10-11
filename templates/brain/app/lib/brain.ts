@@ -1087,6 +1087,32 @@ export const defaultSettings: BrainSettings = {
   quarantineRetentionHours: 72,
 };
 
+/** `/home` is the blank Ask page; `/home/<threadId>` is one saved thread. */
+export function isBrainAskPath(pathname: string): boolean {
+  return pathname === "/home" || pathname.startsWith("/home/");
+}
+
+export function brainAskThreadPath(threadId: string | null): string {
+  return threadId ? `/home/${encodeURIComponent(threadId)}` : "/home";
+}
+
+// Decodes the segment the way React Router's useParams does, so the sidebar's
+// active id matches the route's id for ids that need percent-encoding.
+export function brainAskThreadIdFromPath(pathname: string): string | null {
+  const segment = /^\/home\/([^/]+)\/?$/.exec(pathname)?.[1];
+  return segment === undefined ? null : decodeThreadSegment(segment);
+}
+
+// A hand-typed malformed escape such as /home/% stays literal, as it does in
+// React Router, instead of throwing during render.
+function decodeThreadSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/search")) return "search";

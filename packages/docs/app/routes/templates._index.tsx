@@ -18,9 +18,20 @@ import {
   GridInner,
   PageSection,
 } from "../components/website-redesign/page-grid";
+import enUS from "../i18n/en-US";
+import { withDefaultSocialImage } from "../seo";
 
 const SECTION_HEADING_CLASS =
   "font-[family-name:var(--b-font-sans)] text-[32px] font-medium leading-[1.1] tracking-[-0.02em] text-[var(--b-text-primary)]";
+
+export const meta = () =>
+  withDefaultSocialImage([
+    { title: `Agent-Native Apps - ${enUS.templatesPage.title}` },
+    {
+      name: "description",
+      content: `${enUS.templatesPage.eyebrow} ${enUS.templatesPage.body}`,
+    },
+  ]);
 
 export async function loader() {
   return { apps: seedCommunityApps };

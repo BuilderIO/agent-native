@@ -14,6 +14,7 @@ export default [
   route("views", "./routes/views.tsx"),
   route("dashboard", "./routes/dashboard.tsx"),
   route("ask", "./routes/ask.tsx"),
+  route("ask/:threadId", "./routes/ask.$threadId.tsx"),
   route("setup", "./routes/setup.tsx"),
   route("settings/*", "./routes/settings.tsx"),
   route("agent", "./routes/agent.tsx"),

@@ -841,6 +841,7 @@ describe("mutate-dashboard", () => {
         filters: [
           {
             id: "emailFilter",
+            label: "Email",
             type: "select",
             default: "all",
             options: [

@@ -13,6 +13,8 @@ export default defineAction({
     id: z.string().describe("The send-log row id, from list-email-log."),
   }),
   http: { method: "GET" },
+  // Bodies can carry magic links and one-time codes.
+  persistInBrowser: false,
   authorize: () => authorizeTransactionalEmailRead(),
   run: async ({ id }) => {
     const entry = await getEmailLogEntryBody({

@@ -1,6 +1,7 @@
 import type { DbExec } from "../db/client.js";
 import { getDbExec, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   assertValidComputerCommandEnvelope,
   ComputerSupervisionError,
@@ -45,7 +46,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureComputerApprovalStore(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `CREATE TABLE IF NOT EXISTS integration_computer_approvals (
   id TEXT PRIMARY KEY,
   owner_email TEXT NOT NULL,
@@ -93,6 +94,7 @@ export async function ensureComputerApprovalStore(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

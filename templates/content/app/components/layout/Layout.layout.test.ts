@@ -17,7 +17,7 @@ describe("app layout", () => {
     const source = readLayoutSource();
 
     expect(source).toMatch(
-      /contentSidebarWidth\s*=\s*openAiWidget\s*\|\|\s*isCompactLayout/,
+      /contentSidebarWidth\s*=\s*hostOwnsChrome\s*\|\|\s*isCompactLayout/,
     );
     expect(source).toContain('"--content-sidebar-width"');
     expect(source).toContain("sidebarCollapsed");
@@ -50,31 +50,6 @@ describe("app layout", () => {
 
   it("never closes the agent panel to make room for the page", () => {
     expect(readLayoutSource()).not.toContain("agent-panel:close");
-  });
-
-  it("renders only the page inside an MCP App widget, with no sidebar, header, or agent panel", () => {
-    const source = readLayoutSource();
-    const start = source.indexOf("if (mcpAppWidgetEmbed) {");
-    const widgetBranch = source.slice(
-      start,
-      source.indexOf("\n  return (", start),
-    );
-
-    expect(source).toContain("useIsMcpAppWidgetEmbed()");
-    expect(widgetBranch).toContain("agent-layout-shell");
-    expect(widgetBranch).toContain(
-      "SidebarTriggerContext.Provider value={null}",
-    );
-    expect(widgetBranch).not.toMatch(
-      /DocumentSidebar|AgentSidebar|<Header\b|InvitationBanner|IconMenu2/,
-    );
-  });
-
-  it("keeps workspace-wide sidebar data out of scoped OpenAI widgets", () => {
-    const source = readLayoutSource();
-
-    expect(source).toContain("fullWidthSettings || openAiWidget ? null");
-    expect(source).toMatch(/contentSidebarWidth\s*=\s*openAiWidget/);
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {

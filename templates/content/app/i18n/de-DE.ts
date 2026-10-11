@@ -822,7 +822,6 @@ const editor = {
     linkToNotionPage: "Link zur Notion-Seite",
     localFile: "Lokale Datei",
     morePageActions: "Weitere Seitenaktionen",
-    formatting: "Formatierung",
     noPagesFound: "Keine Seiten gefunden",
     notifications: "Benachrichtigungen",
     notionSync: "Begriffssynchronisierung",
@@ -1143,6 +1142,8 @@ const exactEnglish = {
       openInClaude: "In Claude öffnen",
       openInClaudeCode: "In Claude Code öffnen",
       openInCodex: "In Codex öffnen",
+      connectContent: "Content verbinden",
+      otherAgents: "Andere Agenten",
       agentCopyAccessNote:
         "Agenten können Content MCP mit deinen bestehenden Berechtigungen nutzen",
       temporaryAgentLink: "Temporärer Agentenlink",
@@ -1486,6 +1487,9 @@ const overrides = {
     aiUndo: "Rückgängig",
     aiDone: "Fertig",
     aiMoreChanges: "+{{count}} weitere",
+    suggestionReplaced: "Ersetzt",
+    suggestionWithdrawn: "Zurückgezogen",
+    suggestedChange: "Vorgeschlagene Änderung",
     aiUndoUnavailable:
       "Entfernter Text lässt sich nicht automatisch wiederherstellen",
     aiUndoFailed: "Änderung konnte nicht rückgängig gemacht werden",

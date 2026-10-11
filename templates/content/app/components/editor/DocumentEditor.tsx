@@ -187,7 +187,7 @@ import {
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import { flushBeforeSave } from "./collab-flush-before-save";
-import { useCommentAiRequests } from "./comment-ai";
+import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
@@ -200,6 +200,7 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
+import { ContentImportDialog } from "./ContentImportDialog";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
@@ -304,6 +305,10 @@ import {
   type SuggestionPresentationTransition,
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
+import {
+  reviewedInThread,
+  suggestionSourceThreadId,
+} from "./thread-suggestions";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
@@ -2528,8 +2533,6 @@ function PageEditorSessionBody({
   const widgetCanEditDatabaseRows = widgetEditability.canEditDatabaseRows;
   const canEdit = widgetEditability.canEditDocument;
   const canEditRef = useRef(canEdit);
-  const [widgetFormattingSlot, setWidgetFormattingSlot] =
-    useState<HTMLDivElement | null>(null);
   const contentSpacesQuery = useContentSpaces({
     enabled: !mcpDirectoryWidgetReadOnly,
   });
@@ -3381,6 +3384,20 @@ function PageEditorSessionBody({
       collabSynced ||
       canEditWithoutCollaboration) &&
     (!collabInitializationFailed || canEditWithoutCollaboration);
+  const canImportPages =
+    canEdit &&
+    !isLocalFileDocument &&
+    !mcpDirectoryWidgetReadOnly &&
+    !document.database;
+  const [importRequest, setImportRequest] = useState<{
+    files: File[];
+  } | null>(null);
+  const openImport = useCallback(() => setImportRequest({ files: [] }), []);
+  const importDroppedFiles = useCallback(
+    (files: File[]) => setImportRequest({ files }),
+    [],
+  );
+  const closeImport = useCallback(() => setImportRequest(null), []);
   const collabEditorEnabled =
     collabEnabled &&
     canEdit &&
@@ -7288,6 +7305,12 @@ function PageEditorSessionBody({
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const commentAiWorkingOnSource = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return threadId !== null && isCommentAiWorkingOn(commentAi, threadId);
+  };
   // While AI's result is on screen, a thread it just resolved highlights the
   // text it wrote, so the card sits beside the change it describes.
   const editorCommentThreads = useMemo(() => {
@@ -7567,6 +7590,28 @@ function PageEditorSessionBody({
     });
   }, []);
 
+  // An AI suggestion asked for from a comment is reviewed inside that thread.
+  const suggestionThreadOnPage = useCallback(
+    (suggestionId: string) => {
+      const suggestion = savedSuggestions.find(
+        (entry) => entry.id === suggestionId,
+      );
+      const thread =
+        suggestion &&
+        threads?.find((entry) => reviewedInThread(suggestion, entry));
+      return thread ? thread.threadId : null;
+    },
+    [savedSuggestions, threads],
+  );
+  const activateSuggestionOrThread = useCallback(
+    (suggestionId: string) => {
+      const threadId = suggestionThreadOnPage(suggestionId);
+      if (threadId) activateCommentThread(threadId);
+      else activateSuggestion(suggestionId);
+    },
+    [activateCommentThread, activateSuggestion, suggestionThreadOnPage],
+  );
+
   const handleComment = useCallback(
     async (
       quotedText: string,
@@ -7575,6 +7620,12 @@ function PageEditorSessionBody({
       range?: { from: number; to: number },
       suggestionId?: string,
     ) => {
+      const sourceThreadId =
+        suggestionId && suggestionThreadOnPage(suggestionId);
+      if (sourceThreadId) {
+        activateCommentThread(sourceThreadId);
+        return;
+      }
       if (suggestionId) {
         let suggestion =
           sidebarSuggestions.find((entry) => entry.id === suggestionId) ?? null;
@@ -7601,11 +7652,13 @@ function PageEditorSessionBody({
       setHoveredThreadId(null);
     },
     [
+      activateCommentThread,
       activateSuggestion,
       draftSuggestions,
       flushSuggestionDraft,
       replyDrafts.setOpenReply,
       sidebarSuggestions,
+      suggestionThreadOnPage,
     ],
   );
 
@@ -7615,6 +7668,11 @@ function PageEditorSessionBody({
         isSuggesting &&
         suggestionBaseRef.current?.existingSuggestion?.id === suggestionId
       ) {
+        return;
+      }
+      const sourceThreadId = suggestionThreadOnPage(suggestionId);
+      if (sourceThreadId) {
+        activateCommentThread(sourceThreadId);
         return;
       }
       const suggestion = savedSuggestions.find(
@@ -7643,12 +7701,14 @@ function PageEditorSessionBody({
       activateSuggestion(suggestionId);
     },
     [
+      activateCommentThread,
       activateSuggestion,
       isStartingSuggestion,
       isSuggesting,
       prepareSuggestionDraftDocument,
       savedSuggestions,
       startSuggestionDraft,
+      suggestionThreadOnPage,
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
@@ -7692,7 +7752,12 @@ function PageEditorSessionBody({
       appliedSuggestionLinkRef.current = null;
       return;
     }
-    if (!suggestionsQuery.data || appliedSuggestionLinkRef.current === key)
+    // Comments that failed to load leave the suggestion's own card to open.
+    if (
+      !suggestionsQuery.data ||
+      commentsLoading ||
+      appliedSuggestionLinkRef.current === key
+    )
       return;
     appliedSuggestionLinkRef.current = key;
     const suggestion = savedSuggestions.find(
@@ -7700,6 +7765,11 @@ function PageEditorSessionBody({
     );
     if (!suggestion) {
       toast.error(t("comments.linkUnavailable"));
+      return;
+    }
+    const sourceThreadId = suggestionThreadOnPage(suggestion.id);
+    if (sourceThreadId) {
+      activateCommentThread(sourceThreadId);
       return;
     }
     clearCommentFocus();
@@ -7717,6 +7787,9 @@ function PageEditorSessionBody({
     savedSuggestions,
     clearCommentFocus,
     replyDrafts.setOpenReply,
+    activateCommentThread,
+    suggestionThreadOnPage,
+    commentsLoading,
     t,
   ]);
 
@@ -8135,7 +8208,7 @@ function PageEditorSessionBody({
       onSuggestionFocused={() => setFocusSuggestionId(null)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
       anchoredSuggestionIds={anchoredSuggestionIds}
-      onActivateSuggestion={activateSuggestion}
+      onActivateSuggestion={activateSuggestionOrThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
@@ -8170,7 +8243,8 @@ function PageEditorSessionBody({
           decideSuggestion.isPending ||
           decideSuggestionProposal.isPending ||
           isSubmittingSuggestions ||
-          members.length === 0
+          members.length === 0 ||
+          members.some(commentAiWorkingOnSource)
         )
           return;
         proposalDecisionInFlightRef.current = true;
@@ -8318,7 +8392,8 @@ function PageEditorSessionBody({
           pendingProposalDecision ||
           decideSuggestion.isPending ||
           decideSuggestionProposal.isPending ||
-          isSubmittingSuggestions
+          isSubmittingSuggestions ||
+          commentAiWorkingOnSource(suggestion)
         )
           return;
         suggestionDecisionInFlightRef.current = true;
@@ -8432,6 +8507,15 @@ function PageEditorSessionBody({
           return [...byId.values()];
         });
         void suggestionsQuery.refetch();
+        // Accepting moves the asking thread's quote onto the new text.
+        if (
+          result.suggestion.status === "accepted" &&
+          suggestionSourceThreadId(result.suggestion)
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-comments", { documentId }],
+          });
+        }
         await refreshSuggestionDecisionDocument(
           continueSuggesting,
           result.suggestion.status === "accepted"
@@ -8699,15 +8783,14 @@ function PageEditorSessionBody({
             onSuggestingChange={(next) => {
               void handleSuggestionModeChange(next);
             }}
+            onImport={canImportPages ? openImport : undefined}
           />
-          {mcpDirectoryWidgetReadOnly && widgetEditability.canEditDocument ? (
-            <div
-              ref={setWidgetFormattingSlot}
-              className="shrink-0 empty:hidden"
-              data-content-widget-formatting-slot=""
-            />
-          ) : null}
-
+          <ContentImportDialog
+            request={importRequest}
+            parentId={documentId}
+            parentTitle={exportTitle}
+            onClose={closeImport}
+          />
           {!isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? (
             <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
           ) : null}
@@ -9171,6 +9254,9 @@ function PageEditorSessionBody({
                                     : "readonly"
                               }
                               onEscape={handleEditorEscape}
+                              onImportFiles={
+                                canImportPages ? importDroppedFiles : undefined
+                              }
                               acceptedDecisionReadback={
                                 !isSuggesting &&
                                 pendingSuggestionDecision?.decision ===
@@ -9301,7 +9387,6 @@ function PageEditorSessionBody({
                                 mcpDirectoryWidgetReadOnly &&
                                 widgetEditability.canEditDocument
                               }
-                              widgetFormattingSlot={widgetFormattingSlot}
                               suggesting={isSuggesting}
                               localFileMode={isLocalFileDocument}
                               localFilePath={

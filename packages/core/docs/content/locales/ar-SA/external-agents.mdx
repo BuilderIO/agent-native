@@ -125,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 يحتوي كل تطبيق مستضاف أيضًا على صفحة مساعدة على
 `https://&lt;app&gt;/mcp/connect` مع URL القابل للنسخ و
-علامات التبويب الخاصة بالمضيف لـ Claude، وChatGPT، والمؤشر، وClaude Code، وCodex، وGrok، وغيرها.
+علامات تبويب خاصة بكل مضيف لكل من Claude وChatGPT وCursor وVS Code وClaude Code وCodex وGrok وغير ذلك.
 
 ## روابط Content الخاصة {#private-content-links}
 
@@ -171,9 +171,35 @@ ChatGPT: تتطلب تطبيقات MCP المخصصة مساحة عمل مدعو
 لقطات. نطاقات `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` هي نفسها الموضحة في
 [OAuth القياسي لـ MCP البعيد](#standard-oauth) أدناه.
 
-يستخدم كل من Cursor وGoose وPostman وMCPJam وVS Code GitHub Copilot نفس جهاز التحكم عن بعد
-MCP URL من خلال خادم MCP الخاص بهم UI عندما يدعم تصميمهم OAuth عن بعد
-خوادم MCP.
+### Cursor وVS Code وCodex {#install-links}
+
+تحتوي علامتا التبويب **Cursor** و**VS Code** في **Settings → MCP server** وفي
+`/mcp/connect` على أزرار تثبيت. يفتح **إضافة إلى Cursor** نافذة
+**Install MCP server?** في Cursor. ويفتح **إضافة إلى VS Code** و**إضافة إلى VS
+Code Insiders** صفحة خادم فيها زر **Install**. لا يحمل الرابط إلا اسم الخادم
+ونوع النقل وعنوان MCP، ولا يحمل أبدًا رمزًا مميزًا أو ترويسة أو بيانات حساب.
+ويُجري العميل تسجيل دخول OAuth الخاص به عند أول اتصال. وفي VS Code تظهر الأدوات
+بعد ذلك في عرض Chat في وضع Agent.
+
+في Codex، شغّل `codex mcp add <server-name> --url <mcp-url>` ثم
+`codex mcp login <server-name>` لتسجيل الدخول عبر OAuth. تملأ علامة التبويب
+**Codex** القيمتين.
+
+تستخدم Goose وPostman وMCPJam والعملاء الآخرون عنوان MCP البعيد نفسه من شاشات
+خوادم MCP الخاصة بها عندما يدعم إصدارها خوادم MCP البعيدة التي تستخدم OAuth.
+
+### أسماء الخوادم {#server-names}
+
+يسمّي التطبيق خادم MCP الخاص به، وتستخدم كل الواجهات هذا الاسم: روابط التثبيت،
+والأوامر القابلة للنسخ، و`npx @agent-native/core@latest connect`.
+يستخدم الإنتاج الاسم وحده، مثل `agent-native-mail`. وتضع عمليات النشر التجريبية
+والمعاينة والمحلية اسم البيئة في أوله، مثل `beta-agent-native-mail`، حتى يحتفظ
+العميل نفسه بإدخال للإنتاج وآخر للنسخة التجريبية جنبًا إلى جنب. هذه البادئات
+محجوزة: لا يمكن أن يبدأ `mcp.serverName` بـ `beta-` أو `preview-` أو `local-`،
+لذا لا يطابق اسم تجريبي أبدًا اسم الإنتاج لتطبيق آخر. يمكن للبرامج النصية قراءة
+الاسم من `GET /mcp/connect/identity`، الذي لا يحتاج إلى تسجيل دخول ويعيد اسم
+الخادم واسم التطبيق وعنوان التطبيق وعنوان MCP والبيئة، إضافة إلى العلامة `connect`
+التي تكون `false` عند إيقاف `mcp.connect`.
 
 ### موجه اختبار سريع {#quick-test}
 

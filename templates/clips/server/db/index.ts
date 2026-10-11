@@ -1,7 +1,10 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
 import { organizations, registerIdentityColumns } from "@agent-native/core/org";
-import { registerShareableResource } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import {
+  ForbiddenError,
+  registerShareableResource,
+} from "@agent-native/core/sharing";
+import { and, eq, ne } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
@@ -58,6 +61,24 @@ registerShareableResource({
   displayName: "Recording",
   titleColumn: "title",
   getResourcePath: (recording) => recordingSharePath(recording.id),
+  assertSharingChange: async ({ resource, change }) => {
+    if (change.kind === "visibility" && change.visibility === "private") return;
+    const [active] = await getDb()
+      .select({ id: schema.recordingContextItems.id })
+      .from(schema.recordingContextItems)
+      .where(
+        and(
+          eq(schema.recordingContextItems.recordingId, resource.id),
+          ne(schema.recordingContextItems.status, "removed"),
+        ),
+      )
+      .limit(1);
+    if (active) {
+      throw new ForbiddenError(
+        "This clip includes earlier screen time, which stays private to you. Remove that screen time before sharing it.",
+      );
+    }
+  },
   getLogoUrl: (recording) => orgBrandLogoUrl(recording.organizationId),
   getBrandName: (recording) => orgBrandName(recording.organizationId),
   getSender: (_recording, ctx) => ({

@@ -512,7 +512,7 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
   }
 });
 
-test("closed rect, ellipse, and circle SVG wrappers expose Position while open vectors do not", async ({
+test("closed SVG shapes enable Position while open vectors keep it disabled", async ({
   page,
   request,
 }) => {
@@ -567,11 +567,13 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
         name: "Position",
       });
       if (!item.position) {
-        await expect(position).toHaveCount(0);
+        await expect(position).toBeVisible();
+        await expect(position).toBeDisabled();
         continue;
       }
 
       await expect(position).toBeVisible();
+      await expect(position).toBeEnabled();
       await position.click();
       await page.getByRole("option", { name: "Outside" }).click();
       await expect

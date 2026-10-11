@@ -25,6 +25,7 @@ import {
   cachedActiveOrgSetting,
   cachedMemberships,
   invalidateActiveOrgSettingCache,
+  invalidateMemberOrgCaches,
   orgSelectionFromCookieHeader,
 } from "./request-org-cache.js";
 
@@ -174,6 +175,26 @@ describe("cross-request membership cache", () => {
       { orgId: "org-1" },
     ]);
     expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not keep a membership read that raced an invalidation", async () => {
+    let finishRead!: (value: { orgId: string }[]) => void;
+    const racing = cachedMemberships(
+      "a@b.com",
+      () =>
+        new Promise<{ orgId: string }[]>((resolve) => {
+          finishRead = resolve;
+        }),
+    );
+    invalidateMemberOrgCaches();
+    finishRead([{ orgId: "org-before-removal" }]);
+    await racing;
+
+    const load = vi.fn(async () => [{ orgId: "org-after-removal" }]);
+    await expect(cachedMemberships("a@b.com", load)).resolves.toEqual([
+      { orgId: "org-after-removal" },
+    ]);
+    expect(load).toHaveBeenCalledTimes(1);
   });
 });
 

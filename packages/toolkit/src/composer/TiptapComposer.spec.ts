@@ -16,8 +16,11 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn() },
 }));
 
+import { AssistantUiStaleIndexErrorBoundary } from "../app/chat/composer/assistant-ui-recovery.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { getComposerDraftKey } from "./draft-key.js";
+import { PromptComposer } from "./PromptComposer.js";
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
@@ -71,6 +74,55 @@ afterEach(() => {
 });
 
 describe("createTiptapComposerExtensions", () => {
+  it("keeps consecutive prefills in the editor through the chat recovery boundary", async () => {
+    let prefill: (text: string) => void;
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      const [text, setText] = React.useState("");
+      const [revision, setRevision] = React.useState(0);
+      prefill = (next) => {
+        setText(next);
+        setRevision((value) => value + 1);
+      };
+      return React.createElement(
+        ComposerRuntimeAdaptersProvider,
+        {
+          adapters: {
+            agentChat: {
+              StaleIndexBoundary: AssistantUiStaleIndexErrorBoundary,
+            },
+          },
+        },
+        React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(PromptComposer, {
+            initialText: text,
+            initialTextKey: revision,
+            onTextChange: setText,
+            draftScope: "consecutive-prefills",
+            includeDefaultSlashSkills: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    await act(async () => {
+      root.render(React.createElement(Harness));
+    });
+    await act(async () => {
+      prefill!("Earlier navigation prefill");
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Earlier navigation prefill");
+    await act(async () => {
+      prefill!("Later queued draft");
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Later queued draft");
+  });
   it("refreshes the rendered placeholder after a locale change", () => {
     let placeholder = "Ask the agent...";
     const element = document.createElement("div");
@@ -3152,6 +3204,112 @@ describe("TiptapComposer paste handling", () => {
 });
 
 describe("TiptapComposer references", () => {
+  it("revokes reference readiness when disabled and on listener cleanup", async () => {
+    const ready = vi.fn();
+    const unavailable = vi.fn();
+    window.addEventListener("agentNative:composer-reference-ready", ready);
+    window.addEventListener(
+      "agentNative:composer-reference-unavailable",
+      unavailable,
+    );
+    function Harness({ disabled }: { disabled: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            disabled,
+            isReferenceTarget: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    try {
+      await act(async () =>
+        root.render(React.createElement(Harness, { disabled: false })),
+      );
+      expect(ready).toHaveBeenCalled();
+      const element = ready.mock.calls.at(-1)![0].detail;
+      unavailable.mockClear();
+      await act(async () =>
+        root.render(React.createElement(Harness, { disabled: true })),
+      );
+      expect(unavailable).toHaveBeenCalled();
+      expect(unavailable.mock.calls.at(-1)![0].detail).toBe(element);
+      ready.mockClear();
+      await act(async () =>
+        root.render(React.createElement(Harness, { disabled: false })),
+      );
+      expect(ready.mock.calls.at(-1)![0].detail).toBe(element);
+      unavailable.mockClear();
+      act(() => root.render(null));
+      expect(unavailable.mock.calls.at(-1)![0].detail).toBe(element);
+    } finally {
+      window.removeEventListener("agentNative:composer-reference-ready", ready);
+      window.removeEventListener(
+        "agentNative:composer-reference-unavailable",
+        unavailable,
+      );
+    }
+  });
+
+  it("replays a reference rejected while disabled without consuming its ID", async () => {
+    const onReferencesChange = vi.fn();
+    function Harness({ disabled }: { disabled: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            disabled,
+            onReferencesChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    const insert = () =>
+      window.dispatchEvent(
+        new CustomEvent("agentNative:insert-composer-reference", {
+          detail: {
+            label: "Document",
+            refType: "file",
+            refId: "queued-reference",
+            slotKey: "document",
+            insertMessageId: "disabled-reference",
+          },
+        }),
+      );
+    await act(async () => {
+      root.render(React.createElement(Harness, { disabled: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(insert);
+    expect(container.textContent).not.toContain("Document");
+    await act(async () =>
+      root.render(React.createElement(Harness, { disabled: false })),
+    );
+    onReferencesChange.mockClear();
+    act(insert);
+    expect(onReferencesChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ refId: "queued-reference" }),
+    ]);
+    const count = onReferencesChange.mock.calls.length;
+    act(insert);
+    expect(onReferencesChange).toHaveBeenCalledTimes(count);
+  });
+
   it("reports slot reference insertions and removals to the host", async () => {
     const onReferencesChange = vi.fn();
     const focusRef = React.createRef<TiptapComposerHandle>();

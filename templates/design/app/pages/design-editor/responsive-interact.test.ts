@@ -142,9 +142,6 @@ describe("responsive Interact wiring", () => {
   });
 
   it("uses focused embedded defaults and a separate minimal-mode floating bar", () => {
-    expect(source).toContain(
-      "embedded && !hostOwnsChrome && !embedChromeRequested",
-    );
     expect(source).not.toContain(
       '<IconLayoutSidebar className="size-4 -scale-x-100" />',
     );
@@ -156,8 +153,6 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       'className="pointer-events-none flex min-w-0 justify-center"',
     );
-    expect(source).toContain("shouldAutoOpenMobileInspector");
-    expect(source).toContain("hasSelection: minimalInspectorHasSelection");
   });
 
   it("resets chrome mode when same-design navigation changes embed mode", () => {

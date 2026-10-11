@@ -150,6 +150,7 @@ const {
   getDashboardForReview,
   getPublicDashboardMetadata,
   searchDashboardReferences,
+  searchDashboardReferencesPage,
 } = await import("./dashboards-store.js");
 
 describe("getPublicDashboardMetadata", () => {
@@ -428,7 +429,7 @@ describe("searchDashboardReferences", () => {
       99,
     );
 
-    expect(state.limit).toBe(200);
+    expect(state.limit).toBe(201);
     expect(state.projection).toHaveProperty("config");
     expect(JSON.stringify(state.where)).toContain("ESCAPE");
     expect(JSON.stringify(state.where)).toContain("%revenue\\\\_\\\\%%");
@@ -442,7 +443,7 @@ describe("searchDashboardReferences", () => {
         orgId: "org-1",
         visibility: "org",
         updatedAt: "2026-08-13T00:00:00.000Z",
-        matchedFields: ["id", "config"],
+        matchedFields: ["id", "name", "description", "config"],
       },
     ]);
   });
@@ -485,6 +486,72 @@ describe("searchDashboardReferences", () => {
     ]);
     expect(result.map((row) => row.kind)).toEqual(["explorer", "sql"]);
     expect(result[0]?.matchedFields).toContain("name");
+  });
+
+  it("uses shared synonyms and returns searched/of/truncated/page metadata", async () => {
+    state.rows = [
+      {
+        id: "org-role-dashboard",
+        kind: "sql",
+        name: "Organization user role",
+        description: "Membership dimensions",
+        config: JSON.stringify({ panels: [] }),
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-13T00:00:00.000Z",
+      },
+    ];
+
+    const result = await searchDashboardReferencesPage(
+      { email: "alice@example.com", orgId: "org-1" },
+      "workspace members",
+    );
+
+    expect(result).toMatchObject({
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
+    });
+    expect(result.results[0]).toMatchObject({
+      id: "org-role-dashboard",
+      matchedFields: expect.arrayContaining(["name"]),
+    });
+  });
+
+  it("pages matching references and flags a capped candidate scan", async () => {
+    state.rows = Array.from({ length: 201 }, (_, index) => ({
+      id: `revenue-dashboard-${index}`,
+      kind: "sql",
+      name: `Revenue dashboard ${index}`,
+      description: "Revenue summary",
+      config: JSON.stringify({ panels: [] }),
+      ownerEmail: "alice@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      updatedAt: `2026-08-${String(30 - (index % 20)).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+
+    const firstPage = await searchDashboardReferencesPage(
+      { email: "alice@example.com", orgId: "org-1" },
+      "revenue",
+      1,
+    );
+    expect(firstPage).toMatchObject({
+      searched: 200,
+      of: 200,
+      truncated: true,
+    });
+    expect(firstPage.nextPage).toBeTruthy();
+
+    const secondPage = await searchDashboardReferencesPage(
+      { email: "alice@example.com", orgId: "org-1" },
+      "revenue",
+      1,
+      firstPage.nextPage ?? undefined,
+    );
+    expect(secondPage.results[0]?.id).not.toBe(firstPage.results[0]?.id);
   });
 
   it("keeps malformed configs from aborting reference search", async () => {

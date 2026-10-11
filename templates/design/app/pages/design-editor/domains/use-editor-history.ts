@@ -119,6 +119,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     pendingStructureRedoReplayTimerRef,
     cancelPendingStructureVerification,
     minimalUiByDefault,
+    minimalUiLocked,
   } = editorCore;
 
   const hostChatGeneratingRef = useRef(false);
@@ -179,7 +180,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     DEFAULT_LEFT_SIDEBAR_WIDTH,
   );
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
-  const [minimalUi, setMinimalUi] = useState(minimalUiByDefault);
+  const [minimalUiRequested, setMinimalUi] = useState(minimalUiByDefault);
+  const minimalUi = minimalUiRequested || minimalUiLocked;
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);

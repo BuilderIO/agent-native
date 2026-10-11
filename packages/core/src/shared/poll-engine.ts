@@ -3,6 +3,8 @@ export interface PollEngineOptions {
   timeoutMs?: number | (() => number);
   timeoutFloorMs?: number;
   onError?: (err: unknown) => void;
+  /** Handles the poll deadline separately from an attempt rejection. */
+  onTimeout?: (err: unknown) => void;
   leading?: boolean;
 }
 
@@ -41,6 +43,8 @@ export function createPollEngine(
       ? resolve(options.timeoutMs)
       : Math.max(timeoutFloorMs, resolve(options.intervalMs) * 4);
   const onError = options.onError ?? (() => {});
+  const useDefaultTimeoutHandler = options.onTimeout == null;
+  const onTimeout = options.onTimeout ?? onError;
   const leading = options.leading ?? true;
 
   let generation = 0;
@@ -48,6 +52,8 @@ export function createPollEngine(
   let inFlight = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let activeController: AbortController | null = null;
+  let activeStopRequested = false;
+  let inFlightReport: ((err: unknown) => void) | null = null;
 
   function clearTimer(): void {
     if (timer != null) {
@@ -68,12 +74,20 @@ export function createPollEngine(
   async function tick(gen: number): Promise<void> {
     if (gen !== generation || !running) return;
     if (inFlight) {
+      if (activeStopRequested) {
+        inFlightReport?.(
+          new Error(
+            "poll attempt is still in flight after stop; restart is waiting for it to settle",
+          ),
+        );
+      }
       schedule(gen);
       return;
     }
     inFlight = true;
     const controller = new AbortController();
     activeController = controller;
+    activeStopRequested = false;
     const timeoutMs = getTimeoutMs();
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
     maybeUnref(abortTimer);
@@ -84,40 +98,56 @@ export function createPollEngine(
       reported = true;
       onError(err);
     };
+    const reportTimeout = (err: unknown): void => {
+      if (reported) return;
+      if (useDefaultTimeoutHandler) reported = true;
+      onTimeout(err);
+    };
+    inFlightReport = report;
 
-    // The attempt is retained separately from the timeout race below. The
-    // timeout reports a slow attempt immediately, but the in-flight slot is
-    // only released once the attempt itself settles: releasing on the
-    // timeout would let the next tick start while an attempt that ignores
-    // `signal` is still doing work, which is the overlap (duplicate external
-    // requests, racing writes) this engine exists to prevent. An attempt that
-    // never settles blocks further attempts by design — `onError` has already
-    // fired, so it is loud rather than silent.
+    // A timeout does not release the attempt: a slow or signal-ignoring
+    // operation must settle before another tick can run. An attempt that never
+    // settles blocks further attempts by design. After stop(), a restarted
+    // engine reports a still-pending attempt on its next tick.
     const settled = Promise.resolve()
       .then(() => attempt(controller.signal))
       .then(
         () => {},
-        (err: unknown) => report(err),
+        (err: unknown) => {
+          if (activeStopRequested || controller.signal.aborted) return;
+          report(err);
+        },
       );
 
+    let timeoutError: Error | undefined;
     try {
       await Promise.race([
         settled,
-        new Promise<never>((_, reject) => {
+        new Promise<void>((resolve, reject) => {
           controller.signal.addEventListener(
             "abort",
-            () =>
-              reject(new Error(`poll attempt timed out after ${timeoutMs}ms`)),
+            () => {
+              if (activeStopRequested) {
+                resolve();
+              } else {
+                timeoutError = new Error(
+                  `poll attempt timed out after ${timeoutMs}ms`,
+                );
+                reject(timeoutError);
+              }
+            },
             { once: true },
           );
         }),
       ]);
     } catch (err) {
-      report(err);
+      if (err === timeoutError) reportTimeout(err);
+      else report(err);
     } finally {
       await settled;
       clearTimeout(abortTimer);
       if (activeController === controller) activeController = null;
+      if (inFlightReport === report) inFlightReport = null;
       inFlight = false;
       if (gen === generation && running) schedule(gen);
     }
@@ -129,13 +159,14 @@ export function createPollEngine(
       running = true;
       generation++;
       const gen = generation;
-      if (leading) void tick(gen);
+      if (leading && !inFlight) void tick(gen);
       else schedule(gen);
     },
     stop(): void {
       running = false;
       generation++;
       clearTimer();
+      activeStopRequested = true;
       activeController?.abort();
     },
     pollNow(): void {

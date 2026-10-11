@@ -10,7 +10,7 @@ description: "सार्वजनिक मार्गों को एजे
 दस्तावेज़ साइट संदर्भ कार्यान्वयन है। आज यह शिप करता है:
 
 - `/robots.txt` एक क्रॉलर नीति के साथ जो पुनर्प्राप्ति की अनुमति देता है लेकिन डिफ़ॉल्ट रूप से प्रशिक्षण की अनुमति नहीं देता है।
-- `/sitemap.xml` पूर्ण विहित URLs और `lastmod` के साथ जब स्रोत फ़ाइल इसे उजागर करती है।
+- `/sitemap.xml` एक साइटमैप इंडेक्स के रूप में, जो हर भाषा के लिए एक `/sitemap-<locale>.xml` की ओर इशारा करता है, पूर्ण विहित URLs और `lastmod` के साथ जब स्रोत फ़ाइल इसे उजागर करती है।
 - एजेंट-अनुकूल सामग्री खोज के लिए `/llms.txt` और `/llms-full.txt`।
 - Markdown दर्पण जैसे `/docs/getting-started.md`।
 - उत्पादन निर्माण के बाद सार्वजनिक दस्तावेज़ पृष्ठों के लिए `Accept: text/markdown` प्रतिक्रियाएँ।
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Vite ऐप्स उत्पादन निर्माण के दौरान उन फ़ाइलों को `public`, `dist`, `dist/client`, `dist/server/public`, या `build/client` में लिखने के लिए `@agent-native/core/vite` से `createAgentWebVitePlugin` का उपयोग कर सकते हैं।
+
+बड़े साइटमैप को बाँटने के लिए `buildAgentWebStaticFiles` या `createAgentWebVitePlugin` को `sitemapGroup` पास करें। यह हर पेज को एक समूह कुंजी, जैसे उसकी भाषा, से जोड़ता है, और `sitemap.xml` एक साइटमैप इंडेक्स बन जाता है जिसमें हर समूह के लिए एक `sitemap-<group>.xml` होता है।
 
 ## किसी साइट का ऑडिट करें {#audit}
 

@@ -305,8 +305,8 @@ Before claiming an issue, check comments for handoffs. If someone offers a PR,
 or Steve asks them to, mark **Owned elsewhere**; do not investigate, edit, test,
 ship, reply, or close it. A direct request overrides this.
 
-Fix every defect at its root or ask an unblock question; do not
-skip old, bot-filed, or maintainer-commented issues. Feature requests and
+Fix root causes or ask what's blocking; triage human issues, not automated
+finding mirrors covered by QA rollups. Feature requests and
 subjective feedback need user/`:upvote:` authorization. Ask three questions max;
 re-read before posting/closing.
 
@@ -453,9 +453,10 @@ status or ask a useful question. Follow `address-feedback-with-replies` for
 Slack voice. End each Slack reply with `this was sent from a bot.` after its
 plain-language status.
 
-Use everyday words for nontechnical readers. In one short paragraph, say what
-we did, what we didn't do when relevant, and what's next. Give a simple reason
-when useful. Keep technical proof in the recap or PR.
+Short replies: say the change, limits, and next step. Link merged PRs and say
+they're merged. Keep hashes, branches, CI, publisher, and run details in recap.
+Beta fixes follow reference for timing and live status; state other availability
+plainly.
 
 Share only new or useful information.
 

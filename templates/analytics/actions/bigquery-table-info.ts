@@ -7,7 +7,7 @@ This generic analytics template does not bundle a workspace-specific BigQuery da
 
 Use these sources of truth instead:
 
-- \`list-data-dictionary\` for approved metric, table, column, join, and caveat definitions configured by this organization.
+- \`find-data\` for ranked metric definitions, saved SQL, and generated source metadata.
 - \`data-source-status --key bigquery\` to confirm whether BigQuery credentials and a project are configured.
 - \`search-bigquery-schema\` to search the configured project by dataset, table, or column term, or inspect exact table columns before writing SQL.
 - The configured warehouse's \`INFORMATION_SCHEMA.COLUMNS\` tables when you need to discover actual datasets, tables, and columns.

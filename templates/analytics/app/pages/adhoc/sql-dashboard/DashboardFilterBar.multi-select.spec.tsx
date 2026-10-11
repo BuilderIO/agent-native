@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { i18nCatalog } from "../../../i18n";
 import { DashboardFilterBar } from "./DashboardFilterBar";
 import type { DashboardFilter } from "./types";
 
@@ -37,10 +39,16 @@ function render(
 ) {
   act(() => {
     root.render(
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <DashboardFilterBar filters={list} />
-        <SearchProbe />
-      </MemoryRouter>,
+      <AgentNativeI18nProvider
+        catalog={i18nCatalog}
+        initialLocale="en-US"
+        persistPreference={false}
+      >
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <DashboardFilterBar filters={list} />
+          <SearchProbe />
+        </MemoryRouter>
+      </AgentNativeI18nProvider>,
     );
   });
 }
@@ -82,6 +90,34 @@ function popoverButton(text: string): HTMLButtonElement {
   );
   if (!button) throw new Error(`button ${text} not rendered`);
   return button;
+}
+
+function onlyButton(value: string): HTMLButtonElement {
+  const option = optionLabel(value).parentElement;
+  const button = [
+    ...(option?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+  ].find((element) => element.textContent?.trim() === "Only");
+  if (!button) throw new Error(`Only button for ${value} not rendered`);
+  expect(button.getAttribute("aria-label")).toBe(`Only ${value}`);
+  return button;
+}
+
+function searchInput(): HTMLInputElement {
+  const input = popover().querySelector<HTMLInputElement>(
+    'input[role="searchbox"]',
+  );
+  if (!input) throw new Error("multi-select search input not rendered");
+  return input;
+}
+
+function setSearchQuery(value: string) {
+  const input = searchInput();
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  setter?.call(input, value);
+  act(() => input.dispatchEvent(new Event("input", { bubbles: true })));
 }
 
 describe("multi-select dashboard filter", () => {
@@ -153,5 +189,105 @@ describe("multi-select dashboard filter", () => {
     act(() => popoverButton("Clear all").click());
 
     expect(new URLSearchParams(search).get("f_plan")).toBe("__empty__");
+  });
+
+  it("selects all configured options and summarizes them as All", () => {
+    render();
+    act(() => trigger().click());
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,enterprise",
+    );
+    expect(trigger().textContent).toContain("All");
+    expect(optionCheckbox("Free").getAttribute("aria-checked")).toBe("true");
+    expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("deduplicates options with the same value before rendering and selecting all", () => {
+    const duplicateOptions: DashboardFilter[] = [
+      {
+        ...filters[0],
+        options: [
+          ...filters[0].options!,
+          { value: "free", label: "Free duplicate" },
+        ],
+      },
+    ];
+    render("/dashboards/test", duplicateOptions);
+    act(() => trigger().click());
+
+    expect(() => optionLabel("Free duplicate")).toThrow(
+      "option Free duplicate not rendered",
+    );
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,enterprise",
+    );
+    expect(trigger().textContent).toContain("All");
+  });
+
+  it("keeps unknown URL values when selecting all search matches", () => {
+    render("/dashboards/test?f_plan=legacy,self_serve");
+    act(() => trigger().click());
+    setSearchQuery("free");
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "legacy,self_serve,free",
+    );
+    expect(trigger().textContent).toContain("legacy, Self-Serve, Free");
+  });
+
+  it("keeps unknown URL values when toggling configured options", () => {
+    render("/dashboards/test?f_plan=legacy,self_serve");
+    act(() => trigger().click());
+    act(() => optionCheckbox("Free").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "legacy,self_serve,free",
+    );
+    act(() => optionCheckbox("Self-Serve").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("legacy,free");
+  });
+
+  it("limits the selection to one option from its Only action", () => {
+    render("/dashboards/test?f_plan=free,self_serve");
+    act(() => trigger().click());
+    act(() => onlyButton("Enterprise").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("enterprise");
+    expect(optionCheckbox("Free").getAttribute("aria-checked")).toBe("false");
+    expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("searches option labels and reports when there are no matches", () => {
+    render();
+    act(() => trigger().click());
+    const status = popover().querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.getAttribute("aria-atomic")).toBe("true");
+    expect(status?.closest("ul")).toBeNull();
+
+    setSearchQuery("self");
+
+    expect(optionLabel("Self-Serve")).toBeTruthy();
+    expect(() => optionLabel("Free")).toThrow("option Free not rendered");
+    expect(popover().querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("");
+
+    setSearchQuery("not a value");
+    expect(popover().textContent).toContain("No values found");
+    expect(popover().querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("No values found");
+    expect(popoverButton("Select all").disabled).toBe(true);
+    act(() => popoverButton("Select all").click());
+    expect(new URLSearchParams(search).has("f_plan")).toBe(false);
   });
 });

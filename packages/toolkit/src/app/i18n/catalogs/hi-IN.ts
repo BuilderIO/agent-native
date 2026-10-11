@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "कतार में",
   "agent.completed": "काम पूरा किया",
   "agent.failed": "ध्यान देने की ज़रूरत है",
+  "agent.failureReason.failed": "पूरा नहीं हो सका",
+  "agent.failureReason.setup": "पहले सेटअप ज़रूरी है",
+  "agent.failureReason.auth": "पहुँच अस्वीकार की गई",
+  "agent.failureReason.timeout": "बहुत देर लगी",
+  "agent.failureReason.budget": "समय समाप्त हो गया",
+  "agent.failureReason.response": "कोई उपयोगी परिणाम नहीं",
   "agent.closed": "बंद किया",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
@@ -83,6 +89,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
   "observability.promoteMustContainLabel":
     "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+  "observability.promoteReviewedPromptLabel":
+    "मैन्युअल रूप से समीक्षा किया गया प्रॉम्प्ट (प्रोडक्शन से कभी स्वतः कॉपी नहीं किया जाता)",
   "observability.promoteNeedsContains":
     "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.viewDetails": "विवरण देखें",
@@ -123,7 +131,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
-  "onboarding.builderSignInWithAccount": "Builder.io इस्तेमाल करें",
+  "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
@@ -155,6 +163,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया जा रहा है और मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं।",
+  "onboarding.builderCancelPending": "कनेक्शन की स्थिति जाँची जा रही है…",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "onboarding.builderReadyWithCodeChanges":
@@ -1137,9 +1146,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.continueUnavailable":
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
+  "errorMessages.invalidAttachmentNamed":
+    "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
+  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से कोशिश करें",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
-  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से प्रयास करें",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":

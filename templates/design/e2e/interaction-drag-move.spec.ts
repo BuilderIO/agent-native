@@ -483,7 +483,7 @@ test("in-screen: smart guides disappear once the drop commits", async ({
   ).toBeGreaterThan(0);
   expect(
     afterDrop,
-    `guide overlays stayed painted after mouseup (count=${afterDrop}); standard clears them on drop`,
+    `guide overlays stayed painted after mouseup (count=${afterDrop}); they must clear on drop`,
   ).toBe(0);
 });
 

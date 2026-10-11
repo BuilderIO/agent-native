@@ -451,11 +451,21 @@ export function buildSessionReplayDiagnostics(
   };
 }
 
-function capReplayTimelineMarkers(
-  markers: ReplayTimelineMarker[],
-): ReplayTimelineMarker[] {
+function capReplayTimelineMarkers(markers: ReplayTimelineMarker[]): {
+  markers: ReplayTimelineMarker[];
+  totalMarkerCount: number;
+  markerTruncated: boolean;
+  omittedMarkerCount: number;
+} {
   const sorted = [...markers].sort((a, b) => a.offsetMs - b.offsetMs);
-  if (sorted.length <= TIMELINE_MARKER_CAP) return sorted;
+  if (sorted.length <= TIMELINE_MARKER_CAP) {
+    return {
+      markers: sorted,
+      totalMarkerCount: sorted.length,
+      markerTruncated: false,
+      omittedMarkerCount: 0,
+    };
+  }
   const isError = (marker: ReplayTimelineMarker) =>
     marker.kind === "console-error" || marker.kind === "network-error";
   const kept = new Set<ReplayTimelineMarker>();
@@ -467,7 +477,13 @@ function capReplayTimelineMarkers(
     if (kept.size >= TIMELINE_MARKER_CAP) break;
     kept.add(marker);
   }
-  return [...kept].sort((a, b) => a.offsetMs - b.offsetMs);
+  const selected = [...kept].sort((a, b) => a.offsetMs - b.offsetMs);
+  return {
+    markers: selected,
+    totalMarkerCount: sorted.length,
+    markerTruncated: true,
+    omittedMarkerCount: sorted.length - selected.length,
+  };
 }
 
 const SESSIONS_TRIAGE_MARKER_TAGS = new Set<string>([
@@ -616,14 +632,21 @@ export async function getSessionReplayTimeline(
         Boolean(event) && typeof event === "object",
     ),
   );
-  const markers = buildReplayTimeline(events);
+  const timeline = buildReplayTimeline(events);
 
   return {
     recording: compactSessionRecordingSummary(eventsResponse.recording),
-    markerCount: markers.length,
-    markers,
+    markerCount: timeline.markers.length,
+    totalMarkerCount: timeline.totalMarkerCount,
+    markerTruncated: timeline.markerTruncated,
+    omittedMarkerCount: timeline.omittedMarkerCount,
+    markers: timeline.markers,
     eventCount: eventsResponse.eventCount,
-    truncated: eventsResponse.truncated,
+    eventsTruncated: eventsResponse.truncated,
+    truncated:
+      eventsResponse.truncated ||
+      eventsResponse.unavailableChunks > 0 ||
+      timeline.markerTruncated,
     unavailableChunks: eventsResponse.unavailableChunks,
   };
 }
@@ -751,7 +774,7 @@ export async function buildSessionReplayAgentContext({
           Boolean(event) && typeof event === "object",
       ),
     ) ?? [];
-  const markers = buildReplayTimeline(events);
+  const timeline = buildReplayTimeline(events);
   const diagnostics = buildSessionReplayDiagnostics(events, {
     maxConsoleEntries: AGENT_CONTEXT_DIAGNOSTIC_ENTRY_CAP,
     maxNetworkEntries: AGENT_CONTEXT_DIAGNOSTIC_ENTRY_CAP,
@@ -797,9 +820,17 @@ export async function buildSessionReplayAgentContext({
         : {}),
     },
     timeline: {
-      markerCount: markers.length,
-      markers,
-      truncated: Boolean(eventsResponse?.truncated),
+      markerCount: timeline.markers.length,
+      totalMarkerCount: timeline.totalMarkerCount,
+      markerTruncated: timeline.markerTruncated,
+      omittedMarkerCount: timeline.omittedMarkerCount,
+      markers: timeline.markers,
+      eventsTruncated: Boolean(eventsResponse?.truncated),
+      truncated: Boolean(
+        eventsResponse?.truncated ||
+        (eventsResponse?.unavailableChunks ?? 0) > 0 ||
+        timeline.markerTruncated,
+      ),
       unavailableChunks: eventsResponse?.unavailableChunks ?? 0,
     },
   };

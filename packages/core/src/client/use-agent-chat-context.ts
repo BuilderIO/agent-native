@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   clearAgentChatContext,
+  filterAgentChatContextItems,
   getAgentChatContextState,
   refreshAgentChatContext,
   removeAgentChatContextItem,
@@ -28,6 +29,10 @@ export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
     getAgentChatContextState,
     getAgentChatContextState,
   );
+  const items = useMemo(
+    () => filterAgentChatContextItems(state.items),
+    [state.items],
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -45,13 +50,21 @@ export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   const clear = useCallback((options?: AgentChatContextMutationOptions) => {
     clearAgentChatContext(options);
   }, []);
+  const refresh = useCallback(async () => {
+    const refreshed = await refreshAgentChatContext();
+    return {
+      ...refreshed,
+      items: filterAgentChatContextItems(refreshed.items),
+    };
+  }, []);
 
   return {
     ...state,
+    items,
     set,
     remove,
     clear,
-    refresh: refreshAgentChatContext,
+    refresh,
   };
 }
 

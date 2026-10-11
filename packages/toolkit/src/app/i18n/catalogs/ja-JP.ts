@@ -39,6 +39,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
   "agent.failed": "対応が必要です",
+  "agent.failureReason.failed": "完了できませんでした",
+  "agent.failureReason.setup": "先に設定が必要です",
+  "agent.failureReason.auth": "アクセスが拒否されました",
+  "agent.failureReason.timeout": "応答がタイムアウトしました",
+  "agent.failureReason.budget": "時間切れになりました",
+  "agent.failureReason.response": "使える結果がありません",
   "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -85,6 +91,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "返信で確認する任意のテキスト…",
   "observability.promoteMustContainLabel":
     "昇格した評価の返信で確認するテキスト",
+  "observability.promoteReviewedPromptLabel":
+    "手動で確認したプロンプト（本番環境から自動コピーされません）",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",
@@ -127,7 +135,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
-  "onboarding.builderSignInWithAccount": "Builder.io を使う",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -164,6 +172,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
     "Builder.io アカウントを作成し、無料クレジットを有効化しています。",
+  "onboarding.builderCancelPending": "接続状態を確認しています…",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
   "onboarding.builderReadyWithCodeChanges":
@@ -1171,9 +1180,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.continueUnavailable":
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
+  "errorMessages.invalidAttachmentNamed":
+    "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
-  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.deferredSubmissionFailed":
     "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":

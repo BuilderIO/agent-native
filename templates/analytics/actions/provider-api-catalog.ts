@@ -3,16 +3,34 @@ import { z } from "zod";
 
 import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 
-const ProviderSchema = z.string().min(1);
+const ProviderSchema = z
+  .string()
+  .min(1)
+  .refine((provider) => provider !== "dbt", {
+    message: "Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
+  });
+
+const runtime = getAnalyticsProviderApiRuntime();
 
 export default createProviderApiCatalogAction(
-  getAnalyticsProviderApiRuntime(),
+  {
+    listCatalog: async (provider) => {
+      if (provider === "dbt") return [];
+      const providers = await runtime.listCatalog(provider);
+      return providers.filter(
+        (entry) =>
+          !entry ||
+          typeof entry !== "object" ||
+          (entry as { id?: unknown }).id !== "dbt",
+      );
+    },
+  },
   {
     description:
       "List raw HTTP API capabilities for configured Analytics providers. Use before provider-api-request when canned actions are too narrow. Returns provider base URLs, auth style, credential key names, docs/spec URLs, placeholders, examples, and reusable corpus recipes; never returns secret values.",
     schema: z.object({
       provider: ProviderSchema.optional().describe(
-        "Optional built-in or custom provider id to inspect. Omit to list every provider API escape hatch visible to this organization.",
+        "Optional built-in or custom provider id to inspect. Omit to list every provider API escape hatch visible to this organization. dbt is queried only through query-dbt-semantic-metric.",
       ),
     }),
     http: { method: "GET" },

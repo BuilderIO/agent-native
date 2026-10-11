@@ -9,10 +9,13 @@ import {
 } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
+
 const KEY_PREFIX = "data-dict-";
 
 export default defineAction({
-  description: "Delete a data dictionary entry by id.",
+  description:
+    "Delete a data dictionary entry by id. Org dictionary edits require an organization owner or admin.",
   schema: z.object({
     id: z.string().describe("ID of the entry to delete"),
   }),
@@ -20,6 +23,9 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    if (orgId) {
+      await requireAnalyticsAdminContext({ userEmail: email, orgId });
+    }
     const key = `${KEY_PREFIX}${args.id}`;
     if (orgId) {
       await deleteOrgSetting(orgId, key);

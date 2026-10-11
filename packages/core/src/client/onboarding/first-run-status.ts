@@ -5,7 +5,7 @@ import { agentNativePath } from "../api-path.js";
 export const FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT =
   "agent-native:first-run-status-resolved";
 
-const FIRST_RUN_STATUS_TIMEOUT_MS = 10_000;
+const FIRST_RUN_STATUS_TIMEOUT_MS = 5_000;
 
 let firstRunStatusRequest: Promise<boolean> | null = null;
 

@@ -49,7 +49,8 @@ interface CommentDraftContextValue {
     operationId: string,
     submittedDraft: CommentDraftRevision,
   ) => CommentDraftRevision;
-  restoreSubmittedDraft: (key: string, operationId: string) => void;
+  /** False when a newer draft is kept instead of the submitted one. */
+  restoreSubmittedDraft: (key: string, operationId: string) => boolean;
   finishSubmission: (operationId: string) => void;
   isSubmittingDraft: (key: string) => boolean;
   resolutionVersion: number;
@@ -221,6 +222,8 @@ function CommentDraftStore({
   const [drafts, setDrafts] = useState<
     ReadonlyMap<string, CommentDraftRevision>
   >(initialStoredDrafts.drafts);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
   const [draftStorageState, setDraftStorageState] = useState(
     initialStoredDrafts.state,
   );
@@ -331,7 +334,7 @@ function CommentDraftStore({
     CommentDraftContextValue["restoreSubmittedDraft"]
   >((key, operationId) => {
     const submitted = submittedDrafts.get(operationId);
-    if (!submitted) return;
+    if (!submitted || draftsRef.current.has(key)) return false;
     setDrafts((current) => {
       if (current.has(key)) return current;
       const next = new Map(current);
@@ -342,6 +345,7 @@ function CommentDraftStore({
       });
       return next;
     });
+    return true;
   }, []);
   const finishSubmission = useCallback<
     CommentDraftContextValue["finishSubmission"]

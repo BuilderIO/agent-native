@@ -189,7 +189,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  // oracle: none — verifies bridge readiness and source-warning timing, not visual parity
   test("reveals the local frame as soon as its editor bridge is ready", async ({
     browser,
     page,
@@ -455,7 +454,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  // oracle: none — verifies authorization responses, not native visual parity
   test("rejects forged bare-link editor access", async ({ browser }) => {
     const context = await browser.newContext({
       storageState: { cookies: [], origins: [] },
@@ -508,7 +506,6 @@ test.describe.serial("public visual edit", () => {
     }
   });
 
-  // oracle: none — verifies credential denial and network isolation, not native visual parity
   test("public /visual-edit viewers cannot get local bridge credentials", async ({
     browser,
   }) => {

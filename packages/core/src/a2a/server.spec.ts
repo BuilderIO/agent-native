@@ -599,6 +599,140 @@ describe("mountA2A auth", () => {
     ).not.toHaveBeenCalled();
   });
 
+  describe("user assertion demotion warning", () => {
+    const sign = (claims: jose.JWTPayload, secret: string) =>
+      new jose.SignJWT(claims)
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode(secret));
+    const demotionWarnings = (warn: { mock: { calls: unknown[][] } }) =>
+      warn.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes("orgId="));
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("warns once per org when the org secret equals the deployment secret", async () => {
+      process.env.A2A_SECRET = "same-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-collide",
+        orgDomain: "builder.io",
+        secret: "same-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await sign(
+        { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+        "same-secret",
+      );
+
+      await verifyA2AToken(token);
+      await verifyA2AToken(token);
+
+      const warnings = demotionWarnings(warn);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("orgId=org-collide");
+      expect(warnings[0]).toContain("org secret equals deploy secret");
+      expect(warnings[0]).not.toContain("same-secret");
+      expect(warnings[0]).not.toContain("alice+qa@builder.io");
+    });
+
+    it("warns when a user token verifies only with the org secret", async () => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-org-secret",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+      const token = await sign(
+        { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+        "org-a2a-secret",
+      );
+
+      await verifyA2AToken(token);
+      await verifyA2AToken(token);
+
+      const warnings = demotionWarnings(warn);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain("orgId=org-org-secret");
+      expect(warnings[0]).toContain("user token verified only with org secret");
+      expect(warnings[0]).not.toContain("org-a2a-secret");
+      expect(warnings[0]).not.toContain("alice+qa@builder.io");
+    });
+
+    it("warns separately for each affected org", async () => {
+      process.env.A2A_SECRET = "same-secret";
+      const { verifyA2AToken } = await import("./server.js");
+      for (const orgId of ["org-one", "org-two"]) {
+        resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+          orgId,
+          orgDomain: "builder.io",
+          secret: "same-secret",
+        });
+        await verifyA2AToken(
+          await sign(
+            { sub: "alice+qa@builder.io", org_domain: "builder.io" },
+            "same-secret",
+          ),
+        );
+      }
+
+      expect(demotionWarnings(warn)).toEqual([
+        expect.stringContaining("orgId=org-one"),
+        expect.stringContaining("orgId=org-two"),
+      ]);
+    });
+
+    it("warns again for the same org when the cause changes", async () => {
+      const claims = { sub: "alice+qa@builder.io", org_domain: "builder.io" };
+      const { verifyA2AToken } = await import("./server.js");
+
+      process.env.A2A_SECRET = "same-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-cause-change",
+        orgDomain: "builder.io",
+        secret: "same-secret",
+      });
+      await verifyA2AToken(await sign(claims, "same-secret"));
+
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-cause-change",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      await verifyA2AToken(await sign(claims, "org-a2a-secret"));
+
+      expect(demotionWarnings(warn)).toEqual([
+        expect.stringContaining("org secret equals deploy secret"),
+        expect.stringContaining("user token verified only with org secret"),
+      ]);
+    });
+
+    it("stays quiet for an organization token that never asserted a user", async () => {
+      delete process.env.A2A_SECRET;
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "org-plain",
+        orgDomain: "builder.io",
+        secret: "org-a2a-secret",
+      });
+      const { verifyA2AToken } = await import("./server.js");
+
+      await verifyA2AToken(
+        await sign({ org_domain: "builder.io" }, "org-a2a-secret"),
+      );
+
+      expect(demotionWarnings(warn)).toEqual([]);
+    });
+  });
+
   it("does not treat an explicitly verified org secret as proof of its subject", async () => {
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
       orgId: "org-builder",

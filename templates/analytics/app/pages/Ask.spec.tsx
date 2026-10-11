@@ -2,6 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
@@ -10,6 +11,10 @@ const clientMocks = vi.hoisted(() => ({
   callAction: vi.fn(async () => ({ cleared: true })),
   remove: vi.fn(),
   readClientAppState: vi.fn(async () => null as Record<string, unknown> | null),
+  threadUrlSync: null as null | {
+    routeThreadId: string | null;
+    getPath: (threadId: string | null) => string;
+  },
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -26,15 +31,20 @@ vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentChatHome: ({
     composerSlot,
     homeIntroSlot,
+    threadUrlSync,
   }: {
     composerSlot?: React.ReactNode;
     homeIntroSlot?: React.ReactNode;
-  }) => (
-    <div data-testid="chat">
-      {composerSlot}
-      {homeIntroSlot}
-    </div>
-  ),
+    threadUrlSync?: typeof clientMocks.threadUrlSync;
+  }) => {
+    clientMocks.threadUrlSync = threadUrlSync ?? null;
+    return (
+      <div data-testid="chat">
+        {composerSlot}
+        {homeIntroSlot}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({
@@ -69,6 +79,34 @@ describe("AskPage", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  function renderAskPage(threadId: string | null = null) {
+    root.render(
+      <MemoryRouter>
+        <AskPage threadId={threadId} />
+      </MemoryRouter>,
+    );
+  }
+
+  it("binds the blank /ask page to no route thread, so it never restores the last chat", async () => {
+    await act(async () => {
+      renderAskPage();
+    });
+
+    expect(clientMocks.threadUrlSync?.routeThreadId).toBeNull();
+    expect(clientMocks.threadUrlSync?.getPath(null)).toBe("/ask");
+    expect(clientMocks.threadUrlSync?.getPath("thread-1")).toBe(
+      "/ask/thread-1",
+    );
+  });
+
+  it("binds a saved thread page to its own route thread", async () => {
+    await act(async () => {
+      renderAskPage("thread-1");
+    });
+
+    expect(clientMocks.threadUrlSync?.routeThreadId).toBe("thread-1");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     clientMocks.creativeContextEnabled = false;
@@ -99,7 +137,7 @@ describe("AskPage", () => {
       ];
 
       await act(async () => {
-        root.render(<AskPage />);
+        renderAskPage();
       });
 
       expect(clientMocks.remove).toHaveBeenCalledWith(key);
@@ -112,7 +150,7 @@ describe("AskPage", () => {
     ];
 
     await act(async () => {
-      root.render(<AskPage />);
+      renderAskPage();
     });
 
     expect(clientMocks.remove).not.toHaveBeenCalled();
@@ -120,7 +158,7 @@ describe("AskPage", () => {
 
   it("keeps the empty Ask intro to its title", async () => {
     await act(async () => {
-      root.render(<AskPage />);
+      renderAskPage();
     });
 
     expect(container.textContent).toContain("common.askIntroTitle");
@@ -130,7 +168,7 @@ describe("AskPage", () => {
 
   it("hides the Creative Context composer chip until its Lab is enabled", async () => {
     await act(async () => {
-      root.render(<AskPage />);
+      renderAskPage();
     });
 
     expect(
@@ -142,7 +180,7 @@ describe("AskPage", () => {
     clientMocks.creativeContextEnabled = true;
 
     await act(async () => {
-      root.render(<AskPage />);
+      renderAskPage();
     });
 
     expect(
@@ -152,7 +190,7 @@ describe("AskPage", () => {
 
   it("requests atomic dashboard selection cleanup on Ask entry", async () => {
     await act(async () => {
-      root.render(<AskPage />);
+      renderAskPage();
     });
 
     expect(clientMocks.callAction).toHaveBeenCalledWith(
@@ -177,7 +215,7 @@ describe("AskPage", () => {
     );
 
     await act(async () => {
-      root.render(<AskPage />);
+      renderAskPage();
     });
     window.history.pushState({}, "", "/dashboards/dash-2");
 

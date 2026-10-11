@@ -105,6 +105,12 @@ function inspectorSection(page: Page, title: RegExp): Locator {
     .first();
 }
 
+function addStrokeButton(section: Locator): Locator {
+  return section.locator(
+    '[data-design-inspector-section-header] button[aria-label="Add stroke"]:has(svg)',
+  );
+}
+
 async function openBooleanMenu(page: Page) {
   const canvas = page.locator("[data-design-canvas-container]");
   const box = await canvas.boundingBox();
@@ -137,6 +143,14 @@ async function setInspectorValue(
   await expect(input).toBeVisible();
   await input.fill(value);
   await input.press("Enter");
+}
+
+async function expectPositionReadback(input: Locator, expected: number) {
+  await expect
+    .poll(async () =>
+      Math.abs(Number.parseFloat(await input.inputValue()) - expected),
+    )
+    .toBeLessThanOrEqual(0.02);
 }
 
 async function booleanMaskPixels(
@@ -352,7 +366,9 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
       .toBeLessThanOrEqual(129);
 
     await layerRow(page, "Subtract").first().click();
-    await page.getByRole("button", { name: "Add stroke", exact: true }).click();
+    const addStroke = addStrokeButton(inspectorSection(page, /^Stroke$/i));
+    await expect(addStroke).toHaveCount(1);
+    await addStroke.click();
     await setInspectorValue(page, "Weight", "4");
     const strokedPixels = await booleanMaskPixels(frame);
     expect(strokedPixels.cutEdge?.[3]).toBeGreaterThan(0);
@@ -389,16 +405,34 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
     const probes: Record<string, [number, number]> = {
       beforeX: [25, 40],
       afterX: [45, 40],
-      beforeY: [40, 25],
-      afterY: [40, 70],
+      beforeY: [49, 46],
+      afterY: [29, 62],
     };
+    const halfDiagonal = Math.SQRT1_2;
+    const initialMeasuredX = 40 - 40 * halfDiagonal;
+    const initialMeasuredY = 40 - 20 * halfDiagonal;
+    const expectedLocalAfterX = Number(
+      (20 + (30 - initialMeasuredX) * halfDiagonal).toFixed(2),
+    );
+    const localYDelta = (35 - initialMeasuredY) * halfDiagonal;
+    const expectedLocalAfterY = {
+      x: Number((expectedLocalAfterX - localYDelta).toFixed(2)),
+      y: Number((expectedLocalAfterX + localYDelta).toFixed(2)),
+    };
+    const xPosition = page.getByRole("textbox", { name: "X-position" });
+    const yPosition = page.getByRole("textbox", { name: "Y-position" });
+    await expect(xPosition).toHaveValue(`${initialMeasuredX.toFixed(2)}px`);
+    await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+
     const beforePosition = await booleanMaskPixels(frame, 0, true, probes);
     expect(beforePosition.beforeX?.[3]).toBe(0);
     expect(beforePosition.afterX?.[3]).toBeGreaterThan(0);
-    expect(beforePosition.beforeY?.[3]).toBe(0);
+    expect(beforePosition.beforeY?.[3]).toBeGreaterThan(0);
     expect(beforePosition.afterY?.[3]).toBeGreaterThan(0);
 
     await setInspectorValue(page, "X-position", "30");
+    await expect(xPosition).toHaveValue("30px");
+    await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
     await expect
       .poll(async () =>
         svgSourceTag(
@@ -406,14 +440,22 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           'data-agent-native-node-id="cutter"',
         ),
       )
-      .toContain('x="30"');
+      .toContain(`x="${expectedLocalAfterX}"`);
+    await expect
+      .poll(async () =>
+        svgSourceTag(
+          await designContent(page, designId, "index.html"),
+          'data-agent-native-node-id="cutter"',
+        ),
+      )
+      .toContain(`y="${expectedLocalAfterX}"`);
     const editedXContent = await designContent(page, designId, "index.html");
     const editedXOperand = svgSourceTag(
       editedXContent,
       'data-agent-native-node-id="cutter"',
     );
-    expect(editedXOperand).toContain('x="30"');
-    expect(editedXOperand).toContain('y="20"');
+    expect(editedXOperand).toContain(`x="${expectedLocalAfterX}"`);
+    expect(editedXOperand).toContain(`y="${expectedLocalAfterX}"`);
     expect(editedXOperand).toContain('width="20"');
     expect(svgSourceTag(editedXContent, 'data-an-primitive="boolean"')).toMatch(
       /transform:\s*rotate\(-45deg\)/,
@@ -430,6 +472,8 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
     expect(afterX.afterY?.[3]).toBeGreaterThan(0);
 
     await setInspectorValue(page, "Y-position", "35");
+    await expect(xPosition).toHaveValue("30px");
+    await expectPositionReadback(yPosition, 35);
     await expect
       .poll(async () =>
         svgSourceTag(
@@ -437,14 +481,22 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           'data-agent-native-node-id="cutter"',
         ),
       )
-      .toContain('y="35"');
+      .toContain(`y="${expectedLocalAfterY.y}"`);
+    await expect
+      .poll(async () =>
+        svgSourceTag(
+          await designContent(page, designId, "index.html"),
+          'data-agent-native-node-id="cutter"',
+        ),
+      )
+      .toContain(`x="${expectedLocalAfterY.x}"`);
     const editedXYContent = await designContent(page, designId, "index.html");
     const editedXYOperand = svgSourceTag(
       editedXYContent,
       'data-agent-native-node-id="cutter"',
     );
-    expect(editedXYOperand).toContain('x="30"');
-    expect(editedXYOperand).toContain('y="35"');
+    expect(editedXYOperand).toContain(`x="${expectedLocalAfterY.x}"`);
+    expect(editedXYOperand).toContain(`y="${expectedLocalAfterY.y}"`);
     expect(editedXYOperand).toContain('width="20"');
     expect(
       svgSourceTag(editedXYContent, 'data-an-primitive="boolean"'),
@@ -457,6 +509,7 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
       .toBe(0);
     const afterXY = await booleanMaskPixels(frame, 0, true, probes);
     expect(afterXY.beforeX?.[3]).toBeGreaterThan(0);
+    expect(afterXY.afterX?.[3]).toBeGreaterThan(0);
     expect(afterXY.beforeY?.[3]).toBeGreaterThan(0);
 
     await layerRow(page, "Cutter").first().click();
@@ -468,11 +521,24 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           'data-agent-native-node-id="cutter"',
         ),
       )
-      .toContain('y="20"');
+      .toContain(`y="${expectedLocalAfterX}"`);
+    await expect
+      .poll(async () =>
+        svgSourceTag(
+          await designContent(page, designId, "index.html"),
+          'data-agent-native-node-id="cutter"',
+        ),
+      )
+      .toContain(`x="${expectedLocalAfterX}"`);
     const undoYContent = await designContent(page, designId, "index.html");
-    expect(
-      svgSourceTag(undoYContent, 'data-agent-native-node-id="cutter"'),
-    ).toContain('x="30"');
+    await expect(xPosition).toHaveValue("30px");
+    await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+    const undoYOperand = svgSourceTag(
+      undoYContent,
+      'data-agent-native-node-id="cutter"',
+    );
+    expect(undoYOperand).toContain(`x="${expectedLocalAfterX}"`);
+    expect(undoYOperand).toContain(`y="${expectedLocalAfterX}"`);
     expect(svgSourceTag(undoYContent, 'data-an-primitive="boolean"')).toMatch(
       /transform:\s*rotate\(-45deg\)/,
     );
@@ -482,9 +548,10 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           (await booleanMaskPixels(frame, 0, true, probes)).beforeY?.[3],
       )
       .toBe(0);
-    expect(
-      (await booleanMaskPixels(frame, 0, true, probes)).afterY?.[3],
-    ).toBeGreaterThan(0);
+    const undoYPixels = await booleanMaskPixels(frame, 0, true, probes);
+    expect(undoYPixels.afterX?.[3]).toBe(0);
+    expect(undoYPixels.beforeY?.[3]).toBe(0);
+    expect(undoYPixels.afterY?.[3]).toBeGreaterThan(0);
 
     await page.keyboard.press(`${MOD}+z`);
     await expect
@@ -495,9 +562,17 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
         ),
       )
       .toContain('x="20"');
-    expect((await booleanMaskPixels(frame, 0, true, probes)).beforeX?.[3]).toBe(
-      0,
+    await expect(xPosition).toHaveValue(`${initialMeasuredX.toFixed(2)}px`);
+    await expect(yPosition).toHaveValue(`${initialMeasuredY.toFixed(2)}px`);
+    const undoXPixels = await booleanMaskPixels(frame, 0, true, probes);
+    const undoXOperand = svgSourceTag(
+      await designContent(page, designId, "index.html"),
+      'data-agent-native-node-id="cutter"',
     );
+    expect(undoXOperand).toContain('y="20"');
+    expect(undoXOperand).toContain('width="20"');
+    expect(undoXPixels.beforeX?.[3]).toBe(0);
+    expect(undoXPixels.afterX?.[3]).toBeGreaterThan(0);
 
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
@@ -507,19 +582,35 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           'data-agent-native-node-id="cutter"',
         ),
       )
-      .toContain('x="30"');
-    expect(
-      svgSourceTag(
-        await designContent(page, designId, "index.html"),
-        'data-agent-native-node-id="cutter"',
-      ),
-    ).toContain('y="20"');
+      .toContain(`x="${expectedLocalAfterX}"`);
+    await expect
+      .poll(async () =>
+        svgSourceTag(
+          await designContent(page, designId, "index.html"),
+          'data-agent-native-node-id="cutter"',
+        ),
+      )
+      .toContain(`y="${expectedLocalAfterX}"`);
+    const redoneXContent = await designContent(page, designId, "index.html");
+    const redoneXOperand = svgSourceTag(
+      redoneXContent,
+      'data-agent-native-node-id="cutter"',
+    );
+    expect(redoneXOperand).toContain(`y="${expectedLocalAfterX}"`);
+    expect(redoneXOperand).toContain('width="20"');
+    expect(svgSourceTag(redoneXContent, 'data-an-primitive="boolean"')).toMatch(
+      /transform:\s*rotate\(-45deg\)/,
+    );
     await expect
       .poll(
         async () =>
           (await booleanMaskPixels(frame, 0, true, probes)).afterX?.[3],
       )
       .toBe(0);
+    const redoneXPixels = await booleanMaskPixels(frame, 0, true, probes);
+    expect(redoneXPixels.beforeX?.[3]).toBeGreaterThan(0);
+    expect(redoneXPixels.beforeY?.[3]).toBe(0);
+    expect(redoneXPixels.afterY?.[3]).toBeGreaterThan(0);
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
       .poll(async () =>
@@ -528,14 +619,30 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           'data-agent-native-node-id="cutter"',
         ),
       )
-      .toContain('y="35"');
+      .toContain(`x="${expectedLocalAfterY.x}"`);
+    await expect
+      .poll(async () =>
+        svgSourceTag(
+          await designContent(page, designId, "index.html"),
+          'data-agent-native-node-id="cutter"',
+        ),
+      )
+      .toContain(`y="${expectedLocalAfterY.y}"`);
     const redoneXYContent = await designContent(page, designId, "index.html");
+    await layerRow(page, "Cutter").first().click();
+    await expect(
+      layerRow(page, "Cutter")
+        .first()
+        .locator('xpath=ancestor::*[@role="treeitem"][1]'),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(xPosition).toHaveValue("30px");
+    await expectPositionReadback(yPosition, 35);
     const redoneXYOperand = svgSourceTag(
       redoneXYContent,
       'data-agent-native-node-id="cutter"',
     );
-    expect(redoneXYOperand).toContain('x="30"');
-    expect(redoneXYOperand).toContain('y="35"');
+    expect(redoneXYOperand).toContain(`x="${expectedLocalAfterY.x}"`);
+    expect(redoneXYOperand).toContain(`y="${expectedLocalAfterY.y}"`);
     expect(
       svgSourceTag(redoneXYContent, 'data-an-primitive="boolean"'),
     ).toMatch(/transform:\s*rotate\(-45deg\)/);
@@ -545,6 +652,9 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
           (await booleanMaskPixels(frame, 0, true, probes)).afterY?.[3],
       )
       .toBe(0);
+    const redoneXYPixels = await booleanMaskPixels(frame, 0, true, probes);
+    expect(redoneXYPixels.beforeY?.[3]).toBeGreaterThan(0);
+    expect(redoneXYPixels.afterY?.[3]).toBe(0);
 
     await page.reload();
     await expect(
@@ -558,16 +668,17 @@ test("Subtract creates an editable, transparent mask with undo and unique duplic
     await expect(
       page.locator('input[aria-label="X-position" i]').last(),
     ).toHaveValue("30px");
-    await expect(
+    await expectPositionReadback(
       page.locator('input[aria-label="Y-position" i]').last(),
-    ).toHaveValue("35px");
+      35,
+    );
     const persistedContent = await designContent(page, designId, "index.html");
     expect(
       svgSourceTag(persistedContent, 'data-agent-native-node-id="cutter"'),
-    ).toContain('x="30"');
+    ).toContain(`x="${expectedLocalAfterY.x}"`);
     expect(
       svgSourceTag(persistedContent, 'data-agent-native-node-id="cutter"'),
-    ).toContain('y="35"');
+    ).toContain(`y="${expectedLocalAfterY.y}"`);
     expect(
       svgSourceTag(persistedContent, 'data-an-primitive="boolean"'),
     ).toMatch(/transform:\s*rotate\(-45deg\)/);
@@ -810,10 +921,10 @@ test("inside stroke follows exposed cutter edges without drawing overlap seams",
     if (!overlapRootId) throw new Error("Overlap Boolean has no source id");
     await expandAllLayers(page);
     await layerRow(page, "Subtract").last().click();
-    await expect(
-      page.getByRole("button", { name: "Add stroke", exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Add stroke", exact: true }).click();
+    const addStroke = addStrokeButton(inspectorSection(page, /^Stroke$/i));
+    await expect(addStroke).toHaveCount(1);
+    await expect(addStroke).toBeVisible();
+    await addStroke.click();
     await setInspectorValue(page, "Weight", "4");
     await expect
       .poll(() => designContent(page, designId, "index.html"))
@@ -857,10 +968,12 @@ test("inside stroke follows exposed cutter edges without drawing overlap seams",
     if (!mainRootId) throw new Error("Sibling Boolean has no source id");
     await expandAllLayers(page);
     await layerRow(page, "Subtract").last().click();
-    await expect(
-      page.getByRole("button", { name: "Add stroke", exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Add stroke", exact: true }).click();
+    const addSiblingStroke = addStrokeButton(
+      inspectorSection(page, /^Stroke$/i),
+    );
+    await expect(addSiblingStroke).toHaveCount(1);
+    await expect(addSiblingStroke).toBeVisible();
+    await addSiblingStroke.click();
     await setInspectorValue(page, "Weight", "8");
     await expect
       .poll(() => designContent(page, designId, "index.html"))

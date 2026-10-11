@@ -222,10 +222,16 @@ async function multiSelect(page: Page, names: string[]): Promise<void> {
   }
 }
 
-async function openGroupedSelectionColors(page: Page): Promise<Locator> {
+async function openGroupedSelectionColors(
+  page: Page,
+  designId: string,
+): Promise<Locator> {
   await multiSelect(page, ["Blue 100", "Blue 50"]);
   await page.keyboard.press(`${MOD}+g`);
   await expect(layerRow(page, "Group")).toBeVisible();
+  await expect
+    .poll(() => indexHtml(page, designId))
+    .toContain('data-agent-native-group="true"');
   await layerRow(page, "Group").click();
   const section = page
     .locator("section")
@@ -273,7 +279,6 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 test.describe("keyboard selection traversal", () => {
-  // oracle: none — verifies app selection identity persistence, not a measured Figma result.
   test("Layers-first selection persists source identity for a later move and reload", async ({
     page,
   }) => {
@@ -729,7 +734,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies the app's fill undo lifecycle, not measured visual parity.
   test("Undo cancels a held Group Fill opacity scrub before undoing the committed color", async ({
     page,
   }) => {
@@ -1029,14 +1033,13 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies app gesture state across swatch collisions, not a Figma observation.
   test("Selection Colors keeps an opacity gesture attached when it collides with another swatch", async ({
     page,
   }) => {
     const id = await newDesign(page, SELECTION_COLOR_ALPHA_COLLISION_FIXTURE);
     try {
       await openEditor(page, id);
-      await openGroupedSelectionColors(page);
+      await openGroupedSelectionColors(page, id);
       const section = page
         .locator("section")
         .filter({
@@ -1250,14 +1253,13 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies app undo behavior for the Hex field, not measured visual parity.
   test("Undo and Redo work from the Selection Colors Hex field and close the picker", async ({
     page,
   }) => {
     const id = await newDesign(page, SELECTION_COLOR_ALPHA_COLLISION_FIXTURE);
     try {
       await openEditor(page, id);
-      const section = await openGroupedSelectionColors(page);
+      const section = await openGroupedSelectionColors(page, id);
       const before = await indexHtml(page, id);
       const beforeOpaqueStyle = styleOf(before, "blue-opaque");
       const beforeAlphaStyle = styleOf(before, "blue-alpha");
@@ -1292,14 +1294,13 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies the app's opacity preview gesture lifecycle, not a Figma observation.
   test("Selection Colors keeps an opacity-zero preview attached until gesture release", async ({
     page,
   }) => {
     const id = await newDesign(page, SELECTION_COLOR_ALPHA_COLLISION_FIXTURE);
     try {
       await openEditor(page, id);
-      await openGroupedSelectionColors(page);
+      await openGroupedSelectionColors(page, id);
       const section = page
         .locator("section")
         .filter({
@@ -1400,7 +1401,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies app undo behavior during an opacity scrub, not measured visual parity.
   test("Undo cancels a held Selection colors opacity scrub before undoing the committed color", async ({
     page,
   }) => {
@@ -1560,6 +1560,136 @@ test.describe("groups", () => {
     ).toBeCloseTo(expectedWidth, -1.4);
   });
 
+  test("Rapid Undo after Group Fill preserves the committed group", async ({
+    page,
+  }, testInfo) => {
+    const viteUpdates: string[] = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (/^\[vite\] (?:hot updated|page reload)/.test(text)) {
+        viteUpdates.push(text);
+      }
+    });
+    const id = await newDesign(page, GROUP_FILL_FIXTURE);
+    try {
+      await openEditor(page, id);
+      await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
+      await expect(
+        layersTree(page).locator('[role="treeitem"][aria-selected="true"]'),
+      ).toHaveCount(3);
+      await page.keyboard.press(`${MOD}+g`);
+      await expect(
+        layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
+      ).toHaveCount(1);
+      await expect
+        .poll(() => indexHtml(page, id))
+        .toContain('data-agent-native-group="true"');
+      await layerRow(page, "Group").click();
+
+      const fillSection = page
+        .locator("section")
+        .filter({
+          has: page.getByRole("heading", { name: "Fill", exact: true }),
+        })
+        .first();
+      await expect(fillSection).toBeVisible();
+      const fillButton = fillSection.getByRole("button", {
+        name: "Open color picker",
+      });
+      const fillOpacity = fillSection.getByRole("textbox", {
+        name: "Paint opacity",
+      });
+      await expect(fillButton).toBeVisible();
+      await expect(fillOpacity).toHaveValue("100");
+      const selectionColors = page
+        .locator("section")
+        .filter({
+          has: page.getByRole("heading", {
+            name: "Selection colors",
+            exact: true,
+          }),
+        })
+        .first();
+      await expect(
+        selectionColors.getByRole("button", { name: "Show selection colors" }),
+      ).toBeVisible();
+      const readPaint = async () =>
+        page
+          .locator("iframe[data-design-preview-iframe]")
+          .first()
+          .contentFrame()
+          .locator("body")
+          .evaluate(() => {
+            const byId = (id: string) =>
+              document.querySelector<HTMLElement>(
+                `[data-agent-native-node-id="${id}"]`,
+              )!;
+            const groupElement = document.querySelector<HTMLElement>(
+              '[data-agent-native-group="true"]',
+            )!;
+            const textOwner = byId("fill-text");
+            const textGlyph =
+              textOwner.querySelector<HTMLElement>("[data-an-text]");
+            const textPaintTarget = textGlyph ?? textOwner;
+            const textPaintStyle = getComputedStyle(textPaintTarget);
+            const textUsesClippedPaint =
+              textPaintStyle.backgroundClip === "text" ||
+              textPaintStyle.webkitBackgroundClip === "text";
+            return {
+              aFill: getComputedStyle(byId("fill-a")).backgroundColor,
+              aStroke: getComputedStyle(byId("fill-a")).borderTopColor,
+              bFill: getComputedStyle(byId("fill-b")).backgroundColor,
+              bStroke: getComputedStyle(byId("fill-b")).borderTopColor,
+              text: textUsesClippedPaint
+                ? textPaintStyle.backgroundColor
+                : textPaintStyle.color,
+              textOwnerBackground: getComputedStyle(textOwner).backgroundColor,
+              textGlyphClip: textPaintStyle.backgroundClip,
+              textGlyphFill: textPaintStyle.webkitTextFillColor,
+              textWrapperCount:
+                textOwner.querySelectorAll("[data-an-text]").length,
+              groupBackground: getComputedStyle(groupElement).backgroundColor,
+              groupRect: groupElement.getBoundingClientRect().toJSON(),
+              bodyBackground: getComputedStyle(document.body).backgroundColor,
+            };
+          });
+      await fillButton.click();
+      const opacity = page.getByRole("spinbutton", {
+        name: "Opacity",
+        exact: true,
+      });
+      await opacity.fill("50");
+      await opacity.press("Enter");
+      await page.keyboard.press("Escape");
+      await page.keyboard.press(`${MOD}+z`);
+      await expect
+        .poll(async () => {
+          const source = await indexHtml(page, id);
+          return {
+            grouped: source.includes('data-agent-native-group="true"'),
+            style: styleOf(source, "fill-a"),
+          };
+        })
+        .toMatchObject({
+          grouped: true,
+          style: expect.not.stringMatching(/0\.5|50%/),
+        });
+      await expect
+        .poll(async () => (await readPaint()).aFill)
+        .toBe("rgb(249, 115, 22)");
+      expect(
+        viteUpdates,
+        "Rapid Undo must be observed without a Vite update or editor reload.",
+      ).toEqual([]);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect
+        .poll(() => indexHtml(page, id))
+        .toContain('data-agent-native-group="true"');
+    } finally {
+      await postAction(page, "delete-design", { id });
+    }
+  });
+
   test("Group Fill recolors child fills and text, keeps strokes and gaps, and undoes once", async ({
     page,
   }, testInfo) => {
@@ -1581,6 +1711,9 @@ test.describe("groups", () => {
       await expect(
         layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
       ).toHaveCount(1);
+      await expect
+        .poll(() => indexHtml(page, id))
+        .toContain('data-agent-native-group="true"');
       await layerRow(page, "Group").click();
 
       const fillSection = page
@@ -1663,6 +1796,9 @@ test.describe("groups", () => {
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgba(249, 115, 22, 0.5)");
+      await expect
+        .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
+        .toMatch(/0\.5|50%/);
 
       await page.keyboard.press(`${MOD}+z`);
       await expect
@@ -2152,31 +2288,6 @@ test.describe("multi-selection", () => {
       `two boxes spanning ${Math.round(measured!.contentWidth)}px are enclosed ` +
         `by ${Math.round(measured!.chromeWidth)}px of chrome`,
     ).toBeCloseTo(measured!.contentWidth, -1);
-  });
-
-  // Aspirational: no [data-smart-selection], [data-spacing-handle] or
-  // [data-smart-handle] exists in the app yet, so this remains a planned
-  // interaction rather than a guarded behavior.
-  test.fixme("Smart selection exposes spacing handles for evenly spaced layers", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await multiSelect(page, ["Kid One", "Kid Two", "Kid Three"]);
-    const box = (await node(page, "kid-2").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(1200);
-
-    const handles = await page.evaluate(
-      () =>
-        document.querySelectorAll(
-          "[data-smart-selection],[data-spacing-handle],[data-smart-handle]",
-        ).length,
-    );
-    expect(
-      handles,
-      `The selected layers should expose spacing handles. None appeared.`,
-    ).toBeGreaterThan(0);
   });
 });
 

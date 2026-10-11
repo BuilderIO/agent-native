@@ -106,7 +106,7 @@ function renderOmittedDictionaryEntries(omitted: number): string[] {
   return [
     `${omitted} additional data-dictionary entr${
       omitted === 1 ? "y was" : "ies were"
-    } omitted from prompt context for efficiency. Call \`list-data-dictionary\` with a focused \`search\` or \`department\` filter before writing SQL or making claims that may depend on omitted definitions.`,
+    } omitted from prompt context for efficiency. Call \`find-data\` with the user's focused metric or entity question before writing SQL or making claims that may depend on omitted definitions.`,
     "",
   ];
 }
@@ -193,7 +193,7 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     "<data-dictionary>",
     "Canonical metric/table/column definitions for this organization.",
     "Trust tiers: approved entries are canonical and should be used verbatim; unreviewed human entries are usable but should be verified for high-stakes numbers; AI-generated unapproved entries are suggestions only.",
-    "If the metric you need is not here, call `list-data-dictionary`, inspect configured schemas with `search-bigquery-schema`, or ask the user before guessing.",
+    "If the metric you need is not here, call `find-data`, inspect configured schemas with `search-bigquery-schema`, or ask one business-definition question when the intended meaning remains ambiguous. Never ask the user for internal schema identifiers.",
     "",
   ];
 
@@ -234,7 +234,7 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     lines.push(
       `${aiSuggestions.length} AI-generated unapproved suggestion${
         aiSuggestions.length === 1 ? "" : "s"
-      } available via \`list-data-dictionary\`; do not treat them as canonical without verification.`,
+      } searchable through \`find-data\` and browsable with \`list-data-dictionary\`; do not treat them as canonical without verification.`,
       "",
     );
   }

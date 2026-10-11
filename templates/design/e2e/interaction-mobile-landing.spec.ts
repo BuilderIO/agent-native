@@ -10,23 +10,13 @@ import { e2eBaseURL } from "./base-url";
 import { appPath, designFrame, expandAllLayers, gotoEditor } from "./helpers";
 
 /**
- * YouTube tutorial interaction — #1 (CodeWithChris: "Designing an App in standard —
- * A Step-by-Step Guide for Beginners") and #2 (Steven Steward: "standard
- * Tutorial For Beginners 2024 | Web Design of Landing Page").
+ * Covers canvas pointer gestures, layers panel, context menu,
+ * clipboard/duplicate, group/frame/ungroup, undo/redo, mouse pan/zoom, board
+ * objects, and screens as frames.
  *
- * Scope per the finder preamble: canvas pointer gestures, layers panel,
- * context menu, clipboard/duplicate, group/frame/ungroup structure,
- * undo/redo, mouse pan/zoom, board objects, screens as frames. Frame
- * presets, auto layout (Shift+A), constraints, typography, fill/stroke
- * pickers, and corner-radius scrubbing are peer-owned (codex) — noted as
- * findings, not asserted here as pass/fail.
- *
- * Both tutorials build ROOT-LEVEL frames as agent-native screens. Per
- * "Screens are frames" (Steve, 2026-09-12) a root screen must behave like an
- * ordinary standard top-level frame: the Screen tool draws it with white fill
- * and clipsContent=true, it can sit as a sibling of another screen on the
- * board, and duplicate/undo/drag work on it the same way they do on any
- * other frame.
+ * A root screen behaves like any top-level frame: white fill,
+ * clipsContent=true, can sit beside other screens, and duplicate/undo/drag
+ * work on it.
  */
 
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
@@ -75,9 +65,10 @@ function layerTree(page: Page): Locator {
 
 function layerRowButton(page: Page, name: string): Locator {
   return layerTree(page)
-    .locator("[data-layer-row-button][data-layer-node-id]")
-    .filter({ has: page.locator(`span[title="${name}"]`) })
-    .first();
+    .locator("[data-layer-row-name]")
+    .getByText(name, { exact: true })
+    .first()
+    .locator("xpath=ancestor::button[@data-layer-row-button][1]");
 }
 
 function layerRow(page: Page, name: string): Locator {
@@ -169,7 +160,7 @@ const BLANK_SCREEN_HTML = `<!doctype html>
 
 async function createDesignWithHtml(request: APIRequestContext, html: string) {
   const created = await action(request, "create-design", {
-    title: `YT mobile/landing interaction ${Date.now()}`,
+    title: `Mobile and landing screen interactions ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;
@@ -257,8 +248,8 @@ async function openOverview(page: Page, designId: string) {
 
 test.use({ viewport: { width: 1600, height: 1000 } });
 
-test.describe("YT #1 (mobile app beginner tutorial)", () => {
-  test("step 2/25: Screen tool draws a root screen with standard's default top-level-frame fill/clip, and a second screen sits beside the first as a sibling, not nested", async ({
+test.describe("mobile app build", () => {
+  test("Screen tool draws a root screen with white fill and clipped content, and a second screen sits beside the first as a sibling, not nested", async ({
     page,
     request,
   }) => {
@@ -479,9 +470,46 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
     const designId = await createDesignWithHtml(request, MOBILE_HOME_HTML);
     try {
       await gotoEditor(page, designId);
+      await expandAllLayers(page);
+      const cardButton = layerRowButton(page, "Card");
+      const cardLayerNodeId =
+        await cardButton.getAttribute("data-layer-node-id");
+      expect(cardLayerNodeId).toBeTruthy();
+      await cardButton.click();
+      const selectedCardButton = layerTree(page).locator(
+        `[data-layer-row-button][data-layer-node-id="${cardLayerNodeId}"]`,
+      );
+      const cardRow = selectedCardButton.locator(
+        "xpath=ancestor::*[@data-layer-row-content][1]",
+      );
+      await expect(cardRow).toHaveAttribute("data-layer-selection", "primary");
+
       const screenId: string = (await getDesign(page, designId)).files.find(
         (f: any) => f.filename === "index.html",
       ).id;
+      const readCardPersistence = async () => {
+        const files = (await getDesign(page, designId)).files as Array<{
+          filename?: unknown;
+          content?: unknown;
+        }>;
+        const source = files.find((file) => file.filename === "index.html");
+        const board = files.find((file) => file.filename === "__board__.html");
+        const cardCount = (content: unknown) =>
+          typeof content === "string"
+            ? (content.match(/data-agent-native-node-id="card"/g) ?? []).length
+            : null;
+
+        return {
+          sourceExists: source !== undefined,
+          sourceContentReadable:
+            typeof source?.content === "string" && source.content.length > 0,
+          sourceCardCount: cardCount(source?.content),
+          boardExists: board !== undefined,
+          boardContentReadable:
+            typeof board?.content === "string" && board.content.length > 0,
+          boardCardCount: cardCount(board?.content),
+        };
+      };
       const before = (await designFrame(page, screenId)
         .locator('[data-agent-native-node-id="card"]')
         .boundingBox())!;
@@ -499,31 +527,37 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       );
       await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
       await page.waitForTimeout(400);
-      const trace = await dumpTrace(page);
       await page.mouse.up();
-      await page.waitForTimeout(400);
-
-      const htmlAfterDrag = await fileContent(page, designId, "index.html");
-      expect(
-        htmlAfterDrag,
-        `Card must leave the Home screen's document; trace: ${JSON.stringify(trace)}`,
-      ).not.toContain('data-agent-native-node-id="card"');
+      const trace = await dumpTrace(page);
+      await expect
+        .poll(readCardPersistence, {
+          timeout: 10_000,
+          message: `Card must move from the screen document into the board; trace: ${JSON.stringify(trace)}`,
+        })
+        .toEqual({
+          sourceExists: true,
+          sourceContentReadable: true,
+          sourceCardCount: 0,
+          boardExists: true,
+          boardContentReadable: true,
+          boardCardCount: 1,
+        });
 
       await page.keyboard.press(`${MOD}+z`);
 
-      let htmlAfterUndo = "";
       await expect
-        .poll(
-          async () => {
-            htmlAfterUndo = await fileContent(page, designId, "index.html");
-            return htmlAfterUndo.includes('data-agent-native-node-id="card"');
-          },
-          {
-            timeout: 10_000,
-            message: "one undo must restore Card back inside Home",
-          },
-        )
-        .toBe(true);
+        .poll(readCardPersistence, {
+          timeout: 10_000,
+          message: "one undo must restore Card back inside Home",
+        })
+        .toEqual({
+          sourceExists: true,
+          sourceContentReadable: true,
+          sourceCardCount: 1,
+          boardExists: true,
+          boardContentReadable: true,
+          boardCardCount: 0,
+        });
 
       const afterUndoBox = (await designFrame(page, screenId)
         .locator('[data-agent-native-node-id="card"]')
@@ -536,7 +570,7 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
   });
 });
 
-test.describe("YT #2 (landing page tutorial)", () => {
+test.describe("landing page build", () => {
   test('step 18: alt-dragging HeroImage duplicates it (original stays put, copy moves, copy is selected); one undo ("undo the nudge") removes the copy and restores the original selection', async ({
     page,
     request,
@@ -626,7 +660,7 @@ test.describe("YT #2 (landing page tutorial)", () => {
     }
   });
 
-  test("step 20/26: Shift+1 zooms to fit the whole Landing Page, Shift+2 zooms tighter to just the selected Navbar", async ({
+  test("Shift+1 zooms to fit the Landing Page, and Shift+2 zooms in on the selected Navbar", async ({
     page,
     request,
   }) => {
@@ -684,7 +718,7 @@ test.describe("YT #2 (landing page tutorial)", () => {
     }
   });
 
-  test("right-click context menu on Navbar (canvas) offers no Duplicate item (standard interaction); Cmd+D duplicates with the same name, inserted above, and becomes the selection", async ({
+  test("right-click context menu on Navbar (canvas) offers no Duplicate item; Cmd+D duplicates with the same name, inserted above, and becomes the selection", async ({
     page,
     request,
   }) => {

@@ -1,5 +1,21 @@
 const SITE_URL = "https://www.agent-native.com";
 
+const AGENT_WEB_ASSET_CONTENT_TYPES: Record<string, string> = {
+  "/llms.txt": "text/plain; charset=utf-8",
+  "/llms-full.txt": "text/plain; charset=utf-8",
+  "/robots.txt": "text/plain; charset=utf-8",
+  "/sitemap.xml": "application/xml; charset=utf-8",
+  "/openapi.json": "application/json; charset=utf-8",
+};
+const CHILD_SITEMAP_PATH = /^\/sitemap-[a-z0-9][a-z0-9-]*\.xml$/;
+
+export function agentWebAssetContentType(pathname: string): string | undefined {
+  if (CHILD_SITEMAP_PATH.test(pathname)) {
+    return "application/xml; charset=utf-8";
+  }
+  return AGENT_WEB_ASSET_CONTENT_TYPES[pathname];
+}
+
 export function acceptsMarkdown(accept: string | undefined): boolean {
   return (accept ?? "").split(",").some((value) => {
     const [mediaType, ...parameters] = value.trim().toLowerCase().split(";");

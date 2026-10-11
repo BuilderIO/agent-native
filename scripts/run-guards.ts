@@ -30,6 +30,7 @@ const guards = [
   "guard:netlify-release-migrations",
   "guard:netlify-prebuilt-workflow",
   "guard:beta-e2e-suite",
+  "guard:automated-findings",
   "guard:trusted-acceptance",
   "guard:design-e2e-workflow",
   "guard:test-title-production",

@@ -106,7 +106,7 @@ export function finalizeMarkdownImport(
     const { reference } = slot;
     if (reference.kind === "relative" && isMarkdownFilePath(reference.path)) {
       const href = resolvers.link?.(reference.path) ?? null;
-      if (href) return href;
+      if (href) return href + linkFragment(slot.written);
       notes.add("link-target-not-imported", slotLabel(slot));
       return slot.written;
     }
@@ -167,6 +167,12 @@ export function finalizeMarkdownImport(
   };
 }
 
+/** The `#section` a link names, which the page it now points at keeps. */
+function linkFragment(written: string): string {
+  const hash = written.indexOf("#");
+  return hash === -1 || hash === written.length - 1 ? "" : written.slice(hash);
+}
+
 function slotLabel(slot: ImportReferenceSlot): string {
   return slot.reference.kind === "relative"
     ? slot.reference.path
@@ -212,7 +218,7 @@ function measureCoverage(
   if (draft.coverage.kind === "markdown") {
     sourceParts = draft.coverage.visible;
     accounted = draft.coverage.accounted;
-    landedParts.push(...visibleDocText(stored));
+    for (const text of visibleDocText(stored)) landedParts.push(text);
   } else {
     sourceParts = [nfmVisibleText(draft.coverage.source)];
     accounted = draft.coverage.accounted.map(nfmVisibleText);

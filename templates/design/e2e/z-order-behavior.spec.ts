@@ -297,7 +297,7 @@ async function pressZ(page: Page, undo = false): Promise<void> {
   await page.keyboard.press(undo ? `${PRIMARY}+z` : `${PRIMARY}+Shift+z`);
 }
 
-test("group ordering multi-selection preserves native order, painted order, and one-step undo", async ({
+test("group ordering multi-selection preserves source order, painted order, and one-step undo", async ({
   page,
   request,
 }) => {
@@ -309,7 +309,6 @@ test("group ordering multi-selection preserves native order, painted order, and 
     await installBridge(page);
     await selectLayer(page, "A");
     await selectLayer(page, "C", true);
-    // Native notes cover order and undo, not selection after commands.
     const expectedSelection = await Promise.all(
       ["A", "C"].map(async (name) => {
         const id = await layerButton(page, name).getAttribute(

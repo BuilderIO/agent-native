@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "대기 중",
   "agent.completed": "작업을 완료했습니다",
   "agent.failed": "주의가 필요합니다",
+  "agent.failureReason.failed": "완료하지 못했습니다",
+  "agent.failureReason.setup": "먼저 설정이 필요합니다",
+  "agent.failureReason.auth": "액세스가 거부되었습니다",
+  "agent.failureReason.timeout": "응답이 너무 늦었습니다",
+  "agent.failureReason.budget": "시간이 부족했습니다",
+  "agent.failureReason.response": "사용할 수 있는 결과가 없습니다",
   "agent.closed": "종료했습니다",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":
@@ -83,6 +89,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "답변에 포함할 내용…",
   "observability.promoteMustContainOptional": "답변에서 확인할 선택적 텍스트…",
   "observability.promoteMustContainLabel": "승격된 평가 답변에서 확인할 텍스트",
+  "observability.promoteReviewedPromptLabel":
+    "수동으로 검토한 프롬프트(프로덕션에서 자동 복사되지 않음)",
   "observability.promoteNeedsContains":
     "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.viewDetails": "세부 정보 보기",
@@ -124,7 +132,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
   "onboarding.builderCreateAccount": "Builder.io 사용",
-  "onboarding.builderSignInWithAccount": "Builder.io 사용",
+  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -157,6 +165,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
     "Builder.io 계정을 만들고 무료 크레딧을 활성화하고 있습니다.",
+  "onboarding.builderCancelPending": "연결 상태를 확인하는 중…",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
   "onboarding.builderReadyWithCodeChanges":
@@ -1148,9 +1157,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "복사 실패",
   "recovery.continueUnavailable":
     "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
+  "errorMessages.invalidAttachmentNamed":
+    "모델 제공업체가 지원되지 않는 형식 또는 크기 때문에 {{name}}을(를) 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 형식을 사용하거나 관련 텍스트를 붙여 넣은 뒤 다시 시도하세요.",
+  "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
-  "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.deferredSubmissionFailed":
     "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":

@@ -58,8 +58,12 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   createProviderQuotaIdentity,
   executeWithProviderQuota,
+  ensureCooldownTable,
   resetProviderQuotaStateForTests,
 } = await import("./quota-governor.js");
+const { ensureTableExists } = await import("../db/ddl-guard.js");
+const { getOrCreateRequestDbPool, runWithRequestDbPoolScope } =
+  await import("../db/request-pool-context.js");
 
 describe("provider API quota governor", () => {
   beforeEach(() => {
@@ -130,5 +134,35 @@ describe("provider API quota governor", () => {
       exhausted: true,
       reason: "cooldown",
     });
+  });
+
+  it("retains the creator request pool until cooldown schema initialization settles", async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let continueInitialization!: () => void;
+    const initializationGate = new Promise<void>((resolve) => {
+      continueInitialization = resolve;
+    });
+    const pool = { end: vi.fn(async () => {}) };
+    vi.mocked(ensureTableExists).mockImplementation(async () => {
+      getOrCreateRequestDbPool("quota-cooldown-init", () => pool);
+      markStarted();
+      await initializationGate;
+      getOrCreateRequestDbPool("quota-cooldown-init", () => pool);
+    });
+
+    let initialization!: Promise<void>;
+    await runWithRequestDbPoolScope(true, undefined, () => {
+      initialization = ensureCooldownTable();
+    });
+    await started;
+
+    expect(pool.end).not.toHaveBeenCalled();
+
+    continueInitialization();
+    await expect(initialization).resolves.toBeUndefined();
+    expect(pool.end).toHaveBeenCalledOnce();
   });
 });

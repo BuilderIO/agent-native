@@ -13,6 +13,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Existing chat threads keep the composer anchored at the bottom while their messages load.
 - Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
 - Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
 - Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately

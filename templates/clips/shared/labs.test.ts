@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { CLIPS_WISPRFLOW, isLabEnabled } from "./labs";
+import { CLIPS_LOOKBACK_CONTEXT, CLIPS_WISPRFLOW, isLabEnabled } from "./labs";
+
+describe("Clips earlier screen time lab", () => {
+  it("is on by default, and an explicit opt-out still turns it off", () => {
+    expect(CLIPS_LOOKBACK_CONTEXT.defaultEnabled).toBe(true);
+    expect(isLabEnabled({}, CLIPS_LOOKBACK_CONTEXT)).toBe(true);
+    expect(
+      isLabEnabled(
+        { [CLIPS_LOOKBACK_CONTEXT.key]: false },
+        CLIPS_LOOKBACK_CONTEXT,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("Clips voice dictation lab", () => {
   it("keeps Dictate enabled by default", () => {

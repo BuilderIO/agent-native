@@ -37,7 +37,7 @@ import {
 import { ScrubInput } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
-import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { isTextElement } from "./element-classification";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
 import {
@@ -68,7 +68,7 @@ import {
   vectorStrokeExists,
   vectorStrokeIsVisible,
 } from "./position-helpers";
-import { isMixedValue } from "./selection-helpers";
+import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
@@ -389,7 +389,7 @@ export function StrokeProperties({
       />
     );
   }
-  if (isVectorShapeElement(element)) {
+  if (isVectorShapeSelection(element)) {
     return (
       <VectorStrokeProperties
         element={element}
@@ -952,7 +952,9 @@ function VectorStrokeProperties({
     element.inlineStyles?.["--an-vector-stroke-gradient"] ||
     styles["--an-vector-stroke-gradient"];
   const width = styles.strokeWidth || "0px";
-  const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
+  const isMixed = [styles.stroke, styles.strokeWidth, strokeGradient].some(
+    isMixedValue,
+  );
   const strokeExists = vectorStrokeExists(stroke);
   const visible = strokeGradient
     ? cssLengthNumber(width) > 0 && stroke !== "transparent"
@@ -978,7 +980,9 @@ function VectorStrokeProperties({
   const addStroke = () => {
     commitStylePatch(
       {
-        stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+        stroke: isMixedValue(stroke)
+          ? DEFAULT_STROKE_COLOR
+          : cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
         strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
       },
       onStyleChange,

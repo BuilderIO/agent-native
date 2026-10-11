@@ -8,6 +8,10 @@ import {
   type CSSProperties,
 } from "react";
 
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "@/components/design/design-canvas/private-replay-screenshot-preview";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "@/components/design/scaled-iframe-paint";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +19,7 @@ import { templatePreviewDocument } from "./template-preview-document";
 
 export function TemplatePreview({
   html,
+  designId,
   title,
   width,
   height,
@@ -25,6 +30,7 @@ export function TemplatePreview({
   onEscape,
 }: {
   html?: string | null;
+  designId?: string;
   title: string;
   width?: number | null;
   height?: number | null;
@@ -59,11 +65,13 @@ export function TemplatePreview({
     sessionReplayVisibility.visible;
   const naturalWidth = Math.max(width ?? 1280, 320);
   const naturalHeight = Math.max(height ?? 720, 240);
-  const document = useMemo(
-    () =>
-      html ? templatePreviewDocument(html, { recordSessionReplay }) : undefined,
-    [html, recordSessionReplay],
-  );
+  const document = useMemo(() => {
+    if (!html) return undefined;
+    return preparePrivateReplayScreenshotPreviewDocument(
+      templatePreviewDocument(html, { recordSessionReplay }),
+      { designId },
+    );
+  }, [designId, html, recordSessionReplay]);
 
   useEffect(() => {
     if (!interactive) return;
@@ -223,11 +231,21 @@ export function TemplatePreview({
           ? { [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }
           : {})}
         title={title}
-        srcDoc={document}
+        srcDoc={document?.html}
         sandbox="allow-scripts"
         {...{ credentialless: "" }}
         referrerPolicy="no-referrer"
         loading={interactive ? "eager" : "lazy"}
+        onLoad={(event) => {
+          const frame = event.currentTarget;
+          if (designId)
+            connectPrivateReplayScreenshotPreview(
+              frame,
+              document?.screenshotPaths ?? [],
+              document?.nonce ?? null,
+              designId,
+            );
+        }}
         tabIndex={interactive ? 0 : -1}
         aria-hidden={!interactive || undefined}
         className={cn(

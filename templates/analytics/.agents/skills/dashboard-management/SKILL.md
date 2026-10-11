@@ -68,6 +68,24 @@ validation, collab sync, and verification. If a dashboard action fails
 because the argument shape was wrong, fix that action's arguments and retry
 once — do not switch to db-patch or raw SQL.
 
+### GitHub folder sync
+
+A linked folder mirrors its SQL dashboards to `<path>/<dashboardId>.json` in a
+GitHub repo. Read `docs/dashboard-github-folder-sync.md` before changing or
+explaining it.
+
+- Run `preview-dashboard-folder-github-sync` before any sync. It writes nothing.
+- `apply-dashboard-folder-github-sync` pulls from GitHub. It writes only the
+  panels, order, and settings that changed on the GitHub side.
+- `export-dashboard-folder-to-github` opens one PR with the app's changes. It
+  refuses while an earlier export PR is still open.
+- `configure-dashboard-folder-github-sync` links or unlinks a folder. It stores
+  no credentials.
+- A unit changed on both sides is a conflict. It is reported and not applied.
+  Do not resolve it by overwriting either side without asking the user.
+- Explorer dashboards, sharing, and deletions never sync. A synced dashboard
+  cannot be permanently deleted; archive it or unlink its folder first.
+
 ## Valid Panel Sources
 
 `panel.source` is a backend selector, not a table name. It must be one of:
@@ -117,7 +135,7 @@ an ordinary activity scan.
 
 When the user asks for a dashboard:
 
-1. Start from the preloaded `<resource scope="analytics-catalog">` references (catalog-first), else one `search-analytics-query-catalog`. If a relevant entry exists, use its `table`, `columns`, `queryTemplate`, and gotchas verbatim.
+1. Start from the preloaded `<resource scope="analytics-catalog">` references (catalog-first), else one `find-data`. If a relevant entry exists, use its `table`, `columns`, `queryTemplate`, and gotchas verbatim.
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names and do not ask the user for them. Find the table and columns with `search-bigquery-schema` (or the provider's own schema action), then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.

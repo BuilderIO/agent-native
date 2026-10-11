@@ -1,3 +1,5 @@
+import { access } from "node:fs/promises";
+import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -11,6 +13,9 @@ import { clamp01 } from "./scorer.js";
 import type {
   AgentRunOutput,
   Eval,
+  EvalProductionContextResolver,
+  EvalProductionContext,
+  EvalProductionIdentity,
   EvalResultRow,
   EvalRunReport,
   ScorerResult,
@@ -70,13 +75,20 @@ export async function scoreEval(
   }
 
   let run: AgentRunOutput;
+  const runAgent = (input: Eval["input"]) =>
+    runner.runAgent(
+      input,
+      evalCase.actionAllowlist
+        ? { actionAllowlist: evalCase.actionAllowlist }
+        : undefined,
+    );
   if (evalCase.run) {
     run = await evalCase.run({
       input: evalCase.input,
-      runAgent: (input) => runner.runAgent(input),
+      runAgent,
     });
   } else {
-    run = await runner.runAgent(evalCase.input);
+    run = await runAgent(evalCase.input);
   }
 
   const scores: ScorerResult[] = [];
@@ -98,6 +110,7 @@ export async function scoreEval(
     avgScore,
     durationMs: run.durationMs,
     error: run.ok ? undefined : run.error,
+    ...(run.usage ? { usage: run.usage } : {}),
     ...(evalCase.source ? { source: evalCase.source } : {}),
   };
 }
@@ -107,11 +120,12 @@ export async function runEvals(
   runner: AgentRunner,
   opts: { thresholdOverride?: number; persist?: boolean } = {},
 ): Promise<EvalRunReport> {
+  const persist = opts.persist ?? true;
   const results: EvalResultRow[] = [];
   for (const evalCase of evals) {
     const row = await scoreEval(evalCase, runner, opts);
     results.push(row);
-    if (opts.persist && row.status !== "skipped") {
+    if (persist && row.status !== "skipped") {
       await persistEvalRow(row).catch(() => {});
     }
   }
@@ -239,6 +253,9 @@ export interface RunEvalSuiteOptions {
   thresholdOverride?: number;
   actions?: Record<string, ActionEntry>;
   systemPrompt?: string;
+  productionContext?: EvalProductionContext;
+  identity?: EvalProductionIdentity;
+  requireProductionChatPath?: boolean;
   persist?: boolean;
   runner?: AgentRunner;
   evals?: Eval[];
@@ -248,6 +265,14 @@ export async function runEvalSuite(
   opts: RunEvalSuiteOptions = {},
 ): Promise<{ report: EvalRunReport; files: string[] }> {
   const cwd = opts.cwd ?? process.cwd();
+  let productionContext = opts.productionContext;
+  if (opts.requireProductionChatPath) {
+    if (!productionContext) {
+      productionContext = await loadProductionEvalContext(cwd, opts.identity);
+    } else if (!opts.evals) {
+      await ensureProductionEvalTypeScriptLoader(cwd);
+    }
+  }
 
   let files: string[] = [];
   let evals = opts.evals;
@@ -257,15 +282,52 @@ export async function runEvalSuite(
     evals = loaded.evals;
   }
 
-  const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
-  const runner =
-    opts.runner ??
-    (needsRunner
-      ? await createAgentRunner({
+  if (
+    opts.requireProductionChatPath &&
+    evals.some((evalCase) => evalCase.run)
+  ) {
+    throw new Error(
+      "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
+    );
+  }
+
+  let runner = opts.runner;
+  if (opts.requireProductionChatPath) {
+    if (!productionContext) {
+      throw new Error("Production-path evals require a production context.");
+    }
+    requireProductionChatPath(productionContext);
+    if (runner) {
+      throw new Error(
+        "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
+      );
+    }
+    if (evals.length === 0) {
+      throw new Error("Production-path evals require at least one eval case.");
+    }
+    if (evals.some((evalCase) => evalCase.skipReason)) {
+      throw new Error("Production-path evals cannot contain skipped cases.");
+    }
+    runner = await createAgentRunner({
+      productionContext: guardProductionEvalOutput(productionContext),
+    });
+  } else {
+    const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
+    if (!runner && needsRunner) {
+      if (opts.productionContext) {
+        requireProductionChatPath(opts.productionContext);
+        runner = await createAgentRunner({
+          productionContext: guardProductionEvalOutput(opts.productionContext),
+        });
+      } else {
+        runner = await createAgentRunner({
           actions: opts.actions ?? (await discoverActions(cwd)),
           systemPrompt: opts.systemPrompt,
-        })
-      : createInertRunner());
+        });
+      }
+    }
+  }
+  runner ??= createInertRunner();
 
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
@@ -274,17 +336,140 @@ export async function runEvalSuite(
   return { report, files };
 }
 
+function guardProductionEvalOutput(
+  context: EvalProductionContext,
+): EvalProductionContext {
+  const productionChatPath = context.productionChatPath;
+  if (!productionChatPath) return context;
+  return {
+    ...context,
+    productionChatPath: {
+      ...productionChatPath,
+      async run(args) {
+        const result = await productionChatPath.run(args);
+        if (!result?.output) {
+          throw new Error(
+            "Production chat eval adapter returned no run output.",
+          );
+        }
+        return result;
+      },
+    },
+  };
+}
+
+const productionEvalTypeScriptLoaders = new Map<string, Promise<void>>();
+
+async function ensureProductionEvalTypeScriptLoader(
+  cwd: string,
+): Promise<void> {
+  let loaderPath: string;
+  try {
+    loaderPath = createRequire(nodePath.join(cwd, "package.json")).resolve(
+      "tsx/esm/api",
+    );
+  } catch (cause) {
+    throw new Error(
+      "Production eval adapters require the app's TypeScript loader `tsx`.",
+      { cause },
+    );
+  }
+
+  let loader = productionEvalTypeScriptLoaders.get(loaderPath);
+  if (!loader) {
+    loader = import(pathToFileURL(loaderPath).href)
+      .then(({ register }) => {
+        register();
+      })
+      .catch((cause) => {
+        productionEvalTypeScriptLoaders.delete(loaderPath);
+        throw new Error(
+          "Production eval adapters require the app's TypeScript loader `tsx`.",
+          { cause },
+        );
+      });
+    productionEvalTypeScriptLoaders.set(loaderPath, loader);
+  }
+  await loader;
+}
+
+export async function loadProductionEvalContext(
+  cwd: string,
+  identity?: EvalProductionIdentity,
+): Promise<EvalProductionContext> {
+  const ownerEmail = identity?.ownerEmail.trim();
+  const orgId = identity?.orgId.trim();
+  if (!ownerEmail || !orgId) {
+    throw new Error(
+      "Production evals require explicit ownerEmail and orgId values passed by the caller.",
+    );
+  }
+
+  const adapterPath = nodePath.join(cwd, "evals", "production-context.ts");
+  try {
+    await access(adapterPath);
+  } catch {
+    throw new Error(
+      `Production eval adapter is missing at ${adapterPath}. Add evals/production-context.ts exporting resolveProductionEvalContext(identity).`,
+    );
+  }
+
+  await ensureProductionEvalTypeScriptLoader(cwd);
+
+  const module = (await import(pathToFileURL(adapterPath).href)) as Record<
+    string,
+    unknown
+  >;
+  const resolveProductionEvalContext = module.resolveProductionEvalContext as
+    | EvalProductionContextResolver
+    | undefined;
+  if (typeof resolveProductionEvalContext !== "function") {
+    throw new Error(
+      `${adapterPath} must export resolveProductionEvalContext(identity).`,
+    );
+  }
+  const context = await resolveProductionEvalContext({ ownerEmail, orgId });
+  if (
+    typeof context?.ownerEmail !== "string" ||
+    context.ownerEmail.trim().toLowerCase() !== ownerEmail.toLowerCase() ||
+    context.orgId !== orgId
+  ) {
+    throw new Error(
+      "Production eval adapter returned an owner or org that differs from the explicit eval identity.",
+    );
+  }
+  requireProductionChatPath(context);
+  return context;
+}
+
+function requireProductionChatPath(context: EvalProductionContext): void {
+  if (typeof context.productionChatPath?.run !== "function") {
+    throw new Error(
+      `Production eval adapter for ${context.appId ?? "this app"} does not invoke the shared production agent loop with app request preparation and runtime context.`,
+    );
+  }
+}
+
 async function discoverActions(
   cwd: string,
 ): Promise<Record<string, ActionEntry>> {
+  const actionsDir = nodePath.join(cwd, "actions");
   try {
-    const { autoDiscoverActions } =
-      await import("../server/action-discovery.js");
-    const actionsDir = nodePath.join(cwd, "actions");
-    return await autoDiscoverActions(pathToFileURL(actionsDir + "/").href);
-  } catch {
-    return {};
+    await access(actionsDir);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return {};
+    }
+    throw error;
   }
+
+  const { autoDiscoverActions } = await import("../server/action-discovery.js");
+  return autoDiscoverActions(pathToFileURL(`${actionsDir}/`).href);
 }
 
 function createInertRunner(): AgentRunner {

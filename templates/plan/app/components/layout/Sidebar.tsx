@@ -61,6 +61,7 @@ import {
 import { useEditionsLab } from "@/hooks/use-editions-lab";
 import { usePlans } from "@/hooks/use-plans";
 import { APP_TITLE } from "@/lib/app-config";
+import { isPlanChatPath, planChatThreadPath } from "@/lib/chat-route";
 import { planReturnPathFromLocation } from "@/lib/plan-return-path";
 import { cn } from "@/lib/utils";
 
@@ -233,7 +234,7 @@ function PlanChatsSection({
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/chat");
+    navigateWithAgentChatViewTransition(navigate, planChatThreadPath(threadId));
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -640,9 +641,12 @@ export function Sidebar({
           to="/chat"
           label={t("navigation.ask")}
           icon={IconMessageCircle}
-          active={pathname === "/chat"}
+          active={isPlanChatPath(pathname)}
         />
-        <PlanChatsSection collapsed={collapsed} open={pathname === "/chat"} />
+        <PlanChatsSection
+          collapsed={collapsed}
+          open={isPlanChatPath(pathname)}
+        />
       </div>
 
       <div>

@@ -88,6 +88,12 @@ export default defineAction({
     status: statusSchema.default("connected"),
     scopes: z.array(z.string()).default([]),
     credentialRefs: z.array(credentialRefSchema).default([]),
+    config: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "Non-secret provider configuration fields from the setup plan.",
+      ),
     grantMode: z.enum(["all-apps", "selected-apps"]).default("selected-apps"),
     selectedApps: z.array(z.string()).default([]),
     userGrantMode: z
@@ -211,6 +217,7 @@ export default defineAction({
         accountLabel: args.accountLabel?.trim() || null,
         status: args.status,
         scopes: uniqueStrings(args.scopes),
+        config: args.config,
         credentialRefs,
         allowedApps,
         allowedUsers: validatedAllowedUsers,

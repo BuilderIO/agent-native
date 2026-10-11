@@ -210,6 +210,314 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("uses a per-request workspace connection for Sigma client-credentials auth", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url.endsWith("/v2/auth/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "fake-sigma-token",
+              expires_in: 3600,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ entries: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+    const resolveCredential = vi.fn(
+      async ({
+        key,
+        provider,
+        workspaceProvider,
+        connectionId,
+        ctx,
+      }: {
+        key: string;
+        provider: string;
+        workspaceProvider?: string;
+        connectionId?: string | null;
+        ctx: typeof credentialContext;
+      }) => {
+        if (key === "SIGMA_BASE_URL") return null;
+        const value =
+          key === "SIGMA_CLIENT_ID"
+            ? "fake-sigma-client-id"
+            : "fake-sigma-client-secret";
+        return {
+          key,
+          value,
+          source: "workspace_connection" as const,
+          provider: workspaceProvider ?? provider,
+          connectionId: connectionId ?? undefined,
+          scope: "org",
+          scopeId: ctx.orgId,
+        };
+      },
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["sigma"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential,
+    });
+
+    const catalog = (await runtime.listCatalog("sigma")) as Array<{
+      defaultBaseUrl: string;
+      requiresConnectionId: boolean;
+      credentialKeys: string[];
+      auth: string;
+    }>;
+    const result = await runtime.executeRequest({
+      provider: "sigma",
+      path: "/v2/workbooks",
+      connectionId: "sigma-connection",
+    });
+
+    expect(catalog[0]).toMatchObject({
+      defaultBaseUrl: "https://aws-api.sigmacomputing.com",
+      requiresConnectionId: true,
+      credentialKeys: [
+        "SIGMA_CLIENT_ID",
+        "SIGMA_CLIENT_SECRET",
+        "SIGMA_BASE_URL",
+      ],
+      auth: "oauth-client-credentials:sigma",
+    });
+    expect(resolveCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "sigma",
+        workspaceProvider: "sigma",
+        connectionId: "sigma-connection",
+        ctx: credentialContext,
+      }),
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.url).toBe(
+      "https://aws-api.sigmacomputing.com/v2/auth/token",
+    );
+    expect(calls[0]?.init?.method).toBe("POST");
+    const tokenBody = new URLSearchParams(String(calls[0]?.init?.body));
+    expect(tokenBody.get("grant_type")).toBe("client_credentials");
+    expect(tokenBody.get("client_id")).toBe("fake-sigma-client-id");
+    expect(tokenBody.get("client_secret")).toBe("fake-sigma-client-secret");
+    expect(calls[1]?.url).toBe(
+      "https://aws-api.sigmacomputing.com/v2/workbooks",
+    );
+    expect(calls[1]?.init?.headers).toMatchObject({
+      Authorization: "Bearer fake-sigma-token",
+    });
+    expect(JSON.stringify(result)).not.toContain("fake-sigma-token");
+    expect(JSON.stringify(result)).not.toContain("fake-sigma-client-secret");
+  });
+
+  it.each([
+    ["insecure", "http://aws-api.sigmacomputing.com"],
+    ["outside Sigma's host family", "https://sigma-attacker.example"],
+  ])(
+    "rejects %s Sigma API origins before sending credentials",
+    async (_, value) => {
+      const resolveCredential = vi.fn(async ({ key }: { key: string }) =>
+        key === "SIGMA_BASE_URL"
+          ? {
+              key,
+              value,
+              source: "workspace_connection" as const,
+              provider: "sigma",
+              connectionId: "sigma-connection",
+              scope: "org",
+              scopeId: "org-1",
+            }
+          : null,
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "analytics",
+        providerIds: ["sigma"],
+        getCredentialContext: () => credentialContext,
+        resolveCredential,
+      });
+
+      await expect(
+        runtime.executeRequest({
+          provider: "sigma",
+          path: "/v2/workbooks",
+          connectionId: "sigma-connection",
+        }),
+      ).rejects.toThrow(/configured provider host/);
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+      expect(resolveCredential).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("allows the configured provider origin alongside registered host suffixes", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const hubspotConfig = getProviderApiConfig("hubspot");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      providerOverrides: [
+        {
+          ...hubspotConfig,
+          defaultBaseUrl: "https://tenant-api.example.test",
+          allowedHostSuffixes: ["hubspot.com"],
+        },
+      ],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/records",
+      auth: "none",
+    });
+    await runtime.executeRequest({
+      provider: "hubspot",
+      path: "https://api.hubspot.com/crm/v3/objects/contacts",
+      auth: "none",
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "https://hubspot-attacker.example/records",
+        auth: "none",
+      }),
+    ).rejects.toThrow(/configured provider host/);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://tenant-api.example.test/records",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.hubspot.com/crm/v3/objects/contacts",
+      expect.any(Object),
+    );
+  });
+
+  it("uses the selected dbt workspace connection and limits its endpoint to dbt hosts", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(input), init });
+        return new Response(JSON.stringify({ data: { ok: true } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "dbt-connection",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        config: {
+          semanticLayerBaseUrl:
+            "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+        },
+      },
+      appAccess: null,
+      reason: "Connected.",
+    });
+    resolveCredential.mockImplementation(
+      async ({ key, provider, workspaceProvider, connectionId, ctx }) => ({
+        key,
+        value: "fake-dbt-token",
+        source: "workspace_connection",
+        provider: workspaceProvider ?? provider,
+        connectionId,
+        scope: "org",
+        scopeId: ctx.orgId,
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["dbt"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential,
+    });
+
+    const catalog = (await runtime.listCatalog("dbt")) as Array<{
+      requiresConnectionId: boolean;
+      credentialKeys: string[];
+      examples?: Array<{ body?: { query?: string } }>;
+    }>;
+    const result = await runtime.executeRequest({
+      provider: "dbt",
+      method: "POST",
+      path: "/api/graphql",
+      body: { query: "query { viewer { id } }" },
+      connectionId: "dbt-connection",
+    });
+
+    expect(catalog[0]).toMatchObject({
+      requiresConnectionId: true,
+      defaultBaseUrl: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+      credentialKeys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+    });
+    expect(catalog[0]?.examples?.[0]?.body?.query).toContain(
+      "environmentId: BigInt!",
+    );
+    expect(catalog[0]?.examples?.[0]?.body?.query).not.toContain("label");
+    expect(resolveCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "dbt",
+        workspaceProvider: "dbt",
+        connectionId: "dbt-connection",
+        ctx: credentialContext,
+      }),
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe(
+      "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+    );
+    expect(calls[0]?.init?.headers).toMatchObject({
+      Authorization: "Bearer fake-dbt-token",
+    });
+    expect(JSON.stringify(result)).not.toContain("fake-dbt-token");
+
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "dbt-connection",
+        ownerEmail: "ada@example.com",
+        orgId: "org-1",
+        config: {
+          semanticLayerBaseUrl: "https://attacker.example/api/graphql",
+        },
+      },
+      appAccess: null,
+      reason: "Connected.",
+    });
+    await expect(
+      runtime.executeRequest({
+        provider: "dbt",
+        method: "POST",
+        path: "/api/graphql",
+        body: { query: "query { viewer { id } }" },
+        connectionId: "dbt-connection",
+      }),
+    ).rejects.toThrow(/registered provider host suffix/);
+    expect(calls).toHaveLength(1);
+  });
+
   it("replaces one built-in provider definition without dropping the rest", async () => {
     const runtime = createProviderApiRuntime({
       appId: "analytics",
