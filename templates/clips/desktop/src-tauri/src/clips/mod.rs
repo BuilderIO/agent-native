@@ -3056,7 +3056,20 @@ pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
         BUBBLE_DRAGGING.store(false, Ordering::SeqCst);
     }
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
-        sync_bubble_window_geometry(&app, &window)?;
+        if let Err(sync_error) = sync_bubble_window_geometry(&app, &window) {
+            let save_result = window
+                .outer_position()
+                .map_err(|error| format!("read dragged bubble position: {error}"))
+                .and_then(|position| {
+                    save_bubble_position_at(&app, position.x, position.y).map(|_| ())
+                });
+            return match save_result {
+                Ok(()) => Err(sync_error),
+                Err(save_error) => Err(format!(
+                    "{sync_error}; save drag-end position: {save_error}"
+                )),
+            };
+        }
     }
     // Repositioning is still user activity; replaying its blur at release
     // hides the camera before the user can start recording.
