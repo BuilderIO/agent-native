@@ -2580,7 +2580,9 @@ describe("useBuilderConnectFlow", () => {
       document.querySelectorAll<HTMLButtonElement>(
         "[data-radix-popper-content-wrapper] button",
       ),
-    ).find((button) => button.textContent?.includes("Use Builder.io"));
+    ).find((button) =>
+      button.textContent?.includes("I have a Builder.io account"),
+    );
     expect(existingAccountAction).toBeDefined();
 
     await act(async () => existingAccountAction?.click());
