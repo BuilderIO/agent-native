@@ -28,6 +28,7 @@ export {
   trackLifecycleEvent,
   trackSessionStatus,
   type AgentChatLifecycleEvent,
+  type CaptureAttributionOptions,
   type CaptureExceptionContext,
   type CapturedExceptionEvent,
   type ClientCaptureContext,

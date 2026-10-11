@@ -1054,14 +1054,7 @@ export default function DeckEditor() {
         generationHomeNavigationRef.current = true;
         generationHomeExitInFlightRef.current = false;
         pendingDeckNavigationBlocker.reset();
-        const retryPrompt =
-          typeof generationContext?.originalPrompt === "string"
-            ? generationContext.originalPrompt
-            : undefined;
-        void navigate("/home", {
-          replace: true,
-          ...(retryPrompt ? { state: { retryPrompt } } : {}),
-        });
+        void navigate("/home", { replace: true });
       },
       () => {
         generationHomeExitInFlightRef.current = false;

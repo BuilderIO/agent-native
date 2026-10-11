@@ -500,6 +500,64 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("keeps a first touch that survives only in its cookie", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.removeItem("an_attribution");
+
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?utm_source=newsletter",
+    );
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+    expect(getFirstTouchAttribution()).toMatchObject({ gclid: "g-1" });
+  });
+
+  it("reads the cookie when the stored first touch is unreadable", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", "{not json");
+
+    await revisit("https://plan.agent-native.com/?utm_source=newsletter");
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
+  it("ignores non-string fields in a stored first touch", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", JSON.stringify({ utm_source: 123 }));
+
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?utm_source=newsletter",
+    );
+
+    expect(getFirstTouchAttribution()).toMatchObject({ gclid: "g-1" });
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
+  it("reads the cookie when the stored first touch has no source", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?gclid=g-1&utm_source=google");
+    localStorage.setItem("an_attribution", "{}");
+
+    await revisit("https://plan.agent-native.com/?utm_source=newsletter");
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "g-1",
+      utm_source: "google",
+    });
+  });
+
   it("keeps the first visit with a source and records later ones as last touch", async () => {
     const { cookieJson, revisit } = installBrowser();
     await revisit(

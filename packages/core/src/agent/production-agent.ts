@@ -12045,6 +12045,17 @@ export function createProductionAgentHandler(
       isBackgroundWorker &&
       typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
       Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
+    const isClientTurnContinuation =
+      !isBackgroundWorker &&
+      internalContinuation === true &&
+      !continueOf &&
+      !requestedApprovedToolCalls?.length &&
+      typeof message === "string" &&
+      message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      typeof requestTurnId === "string" &&
+      requestTurnId.trim().length > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
@@ -12226,7 +12237,10 @@ export function createProductionAgentHandler(
     // same turn the same way: the thread's tool calls and results, plus the turn's
     // journal of finished steps, so nothing already done is sent again.
     if (
-      (isChainedBackgroundContinuation || isReaperSuccessor || continueOf) &&
+      (isChainedBackgroundContinuation ||
+        isReaperSuccessor ||
+        continueOf ||
+        isClientTurnContinuation) &&
       effectiveThreadId
     ) {
       try {
@@ -12244,13 +12258,15 @@ export function createProductionAgentHandler(
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
-        if (continueOf && !foundTurnPrompt) {
+        if ((continueOf || isClientTurnContinuation) && !foundTurnPrompt) {
           throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
         }
         // Resuming takes the thread's newest prompt, so a newer one, even one
         // whose run never started, would run under this turn's journal.
         const promptTurnId =
-          continueOf && threadData ? latestPromptTurnId(threadData) : undefined;
+          (continueOf || isClientTurnContinuation) && threadData
+            ? latestPromptTurnId(threadData)
+            : undefined;
         if (promptTurnId && promptTurnId !== effectiveTurnId) {
           if (await updateRunStatusIfRunning(runId, "errored")) {
             await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
@@ -12270,13 +12286,15 @@ export function createProductionAgentHandler(
             ? backgroundRunMarker.continuationReason
             : isReaperSuccessor
               ? "network_interrupted"
-              : "run_timeout";
+              : isClientTurnContinuation
+                ? "stream_ended"
+                : "run_timeout";
           const journalRead = await loadPriorTurnToolCallJournal(
             effectiveThreadId,
             effectiveTurnId,
           );
           if (
-            (continueOf || isReaperSuccessor) &&
+            (continueOf || isReaperSuccessor || isClientTurnContinuation) &&
             journalRead.status === "unreadable"
           ) {
             throw new Error(journalRead.error);
@@ -12311,7 +12329,7 @@ export function createProductionAgentHandler(
           messages.push(...context.messages);
         }
       } catch (error) {
-        if (continueOf || isReaperSuccessor) {
+        if (continueOf || isReaperSuccessor || isClientTurnContinuation) {
           // The browser's history lacks the stopped run's tool results, so
           // continuing from it could repeat a step that already finished.
           console.warn(

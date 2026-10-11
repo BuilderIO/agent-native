@@ -1,14 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { filterDirectA2AActions } from "../../../packages/core/src/server/agent-chat/action-filters-a2a.js";
 import exportDesignAsFigmaSvg from "./export-design-as-figma-svg.js";
 import exportPdf from "./export-pdf.js";
 import exportPng from "./export-png.js";
 import exportSvg from "./export-svg.js";
+import getDesign from "./get-design.js";
 import importDesignSource from "./import-design-source.js";
 import importFigmaClipboard from "./import-figma-clipboard.js";
 import importFigmaFrame from "./import-figma-frame.js";
 
 const ACTION_CONTRACTS = [
+  {
+    name: "get-design",
+    action: getDesign,
+    input: { id: "design-1", includeFileContent: false },
+    readOnly: true,
+    publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  },
   {
     name: "import-figma-frame",
     action: importFigmaFrame,
@@ -64,6 +73,23 @@ const ACTION_CONTRACTS = [
 ] as const;
 
 describe("Design import/export action contracts", () => {
+  it("keeps shared-design HTTP reads public while requiring signed agent reads", () => {
+    expect(getDesign.requiresAuth).toBe(false);
+    const actions = {
+      "get-design": {
+        ...getDesign,
+        run: vi.fn(),
+        tool: { description: getDesign.description, parameters: {} },
+      },
+    };
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: ["get-design"],
+        }),
+      ),
+    ).toEqual(["get-design"]);
+  });
   it.each(ACTION_CONTRACTS)(
     "$name remains exposed with a valid representative input",
     ({ action, input, readOnly, publicAgent }) => {
