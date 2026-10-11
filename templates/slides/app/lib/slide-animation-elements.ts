@@ -1,5 +1,7 @@
 import type { AnimationType } from "@/context/DeckContext";
 
+import { SOURCE_STAMP_ATTR, stampSlideSource } from "./slide-source-map";
+
 export interface ParsedAnimationElement {
   index: number;
   path: number[];
@@ -19,34 +21,45 @@ export interface SelectedAnimationTarget {
   preview: string;
 }
 
-export interface ResolvedAnimationTarget<
-  T extends AnimationTarget = AnimationTarget,
-> {
-  target: T;
+/**
+ * Why a reveal does not resolve in its slide's HTML.
+ * - stale-path: its elementPath no longer points at an element.
+ * - missing-element: a legacy elementIndex target, or the slide has no .fmd-slide.
+ * - duplicate-after-expansion: once "By paragraph" is expanded, a step lands on
+ *   an element another reveal already hides, or on one of its ancestors or
+ *   descendants.
+ */
+export type RevealUnresolvedReason =
+  | "stale-path"
+  | "missing-element"
+  | "duplicate-after-expansion";
+
+/** One element a reveal hides and shows. A plain reveal has one step. */
+export interface RevealStep<T extends AnimationTarget = AnimationTarget> {
+  animation: T;
   element: Element;
-  key: string;
+  path: number[];
 }
 
-export type AnimationTargetResolutionIssueCode =
-  | "missing-target"
-  | "duplicate-target";
-
-export interface AnimationTargetResolutionIssue<
-  T extends AnimationTarget = AnimationTarget,
-> {
+interface RevealOutcomeBase {
   animationIndex: number;
-  code: AnimationTargetResolutionIssueCode;
-  target: T;
-  key?: string;
-  preview?: string;
+  id: string | null;
 }
 
-export interface AnimationTargetResolution<
-  T extends AnimationTarget = AnimationTarget,
-> {
-  resolved: ResolvedAnimationTarget<T>[] | null;
-  issue: AnimationTargetResolutionIssue<T> | null;
-}
+export type RevealOutcome<T extends AnimationTarget = AnimationTarget> =
+  | (RevealOutcomeBase & {
+      ok: true;
+      element: Element;
+      path: number[];
+      steps: RevealStep<T>[];
+    })
+  | (RevealOutcomeBase & {
+      ok: false;
+      reason: RevealUnresolvedReason;
+      preview: string | null;
+      /** The reveal's own element path when it was found. */
+      path: number[] | null;
+    });
 
 const INLINE_TAGS = new Set([
   "a",
@@ -275,49 +288,178 @@ export function resolveSlideAnimationElement(
   return legacyContainer?.children.item(target.elementIndex) ?? null;
 }
 
-export function resolveSlideAnimationTargets<T extends AnimationTarget>(
-  root: Element,
-  targets: readonly T[],
-): ResolvedAnimationTarget<T>[] | null {
-  return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
+const PARAGRAPH_TAGS = new Set([
+  "p",
+  "li",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+]);
+
+function isParagraphBlock(element: Element): boolean {
+  const tag = element.tagName.toLowerCase();
+  if (PARAGRAPH_TAGS.has(tag)) return true;
+  return tag === "div" && normalizeText(element.textContent).length > 0;
 }
 
-export function expandByParagraphAnimations<T extends AnimationTarget>(
-  root: Element,
-  animations: readonly T[],
-): T[] | null {
-  const resolved = resolveSlideAnimationTargets(root, animations);
-  if (!resolved) return null;
+/**
+ * The steps a "By paragraph" reveal on `element` plays, in document order.
+ * Editor and runtime both use this list, so the count the panel shows is the
+ * count playback runs.
+ *
+ * - An element with paragraph children reveals those children.
+ * - A paragraph inside a container starts the reveal at itself and runs to the
+ *   end of that container. Selecting paragraph N starts at N.
+ * - Anything else is one step: the element itself.
+ */
+export function byParagraphTargets(element: Element): Element[] {
+  const blocks = getPersistedChildren(element).filter(isParagraphBlock);
+  if (blocks.length > 0) return blocks;
 
-  const expanded: T[] = [];
-  for (const { target, element } of resolved) {
-    if (!target.byParagraph) {
-      expanded.push(target);
-      continue;
-    }
-
-    const textObject = element.closest(".fmd-pptx-text");
-    const paragraphs = textObject
-      ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
-      : [];
-    if (paragraphs.length < 2) {
-      expanded.push(target);
-      continue;
-    }
-
-    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
-      const elementPath = getPersistedElementPath(root, paragraph);
-      if (!elementPath) return null;
-      expanded.push({
-        ...target,
-        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
-        elementIndex: paragraphIndex,
-        elementPath,
-        byParagraph: false,
-      });
-    }
+  const parent = element.parentElement;
+  if (parent && PARAGRAPH_TAGS.has(element.tagName.toLowerCase())) {
+    const siblings = getPersistedChildren(parent).filter(isParagraphBlock);
+    const index = siblings.indexOf(element);
+    if (index !== -1) return siblings.slice(index);
   }
-  return expanded;
+  return [element];
+}
+
+/**
+ * The one resolver for reveals. Every animation resolves to an outcome, in
+ * list order: ok with its steps, or unresolved with a typed reason. Save,
+ * Play, presenter and audience all read this, so they agree on what resolves.
+ * `root` is null when the content has no .fmd-slide; every reveal is then
+ * unresolved.
+ */
+export function resolveRevealSteps<T extends AnimationTarget>(
+  root: Element | null,
+  animations: readonly T[],
+): RevealOutcome<T>[] {
+  // Every element an earlier reveal hides, with whether it came from expansion.
+  const accepted: Array<{ element: Element; expanded: boolean }> = [];
+
+  return animations.map((animation, animationIndex): RevealOutcome<T> => {
+    const id = animation.id ?? null;
+    const fail = (
+      reason: RevealUnresolvedReason,
+      element: Element | null = null,
+      path: number[] | null = null,
+    ): RevealOutcome<T> => ({
+      ok: false,
+      animationIndex,
+      id,
+      reason,
+      preview: element
+        ? getElementPreview(element, `Element ${animation.elementIndex + 1}`)
+        : null,
+      path,
+    });
+
+    if (!root) return fail("missing-element");
+    const element = resolveSlideAnimationElement(root, animation);
+    if (!element) {
+      return fail(
+        Array.isArray(animation.elementPath) ? "stale-path" : "missing-element",
+      );
+    }
+    const path = getPersistedElementPath(root, element);
+    if (!path) return fail("missing-element", element);
+
+    const targets = animation.byParagraph
+      ? byParagraphTargets(element)
+      : [element];
+    const steps: RevealStep<T>[] = [];
+    for (const target of targets) {
+      const targetPath = getPersistedElementPath(root, target);
+      if (!targetPath) return fail("missing-element", target, path);
+      steps.push({ animation, element: target, path: targetPath });
+    }
+
+    // Expansion can put a step on an element a prior reveal already hides, or
+    // on its ancestor or descendant. Plain reveals may nest on purpose, so
+    // ancestor overlap only counts when one side came from expansion.
+    const expanded = targets.some((target) => target !== element);
+    const collides = steps.some(({ element: step }) =>
+      accepted.some(
+        (prior) =>
+          prior.element === step ||
+          ((expanded || prior.expanded) &&
+            (prior.element.contains(step) || step.contains(prior.element))),
+      ),
+    );
+    if (collides) return fail("duplicate-after-expansion", element, path);
+
+    for (const step of steps)
+      accepted.push({ element: step.element, expanded });
+    return { ok: true, animationIndex, id, element, path, steps };
+  });
+}
+
+/** The reveal steps of every ok outcome, in playback order. */
+export function revealStepsOf<T extends AnimationTarget>(
+  outcomes: readonly RevealOutcome<T>[],
+): RevealStep<T>[] {
+  return outcomes.flatMap((outcome) => (outcome.ok ? outcome.steps : []));
+}
+
+const STORED_STAMP_NONCE = "stored";
+
+function stampOrdinal(stamp: string): number | null {
+  const colon = stamp.lastIndexOf(":");
+  if (colon === -1) return null;
+  const ordinal = Number(stamp.slice(colon + 1));
+  return Number.isInteger(ordinal) && ordinal >= 0 ? ordinal : null;
+}
+
+/** Parses the stored HTML the way the runtime does, with source stamps. */
+function parseStoredWithStamps(stored: string): Document {
+  return new DOMParser().parseFromString(
+    stampSlideSource(stored, STORED_STAMP_NONCE).html,
+    "text/html",
+  );
+}
+
+/**
+ * The persisted path, in the stored HTML, of an element on the rendered canvas.
+ * The sanitized DOM drops svg, button, input and similar elements, so its
+ * child indices differ from the stored HTML that playback resolves against.
+ * The stamp names the stored element the rendered one came from.
+ */
+export function storedPathOfRenderedElement(
+  stored: string,
+  rendered: Element,
+): number[] | null {
+  const stamp = rendered.getAttribute(SOURCE_STAMP_ATTR);
+  const ordinal = stamp ? stampOrdinal(stamp) : null;
+  if (ordinal === null) return null;
+
+  const doc = parseStoredWithStamps(stored);
+  const root = doc.querySelector(".fmd-slide");
+  const element = doc.querySelector(
+    `[${SOURCE_STAMP_ATTR}="${STORED_STAMP_NONCE}:${ordinal}"]`,
+  );
+  if (!root || !element || !root.contains(element)) return null;
+  const path = getPersistedElementPath(root, element);
+  return path && path.length > 0 ? path : null;
+}
+
+/**
+ * The stamp ordinal of the stored element at `path`. A rendered copy is found
+ * by the same ordinal, since its stamp ends in that ordinal.
+ */
+export function storedOrdinalAtPath(
+  stored: string,
+  path: readonly number[],
+): number | null {
+  const root = parseStoredWithStamps(stored).querySelector(".fmd-slide");
+  const element = root ? resolveElementPath(root, [...path]) : null;
+  const stamp = element?.getAttribute(SOURCE_STAMP_ATTR);
+  return stamp ? stampOrdinal(stamp) : null;
 }
 
 export function getElementAnimationValue(type: AnimationType): string {
@@ -331,62 +473,6 @@ export function getElementAnimationValue(type: AnimationType): string {
     case "zoom":
       return "elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
   }
-}
-
-export function resolveSlideAnimationTargetsWithDiagnostics<
-  T extends AnimationTarget,
->(root: Element, targets: readonly T[]): AnimationTargetResolution<T> {
-  const seen = new Set<string>();
-  const resolved: ResolvedAnimationTarget<T>[] = [];
-
-  for (const [animationIndex, target] of targets.entries()) {
-    const element = resolveSlideAnimationElement(root, target);
-    if (!element) {
-      return {
-        resolved: null,
-        issue: {
-          animationIndex,
-          code: "missing-target",
-          target,
-        },
-      };
-    }
-    const path = getPersistedElementPath(root, element);
-    if (!path) {
-      return {
-        resolved: null,
-        issue: {
-          animationIndex,
-          code: "missing-target",
-          target,
-          preview: getElementPreview(
-            element,
-            `Element ${target.elementIndex + 1}`,
-          ),
-        },
-      };
-    }
-    const key = animationElementKey(path);
-    if (seen.has(key)) {
-      return {
-        resolved: null,
-        issue: {
-          animationIndex,
-          code: "duplicate-target",
-          target,
-          key,
-          preview: getElementPreview(
-            element,
-            `Element ${target.elementIndex + 1}`,
-          ),
-        },
-      };
-    }
-    seen.add(key);
-    resolved.push({ target, element, key });
-  }
-
-  return { resolved, issue: null };
 }
 
 export function getSlideAnimationTargetKey(

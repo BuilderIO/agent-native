@@ -68,6 +68,12 @@ import {
 } from "../shared/slide-fit.js";
 import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
 import {
+  clampTransitionSpeed,
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+} from "../shared/slide-transitions.js";
+import {
   trackDeckCreationStarted,
   trackSlideContentEdited,
 } from "./_deck-tracking.js";
@@ -139,6 +145,11 @@ const SlideAnimationSchema = z.object({
     ),
 });
 
+const SLIDE_TRANSITION_DESCRIPTION =
+  "Transition that plays when the presenter enters this slide (not when leaving it). One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents.";
+const SLIDE_TRANSITION_SPEED_DESCRIPTION =
+  "Speed of the entering transition, from 0 (slowest, 5.0 s) to 49 (fastest, 0.1 s). Omit or null uses the default 45 (0.5 s).";
+
 const SlideFieldsSchema = z.object({
   content: z.string().optional(),
   notes: z.string().optional(),
@@ -150,10 +161,18 @@ const SlideFieldsSchema = z.object({
   imagePrompt: z.string().nullable().optional(),
   excalidrawData: z.string().nullable().optional(),
   transition: z
-    .enum(["instant", "none", "fade", "slide", "zoom"])
+    .enum(SLIDE_TRANSITION_INPUTS)
     .nullable()
     .optional()
-    .describe("Transition used when entering this slide"),
+    .describe(SLIDE_TRANSITION_DESCRIPTION),
+  transitionSpeed: z
+    .number()
+    .int()
+    .min(SLIDE_TRANSITION_SPEED.min)
+    .max(SLIDE_TRANSITION_SPEED.max)
+    .nullable()
+    .optional()
+    .describe(SLIDE_TRANSITION_SPEED_DESCRIPTION),
   animations: z
     .array(SlideAnimationSchema)
     .nullable()
@@ -307,9 +326,18 @@ const AddSlideOp = z.object({
       imagePrompt: z.string().optional(),
       excalidrawData: z.string().optional(),
       transition: z
-        .enum(["instant", "none", "fade", "slide", "zoom"])
-        .optional(),
-      animations: z.array(z.unknown()).optional(),
+        .enum(SLIDE_TRANSITION_INPUTS)
+        .optional()
+        .describe(SLIDE_TRANSITION_DESCRIPTION),
+      transitionSpeed: z
+        .number()
+        .int()
+        .min(SLIDE_TRANSITION_SPEED.min)
+        .max(SLIDE_TRANSITION_SPEED.max)
+        .nullable()
+        .optional()
+        .describe(SLIDE_TRANSITION_SPEED_DESCRIPTION),
+      animations: z.array(SlideAnimationSchema).optional(),
       splitByParagraph: z.boolean().optional(),
       skipped: z.boolean().optional(),
     })
@@ -355,6 +383,7 @@ const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
   "imageUrl",
   "excalidrawData",
   "transition",
+  "transitionSpeed",
   "animations",
   "splitByParagraph",
   "skipped",
@@ -369,6 +398,7 @@ const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
   "imageUrl",
   "excalidrawData",
   "transition",
+  "transitionSpeed",
   "animations",
   "splitByParagraph",
   "skipped",
@@ -763,6 +793,34 @@ function storedCreativeContext(value: unknown): {
 // Core merge logic (exported for unit tests)
 // ---------------------------------------------------------------------------
 
+// Transition fields are stored canonical so every reader sees a value from
+// SLIDE_TRANSITION_TYPES. null and undefined pass through: null is an explicit
+// clear that the caller applies by deleting the key.
+function canonicalSlideFieldValue(field: string, value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (field === "transition") return normalizeSlideTransition(value);
+  if (field === "transitionSpeed") return clampTransitionSpeed(value as number);
+  return value;
+}
+
+// get-deck reads an absent transition or speed as null, so a snapshot of null
+// and a missing key name the same slide state. Unrecognized values are not
+// coerced: they stay distinct and fail the comparison.
+function readerSlideFieldValue(
+  field: "transition" | "transitionSpeed",
+  value: unknown,
+): unknown {
+  if (field === "transition") {
+    if (value === null || value === undefined) return "none";
+    return (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(value)
+      ? normalizeSlideTransition(value)
+      : value;
+  }
+  return value === null || value === undefined
+    ? SLIDE_TRANSITION_SPEED.default
+    : value;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyOperation(
   deck: any,
@@ -808,7 +866,10 @@ export function applyOperation(
         const baseline = op.baseFields?.[field];
         if (!baseline) continue;
         const currentValue = slide[field];
-        const desiredValue = fields[field as keyof typeof fields];
+        const desiredValue = canonicalSlideFieldValue(
+          field,
+          fields[field as keyof typeof fields],
+        );
         const alreadyDesired =
           desiredValue === null
             ? currentValue === undefined
@@ -822,11 +883,19 @@ export function applyOperation(
           field === "notes"
             ? stableStringify(currentValue ?? "") ===
               stableStringify(baseline.present ? (baseline.value ?? "") : "")
-            : baseline.present
-              ? currentValue !== undefined &&
-                stableStringify(currentValue) ===
-                  stableStringify(baseline.value)
-              : currentValue === undefined;
+            : field === "transition" || field === "transitionSpeed"
+              ? stableStringify(readerSlideFieldValue(field, currentValue)) ===
+                stableStringify(
+                  readerSlideFieldValue(
+                    field,
+                    baseline.present ? baseline.value : undefined,
+                  ),
+                )
+              : baseline.present
+                ? currentValue !== undefined &&
+                  stableStringify(currentValue) ===
+                    stableStringify(baseline.value)
+                : currentValue === undefined;
         if (!matchesBaseline) {
           fail(
             `Slide field ${field} changed since it was read. Re-read the slide and reconcile this field before retrying.`,
@@ -870,12 +939,13 @@ export function applyOperation(
         "imagePrompt",
         "excalidrawData",
         "transition",
+        "transitionSpeed",
         "animations",
         "splitByParagraph",
         "skipped",
       ] as const) {
         if (alreadyDesiredFields.has(key)) continue;
-        const value = fields[key];
+        const value = canonicalSlideFieldValue(key, fields[key]);
         if (value === null) delete slide[key];
         else if (value !== undefined) slide[key] = value;
       }
@@ -969,6 +1039,11 @@ export function applyOperation(
         layout: fields.layout ?? "content",
       };
       delete newSlide.imageLoading;
+      for (const key of ["transition", "transitionSpeed"] as const) {
+        const value = canonicalSlideFieldValue(key, newSlide[key]);
+        if (value === null || value === undefined) delete newSlide[key];
+        else newSlide[key] = value;
+      }
       const insertAfterIdx = afterSlideId
         ? slides.findIndex((s: { id: string }) => s.id === afterSlideId)
         : -1;

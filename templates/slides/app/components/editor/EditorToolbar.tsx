@@ -110,6 +110,11 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_TYPES,
+  type SlideTransitionType,
+} from "../../../shared/slide-transitions";
+import {
   registerEditorCommands,
   type EditorCommand,
 } from "./editor-command-model";
@@ -123,6 +128,11 @@ import {
   type ExportMenuHandle,
   type ExportStatus,
 } from "./ExportMenu";
+import {
+  SLIDE_TRANSITION_LABEL_KEYS,
+  SlideTransitionControl,
+  type SlideTransitionPatch,
+} from "./SlideTransitionControl";
 export type PresentRequest = {
   preserveNativeNavigation: true;
 };
@@ -164,7 +174,9 @@ interface EditorToolbarProps {
   onToggleTextBoxMode?: () => void;
   shapeType?: SlideShapeType | null;
   onSelectShape?: (shape: SlideShapeType) => void;
-  onChangeSlideTransition?: (transition: SlideTransition) => void;
+  onChangeSlideTransition?: (patch: SlideTransitionPatch) => void;
+  onApplySlideTransitionToAll?: (patch: SlideTransitionPatch) => void;
+  onPlaySlideTransition?: () => void;
   onDuplicateDeck?: () => void;
   onExportPdf?: () => Promise<void> | void;
   onExportPptx?: () => Promise<void> | void;
@@ -183,14 +195,13 @@ interface EditorToolbarProps {
 const TOOLBAR_ICON_BUTTON_CLASS =
   "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
 
-type SlideTransition = NonNullable<Slide["transition"]>;
-
-const SLIDE_TRANSITIONS: { value: SlideTransition; labelKey: string }[] = [
-  { value: "instant", labelKey: "editorToolbar.transition_instant" },
-  { value: "fade", labelKey: "editorToolbar.transition_fade" },
-  { value: "slide", labelKey: "editorToolbar.transition_slide" },
-  { value: "zoom", labelKey: "editorToolbar.transition_zoom" },
-];
+const SLIDE_TRANSITIONS: {
+  value: SlideTransitionType;
+  labelKey: string;
+}[] = SLIDE_TRANSITION_TYPES.map((value) => ({
+  value,
+  labelKey: SLIDE_TRANSITION_LABEL_KEYS[value],
+}));
 
 export default function EditorToolbar({
   deck,
@@ -228,6 +239,8 @@ export default function EditorToolbar({
   shapeType,
   onSelectShape,
   onChangeSlideTransition,
+  onApplySlideTransitionToAll,
+  onPlaySlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -343,10 +356,9 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
-  const activeSlideTransition: SlideTransition =
-    !currentSlide?.transition || currentSlide.transition === "none"
-      ? "instant"
-      : currentSlide.transition;
+  const activeSlideTransition = normalizeSlideTransition(
+    currentSlide?.transition,
+  );
   const undoModifier =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad/.test(navigator.platform)
@@ -636,7 +648,7 @@ export default function EditorToolbar({
           keywords: ["slide", "transition", transition.value],
           icon: IconBolt,
           active: activeSlideTransition === transition.value,
-          run: () => onChangeSlideTransition(transition.value),
+          run: () => onChangeSlideTransition({ transition: transition.value }),
         })),
       );
     }
@@ -941,6 +953,22 @@ export default function EditorToolbar({
 
       {/* Top-right editor actions */}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Slide transition — the current slide's entry transition, speed,
+            apply-to-all, and preview. */}
+        {canEdit &&
+          currentSlide &&
+          onChangeSlideTransition &&
+          onApplySlideTransitionToAll && (
+            <SlideTransitionControl
+              currentSlide={currentSlide}
+              currentSlideIndex={currentSlideIndex}
+              canEdit={canEdit}
+              onChange={onChangeSlideTransition}
+              onApplyToAll={onApplySlideTransitionToAll}
+              onPlay={onPlaySlideTransition}
+            />
+          )}
+
         {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}

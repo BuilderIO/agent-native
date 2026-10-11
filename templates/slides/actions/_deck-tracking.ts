@@ -37,6 +37,7 @@ const SLIDE_CONTENT_FIELDS = [
   "excalidrawData",
   "animations",
   "transition",
+  "transitionSpeed",
   "skipped",
 ] as const;
 

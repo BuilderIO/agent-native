@@ -17,6 +17,7 @@ import { eq, lt } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../db";
+import { slideRevealIssues } from "../lib/slide-reveal-issues.js";
 import { trackSlides } from "../lib/slides-tracking.js";
 import {
   resolveSlidesRequestAuth,
@@ -120,7 +121,10 @@ async function createShareLink(event: any, deckId: string, userEmail: string) {
   }
 
   const slides = storedDeck.slides.map((slide: unknown, index: number) =>
-    toSharedDeckSlide(slide, index, { includeNotes: false }),
+    toSharedDeckSlide(slide, index, {
+      includeNotes: false,
+      revealIssues: slideRevealIssues(slide),
+    }),
   );
 
   await db.insert(schema.deckShareLinks).values({

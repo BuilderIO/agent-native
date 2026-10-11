@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
-import { diffUndoRevealTargets, undoRevealForOps } from "./undo-reveal";
+import { stampSlideSource } from "./slide-source-map";
+import {
+  diffUndoRevealTargets,
+  renderedElementForStoredPath,
+  undoRevealForOps,
+} from "./undo-reveal";
 
 const slide = (...children: string[]) =>
   `<div class="fmd-slide">${children.join("")}</div>`;
@@ -231,5 +236,52 @@ describe("undoRevealForOps", () => {
       ),
     ).toBeNull();
     expect(undoRevealForOps(undefined, "d1", [], "undo")).toBeNull();
+  });
+});
+
+describe("renderedElementForStoredPath", () => {
+  // The canvas is the stored HTML with stamps, minus the svg the sanitizer drops.
+  const renderCanvas = (stored: string) => {
+    const { html } = stampSlideSource(stored, "r");
+    const canvas = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector(".fmd-slide")!;
+    for (const svg of canvas.querySelectorAll("svg")) svg.remove();
+    return canvas;
+  };
+
+  it("finds the rendered copy of a stored path past an element the canvas drops", () => {
+    const stored = slide(
+      '<svg width="1" height="1"></svg>',
+      box("a", "", "A"),
+      box("b", "", "B"),
+    );
+    const canvas = renderCanvas(stored);
+    expect(renderedElementForStoredPath(canvas, stored, [2])?.textContent).toBe(
+      "B",
+    );
+    expect(renderedElementForStoredPath(canvas, stored, [1])?.textContent).toBe(
+      "A",
+    );
+    expect(renderedElementForStoredPath(canvas, stored, [7])).toBeNull();
+  });
+
+  it("selects the object a history step changed, not the one at its rendered index", () => {
+    const before = slide(
+      '<svg width="1" height="1"></svg>',
+      box("a", "", "A"),
+      box("b", "", "B"),
+    );
+    const after = slide(
+      '<svg width="1" height="1"></svg>',
+      box("a", "", "A"),
+      box("b", "", "B2"),
+    );
+    const [target] = diffUndoRevealTargets(before, after, "undo") ?? [];
+    expect(target?.path).toEqual([2]);
+    const canvas = renderCanvas(after);
+    expect(
+      renderedElementForStoredPath(canvas, after, target!.path)?.textContent,
+    ).toBe("B2");
   });
 });

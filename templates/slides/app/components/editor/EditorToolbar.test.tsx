@@ -208,7 +208,7 @@ const deckWithSlides: Deck = {
       content: "",
       notes: "",
       layout: "blank",
-      transition: "instant",
+      transition: "none",
     },
   ],
 };
@@ -594,7 +594,7 @@ describe("<EditorToolbar>", () => {
       content: "",
       notes: "",
       layout: "blank" as const,
-      transition: "instant" as const,
+      transition: "none" as const,
     };
 
     render(
@@ -636,10 +636,14 @@ describe("<EditorToolbar>", () => {
         "shape-circle",
         "element-animations",
         "layers",
-        "slide-transition-instant",
+        "slide-transition-none",
+        "slide-transition-dissolve",
         "slide-transition-fade",
-        "slide-transition-slide",
-        "slide-transition-zoom",
+        "slide-transition-slide-from-right",
+        "slide-transition-slide-from-left",
+        "slide-transition-flip",
+        "slide-transition-cube",
+        "slide-transition-gallery",
         "download-html",
         "export-pdf",
         "export-pptx",
@@ -663,7 +667,9 @@ describe("<EditorToolbar>", () => {
     expect(onSelectShape).toHaveBeenCalledWith("rectangle");
     expect(onToggleAnimations).toHaveBeenCalledOnce();
     expect(onToggleLayers).toHaveBeenCalledOnce();
-    expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
+    expect(onChangeSlideTransition).toHaveBeenCalledWith({
+      transition: "fade",
+    });
     expect(onShowHistory).toHaveBeenCalledOnce();
   });
 
@@ -851,7 +857,7 @@ describe("<EditorToolbar>", () => {
             content: "",
             notes: "",
             layout: "blank",
-            transition: "instant",
+            transition: "none",
           }}
           onChangeSlideTransition={vi.fn()}
         />
@@ -866,7 +872,7 @@ describe("<EditorToolbar>", () => {
     await screen.findByRole("menu");
     expect(
       screen.queryByRole("menuitem", {
-        name: "editorToolbar.transition_instant",
+        name: "editorToolbar.transition_none",
       }),
     ).toBeNull();
     expect(

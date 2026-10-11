@@ -1,16 +1,49 @@
+import { fail } from "@agent-native/core/action";
 import { parseHTML } from "linkedom/worker";
 
 import {
   animationElementKey,
-  getElementPath,
   getElementPreview,
-  resolveSlideAnimationElement,
-  resolveSlideAnimationTargetsWithDiagnostics,
+  resolveRevealSteps,
   type AnimationTarget,
+  type RevealOutcome,
+  type RevealUnresolvedReason,
 } from "../../app/lib/slide-animation-elements.js";
 
 interface SlideAnimation extends AnimationTarget {
   id?: string;
+}
+
+/**
+ * Why a save refuses a reveal list. Each is a 400 whose errorCode is
+ * `slide_animation_<reason>` with the reason in details, so a caller can branch
+ * on it instead of parsing the message.
+ */
+export type SlideAnimationRefusal =
+  | RevealUnresolvedReason
+  | "duplicate-id"
+  | "element-path-required";
+
+function refuse(
+  reason: SlideAnimationRefusal,
+  message: string,
+  details: Record<string, unknown>,
+): never {
+  return fail(message, {
+    errorCode: `slide_animation_${reason.replace(/-/g, "_")}`,
+    statusCode: 400,
+    details: { reason, ...details },
+  });
+}
+
+function firstRepeatedIdIndex(animations: readonly SlideAnimation[]): number {
+  const seen = new Set<string>();
+  return animations.findIndex((animation) => {
+    if (animation.id === undefined) return false;
+    if (seen.has(animation.id)) return true;
+    seen.add(animation.id);
+    return false;
+  });
 }
 
 export interface SlideAnimationTargetSummary {
@@ -32,16 +65,22 @@ function formatTarget(target: SlideAnimation): string {
   return `step ${target.elementIndex + 1}${id}${path}`;
 }
 
+function slideRootOf(content: string) {
+  const { document } = parseHTML(
+    `<!doctype html><html><head></head><body>${content}</body></html>`,
+  );
+  return document.querySelector(".fmd-slide");
+}
+
+// The same resolver the editor and the runtime use, so a save rejects exactly
+// what playback would fail to resolve, including "By paragraph" expansion.
 export function summarizeSlideAnimationTargets(
   content: string,
   animations: readonly SlideAnimation[],
 ): SlideAnimationTargetSummary[] {
   if (animations.length === 0) return [];
 
-  const { document } = parseHTML(
-    `<!doctype html><html><head></head><body>${content}</body></html>`,
-  );
-  const root = document.querySelector(".fmd-slide");
+  const root = slideRootOf(content);
   if (!root) {
     return animations.map(() => ({
       targetPreview: null,
@@ -51,55 +90,31 @@ export function summarizeSlideAnimationTargets(
     }));
   }
 
-  const seen = new Set<string>();
-  return animations.map((target) => {
-    const element = resolveSlideAnimationElement(root, target);
-    if (!element) {
+  return resolveRevealSteps(root, animations).map(
+    (outcome): SlideAnimationTargetSummary => {
+      if (outcome.ok) {
+        const target = animations[outcome.animationIndex];
+        return {
+          targetPreview: getElementPreview(
+            outcome.element,
+            `Element ${(target?.elementIndex ?? 0) + 1}`,
+          ),
+          resolvedPath: animationElementKey(outcome.path),
+          targetValid: true,
+          targetIssue: null,
+        };
+      }
       return {
-        targetPreview: null,
-        resolvedPath: null,
+        targetPreview: outcome.preview,
+        resolvedPath: outcome.path ? animationElementKey(outcome.path) : null,
         targetValid: false,
-        targetIssue: "target-not-found",
+        targetIssue:
+          outcome.reason === "duplicate-after-expansion"
+            ? "duplicate-target"
+            : "target-not-found",
       };
-    }
-
-    const path = getElementPath(root, element);
-    if (!path) {
-      return {
-        targetPreview: getElementPreview(
-          element,
-          `Element ${target.elementIndex + 1}`,
-        ),
-        resolvedPath: null,
-        targetValid: false,
-        targetIssue: "target-not-found",
-      };
-    }
-
-    const key = animationElementKey(path);
-    if (seen.has(key)) {
-      return {
-        targetPreview: getElementPreview(
-          element,
-          `Element ${target.elementIndex + 1}`,
-        ),
-        resolvedPath: key,
-        targetValid: false,
-        targetIssue: "duplicate-target",
-      };
-    }
-
-    seen.add(key);
-    return {
-      targetPreview: getElementPreview(
-        element,
-        `Element ${target.elementIndex + 1}`,
-      ),
-      resolvedPath: key,
-      targetValid: true,
-      targetIssue: null,
-    };
-  });
+    },
+  );
 }
 
 export function assertSlideAnimationsResolve({
@@ -115,44 +130,73 @@ export function assertSlideAnimationsResolve({
 }): void {
   if (animations.length === 0) return;
 
+  const repeatedIndex = firstRepeatedIdIndex(animations);
+  if (repeatedIndex !== -1) {
+    const target = animations[repeatedIndex]!;
+    refuse(
+      "duplicate-id",
+      `Cannot save animations for slide ${slideId}: ${formatTarget(target)} repeats the id of an earlier reveal. Every reveal needs its own id; re-send the complete ordered list.`,
+      {
+        slideId,
+        animationIndex: repeatedIndex,
+        animationId: target.id,
+      },
+    );
+  }
+
   if (requireElementPaths) {
     const legacyIndex = animations.findIndex(
       (animation) => !Array.isArray(animation.elementPath),
     );
     if (legacyIndex !== -1) {
       const target = animations[legacyIndex];
-      throw new Error(
+      refuse(
+        "element-path-required",
         `Cannot save animations for slide ${slideId}: ${target ? formatTarget(target) : `step ${legacyIndex + 1}`} is missing elementPath. Agent-created or content-revised animations must use a path from the final HTML; elementIndex-only targets are legacy-only.`,
+        {
+          slideId,
+          animationIndex: legacyIndex,
+          animationId: target?.id ?? null,
+        },
       );
     }
   }
 
-  const { document } = parseHTML(
-    `<!doctype html><html><head></head><body>${content}</body></html>`,
-  );
-  const root = document.querySelector(".fmd-slide");
+  const root = slideRootOf(content);
   if (!root) {
-    throw new Error(
+    refuse(
+      "missing-element",
       `Cannot save animations for slide ${slideId}: the final HTML has no .fmd-slide wrapper. Re-read the slide content, then send the content and complete animation list together.`,
+      { slideId, animationIndex: null, animationId: null },
     );
   }
 
-  const resolution = resolveSlideAnimationTargetsWithDiagnostics(
-    root,
-    animations,
+  const failure = resolveRevealSteps(root, animations).find(
+    (outcome): outcome is Extract<RevealOutcome, { ok: false }> => !outcome.ok,
   );
-  const issue = resolution.issue;
-  if (!issue) return;
+  if (!failure) return;
 
-  const target = animations[issue.animationIndex];
+  const target = animations[failure.animationIndex];
   const targetDescription = target ? formatTarget(target) : "unknown step";
-  if (issue.code === "duplicate-target") {
-    throw new Error(
-      `Cannot save animations for slide ${slideId}: ${targetDescription} duplicates target path ${issue.key ?? "unknown"}${issue.preview ? ` (${issue.preview})` : ""}. Each reveal step must target a different element; re-read the final HTML and send the complete ordered list.`,
+  const details = {
+    slideId,
+    animationIndex: failure.animationIndex,
+    animationId: failure.id,
+    path: failure.path,
+    preview: failure.preview,
+  };
+  if (failure.reason === "duplicate-after-expansion") {
+    const path = failure.path ? animationElementKey(failure.path) : "unknown";
+    refuse(
+      failure.reason,
+      `Cannot save animations for slide ${slideId}: ${targetDescription} duplicates target path ${path}${failure.preview ? ` (${failure.preview})` : ""}. A "By paragraph" reveal expands to its paragraphs, and no step may hide an element another reveal already hides, or one of its ancestors or descendants. Re-read the final HTML and send the complete ordered list.`,
+      details,
     );
   }
 
-  throw new Error(
-    `Cannot save animations for slide ${slideId}: ${targetDescription} does not resolve in the final HTML. Do not fall back to elementIndex; re-read the final HTML and send the content and complete ordered animation list together.`,
+  refuse(
+    failure.reason,
+    `Cannot save animations for slide ${slideId}: ${targetDescription} does not resolve in the final HTML (${failure.reason}). Do not fall back to elementIndex; re-read the final HTML and send the content and complete ordered animation list together.`,
+    details,
   );
 }

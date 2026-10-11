@@ -13,6 +13,7 @@ import {
 
 import { DECK_AGENT_RESOURCE_KIND } from "../../../shared/agent-readable.js";
 import { getDb, schema } from "../../db/index.js";
+import { slideRevealIssues } from "../../lib/slide-reveal-issues.js";
 
 function queryString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -77,7 +78,10 @@ export default defineEventHandler(async (event) => {
   const data = parseDeckData(deck.data);
   const slides = Array.isArray(data.slides)
     ? data.slides.map((slide: unknown, index: number) =>
-        toSharedDeckSlide(slide, index, { includeNotes: false }),
+        toSharedDeckSlide(slide, index, {
+          includeNotes: false,
+          revealIssues: slideRevealIssues(slide),
+        }),
       )
     : [];
 

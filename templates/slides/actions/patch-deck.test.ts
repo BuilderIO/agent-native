@@ -220,6 +220,38 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].background).toBeUndefined();
   });
 
+  it.each([
+    ["instant", "none"],
+    ["slide", "slide-from-right"],
+    ["zoom", "dissolve"],
+    ["flip", "flip"],
+  ])("stores the canonical transition for input %s", (input, canonical) => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transition: input },
+    });
+    expect(deck.slides[0].transition).toBe(canonical);
+  });
+
+  it("stores transitionSpeed and clears it on an explicit null", () => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transitionSpeed: 30 },
+    });
+    expect(deck.slides[0].transitionSpeed).toBe(30);
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transitionSpeed: null },
+    });
+    expect(deck.slides[0]).not.toHaveProperty("transitionSpeed");
+  });
+
   it("treats omitted speaker notes as the blank UI baseline", () => {
     const deck = { slides: [{ id: "s1", content: "Before" }] };
     applyOperation(deck, {
@@ -954,6 +986,23 @@ describe("applyOperation — add-slide", () => {
     expect(copy.animations).toHaveLength(1);
     expect(copy.imageUrl).toBe("https://example.com/slide.png");
     expect(copy.imageLoading).toBeUndefined();
+  });
+
+  it("stores the canonical transition and speed on an added slide", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      fields: {
+        content: "<p>Copy</p>",
+        transition: "zoom",
+        transitionSpeed: 20,
+      },
+    });
+    expect(deck.slides[1]).toMatchObject({
+      transition: "dissolve",
+      transitionSpeed: 20,
+    });
   });
 
   it("is idempotent — duplicate delivery is silently ignored", () => {
@@ -3784,6 +3833,169 @@ describe("run() — reveals survive a non-content field change", () => {
   });
 });
 
+describe("run() — refused reveal writes return typed 400s", () => {
+  const content = '<div class="fmd-slide"><h1>One</h1><p>Two</p></div>';
+  const reveal = (overrides: Record<string, unknown> = {}) => ({
+    id: "reveal-one",
+    elementIndex: 0,
+    elementPath: [0],
+    type: "fade",
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content, animations: [reveal()] }],
+      }),
+    };
+  });
+
+  const refusedAnimations = (animations: unknown[], caller = "tool") =>
+    runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { animations },
+          },
+        ],
+      },
+      { caller },
+    );
+
+  it("returns slide_animation_stale_path with the reveal id and no write", async () => {
+    await expect(
+      refusedAnimations([reveal({ id: "gone", elementPath: [9, 9] })]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationIndex: 0,
+        animationId: "gone",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("returns slide_animation_missing_element when the slide has no .fmd-slide root", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [{ id: "slide-1", content: "<div>Loose</div>" }],
+    });
+    await expect(refusedAnimations([reveal()])).rejects.toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      statusCode: 400,
+      details: { reason: "missing-element", slideId: "slide-1" },
+    });
+  });
+
+  it("returns slide_animation_element_path_required for an agent's elementIndex-only reveal", async () => {
+    await expect(
+      refusedAnimations([{ id: "legacy", elementIndex: 0, type: "fade" }]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_element_path_required",
+      statusCode: 400,
+      details: { reason: "element-path-required", animationId: "legacy" },
+    });
+  });
+
+  it("returns slide_animation_duplicate_after_expansion when a paragraph step hides an earlier reveal's box", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><div class="text"><p>A</p><p>B</p></div></div>',
+          animations: [],
+        },
+      ],
+    });
+    await expect(
+      refusedAnimations([
+        reveal({ id: "box", elementPath: [0] }),
+        reveal({ id: "paras", elementPath: [0], byParagraph: true }),
+      ]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_duplicate_after_expansion",
+      statusCode: 400,
+      details: { reason: "duplicate-after-expansion", animationId: "paras" },
+    });
+  });
+
+  it("rejects a repeated reveal id with slide_animation_duplicate_id", async () => {
+    await expect(
+      refusedAnimations([
+        reveal({ id: "same", elementPath: [0] }),
+        reveal({ id: "same", elementPath: [1] }),
+      ]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_duplicate_id",
+      statusCode: 400,
+      details: {
+        reason: "duplicate-id",
+        animationIndex: 1,
+        animationId: "same",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("validates add-slide reveals with the same resolver", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: {
+                content: '<div class="fmd-slide"><h1>New</h1></div>',
+                animations: [reveal({ id: "new-reveal", elementPath: [7] })],
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: { slideId: "slide-2", animationId: "new-reveal" },
+    });
+  });
+
+  it("rejects an unknown reveal type on add-slide at schema parse, like patch-slide", () => {
+    const operation = (animations: unknown[]) => ({
+      op: "add-slide",
+      slideId: "slide-2",
+      fields: { content, animations },
+    });
+    expect(
+      OperationSchema.safeParse(operation([reveal({ type: "wipe" })])).success,
+    ).toBe(false);
+    expect(
+      OperationSchema.safeParse(operation([reveal({ type: "zoom" })])).success,
+    ).toBe(true);
+  });
+});
+
 describe("run() — the no-op gate spares real deck-level mutations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -4941,5 +5153,177 @@ describe("run() — tracking", () => {
       generation_attempt_id: "attempt-2",
       is_retry: true,
     });
+  });
+});
+
+describe("run() — slide transition writes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: '<div class="fmd-slide"><h1>One</h1></div>',
+          },
+          {
+            id: "slide-2",
+            content: '<div class="fmd-slide"><h1>Two</h1></div>',
+          },
+        ],
+      }),
+    };
+  });
+
+  it("stores the canonical transition and the speed for a legacy input", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { transition: "slide", transitionSpeed: 30 },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[1]).toMatchObject({
+      transition: "slide-from-right",
+      transitionSpeed: 30,
+    });
+  });
+
+  it.each([50, -1, 2.5])(
+    "rejects transitionSpeed %s before anything is written",
+    async (transitionSpeed) => {
+      await expect(
+        runPatchDeckAction(
+          {
+            deckId: "deck-1",
+            operations: [
+              {
+                op: "patch-slide",
+                slideId: "slide-2",
+                fields: { transitionSpeed },
+              },
+            ],
+          },
+          { caller: "tool" },
+        ),
+      ).rejects.toThrow(/transitionSpeed/);
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
+  // The editor snapshots null for a field get-deck reads as absent, so these
+  // writes send {present:true,value:null} rather than {present:false}.
+  function storeSlideOneFields(fields: Record<string, unknown>) {
+    const deck = JSON.parse(String(mockDeckRow!.data));
+    deck.slides[0] = { ...deck.slides[0], ...fields };
+    mockDeckRow = { ...mockDeckRow, data: JSON.stringify(deck) };
+  }
+
+  function writeSlideOneFields(
+    fields: Record<string, unknown>,
+    baseFields: Record<string, unknown>,
+  ) {
+    return runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          { op: "patch-slide", slideId: "slide-1", fields, baseFields },
+        ],
+      },
+      {},
+    );
+  }
+
+  it("saves a transition on a slide with no stored transition", async () => {
+    await writeSlideOneFields(
+      { transition: "dissolve" },
+      { transition: { present: true, value: null } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].transition).toBe(
+      "dissolve",
+    );
+  });
+
+  it("saves a speed on a slide with no stored speed", async () => {
+    await writeSlideOneFields(
+      { transitionSpeed: 30 },
+      { transitionSpeed: { present: true, value: null } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].transitionSpeed).toBe(30);
+  });
+
+  it("clears a stored speed with null", async () => {
+    storeSlideOneFields({ transitionSpeed: 30 });
+    await writeSlideOneFields(
+      { transitionSpeed: null },
+      { transitionSpeed: { present: true, value: 30 } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0]).not.toHaveProperty(
+      "transitionSpeed",
+    );
+  });
+
+  it.each([
+    {
+      field: "transition",
+      stored: { transition: "fade" },
+      fields: { transition: "dissolve" },
+      baseFields: { transition: { present: true, value: null } },
+    },
+    {
+      field: "transitionSpeed",
+      stored: { transitionSpeed: 20 },
+      fields: { transitionSpeed: 30 },
+      baseFields: { transitionSpeed: { present: true, value: null } },
+    },
+  ])(
+    "still rejects a stale $field snapshot",
+    async ({ field, stored, fields, baseFields }) => {
+      storeSlideOneFields(stored);
+      await expect(
+        writeSlideOneFields(fields, baseFields),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "slide_field_stale",
+        details: { slideId: "slide-1", field },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
+  it("lets a widget write the transition together with its speed", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { transition: "fade", transitionSpeed: 30 },
+          baseFields: {
+            transition: { present: false },
+            transitionSpeed: { present: false },
+          },
+        },
+      ]),
+    ).toBe(true);
   });
 });

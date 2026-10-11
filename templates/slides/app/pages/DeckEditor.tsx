@@ -89,6 +89,7 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import { SlideTransitionPreview } from "@/components/presentation/SlideTransitionStage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -768,6 +769,7 @@ export default function DeckEditor() {
   const [animationTarget, setAnimationTarget] =
     useState<SelectedAnimationTarget | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [transitionPreviewOpen, setTransitionPreviewOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
@@ -4353,7 +4355,22 @@ export default function DeckEditor() {
           onSelectShape={selectShape}
           onChangeSlideTransition={
             canEdit && currentSlide
-              ? (transition) => updateSlide(id, currentSlide.id, { transition })
+              ? (patch) => updateSlide(id, currentSlide.id, patch)
+              : undefined
+          }
+          onPlaySlideTransition={
+            currentIndex > 0 ? () => setTransitionPreviewOpen(true) : undefined
+          }
+          onApplySlideTransitionToAll={
+            canEdit && deck.slides.length > 0
+              ? (patch) =>
+                  updateSlides(
+                    id,
+                    deck.slides.map((slide) => ({
+                      slideId: slide.id,
+                      updates: patch,
+                    })),
+                  )
               : undefined
           }
           onDuplicateDeck={async () => {
@@ -4571,6 +4588,16 @@ export default function DeckEditor() {
               />
             </div>
           </div>
+        )}
+
+        {transitionPreviewOpen && currentIndex > 0 && (
+          <SlideTransitionPreview
+            slides={deck.slides}
+            index={currentIndex}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+            onClose={() => setTransitionPreviewOpen(false)}
+          />
         )}
 
         {showQuestionFlow && (

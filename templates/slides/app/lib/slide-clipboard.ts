@@ -1,3 +1,9 @@
+import {
+  clampTransitionSpeed,
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+} from "@shared/slide-transitions";
+
 import type {
   AnimationType,
   Slide,
@@ -168,14 +174,29 @@ export function normalizeSlideClipboard(value: unknown): Slide | null {
 
   if (candidate.transition !== undefined) {
     if (
-      typeof candidate.transition !== "string" ||
-      !["instant", "none", "fade", "slide", "zoom"].includes(
+      !(SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(
         candidate.transition,
       )
     ) {
       return null;
     }
-    normalized.transition = candidate.transition as Slide["transition"];
+    normalized.transition = normalizeSlideTransition(candidate.transition);
+  }
+
+  // null means "use the default speed", so it is dropped rather than stored.
+  if (
+    candidate.transitionSpeed !== undefined &&
+    candidate.transitionSpeed !== null
+  ) {
+    if (
+      typeof candidate.transitionSpeed !== "number" ||
+      !Number.isFinite(candidate.transitionSpeed)
+    ) {
+      return null;
+    }
+    normalized.transitionSpeed = clampTransitionSpeed(
+      candidate.transitionSpeed,
+    );
   }
 
   for (const key of [

@@ -13,6 +13,7 @@ import {
   openPresentChannel,
   type PresentMessage,
 } from "./present-channel";
+import { annotateBuildSteps, getBuildSteps } from "./slide-build-steps";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -52,7 +53,12 @@ export default function PresenterView({
     }
     return 0;
   }, [slides, startIndex]);
-  const [index, setIndex] = useState(initialIndex);
+  // The index and build step move together, so one update can take both.
+  const [position, setPosition] = useState({
+    index: initialIndex,
+    buildStep: 0,
+  });
+  const index = position.index;
   const [elapsed, setElapsed] = useState(0);
   const safeSlides = useMemo(
     () =>
@@ -62,6 +68,10 @@ export default function PresenterView({
           )
         : [],
     [slides],
+  );
+  const buildSteps = useMemo(
+    () => safeSlides.map((slide) => getBuildSteps(slide).steps),
+    [safeSlides],
   );
   const channelRef = useRef<BroadcastChannel | null>(null);
   const controllerConnectedRef = useRef(false);
@@ -76,7 +86,12 @@ export default function PresenterView({
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
       if (event.data?.type === "state") {
         controllerConnectedRef.current = true;
-        setIndex(event.data.index);
+        setPosition({
+          index: event.data.index,
+          buildStep: event.data.buildStep,
+        });
+      } else if (event.data?.type === "bye") {
+        controllerConnectedRef.current = false;
       }
     };
     channel.postMessage({ type: "hello" } satisfies PresentMessage);
@@ -97,14 +112,28 @@ export default function PresenterView({
       const channel = channelRef.current;
       if (message.type === "command" && !controllerConnectedRef.current) {
         channel?.postMessage(message);
-        setIndex((current) =>
-          advancePresentIndex(current, message.command, safeSlides.length),
-        );
+        // With no audience to report back, the presenter moves itself: a next
+        // press lands on the slide's first build, a prev press on its last.
+        setPosition((current) => {
+          const next = advancePresentIndex(
+            current.index,
+            message.command,
+            safeSlides.length,
+          );
+          if (next === current.index) return current;
+          return {
+            index: next,
+            buildStep:
+              message.command === "next" ? 0 : (buildSteps[next]?.length ?? 0),
+          };
+        });
         return;
       }
+      // Connected: this is a relay only. The audience applies the command once
+      // and reports its new state back, so nothing here steps the presenter.
       channel?.postMessage(message);
     },
-    [safeSlides.length],
+    [buildSteps, safeSlides.length],
   );
 
   const goNext = useCallback(
@@ -119,6 +148,8 @@ export default function PresenterView({
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (isMediaKeyboardEvent(e)) return;
+      // Same as the audience view: auto-repeat keydowns are not new presses.
+      if (e.repeat) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -155,7 +186,7 @@ export default function PresenterView({
 
     if (isDeepLinkChange) {
       prevSafeSlideIdsRef.current = safeSlides.map((s) => s.id);
-      setIndex(initialIndex);
+      setPosition({ index: initialIndex, buildStep: 0 });
       return;
     }
 
@@ -163,17 +194,24 @@ export default function PresenterView({
     const newIds = safeSlides.map((s) => s.id);
     const followedIndex = activeId ? newIds.indexOf(activeId) : -1;
     prevSafeSlideIdsRef.current = newIds;
-    setIndex(
+    const nextIndex =
       followedIndex >= 0
         ? followedIndex
-        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1)),
-    );
+        : Math.max(0, Math.min(indexRef.current, safeSlides.length - 1));
+    setPosition((current) => ({ ...current, index: nextIndex }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [safeSlides, startIndex, deckId]);
 
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
   const notes = current?.notes?.trim();
+  // The same annotation the audience renders, at the audience's build step.
+  const currentPreview = useMemo(
+    () =>
+      current &&
+      annotateBuildSteps(current, buildSteps[index], position.buildStep),
+    [buildSteps, current, index, position.buildStep],
+  );
 
   if (safeSlides.length === 0) {
     return (
@@ -230,9 +268,9 @@ export default function PresenterView({
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="flex gap-4">
           <div className="w-2/3 overflow-hidden rounded-lg bg-black">
-            {current && (
+            {currentPreview && (
               <SlideRenderer
-                slide={current}
+                slide={currentPreview}
                 slidePosition={{ number: index + 1, count: safeSlides.length }}
                 thumbnail
                 aspectRatio={aspectRatio}

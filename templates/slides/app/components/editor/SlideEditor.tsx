@@ -92,11 +92,12 @@ import {
   registerInlineEditRemoteApplier,
   requestInlineEditRemoteRetry,
 } from "@/lib/inline-edit-remote";
+import { revealsAfterDelete } from "@/lib/reveal-after-delete";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
-  getPersistedElementPath,
   resolveElementPath,
+  storedPathOfRenderedElement,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
 import {
@@ -126,7 +127,10 @@ import {
   type VideoPlaybackSettings,
 } from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
-import type { UndoSelectionRequest } from "@/lib/undo-reveal";
+import {
+  renderedElementForStoredPath,
+  type UndoSelectionRequest,
+} from "@/lib/undo-reveal";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
 
@@ -2892,10 +2896,14 @@ export default function SlideEditor({
   const getSelectedAnimationTarget =
     useCallback((): SelectedAnimationTarget | null => {
       const element = selectedImg ?? resolveSelectedElement();
-      const root = element?.closest<HTMLElement>(".fmd-slide");
-      if (!element || !root) return null;
-      const elementPath = getPersistedElementPath(root, element);
-      if (!elementPath || elementPath.length === 0) return null;
+      const scope = element?.closest<HTMLElement>("[data-slide-content-scope]");
+      const stored = scope ? getRenderedSlideSource(scope)?.stored : undefined;
+      if (!element || stored === undefined) return null;
+      // The path is taken from the stored HTML, the one playback resolves
+      // against. The rendered DOM drops svg and similar elements, so its
+      // indices would point at the wrong object at runtime.
+      const elementPath = storedPathOfRenderedElement(stored, element);
+      if (!elementPath) return null;
       const elementIndex = elementPath[elementPath.length - 1] ?? 0;
       return {
         elementIndex,
@@ -4180,13 +4188,16 @@ export default function SlideEditor({
     }
     appliedUndoSelectionRef.current = undoSelection.sequence;
     onUndoSelectionConsumed?.();
-    const root = slideContent.querySelector(".fmd-slide");
+    // Target paths are stored-HTML paths; the canvas drops svg and similar
+    // elements, so its own child indices would select the wrong object.
+    const stored = getRenderedSlideSource(slideContent)?.stored;
     const elements = undoSelection.targets
       .map(
         (target) =>
           (target.objectId &&
             findSlideObjectById(slideContent, target.objectId)) ||
-          (root && resolveElementPath(root, target.path)),
+          (stored !== undefined &&
+            renderedElementForStoredPath(slideContent, stored, target.path)),
       )
       .filter(
         (element): element is HTMLElement => element instanceof HTMLElement,
@@ -4569,6 +4580,8 @@ export default function SlideEditor({
     (resolvedSelection?: readonly HTMLElement[]) => {
       const slideContent = getSlideContent();
       if (!slideContent) return false;
+      // The objects taken off the canvas; their stored paths pick the reveals to drop.
+      const removed: HTMLElement[] = [];
 
       if (multiSelection.size > 0) {
         const selected = Array.from(multiSelection)
@@ -4593,6 +4606,7 @@ export default function SlideEditor({
           return false;
         }
         for (const element of roots) {
+          removed.push(element);
           removeSlideObjectAndLayoutSpacer(element, {
             preserveLayoutSlot: true,
           });
@@ -4614,8 +4628,11 @@ export default function SlideEditor({
           // Imported images can be nested inside an absolutely-positioned owner;
           // remove that owner so its persisted metadata cannot become a ghost.
           const owner = findPersistedImageObject(element, slideContent);
-          if (owner) removeSlideObjectAndLayoutSpacer(owner);
-          else {
+          if (owner) {
+            removed.push(owner);
+            removeSlideObjectAndLayoutSpacer(owner);
+          } else {
+            removed.push(element);
             removeSlideObjectAndLayoutSpacer(element, {
               preserveLayoutSlot: true,
             });
@@ -4623,6 +4640,7 @@ export default function SlideEditor({
           setSelectedImg(null);
           setImageOverlay(null);
         } else {
+          removed.push(element);
           removeSlideObjectAndLayoutSpacer(element, {
             preserveLayoutSlot: true,
           });
@@ -4632,9 +4650,25 @@ export default function SlideEditor({
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        onUpdateSlideRef.current({ content: html, animations: [] }, undefined, {
-          clearMissingImagePreviews: true,
-        });
+        // Only reveals on the removed objects go; the rest follow their
+        // elements to the paths the saved HTML now has.
+        const stored = getRenderedSlideSource(slideContent)?.stored;
+        onUpdateSlideRef.current(
+          {
+            content: html,
+            ...(stored !== undefined && slide.animations
+              ? {
+                  animations: revealsAfterDelete(
+                    stored,
+                    removed,
+                    slide.animations,
+                  ),
+                }
+              : {}),
+          },
+          undefined,
+          { clearMissingImagePreviews: true },
+        );
       }
       syncSelectionToAppState(null);
       return true;
@@ -4647,6 +4681,7 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       resolveSelectedElement,
       selectedImg,
+      slide.animations,
     ],
   );
 

@@ -100,7 +100,46 @@ describe("AnimationsPanel", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /Appear/ })).toBeTruthy();
-    expect(screen.getByText("On click")).toBeTruthy();
+    // The Trigger dropdown is hidden until a trigger other than On click exists.
+    expect(
+      screen.queryByRole("combobox", { name: "animations.trigger" }),
+    ).toBeNull();
+  });
+
+  it("says a refused add was not applied, not that the stored reveals are blocked", () => {
+    const onUpdateSlide = vi.fn();
+    const withListReveal = {
+      ...slide,
+      animations: [
+        {
+          id: "list",
+          elementIndex: 2,
+          elementPath: [2],
+          byParagraph: true,
+          type: "fade" as const,
+        },
+      ],
+    };
+    render(
+      <AnimationsPanel
+        slide={withListReveal}
+        selectedTarget={{
+          elementIndex: 0,
+          elementPath: [2, 0],
+          preview: "First point",
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    expect(onUpdateSlide).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("animations.issueDuplicate");
+    expect(alert.textContent).toContain("animations.changeNotApplied");
+    expect(alert.textContent).not.toContain("animations.blocked");
   });
 
   it("persists the paragraph setting for an expanded transition", () => {

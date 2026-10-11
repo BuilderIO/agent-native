@@ -79,6 +79,42 @@ describe("PresentationView keyboard shortcuts", () => {
     expect(screen.getByText("2 / 2")).toBeTruthy();
   });
 
+  it("steps once for a held key, ignoring its auto-repeat keydowns", () => {
+    // Three slides: a double step must be visible, not clamped at the last one.
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        repeat: true,
+        bubbles: true,
+      }),
+    );
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        repeat: true,
+        bubbles: true,
+      }),
+    );
+
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+  });
+
   it("keeps fullscreen, presenter, and exit shortcuts available to focused video", () => {
     render(
       <MemoryRouter>
