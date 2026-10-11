@@ -324,7 +324,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
     mocks.widget.write = false;
     await renderToolbar(1040, { readOnly: false });
     const app = measure();
-    expect(app.share).toContain("[&>*]:h-9");
+    expect(app.share).toContain(
+      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9",
+    );
     expect(app.share).not.toContain("[&>*]:h-8");
     expect(app.bar).toEqual(widget.bar);
     expect(app.copy).toEqual(widget.copy);
