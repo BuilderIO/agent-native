@@ -4260,6 +4260,67 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-ok 1`
 }
 `;
 
+exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-text-reads 1`] = `
+{
+  "trace": [
+    {
+      "run": {
+        "action": "wrapped-text-reads",
+        "appId": "mail",
+        "args": {},
+        "caller": "mcp",
+        "orgId": null,
+        "userEmail": "oauth@example.com",
+      },
+    },
+    {
+      "proxyTextRead": 1,
+    },
+    {
+      "proxyTextRead": 2,
+    },
+    {
+      "mcpToolCall": {
+        "durationMs": "<duration>",
+        "isError": false,
+        "parameters": {},
+        "toolCategory": "read",
+        "toolDescription": "Proxied MCP result whose text can be read only so often",
+        "toolName": "wrapped-text-reads",
+      },
+    },
+  ],
+  "wire": [
+    {
+      "body": {
+        "id": 0,
+        "jsonrpc": "2.0",
+        "result": {
+          "_meta": {
+            "io.modelcontextprotocol/serverInfo": {
+              "description": "Mail app",
+              "name": "agent-native-mail",
+              "version": "1.0.0",
+            },
+          },
+          "content": [
+            {
+              "text": "Upstream says hello",
+              "type": "text",
+            },
+          ],
+          "resultType": "complete",
+          "structuredContent": {
+            "value": 1,
+          },
+        },
+      },
+      "status": 200,
+    },
+  ],
+}
+`;
+
 exports[`direct tools/call wire output > full catalog, OAuth user: write-thing 1`] = `
 {
   "trace": [

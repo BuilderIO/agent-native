@@ -313,6 +313,29 @@ const actions: Record<string, any> = {
       input: {},
     }),
   }),
+  // Every read of `text` lands in the trace, so an added read shows up even
+  // when it does not reach the read that throws.
+  "wrapped-text-reads": act({
+    description: "Proxied MCP result whose text can be read only so often",
+    readOnly: true,
+    run: async () => {
+      let reads = 0;
+      return {
+        [MCP_ACTION_RESULT_MARKER]: true,
+        get text() {
+          reads += 1;
+          trace.push({ proxyTextRead: reads });
+          if (reads > 2) throw new Error("proxy text was read again");
+          return "Upstream says hello";
+        },
+        raw: { value: 1 },
+        serverId: "upstream",
+        toolName: "upstream__hello",
+        originalToolName: "hello",
+        input: {},
+      };
+    },
+  }),
   "embed-leak": act({
     description: "Returns an embed ticket without a widget",
     readOnly: true,
@@ -631,6 +654,7 @@ describe("direct tools/call wire output", () => {
     ["cycle-read"],
     ["wrapped-ok"],
     ["wrapped-error"],
+    ["wrapped-text-reads"],
     ["embed-leak"],
     ["embed-write-leak"],
     ["embed-widget"],
