@@ -209,6 +209,16 @@ describe("agent connection attribution", () => {
     expect(connectionApp("https://clips.agent-native.com")).toBe("clips");
   });
 
+  it("reports a failing tracking registry as failed instead of throwing", async () => {
+    providersMock.mockImplementation(() => {
+      throw new Error("registry unavailable");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await trackAgentConnected(connection)).toBe("failed");
+    expect(trackMock).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("reports an unresolvable app as failed instead of throwing", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});

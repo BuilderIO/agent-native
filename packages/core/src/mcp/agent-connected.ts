@@ -24,11 +24,14 @@ export async function trackAgentConnected(input: {
   client: string | readonly string[] | null;
   method: "mcp" | "oauth";
 }): Promise<"emitted" | "duplicate" | "disabled" | "failed"> {
-  if (listTrackingProviders().length === 0 || isTrackingSuppressed(input.email))
-    return "disabled";
+  // Everything runs inside the try: the connection is already committed, so a
+  // tracking or configuration failure must not turn it into a failed response.
   try {
-    // Resolved inside the try: a misconfigured deploy environment must not
-    // turn an already-committed connection into a failed response.
+    if (
+      listTrackingProviders().length === 0 ||
+      isTrackingSuppressed(input.email)
+    )
+      return "disabled";
     const app = connectionApp(input.origin, input.appId);
     const raw = input.client;
     const clients = new Set(
