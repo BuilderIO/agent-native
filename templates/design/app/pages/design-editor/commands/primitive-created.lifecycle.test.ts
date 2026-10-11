@@ -46,6 +46,7 @@ it.each(["board", "screen"])(
 
     const handedOff = takePendingTextCapture(owner, nodeId);
     expect(handedOff).toBe("Sta");
+    if (handedOff === null) throw new Error("Expected captured text delivery");
     expect(beginPendingTextDelivery(owner, nodeId, handedOff)?.text).toBe(
       "Sta",
     );
