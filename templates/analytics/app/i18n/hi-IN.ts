@@ -1179,6 +1179,8 @@ export default {
     copyTable: "तालिका कॉपी करें",
     multiColumnSortHelp:
       "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
+    chartPointLimitNewest: "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
+    chartPointLimitFirst: "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
     exportToGoogleSheets: "Google Sheets में निर्यात करें",
     exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
     googleSheetsExported: "Google Sheets में निर्यात किया गया",

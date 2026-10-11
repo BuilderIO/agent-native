@@ -254,8 +254,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
       isRecord(value) &&
       ["xKey", "seriesKey", "valueKey"].every(
         (key) => typeof value[key] === "string" && value[key] !== "",
-      ),
-    expected: "an object with string xKey, seriesKey and valueKey",
+      ) &&
+      (value.seriesOrder === undefined ||
+        STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
+    expected:
+      "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
   },
 };
 
@@ -609,34 +612,126 @@ function collectIgnoredConfig(
   return ignored;
 }
 
-const MAX_CHART_POINTS = 400;
+export const MAX_CHART_POINTS = 400;
+
+const POINT_LIMITED_CHART_TYPES: readonly string[] = [
+  "line",
+  "area",
+  "bar",
+  "combo",
+  "pie",
+  "heatmap",
+  "funnel",
+  "callout",
+];
+const NEWEST_POINT_CHART_TYPES: readonly string[] = [
+  "line",
+  "area",
+  "combo",
+  "heatmap",
+];
+
+/** Points a chart drops past MAX_CHART_POINTS; the viewer must be told. */
+export interface ChartPointLimit {
+  shown: number;
+  total: number;
+  keeps: "newest" | "first";
+}
+
+export function chartPointLimit(
+  rowCount: number,
+  chartType: string,
+): ChartPointLimit | null {
+  const type = LEGACY_CHART_TYPE_ALIASES[chartType] ?? chartType;
+  if (
+    rowCount <= MAX_CHART_POINTS ||
+    !POINT_LIMITED_CHART_TYPES.includes(type)
+  ) {
+    return null;
+  }
+  return {
+    shown: MAX_CHART_POINTS,
+    total: rowCount,
+    keeps: NEWEST_POINT_CHART_TYPES.includes(type) ? "newest" : "first",
+  };
+}
 
 /** Rows a chart draws: line, area, combo and heatmap keep the newest, the rest the first. */
-export function limitChartRows(
-  rows: Record<string, unknown>[],
-  chartType: ChartType,
-): Record<string, unknown>[] {
-  if (
-    rows.length <= MAX_CHART_POINTS ||
-    ![
-      "line",
-      "area",
-      "bar",
-      "combo",
-      "pie",
-      "heatmap",
-      "funnel",
-      "callout",
-    ].includes(chartType)
-  ) {
-    return rows;
+export function limitChartRows<T>(rows: T[], chartType: string): T[] {
+  const limit = chartPointLimit(rows.length, chartType);
+  if (!limit) return rows;
+  return limit.keeps === "newest"
+    ? rows.slice(-limit.shown)
+    : rows.slice(0, limit.shown);
+}
+
+const STACKABLE_CHART_TYPES: readonly string[] = ["bar", "area"];
+
+// "Other" and "unknown" buckets go on top of a stack, whatever their size.
+const CATCH_ALL_SERIES = /^(other|others|unknown|not set|none|n\/a)$/;
+
+function isCatchAllSeries(key: string): boolean {
+  return CATCH_ALL_SERIES.test(
+    key
+      .trim()
+      .replace(/^[([{]\s*|\s*[)\]}]$/g, "")
+      .toLowerCase(),
+  );
+}
+
+function seriesTotal(rows: Record<string, unknown>[], key: string): number {
+  let total = 0;
+  for (const row of rows) {
+    const value = Number(row[key]);
+    if (Number.isFinite(value)) total += value;
   }
-  return chartType !== "line" &&
-    chartType !== "area" &&
-    chartType !== "combo" &&
-    chartType !== "heatmap"
-    ? rows.slice(0, MAX_CHART_POINTS)
-    : rows.slice(-MAX_CHART_POINTS);
+  return total;
+}
+
+/**
+ * The order a panel draws its series in; the first is the bottom of a stack.
+ * `config.pivot.seriesOrder` and a listed `config.yKeys` are the author's
+ * order. Otherwise a stacked bar or area chart puts the largest total first and
+ * an "Other"/"unknown" bucket last, and any other chart keeps result order.
+ */
+export function orderPanelSeries(
+  rows: Record<string, unknown>[],
+  yKeys: string[],
+  panel: RenderPanel,
+): string[] {
+  const config = panel.config;
+  if (!config?.pivot && keyList(config?.yKeys).length > 0) return yKeys;
+
+  const present = new Set(yKeys);
+  const listed = Array.from(
+    new Set(
+      keyList(config?.pivot?.seriesOrder).filter((key) => present.has(key)),
+    ),
+  );
+  const listedSet = new Set(listed);
+  const rest = yKeys.filter((key) => !listedSet.has(key));
+  const chartType =
+    LEGACY_CHART_TYPE_ALIASES[panel.chartType] ?? panel.chartType;
+  if (
+    config?.stacked !== true ||
+    !STACKABLE_CHART_TYPES.includes(chartType) ||
+    rest.length < 2
+  ) {
+    return [...listed, ...rest];
+  }
+
+  const totals = new Map(rest.map((key) => [key, seriesTotal(rows, key)]));
+  const ranked = rest
+    .map((key, index) => ({ key, index }))
+    .sort((a, b) => {
+      const catchAll =
+        Number(isCatchAllSeries(a.key)) - Number(isCatchAllSeries(b.key));
+      if (catchAll !== 0) return catchAll;
+      const diff = (totals.get(b.key) ?? 0) - (totals.get(a.key) ?? 0);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ key }) => key);
+  return [...listed, ...ranked];
 }
 
 export interface HeatmapKeys {
@@ -679,6 +774,8 @@ export interface PanelRenderPlan {
   empty: boolean;
   /** Rows that draw something; 0 when `empty`. */
   renderedRowCount: number;
+  /** Set when the chart draws only MAX_CHART_POINTS of `rows`. */
+  pointLimit: ChartPointLimit | null;
   /** Set for a funnel panel; the renderer draws exactly these items. */
   funnel: DashboardFunnelRows | null;
   /** Set for a heatmap panel; the renderer reads exactly these columns. */
@@ -702,7 +799,13 @@ export function planPanelRender(
         })
       : null;
   const rows = pivoted ? pivoted.rows : rawRows;
-  const { xKey, yKeys } = detectKeys(rows, config, pivoted?.seriesKeys);
+  const detected = detectKeys(rows, config, pivoted?.seriesKeys);
+  const xKey = detected.xKey;
+  const yKeys = orderPanelSeries(
+    limitChartRows(rows, panel.chartType),
+    detected.yKeys,
+    panel,
+  );
   const noRows = rows.length === 0;
   const funnel =
     panel.chartType === "funnel"
@@ -741,6 +844,7 @@ export function planPanelRender(
     yKeys,
     empty,
     renderedRowCount: empty ? 0 : (funnel?.items.length ?? rows.length),
+    pointLimit: empty ? null : chartPointLimit(rows.length, panel.chartType),
     funnel,
     heatmap,
     missingKeys,

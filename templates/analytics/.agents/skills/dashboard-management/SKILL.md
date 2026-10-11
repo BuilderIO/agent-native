@@ -521,6 +521,13 @@ in the same `set({...})` call.
 - `config.pivot` (`{ xKey, seriesKey, valueKey }`) reshapes long-format rows into
   one series per `seriesKey` value and drops every other column. If the query now
   returns wide-format rows, remove `pivot` or the panel shows "No data".
+- A stacked bar or area chart draws its largest series at the bottom and an
+  "Other"/"unknown" bucket on top; the legend and tooltip use the same order.
+  To fix the order, list series values in `config.pivot.seriesOrder` (they go
+  first, the rest follow by size) or list `config.yKeys` for wide rows.
+- A chart draws at most 400 points (the newest for line, area, combo and
+  heatmap; the first for the rest) and says so under the chart. Aggregate or
+  limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.

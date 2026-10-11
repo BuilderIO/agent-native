@@ -1224,6 +1224,10 @@ export default {
     copyTable: "Copiar tabela",
     multiColumnSortHelp:
       "Clique para ordenar. Shift-clique para adicionar outra ordenação.",
+    chartPointLimitNewest:
+      "Mostrando os {{shown}} pontos mais recentes de {{total}}",
+    chartPointLimitFirst:
+      "Mostrando os primeiros {{shown}} de {{total}} pontos",
     exportToGoogleSheets: "Exportar para o Google Sheets",
     exportingToGoogleSheets: "Exportando para o Google Sheets...",
     googleSheetsExported: "Exportado para o Google Sheets",

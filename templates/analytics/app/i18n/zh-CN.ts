@@ -1147,6 +1147,8 @@ export default {
     downloadCsv: "下载CSV",
     copyTable: "复制表格",
     multiColumnSortHelp: "点击排序。按住 Shift 点击可添加另一个排序。",
+    chartPointLimitNewest: "显示 {{total}} 个数据点中最新的 {{shown}} 个",
+    chartPointLimitFirst: "显示 {{total}} 个数据点中的前 {{shown}} 个",
     exportToGoogleSheets: "导出到 Google Sheets",
     exportingToGoogleSheets: "正在导出到 Google Sheets...",
     googleSheetsExported: "已导出到 Google Sheets",

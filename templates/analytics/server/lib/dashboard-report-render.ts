@@ -18,6 +18,12 @@ import type {
 import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import {
+  chartPointLimit,
+  limitChartRows,
+  orderPanelSeries,
+  type ChartPointLimit,
+} from "../../shared/panel-render-contract";
+import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
@@ -69,7 +75,6 @@ type ReportAttachment = RenderedReportEmail["attachments"][number];
 
 const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
-const MAX_CHART_POINTS = 400;
 const CHART_WIDTH = 920;
 const CHART_HEIGHT = 360;
 const CHART_RASTER_SCALE = 2;
@@ -442,7 +447,7 @@ function pivotPanelRows(
 type ChartInput = {
   labels: string[];
   series: ReportChartSeries[];
-  droppedPoints: number;
+  pointLimit: ChartPointLimit | null;
 };
 
 function buildChartInput(
@@ -452,11 +457,12 @@ function buildChartInput(
   forcedYKeys: string[] | undefined,
 ): ChartInput | null {
   const config = panel.config;
-  const { xKey, yKeys } = detectChartKeys(rows, config, forcedYKeys);
-  if (!xKey || yKeys.length === 0) return null;
+  const detected = detectChartKeys(rows, config, forcedYKeys);
+  const xKey = detected.xKey;
+  if (!xKey || detected.yKeys.length === 0) return null;
 
-  const droppedPoints = Math.max(0, rows.length - MAX_CHART_POINTS);
-  const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
+  const visible = limitChartRows(rows, panel.chartType);
+  const yKeys = orderPanelSeries(visible, detected.yKeys, panel);
   const labels = visible.map((row) =>
     typeof row[xKey] === "string"
       ? row[xKey]
@@ -476,7 +482,7 @@ function buildChartInput(
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
     })),
-    droppedPoints,
+    pointLimit: chartPointLimit(rows.length, panel.chartType),
   };
 }
 
@@ -846,9 +852,9 @@ async function renderChartBlock(args: {
   }
 
   const subtitleParts = [description].filter(Boolean);
-  if (input.droppedPoints) {
+  if (input.pointLimit) {
     subtitleParts.push(
-      `showing the last ${input.labels.length} of ${input.labels.length + input.droppedPoints} points`,
+      `showing the ${input.pointLimit.keeps === "newest" ? "newest" : "first"} ${input.pointLimit.shown} of ${input.pointLimit.total} points`,
     );
   }
   const subtitle = subtitleParts.join(" · ");

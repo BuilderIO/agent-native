@@ -4,11 +4,18 @@ import {
   EmbeddedExtension,
   ExtensionSlot,
 } from "@agent-native/toolkit/app/extensions";
+import {
+  isCategoryAxis,
+  planCategoryAxis,
+  trimToWidth,
+  type CategoryAxisPlan,
+} from "@shared/chart-axis-labels";
 import type { DashboardFunnelRows } from "@shared/dashboard-funnel";
 import {
   isNumericLikeValue,
   limitChartRows,
   planPanelRender,
+  type ChartPointLimit,
   type HeatmapKeys,
 } from "@shared/panel-render-contract";
 import {
@@ -51,6 +58,7 @@ import {
   PieChart,
   ResponsiveContainer,
   Tooltip,
+  usePlotArea,
   XAxis,
   YAxis,
 } from "recharts";
@@ -598,16 +606,22 @@ function tooltipItemName(item: {
   return String(item.name ?? item.dataKey ?? "");
 }
 
+/** Sorts by value, or by `order` (series names) first when given. */
 export function sortTooltipPayloadItems<
   T extends {
     dataKey?: string | number;
     name?: string | number;
     value?: unknown;
   },
->(items: T[]): T[] {
+>(items: T[], order?: readonly string[]): T[] {
+  const rank = new Map(order?.map((name, index) => [name, index]));
   const sorted = items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
+      const ranked =
+        (rank.get(tooltipItemName(a.item)) ?? rank.size) -
+        (rank.get(tooltipItemName(b.item)) ?? rank.size);
+      if (ranked !== 0) return ranked;
       const diff =
         numericTooltipValue(b.item.value) - numericTooltipValue(a.item.value);
       return diff !== 0 ? diff : a.index - b.index;
@@ -1034,6 +1048,7 @@ export function ChartTooltip({
   seriesNameFormatter,
   valueFormatter,
   stacked,
+  seriesOrder,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -1048,14 +1063,17 @@ export function ChartTooltip({
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number, name?: string | number) => string;
   stacked?: boolean;
+  /** Series names in draw order; a stacked chart lists them this way. */
+  seriesOrder?: readonly string[];
 }) {
   const items = useMemo(
     () =>
       sortTooltipPayloadItems(
         payload?.filter((item) => item.value != null && item.value !== "") ??
           [],
+        stacked ? seriesOrder : undefined,
       ),
-    [payload],
+    [payload, seriesOrder, stacked],
   );
   const isVisible = Boolean(active) && items.length > 0;
   const { anchorRef, boxRef } = useChartTooltipPortalPosition(
@@ -1090,7 +1108,7 @@ export function ChartTooltip({
         <div className="mb-1.5 font-semibold text-foreground">{totalValue}</div>
       )}
       {labelText && (
-        <div className="mb-1.5 truncate font-medium text-foreground">
+        <div className="mb-1.5 break-words font-medium text-foreground">
           {labelText}
         </div>
       )}
@@ -1137,6 +1155,23 @@ function ConfigWarning({ keys }: { keys: string[] }) {
       <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <span>Ignored missing result columns: {keys.join(", ")}</span>
     </div>
+  );
+}
+
+function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
+  const t = useT();
+  return (
+    <p
+      data-chart-point-limit
+      className="mt-1 text-[11px] leading-4 text-muted-foreground"
+    >
+      {t(
+        limit.keeps === "newest"
+          ? "sqlDashboard.chartPointLimitNewest"
+          : "sqlDashboard.chartPointLimitFirst",
+        { shown: limit.shown, total: limit.total },
+      )}
+    </p>
   );
 }
 
@@ -1353,6 +1388,17 @@ export function SqlChart({
     );
   };
 
+  const pointLimit = plan.pointLimit;
+  const withPointLimit = (node: ReactNode) =>
+    pointLimit ? (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1">{node}</div>
+        <ChartPointLimitNote limit={pointLimit} />
+      </div>
+    ) : (
+      node
+    );
+
   if (plan.empty) {
     const noData = (
       <div
@@ -1386,58 +1432,70 @@ export function SqlChart({
 
   if (chartType === "pie") {
     return withConfigWarning(
-      <PieRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKey={yKeys[0]}
-        colors={colors}
-        panel={panel}
-      />,
+      withPointLimit(
+        <PieRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKey={yKeys[0]}
+          colors={colors}
+          panel={panel}
+        />,
+      ),
     );
   }
 
   if (chartType === "bar") {
     return withConfigWarning(
-      <BarRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKeys={yKeys}
-        colors={colors}
-        yFormatter={yFormatter}
-        stacked={panel.config?.stacked === true}
-        panel={panel}
-      />,
+      withPointLimit(
+        <BarRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKeys={yKeys}
+          colors={colors}
+          yFormatter={yFormatter}
+          stacked={panel.config?.stacked === true}
+          panel={panel}
+        />,
+      ),
     );
   }
 
   if (chartType === "combo") {
     return withConfigWarning(
-      <ComboRenderer
-        rows={chartRows}
-        xKey={xKey}
-        yKeys={yKeys}
-        colors={colors}
-        yFormatter={yFormatter}
-        barKeys={panel.config?.barKeys ?? []}
-        panel={panel}
-      />,
+      withPointLimit(
+        <ComboRenderer
+          rows={chartRows}
+          xKey={xKey}
+          yKeys={yKeys}
+          colors={colors}
+          yFormatter={yFormatter}
+          barKeys={panel.config?.barKeys ?? []}
+          panel={panel}
+        />,
+      ),
     );
   }
 
   if (chartType === "funnel" && plan.funnel) {
     return withConfigWarning(
-      <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
+      withPointLimit(
+        <FunnelRenderer funnel={plan.funnel} panel={panel} colors={colors} />,
+      ),
     );
   }
 
   if (chartType === "heatmap" && plan.heatmap) {
     return withConfigWarning(
-      <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
+      withPointLimit(
+        <HeatmapRenderer rows={chartRows} panel={panel} keys={plan.heatmap} />,
+      ),
     );
   }
 
   if (chartType === "callout") {
-    return withConfigWarning(<CalloutRenderer rows={chartRows} />);
+    return withConfigWarning(
+      withPointLimit(<CalloutRenderer rows={chartRows} />),
+    );
   }
 
   if (chartType !== "line" && chartType !== "area") {
@@ -1445,16 +1503,18 @@ export function SqlChart({
   }
 
   return withConfigWarning(
-    <TimeSeriesRenderer
-      rows={chartRows}
-      xKey={xKey}
-      yKeys={yKeys}
-      colors={colors}
-      yFormatter={yFormatter}
-      chartType={chartType}
-      stacked={panel.config?.stacked === true}
-      panel={panel}
-    />,
+    withPointLimit(
+      <TimeSeriesRenderer
+        rows={chartRows}
+        xKey={xKey}
+        yKeys={yKeys}
+        colors={colors}
+        yFormatter={yFormatter}
+        chartType={chartType}
+        stacked={panel.config?.stacked === true}
+        panel={panel}
+      />,
+    ),
   );
 }
 
@@ -1748,6 +1808,40 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
+function isNumericColumnFormat(format: ColumnFormat | undefined): boolean {
+  return (
+    format === "number" ||
+    format === "currency" ||
+    format === "percent" ||
+    format === "delta"
+  );
+}
+
+/**
+ * Text columns that give way first in a narrow card, so numbers and dates
+ * stay whole; a capped cell ends in an ellipsis and keeps its full value in a
+ * hover title.
+ */
+export function truncatedTableColumns(
+  columns: TableColumnConfig[],
+  rows: Record<string, unknown>[],
+): Set<string> {
+  return new Set(
+    columns
+      .filter((col) => {
+        if (isNumericColumnFormat(col.format) || col.format === "date") {
+          return false;
+        }
+        if (col.format) return true;
+        const values = rows
+          .map((row) => row[col.key])
+          .filter((value) => value != null && value !== "");
+        return !values.length || isCategoryAxis(values);
+      })
+      .map((col) => col.key),
+  );
+}
+
 function TableRenderer({
   rows,
   panel,
@@ -1789,6 +1883,17 @@ function TableRenderer({
 
   const pageCount = Math.ceil(sortedRows.length / pageSize);
   const displayRows = sortedRows.slice(page * pageSize, (page + 1) * pageSize);
+
+  const truncatedColumns = useMemo(
+    () => truncatedTableColumns(columns, limitedRows),
+    [columns, limitedRows],
+  );
+  // A max-width of 0 drops a text cell's content from its column's minimum
+  // width, so in a narrow panel text gives way and numbers keep their width.
+  const truncatedHeaderStyle: CSSProperties = {
+    width: `${Math.floor(60 / Math.max(truncatedColumns.size, 1))}%`,
+  };
+  const truncatedCellStyle: CSSProperties = { maxWidth: 0 };
 
   const handleHeaderClick = (key: string, shiftKey: boolean) => {
     if (!sortable) return;
@@ -1875,11 +1980,16 @@ function TableRenderer({
                           : "descending"
                         : "none"
                     }
-                    className={`text-left py-1.5 px-2 font-medium text-muted-foreground whitespace-nowrap ${
+                    className={`text-left align-bottom py-1.5 px-2 font-medium text-muted-foreground ${
                       sortable
                         ? "cursor-pointer select-none hover:text-foreground"
                         : ""
                     }`}
+                    style={
+                      truncatedColumns.has(col.key)
+                        ? truncatedHeaderStyle
+                        : undefined
+                    }
                     onClick={(event) =>
                       handleHeaderClick(col.key, event.shiftKey)
                     }
@@ -1894,12 +2004,12 @@ function TableRenderer({
                       {sortable &&
                         (isSorted ? (
                           sort?.direction === "asc" ? (
-                            <IconSortAscending className="h-3 w-3" />
+                            <IconSortAscending className="h-3 w-3 shrink-0" />
                           ) : (
-                            <IconSortDescending className="h-3 w-3" />
+                            <IconSortDescending className="h-3 w-3 shrink-0" />
                           )
                         ) : (
-                          <IconArrowsSort className="h-3 w-3 opacity-30" />
+                          <IconArrowsSort className="h-3 w-3 shrink-0 opacity-30" />
                         ))}
                     </span>
                   </th>
@@ -1912,6 +2022,7 @@ function TableRenderer({
               <tr key={i} className="border-b border-border/50">
                 {columns.map((col) => {
                   const raw = row[col.key];
+                  const truncated = truncatedColumns.has(col.key);
                   if (col.format === "link") {
                     const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
@@ -1922,31 +2033,38 @@ function TableRenderer({
                       <td
                         key={col.key}
                         className="py-1.5 px-2 whitespace-nowrap"
+                        style={truncated ? truncatedCellStyle : undefined}
                       >
                         {safeHref ? (
                           <a
                             href={safeHref}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-primary hover:underline"
+                            className="block truncate text-primary hover:underline"
+                            title={formatted}
                           >
                             {formatted}
                           </a>
                         ) : (
-                          formatted
+                          <span className="block truncate" title={formatted}>
+                            {formatted}
+                          </span>
                         )}
                       </td>
                     );
                   }
-                  const numeric =
-                    col.format === "number" ||
-                    col.format === "currency" ||
-                    col.format === "percent" ||
-                    col.format === "delta";
+                  const numeric = isNumericColumnFormat(col.format);
+                  const formatted = formatCell(raw, col.format);
                   const content: ReactNode =
-                    col.format === "delta"
-                      ? renderDeltaCell(raw)
-                      : formatCell(raw, col.format);
+                    col.format === "delta" ? (
+                      renderDeltaCell(raw)
+                    ) : truncated ? (
+                      <span className="block truncate" title={formatted}>
+                        {formatted}
+                      </span>
+                    ) : (
+                      formatted
+                    );
                   const replayHref = isSessionColumn(col.key)
                     ? sessionReplayHref(row)
                     : null;
@@ -1956,9 +2074,10 @@ function TableRenderer({
                       className={`py-1.5 px-2 whitespace-nowrap ${
                         numeric ? "text-right tabular-nums" : ""
                       }`}
+                      style={truncated ? truncatedCellStyle : undefined}
                     >
                       {replayHref ? (
-                        <span className="inline-flex flex-col gap-0.5">
+                        <span className="inline-flex max-w-full flex-col gap-0.5">
                           <span>{content}</span>
                           <Link
                             to={replayHref}
@@ -2091,6 +2210,121 @@ function PieRenderer({
   );
 }
 
+const CATEGORY_TICK_FONT_SIZE = 12;
+
+const LEVEL_CATEGORY_AXIS: CategoryAxisPlan = {
+  angle: 0,
+  interval: 0,
+  height: 30,
+  labelWidth: Number.POSITIVE_INFINITY,
+};
+
+/** Formatted x labels when the axis holds named categories, else null. */
+function useCategoryAxisLabels(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  formatLabel: (value: unknown) => string,
+): string[] | null {
+  return useMemo(() => {
+    const values = rows.map((row) => row[xKey]);
+    return isCategoryAxis(values) ? values.map(formatLabel) : null;
+  }, [rows, xKey, formatLabel]);
+}
+
+function CategoryAxisTick({
+  x,
+  y,
+  payload,
+  fill,
+  plan,
+  formatLabel,
+}: {
+  x: number | string;
+  y: number | string;
+  payload: { value?: unknown };
+  fill: string | undefined;
+  plan: CategoryAxisPlan;
+  formatLabel: (value: unknown) => string;
+}) {
+  const full = formatLabel(payload.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{full}</title>
+      <text
+        textAnchor={plan.angle ? "end" : "middle"}
+        transform={plan.angle ? `rotate(${plan.angle})` : undefined}
+        dy={plan.angle ? "0.35em" : "0.71em"}
+        fontSize={CATEGORY_TICK_FONT_SIZE}
+        fill={fill}
+      >
+        {trimToWidth(full, CATEGORY_TICK_FONT_SIZE, plan.labelWidth, "…")}
+      </text>
+    </g>
+  );
+}
+
+/**
+ * X axis for named categories: every name is drawn, angled and cut with an
+ * ellipsis when the plot is too narrow, since a skipped tick hides a bar's name.
+ */
+function CategoryXAxis({
+  dataKey,
+  labels,
+  formatLabel,
+}: {
+  dataKey: string;
+  labels: string[];
+  formatLabel: (value: unknown) => string;
+}) {
+  const plotArea = usePlotArea();
+  const plotWidth = plotArea?.width ?? 0;
+  const leftInset = plotArea?.x ?? 0;
+  const plan = useMemo(
+    () =>
+      plotWidth > 0
+        ? planCategoryAxis(
+            labels,
+            plotWidth,
+            leftInset,
+            CATEGORY_TICK_FONT_SIZE,
+          )
+        : LEVEL_CATEGORY_AXIS,
+    [labels, plotWidth, leftInset],
+  );
+  // A new tick function re-registers the axis with the chart store, which
+  // re-renders this component; it must only change with the plan.
+  const renderTick = useCallback(
+    (props: {
+      x: number | string;
+      y: number | string;
+      payload: { value?: unknown };
+      fill: string | undefined;
+    }) => (
+      <CategoryAxisTick
+        x={props.x}
+        y={props.y}
+        payload={props.payload}
+        fill={props.fill}
+        plan={plan}
+        formatLabel={formatLabel}
+      />
+    ),
+    [plan, formatLabel],
+  );
+  return (
+    <XAxis
+      dataKey={dataKey}
+      stroke="hsl(var(--muted-foreground))"
+      fontSize={CATEGORY_TICK_FONT_SIZE}
+      tickLine={false}
+      axisLine={false}
+      interval={plan.interval}
+      height={plan.height}
+      tick={renderTick}
+    />
+  );
+}
+
 function BarRenderer({
   rows,
   xKey,
@@ -2108,8 +2342,11 @@ function BarRenderer({
   stacked?: boolean;
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
@@ -2135,14 +2372,22 @@ function BarRenderer({
     >
       <ChartResponsiveContainer>
         <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xKey}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
+            />
+          )}
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
             strokeDasharray="3 3"
@@ -2159,6 +2404,7 @@ function BarRenderer({
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2201,8 +2447,11 @@ function ComboRenderer({
   barKeys: string[];
   panel: SqlPanel;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
+  const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
   const seriesNameFormatter = (name: string) =>
@@ -2229,14 +2478,22 @@ function ComboRenderer({
     >
       <ChartResponsiveContainer>
         <ComposedChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
+          {categoryLabels ? (
+            <CategoryXAxis
+              dataKey={xKey}
+              labels={categoryLabels}
+              formatLabel={xLabelFormatter}
+            />
+          ) : (
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
+            />
+          )}
           {renderChartYAxes(dualAxis, yFormatter)}
           <CartesianGrid
             strokeDasharray="3 3"
@@ -2375,6 +2632,7 @@ function TimeSeriesRenderer({
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
                   stacked={stacked}
+                  seriesOrder={yKeys.map(seriesNameFormatter)}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2478,6 +2736,7 @@ function TimeSeriesRenderer({
                 seriesNameFormatter={seriesNameFormatter}
                 valueFormatter={valueFormatter}
                 stacked={stacked}
+                seriesOrder={yKeys.map(seriesNameFormatter)}
               />
             }
             itemSorter={(item) => -(Number(item.value) || 0)}

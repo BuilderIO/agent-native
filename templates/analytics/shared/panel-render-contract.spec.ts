@@ -4,12 +4,14 @@ import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analyt
 import {
   PANEL_CHART_TYPES,
   PANEL_TOP_LEVEL_KEYS,
+  chartPointLimit,
   clipHead,
   duplicatePanelIds,
   editDistance,
   isNumericLikeValue,
   limitChartRows,
   missingKeysFromColumns,
+  orderPanelSeries,
   planPanelRender,
   stableStringify,
   unknownPanelConfigKeys,
@@ -678,6 +680,159 @@ describe("PANEL_TOP_LEVEL_KEYS", () => {
       "columns",
       "config",
       "tab",
+    ]);
+  });
+});
+
+describe("orderPanelSeries", () => {
+  const rows = [
+    { day: "2026-09-01", other: 900, mail: 5, slides: 50, "(unknown)": 1 },
+    { day: "2026-09-02", other: 900, mail: 5, slides: 50, "(unknown)": 1 },
+  ];
+  const keys = ["other", "mail", "slides", "(unknown)"];
+
+  it("puts the largest stacked series first and catch-all buckets last", () => {
+    expect(
+      orderPanelSeries(rows, keys, {
+        chartType: "area",
+        config: { stacked: true },
+      }),
+    ).toEqual(["slides", "mail", "other", "(unknown)"]);
+  });
+
+  it("treats a legacy stacked-bar chart type like a bar", () => {
+    expect(
+      orderPanelSeries(rows, keys, {
+        chartType: "stacked-bar" as never,
+        config: { stacked: true },
+      }),
+    ).toEqual(["slides", "mail", "other", "(unknown)"]);
+  });
+
+  it("keeps result order when the chart is not stacked", () => {
+    expect(
+      orderPanelSeries(rows, keys, { chartType: "line", config: {} }),
+    ).toEqual(keys);
+    expect(
+      orderPanelSeries(rows, keys, { chartType: "bar", config: {} }),
+    ).toEqual(keys);
+  });
+
+  it("keeps an explicit yKeys list as written", () => {
+    expect(
+      orderPanelSeries(rows, ["mail", "slides"], {
+        chartType: "bar",
+        config: { stacked: true, yKeys: ["mail", "slides"] },
+      }),
+    ).toEqual(["mail", "slides"]);
+  });
+
+  it("draws pivot.seriesOrder first, then ranks the rest", () => {
+    expect(
+      orderPanelSeries(rows, keys, {
+        chartType: "bar",
+        config: {
+          stacked: true,
+          pivot: {
+            xKey: "day",
+            seriesKey: "app",
+            valueKey: "n",
+            seriesOrder: ["other", "absent"],
+          },
+        },
+      }),
+    ).toEqual(["other", "slides", "mail", "(unknown)"]);
+  });
+
+  it("orders a pivoted stacked area by series total", () => {
+    const plan = planPanelRender(
+      [
+        { date: "2026-09-01", template: "mail", count: 2 },
+        { date: "2026-09-01", template: "analytics", count: 40 },
+        { date: "2026-09-01", template: "unknown", count: 100 },
+        { date: "2026-09-02", template: "mail", count: 3 },
+        { date: "2026-09-02", template: "slides", count: 12 },
+      ],
+      {
+        chartType: "area",
+        config: {
+          stacked: true,
+          pivot: { xKey: "date", seriesKey: "template", valueKey: "count" },
+        },
+      },
+    );
+
+    expect(plan.yKeys).toEqual(["analytics", "slides", "mail", "unknown"]);
+  });
+});
+
+describe("chart point limit", () => {
+  const rows = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({ n: index }));
+
+  it("keeps the newest points of a time series and says so", () => {
+    expect(chartPointLimit(601, "line")).toEqual({
+      shown: 400,
+      total: 601,
+      keeps: "newest",
+    });
+    expect(limitChartRows(rows(601), "area")[0]).toEqual({ n: 201 });
+  });
+
+  it("keeps the first points of a category chart and says so", () => {
+    expect(chartPointLimit(450, "bar")).toEqual({
+      shown: 400,
+      total: 450,
+      keeps: "first",
+    });
+    expect(chartPointLimit(450, "stacked-bar")?.keeps).toBe("first");
+    const kept = limitChartRows(rows(450), "bar");
+    expect(kept[kept.length - 1]).toEqual({ n: 399 });
+  });
+
+  it("has no limit at or under the cap, or for tables", () => {
+    expect(chartPointLimit(400, "line")).toBeNull();
+    expect(chartPointLimit(5000, "table")).toBeNull();
+  });
+
+  it("is part of the render plan", () => {
+    const plan = planPanelRender(
+      Array.from({ length: 601 }, (_, index) => ({
+        date: `d${String(index).padStart(4, "0")}`,
+        n: index,
+      })),
+      { chartType: "line", config: { xKey: "date", yKey: "n" } },
+    );
+
+    expect(plan.renderedRowCount).toBe(601);
+    expect(plan.pointLimit).toEqual({
+      shown: 400,
+      total: 601,
+      keeps: "newest",
+    });
+  });
+});
+
+describe("pivot.seriesOrder shape", () => {
+  const pivotPanel = (pivot: Record<string, unknown>) => ({
+    id: "p",
+    title: "P",
+    chartType: "bar",
+    config: { pivot },
+  });
+  const pivot = { xKey: "day", seriesKey: "app", valueKey: "n" };
+
+  it("accepts a list of series values", () => {
+    expect(
+      unknownPanelConfigKeys(pivotPanel({ ...pivot, seriesOrder: ["mail"] })),
+    ).toEqual([]);
+  });
+
+  it("flags a seriesOrder that is not a list of strings", () => {
+    expect(
+      unknownPanelConfigKeys(pivotPanel({ ...pivot, seriesOrder: "mail" })),
+    ).toEqual([
+      expect.objectContaining({ kind: "invalid-value", key: "pivot" }),
     ]);
   });
 });

@@ -1191,6 +1191,8 @@ export default {
     downloadCsv: "تحميل CSV",
     copyTable: "نسخ الجدول",
     multiColumnSortHelp: "انقر للفرز. انقر مع الضغط على Shift لإضافة فرز آخر.",
+    chartPointLimitNewest: "عرض أحدث {{shown}} من أصل {{total}} نقطة",
+    chartPointLimitFirst: "عرض أول {{shown}} من أصل {{total}} نقطة",
     exportToGoogleSheets: "تصدير إلى Google Sheets",
     exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
     googleSheetsExported: "تم التصدير إلى Google Sheets",

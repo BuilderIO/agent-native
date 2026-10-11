@@ -831,3 +831,78 @@ describe("reportPanelVariables", () => {
     expect(vars.plan).toBe("");
   });
 });
+
+describe("report chart parity with the dashboard", () => {
+  it("keeps the first 400 bars of a category chart and says so", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "pages",
+          chartType: "bar",
+          config: { xKey: "page", yKey: "views" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "pages",
+          {
+            status: "rows" as const,
+            rows: Array.from({ length: 450 }, (_, index) => ({
+              page: `/page-${index}`,
+              views: 450 - index,
+            })),
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      labels: string[];
+    };
+    expect(chartInput.labels).toHaveLength(400);
+    expect(chartInput.labels[0]).toBe("/page-0");
+    expect(rendered.html).toContain("showing the first 400 of 450 points");
+  });
+
+  it("stacks pivoted series largest first with Other last, like the dashboard", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "stacked",
+            chartType: "area",
+            config: {
+              stacked: true,
+              pivot: { xKey: "day", seriesKey: "template", valueKey: "n" },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "stacked",
+          {
+            status: "rows" as const,
+            rows: [
+              { day: "2026-07-01", template: "other", n: 500 },
+              { day: "2026-07-01", template: "mail", n: 3 },
+              { day: "2026-07-01", template: "slides", n: 30 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string }>;
+    };
+    expect(chartInput.series.map((entry) => entry.label)).toEqual([
+      "slides",
+      "mail",
+      "other",
+    ]);
+  });
+});
