@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -6,6 +7,10 @@ import { InMemoryTransport, type Tool } from "@modelcontextprotocol/server";
 import Ajv2020 from "ajv/dist/2020.js";
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  isJsonSchemaObject,
+  walkSubschemas,
+} from "../json-schema/subschemas.js";
 import {
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
@@ -23,60 +28,166 @@ import {
 } from "./build-server.js";
 
 /**
- * Schema rules each model provider enforces on the tool list an MCP host
- * forwards to it. A host sends every advertised tool on every turn, so one
- * schema a provider rejects fails the whole session, not just that tool.
+ * Schema rules a model provider, or the host adapter in front of it, applies
+ * to the tool list an MCP host forwards. A host sends every advertised tool on
+ * every turn, so one schema a provider rejects fails the whole session, and a
+ * schema a host adapter narrows makes valid calls look invalid.
  *
- * Each rule is pinned to a documented restriction or to a validator error the
- * provider returned verbatim. Sources, checked 2026-10-06:
+ * Each rule records its basis:
+ * - `documented`: the provider's or protocol's published reference says so.
+ * - `observed`: a validator returned the quoted error; the date and path are
+ *   in the source line. Observed behavior can change without notice.
+ * - `host`: a host adapter rewrites the schema before the provider sees it,
+ *   and the rewrite would narrow it.
  *
- * Anthropic Messages `tools[].input_schema`
- * - https://platform.claude.com/docs/en/api/messages/create — `name` matches
- *   `^[a-zA-Z0-9_-]{1,128}$`; `input_schema` is a draft 2020-12 JSON Schema
- *   whose `type` is `"object"`.
- * - https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
- * - Validator error: "input_schema does not support oneOf, allOf, or anyOf at
- *   the top level".
+ * Which field each provider receives:
+ * - Anthropic: Messages `tools[].input_schema`, as Claude Code sends it.
+ * - OpenAI: Responses `tools[]` with `type: "function"` and `strict: false`,
+ *   as Codex sends MCP tools (`tool_definition_to_responses_api_tool` in
+ *   https://github.com/openai/codex/blob/main/codex-rs/tools/src/responses_api.rs).
+ * - Gemini: `functionDeclarations[].parametersJsonSchema`, which Gemini CLI
+ *   fills with the MCP `inputSchema` (`parametersJsonSchema:
+ *   this.toolDef.inputSchema` in
+ *   https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/tools/mcp-client.ts),
+ *   not the OpenAPI-subset `parameters` field. The OpenRouter smoke reaches
+ *   Gemini through `parameters`, so its results are a diagnostic, not this
+ *   field's contract.
  *
- * OpenAI Responses `tools[]` with `type: "function"` and `strict: false`, the
- * shape Codex sends MCP tools in
- * - https://developers.openai.com/api/docs/guides/function-calling — the root
- *   must be `type: "object"`; `strict: false` keeps best-effort validation.
- * - https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas
- *   — "the root level object of a schema must be an object, and not use
- *   anyOf".
- * - https://platform.openai.com/docs/api-reference/chat/create — function
- *   names are a-z, A-Z, 0-9, underscores and dashes, at most 64 characters.
- * - Validator errors measured in non-strict mode (see
- *   `stripUnsupportedSchemaKeywords` in `action.ts`): "'oneOf' is not
- *   permitted", "schema must have a 'type' key", `propertyNames` rejected,
- *   "array schema missing items".
- *
- * Gemini `functionDeclarations[]`
- * - https://ai.google.dev/api/generate-content#FunctionDeclaration — names are
- *   a-z, A-Z, 0-9, underscores, colons, dots and dashes, at most 128
- *   characters, and (Vertex reference) start with a letter or underscore.
- * - https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/Shared.Types/FunctionDeclaration
- *   — `parametersJsonSchema` "must describe an object where the properties
- *   are the parameters to the function".
+ * Not checked here: Gemini documents that in `any` (forced) mode "the API may
+ * reject very large or deeply nested schemas"
+ * (https://ai.google.dev/gemini-api/docs/function-calling, "Notes and
+ * limitations"). There is no published bound, so the smoke script records
+ * forced-mode rejections as their own outcome instead.
  */
 export const SCHEMA_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
 export type SchemaProvider = (typeof SCHEMA_PROVIDERS)[number];
+
+export type ProviderRuleBasis = "documented" | "observed" | "host";
+
+export interface ProviderSchemaRule {
+  id: string;
+  providers: readonly SchemaProvider[];
+  basis: ProviderRuleBasis;
+  source: string;
+  message: string;
+}
+
+const MCP_TOOLS_SPEC =
+  "https://modelcontextprotocol.io/specification/2025-11-25/server/tools";
+
+export const PROVIDER_SCHEMA_RULES = {
+  anthropicToolName: {
+    id: "anthropic-tool-name",
+    providers: ["anthropic"],
+    basis: "documented",
+    source:
+      "https://platform.claude.com/docs/en/api/messages/create — tools[].name matches ^[a-zA-Z0-9_-]{1,128}$",
+    message: "tool name has characters or a length Anthropic rejects",
+  },
+  openaiToolName: {
+    id: "openai-tool-name",
+    providers: ["openai"],
+    basis: "documented",
+    source:
+      "https://platform.openai.com/docs/api-reference/responses/create — function names are a-z, A-Z, 0-9, underscores and dashes, at most 64 characters",
+    message: "tool name has characters or a length OpenAI rejects",
+  },
+  geminiToolName: {
+    id: "gemini-tool-name",
+    providers: ["gemini"],
+    basis: "documented",
+    source:
+      "https://ai.google.dev/api/generate-content#FunctionDeclaration — a-z, A-Z, 0-9, underscores, colons, dots and dashes, at most 128 characters; the Vertex reference adds that it starts with a letter or underscore",
+    message: "tool name has characters or a length Gemini rejects",
+  },
+  rootObject: {
+    id: "root-object",
+    providers: SCHEMA_PROVIDERS,
+    basis: "documented",
+    source:
+      'https://modelcontextprotocol.io/specification/2025-11-25/schema#tool — inputSchema has type "object"; https://ai.google.dev/api/generate-content#FunctionDeclaration — parametersJsonSchema "must describe an object where the properties are the parameters"',
+    message: 'root type is not "object"',
+  },
+  draft2020: {
+    id: "json-schema-2020-12",
+    providers: SCHEMA_PROVIDERS,
+    basis: "documented",
+    source: `${MCP_TOOLS_SPEC} — a schema without $schema is JSON Schema 2020-12`,
+    message: "not a valid JSON Schema 2020-12 document",
+  },
+  rootComposition: {
+    id: "root-composition",
+    providers: ["anthropic"],
+    basis: "observed",
+    source:
+      'Anthropic Messages via OpenRouter, 2026-10-07: "input_schema does not support oneOf, allOf, or anyOf at the top level". OpenAI (strict: false) and Gemini accepted the same schema in that run.',
+    message: "root uses anyOf, oneOf or allOf",
+  },
+  gatewayOneOf: {
+    id: "gateway-one-of",
+    providers: ["openai"],
+    basis: "observed",
+    source:
+      "Builder gateway OpenAI path, recorded at stripUnsupportedSchemaKeywords in action.ts: \"'oneOf' is not permitted\". OpenAI with strict: false accepted it through OpenRouter on 2026-10-07; kept as a floor for gateway-backed hosts.",
+    message: "uses oneOf",
+  },
+  gatewayPropertyNames: {
+    id: "gateway-property-names",
+    providers: ["openai"],
+    basis: "observed",
+    source:
+      "Builder gateway OpenAI path, recorded at stripUnsupportedSchemaKeywords in action.ts: 400 invalid_function_parameters. OpenAI with strict: false accepted it through OpenRouter on 2026-10-07; kept as a floor for gateway-backed hosts.",
+    message: "uses propertyNames",
+  },
+  gatewayTypeless: {
+    id: "gateway-typeless",
+    providers: ["openai"],
+    basis: "observed",
+    source:
+      "Builder gateway OpenAI path, recorded at stripUnsupportedSchemaKeywords in action.ts: \"schema must have a 'type' key\". OpenAI with strict: false accepted it through OpenRouter on 2026-10-07; kept as a floor for gateway-backed hosts.",
+    message: "schema position has no type",
+  },
+  arrayItems: {
+    id: "array-items",
+    providers: ["openai", "gemini"],
+    basis: "host",
+    source:
+      'Codex fills a missing items with { "type": "string" } (ensure_default_children_for_schema_types in https://github.com/openai/codex/blob/main/codex-rs/tools/src/json_schema.rs), which narrows the array; Gemini via OpenRouter, 2026-10-07: "parameters.properties[list].items: missing field"',
+    message: "array has no items schema",
+  },
+  booleanSubschema: {
+    id: "boolean-subschema",
+    providers: ["openai"],
+    basis: "host",
+    source:
+      'Codex rewrites a boolean schema to { "type": "string" } (sanitize_json_schema in https://github.com/openai/codex/blob/main/codex-rs/tools/src/json_schema.rs); only additionalProperties keeps its boolean',
+    message: "boolean subschema outside additionalProperties",
+  },
+  geminiTypes: {
+    id: "gemini-json-types",
+    providers: ["gemini"],
+    basis: "documented",
+    source:
+      "https://ai.google.dev/gemini-api/docs/structured-output — the supported JSON Schema types are string, number, integer, boolean, object, array and null",
+    message: "type is not one of Gemini's supported JSON Schema types",
+  },
+} as const satisfies Record<string, ProviderSchemaRule>;
 
 export interface ProviderSchemaViolation {
   provider: SchemaProvider;
   tool: string;
   rule: string;
+  message: string;
   path: string;
 }
 
 type JsonSchema = Record<string, unknown>;
 
-const TOOL_NAME_PATTERNS: Record<SchemaProvider, RegExp> = {
-  anthropic: /^[a-zA-Z0-9_-]{1,128}$/,
-  openai: /^[a-zA-Z0-9_-]{1,64}$/,
-  gemini: /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,127}$/,
-};
+const TOOL_NAME_RULES = [
+  [PROVIDER_SCHEMA_RULES.anthropicToolName, /^[a-zA-Z0-9_-]{1,128}$/],
+  [PROVIDER_SCHEMA_RULES.openaiToolName, /^[a-zA-Z0-9_-]{1,64}$/],
+  [PROVIDER_SCHEMA_RULES.geminiToolName, /^[a-zA-Z_][a-zA-Z0-9_.:-]{0,127}$/],
+] as const;
 
 const ROOT_COMPOSITIONS = ["anyOf", "oneOf", "allOf"] as const;
 const TYPE_SUBSTITUTES = [
@@ -88,57 +199,19 @@ const TYPE_SUBSTITUTES = [
   "const",
   "$ref",
 ] as const;
-const SUBSCHEMA_KEYS = [
-  "items",
-  "additionalProperties",
-  "contains",
-  "not",
-] as const;
-const SUBSCHEMA_LIST_KEYS = ["anyOf", "oneOf", "allOf", "prefixItems"] as const;
-const SUBSCHEMA_MAP_KEYS = [
-  "properties",
-  "patternProperties",
-  "$defs",
-  "definitions",
-] as const;
+const GEMINI_TYPES = new Set([
+  "string",
+  "number",
+  "integer",
+  "boolean",
+  "object",
+  "array",
+  "null",
+]);
 
-function isSchema(value: unknown): value is JsonSchema {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function visitSubschemas(
-  schema: JsonSchema,
-  at: string,
-  visit: (node: JsonSchema, at: string) => void,
-): void {
-  visit(schema, at);
-  for (const key of SUBSCHEMA_KEYS) {
-    const value = schema[key];
-    if (isSchema(value)) visitSubschemas(value, `${at}.${key}`, visit);
-  }
-  for (const key of SUBSCHEMA_LIST_KEYS) {
-    const value = schema[key];
-    if (!Array.isArray(value)) continue;
-    value.forEach((branch, index) => {
-      if (isSchema(branch)) {
-        visitSubschemas(branch, `${at}.${key}[${index}]`, visit);
-      }
-    });
-  }
-  for (const key of SUBSCHEMA_MAP_KEYS) {
-    const value = schema[key];
-    if (!isSchema(value)) continue;
-    for (const [name, child] of Object.entries(value)) {
-      if (isSchema(child))
-        visitSubschemas(child, `${at}.${key}.${name}`, visit);
-    }
-  }
-}
-
-function declaresType(schema: JsonSchema, type: string): boolean {
-  return Array.isArray(schema.type)
-    ? schema.type.includes(type)
-    : schema.type === type;
+function declaredTypes(schema: JsonSchema): unknown[] {
+  if (schema.type === undefined) return [];
+  return Array.isArray(schema.type) ? schema.type : [schema.type];
 }
 
 const draft2020 = new Ajv2020({ strict: false, validateFormats: false });
@@ -159,66 +232,90 @@ export function providerSchemaViolations(tool: {
   inputSchema: unknown;
 }): ProviderSchemaViolation[] {
   const violations: ProviderSchemaViolation[] = [];
-  const add = (providers: SchemaProvider[], rule: string, at = "$") => {
-    for (const provider of providers) {
-      violations.push({ provider, tool: tool.name, rule, path: at });
+  const add = (rule: ProviderSchemaRule, at = "", detail?: string) => {
+    for (const provider of rule.providers) {
+      violations.push({
+        provider,
+        tool: tool.name,
+        rule: rule.id,
+        message: detail ? `${rule.message} (${detail})` : rule.message,
+        path: at || "/",
+      });
     }
   };
 
-  for (const provider of SCHEMA_PROVIDERS) {
-    if (!TOOL_NAME_PATTERNS[provider].test(tool.name)) {
-      add(
-        [provider],
-        "tool name has characters or a length the provider rejects",
-      );
-    }
+  for (const [rule, pattern] of TOOL_NAME_RULES) {
+    if (!pattern.test(tool.name)) add(rule);
   }
 
   const schema = tool.inputSchema;
-  if (!isSchema(schema)) {
-    add([...SCHEMA_PROVIDERS], "input schema is not an object");
+  if (!isJsonSchemaObject(schema)) {
+    add(PROVIDER_SCHEMA_RULES.rootObject, "", "input schema is not an object");
     return violations;
   }
-  if (schema.type !== "object") {
-    add([...SCHEMA_PROVIDERS], 'root type is not "object"');
-  }
-  for (const keyword of ROOT_COMPOSITIONS) {
-    if (keyword in schema) {
-      add(["anthropic", "openai"], `root uses ${keyword}`);
-    }
+  if (schema.type !== "object") add(PROVIDER_SCHEMA_RULES.rootObject);
+  if (ROOT_COMPOSITIONS.some((keyword) => keyword in schema)) {
+    add(PROVIDER_SCHEMA_RULES.rootComposition);
   }
   const compileError = draft2020CompileError(schema);
-  if (compileError) {
-    add(
-      ["anthropic"],
-      `not a valid draft 2020-12 JSON Schema (${compileError})`,
-    );
-  }
+  if (compileError) add(PROVIDER_SCHEMA_RULES.draft2020, "", compileError);
 
-  visitSubschemas(schema, "$", (node, at) => {
-    if ("oneOf" in node) add(["openai"], "uses oneOf", at);
-    if ("propertyNames" in node) add(["openai"], "uses propertyNames", at);
-    if (!TYPE_SUBSTITUTES.some((key) => node[key] !== undefined)) {
-      add(["openai"], "schema position has no type", at);
+  walkSubschemas(schema, (node, at, keyword) => {
+    if (typeof node === "boolean") {
+      if (keyword !== "additionalProperties") {
+        add(PROVIDER_SCHEMA_RULES.booleanSubschema, at);
+      }
+      return;
     }
-    if (declaresType(node, "array") && node.items === undefined) {
-      add(["openai"], "array has no items schema", at);
+    if ("oneOf" in node) add(PROVIDER_SCHEMA_RULES.gatewayOneOf, at);
+    if ("propertyNames" in node) {
+      add(PROVIDER_SCHEMA_RULES.gatewayPropertyNames, at);
+    }
+    if (!TYPE_SUBSTITUTES.some((key) => node[key] !== undefined)) {
+      add(PROVIDER_SCHEMA_RULES.gatewayTypeless, at);
+    }
+    const types = declaredTypes(node);
+    if (types.includes("array") && node.items === undefined) {
+      add(PROVIDER_SCHEMA_RULES.arrayItems, at);
+    }
+    const unsupported = types.filter(
+      (type) => typeof type !== "string" || !GEMINI_TYPES.has(type),
+    );
+    if (unsupported.length > 0) {
+      add(PROVIDER_SCHEMA_RULES.geminiTypes, at, JSON.stringify(unsupported));
     }
   });
   return violations;
 }
 
-export type McpCatalogMode =
-  | "default"
-  | "full"
-  | "app"
-  | "oauth-read"
-  | "directory";
+export const MCP_CATALOG_MODES = [
+  "default",
+  "full",
+  "app",
+  "oauth-read",
+  "directory",
+] as const;
+export type McpCatalogMode = (typeof MCP_CATALOG_MODES)[number];
 
 export interface McpDirectoryProfileFixture {
   connectorCatalog: string[];
   widgetDomain?: string;
   [key: string]: unknown;
+}
+
+/**
+ * Where a template keeps its ChatGPT directory profile. The conformance
+ * helpers find it here, so a template that adds one gets its directory
+ * catalog checked without editing its spec.
+ */
+export const DIRECTORY_PROFILE_MODULE = "server/lib/chatgpt-directory-tools.ts";
+
+/** The catalog modes a template serves: directory only with a profile. */
+export function templateMcpCatalogModes(projectRoot: string): McpCatalogMode[] {
+  const hasProfile = existsSync(
+    path.join(projectRoot, DIRECTORY_PROFILE_MODULE),
+  );
+  return MCP_CATALOG_MODES.filter((mode) => mode !== "directory" || hasProfile);
 }
 
 const CONFORMANCE_IDENTITY: MCPCallerIdentity = {
@@ -284,6 +381,11 @@ export async function listMcpCatalogTools(
   }
 }
 
+type ImportModule = (file: string) => Promise<unknown>;
+
+const importFile: ImportModule = (file) =>
+  import(/* @vite-ignore */ pathToFileURL(file).href);
+
 /**
  * The action surface a template serves to external agents: its own actions
  * plus the framework's sharing and review kits, filtered the way the agent
@@ -295,8 +397,7 @@ export async function listMcpCatalogTools(
  */
 export async function loadTemplateMcpActions(
   projectRoot: string,
-  importModule: (file: string) => Promise<unknown> = (file) =>
-    import(/* @vite-ignore */ pathToFileURL(file).href),
+  importModule: ImportModule = importFile,
 ): Promise<Record<string, ActionEntry>> {
   generateActionRegistryForProject(projectRoot);
   const registry = (await importModule(
@@ -313,6 +414,51 @@ export async function loadTemplateMcpActions(
     ...filterMcpOnlyActions(actions),
     ...filterAgentTools(actions),
   });
+}
+
+/** The template's directory profile, or undefined when it has none. */
+export async function loadTemplateDirectoryProfile(
+  projectRoot: string,
+  importModule: ImportModule = importFile,
+): Promise<McpDirectoryProfileFixture | undefined> {
+  const file = path.join(projectRoot, DIRECTORY_PROFILE_MODULE);
+  if (!existsSync(file)) return undefined;
+  const module = (await importModule(file)) as {
+    CHATGPT_DIRECTORY_PROFILE?: McpDirectoryProfileFixture;
+  };
+  if (!module.CHATGPT_DIRECTORY_PROFILE) {
+    throw new Error(
+      `${file} must export CHATGPT_DIRECTORY_PROFILE for its directory catalog to be checked.`,
+    );
+  }
+  return module.CHATGPT_DIRECTORY_PROFILE;
+}
+
+export interface TemplateMcpConformance {
+  appId: string;
+  modes: McpCatalogMode[];
+  listCatalog(mode: McpCatalogMode): Promise<Tool[]>;
+}
+
+/**
+ * Everything a template's provider-schema spec needs: its MCP config and
+ * directory profile, loaded once, and a lister for each catalog it serves.
+ */
+export async function loadTemplateMcpConformance(
+  projectRoot: string,
+  importModule: ImportModule = importFile,
+): Promise<TemplateMcpConformance> {
+  const appId = path.basename(projectRoot);
+  const config = conformanceMcpConfig(
+    appId,
+    await loadTemplateMcpActions(projectRoot, importModule),
+  );
+  const profile = await loadTemplateDirectoryProfile(projectRoot, importModule);
+  return {
+    appId,
+    modes: templateMcpCatalogModes(projectRoot),
+    listCatalog: (mode) => listMcpCatalogTools(config, mode, profile),
+  };
 }
 
 export function withoutDiscoveryPredicates(

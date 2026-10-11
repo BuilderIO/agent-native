@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -35,15 +39,67 @@ import { createWorkspaceFilesTool } from "../workspace-files/tool.js";
 import {
   conformanceMcpConfig,
   listMcpCatalogTools,
+  MCP_CATALOG_MODES,
+  PROVIDER_SCHEMA_RULES,
   providerSchemaViolations,
   withoutDiscoveryPredicates,
-  type McpCatalogMode,
 } from "./provider-schema-conformance.js";
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
 
 const rulesFor = (inputSchema: unknown, name = "example-tool") =>
   providerSchemaViolations({ name, inputSchema }).map(
     ({ provider, rule, path }) => `${provider}: ${rule} at ${path}`,
   );
+
+const RULES = Object.values(PROVIDER_SCHEMA_RULES);
+
+/** One tool per pinned rule that breaks that rule. */
+const NEGATIVE_FIXTURES: Record<string, { name?: string; schema: unknown }> = {
+  "anthropic-tool-name": { name: "app.tool", schema: { type: "object" } },
+  "openai-tool-name": { name: "x".repeat(65), schema: { type: "object" } },
+  "gemini-tool-name": { name: "1-start", schema: { type: "object" } },
+  "root-object": { schema: { type: "array", items: { type: "string" } } },
+  "json-schema-2020-12": { schema: { type: "object", required: "id" } },
+  "root-composition": {
+    schema: {
+      type: "object",
+      anyOf: [{ required: ["a"] }, { required: ["b"] }],
+    },
+  },
+  "gateway-one-of": {
+    schema: {
+      type: "object",
+      properties: { v: { oneOf: [{ type: "string" }, { type: "number" }] } },
+    },
+  },
+  "gateway-property-names": {
+    schema: {
+      type: "object",
+      properties: {
+        labels: { type: "object", propertyNames: { pattern: "^a" } },
+      },
+    },
+  },
+  "gateway-typeless": {
+    schema: {
+      type: "object",
+      properties: { payload: { description: "anything" } },
+    },
+  },
+  "array-items": {
+    schema: { type: "object", properties: { list: { type: "array" } } },
+  },
+  "boolean-subschema": {
+    schema: { type: "object", properties: { anything: true } },
+  },
+  "gemini-json-types": {
+    schema: { type: "object", properties: { when: { type: "date" } } },
+  },
+};
 
 describe("providerSchemaViolations", () => {
   it("accepts a plain object schema", () => {
@@ -54,56 +110,109 @@ describe("providerSchemaViolations", () => {
           id: { type: "string" },
           tags: { type: "array", items: { type: "string" } },
           value: { anyOf: [{ type: "string" }, { type: "null" }] },
+          any: { $ref: "#/$defs/Any" },
         },
         required: ["id"],
+        additionalProperties: false,
+        $defs: { Any: { anyOf: [{ type: "string" }, { type: "null" }] } },
       }),
     ).toEqual([]);
   });
 
-  it("reports each pinned rule against the providers that enforce it", () => {
-    expect(
-      rulesFor({ anyOf: [{ type: "object" }, { type: "object" }] }),
-    ).toEqual([
-      'anthropic: root type is not "object" at $',
-      'openai: root type is not "object" at $',
-      'gemini: root type is not "object" at $',
-      "anthropic: root uses anyOf at $",
-      "openai: root uses anyOf at $",
-    ]);
-    expect(
-      rulesFor({
-        type: "object",
-        properties: {
-          choice: { oneOf: [{ type: "string" }, { type: "number" }] },
-          labels: { type: "object", propertyNames: { pattern: "^a" } },
-          payload: { description: "anything" },
-          list: { type: "array" },
-        },
-      }),
-    ).toEqual([
-      "openai: uses oneOf at $.properties.choice",
-      "openai: uses propertyNames at $.properties.labels",
-      "openai: schema position has no type at $.properties.payload",
-      "openai: array has no items schema at $.properties.list",
-    ]);
-    expect(rulesFor({ type: "object", required: "id" })).toEqual([
-      expect.stringMatching(
-        /^anthropic: not a valid draft 2020-12 JSON Schema \(.*required.*\) at \$$/,
-      ),
+  it("records a basis and a source for every rule", () => {
+    for (const rule of RULES) {
+      expect(["documented", "observed", "host"], rule.id).toContain(rule.basis);
+      expect(rule.source.length, rule.id).toBeGreaterThan(20);
+    }
+  });
+
+  it("has a negative fixture for every rule", () => {
+    expect(Object.keys(NEGATIVE_FIXTURES).sort()).toEqual(
+      RULES.map((rule) => rule.id).sort(),
+    );
+  });
+
+  it.each(RULES)("reports $id against exactly its providers", (rule) => {
+    const fixture = NEGATIVE_FIXTURES[rule.id]!;
+    const reported = providerSchemaViolations({
+      name: fixture.name ?? "example-tool",
+      inputSchema: fixture.schema,
+    }).filter((violation) => violation.rule === rule.id);
+
+    expect(reported.map((violation) => violation.provider)).toEqual([
+      ...rule.providers,
     ]);
   });
 
-  it("checks tool names against each provider's pattern", () => {
-    expect(rulesFor({ type: "object" }, "x".repeat(65))).toEqual([
-      "openai: tool name has characters or a length the provider rejects at $",
+  it("names the position of a nested violation", () => {
+    expect(
+      rulesFor({
+        type: "object",
+        properties: { list: { type: "array" } },
+      }),
+    ).toEqual([
+      "openai: array-items at /properties/list",
+      "gemini: array-items at /properties/list",
     ]);
-    expect(rulesFor({ type: "object" }, "1-start")).toEqual([
-      "gemini: tool name has characters or a length the provider rejects at $",
+  });
+
+  const nested = { oneOf: [{ type: "string" }, { type: "number" }] };
+  it.each([
+    ["items", nested, "/items"],
+    ["additionalItems", nested, "/additionalItems"],
+    ["contains", nested, "/contains"],
+    ["additionalProperties", nested, "/additionalProperties"],
+    ["unevaluatedProperties", nested, "/unevaluatedProperties"],
+    ["unevaluatedItems", nested, "/unevaluatedItems"],
+    ["propertyNames", nested, "/propertyNames"],
+    ["not", nested, "/not"],
+    ["if", nested, "/if"],
+    ["then", nested, "/then"],
+    ["else", nested, "/else"],
+    ["contentSchema", nested, "/contentSchema"],
+    ["allOf", [nested], "/allOf/0"],
+    ["anyOf", [nested], "/anyOf/0"],
+    ["prefixItems", [nested], "/prefixItems/0"],
+    ["properties", { a: nested }, "/properties/a"],
+    ["patternProperties", { "^a/b": nested }, "/patternProperties/^a~1b"],
+    ["$defs", { A: nested }, "/$defs/A"],
+    ["definitions", { A: nested }, "/definitions/A"],
+    ["dependentSchemas", { a: nested }, "/dependentSchemas/a"],
+    ["dependencies", { a: nested, b: ["a"] }, "/dependencies/a"],
+  ])("walks into %s", (keyword, value, suffix) => {
+    const violations = providerSchemaViolations({
+      name: "example-tool",
+      inputSchema: {
+        type: "object",
+        properties: { p: { type: "object", [keyword]: value } },
+      },
+    }).filter((violation) => violation.rule === "gateway-one-of");
+
+    expect(violations.map((violation) => violation.path)).toEqual([
+      `/properties/p${suffix}`,
     ]);
-    expect(rulesFor({ type: "object" }, "app.tool")).toEqual([
-      "anthropic: tool name has characters or a length the provider rejects at $",
-      "openai: tool name has characters or a length the provider rejects at $",
-    ]);
+  });
+});
+
+describe("template conformance inventory", () => {
+  const templates = fs
+    .readdirSync(path.join(repoRoot, "templates"))
+    .filter((app) =>
+      fs.existsSync(path.join(repoRoot, "templates", app, "actions")),
+    );
+
+  it("finds the action-bearing templates", () => {
+    expect(templates.length).toBeGreaterThan(10);
+  });
+
+  it.each(templates)("%s runs the provider-schema spec", (app) => {
+    const server = path.join(repoRoot, "templates", app, "server");
+    expect(
+      ["mcp-provider-schemas.spec.ts", "mcp-provider-schemas.test.ts"].some(
+        (file) => fs.existsSync(path.join(server, file)),
+      ),
+      `templates/${app}/server/mcp-provider-schemas.spec.ts is missing`,
+    ).toBe(true);
   });
 });
 
@@ -164,9 +273,10 @@ async function frameworkActionSurface(): Promise<Record<string, ActionEntry>> {
 }
 
 describe("framework MCP tools", () => {
-  const modes: McpCatalogMode[] = ["default", "full", "app", "oauth-read"];
+  // The directory catalog is a template's reviewed profile, not a framework one.
+  const modes = MCP_CATALOG_MODES.filter((mode) => mode !== "directory");
 
-  it("advertise only schemas every provider accepts", async () => {
+  it("advertise only schemas that pass every pinned provider rule", async () => {
     const config = conformanceMcpConfig(
       "conformance",
       await frameworkActionSurface(),
