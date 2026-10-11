@@ -117,6 +117,7 @@ import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
+  type CommentHighlightOptions,
   setCommentHighlights,
   commentHighlightKey,
   type CommentHighlightSpec,
@@ -2030,6 +2031,7 @@ interface VisualEditorExtensionOptions {
     editor: CoreEditor,
     transaction: Transaction,
   ) => void;
+  findCommentQuote?: CommentHighlightOptions["findQuote"];
 }
 
 export function hasAncestorType(
@@ -2064,6 +2066,17 @@ export function runIfMediaCreationAllowed(
   if (suggesting) return false;
   action();
   return true;
+}
+
+// Everything that places a thread's highlight: a change to any of it resolves
+// the highlight again.
+function threadAnchor(thread: CommentThread) {
+  return {
+    quotedText: thread.quotedText,
+    prefix: thread.prefix ?? undefined,
+    suffix: thread.suffix ?? undefined,
+    startOffset: thread.startOffset ?? undefined,
+  };
 }
 
 function mediaSourceCounts(doc: ProseMirrorNode) {
@@ -2627,6 +2640,7 @@ export function createVisualEditorExtensions({
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
+  findCommentQuote,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -2717,7 +2731,7 @@ export function createVisualEditorExtensions({
         referenceDepth,
       }),
       LocalMdxComponentNode,
-      CommentHighlight,
+      CommentHighlight.configure({ findQuote: findCommentQuote }),
       SuggestionHighlight,
       DragHandle,
       TypographyReplacements,
@@ -3217,6 +3231,16 @@ export function VisualEditor({
     },
     [],
   );
+  const threadsRef = useRef(commentThreads);
+  threadsRef.current = commentThreads;
+  const findCommentQuote = useCallback(
+    (threadId: string, doc: ProseMirrorNode) => {
+      const thread = threadsRef.current?.find((t) => t.threadId === threadId);
+      if (!thread || thread.resolved) return null;
+      return resolveAnchor(doc, threadAnchor(thread));
+    },
+    [],
+  );
   const onImageFilePickerRequest = useCallback(
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
@@ -3323,6 +3347,7 @@ export function VisualEditor({
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
+        findCommentQuote,
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3366,6 +3391,7 @@ export function VisualEditor({
       referenceDepth,
       t,
       onMediaSourceCommitted,
+      findCommentQuote,
     ],
   );
 
@@ -4264,91 +4290,101 @@ export function VisualEditor({
     }
   }, [editor, editable, referenceDepth, documentId]);
 
-  const threadsRef = useRef(commentThreads);
-  threadsRef.current = commentThreads;
   const threadsSignature = useMemo(
     () =>
       (commentThreads ?? [])
-        .map((t) => `${t.threadId}:${t.resolved ? 1 : 0}:${t.quotedText ?? ""}`)
+        .map(
+          (t) =>
+            `${t.threadId}:${t.resolved ? 1 : 0}:${JSON.stringify(threadAnchor(t))}`,
+        )
         .join("|"),
     [commentThreads],
   );
   const pendingKey = pendingHighlight
     ? `${pendingHighlight.from}-${pendingHighlight.to}`
     : "";
+  const resolvedQuotesRef = useRef(new Map<string, string>());
 
-  const applyHighlights = useCallback(
-    (force: boolean) => {
-      if (!editor || editor.isDestroyed) return;
-      const view = editor.view;
-      const current = commentHighlightKey.getState(view.state);
-      const mapped = force
-        ? new Map<string, CommentHighlightSpec>()
-        : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
-      const specs: CommentHighlightSpec[] = [];
-      if (!showCommentIndicators) {
-        setCommentHighlights(view, {
-          specs,
-          pending: pendingHighlight ?? null,
-          activeId: activeThreadId ?? null,
-          hoveredId: hoveredThreadId ?? null,
-        });
-        return;
-      }
-      for (const thread of threadsRef.current ?? []) {
-        if (thread.resolved) continue;
-        const existing = mapped.get(thread.threadId);
-        if (existing) {
-          specs.push(existing);
-          continue;
-        }
-        const range = resolveAnchor(view.state.doc, {
-          quotedText: thread.quotedText,
-          prefix: thread.prefix ?? undefined,
-          suffix: thread.suffix ?? undefined,
-          startOffset: thread.startOffset ?? undefined,
-        });
-        if (range) {
-          specs.push({
-            threadId: thread.threadId,
-            from: range.from,
-            to: range.to,
-          });
-        }
-      }
+  const applyHighlights = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    const view = editor.view;
+    const current = commentHighlightKey.getState(view.state);
+    const mapped = new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
+    const specs: CommentHighlightSpec[] = [];
+    if (!showCommentIndicators) {
       setCommentHighlights(view, {
         specs,
         pending: pendingHighlight ?? null,
         activeId: activeThreadId ?? null,
         hoveredId: hoveredThreadId ?? null,
       });
-    },
-    [
-      activeThreadId,
-      editor,
-      hoveredThreadId,
-      pendingHighlight,
-      showCommentIndicators,
-    ],
-  );
+      return;
+    }
+    for (const thread of threadsRef.current ?? []) {
+      if (thread.resolved) continue;
+      const existing = mapped.get(thread.threadId);
+      // A highlight stands for the quote it was resolved from, so only a
+      // thread's own new quote, such as the one an accepted edit re-anchors
+      // to, replaces it. Re-resolving an unchanged quote can pick another
+      // copy of its text once edits leave its stored context behind; the
+      // highlight plugin follows the text through edits and swaps instead.
+      const anchor = threadAnchor(thread);
+      const quote = JSON.stringify(anchor);
+      if (
+        existing &&
+        resolvedQuotesRef.current.get(thread.threadId) === quote
+      ) {
+        specs.push(existing);
+        continue;
+      }
+      const range = resolveAnchor(view.state.doc, anchor);
+      if (range) {
+        resolvedQuotesRef.current.set(thread.threadId, quote);
+        specs.push({
+          threadId: thread.threadId,
+          from: range.from,
+          to: range.to,
+        });
+      } else if (existing) {
+        // An edit to the quoted text, such as an accepted suggestion, can
+        // reach the editor before the thread's re-anchored quote does.
+        specs.push(existing);
+      }
+    }
+    setCommentHighlights(view, {
+      specs,
+      pending: pendingHighlight ?? null,
+      activeId: activeThreadId ?? null,
+      hoveredId: hoveredThreadId ?? null,
+    });
+  }, [
+    activeThreadId,
+    editor,
+    hoveredThreadId,
+    pendingHighlight,
+    showCommentIndicators,
+  ]);
 
   const applyRef = useRef(applyHighlights);
   applyRef.current = applyHighlights;
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const scheduleApply = useCallback((force: boolean) => {
+  const scheduleApply = useCallback(() => {
     clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => applyRef.current(force), 0);
+    timerRef.current = setTimeout(() => applyRef.current(), 0);
   }, []);
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  useEffect(() => {
+  // Before paint: a thread's card can render under a new id, as an optimistic
+  // thread is saved, and anything that finds the card's highlight by that id
+  // misses it until this runs.
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     let stopped = false;
     let attempts = 0;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (stopped || editor.isDestroyed) return;
-      applyRef.current(false);
+      applyRef.current();
       attempts += 1;
       const present = new Set(
         (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
@@ -4360,27 +4396,26 @@ export function VisualEditor({
         .every((t) => present.has(t.threadId));
       if (!allPresent && attempts < 25) timer = setTimeout(tick, 150);
     };
-    timer = setTimeout(tick, 0);
+    tick();
     return () => {
       stopped = true;
       clearTimeout(timer);
     };
   }, [editor, threadsSignature]);
 
+  // Loaded content can bring a quote that was not in the document before.
   useEffect(() => {
-    scheduleApply(false);
+    scheduleApply();
   }, [
     activeThreadId,
+    content,
+    contentUpdatedAt,
     editor,
     hoveredThreadId,
     pendingKey,
     scheduleApply,
     showCommentIndicators,
   ]);
-
-  useEffect(() => {
-    scheduleApply(true);
-  }, [editor, scheduleApply, content, contentUpdatedAt]);
 
   const suggestionsSignature = useMemo(
     () =>

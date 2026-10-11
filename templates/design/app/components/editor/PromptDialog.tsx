@@ -11,6 +11,7 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
@@ -20,7 +21,6 @@ import {
   IconBrain,
   IconPalette,
   IconPlus,
-  IconSparkles,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -766,7 +766,7 @@ export default function PromptPopover({
             }}
             className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <IconSparkles className="size-5 shrink-0" />
+            <AgentMark className="size-5 shrink-0" />
             <span className="text-sm font-medium">
               {t("promptDialog.startWithAi")}
             </span>

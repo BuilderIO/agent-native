@@ -787,6 +787,7 @@ export interface UseOnboardingResult {
   profile: OnboardingAppProfile | null;
   loading: boolean;
   error: string | null;
+  summaryKnown: boolean;
   currentStepId: string | null;
   completeCount: number;
   totalCount: number;
@@ -816,6 +817,7 @@ export function useOnboarding(
   const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [summaryKnown, setSummaryKnown] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [firstRun, setFirstRun] = useState(preview || initialFirstRun);
   const [completeFirstRunError, setCompleteFirstRunError] = useState<
@@ -846,10 +848,14 @@ export function useOnboarding(
           : initialFirstRun
             ? Promise.resolve(true)
             : fetchFirstRunOnboardingStatus();
-        const [summary, firstRunRes] = await Promise.all([
-          readOnboardingSummary(summaryUrl, reuseSharedRead !== true),
-          firstRunPromise,
-        ]);
+        const firstRunResultPromise = firstRunPromise.then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason: unknown) => ({ status: "rejected" as const, reason }),
+        );
+        const summary = await readOnboardingSummary(
+          summaryUrl,
+          reuseSharedRead !== true,
+        );
         if (
           !mountedRef.current ||
           fetchGeneration !== fetchGenerationRef.current
@@ -875,14 +881,27 @@ export function useOnboarding(
         setSteps(summary.steps);
 
         setProfile(summary.profile);
+        setDismissed(!!summary.dismissed);
+        setSummaryKnown(true);
+        setError(null);
+
+        const firstRunResult = await firstRunResultPromise;
+        if (
+          !mountedRef.current ||
+          fetchGeneration !== fetchGenerationRef.current
+        ) {
+          return;
+        }
+        if (firstRunResult.status === "rejected") {
+          throw firstRunResult.reason;
+        }
 
         if (preview) {
           setFirstRun(true);
         } else if (!initialFirstRun) {
-          setFirstRun(firstRunRes === true);
+          setFirstRun(firstRunResult.value === true);
         }
 
-        setDismissed(!!summary.dismissed);
         setError(null);
       } catch (e) {
         if (
@@ -968,6 +987,11 @@ export function useOnboarding(
         flow: "checklist",
         step_id: id,
       });
+      const updatedSteps = stepsRef.current.map((step) =>
+        step.id === id ? { ...step, complete: true } : step,
+      );
+      stepsRef.current = updatedSteps;
+      setSteps(updatedSteps);
       await fetchAll();
     },
     [fetchAll],
@@ -1074,6 +1098,7 @@ export function useOnboarding(
     profile,
     loading,
     error,
+    summaryKnown,
     currentStepId,
     completeCount,
     totalCount,

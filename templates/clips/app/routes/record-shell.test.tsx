@@ -15,6 +15,7 @@ import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 
 import {
   isStorageStatusUnavailable,
+  localizedRecordingErrorMessage,
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
@@ -40,6 +41,23 @@ describe("record route lifecycle shell", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("uses localized storage status copy instead of the response body", () => {
+    const error = Object.assign(
+      new Error('{"ok":false,"errorCode":"video_storage_status_unavailable"}'),
+      { errorCode: "video_storage_status_unavailable" },
+    );
+
+    expect(
+      localizedRecordingErrorMessage(error, "Localized storage status copy"),
+    ).toBe("Localized storage status copy");
+    expect(
+      localizedRecordingErrorMessage(
+        new Error("The upload failed."),
+        "Localized storage status copy",
+      ),
+    ).toBe("The upload failed.");
   });
 
   it("does not redirect a queued upload when storage is already configured", () => {

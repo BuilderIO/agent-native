@@ -31,10 +31,11 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconHistory, IconSettings, IconSparkles } from "@tabler/icons-react";
+import { IconHistory, IconSettings } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { AgentMark } from "../../../shared/AgentMark.js";
 import { SettingsGroup } from "../../SettingsRow.js";
 
 export const AUDIT_PAGE_SIZE = 25;
@@ -99,10 +100,13 @@ function initials(email: string): string {
 
 function ActorMark({ event }: { event: AuditEvent }) {
   if (event.actorKind === "agent" || event.actorKind === "system") {
-    const Icon = event.actorKind === "agent" ? IconSparkles : IconSettings;
     return (
       <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
-        <Icon className="size-4" aria-hidden="true" />
+        {event.actorKind === "agent" ? (
+          <AgentMark className="size-4" />
+        ) : (
+          <IconSettings className="size-4" aria-hidden="true" />
+        )}
       </span>
     );
   }
