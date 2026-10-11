@@ -1,6 +1,9 @@
 import { isActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
+import {
+  type McpActionResult,
+  isMcpActionResult,
+} from "../mcp-client/app-result.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -234,13 +237,19 @@ export function mcpActionErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-/** Whether an MCP proxy result says the upstream tool failed. */
-export function isReportedProxyError(result: unknown): boolean {
+/**
+ * Whether an already classified MCP proxy result says the upstream tool
+ * failed. A proxy's fields can be getters, so this reads only `raw` and never
+ * classifies the value again.
+ */
+export function isReportedProxyError(
+  mcpResult: McpActionResult | null,
+): boolean {
   return (
-    isMcpActionResult(result) &&
-    !!result.raw &&
-    typeof result.raw === "object" &&
-    (result.raw as Record<string, unknown>).isError === true
+    !!mcpResult &&
+    !!mcpResult.raw &&
+    typeof mcpResult.raw === "object" &&
+    (mcpResult.raw as Record<string, unknown>).isError === true
   );
 }
 
@@ -419,11 +428,12 @@ function deepFreeze<T>(value: T): T {
 
 function completedOutcome(result: unknown): McpActionCallOutcome {
   try {
-    const raw = isMcpActionResult(result) ? result.raw : result;
+    const mcpResult = isMcpActionResult(result) ? result : null;
+    const raw = mcpResult ? mcpResult.raw : result;
     return Object.freeze({
       status: "completed" as const,
       value: deepFreeze(purge(toJsonData(raw), new WeakSet(), false, true)),
-      reportedError: isReportedProxyError(result),
+      reportedError: isReportedProxyError(mcpResult),
     });
   } catch (error) {
     return failedOutcome("result", error);

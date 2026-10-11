@@ -3250,7 +3250,7 @@ export async function createMCPServerForRequest(
             : resultForClient;
           // Read after projection: a directory projector may rewrite the
           // proxied value it is handed, including its error flag.
-          const mcpResultIsError = isReportedProxyError(result);
+          const mcpResultIsError = isReportedProxyError(mcpResult);
           const mcpAppResourceCandidate =
             requestMeta?.inlineMcpApps &&
             mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
