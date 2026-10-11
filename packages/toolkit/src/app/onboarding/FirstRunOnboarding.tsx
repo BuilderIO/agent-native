@@ -196,6 +196,7 @@ export function FirstRunOnboarding({
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
+  const [builderCancelRequested, setBuilderCancelRequested] = useState(false);
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const beforeSetupExtensions = useMemo(
     () =>
@@ -564,6 +565,7 @@ export function FirstRunOnboarding({
     profile.capabilities,
   );
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
+    setBuilderCancelRequested(false);
     if (previewMode) {
       handleFinish(null);
       return;
@@ -1079,16 +1081,27 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
-            {connectFlow.connecting && (
-              <button
-                type="button"
-                data-testid="first-run-cancel-builder"
-                className={cn(secondaryButtonClass, "mt-4")}
-                onClick={connectFlow.cancel}
-              >
-                {t("common.cancel")}
-              </button>
-            )}
+            {connectFlow.connecting &&
+              (builderCancelRequested ? (
+                <p
+                  className="mt-4 text-sm text-muted-foreground"
+                  data-testid="first-run-cancel-pending"
+                >
+                  {t("agentChat.onboarding.builderCancelPending")}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="first-run-cancel-builder"
+                  className={cn(secondaryButtonClass, "mt-4")}
+                  onClick={() => {
+                    setBuilderCancelRequested(true);
+                    connectFlow.cancel();
+                  }}
+                >
+                  {t("common.cancel")}
+                </button>
+              ))}
             {connectFlow.statusUnavailable &&
               connectFlow.connecting &&
               !connectFlow.terminalError && (

@@ -163,6 +163,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया जा रहा है और मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं।",
+  "onboarding.builderCancelPending": "कनेक्शन की स्थिति जाँची जा रही है…",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "onboarding.builderReadyWithCodeChanges":

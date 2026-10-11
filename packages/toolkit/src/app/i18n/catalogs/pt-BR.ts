@@ -170,6 +170,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Configurando os créditos gratuitos do Builder.io",
   "onboarding.builderProvisioningDescription":
     "Criando sua conta do Builder.io e ativando os créditos grátis.",
+  "onboarding.builderCancelPending": "Verificando o status da conexão…",
   "onboarding.builderConnectionDescription":
     "Conclua a conexão com um clique na nova janela.",
   "onboarding.builderReadyWithCodeChanges":

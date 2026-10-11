@@ -159,6 +159,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
     "正在创建您的 Builder.io 账户并激活免费额度。",
+  "onboarding.builderCancelPending": "正在检查连接状态…",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
   "onboarding.builderReadyWithCodeChanges": "AI 积分和云端代码更改已准备就绪。",
   "onboarding.builderReadyCreditsOnly":

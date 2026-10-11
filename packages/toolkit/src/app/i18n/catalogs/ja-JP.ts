@@ -172,6 +172,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
     "Builder.io アカウントを作成し、無料クレジットを有効化しています。",
+  "onboarding.builderCancelPending": "接続状態を確認しています…",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
   "onboarding.builderReadyWithCodeChanges":

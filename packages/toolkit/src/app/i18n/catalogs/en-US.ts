@@ -166,6 +166,7 @@ const messages = {
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
     "Creating your Builder.io account and activating free credits.",
+  "onboarding.builderCancelPending": "Checking connection status…",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":

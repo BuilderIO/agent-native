@@ -578,7 +578,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("offers a return path after a cancelled Builder connect settles", () => {
+  it("acknowledges cancel while a Builder connect settles", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -620,6 +620,13 @@ describe("FirstRunOnboarding", () => {
     act(() => cancelButton?.click());
     expect(flow.cancel).toHaveBeenCalledOnce();
     expect(flow.connecting).toBe(true);
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-pending"]')
+        ?.textContent,
+    ).toBe("Checking connection status…");
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-builder"]'),
+    ).toBeNull();
     expect(
       document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
     ).toBeNull();
