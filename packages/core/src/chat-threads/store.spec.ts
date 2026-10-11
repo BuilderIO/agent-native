@@ -1574,6 +1574,14 @@ describe("chat thread store", () => {
             metadata: { runId: "run-1" },
           },
           {
+            id: "assistant-extended",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nHere is the full diff: ..." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
             id: "assistant-canonical",
             role: "assistant",
             parts: [{ type: "text", text: "Done." }],
@@ -1593,7 +1601,7 @@ describe("chat thread store", () => {
       3,
     );
 
-    expect(row!.message_count).toBe(2);
+    expect(row!.message_count).toBe(3);
   });
 
   it("counts an identical root and AgentKit assistant mirror once", async () => {

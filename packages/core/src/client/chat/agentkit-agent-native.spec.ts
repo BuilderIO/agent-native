@@ -3811,7 +3811,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("drops a duplicate same-run assistant snapshot when restoring the durable reply", async () => {
+  it("drops repeated snapshot text and preserves distinct same-run content", async () => {
     const threadId = "thread-duplicate-assistant-snapshot";
     const runId = "run-duplicate-assistant-snapshot";
     const answer = "L1: one\nL40: forty";
@@ -3862,6 +3862,18 @@ describe("createAgentNativeAgentKitTransport", () => {
                       metadata: { runId },
                     },
                     {
+                      id: "assistant-extended",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        {
+                          type: "text",
+                          text: `${answer}\nHere is the full diff: ...`,
+                        },
+                      ],
+                      metadata: { runId },
+                    },
+                    {
                       id: "assistant-canonical",
                       role: "assistant",
                       status: "complete",
@@ -3885,15 +3897,26 @@ describe("createAgentNativeAgentKitTransport", () => {
 
     const snapshot = await transport.getThreadSnapshot?.({ threadId });
 
-    expect(
-      snapshot?.messages.filter((message) => message.role === "assistant"),
-    ).toEqual([
-      expect.objectContaining({
-        id: "assistant-canonical",
-        role: "assistant",
-        parts: [{ type: "text", text: answer }],
-      }),
-    ]);
+    const assistantMessages = snapshot?.messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "assistant-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: answer }],
+        }),
+        expect.objectContaining({
+          id: "assistant-extended",
+          role: "assistant",
+          parts: [
+            { type: "text", text: `${answer}\nHere is the full diff: ...` },
+          ],
+        }),
+      ]),
+    );
     await transport.dispose();
   });
 

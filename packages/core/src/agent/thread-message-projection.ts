@@ -162,6 +162,30 @@ function isPrefixCompatible(left: string, right: string): boolean {
   return left.startsWith(right) || right.startsWith(left);
 }
 
+function isRepeatedAnswerSnapshot(
+  answer: string,
+  candidateText: string,
+): boolean {
+  if (!answer || !candidateText.startsWith(answer)) return false;
+  let offset = answer.length;
+  while (offset < candidateText.length) {
+    while (
+      offset < candidateText.length &&
+      /\s/u.test(candidateText[offset]!)
+    ) {
+      offset += 1;
+    }
+    if (
+      offset === candidateText.length ||
+      !candidateText.startsWith(answer, offset)
+    ) {
+      return false;
+    }
+    offset += answer.length;
+  }
+  return offset > answer.length;
+}
+
 function rootToolCalls(
   value: Record<string, unknown>,
 ): Record<string, unknown>[] {
@@ -436,7 +460,7 @@ export function projectRootAssistantMessages(input: {
         const candidateText = text(candidate);
         if (
           candidateText &&
-          candidateText.startsWith(rootText) &&
+          isRepeatedAnswerSnapshot(rootText, candidateText) &&
           typeof candidate.id === "string"
         ) {
           supersededSnapshotMessageIds.add(candidate.id);
