@@ -6,6 +6,7 @@ import {
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
 import { classifyUploadResponseError } from "../../../shared/recording-core";
+import { desktopRecoveryCopy } from "../i18n/en-US";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -1064,7 +1065,9 @@ async function postBackupChunk(
       new Error(
         responseError.isHtml
           ? `Chunk upload returned an HTML error response (${res.status}).`
-          : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+          : responseError.errorCode === "video_storage_status_unavailable"
+            ? desktopRecoveryCopy.storageStatusUnavailable
+            : `Upload retry failed (${res.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
       ),
       {
         status: responseError.status,
@@ -5576,7 +5579,10 @@ async function startRecordingInner(
                   new Error(
                     responseError.isHtml
                       ? `Chunk upload returned an HTML error response (${finalRes.status}).`
-                      : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
+                      : responseError.errorCode ===
+                          "video_storage_status_unavailable"
+                        ? desktopRecoveryCopy.storageStatusUnavailable
+                        : `Finalize failed (${finalRes.status}): ${responseError.responseText?.slice(0, 200) ?? ""}`,
                   ),
                   {
                     status: responseError.status,

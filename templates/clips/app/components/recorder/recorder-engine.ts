@@ -2553,6 +2553,7 @@ export class RecorderEngine {
         {
           status: responseError.status,
           restartRequired,
+          errorCode: responseError.errorCode,
           failureCode,
           failureStage: responseError.failureStage,
         },

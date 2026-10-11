@@ -69,6 +69,29 @@ describe("recording upload URL helpers", () => {
     });
   });
 
+  it("keeps the storage status code while omitting its JSON from display text", () => {
+    expect(
+      classifyUploadResponseError({
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: false,
+          errorCode: "video_storage_status_unavailable",
+          retryable: true,
+          storageSetupRequired: false,
+        }),
+        status: 503,
+        stage: "chunk_upload",
+      }),
+    ).toEqual({
+      isHtml: false,
+      responseText: null,
+      errorCode: "video_storage_status_unavailable",
+      status: 503,
+      failureCode: "upload_failed",
+      failureStage: "chunk_upload",
+    });
+  });
+
   it("serializes resumable chunks while keeping buffered upload parallelism", () => {
     expect(chunkUploadParallelism("streaming", 4)).toBe(1);
     expect(chunkUploadParallelism("buffered", 4)).toBe(4);
