@@ -122,9 +122,95 @@ describe("foldThreadRunSuggestions for a turn that yielded to a connection reque
 });
 
 describe("foldThreadRunSuggestions protocol sequence", () => {
-  it("preserves the AgentKit cursor instead of advancing from runtime events", () => {
+  it("discards a persisted cursor without protocol evidence", () => {
+    const fold = (repo: any) =>
+      foldThreadRunSuggestions(repo, {
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+        status: "completed",
+        events: [
+          {
+            seq: 80,
+            event: { type: "done" },
+          },
+        ],
+      });
+    const contaminated = fold({
+      agentKit: { runs: [{ id: "run-1", lastSequence: 67 }], events: [] },
+    });
+    expect(contaminated.agentKit.runs[0].lastSequence).toBe(0);
+  });
+
+  it("keeps a trusted cursor reset when run snapshots merge", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        events: [],
+      },
+    };
+    const folded = foldThreadRunSuggestions(existing, {
+      runId: "run-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+      status: "completed",
+      events: [{ seq: 80, event: { type: "done" } }],
+    });
+
+    const merged = mergeThreadDataForClientSave(existing, folded, {
+      trustedRunSequenceResetIds: new Set(["run-1"]),
+    });
+
+    expect(merged.agentKit.runs[0].lastSequence).toBe(0);
+  });
+
+  it("uses persisted protocol sequence metadata instead of runtime sequences", () => {
+    const fold = (agentKit: any) =>
+      foldThreadRunSuggestions(
+        { agentKit },
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+          status: "completed",
+          events: [{ seq: 80, event: { type: "done" } }],
+        },
+      ).agentKit.runs[0].lastSequence;
+
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        _eventRunWatermarks: { "run-1": 2 },
+      }),
+    ).toBe(2);
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        events: [{ runId: "run-1", sequence: 3 }],
+      }),
+    ).toBe(0);
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        _eventRunSnapshotCommits: {
+          "run-1": [{ snapshotId: "snapshot-1", lastSequence: 4 }],
+        },
+      }),
+    ).toBe(4);
+  });
+
+  it("does not advance the protocol cursor from runtime event sequences", () => {
     const repo = foldThreadRunSuggestions(
-      { agentKit: { runs: [{ id: "run-1", lastSequence: 4 }] } },
+      {
+        agentKit: {
+          runs: [{ id: "run-1", lastSequence: 4 }],
+          _eventRunWatermarks: { "run-1": 4 },
+        },
+      },
       {
         runId: "run-1",
         threadId: "thread-1",
@@ -133,7 +219,7 @@ describe("foldThreadRunSuggestions protocol sequence", () => {
         status: "completed",
         events: [
           {
-            seq: 67,
+            seq: 80,
             event: { type: "done" },
           },
         ],
@@ -2273,9 +2359,15 @@ describe("mergeThreadDataForClientSave", () => {
             type: "run.started",
           },
           {
-            id: "run-1-completed",
+            id: "run-1-new-event",
             runId: "run-1",
             sequence: 2,
+            type: "activity.updated",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2286,7 +2378,7 @@ describe("mergeThreadDataForClientSave", () => {
       merged.agentKit.events
         .filter((event: any) => event.runId === "run-1")
         .map((event: any) => event.id),
-    ).toEqual(["run-1-start", "run-1-completed"]);
+    ).toEqual(["run-1-start", "run-1-new-event", "run-1-completed"]);
     expect(
       merged.agentKit.events
         .filter((event: any) => event.runId === "run-2")
@@ -2294,7 +2386,7 @@ describe("mergeThreadDataForClientSave", () => {
     ).toEqual(["run-2-start", "run-2-completed"]);
   });
 
-  it("keeps later event chunks after replacing a compacted run", () => {
+  it("keeps prior events until a complete legacy replacement arrives", () => {
     const existing = {
       messages: [],
       agentKit: {
@@ -2330,17 +2422,25 @@ describe("mergeThreadDataForClientSave", () => {
         ],
       },
     });
+    expect(firstChunk.agentKit.events).toEqual(existing.agentKit.events);
+    expect(firstChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
     const secondChunk = mergeThreadDataForClientSave(firstChunk, {
       messages: [],
       agentKit: {
         _snapshotDelta: true,
-        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 2 }],
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 2 }],
         events: [
           {
             id: "new-run-completed",
             runId: "run-1",
             sequence: 2,
             type: "run.completed",
+          },
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
           },
         ],
       },
@@ -2351,9 +2451,6 @@ describe("mergeThreadDataForClientSave", () => {
       "new-run-completed",
     ]);
     expect(secondChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
-    expect(secondChunk.agentKit).not.toHaveProperty(
-      "eventRunSnapshotWatermarks",
-    );
   });
 
   it("keeps a run's prior events until all staged snapshot chunks arrive", () => {
@@ -2381,7 +2478,7 @@ describe("mergeThreadDataForClientSave", () => {
       runId: "run-1",
       snapshotId: "snapshot-1",
       lastSequence: 3,
-      expectedEventCount: 2,
+      expectedEventCount: 3,
       complete: false,
     };
     const firstChunk = mergeThreadDataForClientSave(existing, {
@@ -2455,9 +2552,16 @@ describe("mergeThreadDataForClientSave", () => {
         eventRunSnapshotBatches: [{ ...batch, complete: true }],
         events: [
           {
-            id: "new-run-completed",
+            id: "new-run-progress",
             runId: "run-1",
             sequence: 2,
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2466,6 +2570,7 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
       "new-run-start",
+      "new-run-progress",
       "new-run-completed",
     ]);
     expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 3 });
@@ -2481,7 +2586,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "new-run-completed",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2493,6 +2598,195 @@ describe("mergeThreadDataForClientSave", () => {
     expect(retriedFinalChunk.agentKit._eventRunSnapshotCommits).toEqual(
       completed.agentKit._eventRunSnapshotCommits,
     );
+  });
+
+  it("rejects a completed event batch whose cursor exceeds its events", () => {
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            eventRunSnapshotBatches: [
+              {
+                runId: "run-1",
+                snapshotId: "snapshot-1",
+                lastSequence: 100,
+                expectedEventCount: 1,
+                complete: true,
+              },
+            ],
+            events: [
+              {
+                id: "run-1-started",
+                runId: "run-1",
+                sequence: 1,
+                type: "run.started",
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat event snapshot cursor 100 did not match its last event sequence 1.",
+    );
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            eventRunSnapshotBatches: [
+              {
+                runId: "run-1",
+                snapshotId: "forged-sequence",
+                lastSequence: 100,
+                expectedEventCount: 1,
+                complete: true,
+              },
+            ],
+            events: [
+              {
+                id: "forged-event",
+                runId: "run-1",
+                sequence: 100,
+                type: "run.started",
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat event snapshot did not include every sequence through its cursor.",
+    );
+  });
+
+  it("rejects persisted omission ranges that exceed their bounded span", () => {
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            events: [
+              {
+                id: "oversized-omission-range",
+                runId: "run-1",
+                sequence: 1,
+                type: "x-agent-native.persisted-event-omission-range",
+                payload: { lastSequence: 257 },
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat persisted omission ranges must cover at most 256 event sequences.",
+    );
+  });
+
+  it("derives legacy watermarks from event cursors instead of client metadata", () => {
+    const merged = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { events: [] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 100 }],
+          events: [
+            {
+              id: "run-1-started",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+              status: "running",
+            },
+            {
+              id: "run-1-status",
+              runId: "run-1",
+              sequence: 2,
+              type: "run.status",
+              status: "running",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+  });
+
+  it("rejects an unbatched event that forges a high sequence cursor", () => {
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        {
+          messages: [],
+          agentKit: {
+            _snapshotDelta: true,
+            eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 100 }],
+            events: [
+              {
+                id: "forged-event",
+                runId: "run-1",
+                sequence: 100,
+                type: "run.started",
+              },
+            ],
+          },
+        },
+      ),
+    ).toThrow(
+      "Agent chat event snapshot did not contain a contiguous sequence range.",
+    );
+  });
+
+  it("counts omission-range spans when validating an unbatched cursor", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 1 },
+        events: [
+          {
+            id: "run-started",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        events: [
+          {
+            id: "omitted-range",
+            runId: "run-1",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 257 },
+          },
+          {
+            id: "run-completed",
+            runId: "run-1",
+            sequence: 258,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(merged.agentKit.events.map((event: any) => event.sequence)).toEqual([
+      1, 2, 258,
+    ]);
+    expect(merged.agentKit.events[1].payload.lastSequence).toBe(257);
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 258 });
   });
 
   it("repairs a legacy event snapshot at the same sequence", () => {
@@ -2614,9 +2908,21 @@ describe("mergeThreadDataForClientSave", () => {
             type: "run.started",
           },
           {
-            id: "newer-event-4",
+            id: "newer-event-2",
             runId: "run-1",
             sequence: 2,
+            type: "run.status",
+          },
+          {
+            id: "newer-event-3",
+            runId: "run-1",
+            sequence: 3,
+            type: "run.status",
+          },
+          {
+            id: "newer-event-4",
+            runId: "run-1",
+            sequence: 4,
             type: "run.completed",
           },
         ],
@@ -2640,7 +2946,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "stale-event-2",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.status",
           },
         ],
@@ -2649,7 +2955,12 @@ describe("mergeThreadDataForClientSave", () => {
 
     expect(
       retriedOldBatch.agentKit.events.map((event: any) => event.id),
-    ).toEqual(["newer-event-1", "newer-event-4"]);
+    ).toEqual([
+      "newer-event-1",
+      "newer-event-2",
+      "newer-event-3",
+      "newer-event-4",
+    ]);
     expect(retriedOldBatch.agentKit._eventRunWatermarks).toEqual({
       "run-1": 4,
     });
@@ -2742,7 +3053,7 @@ describe("mergeThreadDataForClientSave", () => {
       runId: "run-1",
       snapshotId: "snapshot-a",
       lastSequence: 3,
-      expectedEventCount: 2,
+      expectedEventCount: 3,
       complete: false,
     };
     const batchB = {
@@ -2786,9 +3097,16 @@ describe("mergeThreadDataForClientSave", () => {
         eventRunSnapshotBatches: [{ ...batchB, complete: true }],
         events: [
           {
-            id: "snapshot-b-completed",
+            id: "snapshot-b-progress",
             runId: "run-1",
             sequence: 2,
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "snapshot-b-completed",
+            runId: "run-1",
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2807,12 +3125,23 @@ describe("mergeThreadDataForClientSave", () => {
             sequence: 1,
             type: "run.started",
           },
+          {
+            id: "legacy-equal-sequence-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+            status: "running",
+          },
         ],
       },
     });
     expect(
       lateLegacyReplacement.agentKit.events.map((event: any) => event.id),
-    ).toEqual(["snapshot-b-start", "snapshot-b-completed"]);
+    ).toEqual([
+      "snapshot-b-start",
+      "snapshot-b-progress",
+      "snapshot-b-completed",
+    ]);
 
     const lateCompleteA = mergeThreadDataForClientSave(lateLegacyReplacement, {
       messages: [],
@@ -2823,7 +3152,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "snapshot-a-completed",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.completed",
           },
         ],
@@ -2831,7 +3160,7 @@ describe("mergeThreadDataForClientSave", () => {
     });
 
     expect(lateCompleteA.agentKit.events.map((event: any) => event.id)).toEqual(
-      ["snapshot-b-start", "snapshot-b-completed"],
+      ["snapshot-b-start", "snapshot-b-progress", "snapshot-b-completed"],
     );
     expect(lateCompleteA.agentKit._eventRunWatermarks).toEqual({
       "run-1": 3,
@@ -2867,7 +3196,7 @@ describe("mergeThreadDataForClientSave", () => {
               runId,
               snapshotId: "committed-snapshot",
               lastSequence: 3,
-              expectedEventCount: 2,
+              expectedEventCount: 3,
               complete: true,
             },
           ],
@@ -2879,9 +3208,16 @@ describe("mergeThreadDataForClientSave", () => {
               type: "run.started",
             },
             {
-              id: "committed-event-3",
+              id: "committed-event-2",
               runId,
               sequence: 2,
+              type: "run.status",
+              status: "running",
+            },
+            {
+              id: "committed-event-3",
+              runId,
+              sequence: 3,
               type: "run.completed",
             },
           ],
@@ -2911,7 +3247,7 @@ describe("mergeThreadDataForClientSave", () => {
     });
 
     expect(staleFullSave.agentKit.events.map((event: any) => event.id)).toEqual(
-      ["committed-event-1", "committed-event-3"],
+      ["committed-event-1", "committed-event-2", "committed-event-3"],
     );
     expect(staleFullSave.agentKit._eventRunSnapshotCommits[runId]).toEqual(
       committed.agentKit._eventRunSnapshotCommits[runId],
@@ -2941,7 +3277,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "latest-event-4",
             runId: "run-1",
-            sequence: 2,
+            sequence: 4,
             type: "run.status",
           },
         ],
@@ -2963,7 +3299,7 @@ describe("mergeThreadDataForClientSave", () => {
           {
             id: "stale-event-3",
             runId: "run-1",
-            sequence: 2,
+            sequence: 3,
             type: "run.status",
           },
         ],

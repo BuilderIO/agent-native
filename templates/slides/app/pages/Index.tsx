@@ -1026,10 +1026,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
       handleFirstRunStatusResolved,
     );
-    void fetchFirstRunOnboardingStatus().catch(() => {
-      openInitialPrompt();
-    });
+    let cancelled = false;
+    let retryTimeout: number | undefined;
+    const resolveStatus = (attempt: number) => {
+      void fetchFirstRunOnboardingStatus().catch(() => {
+        if (cancelled) return;
+        if (attempt === 1) {
+          retryTimeout = window.setTimeout(() => resolveStatus(2), 500);
+          return;
+        }
+        openInitialPrompt();
+      });
+    };
+    resolveStatus(1);
     return () => {
+      cancelled = true;
+      if (retryTimeout !== undefined) window.clearTimeout(retryTimeout);
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,

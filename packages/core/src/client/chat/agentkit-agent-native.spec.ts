@@ -885,15 +885,24 @@ describe("createAgentNativeAgentKitTransport", () => {
         status: "running" as const,
       },
     }));
-    const newerSnapshotEvents = snapshotEvents.map((event, index) =>
-      index === 19
-        ? {
-            ...event,
-            type: "activity.updated" as const,
-            activity: { ...event.activity, label: "newer snapshot" },
-          }
-        : event,
-    );
+    const newerSnapshotEvents = [
+      ...snapshotEvents.map((event, index) =>
+        index === 19
+          ? {
+              ...event,
+              type: "activity.updated" as const,
+              activity: { ...event.activity, label: "newer snapshot" },
+            }
+          : event,
+      ),
+      {
+        ...snapshotEvents[0],
+        id: "event-20",
+        sequence: 21,
+        occurredAt: "2026-10-01T00:00:21.000Z",
+        activity: { ...snapshotEvents[0].activity, id: "activity-20" },
+      },
+    ];
     let repository: Record<string, any> = {
       messages: [],
       agentKit: {
@@ -1081,11 +1090,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(requests.every((agentKit) => agentKit._snapshotDelta === true)).toBe(
       true,
     );
-    expect(repository.agentKit.events).toHaveLength(20);
+    expect(repository.agentKit.events).toHaveLength(21);
     expect(interleavedNewerSnapshot).toBe(true);
     expect(
       repository.agentKit.events.map((event: { id: string }) => event.id),
-    ).toEqual(Array.from({ length: 20 }, (_, index) => `event-${index}`));
+    ).toEqual(Array.from({ length: 21 }, (_, index) => `event-${index}`));
     expect(
       repository.agentKit.events.find(
         (event: { id: string }) => event.id === "event-19",
@@ -2891,6 +2900,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.started",
       "activity.completed",
       "message.completed",
+      "x-agent-native.persisted-event-omission",
       "run.completed",
       "run.failed",
     ]);
@@ -2922,6 +2932,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.started",
       "activity.completed",
       "message.completed",
+      "x-agent-native.persisted-event-omission",
       "run.completed",
       "run.failed",
     ]);
@@ -3016,6 +3027,133 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
     expect(restored?.suggestions).toEqual([]);
     expect(saved.agentKit.suggestions).toEqual([]);
+  });
+
+  it("compacts high-volume omissions and marks a retained history prefix", async () => {
+    const threadId = "thread-compact-events";
+    let threadData = JSON.stringify({ messages: [], agentKit: {} });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/runs/active?threadId=${threadId}`)) {
+          return json({ active: false });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && init?.method === "PUT") {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+    });
+    const firstRetainedSequence = 5_000;
+    const lastSequence = firstRetainedSequence + 1_001;
+    const events: AgentEvent[] = [
+      {
+        id: "compact-run-start",
+        threadId,
+        runId: "run-compact",
+        sequence: firstRetainedSequence,
+        occurredAt: "2026-09-26T00:00:01.000Z",
+        type: "run.started",
+      },
+      ...Array.from({ length: 1_000 }, (_, index) => ({
+        id: `compact-delta-${index + 1}`,
+        threadId,
+        runId: "run-compact",
+        sequence: firstRetainedSequence + index + 1,
+        occurredAt: "2026-09-26T00:00:02.000Z",
+        type: "message.delta" as const,
+        messageId: "assistant-stream",
+        text: "chunk",
+      })),
+      {
+        id: "compact-run-completed",
+        threadId,
+        runId: "run-compact",
+        sequence: lastSequence,
+        occurredAt: "2026-09-26T00:00:03.000Z",
+        type: "run.completed",
+      },
+    ];
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        toolCalls: [],
+        widgets: [],
+        events,
+        runs: [
+          {
+            id: "run-compact",
+            threadId,
+            status: "completed",
+            lastSequence,
+          },
+        ],
+      },
+    });
+
+    const saved = JSON.parse(threadData);
+    const omissionRanges = saved.agentKit.events.filter(
+      (event: AgentEvent) =>
+        event.type === "x-agent-native.persisted-event-omission-range",
+    );
+    expect(omissionRanges).toHaveLength(24);
+    expect(
+      omissionRanges
+        .slice(0, 20)
+        .map((event: any) => [event.sequence, event.payload.lastSequence]),
+    ).toEqual(
+      Array.from({ length: 20 }, (_, index) => [
+        index * 256 + 1,
+        Math.min((index + 1) * 256, firstRetainedSequence - 1),
+      ]),
+    );
+    expect(
+      omissionRanges
+        .slice(20)
+        .map((event: any) => [event.sequence, event.payload.lastSequence]),
+    ).toEqual([
+      [5_001, 5_256],
+      [5_257, 5_512],
+      [5_513, 5_768],
+      [5_769, 6_000],
+    ]);
+    expect(saved.agentKit.events).toHaveLength(26);
+    expect(saved.agentKit._eventRunWatermarks).toEqual({
+      "run-compact": lastSequence,
+    });
+
+    const restored = await transport.getThreadSnapshot?.({ threadId });
+    expect(restored?.events).toEqual(saved.agentKit.events);
+    if (!restored) throw new Error("Expected the persisted snapshot to reload");
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: restored,
+    });
+
+    expect(JSON.parse(threadData).agentKit.events).toEqual(
+      saved.agentKit.events,
+    );
   });
 
   it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {

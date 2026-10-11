@@ -48,6 +48,45 @@ function state(overrides: Partial<ChatState> = {}): ChatState {
   };
 }
 
+test("reports bounded user identity counts without emitting identities", () => {
+  const diagnostic = describeState(
+    state({
+      messages: [
+        { ...message("user", "secret prompt"), id: "server-user-private-id" },
+        { ...message("user", "secret prompt"), id: "server-user-private-id" },
+        { ...message("user", "secret prompt"), id: "private-local-id" },
+        message("user", "secret prompt"),
+        {
+          ...message("assistant", "secret answer"),
+          id: "private-assistant-id",
+        },
+      ],
+    }),
+  );
+  assert.ok(
+    diagnostic.includes(
+      'userIdentity={"scannedMessages":5,"truncated":false,"userCount":4,"missingIdCount":1,"distinctIdCount":2,"repeatedIdCount":1,"serverUserCount":2}',
+    ),
+  );
+  assert.doesNotMatch(diagnostic, /private-|secret prompt|secret answer/);
+});
+
+test("marks user identity diagnostics truncated at the message scan bound", () => {
+  const diagnostic = describeState(
+    state({
+      messages: Array.from({ length: 257 }, (_, index) => ({
+        ...message("user", "prompt"),
+        id: `private-${index}`,
+      })),
+    }),
+  );
+  assert.ok(
+    diagnostic.includes(
+      'userIdentity={"scannedMessages":256,"truncated":true,"userCount":256,"missingIdCount":0,"distinctIdCount":256,"repeatedIdCount":0,"serverUserCount":0}',
+    ),
+  );
+});
+
 test("flags every run-failure string users have reported, case-insensitively", () => {
   for (const text of [
     "code stream_ended",

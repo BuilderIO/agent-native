@@ -16,6 +16,7 @@ import type {
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  agentEventSequenceEnd,
   isAgentKitProtocolVersion,
   parseAgentQueuedMessage,
   parseAgentRunOptions,
@@ -1486,33 +1487,106 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
   });
 }
 
+const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
+const MAX_PERSISTED_EVENT_PREFIX_RANGES = 4_096;
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
-  const sequenceByRun = new Map<string, number>();
-  return events.flatMap((event): AgentEvent[] => {
+  const persisted: AgentEvent[] = [];
+  const seenRuns = new Set<string>();
+  let generatedPrefixRanges = 0;
+  const lastOmissionByRun = new Map<
+    string,
+    { index: number; firstSequence: number; lastSequence: number }
+  >();
+  for (const event of events) {
+    if (!seenRuns.has(event.runId)) {
+      seenRuns.add(event.runId);
+      const prefixRangeCount = Math.ceil(
+        Math.max(0, event.sequence - 1) / MAX_PERSISTED_EVENT_OMISSION_RANGE,
+      );
+      if (
+        generatedPrefixRanges + prefixRangeCount >
+        MAX_PERSISTED_EVENT_PREFIX_RANGES
+      ) {
+        throw new RangeError(
+          "Agent chat retained history prefix exceeds the supported omission range count.",
+        );
+      }
+      generatedPrefixRanges += prefixRangeCount;
+      for (
+        let firstSequence = 1;
+        firstSequence < event.sequence;
+        firstSequence += MAX_PERSISTED_EVENT_OMISSION_RANGE
+      ) {
+        const lastSequence = Math.min(
+          event.sequence - 1,
+          firstSequence + MAX_PERSISTED_EVENT_OMISSION_RANGE - 1,
+        );
+        const index = persisted.length;
+        persisted.push({
+          id: `persisted-history-prefix:${event.runId}:${firstSequence}`,
+          threadId: event.threadId,
+          runId: event.runId,
+          sequence: firstSequence,
+          occurredAt: event.occurredAt,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            lastSequence,
+            sourceType: "runtime_history_prefix",
+          },
+        } as AgentEvent);
+        lastOmissionByRun.set(event.runId, {
+          index,
+          firstSequence,
+          lastSequence,
+        });
+      }
+    }
     const base = () => {
-      const sequence = (sequenceByRun.get(event.runId) ?? 0) + 1;
-      sequenceByRun.set(event.runId, sequence);
       return {
         id: event.id,
         threadId: event.threadId,
         runId: event.runId,
-        sequence,
+        sequence: event.sequence,
         occurredAt: event.occurredAt,
       };
     };
     if (event.type === "run.started") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.completed" || event.type === "run.cancelled") {
-      return [{ ...base(), type: event.type }];
+      persisted.push({ ...base(), type: event.type });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.failed") {
-      return [
-        { ...base(), type: event.type, error: persistedError(event.error) },
-      ];
+      persisted.push({
+        ...base(),
+        type: event.type,
+        error: persistedError(event.error),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (event.type === "run.status") {
-      return [{ ...base(), type: event.type, status: event.status }];
+      persisted.push({ ...base(), type: event.type, status: event.status });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "x-agent-native.persisted-event-omission" ||
+      event.type === "x-agent-native.persisted-event-omission-range"
+    ) {
+      const index = persisted.length;
+      persisted.push(event);
+      lastOmissionByRun.set(event.runId, {
+        index,
+        firstSequence: event.sequence,
+        lastSequence: agentEventSequenceEnd(event),
+      });
+      continue;
     }
     if (
       event.type === "activity.started" ||
@@ -1520,47 +1594,80 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       event.type === "activity.completed"
     ) {
       const activity = event.activity;
-      return [
-        {
-          ...base(),
-          type: event.type,
-          activity: {
-            id: activity.id,
-            kind: activity.kind,
-            label: activity.label,
-            status: activity.status,
-            ...(activity.runId ? { runId: activity.runId } : {}),
-            ...(activity.agentId ? { agentId: activity.agentId } : {}),
-            ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
-            ...(activity.completedAt
-              ? { completedAt: activity.completedAt }
-              : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        activity: {
+          id: activity.id,
+          kind: activity.kind,
+          label: activity.label,
+          status: activity.status,
+          ...(activity.runId ? { runId: activity.runId } : {}),
+          ...(activity.agentId ? { agentId: activity.agentId } : {}),
+          ...(activity.startedAt ? { startedAt: activity.startedAt } : {}),
+          ...(activity.completedAt
+            ? { completedAt: activity.completedAt }
+            : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
     if (
       event.type === "message.completed" &&
       event.message.role === "assistant"
     ) {
-      return [
-        {
-          ...base(),
-          type: event.type,
-          message: {
-            id: event.message.id,
-            role: event.message.role,
-            parts: event.message.parts.filter((part) => part.type === "text"),
-            ...(event.message.createdAt
-              ? { createdAt: event.message.createdAt }
-              : {}),
-            ...(event.message.status ? { status: event.message.status } : {}),
-          },
+      persisted.push({
+        ...base(),
+        type: event.type,
+        message: {
+          id: event.message.id,
+          role: event.message.role,
+          parts: event.message.parts.filter((part) => part.type === "text"),
+          ...(event.message.createdAt
+            ? { createdAt: event.message.createdAt }
+            : {}),
+          ...(event.message.status ? { status: event.message.status } : {}),
         },
-      ];
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
     }
-    return [];
-  });
+    const previous = lastOmissionByRun.get(event.runId);
+    if (
+      previous &&
+      event.sequence === previous.lastSequence + 1 &&
+      event.sequence - previous.firstSequence + 1 <=
+        MAX_PERSISTED_EVENT_OMISSION_RANGE
+    ) {
+      const omitted = persisted[previous.index];
+      if (omitted) {
+        persisted[previous.index] = {
+          ...omitted,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            ...(asRecord("payload" in omitted ? omitted.payload : undefined) ??
+              {}),
+            lastSequence: event.sequence,
+          },
+        } as AgentEvent;
+      }
+      previous.lastSequence = event.sequence;
+      continue;
+    }
+    const index = persisted.length;
+    persisted.push({
+      ...base(),
+      type: "x-agent-native.persisted-event-omission",
+      payload: { sourceType: event.type },
+    });
+    lastOmissionByRun.set(event.runId, {
+      index,
+      firstSequence: event.sequence,
+      lastSequence: event.sequence,
+    });
+  }
+  return persisted;
 }
 
 function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
@@ -3009,21 +3116,13 @@ export function createAgentNativeAgentKitTransport(
       changedEventRunIds.has(event.runId),
     );
     const eventRunLastSequenceById = new Map<string, number>();
-    for (const run of input.snapshot.runs ?? []) {
-      if (
-        typeof run.id === "string" &&
-        Number.isSafeInteger(run.lastSequence) &&
-        run.lastSequence >= 0
-      ) {
-        eventRunLastSequenceById.set(run.id, run.lastSequence);
-      }
-    }
     for (const event of input.snapshot.events ?? []) {
       const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
-      if (Number.isSafeInteger(event.sequence)) {
+      const sequenceEnd = agentEventSequenceEnd(event);
+      if (Number.isSafeInteger(sequenceEnd)) {
         eventRunLastSequenceById.set(
           event.runId,
-          Math.max(previousSequence, event.sequence),
+          Math.max(previousSequence, sequenceEnd),
         );
       }
     }

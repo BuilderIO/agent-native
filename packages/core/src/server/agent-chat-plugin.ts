@@ -3692,6 +3692,7 @@ export function createAgentChatPlugin(
             thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
+            { trustedRunSequenceResetIds: new Set([run.runId]) },
           );
         });
 
