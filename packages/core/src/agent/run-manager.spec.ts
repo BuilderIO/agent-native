@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -220,6 +221,7 @@ import {
   bumpRunProgress,
   setRunError,
   setRunTerminalReason,
+  recordRunDiagnostic,
   reapIfStale,
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
@@ -458,6 +460,41 @@ describe("run manager soft timeout", () => {
         "run_timeout",
       ),
     );
+  });
+
+  it("continues run recovery when a timeout fires after its request scope closes", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = await runWithRequestDbPoolScope(true, undefined, () => {
+      const startedRun = startRun(
+        "run-timeout-after-request-scope",
+        "thread-timeout-after-request-scope",
+        async (_send, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 10 },
+      );
+      startedRun.subscribers.add((event) => events.push(event.event));
+      return startedRun;
+    });
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "auto_continue",
+        reason: "run_timeout",
+      }),
+    );
+    expect(recordRunDiagnostic).toHaveBeenCalledWith(
+      "run-timeout-after-request-scope",
+      "run_boundary_reached",
+      expect.any(String),
+    );
+    expect(run.status).toBe("completed");
   });
 
   it("persists a soft-timeout chunk as `truncated`, never as `completed`", async () => {

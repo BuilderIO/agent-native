@@ -1115,23 +1115,27 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string },
     disposition: "recovered" | "terminal",
   ) => {
-    void retainRequestDbPoolScope(
-      recordRunDiagnostic(
-        runId,
-        RUN_DIAG_STAGE.runBoundaryReached,
-        JSON.stringify({
-          reason,
-          disposition,
-          silentForMs: diagnostic.silentForMs,
-          lastEventType: diagnostic.lastEventType,
-          inFlightWorkCount,
-          eventCount: run.events.length,
-          elapsedMs: Date.now() - run.startedAt,
-        }),
-        // coercion-ok: recordRunDiagnostic already swallows its own failures;
-        // this guards only against an unhandled rejection.
-      ).catch(() => {}),
-    ).catch(() => {});
+    try {
+      void retainRequestDbPoolScope(
+        recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.runBoundaryReached,
+          JSON.stringify({
+            reason,
+            disposition,
+            silentForMs: diagnostic.silentForMs,
+            lastEventType: diagnostic.lastEventType,
+            inFlightWorkCount,
+            eventCount: run.events.length,
+            elapsedMs: Date.now() - run.startedAt,
+          }),
+          // coercion-ok: recordRunDiagnostic already swallows its own failures;
+          // this guards only against an unhandled rejection.
+        ).catch(() => {}),
+      ).catch(() => {});
+    } catch {
+      // coercion-ok: This diagnostic may outlive its request scope; run recovery must continue.
+    }
   };
 
   const reachRunBoundary = (
