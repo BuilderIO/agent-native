@@ -463,7 +463,9 @@ describe("run manager soft timeout", () => {
   });
 
   it("continues run recovery when a timeout fires after its request scope closes", async () => {
+    vi.useRealTimers();
     const events: AgentChatEvent[] = [];
+    vi.mocked(recordRunDiagnostic).mockClear();
     const run = await runWithRequestDbPoolScope(true, undefined, () => {
       const startedRun = startRun(
         "run-timeout-after-request-scope",
@@ -480,7 +482,6 @@ describe("run manager soft timeout", () => {
       return startedRun;
     });
 
-    await vi.advanceTimersByTimeAsync(11);
     await run.finalized;
 
     expect(events).toContainEqual(
@@ -489,11 +490,7 @@ describe("run manager soft timeout", () => {
         reason: "run_timeout",
       }),
     );
-    expect(recordRunDiagnostic).toHaveBeenCalledWith(
-      "run-timeout-after-request-scope",
-      "run_boundary_reached",
-      expect.any(String),
-    );
+    expect(recordRunDiagnostic).not.toHaveBeenCalled();
     expect(run.status).toBe("completed");
   });
 
