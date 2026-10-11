@@ -55,6 +55,37 @@ describe("JoinedShareControl", () => {
     expect(copy?.getAttribute("aria-label")).toBe("Copy link");
   });
 
+  it("renders both compact share segments at the widget height", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <JoinedShareControl
+            trigger={<button type="button">Share</button>}
+            copyLabel="Copy link"
+            copiedLabel="Copied"
+            onCopy={() => {}}
+            size="sm"
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const group = container.querySelector<HTMLElement>(
+      '[data-slot="button-group"]',
+    );
+    const segments = group?.querySelectorAll<HTMLElement>("button");
+    expect(segments).toHaveLength(2);
+    expect(group?.className).toContain(
+      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8",
+    );
+  });
+
   it("keeps disabled extra share tabs unavailable", async () => {
     const container = document.createElement("div");
     document.body.append(container);
