@@ -1062,17 +1062,13 @@ export async function runAuthoringFuzz(
       requestWasPendingAtNavigation: true,
     }));
     // Captured now, not when the log runs: Firefox normalization finishes
-    // asynchronously, after reload state may have been reset. startOffsetMs is
-    // relative to reload start (negative = started before reload began).
+    // asynchronously, after reload state may have been reset. Offsets use the
+    // latest reload start, which is never reset (negative = started before it).
     const startOffsetMs = (startedAt: number) =>
-      reloadNavigationStartedAt === null
-        ? null
-        : startedAt - reloadNavigationStartedAt;
+      lastReloadStartedAt === null ? null : startedAt - lastReloadStartedAt;
     const consoleTiming = {
       sinceReloadMs:
-        reloadNavigationStartedAt === null
-          ? null
-          : Date.now() - reloadNavigationStartedAt,
+        lastReloadStartedAt === null ? null : Date.now() - lastReloadStartedAt,
       reloadMap: [...reloadNavigationRequests.entries()].map(
         ([request, startedAt]) => ({
           pathname: new URL(request.url()).pathname,
