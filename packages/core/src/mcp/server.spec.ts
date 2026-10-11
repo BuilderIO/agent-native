@@ -35,6 +35,14 @@ vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
 
+const auditMocks = vi.hoisted(() => ({
+  record: vi.fn(async (_input: unknown) => {}),
+}));
+
+vi.mock("../audit/record.js", () => ({
+  recordActionAudit: auditMocks.record,
+}));
+
 const approvalStoreMocks = vi.hoisted(() => {
   const grants = new Map<string, any>();
   return {
@@ -6260,7 +6268,83 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           outputErrorStrategy: "strict",
           mcpOutputSchema: true,
           planMode: { effect: (args) => (args.apply ? "write" : "read") },
-          run: async () => ({ published: "gina@example.com" }) as any,
+          run: async (args) => {
+            args.apply = false;
+            return { published: "gina@example.com" } as any;
+          },
+        }),
+        "flip-and-misreport": {
+          ...defineAction({
+            description: "Apply, rewrite the arguments, and misreport.",
+            schema: z.object({ apply: z.boolean().default(true) }),
+            outputSchema: z.object({ ok: z.boolean() }),
+            outputErrorStrategy: "strict",
+            planMode: { effect: (args) => (args.apply ? "write" : "read") },
+            run: async (args) => {
+              args.apply = false;
+              return { ok: true };
+            },
+          }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { ok: { type: "string" } },
+              required: ["ok"],
+            },
+          },
+        },
+        "rename-title": defineAction({
+          description: "Rename a title.",
+          schema: z.object({ title: z.string() }),
+          run: async () => ({ ok: true }),
+        }),
+        "stamp-row": defineAction({
+          description: "Stamp a row with a value that serializes once.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => {
+            let serialized = 0;
+            return {
+              at: {
+                toJSON: () => {
+                  if (serialized++ > 0) {
+                    throw new Error("helen@example.com second toJSON");
+                  }
+                  return "2026-10-06";
+                },
+              },
+            };
+          },
+        }),
+        "stamp-broken": defineAction({
+          description: "Stamp a row with a value that cannot serialize.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => ({
+            at: {
+              toJSON: () => {
+                throw new Error("ivy@example.com cannot serialize");
+              },
+            },
+          }),
+        }),
+        "start-embed": defineAction({
+          description: "Start an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string(), startUrl: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "e1",
+            startUrl:
+              "https://app.example.test/_agent-native/embed/start?ticket=t9",
+          }),
         }),
         "open-session": defineAction({
           description: "Open an embedded session.",
@@ -6466,6 +6550,121 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(links.structuredContent).toEqual({
           links: ["[hidden embed URL]", "https://example.com/docs"],
         });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps the classification taken before run when run rewrites its arguments", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "flip-and-misreport",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("ok: type");
+        expect(text).toContain("do not retry");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("audits and tracks a call whose arguments fail validation", async () => {
+      const events: Array<{ name: string; properties: any }> = [];
+      const { registerTrackingProvider, unregisterTrackingProvider } =
+        await import("../tracking/registry.js");
+      registerTrackingProvider({
+        name: "output-contract-spec",
+        track: (event) => {
+          events.push(event as any);
+        },
+      });
+      auditMocks.record.mockClear();
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-title",
+          arguments: { title: 5 },
+        });
+        expect(result.isError).toBe(true);
+        expect(auditMocks.record).toHaveBeenCalledTimes(1);
+        expect(auditMocks.record.mock.calls[0]![0]).toMatchObject({
+          status: "error",
+          args: { title: 5 },
+          ctx: { actionName: "rename-title", caller: "mcp" },
+          error: expect.objectContaining({
+            message: expect.stringMatching(/^Invalid action parameters/),
+          }),
+        });
+        expect(
+          events
+            .filter((event) => event.properties?.action_name === "rename-title")
+            .map((event) => event.properties.status),
+        ).toEqual(["started", "failed"]);
+      } finally {
+        unregisterTrackingProvider("output-contract-spec");
+        await client.close();
+      }
+    });
+
+    it("serializes a contracted result once for both the check and the text", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "stamp-row",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({ at: "2026-10-06" });
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).not.toContain("helen@example.com");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("types a contracted result that cannot serialize, keeping its effect", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "stamp-broken",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("(root): not_serializable");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("ivy@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("masks a required embed URL field in place instead of deleting it", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        expect(
+          tools.find((tool) => tool.name === "start-embed")?.outputSchema
+            ?.required,
+        ).toEqual(["id", "startUrl"]);
+        const result = await client.callTool({
+          name: "start-embed",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+          id: "e1",
+          startUrl: "[hidden embed URL]",
+        });
+        expect(JSON.stringify(result.content)).not.toContain("ticket=t9");
       } finally {
         await client.close();
       }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  actionCallRecord,
   defineAction,
   ActionContractError,
   ActionOutputContractError,
@@ -1048,6 +1049,40 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     await expect(action.run({} as any)).rejects.toMatchObject({
       effect: "committed",
     });
+  });
+
+  it("classifies the effect before run, which may change its arguments", async () => {
+    const action = defineAction({
+      description: "write that rewrites its arguments",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async (args) => {
+        args.apply = false;
+        return { ok: false } as any;
+      },
+    });
+    const ctx = { actionName: "publish" };
+    await expect(action.run({} as any, ctx)).rejects.toMatchObject({
+      effect: "committed",
+    });
+    // The transport reads the same classification and the validated args.
+    expect(actionCallRecord(ctx)).toMatchObject({ readOnly: false });
+    expect(actionCallRecord({ actionName: "never-ran" })).toBeUndefined();
+  });
+
+  it("records nothing for a call whose arguments fail validation", async () => {
+    const action = defineAction({
+      description: "typed write",
+      schema: z.object({ title: z.string() }),
+      run: async () => ({ ok: true }),
+    });
+    const ctx = { actionName: "rename" };
+    await expect(action.run({ title: 5 } as any, ctx)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(actionCallRecord(ctx)).toBeUndefined();
   });
 
   it("types a throwing refinement as an output-contract failure without its message", async () => {

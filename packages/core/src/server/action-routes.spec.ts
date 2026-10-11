@@ -2201,18 +2201,22 @@ describe("mountActionRoutes", () => {
         mounted.push({ path, handler }),
       ),
     };
-    const strictPublish = (name: string) =>
+    const strictPublish = (name: string, rewritesArgs = false) =>
       defineAction({
         description: name,
         schema: z.object({ apply: z.boolean().default(true) }),
         outputSchema: z.object({ ok: z.literal(true) }),
         outputErrorStrategy: "strict",
         planMode: { effect: (args) => (args.apply ? "write" : "read") },
-        run: async () => ({ ok: false }) as any,
+        run: async (args) => {
+          if (rewritesArgs) args.apply = false;
+          return { ok: false } as any;
+        },
       });
     const actions = {
       "publish-default": strictPublish("publish-default"),
       "publish-preview": strictPublish("publish-preview"),
+      "publish-rewrite": strictPublish("publish-rewrite", true),
     } as unknown as Record<string, ActionEntry>;
     mountActionRoutes(nitroApp, actions);
     const call = (name: string, body: Record<string, unknown>) => {
@@ -2230,13 +2234,71 @@ describe("mountActionRoutes", () => {
 
     const committed = await call("publish-default", {});
     const preview = await call("publish-preview", { apply: false });
+    // Classified before run, which then rewrites its arguments.
+    const rewritten = await call("publish-rewrite", {});
     expect(committed).toMatchObject({
       errorCode: "output_contract_violation",
     });
     expect(preview).toMatchObject({ errorCode: "output_contract_violation" });
+    expect(rewritten).toMatchObject({
+      errorCode: "output_contract_violation",
+      details: { effect: "committed" },
+    });
     expect(
       mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
-    ).toEqual(["publish-default"]);
+    ).toEqual(["publish-default", "publish-rewrite"]);
+  });
+
+  it("audits and tracks a call whose arguments fail validation", async () => {
+    vi.resetModules();
+    const recordActionAudit = vi.fn();
+    const track = vi.fn();
+    vi.doMock("../audit/record.js", () => ({ recordActionAudit }));
+    vi.doMock("../tracking/registry.js", () => ({ track }));
+    try {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const { defineAction } = await import("../action.js");
+      const { z } = await import("zod");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "rename-title": defineAction({
+            description: "Rename a title.",
+            schema: z.object({ title: z.string() }),
+            run: async () => ({ ok: true }),
+          }),
+        } as unknown as Record<string, ActionEntry>,
+      );
+      const result = await mounted[0].handler({
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/rename-title",
+          json: async () => ({ title: 5 }),
+        },
+      });
+      expect(result).toMatchObject({
+        error: expect.stringMatching(/^Invalid action parameters/),
+      });
+      expect(recordActionAudit).toHaveBeenCalledTimes(1);
+      expect(recordActionAudit.mock.calls[0]![0]).toMatchObject({
+        status: "error",
+        args: { title: 5 },
+        ctx: { actionName: "rename-title" },
+      });
+      expect(
+        track.mock.calls.map(([, properties]) => properties.status),
+      ).toEqual(["started", "failed"]);
+    } finally {
+      vi.doUnmock("../audit/record.js");
+      vi.doUnmock("../tracking/registry.js");
+      vi.resetModules();
+    }
   });
 
   it("refuses extension tools-bridge calls to provider-api-request", async () => {

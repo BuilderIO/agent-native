@@ -4,11 +4,14 @@ import type {
   ActionPlanModeConfig,
 } from "./action.js";
 
-export function actionCallIsReadOnly(
+/**
+ * Whether one call is read-only, or `undefined` when neither `planMode` nor
+ * `readOnly` says.
+ */
+export function actionCallReadOnly(
   entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
   params: unknown,
-  fallback: boolean,
-): boolean {
+): boolean | undefined {
   const effect = entry.planMode?.effect;
   if (typeof effect === "string") return effect === "read";
   if (typeof effect === "function") {
@@ -20,19 +23,35 @@ export function actionCallIsReadOnly(
     }
   }
   if (typeof entry.readOnly === "boolean") return entry.readOnly;
-  return fallback;
+  return undefined;
+}
+
+export function actionCallIsReadOnly(
+  entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
+  params: unknown,
+  fallback: boolean,
+): boolean {
+  return actionCallReadOnly(entry, params) ?? fallback;
 }
 
 /**
- * What a call that ran to completion has done, for a failure reported after
- * it ran. Classify from the arguments `run` received — after input validation
- * applied defaults — not from the raw request: `{}` may mean `{ apply: true }`.
+ * What a call that ran has done, for a failure reported after it ran. Only a
+ * call declared read-only changed nothing.
  */
-export function actionCallEffect(
-  entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
-  params: unknown,
+export function actionOutputEffect(
+  readOnly: boolean | undefined,
 ): ActionOutputEffect {
-  return actionCallIsReadOnly(entry, params, false) ? "none" : "committed";
+  return readOnly === true ? "none" : "committed";
+}
+
+/** `actionCallEmitsChange` for a call already classified. */
+export function classifiedCallEmitsChange(
+  entry: { changeEvents?: boolean },
+  readOnly: boolean | undefined,
+  fallbackReadOnly: boolean,
+): boolean {
+  if (entry.changeEvents === false) return false;
+  return !(readOnly ?? fallbackReadOnly);
 }
 
 /**
@@ -52,8 +71,11 @@ export function actionCallEmitsChange(
   params: unknown,
   fallbackReadOnly: boolean,
 ): boolean {
-  if (entry.changeEvents === false) return false;
-  return !actionCallIsReadOnly(entry, params, fallbackReadOnly);
+  return classifiedCallEmitsChange(
+    entry,
+    actionCallReadOnly(entry, params),
+    fallbackReadOnly,
+  );
 }
 
 /**

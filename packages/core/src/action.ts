@@ -1,6 +1,9 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
-import { actionCallEffect } from "./action-call-classification.js";
+import {
+  actionCallReadOnly,
+  actionOutputEffect,
+} from "./action-call-classification.js";
 import {
   buildActionMcpOutputContract,
   describeOutputContractIssue,
@@ -723,23 +726,36 @@ export function defineAction(options: any) {
         ? true
         : undefined;
 
-  // Output validation runs inside input validation, so the effect of a call
-  // whose result breaks the contract is classified from the arguments `run`
-  // received, defaults applied.
-  const outputValidatedRun = hasOutputSchema
-    ? wrapWithOutputValidation(
+  const checkOutput = hasOutputSchema
+    ? outputValidator(
         options.outputSchema,
-        uiOnlyGuardedRun,
         outputErrorStrategy,
         options.outputFallback,
         options.description,
-        (args) =>
-          actionCallEffect({ readOnly, planMode: options.planMode }, args),
       )
-    : uiOnlyGuardedRun;
+    : undefined;
+  // Runs inside input validation, so a call is classified from the arguments
+  // `run` receives, defaults applied, and inside audit and tracking, so an
+  // invalid call is still recorded as a failed run.
+  const classifiedRun = async (args: any, ctx?: ActionRunContext) => {
+    // Classify before `run`, which may change `args`: the effect of a call is
+    // what it was asked to do.
+    const callReadOnly = actionCallReadOnly(
+      { readOnly, planMode: options.planMode },
+      args,
+    );
+    recordActionCall(ctx, { args, readOnly: callReadOnly });
+    const output = await uiOnlyGuardedRun(args, ctx);
+    return checkOutput
+      ? checkOutput(output, {
+          actionName: ctx?.actionName,
+          effect: actionOutputEffect(callReadOnly),
+        })
+      : output;
+  };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, outputValidatedRun, toolParameters)
-    : outputValidatedRun;
+    ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
+    : classifiedRun;
 
   const uiOnly: boolean | undefined =
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
@@ -1468,6 +1484,40 @@ const preValidatedForContext = new WeakMap<
   { schema: StandardSchemaV1; value: unknown }
 >();
 
+/** One `defineAction` call as `run` received it, for the transport that made it. */
+export interface ActionCallRecord {
+  /** The arguments after input validation applied defaults. */
+  readonly args: unknown;
+  /** The call's classification, taken before `run`; `undefined` when undeclared. */
+  readonly readOnly: boolean | undefined;
+}
+
+const actionCallRecords = new WeakMap<object, ActionCallRecord>();
+
+function recordActionCall(
+  ctx: ActionRunContext | undefined,
+  record: ActionCallRecord,
+): void {
+  // The first call on a context keeps it: an action that calls another with
+  // its own context must not replace what its transport reads.
+  if (ctx && typeof ctx === "object" && !actionCallRecords.has(ctx)) {
+    actionCallRecords.set(ctx, record);
+  }
+}
+
+/**
+ * The validated arguments and classification of the `defineAction` call made
+ * with `ctx`, or `undefined` when none reached `run` — input validation
+ * failed, or the entry was not built by `defineAction`.
+ */
+export function actionCallRecord(
+  ctx: ActionRunContext | undefined,
+): ActionCallRecord | undefined {
+  return ctx && typeof ctx === "object"
+    ? actionCallRecords.get(ctx)
+    : undefined;
+}
+
 export async function validateActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
@@ -1545,14 +1595,15 @@ function wrapWithValidation(
   };
 }
 
-function wrapWithOutputValidation(
+function outputValidator(
   outputSchema: StandardSchemaV1,
-  run: (args: any, ctx?: ActionRunContext) => any,
   strategy: ActionOutputErrorStrategy,
   fallback: unknown,
   description: string | undefined,
-  effectOf: (args: any) => ActionOutputEffect,
-): (args: any, ctx?: ActionRunContext) => any {
+): (
+  output: unknown,
+  call: { actionName?: string; effect: ActionOutputEffect },
+) => Promise<unknown> {
   let semanticSchema: JsonSchemaObject | undefined;
   const contractSchema = () => {
     try {
@@ -1563,8 +1614,7 @@ function wrapWithOutputValidation(
     }
     return semanticSchema;
   };
-  return async (args: any, ctx?: ActionRunContext) => {
-    const output = await run(args, ctx);
+  return async (output, call) => {
     let result: StandardSchemaV1.Result<unknown>;
     try {
       result = await outputSchema["~standard"].validate(output);
@@ -1573,8 +1623,8 @@ function wrapWithOutputValidation(
       // may repeat it.
       if (strategy === "strict") {
         throw new ActionOutputContractError({
-          actionName: ctx?.actionName,
-          effect: effectOf(args),
+          actionName: call.actionName,
+          effect: call.effect,
           contract: "semantic",
           issues: ["(root): validator_threw"],
         });
@@ -1595,8 +1645,8 @@ function wrapWithOutputValidation(
     if (strategy === "strict") {
       const schema = contractSchema();
       throw new ActionOutputContractError({
-        actionName: ctx?.actionName,
-        effect: effectOf(args),
+        actionName: call.actionName,
+        effect: call.effect,
         contract: "semantic",
         issues: result.issues.map((issue) =>
           describeOutputContractIssue(

@@ -44,6 +44,36 @@ function contractValidator(): Ajv2020 {
   return ajv;
 }
 
+function contractError(
+  failure: { actionName: string; effect: ActionOutputEffect },
+  issues: string[],
+): ActionOutputContractError {
+  return new ActionOutputContractError({
+    actionName: failure.actionName,
+    effect: failure.effect,
+    contract: "mcp",
+    issues: issues.length > 0 ? issues : ["(root): invalid"],
+  });
+}
+
+/**
+ * An opted-in action's result as the JSON the client receives, computed once
+ * so the structured check and the text read the same plain data: a `toJSON`
+ * that changes or throws on a second call cannot pass the check and then fail
+ * the text.
+ */
+export function mcpContractValue(
+  value: unknown,
+  failure: { actionName: string; effect: ActionOutputEffect },
+): unknown {
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? undefined : JSON.parse(json);
+  } catch {
+    throw contractError(failure, ["(root): not_serializable"]);
+  }
+}
+
 /**
  * Compile the check for an opted-in action's MCP response contract. Call it
  * before `run`: a contract that cannot be enforced must fail while nothing has
@@ -63,16 +93,6 @@ export function mcpResponseOutputCheck(
     );
   }
   const response = contract.response;
-  const contractError = (
-    failure: { actionName: string; effect: ActionOutputEffect },
-    issues: string[],
-  ) =>
-    new ActionOutputContractError({
-      actionName: failure.actionName,
-      effect: failure.effect,
-      contract: "mcp",
-      issues: issues.length > 0 ? issues : ["(root): invalid"],
-    });
   const check: McpResponseOutputCheck = (build, failure) => {
     let built: unknown;
     try {

@@ -6,7 +6,6 @@ import type {
   ServerContext,
   Tool,
 } from "@modelcontextprotocol/server";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JWTPayload } from "jose";
 
 import {
@@ -14,9 +13,10 @@ import {
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
 import {
-  actionCallEffect,
-  actionCallEmitsChange,
+  actionCallReadOnly,
   actionChangeResource,
+  actionOutputEffect,
+  classifiedCallEmitsChange,
 } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
@@ -27,10 +27,12 @@ import {
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
 import {
+  actionCallRecord,
+  ActionOutputContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
+  isActionOutputContractError,
   outputContractFailureEmitsChange,
-  validateActionArgs,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -97,7 +99,7 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
-import { mcpResponseOutputCheck } from "./output-contract.js";
+import { mcpContractValue, mcpResponseOutputCheck } from "./output-contract.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
@@ -791,6 +793,7 @@ function purgeEmbedStartUrls(
   value: unknown,
   seen = new WeakSet<object>(),
   embedContext = false,
+  maskUrlFields = false,
 ): unknown {
   if (typeof value === "string") {
     return isEmbedStartUrl(value) ? HIDDEN_EMBED_URL : value;
@@ -803,7 +806,7 @@ function purgeEmbedStartUrls(
     // just because the marker lives elsewhere in the array.
     const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out = value.map((item) =>
-      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext, maskUrlFields),
     );
     seen.delete(value);
     return out;
@@ -821,10 +824,17 @@ function purgeEmbedStartUrls(
       ) {
         continue;
       }
-      if (typeof val === "string" && isEmbedStartUrl(val)) {
+      // A field holding an embed URL is deleted, or masked in place where an
+      // output contract may require the field.
+      if (typeof val === "string" && isEmbedStartUrl(val) && !maskUrlFields) {
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
+      out[key] = purgeEmbedStartUrls(
+        val,
+        seen,
+        localEmbedContext,
+        maskUrlFields,
+      );
     }
     seen.delete(value);
     return out;
@@ -1611,11 +1621,16 @@ function primitiveValue(value: unknown): value is string | number | boolean {
 function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
-  options: { keepEmpty?: boolean } = {},
+  options: { contracted?: boolean } = {},
 ): Record<string, unknown> {
   const done = (out: Record<string, unknown>) =>
-    options.keepEmpty || Object.keys(out).length > 0 ? out : { status: "ok" };
-  const purged = purgeEmbedStartUrls(result);
+    options.contracted || Object.keys(out).length > 0 ? out : { status: "ok" };
+  const purged = purgeEmbedStartUrls(
+    result,
+    undefined,
+    false,
+    options.contracted === true,
+  );
   const out: Record<string, unknown> =
     purged && typeof purged === "object" && !Array.isArray(purged)
       ? { ...(purged as Record<string, unknown>) }
@@ -1636,7 +1651,12 @@ function mcpAppStructuredContent(
       return done(out);
     }
     out.openLink = openLink;
-    if (typeof webUrl === "string" && !out.url) out.url = webUrl;
+    if (
+      typeof webUrl === "string" &&
+      (!out.url || out.url === HIDDEN_EMBED_URL)
+    ) {
+      out.url = webUrl;
+    }
   }
   return done(out);
 }
@@ -1645,14 +1665,15 @@ function mcpAppStructuredContent(
  * The transport transform from an action's sanitized result to
  * `structuredContent`. An opted-in action's advertised `outputSchema` is
  * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
- * so a change here must change that derivation too. Opted-in actions keep an
- * empty object as `{}`: the `{ status: "ok" }` placeholder is not in their
- * contract.
+ * so a change here must change that derivation too. Opted-in (`contracted`)
+ * actions keep an empty object as `{}`, since the `{ status: "ok" }`
+ * placeholder is not in their contract, and mask an embed URL field in place
+ * rather than deleting a field their contract may require.
  */
 function mcpResponseStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
-  options: { keepEmpty?: boolean } = {},
+  options: { contracted?: boolean } = {},
 ): Record<string, unknown> {
   return mcpAppStructuredContent(
     Array.isArray(result) ? { items: result } : result,
@@ -2394,6 +2415,22 @@ export async function createMCPServerForRequest(
         let rawResult: unknown;
         let callArgs: Record<string, unknown> =
           (args as Record<string, unknown>) ?? {};
+        // Set once `run` returns: any failure after it is an output-contract
+        // failure of a call that already ran.
+        let ran = false;
+        let callReadOnly: boolean | undefined;
+        const runContext: ActionRunContext = {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId() ?? null,
+          appId: config.appId,
+          caller: "mcp",
+          actionName: name,
+        };
+        // A directory profile may project results arbitrarily, so the derived
+        // contract is advertised and enforced on app catalogs only.
+        const outputContract = directoryCatalog
+          ? undefined
+          : entry.mcpOutputContract;
         try {
           const approvalResult = await requireMcpActionApproval(
             entry,
@@ -2403,38 +2440,19 @@ export async function createMCPServerForRequest(
           );
           if (approvalResult !== undefined) return approvalResult;
 
-          // A directory profile may project results arbitrarily, so the
-          // derived contract is advertised and enforced on app catalogs only.
-          const outputContract = directoryCatalog
-            ? undefined
-            : entry.mcpOutputContract;
           const checkOutput = outputContract
             ? mcpResponseOutputCheck(outputContract)
             : undefined;
 
-          const runContext: ActionRunContext = {
-            userEmail: getRequestUserEmail(),
-            orgId: getRequestOrgId() ?? null,
-            appId: config.appId,
-            caller: "mcp",
-            actionName: name,
-          };
-          // Validate here rather than inside `run` (which reuses the value
-          // for this context): the effect, change marker, and links of a call
-          // follow the arguments it ran with, defaults applied.
-          if (
-            entry.schema &&
-            typeof entry.schema === "object" &&
-            "~standard" in entry.schema
-          ) {
-            callArgs = await validateActionArgs(
-              entry.schema as StandardSchemaV1,
-              callArgs,
-              entry.tool.parameters,
-              runContext,
-            );
-          }
           const result = await entry.run(callArgs, runContext);
+          ran = true;
+          // Links, the change marker, and the effect follow the arguments the
+          // call ran with, defaults applied, classified before it ran.
+          const call = actionCallRecord(runContext);
+          if (call) callArgs = call.args as Record<string, unknown>;
+          callReadOnly = call
+            ? call.readOnly
+            : actionCallReadOnly(entry, callArgs);
           const mcpResult = isMcpActionResult(result) ? result : null;
           rawResult = mcpResult ? mcpResult.raw : result;
           const resultForClient = mcpResult ? mcpResult.text : result;
@@ -2482,9 +2500,17 @@ export async function createMCPServerForRequest(
             images: resultImages,
             notes: resultImageNotes,
           } = extractAgentImagesFromActionResult(rawResultForClient);
+          // Normalize once, so the structured check and the text read the same
+          // plain data and no `toJSON` runs twice.
+          const contractResult = outputContract
+            ? mcpContractValue(actionResultForClient, {
+                actionName: name,
+                effect: actionOutputEffect(callReadOnly),
+              })
+            : actionResultForClient;
           const textResultForClient = mcpResult
             ? projectedResultForClient
-            : actionResultForClient;
+            : contractResult;
           const embedHasContent =
             resultImages.length > 0 ||
             mcpResultHasContent(actionResultForClient);
@@ -2528,21 +2554,17 @@ export async function createMCPServerForRequest(
             ? checkOutput && !mcpResultIsError && !embedProducedNothing
               ? checkOutput(
                   () =>
-                    mcpResponseStructuredContent(
-                      actionResultForClient,
-                      responseMeta,
-                      { keepEmpty: true },
-                    ),
+                    mcpResponseStructuredContent(contractResult, responseMeta, {
+                      contracted: true,
+                    }),
                   {
                     actionName: name,
-                    effect: actionCallEffect(entry, callArgs),
+                    effect: actionOutputEffect(callReadOnly),
                   },
                 )
-              : mcpResponseStructuredContent(
-                  actionResultForClient,
-                  responseMeta,
-                  { keepEmpty: true },
-                )
+              : mcpResponseStructuredContent(contractResult, responseMeta, {
+                  contracted: true,
+                })
             : mcpAppResource
               ? mcpAppStructuredContent(actionResultForClient, responseMeta)
               : isAppOnlyVisibility &&
@@ -2602,16 +2624,34 @@ export async function createMCPServerForRequest(
           };
           if (
             response.isError !== true &&
-            actionCallEmitsChange(entry, callArgs, false)
+            classifiedCallEmitsChange(entry, callReadOnly, false)
           ) {
             await writeMcpActionChangeMarker(entry, name, callArgs, rawResult);
           }
           return response;
-        } catch (err: any) {
+        } catch (caught: any) {
+          let err = caught;
+          if (ran && outputContract && !isActionOutputContractError(err)) {
+            // Only the error's type: its message may repeat the result.
+            console.warn(
+              `[mcp] Building the contracted result of "${name}" failed after it ran (${err instanceof Error ? err.name : typeof err})`,
+            );
+            err = new ActionOutputContractError({
+              actionName: name,
+              effect: actionOutputEffect(callReadOnly),
+              contract: "mcp",
+              issues: ["(root): transform_failed"],
+            });
+          }
           // A write whose result broke its output contract is still applied,
           // so other sessions must refresh exactly as after a success.
           if (outputContractFailureEmitsChange(entry, err)) {
-            await writeMcpActionChangeMarker(entry, name, callArgs, rawResult);
+            await writeMcpActionChangeMarker(
+              entry,
+              name,
+              actionCallRecord(runContext)?.args ?? callArgs,
+              rawResult,
+            );
           }
           const errorCode =
             isActionContractError(err) && err.errorCode !== "action_failed"

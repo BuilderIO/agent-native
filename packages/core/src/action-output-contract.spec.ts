@@ -91,10 +91,11 @@ describe("deriveMcpResponseOutputSchema", () => {
       (response.properties as Record<string, unknown>)._agentImages,
     ).toBeUndefined();
     expect(accepts(response, { url: "https://x.test/a" })).toBe(true);
-    // The transport deletes an embed start URL and fills url from the open
-    // link, so a url is neither required nor held to its own format.
-    expect(accepts(response, {})).toBe(true);
+    // The transport masks an embed start URL in place and fills url from the
+    // open link, so url stays required but is not held to its own format.
+    expect(accepts(response, {})).toBe(false);
     expect(accepts(response, { url: "/rows/1" })).toBe(true);
+    expect(accepts(response, { url: "[hidden embed URL]" })).toBe(true);
   });
 
   it("drops embed credentials at any depth and accepts what redaction leaves", () => {
@@ -134,16 +135,64 @@ describe("deriveMcpResponseOutputSchema", () => {
     expect(accepts(response, { links: ["not a url"] })).toBe(false);
   });
 
-  it("keeps required fields that redaction can never remove", () => {
+  it("keeps every required field except embed credentials", () => {
     const { response } = buildActionMcpOutputContract(
       z.object({
         status: z.enum(["ok", "degraded"]),
         count: z.number(),
         nested: z.object({ flag: z.boolean() }),
+        startUrl: z.url(),
+        ticket: z.string(),
       }),
       { openLink: false },
     );
-    expect(response.required).toEqual(["status", "count", "nested"]);
+    expect(response.required).toEqual([
+      "status",
+      "count",
+      "nested",
+      "startUrl",
+    ]);
+    // An embed start URL is masked in place, so the field stays present.
+    expect(
+      accepts(response, {
+        status: "ok",
+        count: 1,
+        nested: { flag: true },
+        startUrl: "[hidden embed URL]",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps constraints redaction cannot affect", () => {
+    const { response } = buildActionMcpOutputContract(
+      z.object({
+        scores: z.array(z.number()),
+        tags: z.record(z.string(), z.number()),
+        kind: z.literal("row"),
+      }),
+      { openLink: false },
+    );
+    expect(
+      accepts(response, { scores: [1, 2], tags: { a: 1 }, kind: "row" }),
+    ).toBe(true);
+    expect(accepts(response, { scores: [1], tags: {}, kind: "col" })).toBe(
+      false,
+    );
+    const unique = deriveMcpResponseOutputSchema(
+      {
+        type: "object",
+        properties: {
+          ids: { type: "array", items: { type: "integer" }, uniqueItems: true },
+          pick: { const: { label: "Main", size: 2 } },
+        },
+        maxProperties: 2,
+      },
+      { openLink: false },
+    );
+    expect(
+      accepts(unique, { ids: [1, 2], pick: { label: "Main", size: 2 } }),
+    ).toBe(true);
+    expect(accepts(unique, { ids: [1, 1] })).toBe(false);
   });
 
   it.each([
@@ -176,9 +225,125 @@ describe("deriveMcpResponseOutputSchema", () => {
       { type: "object", properties: { a: { $ref: "#" } } },
       /refers to itself/,
     ],
+    [
+      "unique objects that differ only in an embed credential",
+      {
+        type: "object",
+        properties: {
+          panes: {
+            type: "array",
+            uniqueItems: true,
+            items: {
+              type: "object",
+              properties: {
+                label: { type: "string" },
+                embedTicket: { type: "string" },
+              },
+            },
+          },
+        },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "an object const holding an embed credential",
+      {
+        type: "object",
+        properties: { pick: { const: { label: "a", embedTicket: "t" } } },
+      },
+      /const or enum/,
+    ],
+    [
+      "an enum member holding an embed credential",
+      {
+        type: "object",
+        properties: { pick: { enum: [{ label: "a", embedTicket: "t" }] } },
+      },
+      /const or enum/,
+    ],
+    [
+      "an unsupported keyword under propertyNames",
+      {
+        type: "object",
+        properties: {
+          byOwner: {
+            type: "object",
+            propertyNames: { not: { const: "x" } },
+            additionalProperties: { type: "number" },
+          },
+        },
+      },
+      /"not"/,
+    ],
+    [
+      "a reference it cannot resolve",
+      { type: "object", properties: { a: { $ref: "#/$defs/Missing" } } },
+      /cannot resolve/,
+    ],
+    [
+      "definitions below the root",
+      {
+        type: "object",
+        properties: { a: { type: "object", $defs: { B: { not: {} } } } },
+      },
+      /definitions below the root/,
+    ],
   ])("refuses %s", (_label, semantic, message) => {
     expect(() =>
       deriveMcpResponseOutputSchema(semantic, { openLink: false }),
+    ).toThrow(message);
+  });
+
+  it.each([
+    [
+      "maxProperties",
+      {
+        type: "object",
+        properties: { id: { type: "string" } },
+        maxProperties: 1,
+      },
+      /"maxProperties"/,
+    ],
+    [
+      "propertyNames",
+      {
+        type: "object",
+        properties: { id: { type: "string" } },
+        propertyNames: { pattern: "^id$" },
+      },
+      /"propertyNames"/,
+    ],
+    [
+      "a patternProperties entry matching url",
+      {
+        type: "object",
+        properties: { id: { type: "string" } },
+        patternProperties: { "^u": { type: "number" } },
+      },
+      /patternProperties/,
+    ],
+    [
+      "an allOf branch that refers to a definition",
+      {
+        type: "object",
+        allOf: [{ $ref: "#/$defs/Row" }],
+        $defs: {
+          Row: {
+            type: "object",
+            properties: { a: { type: "string" } },
+            additionalProperties: false,
+          },
+        },
+      },
+      /refers to a definition/,
+    ],
+  ])("refuses a linked root that declares %s", (_label, semantic, message) => {
+    // Each passes without a link; the added openLink and url fields break it.
+    expect(() =>
+      deriveMcpResponseOutputSchema(semantic, { openLink: false }),
+    ).not.toThrow();
+    expect(() =>
+      deriveMcpResponseOutputSchema(semantic, { openLink: true }),
     ).toThrow(message);
   });
 
@@ -240,6 +405,29 @@ describe("describeOutputContractIssue", () => {
     expect(
       describeOutputContractIssue(["rows", "dave", "owner"], "type", schema),
     ).toBe("rows.*.*: type");
+  });
+
+  it("masks an index where the schema also allows a record", () => {
+    const mixed = {
+      type: "object",
+      properties: {
+        rows: {
+          anyOf: [
+            { type: "array", items: { type: "number" } },
+            { type: "object", additionalProperties: { type: "number" } },
+          ],
+        },
+        cells: { type: ["array", "object"], items: { type: "number" } },
+      },
+    };
+    for (const key of ["123456789", 123456789]) {
+      expect(describeOutputContractIssue(["rows", key], "type", mixed)).toBe(
+        "rows.*: type",
+      );
+      expect(describeOutputContractIssue(["cells", key], "type", mixed)).toBe(
+        "cells.*: type",
+      );
+    }
   });
 
   it("masks every segment without a schema and every unknown code", () => {

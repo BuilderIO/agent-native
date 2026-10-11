@@ -16,8 +16,10 @@ import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
+  classifiedCallEmitsChange,
 } from "../action-call-classification.js";
 import {
+  actionCallRecord,
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
@@ -909,11 +911,15 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
-            const publishActionChange = async (result: unknown) => {
+            let runContext: ActionRunContext | undefined;
+            const publishActionChange = async (
+              callArgs: unknown,
+              result: unknown,
+            ) => {
               try {
                 await notifyActionChange({
                   actionName: name,
-                  ...actionChangeResource(entry, params, result),
+                  ...actionChangeResource(entry, callArgs, result),
                   ...(userEmail ? { owner: userEmail } : {}),
                   ...(getHeader(event, "x-request-source")
                     ? {
@@ -924,8 +930,11 @@ function mountActionRoutesInternal(
                       }
                     : {}),
                 });
-              } catch {
+              } catch (error) {
                 // coercion-ok: a failed screen refresh must not replace the action's own result or error.
+                console.warn(
+                  `[action-change] Could not publish the change for "${name}" (${error instanceof Error ? error.name : typeof error})`,
+                );
               }
             };
 
@@ -953,7 +962,7 @@ function mountActionRoutesInternal(
                   : isFrontendActionRequest(event)
                     ? "frontend"
                     : "http");
-              const runContext: ActionRunContext = {
+              runContext = {
                 userEmail,
                 orgId: orgId ?? null,
                 appId: options?.appId,
@@ -969,22 +978,19 @@ function mountActionRoutesInternal(
                     }
                   : {}),
               };
-              // Validate before `run` (which reuses the value for this
-              // context): approval, the change event, and an output-contract
-              // failure all follow the arguments the call ran with.
-              if (
-                entry.schema &&
-                typeof entry.schema === "object" &&
-                "~standard" in entry.schema
-              ) {
-                params = await validateActionArgs(
-                  entry.schema as StandardSchemaV1,
-                  params,
-                  entry.tool.parameters,
-                  runContext,
-                );
-              }
               if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                if (
+                  entry.schema &&
+                  typeof entry.schema === "object" &&
+                  "~standard" in entry.schema
+                ) {
+                  params = await validateActionArgs(
+                    entry.schema as StandardSchemaV1,
+                    params,
+                    entry.tool.parameters,
+                    runContext,
+                  );
+                }
                 let mustApprove = false;
                 try {
                   mustApprove =
@@ -1010,8 +1016,19 @@ function mountActionRoutesInternal(
               }
               const result = await entry.run(params, runContext);
 
-              if (actionCallEmitsChange(entry, params, method === "GET")) {
-                await publishActionChange(result);
+              // The change follows the arguments the call ran with, defaults
+              // applied, classified before it ran.
+              const call = actionCallRecord(runContext);
+              if (
+                call
+                  ? classifiedCallEmitsChange(
+                      entry,
+                      call.readOnly,
+                      method === "GET",
+                    )
+                  : actionCallEmitsChange(entry, params, method === "GET")
+              ) {
+                await publishActionChange(call ? call.args : params, result);
               }
 
               if (typeof result === "string") {
@@ -1028,7 +1045,10 @@ function mountActionRoutesInternal(
               // A write whose result broke its output contract is applied,
               // so other sessions refresh exactly as after a success.
               if (outputContractFailureEmitsChange(entry, err)) {
-                await publishActionChange(undefined);
+                await publishActionChange(
+                  actionCallRecord(runContext)?.args ?? params,
+                  undefined,
+                );
               }
               const msg = err?.message ?? String(err);
               const isValidationError = msg.startsWith(

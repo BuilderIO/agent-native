@@ -18,10 +18,10 @@ export type JsonSchemaObject = Record<string, unknown>;
  * validated it — what in-process callers and typed script bindings see.
  * `response` is what MCP advertises as the tool's `outputSchema`: the semantic
  * contract after the transport transform that builds `structuredContent`
- * (an array result is wrapped as `{ items }`, embed credentials and embed
- * start URLs are redacted, `_agentImages` is lifted into image content, and
- * actions that produce an open link gain optional `openLink` and `url`
- * fields). Every value the semantic contract accepts must still satisfy the
+ * (an array result is wrapped as `{ items }`, embed credentials are removed,
+ * embed start URLs become the hidden-URL marker, `_agentImages` is lifted
+ * into image content, and actions that produce an open link gain optional
+ * `openLink` and `url` fields). Every value the semantic contract accepts must still satisfy the
  * response contract after that transform.
  */
 export interface ActionMcpOutputContract {
@@ -177,52 +177,95 @@ function typeAdmits(node: JsonSchemaObject, type: string): boolean {
   return Array.isArray(declared) && declared.includes(type);
 }
 
-/**
- * Whether a value valid under `node` could be an embed start URL — the one
- * value the transport deletes from an object or replaces in an array.
- */
-function mayHoldEmbedUrl(
-  node: unknown,
-  root: JsonSchemaObject,
-  seen = new Set<unknown>(),
-): boolean {
-  if (node === true) return true;
-  if (!isRecord(node) || seen.has(node)) return false;
-  seen.add(node);
-  if (typeof node.$ref === "string") {
-    return mayHoldEmbedUrl(lookupRef(root, node.$ref), root, seen);
-  }
-  for (const key of ["anyOf", "oneOf", "allOf"]) {
-    const branches = node[key];
-    if (Array.isArray(branches)) {
-      return branches.some((branch) => mayHoldEmbedUrl(branch, root, seen));
-    }
-  }
-  if ("const" in node) {
-    return typeof node.const === "string" && isEmbedStartUrl(node.const);
-  }
-  if (Array.isArray(node.enum)) {
-    return node.enum.some(
-      (value) => typeof value === "string" && isEmbedStartUrl(value),
-    );
-  }
-  return typeAdmits(node, "string");
-}
-
 function refuse(reason: string): never {
   throw new TypeError(
     `mcpOutputSchema cannot advertise this outputSchema: ${reason}`,
   );
 }
 
+/** Whether redaction can change `value` (a `const` or `enum` member). */
+function redactionMayChange(value: unknown): boolean {
+  if (typeof value === "string") return isEmbedStartUrl(value);
+  if (Array.isArray(value)) return value.some(redactionMayChange);
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(
+    ([key, item]) =>
+      EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+      isEmbedCredentialKey(key) ||
+      key === AGENT_IMAGES_FIELD ||
+      redactionMayChange(item),
+  );
+}
+
+const REDACTION_INVARIANT_TYPES = new Set([
+  "number",
+  "integer",
+  "boolean",
+  "null",
+]);
+
 /**
- * Rewrite one schema node so it accepts what the transport makes of any value
- * it accepted: embed credential keys may disappear, an embed start URL is
- * deleted from an object or replaced by the hidden-URL marker in an array, and
- * `oneOf` loses its exclusivity once branches can lose properties.
+ * Whether every value valid under `node` passes through redaction unchanged:
+ * only then can redaction not make two distinct array items equal.
  */
-function tolerateRedaction(node: unknown, root: JsonSchemaObject): unknown {
-  if (typeof node === "boolean") return node;
+function redactionInvariant(
+  node: unknown,
+  root: JsonSchemaObject,
+  seen = new Set<unknown>(),
+): boolean {
+  if (node === false) return true;
+  if (!isRecord(node) || seen.has(node)) return false;
+  seen.add(node);
+  if ("const" in node) return !redactionMayChange(node.const);
+  if (Array.isArray(node.enum)) return !node.enum.some(redactionMayChange);
+  const type = node.type;
+  if (
+    (typeof type === "string" && REDACTION_INVARIANT_TYPES.has(type)) ||
+    (Array.isArray(type) &&
+      type.every((item) => REDACTION_INVARIANT_TYPES.has(item)))
+  ) {
+    return true;
+  }
+  if (typeof node.$ref === "string") {
+    return redactionInvariant(lookupRef(root, node.$ref), root, seen);
+  }
+  if (Array.isArray(node.allOf)) {
+    return node.allOf.some((branch) => redactionInvariant(branch, root, seen));
+  }
+  for (const key of ["anyOf", "oneOf"]) {
+    const branches = node[key];
+    if (Array.isArray(branches)) {
+      return branches.every((branch) => redactionInvariant(branch, root, seen));
+    }
+  }
+  return false;
+}
+
+const SUBSCHEMA_VALUE_KEYS = [
+  "additionalProperties",
+  "propertyNames",
+  "items",
+] as const;
+const SUBSCHEMA_LIST_KEYS = ["anyOf", "oneOf", "allOf", "prefixItems"] as const;
+const SUBSCHEMA_MAP_KEYS = [
+  "properties",
+  "patternProperties",
+  "$defs",
+  "definitions",
+] as const;
+
+/**
+ * Refuse, at every subschema position, what the derivation cannot carry
+ * through redaction: an unsupported keyword or format, a reference it cannot
+ * resolve, nested definitions, a `const` or `enum` value redaction would
+ * change, and `uniqueItems` over items redaction could make equal.
+ */
+function assertAdvertisable(
+  node: unknown,
+  root: JsonSchemaObject,
+  atRoot = false,
+): void {
+  if (typeof node === "boolean") return;
   if (!isRecord(node)) refuse("a subschema is not an object.");
   for (const key of Object.keys(node)) {
     if (!SUPPORTED_KEYWORDS.has(key)) refuse(`unsupported keyword "${key}".`);
@@ -234,7 +277,62 @@ function tolerateRedaction(node: unknown, root: JsonSchemaObject): unknown {
   ) {
     refuse(`unsupported format ${JSON.stringify(node.format)}.`);
   }
+  if (
+    node.$ref !== undefined &&
+    (typeof node.$ref !== "string" ||
+      node.$ref === "#" ||
+      lookupRef(root, node.$ref) === undefined)
+  ) {
+    refuse(`a reference it cannot resolve (${JSON.stringify(node.$ref)}).`);
+  }
+  if (!atRoot && (node.$defs !== undefined || node.definitions !== undefined)) {
+    refuse("definitions below the root.");
+  }
+  if (
+    ("const" in node && redactionMayChange(node.const)) ||
+    (Array.isArray(node.enum) && node.enum.some(redactionMayChange))
+  ) {
+    refuse(
+      "a const or enum value holding an embed credential, an embed URL, or _agentImages, which redaction changes.",
+    );
+  }
+  if (
+    node.uniqueItems === true &&
+    [node.items, ...(Array.isArray(node.prefixItems) ? node.prefixItems : [])]
+      .filter((item) => item !== undefined)
+      .some((item) => !redactionInvariant(item, root))
+  ) {
+    refuse(
+      "uniqueItems over items that redaction can change, which can turn distinct items into duplicates.",
+    );
+  }
+  for (const key of SUBSCHEMA_VALUE_KEYS) {
+    if (node[key] !== undefined) assertAdvertisable(node[key], root);
+  }
+  for (const key of SUBSCHEMA_LIST_KEYS) {
+    if (node[key] === undefined) continue;
+    if (!Array.isArray(node[key])) refuse(`"${key}" is not a list.`);
+    for (const branch of node[key] as unknown[]) {
+      assertAdvertisable(branch, root);
+    }
+  }
+  for (const key of SUBSCHEMA_MAP_KEYS) {
+    if (node[key] === undefined) continue;
+    if (!isRecord(node[key])) refuse(`"${key}" is not an object.`);
+    for (const schema of Object.values(node[key] as JsonSchemaObject)) {
+      assertAdvertisable(schema, root);
+    }
+  }
+}
 
+/**
+ * Rewrite one schema node (already checked by `assertAdvertisable`) so it
+ * accepts what the transport makes of any value it accepted: embed credential
+ * keys may disappear, an embed start URL becomes the hidden-URL marker, and
+ * `oneOf` loses its exclusivity once branches can lose properties.
+ */
+function tolerateRedaction(node: unknown, root: JsonSchemaObject): unknown {
+  if (!isRecord(node)) return node;
   const out: JsonSchemaObject = { ...node };
   for (const key of ["anyOf", "allOf"] as const) {
     if (Array.isArray(out[key])) {
@@ -260,9 +358,7 @@ function tolerateRedaction(node: unknown, root: JsonSchemaObject): unknown {
     const removable = new Set<string>();
     for (const [name, schema] of Object.entries(out.properties)) {
       if (EMBED_RESULT_SENSITIVE_KEYS.has(name)) continue;
-      if (isEmbedCredentialKey(name) || mayHoldEmbedUrl(schema, root)) {
-        removable.add(name);
-      }
+      if (isEmbedCredentialKey(name)) removable.add(name);
       properties[name] = tolerateRedaction(schema, root);
     }
     out.properties = properties;
@@ -275,8 +371,8 @@ function tolerateRedaction(node: unknown, root: JsonSchemaObject): unknown {
       );
     }
   } else if (Array.isArray(out.required)) {
-    // A required key matched only by additionalProperties may hold anything,
-    // including a value the transport deletes.
+    // A required key matched only by additionalProperties may be a
+    // credential key the transport deletes.
     out.required = [];
   }
   if (isRecord(out.additionalProperties)) {
@@ -302,36 +398,45 @@ function tolerateRedaction(node: unknown, root: JsonSchemaObject): unknown {
       tolerateRedaction(item, root),
     );
   }
-  if (
-    out.uniqueItems === true &&
-    [out.items, ...((out.prefixItems as unknown[]) ?? [])].some(
-      (item) => item !== undefined && mayHoldEmbedUrl(item, root),
-    )
-  ) {
-    refuse(
-      "uniqueItems on an array that may hold strings, which redaction can turn into duplicates.",
-    );
-  }
-
-  // Where an array item holding an embed URL becomes the marker, the item
-  // schema must accept the marker: an unconstrained string already does.
+  // Where a value holding an embed URL becomes the marker, its schema must
+  // accept the marker: an unconstrained string already does, and a const or
+  // enum never holds an embed URL (`assertAdvertisable` refuses one).
   const markerMayFail =
     out.$ref === undefined &&
-    ("const" in out
-      ? typeof out.const === "string" && isEmbedStartUrl(out.const)
-      : Array.isArray(out.enum)
-        ? out.enum.some(
-            (value) => typeof value === "string" && isEmbedStartUrl(value),
-          )
-        : typeAdmits(out, "string") &&
-          STRING_CONSTRAINTS.some((key) => out[key] !== undefined));
+    !("const" in out) &&
+    !Array.isArray(out.enum) &&
+    typeAdmits(out, "string") &&
+    STRING_CONSTRAINTS.some((key) => out[key] !== undefined);
   return markerMayFail ? { anyOf: [out, { const: HIDDEN_EMBED_URL }] } : out;
 }
+
+const OPEN_LINK_FIELDS = ["openLink", "url"];
 
 function withTransportFields(
   node: JsonSchemaObject,
   openLink: boolean,
 ): JsonSchemaObject {
+  if (openLink) {
+    // These would judge the added openLink and url fields too.
+    if (typeof node.$ref === "string") {
+      refuse("a linked result's root refers to a definition.");
+    }
+    for (const key of ["maxProperties", "propertyNames", "const", "enum"]) {
+      if (node[key] !== undefined) {
+        refuse(`a linked result's root declares "${key}".`);
+      }
+    }
+    if (
+      isRecord(node.patternProperties) &&
+      Object.keys(node.patternProperties).some((pattern) =>
+        OPEN_LINK_FIELDS.some((field) => new RegExp(pattern, "u").test(field)),
+      )
+    ) {
+      refuse(
+        "a linked result's root has a patternProperties entry matching openLink or url.",
+      );
+    }
+  }
   const out: JsonSchemaObject = { ...node };
   for (const key of ["anyOf", "allOf"] as const) {
     if (Array.isArray(out[key])) {
@@ -378,6 +483,7 @@ export function deriveMcpResponseOutputSchema(
   if (JSON.stringify(semantic).includes('"$ref":"#"')) {
     refuse("its root refers to itself.");
   }
+  assertAdvertisable(semantic, semantic, true);
   const { $defs, definitions, ...root } = semantic;
   const tolerateDefs = (defs: unknown) =>
     isRecord(defs)
@@ -512,13 +618,31 @@ function isArrayNode(node: JsonSchemaObject): boolean {
 }
 
 /**
+ * Whether a value under `node` may be an object, whose numeric-looking key is
+ * data rather than an index. A node that only composes others says nothing:
+ * its branches are candidates of their own.
+ */
+function mayBeObject(node: JsonSchemaObject): boolean {
+  const composesOnly =
+    node.type === undefined &&
+    (typeof node.$ref === "string" ||
+      Array.isArray(node.anyOf) ||
+      Array.isArray(node.oneOf) ||
+      Array.isArray(node.allOf)) &&
+    node.properties === undefined &&
+    node.additionalProperties === undefined &&
+    node.patternProperties === undefined;
+  return !composesOnly && typeAdmits(node, "object");
+}
+
+/**
  * One output-contract issue as `path: code`, built only from what the schema
  * declares. Object keys and messages can repeat the returned data — a record
  * key (`"42"` as much as `"dave@example.com"`), an unrecognized key, a
  * refinement message that interpolates a value — so the path is walked through
- * `schema`: a segment survives only as an index into a node the schema
- * declares as an array, or as a property name the schema declares at that
- * node. Every other segment is `*`; without a schema, every segment is.
+ * `schema`: a segment survives only as an index where the schema allows an
+ * array and no object at that point, or as a property name the
+ * schema declares at that node. Every other segment is `*`; without a schema, every segment is.
  */
 export function describeOutputContractIssue(
   path: ReadonlyArray<string | number>,
@@ -538,16 +662,18 @@ export function describeOutputContractIssue(
       index !== undefined && Number.isSafeInteger(index)
         ? nodes.filter(isArrayNode)
         : [];
-    if (index !== undefined && arrays.length > 0) {
+    const itemsOf = (array: JsonSchemaObject) => {
+      const prefix = array.prefixItems;
+      return candidateNodes(
+        Array.isArray(prefix) && index! < prefix.length
+          ? prefix[index!]
+          : array.items,
+        schema!,
+      );
+    };
+    if (arrays.length > 0 && !nodes.some(mayBeObject)) {
       segments.push(String(index));
-      nodes = arrays.flatMap((node) => {
-        const prefix = node.prefixItems;
-        const item =
-          Array.isArray(prefix) && index < prefix.length
-            ? prefix[index]
-            : node.items;
-        return candidateNodes(item, schema!);
-      });
+      nodes = arrays.flatMap(itemsOf);
       continue;
     }
     const key = String(raw);
@@ -562,8 +688,10 @@ export function describeOutputContractIssue(
       );
       continue;
     }
+    // An index that could also be a record key is masked; both readings go on.
     segments.push("*");
     nodes = nodes.flatMap((node) => [
+      ...(arrays.includes(node) ? itemsOf(node) : []),
       ...candidateNodes(node.additionalProperties, schema!),
       ...(isRecord(node.patternProperties)
         ? Object.values(node.patternProperties).flatMap((value) =>
