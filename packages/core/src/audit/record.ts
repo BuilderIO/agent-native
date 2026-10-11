@@ -10,6 +10,7 @@ import { redactArgsToJson } from "./redact.js";
 import { insertAuditEvent } from "./store.js";
 import type {
   ActionAuditConfig,
+  AuditApproval,
   AuditCallMeta,
   AuditEvent,
   AuditStatus,
@@ -27,6 +28,9 @@ export interface AuditRunContextLike {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  approvedToolCallKey?: string;
+  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpApproved?: true;
 }
 
 export interface RecordActionAuditInput {
@@ -104,6 +108,19 @@ function isRefusal(error: unknown): boolean {
 function auditAppKey(): string | null {
   const { app } = getAppConfig();
   return (app.id ?? app.name)?.trim() || null;
+}
+
+function approvalEvidence(
+  ctx: AuditRunContextLike | undefined,
+): AuditApproval | null {
+  if (ctx?.approvedToolCallKey) return "agent-chat";
+  if (ctx?.mcpApproved === true) return "mcp-elicitation";
+  return null;
+}
+
+// Self-reported, so bounded: a client can send any string.
+function reportedLabel(value: string | undefined): string | null {
+  return value?.trim().slice(0, 200) || null;
 }
 
 function safeTarget(
@@ -198,6 +215,10 @@ export async function recordActionAudit(
       networkId: ctx?.networkId ?? null,
       networkPeer: ctx?.networkPeer ?? null,
       app: auditAppKey(),
+      reportedClientName: reportedLabel(ctx?.mcpClient?.name),
+      reportedClientVersion: reportedLabel(ctx?.mcpClient?.version),
+      oauthClientId: ctx?.mcpClient?.oauthClientId ?? null,
+      approval: approvalEvidence(ctx),
     };
     if (integration) {
       if (

@@ -3,6 +3,14 @@ export type AuditStatus = "success" | "error" | "denied";
 export type AuditActorKind = "agent" | "human" | "service" | "system";
 
 /**
+ * How a person approved this exact call before it ran. `agent-chat` is the
+ * agent's approval prompt (`approvedToolCalls`). `mcp-elicitation` is an MCP
+ * client accepting the approval elicitation; who answered in that client is
+ * not verified.
+ */
+export type AuditApproval = "agent-chat" | "mcp-elicitation";
+
+/**
  * Who can read an event besides its owner.
  * - `private` — the owner only (the default; personal content stays here).
  * - `org` — every member of `org_id`.
@@ -70,6 +78,20 @@ export interface AuditEvent {
   /** App that recorded the event (`app.id`, else `app.name`). Null on rows
    *  written before the column existed or by an app with no identity. */
   app?: string | null;
+  /**
+   * The name and version an MCP client sent as its `clientInfo`. Self-reported:
+   * any client can send any value. Null when the call carried none.
+   */
+  reportedClientName?: string | null;
+  reportedClientVersion?: string | null;
+  /** The OAuth client the MCP credential was issued to, when it has one. */
+  oauthClientId?: string | null;
+  /**
+   * Set only when a person approved this exact call before it ran. Rows
+   * written before the column existed are null whether or not they were
+   * approved.
+   */
+  approval?: AuditApproval | null;
 }
 
 export interface AuditQueryFilters {

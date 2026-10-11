@@ -80,6 +80,14 @@ export interface ActionRunContext {
   turnId?: string;
   toolCallId?: string;
   approvedToolCallKey?: string;
+  /**
+   * The client behind a `caller: "mcp"` call. `name` and `version` are its
+   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
+   * credential was issued to.
+   */
+  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  /** The MCP client approved this exact call through the approval elicitation. */
+  mcpApproved?: true;
 }
 
 export type ActionAuthorize<TArgs> = (

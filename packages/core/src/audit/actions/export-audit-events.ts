@@ -26,6 +26,10 @@ const CSV_COLUMNS: Array<[key: keyof AuditEvent, header: string]> = [
   ["ownerEmail", "owner_email"],
   ["visibility", "visibility"],
   ["app", "app"],
+  ["reportedClientName", "reported_client_name"],
+  ["reportedClientVersion", "reported_client_version"],
+  ["oauthClientId", "oauth_client_id"],
+  ["approval", "approval"],
 ];
 
 function csvField(value: unknown): string {
