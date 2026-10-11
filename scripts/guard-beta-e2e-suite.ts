@@ -749,7 +749,17 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
         inputs?: Record<string, { default?: unknown }>;
       };
     };
-    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
+    jobs?: Record<
+      string,
+      {
+        if?: unknown;
+        needs?: unknown;
+        permissions?: Record<string, unknown>;
+        secrets?: Record<string, unknown>;
+        uses?: unknown;
+        with?: Record<string, unknown>;
+      }
+    >;
   };
 
   let parsedDeploy: ProdDeploy | null = null;
@@ -776,6 +786,41 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
   if (!deployIf.includes("needs.beta-e2e.result != 'failure'")) {
     issues.push(
       `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
+    );
+  }
+
+  const report = parsedDeploy?.jobs?.["report-beta-e2e"];
+  const reportIf = String(report?.if ?? "");
+  const reportNeeds = Array.isArray(report?.needs)
+    ? report.needs
+    : typeof report?.needs === "string"
+      ? [report.needs]
+      : [];
+  const reportPermissions = report?.permissions ?? {};
+  if (
+    !reportIf.includes("always()") ||
+    !reportIf.includes("inputs.beta_e2e") ||
+    !reportIf.includes("needs.beta-e2e.result != 'skipped'") ||
+    !reportNeeds.includes("beta-e2e") ||
+    report?.uses !== `./${reportWorkflowPath}` ||
+    !String(report.with?.run_result ?? "").includes("needs.beta-e2e.result") ||
+    reportPermissions.actions !== "read" ||
+    reportPermissions.contents !== "read" ||
+    !String(report.secrets?.QA_SLACK_BOT_TOKEN ?? "").includes(
+      "secrets.QA_SLACK_BOT_TOKEN",
+    )
+  ) {
+    issues.push(
+      `${prodDeployPath} must send the opted-in production Beta E2E result, including failed or cancelled runs, through the shared Slack reporter with read-only run/artifact access.`,
+    );
+  }
+
+  const deployNeeds = Array.isArray(parsedDeploy?.jobs?.deploy?.needs)
+    ? parsedDeploy.jobs.deploy.needs
+    : [];
+  if (deployNeeds.includes("report-beta-e2e")) {
+    issues.push(
+      `${prodDeployPath} must not make production deploys wait for the informational Slack report job.`,
     );
   }
 }

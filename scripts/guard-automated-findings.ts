@@ -32,6 +32,7 @@ const fullReportArtifactNames: Record<
 export const supportingWorkflows = [
   ".github/workflows/beta-e2e-scheduled.yml",
   ".github/workflows/beta-e2e.yml",
+  ".github/workflows/deploy-production-sites-prebuilt.yml",
 ] as const;
 
 // This reports release promotion failures, not application or CI findings.

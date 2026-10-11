@@ -84,6 +84,19 @@ describe("guard:beta-e2e-suite", () => {
     assert.match(output, /guard:beta-e2e-suite passed/);
   });
 
+  it("reports opted-in production pre-flight failures through the shared Slack reporter", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/deploy-production-sites-prebuilt.yml",
+          "uses: ./.github/workflows/beta-e2e-report.yml",
+          "uses: ./.github/workflows/missing-report.yml",
+        ),
+      /must send the opted-in production Beta E2E result, including failed or cancelled runs/,
+    );
+  });
+
   it("guards the configured low-cost model constants", () => {
     for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
       rejects(
