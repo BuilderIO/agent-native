@@ -10046,8 +10046,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               )
             : (cameraCommand.paddingScreenPx ?? CANVAS_FIT_PADDING_PX),
           canvasPadding: SURFACE_PADDING,
-          minZoom: MIN_ZOOM,
-          maxZoom: MAX_ZOOM,
+          minZoom: cameraCommand.canvasZoom ?? MIN_ZOOM,
+          maxZoom: cameraCommand.canvasZoom ?? MAX_ZOOM,
           fallbackZoom: zoomRef.current,
         },
       );

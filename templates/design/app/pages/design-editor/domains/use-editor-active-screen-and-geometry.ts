@@ -107,6 +107,7 @@ import {
   getNextZoomStepDown,
   getNextZoomStepUp,
   getOverviewCanvasZoom,
+  getOverviewCanvasZoomForFrame,
   getOverviewDisplayZoom,
   getOverviewZoomScale,
   resolveOverviewZoomBasisScreenId,
@@ -385,6 +386,7 @@ export function useEditorActiveScreenAndGeometry({
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
   const [cameraCommand, setCameraCommand] = useState<{
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     nonce: number;
     paddingScreenPx?: number;
   } | null>(null);
@@ -1855,10 +1857,29 @@ export function useEditorActiveScreenAndGeometry({
           // widgetFit), so neither a selection nor a one-off camera command.
           requestCameraFit: widgetEmbed
             ? undefined
-            : (camera) => {
+            : (camera, zoomRequest) => {
                 cameraCommandNonceRef.current += 1;
+                const targetScreen = zoomRequest
+                  ? overviewScreens.find(
+                      (screen) => screen.id === zoomRequest.screenId,
+                    )
+                  : undefined;
+                const canvasZoom =
+                  zoomRequest && targetScreen
+                    ? getOverviewCanvasZoomForFrame({
+                        displayZoom: zoomRequest.displayZoom,
+                        frameWidth:
+                          displayedCanvasFrameGeometryById[targetScreen.id]
+                            ?.width,
+                        sourceWidth:
+                          deviceFrame === "none"
+                            ? targetScreen.width
+                            : DEVICE_FRAME_VIEWPORTS[deviceFrame].width,
+                      })
+                    : undefined;
                 setCameraCommand({
                   ...camera,
+                  ...(canvasZoom !== undefined ? { canvasZoom } : {}),
                   nonce: cameraCommandNonceRef.current,
                 });
               },
@@ -1869,6 +1890,8 @@ export function useEditorActiveScreenAndGeometry({
     [
       canEditDesign,
       canvasFrameGeometryById,
+      deviceFrame,
+      displayedCanvasFrameGeometryById,
       files,
       id,
       overviewScreens,

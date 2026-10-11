@@ -65,7 +65,10 @@ export interface ApplyDesignEditorCommandArgs {
   ) => void;
   overviewDataReady?: boolean;
   viewModeRef: RefObject<"single" | "overview">;
-  requestCameraFit?: (camera: CreatedScreenNavigationPlan["camera"]) => void;
+  requestCameraFit?: (
+    camera: CreatedScreenNavigationPlan["camera"],
+    zoomRequest?: { screenId: string; displayZoom: number },
+  ) => void;
   /** False frames the named screen without selecting it. Defaults to true. */
   selectTargetScreen?: boolean;
 }
@@ -275,6 +278,9 @@ export function runApplyDesignEditorCommand(
             height: group.height,
           },
         }).camera,
+        commandZoom !== null
+          ? { screenId: targetScreen.id, displayZoom: commandZoom }
+          : undefined,
       );
     }
   } else if (effectiveCommandTool) {
