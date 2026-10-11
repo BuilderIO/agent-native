@@ -145,6 +145,20 @@ jobs:
       lane: public
     secrets: inherit
 
+  report-beta-e2e:
+    name: Report production Beta E2E pre-flight status
+    if: ${{ always() && inputs.beta_e2e && needs.beta-e2e.result != 'skipped' }}
+    needs: beta-e2e
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/beta-e2e-report.yml
+    with:
+      run_result: ${{ needs.beta-e2e.result }}
+      update_baseline: false
+    secrets:
+      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
     permissions:
