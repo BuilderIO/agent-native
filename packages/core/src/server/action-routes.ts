@@ -84,7 +84,6 @@ import {
   countCredentialState,
 } from "../tracking/failure-counters.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
-import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
 import { notifyActionChangeForResponse } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
@@ -153,7 +152,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 
-const ROUTE_PREFIX = ACTION_ROUTE_PREFIX;
+const ROUTE_PREFIX = "/_agent-native/actions";
 const WEBMCP_ACTION_ROUTE_PREFIX = "/_agent-native/webmcp/actions";
 const MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES = 32 * 1024;
 const MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES = 1024 * 1024;
@@ -657,10 +656,6 @@ function mountActionRoutesInternal(
 ) {
   const mounted: string[] = [];
   const app = getH3App(nitroApp);
-
-  if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
-    bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
-  }
 
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.http === false && !options?.includeAgentOnly) continue;

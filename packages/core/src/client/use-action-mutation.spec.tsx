@@ -5,7 +5,6 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import { useActionMutation, useActionQuery } from "./use-action.js";
 
 describe("useActionMutation", () => {
@@ -147,42 +146,26 @@ describe("useActionMutation resource-scoped invalidation", () => {
     vi.unstubAllGlobals();
   });
 
-  // A batch POST gets one result per request, as the batch action answers; any
-  // other reply trips the action failure circuit and blocks later fetches.
   // `writeHeaders` ride on the reply to a POST write, as the server sets them.
   function actionFetchMock(writeHeaders: Record<string, string> = {}) {
-    return vi.fn(async (input: unknown, init?: RequestInit) => {
-      const json = (body: unknown, headers: Record<string, string> = {}) =>
-        new Response(JSON.stringify(body), {
-          headers: { "Content-Type": "application/json", ...headers },
-        });
-      if (
-        init?.method === "POST" &&
-        String(input).endsWith(`/${ACTION_BATCH_ACTION_NAME}`)
-      ) {
-        const { requests } = JSON.parse(String(init.body));
-        return json({
-          results: requests.map(() => ({ status: 200, body: { ok: true } })),
-        });
-      }
-      return json({ ok: true }, init?.method === "POST" ? writeHeaders : {});
-    });
+    return vi.fn(
+      async (_input: unknown, init?: RequestInit) =>
+        new Response(JSON.stringify({ ok: true }), {
+          headers: {
+            "Content-Type": "application/json",
+            ...(init?.method === "POST" ? writeHeaders : {}),
+          },
+        }),
+    );
   }
 
-  // Two or more same-tick GETs travel as one batch POST, so the action names
-  // come from its body rather than from the URL.
   function refetchedActionNames(fetch: ReturnType<typeof actionFetchMock>) {
     return fetch.mock.calls
-      .flatMap(([input, init]) => {
-        const url = String(input);
-        const method = init?.method ?? "GET";
-        if (method === "POST" && url.endsWith(`/${ACTION_BATCH_ACTION_NAME}`)) {
-          const { requests } = JSON.parse(String(init?.body));
-          return requests.map((request: { action: string }) => request.action);
-        }
-        if (method !== "GET") return [];
-        return [url.split("/_agent-native/actions/")[1]!.split("?")[0]];
-      })
+      .filter(([, init]) => (init?.method ?? "GET") === "GET")
+      .map(
+        ([input]) =>
+          String(input).split("/_agent-native/actions/")[1]!.split("?")[0],
+      )
       .sort();
   }
 
