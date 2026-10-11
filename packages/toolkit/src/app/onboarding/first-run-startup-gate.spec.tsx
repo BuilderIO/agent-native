@@ -551,9 +551,11 @@ describe("FirstRunOnboardingStartupGate", () => {
 
   it("keeps the app behind a retry surface if both eligibility checks are unavailable", async () => {
     vi.useFakeTimers();
+    const retryError = new Error("retry failed");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.fetchStatus
       .mockRejectedValueOnce(new Error("first status read failed"))
-      .mockRejectedValueOnce(new Error("retry failed"));
+      .mockRejectedValueOnce(retryError);
 
     act(() => {
       root.render(
@@ -580,6 +582,11 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-first-run-startup-loading]"),
     ).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      "[onboarding] first-run status remained unavailable after retry",
+      retryError,
+    );
+    warn.mockRestore();
   });
 
   it("does not gate preview mode", () => {

@@ -107,7 +107,7 @@ export function FirstRunOnboardingStartupGate({
         .then((firstRun) => {
           if (!cancelled) setDecision(firstRun ? "eligible" : "ineligible");
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (cancelled) return;
           if (attempt < FIRST_RUN_STATUS_MAX_ATTEMPTS) {
             retryTimeout = window.setTimeout(
@@ -116,6 +116,10 @@ export function FirstRunOnboardingStartupGate({
             );
             return;
           }
+          console.warn(
+            "[onboarding] first-run status remained unavailable after retry",
+            error,
+          );
           setDecision("unavailable");
         });
     };
