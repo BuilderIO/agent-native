@@ -145,9 +145,6 @@ jobs:
       actions: read
       contents: read
     uses: ./.github/workflows/beta-e2e.yml
-    permissions:
-      actions: read
-      contents: read
     with:
       apps: all
       lane: public
