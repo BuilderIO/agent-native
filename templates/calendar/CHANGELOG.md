@@ -5,6 +5,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-08
 
+### Added
+
+- Connected agents can create events, edit events, and RSVP to one recurring occurrence or the entire series directly over MCP
+  
+  Creating invitations or out-of-office auto-declines requires approval in connected clients and the Calendar agent.
+
 ### Improved
 
 - Calendar highlights proposed times and links to Google Calendar for review

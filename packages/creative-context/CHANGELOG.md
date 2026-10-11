@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.38
+
+### Patch Changes
+
+- 128f43e: Export a shared `AgentMark` icon for agent identity and use the same mark in the creative context panel.
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.37
 
 ### Patch Changes

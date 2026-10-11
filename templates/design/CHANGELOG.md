@@ -3,6 +3,40 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-11
+
+### Improved
+
+- The Design agent has a dedicated icon in the editor rail and prompt starter.
+- The editor's left rail tab is now called Layers, and the designs dashboard is now called Home.
+
+### Fixed
+
+- Replay screenshots can be handed off to Design boards.
+  
+  Agent reads of Design boards require authentication, including WebMCP reads. Anonymous WebMCP no longer offers `get-design`; public shared-design links and HTTP reads remain available under their existing access checks.
+
+## 2026-10-10
+
+### Improved
+
+- Canvas navigation does less work on large boards.
+- ChatGPT and other MCP widgets open the standard minimal-UI editor, with the title and share bar, the bottom tool bar, and the inspector as a right panel at every width.
+- Images are optimized automatically before prompt upload.
+- In the minimal layout, the zoom picker and Share button sit on one row when nothing else leads the top-right bar.
+- Large boards stay responsive while panning.
+- The Design editor gives the chat composer more room and keeps follow-up suggestions beside it.
+
+### Fixed
+
+- Board Position values stay consistent when selecting and editing layers
+- Design preserves small reference images when you attach larger documents
+- Home suggestions keep their slot stable through profile errors and generation.
+- Home suggestions stay stable and reflect your role
+- Design suggestions stay in place while loading and match your selected role.
+- Larger image references stay attached when starting a design
+- Pan and zoom stay in sync while navigating large boards
+
 ## 2026-10-09
 
 ### Added
@@ -12,6 +46,9 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Journey storyboards keep full branch names and percentages readable and explain grouped paths.
+- Journey storyboards support up to 2,000 steps.
+- Large Design storyboards stay responsive during pan and zoom
 - Design widgets show the project title and sharing controls in the editor header.
 - Design widgets now include an editable title, sharing, mode selection, and zoom controls.
 - Left rail is now a 56px File, Agents and Tokens rail with labels, tooltips, an account avatar, a collapse button, and one shared panel header
@@ -23,6 +60,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Canvas selection keeps keyboard shortcuts active after clicking editor tabs
+- Design creates a mobile leaderboard on the fixed 320 × 50 ad canvas.
+- Fix private replay screenshot previews across Design canvases and previews
+- Local previews keep their source page during startup so PNG and PDF exports retain their content.
+- SVG paste honors the selected frame, shared vector colors update consistently, and measurements follow layout changes.
 - Ads and social posts keep their exact size with no extra mobile frame, and app screens that mention ads or leaderboards stay responsive.
 - Design in ChatGPT keeps the new screen centered and fully in view as images load and the pane is resized, until you pan or zoom
 - Design in ChatGPT opens on the whole canvas with every screen framed, and edits such as screen width now save instead of reverting
@@ -58,6 +100,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Custom-key setup opens model settings after onboarding.
 - Design now saves component property edits and screen source changes reliably, duplicates the latest unsaved Screen content, keeps inactive localhost previews connected for editing, routes cross-screen drops using the source Screen's geometry at drag start, keeps restored Screen geometry in sync after Undo, and lets users remove the final Screen.
 - Arabic journey storyboard cards now use right-to-left direction
 - Design keeps prompts beside AI setup, shows one provider retry hint, and blocks generation until a provider is connected.

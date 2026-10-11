@@ -3,6 +3,31 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-11
+
+### Improved
+
+- The agent uses its dedicated icon while importing and when the results are ready.
+- Local recordings can start before connecting a storage provider.
+
+### Fixed
+
+- Combo buttons keep both controls at the same height
+- Recordings waiting for storage setup remain retryable through temporary storage status issues.
+
+## 2026-10-10
+
+### Improved
+
+- Recordings load as you scroll in batches, and / focuses search.
+- The Chrome extension now captures console and network logs from the tab you are on and recently used tabs, plus up to 30 seconds before a recording starts.
+
+### Fixed
+
+- Camera framing keeps a consistent size and position across desktop displays
+- Clips no longer treats a temporary storage status failure as missing storage.
+- Split buttons keep a clear divider and rounded outer corners in the library and recording share controls.
+
 ## 2026-10-09
 
 ### Improved
@@ -11,6 +36,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The Clips download page explains when it cannot locate its workspace path.
+- The Clips download page stays open and offers a retry when release information is unavailable.
 - Agents can read clip transcripts and inspect video frames from shared links, with clear guidance when a private clip needs a Share with agents link.
 - Agents now get clear recovery steps when clip frames are still processing or stored media cannot be fetched.
 
@@ -28,6 +55,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Custom-key setup opens model settings after onboarding.
+- Queued AI work (titles, summaries, chapters, filler words, workflows) now runs in the background even when the Agent tab is closed.
 - Clip uploads recover more reliably from temporary server interruptions
 - Clips blocks chat prompts until an AI provider is connected.
 - Clips marks recordings as failed when storage setup is missing, even if upload progress cannot be repaired.
