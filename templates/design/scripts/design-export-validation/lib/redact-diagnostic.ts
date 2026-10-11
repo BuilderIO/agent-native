@@ -5,6 +5,7 @@ const ASSIGNMENT_PREFIX_PATTERN =
   /(?<![\w$])((?:\\+["']|["']))(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._ -]+[A-Za-z0-9$]+)*))\2\1(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?((?:authorization[ ]+(?:header|value)|auth[ ]+(?:header|value)|api[ ]+key[ ]+(?:used|provided|value)|access[ ]+key[ ]+id|(?:api|private|access|secret|signing|encryption)[ ]+key|[A-Za-z_$][A-Za-z0-9$]*[ ]+(?:token|secret|signature|password|passwd|pwd|pw|pass|passphrase|credential|credentials|cookie|authorization)))(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._-]+[A-Za-z0-9$]+)*))\6(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(-{1,2})([A-Za-z][A-Za-z0-9_-]*)([ \t]+)(?![=])/gi;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
 const MAX_STRUCTURED_JSON_DEPTH = 128;
+const MAX_NESTED_JSON_STRING_DEPTH = 8;
 
 function isSensitiveAssignmentKey(key: string): boolean {
   const words = key
@@ -389,10 +390,83 @@ function parseJsonNode(
 
 type JsonReplacement = { start: number; end: number; value: string };
 
+function applyJsonReplacements(
+  value: string,
+  start: number,
+  end: number,
+  replacements: JsonReplacement[],
+): string {
+  replacements.sort((left, right) => left.start - right.start);
+  let result = "";
+  let replacementCursor = start;
+  for (const replacement of replacements) {
+    result +=
+      value.slice(replacementCursor, replacement.start) + replacement.value;
+    replacementCursor = replacement.end;
+  }
+  return result + value.slice(replacementCursor, end);
+}
+
+function parseCompleteJsonValue(value: string): JsonNode | null {
+  const start = skipJsonWhitespace(value, 0);
+  const node = parseJsonNode(value, start);
+  if (!node || skipJsonWhitespace(value, node.end) !== value.length) {
+    return null;
+  }
+  return node;
+}
+
+function redactSerializedJsonValue(
+  value: string,
+  nestedStringDepth: number,
+): string | null {
+  const node = parseCompleteJsonValue(value);
+  if (!node) {
+    return hasHarCredentialPairIndicator(value) ? "[redacted]" : null;
+  }
+
+  if (node.kind === "string") {
+    if (nestedStringDepth >= MAX_NESTED_JSON_STRING_DEPTH) {
+      // Deeply encoded JSON is uncommon and cannot be inspected safely without
+      // unbounded decoding, so redact the complete value at the depth limit.
+      return "[redacted]";
+    }
+    const nested = redactSerializedJsonValue(node.value, nestedStringDepth + 1);
+    return nested === null ? null : JSON.stringify(nested);
+  }
+
+  if (node.kind !== "object" && node.kind !== "array") return null;
+
+  const replacements: JsonReplacement[] = [];
+  collectHarCredentialReplacements(node, replacements, nestedStringDepth);
+  if (replacements.length === 0) return null;
+  return (
+    value.slice(0, node.start) +
+    applyJsonReplacements(value, node.start, node.end, replacements) +
+    value.slice(node.end)
+  );
+}
+
 function collectHarCredentialReplacements(
   node: JsonNode,
   replacements: JsonReplacement[],
+  nestedStringDepth = 0,
 ): void {
+  if (node.kind === "string") {
+    const redactedValue = redactSerializedJsonValue(
+      node.value,
+      nestedStringDepth + 1,
+    );
+    if (redactedValue !== null) {
+      replacements.push({
+        start: node.start,
+        end: node.end,
+        value: JSON.stringify(redactedValue),
+      });
+    }
+    return;
+  }
+
   if (node.kind === "object") {
     const label = node.entries.find(
       ({ key, value }) =>
@@ -410,7 +484,11 @@ function collectHarCredentialReplacements(
     }
     for (const { value } of node.entries) {
       if (value !== pairedValue || !label) {
-        collectHarCredentialReplacements(value, replacements);
+        collectHarCredentialReplacements(
+          value,
+          replacements,
+          nestedStringDepth,
+        );
       }
     }
     return;
@@ -431,7 +509,7 @@ function collectHarCredentialReplacements(
     }
     for (const item of node.items) {
       if (item !== pairedValue || !isHeaderPair) {
-        collectHarCredentialReplacements(item, replacements);
+        collectHarCredentialReplacements(item, replacements, nestedStringDepth);
       }
     }
   }
@@ -453,15 +531,6 @@ function redactHarCredentialPairs(value: string): string {
   let searchFrom = 0;
   while (searchFrom < value.length) {
     const character = value[searchFrom];
-    if (character === '"' || character === "'") {
-      const quote = character;
-      searchFrom += 1;
-      while (searchFrom < value.length) {
-        if (value[searchFrom] === "\\") searchFrom += 2;
-        else if (value[searchFrom++] === quote) break;
-      }
-      continue;
-    }
     if (character !== "{" && character !== "[") {
       searchFrom += 1;
       continue;
@@ -481,15 +550,13 @@ function redactHarCredentialPairs(value: string): string {
     const replacements: JsonReplacement[] = [];
     collectHarCredentialReplacements(node, replacements);
     if (replacements.length > 0) {
-      replacements.sort((left, right) => left.start - right.start);
       result += value.slice(cursor, searchFrom);
-      let replacementCursor = searchFrom;
-      for (const replacement of replacements) {
-        result +=
-          value.slice(replacementCursor, replacement.start) + replacement.value;
-        replacementCursor = replacement.end;
-      }
-      result += value.slice(replacementCursor, node.end);
+      result += applyJsonReplacements(
+        value,
+        searchFrom,
+        node.end,
+        replacements,
+      );
       cursor = node.end;
     }
     searchFrom = node.end;

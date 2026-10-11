@@ -21,8 +21,7 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: (resourceType: string, resourceId: string) =>
-    mockResolveAccess(resourceType, resourceId),
+  resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
 }));
 
 let selectResults: unknown[][] = [];
@@ -140,7 +139,9 @@ describe("resolveLocalhostConnectionScope", () => {
       ownerEmail: "owner@example.com",
       orgId: "org_1",
     });
-    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+      authCapability: "capability:visual-edit:design:design_1",
+    });
   });
 
   it("keeps a signed-in caller's own scope when there is no capability", async () => {
@@ -196,7 +197,9 @@ describe("resolveLocalhostConnectionScope", () => {
         errorCode: "visual_edit_capability_invalid",
         statusCode: 403,
       });
-      expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+      expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+        authCapability: "capability:visual-edit:design:design_1",
+      });
     },
   );
 
@@ -216,7 +219,9 @@ describe("resolveLocalhostConnectionScope", () => {
       ownerEmail: "owner@example.com",
       orgId: "org_1",
     });
-    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1", {
+      authCapability: "capability:visual-edit:design:design_1",
+    });
 
     mockRequestAuthCapability.mockReturnValue(undefined);
     mockResolveAccess.mockResolvedValue({

@@ -220,6 +220,21 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
     });
     expect(updateSourceBody.url).toContain("signedInEdit=1");
 
+    const persistedUpdate = await ownerContext.request.get(
+      `${BASE_URL}/_agent-native/actions/get-design`,
+      { params: { id: designId, fileId: screenId } },
+    );
+    expect(persistedUpdate.status(), await persistedUpdate.text()).toBe(200);
+    const persistedDesign = await persistedUpdate.json();
+    expect(persistedDesign.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: screenId,
+          content: updateSourceBody.url,
+        }),
+      ]),
+    );
+
     const directRead = await signedInViewerContext.request.get(
       `${BASE_URL}/_agent-native/actions/get-design`,
       { params: { id: opened.designId } },

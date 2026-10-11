@@ -672,6 +672,37 @@ describe("redactExportDiagnostic additional review formats", () => {
     expect(redactExportDiagnostic(input)).toBe(expected);
   });
 
+  it("finds HAR credential pairs after unmatched prose quotes and preserves ordinary quoted text", () => {
+    // guard:allow-secret-literal — Placeholder bearer text reproduces the reported redaction leak.
+    const input = `Didn't load: {"name":"Authorization","value":"Bearer fake-token"}`;
+    expect(redactExportDiagnostic(input)).toBe(
+      `Didn't load: {"name":"Authorization","value":"[redacted]"}`,
+    );
+
+    const ordinary = 'message="a brace { in quoted prose" title=Welcome';
+    expect(redactExportDiagnostic(ordinary)).toBe(ordinary);
+  });
+
+  it("redacts HAR credential pairs inside serialized JSON string values", () => {
+    // guard:allow-secret-literal — Placeholder bearer text reproduces the reported redaction leak.
+    const input = String.raw`{"body":"{\"name\":\"Authorization\",\"value\":\"Bearer fake-token\"}"}`;
+    expect(redactExportDiagnostic(input)).toBe(
+      String.raw`{"body":"{\"name\":\"Authorization\",\"value\":\"[redacted]\"}"}`,
+    );
+  });
+
+  it("fails closed when serialized HAR JSON exceeds the string nesting bound", () => {
+    // guard:allow-secret-literal — Placeholder bearer text verifies fail-closed nested JSON handling.
+    let nested = `{"name":"Authorization","value":"Bearer FAKE_NESTED_HAR_TOKEN"}`;
+    for (let depth = 0; depth < 10; depth += 1) {
+      nested = JSON.stringify(nested);
+    }
+
+    expect(
+      redactExportDiagnostic(JSON.stringify({ body: nested })),
+    ).not.toContain("FAKE_NESTED_HAR_TOKEN");
+  });
+
   it("fails closed on malformed or over-nested HAR credential records", () => {
     const malformed = '{"name":"Authorization","value":"FAKE_AUTH",}';
     const overNested =
