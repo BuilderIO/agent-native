@@ -16,6 +16,7 @@ import type {
   TextPart,
 } from "@agent-native/agentkit/protocol";
 import {
+  agentEventSequenceEnd,
   isAgentKitProtocolVersion,
   parseAgentQueuedMessage,
   parseAgentRunOptions,
@@ -1487,14 +1488,60 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
 }
 
 const MAX_PERSISTED_EVENT_OMISSION_RANGE = 256;
+const MAX_PERSISTED_EVENT_PREFIX_RANGES = 4_096;
 
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   const persisted: AgentEvent[] = [];
+  const seenRuns = new Set<string>();
+  let generatedPrefixRanges = 0;
   const lastOmissionByRun = new Map<
     string,
     { index: number; firstSequence: number; lastSequence: number }
   >();
   for (const event of events) {
+    if (!seenRuns.has(event.runId)) {
+      seenRuns.add(event.runId);
+      const prefixRangeCount = Math.ceil(
+        Math.max(0, event.sequence - 1) / MAX_PERSISTED_EVENT_OMISSION_RANGE,
+      );
+      if (
+        generatedPrefixRanges + prefixRangeCount >
+        MAX_PERSISTED_EVENT_PREFIX_RANGES
+      ) {
+        throw new RangeError(
+          "Agent chat retained history prefix exceeds the supported omission range count.",
+        );
+      }
+      generatedPrefixRanges += prefixRangeCount;
+      for (
+        let firstSequence = 1;
+        firstSequence < event.sequence;
+        firstSequence += MAX_PERSISTED_EVENT_OMISSION_RANGE
+      ) {
+        const lastSequence = Math.min(
+          event.sequence - 1,
+          firstSequence + MAX_PERSISTED_EVENT_OMISSION_RANGE - 1,
+        );
+        const index = persisted.length;
+        persisted.push({
+          id: `persisted-history-prefix:${event.runId}:${firstSequence}`,
+          threadId: event.threadId,
+          runId: event.runId,
+          sequence: firstSequence,
+          occurredAt: event.occurredAt,
+          type: "x-agent-native.persisted-event-omission-range",
+          payload: {
+            lastSequence,
+            sourceType: "runtime_history_prefix",
+          },
+        } as AgentEvent);
+        lastOmissionByRun.set(event.runId, {
+          index,
+          firstSequence,
+          lastSequence,
+        });
+      }
+    }
     const base = () => {
       return {
         id: event.id,
@@ -1526,6 +1573,19 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
     if (event.type === "run.status") {
       persisted.push({ ...base(), type: event.type, status: event.status });
       lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      event.type === "x-agent-native.persisted-event-omission" ||
+      event.type === "x-agent-native.persisted-event-omission-range"
+    ) {
+      const index = persisted.length;
+      persisted.push(event);
+      lastOmissionByRun.set(event.runId, {
+        index,
+        firstSequence: event.sequence,
+        lastSequence: agentEventSequenceEnd(event),
+      });
       continue;
     }
     if (
@@ -1585,7 +1645,11 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
         persisted[previous.index] = {
           ...omitted,
           type: "x-agent-native.persisted-event-omission-range",
-          payload: { lastSequence: event.sequence },
+          payload: {
+            ...(asRecord("payload" in omitted ? omitted.payload : undefined) ??
+              {}),
+            lastSequence: event.sequence,
+          },
         } as AgentEvent;
       }
       previous.lastSequence = event.sequence;
@@ -3054,10 +3118,11 @@ export function createAgentNativeAgentKitTransport(
     const eventRunLastSequenceById = new Map<string, number>();
     for (const event of input.snapshot.events ?? []) {
       const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
-      if (Number.isSafeInteger(event.sequence)) {
+      const sequenceEnd = agentEventSequenceEnd(event);
+      if (Number.isSafeInteger(sequenceEnd)) {
         eventRunLastSequenceById.set(
           event.runId,
-          Math.max(previousSequence, event.sequence),
+          Math.max(previousSequence, sequenceEnd),
         );
       }
     }

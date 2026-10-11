@@ -1607,6 +1607,7 @@ export interface MergeThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+  trustedRunSequenceResetIds?: ReadonlySet<string>;
 }
 
 export interface ThreadAnnotationSnapshotConflict {
@@ -2336,6 +2337,7 @@ function hasContiguousAgentKitEventCoverage(
   events: unknown[],
   runId: string,
   lastSequence: number,
+  firstSequence = 1,
 ): boolean {
   const runEvents = events
     .filter(
@@ -2361,7 +2363,7 @@ function hasContiguousAgentKitEventCoverage(
       }
       return left.order - right.order;
     });
-  let nextSequence = 1;
+  let nextSequence = firstSequence;
   for (const event of runEvents) {
     if (
       event.sequence !== nextSequence ||
@@ -2560,26 +2562,20 @@ function mergeAgentKitEventRunSnapshots(input: {
       committedSequence,
     );
     if (!input.batches.has(runId) && lastSequence > knownSequence) {
-      const sequences = (
-        Array.isArray(input.incomingEvents) ? input.incomingEvents : []
-      )
-        .filter(
-          (event) =>
-            event?.runId === runId &&
-            typeof event.sequence === "number" &&
-            Number.isSafeInteger(event.sequence) &&
-            event.sequence > 0,
-        )
-        .map((event) => event.sequence as number)
-        .sort((left, right) => left - right);
-      const completeFromStart =
-        sequences.length === lastSequence &&
-        sequences.every((sequence, index) => sequence === index + 1);
-      const nextChunk =
-        sequences.length === lastSequence - knownSequence &&
-        sequences.every(
-          (sequence, index) => sequence === knownSequence + index + 1,
-        );
+      const incomingEvents = Array.isArray(input.incomingEvents)
+        ? input.incomingEvents
+        : [];
+      const completeFromStart = hasContiguousAgentKitEventCoverage(
+        incomingEvents,
+        runId,
+        lastSequence,
+      );
+      const nextChunk = hasContiguousAgentKitEventCoverage(
+        incomingEvents,
+        runId,
+        lastSequence,
+        knownSequence + 1,
+      );
       if (!completeFromStart && !nextChunk) {
         throw new TypeError(
           "Agent chat event snapshot did not contain a contiguous sequence range.",
@@ -2921,6 +2917,7 @@ function mergeAgentKitHistory(
   incoming: unknown,
   promptRunIds: Map<string, string>,
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void,
+  trustedRunSequenceResetIds: ReadonlySet<string> = new Set(),
 ): unknown {
   const incomingIsRecord =
     incoming !== null &&
@@ -3149,9 +3146,16 @@ function mergeAgentKitHistory(
       runs.set(run.id, run);
       continue;
     }
-    const richer = newer.lastSequence >= run.lastSequence ? newer : run;
-    const statusRun =
-      run.lastSequence > newer.lastSequence
+    const trustedReset =
+      trustedRunSequenceResetIds.has(run.id) && newer.lastSequence === 0;
+    const richer = trustedReset
+      ? newer
+      : newer.lastSequence >= run.lastSequence
+        ? newer
+        : run;
+    const statusRun = trustedReset
+      ? newer
+      : run.lastSequence > newer.lastSequence
         ? run
         : newer.lastSequence > run.lastSequence
           ? newer
@@ -3163,7 +3167,9 @@ function mergeAgentKitHistory(
       ...newer,
       ...richer,
       metadata: { ...run.metadata, ...newer.metadata, ...richer.metadata },
-      lastSequence: Math.max(newer.lastSequence, run.lastSequence),
+      lastSequence: trustedReset
+        ? newer.lastSequence
+        : Math.max(newer.lastSequence, run.lastSequence),
       status: statusRun.status,
     });
   }
@@ -3423,6 +3429,7 @@ export function mergeThreadDataForClientSave(
       merged.agentKit,
       promptRunIds,
       options.onAnnotationConflict,
+      options.trustedRunSequenceResetIds,
     );
   }
 

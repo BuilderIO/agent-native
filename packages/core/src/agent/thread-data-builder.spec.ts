@@ -143,6 +143,30 @@ describe("foldThreadRunSuggestions protocol sequence", () => {
     expect(contaminated.agentKit.runs[0].lastSequence).toBe(0);
   });
 
+  it("keeps a trusted cursor reset when run snapshots merge", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        events: [],
+      },
+    };
+    const folded = foldThreadRunSuggestions(existing, {
+      runId: "run-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+      status: "completed",
+      events: [{ seq: 80, event: { type: "done" } }],
+    });
+
+    const merged = mergeThreadDataForClientSave(existing, folded, {
+      trustedRunSequenceResetIds: new Set(["run-1"]),
+    });
+
+    expect(merged.agentKit.runs[0].lastSequence).toBe(0);
+  });
+
   it("uses persisted protocol sequence metadata instead of runtime sequences", () => {
     const fold = (agentKit: any) =>
       foldThreadRunSuggestions(
@@ -2718,6 +2742,51 @@ describe("mergeThreadDataForClientSave", () => {
     ).toThrow(
       "Agent chat event snapshot did not contain a contiguous sequence range.",
     );
+  });
+
+  it("counts omission-range spans when validating an unbatched cursor", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 1 },
+        events: [
+          {
+            id: "run-started",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        events: [
+          {
+            id: "omitted-range",
+            runId: "run-1",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 257 },
+          },
+          {
+            id: "run-completed",
+            runId: "run-1",
+            sequence: 258,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(merged.agentKit.events.map((event: any) => event.sequence)).toEqual([
+      1, 2, 258,
+    ]);
+    expect(merged.agentKit.events[1].payload.lastSequence).toBe(257);
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 258 });
   });
 
   it("repairs a legacy event snapshot at the same sequence", () => {

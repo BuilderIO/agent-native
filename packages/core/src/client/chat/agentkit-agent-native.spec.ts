@@ -3029,7 +3029,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(saved.agentKit.suggestions).toEqual([]);
   });
 
-  it("compacts consecutive high-volume omitted events into bounded ranges", async () => {
+  it("compacts high-volume omissions and marks a retained history prefix", async () => {
     const threadId = "thread-compact-events";
     let threadData = JSON.stringify({ messages: [], agentKit: {} });
     const fetcher = vi.fn(
@@ -3059,12 +3059,14 @@ describe("createAgentNativeAgentKitTransport", () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: fetcher as typeof fetch,
     });
+    const firstRetainedSequence = 5_000;
+    const lastSequence = firstRetainedSequence + 1_001;
     const events: AgentEvent[] = [
       {
         id: "compact-run-start",
         threadId,
         runId: "run-compact",
-        sequence: 1,
+        sequence: firstRetainedSequence,
         occurredAt: "2026-09-26T00:00:01.000Z",
         type: "run.started",
       },
@@ -3072,7 +3074,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         id: `compact-delta-${index + 1}`,
         threadId,
         runId: "run-compact",
-        sequence: index + 2,
+        sequence: firstRetainedSequence + index + 1,
         occurredAt: "2026-09-26T00:00:02.000Z",
         type: "message.delta" as const,
         messageId: "assistant-stream",
@@ -3082,7 +3084,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         id: "compact-run-completed",
         threadId,
         runId: "run-compact",
-        sequence: 1_002,
+        sequence: lastSequence,
         occurredAt: "2026-09-26T00:00:03.000Z",
         type: "run.completed",
       },
@@ -3103,7 +3105,7 @@ describe("createAgentNativeAgentKitTransport", () => {
             id: "run-compact",
             threadId,
             status: "completed",
-            lastSequence: 1_002,
+            lastSequence,
           },
         ],
       },
@@ -3114,25 +3116,44 @@ describe("createAgentNativeAgentKitTransport", () => {
       (event: AgentEvent) =>
         event.type === "x-agent-native.persisted-event-omission-range",
     );
-    expect(omissionRanges).toHaveLength(4);
+    expect(omissionRanges).toHaveLength(24);
     expect(
-      omissionRanges.map((event: any) => [
-        event.sequence,
-        event.payload.lastSequence,
+      omissionRanges
+        .slice(0, 20)
+        .map((event: any) => [event.sequence, event.payload.lastSequence]),
+    ).toEqual(
+      Array.from({ length: 20 }, (_, index) => [
+        index * 256 + 1,
+        Math.min((index + 1) * 256, firstRetainedSequence - 1),
       ]),
+    );
+    expect(
+      omissionRanges
+        .slice(20)
+        .map((event: any) => [event.sequence, event.payload.lastSequence]),
     ).toEqual([
-      [2, 257],
-      [258, 513],
-      [514, 769],
-      [770, 1_001],
+      [5_001, 5_256],
+      [5_257, 5_512],
+      [5_513, 5_768],
+      [5_769, 6_000],
     ]);
-    expect(saved.agentKit.events).toHaveLength(6);
+    expect(saved.agentKit.events).toHaveLength(26);
     expect(saved.agentKit._eventRunWatermarks).toEqual({
-      "run-compact": 1_002,
+      "run-compact": lastSequence,
     });
 
     const restored = await transport.getThreadSnapshot?.({ threadId });
     expect(restored?.events).toEqual(saved.agentKit.events);
+    if (!restored) throw new Error("Expected the persisted snapshot to reload");
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: restored,
+    });
+
+    expect(JSON.parse(threadData).agentKit.events).toEqual(
+      saved.agentKit.events,
+    );
   });
 
   it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {
