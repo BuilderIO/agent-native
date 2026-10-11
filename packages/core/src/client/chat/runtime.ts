@@ -4463,6 +4463,18 @@ export function createAgentNativeChatRuntime(
       const latestUserMessage = [...(turn.messages ?? [])]
         .reverse()
         .find((message) => message.role === "user");
+      const latestUserMessageIndex = latestUserMessage
+        ? (turn.messages?.lastIndexOf(latestUserMessage) ?? -1)
+        : -1;
+      const messagesForHistory =
+        latestUserMessage && latestUserMessageIndex >= 0
+          ? turn.messages!.filter(
+              (message, index) =>
+                message.role !== "user" ||
+                message.id !== latestUserMessage.id ||
+                index === latestUserMessageIndex,
+            )
+          : turn.messages;
       const prompt =
         turn.prompt ??
         latestUserMessage?.content
@@ -4500,7 +4512,7 @@ export function createAgentNativeChatRuntime(
         turn.attachments,
       );
       const history = nativeHistoryFromMessages(
-        turn.messages,
+        messagesForHistory,
         prompt,
         currentAttachmentUrlSet,
       );
@@ -4510,7 +4522,7 @@ export function createAgentNativeChatRuntime(
           ? pendingApprovalRuntimeMessages(continuationMessageState)
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
-        turn.messages,
+        messagesForHistory,
         prompt,
         currentAttachmentUrlSet,
         pendingApprovalHistory.messages,

@@ -1494,6 +1494,61 @@ describe("createAgentNativeChatRuntime", () => {
     expect(history).not.toContain("CURRENT_IMAGE_BYTES");
   });
 
+  it("omits repeated current message IDs without dropping a prior identical ask", async () => {
+    const prompt = "Repeat this question exactly.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-repeated-current-message-id",
+      fetch: fetchMock as typeof fetch,
+    });
+    const currentMessage: AgentChatRuntimeMessage = {
+      id: "user-current",
+      role: "user",
+      content: [{ type: "text", text: prompt }],
+    };
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        {
+          id: "assistant-prior",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-prior",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+          ],
+        },
+        currentMessage,
+        { ...currentMessage },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).toEqual([{ role: "user", content: prompt }]);
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ text?: string; type?: string }>;
+    }>;
+    expect(
+      structuredHistory
+        .flatMap((message) => message.content)
+        .filter((part) => part.type === "text" && part.text === prompt),
+    ).toHaveLength(1);
+  });
+
   it("keeps structured history after an assistant tail longer than its scan limit", async () => {
     const prompt = "Use the final review summary.";
     const assistantTail = Array.from({ length: 1_025 }, (_, index) => ({
