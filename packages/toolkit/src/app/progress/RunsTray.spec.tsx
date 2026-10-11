@@ -199,7 +199,7 @@ describe("RunsTray polling", () => {
     ).toBeTruthy();
   });
 
-  it("opens a run chat from its title when no callback is supplied", async () => {
+  it("opens standard and unparented Agent Teams runs from their titles", async () => {
     const now = new Date().toISOString();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("/agent-chat/runs/list")) {
@@ -219,6 +219,19 @@ describe("RunsTray polling", () => {
               updatedAt: now,
               sourceRecord: { threadId: "thread-slides-import" },
             },
+            {
+              id: "team-run-2",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Slides outline task",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "team-chat-thread" },
+            },
           ],
         });
       }
@@ -232,13 +245,13 @@ describe("RunsTray polling", () => {
     await act(async () => {
       await vi.waitFor(() =>
         expect(
-          document.querySelector('[aria-label="1 active run"]'),
+          document.querySelector('[aria-label="2 active runs"]'),
         ).toBeTruthy(),
       );
     });
 
     const trigger = document.querySelector(
-      '[aria-label="1 active run"]',
+      '[aria-label="2 active runs"]',
     ) as HTMLButtonElement | null;
     await act(async () => {
       trigger?.dispatchEvent(
@@ -265,6 +278,22 @@ describe("RunsTray polling", () => {
 
       expect(openedThreads[0]).toMatchObject({
         threadId: "thread-slides-import",
+      });
+
+      const teamTitleButton = Array.from(
+        document.querySelectorAll("button"),
+      ).find((button) => button.textContent?.includes("Slides outline task"));
+      expect(teamTitleButton).toBeTruthy();
+
+      await act(async () => {
+        teamTitleButton?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+        await vi.waitFor(() => expect(openedThreads).toHaveLength(2));
+      });
+
+      expect(openedThreads[1]).toMatchObject({
+        threadId: "team-chat-thread",
       });
     } finally {
       window.removeEventListener("agent-chat:open-thread", onOpen);
