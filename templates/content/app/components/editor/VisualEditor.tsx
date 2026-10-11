@@ -4337,9 +4337,9 @@ export function VisualEditor({
         specs.push(existing);
         continue;
       }
-      resolvedQuotesRef.current.set(thread.threadId, quote);
       const range = resolveAnchor(view.state.doc, anchor);
       if (range) {
+        resolvedQuotesRef.current.set(thread.threadId, quote);
         specs.push({
           threadId: thread.threadId,
           from: range.from,

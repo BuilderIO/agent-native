@@ -196,6 +196,24 @@ describe("VisualEditor comment highlights", () => {
     expect(start()).toBe(1);
   });
 
+  it("moves a highlight to its new quote once the quote arrives in the page", async () => {
+    await act(async () => render("Alpha beta.", [thread("t1", "Alpha")]));
+    await settle();
+    expect(highlighted("t1")).toBe("Alpha");
+
+    // The thread's new quote reaches the editor before the text it quotes.
+    await act(async () => render("Alpha beta.", [thread("t1", "gamma")]));
+    await settle();
+    expect(highlighted("t1")).toBe("Alpha");
+
+    await act(async () =>
+      render("Alpha beta gamma.", [thread("t1", "gamma")], "arrived"),
+    );
+    await settle();
+
+    expect(highlighted("t1")).toBe("gamma");
+  });
+
   it("shows highlights again when comment indicators are restored", async () => {
     await act(async () => render(BEFORE, [thread("t1")]));
     await settle();
