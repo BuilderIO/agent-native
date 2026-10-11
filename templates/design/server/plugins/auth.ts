@@ -1,6 +1,9 @@
+import { registerAuthPublicPaths } from "@agent-native/core/server";
 import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
+
+registerAuthPublicPaths(["/api/session-replay-storyboard"]);
 
 export default createToolkitAuthPlugin({
   workspaceAppAudience: "internal",
@@ -19,8 +22,6 @@ export default createToolkitAuthPlugin({
   },
   publicPaths: [
     "/api/design-handoff",
-    // The handler verifies its signed A2A caller and checks design access.
-    "/api/session-replay-storyboard",
     // Agent-readable context link: fetched with no session cookie, so the
     // gate must not 401 before the handler verifies its scoped token.
     DESIGN_AGENT_CONTEXT_ENDPOINT,
