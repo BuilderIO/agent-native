@@ -26,7 +26,7 @@ Un journal d'audit échantillonné ou expédié à un fournisseur d'analyses est
 Lorsqu'une action de **mutation** est exécutée (tout ce qui n'est pas un `GET` en lecture seule), le framework ajoute une ligne à `agent_audit_log` avec :
 
 - **Action** — le nom de l'action (par exemple `delete-recording`).
-- **Acteur** – `agent`, `human` ou `system`, plus l'adresse e-mail de l'acteur – renseignée **même pour les appels d'agent**, vous obtenez donc "l'agent, agissant pour alice@,…".
+- **Acteur** – `agent`, `human` ou `system`, plus l'adresse e-mail de l'acteur – renseignée **même pour les appels d'agent**, vous obtenez donc "l'agent, agissant pour alice@,…". L'adresse e-mail est le compte sous lequel l'appel s'exécute. Elle n'indique pas qui a approuvé l'appel.
 - **Exécuter la liaison** — l'agent `threadId` / `turnId` qui a déclenché l'appel (un appel d'outil), donc une mutation remonte au tour exact de l'agent.
 - **Surface** – `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. Ce sont des protocoles d'agents : un appel via `mcp`, `webmcp` ou `a2a` est donc enregistré comme `agent` agissant pour vous, et non comme vous.
 - **Résultat** — `success`, `error` (avec un code d'erreur) ou `denied` (bloqué par une porte d'approbation humaine).
@@ -34,6 +34,17 @@ Lorsqu'une action de **mutation** est exécutée (tout ce qui n'est pas un `GET`
 - **Cible et propriétaire** : ressource modifiée par l'action, utilisée pour [scope reads](#reading).
 
 Aucun câblage nécessaire : la capture s'accroche de manière transparente au `defineAction`. Les actions en lecture seule sont ignorés et quelques frameworks haute fréquence actions (synchronisation de l'état de l'application, radiographie contextuelle, navigation) sont ignorés par défaut pour éviter d'inonder le journal.
+
+### Principal, client et approbation {#attribution}
+
+Un appel d'agent enregistre quatre faits distincts. Aucun ne remplace un autre.
+
+- **Principal** : `actor_email` est le compte sous lequel l'appel s'exécute. Ce n'est pas la preuve que quelqu'un a approuvé l'appel.
+- **Source d'exécution** : `caller` nomme la surface. Un appel via `mcp`, `webmcp` ou `a2a` a `actor_kind` `agent`, ou `service` pour les principaux de service de l'organisation.
+- **Client** : pour un appel `mcp`, `reported_client_name` et `reported_client_version` contiennent ce que le client a envoyé comme `clientInfo` MCP. Le client choisit ces valeurs, traitez-les donc comme déclaratives. `oauth_client_id` est le client OAuth auquel l'identifiant a été délivré, quand il y en a un. Un client qui n'envoie `clientInfo` qu'à la connexion laisse le nom et la version vides.
+- **Approbation** : `approval` n'est renseigné que lorsqu'une personne a approuvé cet appel précis avant son exécution. `agent-chat` signifie que l'approbation vient du chat de l'agent. `mcp-elicitation` signifie que le client MCP a accepté la demande d'approbation. Le serveur ne vérifie pas qui a répondu à cette demande dans le client. Un appel qui n'avait pas besoin d'approbation laisse `approval` vide.
+
+Les anciennes lignes ne sont jamais réécrites. Les lignes écrites avant l'existence de ces colonnes ont des champs client et approbation vides, même si l'appel a été approuvé. Les anciennes lignes `mcp`, `webmcp` et `a2a` stockées comme `human` ou `system` sont relues comme `agent`, pour que les filtres et les exports les traitent comme les lignes récentes.
 
 ## Déclarer ce qu'une action a modifié {#target}
 
@@ -105,7 +116,7 @@ L'agent peut appeler la même action : demandez-lui "Qu'avez-vous changé sur c
 
 Renvoie `{ events, hasMore, nextCursor }`. Enregistrez chaque `nextCursor` renvoyé et renvoyez-le à l'extraction suivante, même lorsque `events` est vide ; les pages vides font avancer le watermark ready. Le curseur relit une fenêtre de chevauchement de cinq minutes pour détecter les écritures tardives ; dédupliquez donc les extractions avec `metadata.uid`. Les cinq dernières secondes sont retenues afin qu'une ligne écrite tardivement ne soit jamais ignorée.
 
-Chaque événement fait correspondre `status` à `status_id` (`success` donne Success ; `error` et `denied` donnent Failure, `denied` ajoutant `action_id` Denied et un `severity_id` plus élevé), l'acteur à `actor.user` (un principal de service est de type Service), l'action à `api.operation` et la cible à `resources`. Les identifiants d'exécution, de tâche, de tâche parente, de fil, de tour et d'application n'ont pas de champ OCSF ; ils se trouvent sous `unmapped`. Les arguments d'appel ne sont jamais exportés.
+Chaque événement fait correspondre `status` à `status_id` (`success` donne Success ; `error` et `denied` donnent Failure, `denied` ajoutant `action_id` Denied et un `severity_id` plus élevé), l'acteur à `actor.user` (un principal de service est de type Service), l'action à `api.operation` et la cible à `resources`. Les identifiants d'exécution, de tâche, de tâche parente, de fil, de tour et d'application n'ont pas de champ OCSF ; ils se trouvent sous `unmapped`. Le nom et la version déclarés du client, l'identifiant du client OAuth et l'approbation se trouvent aussi sous `unmapped`. Le nom du client n'est pas placé dans un champ `actor`, car un SIEM le lirait comme vérifié. Les arguments d'appel ne sont jamais exportés.
 
 ## Confidentialité et conservation {#privacy}
 

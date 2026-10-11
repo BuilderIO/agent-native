@@ -26,7 +26,7 @@ An audit log that's sampled or shipped off to an analytics provider is useless �
 When any **mutating** action runs (anything that isn't a read-only `GET`), the framework appends one row to `agent_audit_log` with:
 
 - **Action** — the action name (e.g. `delete-recording`).
-- **Actor** — `agent`, `human`, or `system`, plus the actor's email — populated **even for agent calls**, so you get "the agent, acting for alice@, …".
+- **Actor** — `agent`, `human`, or `system`, plus the actor's email — populated **even for agent calls**, so you get "the agent, acting for alice@, …". The email is the account the call runs as. It does not say who approved the call.
 - **Run linkage** — the agent `threadId` / `turnId` that triggered the call (a tool call), so a mutation traces back to the exact agent turn.
 - **Surface** — `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp`, or `a2a`. These are agent protocols, so a call over `mcp`, `webmcp`, or `a2a` records as `agent` acting for you, not as you.
 - **Outcome** — `success`, `error` (with an error code), or `denied` (blocked by a human-approval gate).
@@ -107,10 +107,45 @@ No wiring needed — the capture hooks into `defineAction` transparently. Read-o
           nullable: false,
           note: "private | org | public — default 'private'.",
         },
+        {
+          name: "reported_client_name",
+          type: "text",
+          nullable: true,
+          note: "The name an MCP client sent as its clientInfo. Self-reported.",
+        },
+        {
+          name: "reported_client_version",
+          type: "text",
+          nullable: true,
+          note: "The version an MCP client sent as its clientInfo. Self-reported.",
+        },
+        {
+          name: "oauth_client_id",
+          type: "text",
+          nullable: true,
+          note: "The OAuth client the MCP credential was issued to.",
+        },
+        {
+          name: "approval",
+          type: "enum",
+          nullable: true,
+          note: "agent-chat | mcp-elicitation. Set only when a person approved this exact call.",
+        },
       ],
     },
   ]}
 />
+
+### Principal, client, and approval {#attribution}
+
+An agent call records four separate facts. None of them stands in for another.
+
+- **Principal**: `actor_email` is the account the call runs as. It is not evidence that anyone approved the call.
+- **Execution source**: `caller` names the surface. A call over `mcp`, `webmcp`, or `a2a` has `actor_kind` `agent`, or `service` for the organization's own service principals.
+- **Client**: for an `mcp` call, `reported_client_name` and `reported_client_version` hold what the client sent as its MCP `clientInfo`. The client chooses these values, so treat them as self-reported. `oauth_client_id` is the OAuth client the credential was issued to, when it has one. A client that sends `clientInfo` only when it connects leaves the name and version empty.
+- **Approval**: `approval` is set only when a person approved that exact call before it ran. `agent-chat` means the approval came from the agent chat. `mcp-elicitation` means the MCP client accepted the approval prompt. The server does not verify who answered that prompt inside the client. A call that needed no approval leaves `approval` empty.
+
+Older rows are never rewritten. Rows written before these columns existed have empty client and approval fields, even when the call was approved. Older `mcp`, `webmcp`, and `a2a` rows stored as `human` or `system` are read back as `agent`, so filters and exports treat them like newer rows.
 
 ## Declare what an action changed {#target}
 
@@ -182,7 +217,7 @@ The agent can call the same action — ask it "what did you change on this recor
 
 It returns `{ events, hasMore, nextCursor }`. Store every returned `nextCursor` and send it back on the next pull, including when `events` is empty; empty pages advance the ready watermark. The cursor replays a five-minute overlap to catch late commits, so deduplicate across pulls by `metadata.uid`. The newest five seconds are held back so a late-written row is never skipped.
 
-Each event maps `status` to `status_id` (`success` is Success; `error` and `denied` are Failure, with `denied` also `action_id` Denied and a higher `severity_id`), the actor to `actor.user` (a service principal is type Service), the action to `api.operation`, and the target to `resources`. Run, task, parent-task, thread, turn, and app ids have no OCSF field, so they sit under `unmapped`. Call arguments are never exported.
+Each event maps `status` to `status_id` (`success` is Success; `error` and `denied` are Failure, with `denied` also `action_id` Denied and a higher `severity_id`), the actor to `actor.user` (a service principal is type Service), the action to `api.operation`, and the target to `resources`. Run, task, parent-task, thread, turn, and app ids have no OCSF field, so they sit under `unmapped`. The reported client name and version, the OAuth client id, and the approval also sit under `unmapped`. The client name is not put in an `actor` field because a SIEM would read it as verified. Call arguments are never exported.
 
 ## Privacy & retention {#privacy}
 

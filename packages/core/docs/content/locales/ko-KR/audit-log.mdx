@@ -26,7 +26,7 @@ description: "누가, 언제, 어떤 앱 데이터를 변경했는지, 본인인
 When any **mutating** action runs (anything that isn't a read-only `GET`), the framework appends one row to `agent_audit_log` with:
 
 - **Action** — the action name (e.g. `delete-recording`).
-- **배우** — `agent`, `human` 또는 `system` 및 배우의 이메일 — **에이전트 통화의 경우에도** 채워지므로 "에이전트, alice@을 대신하여 작업, …"이 표시됩니다.
+- **배우** — `agent`, `human` 또는 `system` 및 배우의 이메일 — **에이전트 통화의 경우에도** 채워지므로 "에이전트, alice@을 대신하여 작업, …"이 표시됩니다. 이 이메일은 호출이 실행되는 계정입니다. 누가 호출을 승인했는지는 알려 주지 않습니다.
 - **연결 실행** — 호출(도구 호출)을 트리거한 에이전트 `threadId` / `turnId`이므로 돌연변이는 정확한 에이전트 차례까지 추적됩니다.
 - **Surface** — `tool` (에이전트), `frontend`, `http`, `cli`, `mcp`, `webmcp` 또는 `a2a`. 이들은 에이전트용 프로토콜이므로 `mcp`, `webmcp`, `a2a`를 통한 호출은 사용자 본인이 아니라 사용자를 대신하는 `agent`로 기록됩니다.
 - **Outcome** — `success`, `error` (with an error code), or `denied` (blocked by a human-approval gate).
@@ -34,6 +34,17 @@ When any **mutating** action runs (anything that isn't a read-only `GET`), the f
 - **대상 및 소유자** — [scope reads](#reading)에 사용되는 작업이 변경된 리소스입니다.
 
 No wiring needed — the capture hooks into `defineAction` transparently. 로그 범람을 방지하기 위해 읽기 전용 actions를 건너뛰고 몇 가지 빈도가 높은 프레임워크 actions(앱 상태 동기화, context-xray, 탐색)를 기본적으로 건너뜁니다.
+
+### 주체, 클라이언트, 승인 {#attribution}
+
+에이전트 호출은 네 가지 사실을 따로 기록합니다. 어느 것도 다른 사실을 대신하지 않습니다.
+
+- **주체**: `actor_email`은 호출이 실행되는 계정입니다. 누군가 호출을 승인했다는 증거가 아닙니다.
+- **실행 출처**: `caller`는 호출 표면을 나타냅니다. `mcp`, `webmcp`, `a2a`를 통한 호출의 `actor_kind`는 `agent`이며, 조직 자체의 서비스 프린시펄이면 `service`입니다.
+- **클라이언트**: `mcp` 호출에서 `reported_client_name`과 `reported_client_version`에는 클라이언트가 MCP `clientInfo`로 보낸 값이 들어갑니다. 이 값은 클라이언트가 정하므로 자기 신고 값으로 취급하세요. `oauth_client_id`는 자격 증명이 발급된 OAuth 클라이언트이며, 있는 경우에만 기록됩니다. 연결할 때만 `clientInfo`를 보내는 클라이언트는 이름과 버전이 비어 있습니다.
+- **승인**: `approval`은 사람이 바로 그 호출을 실행 전에 승인한 경우에만 설정됩니다. `agent-chat`은 에이전트 채팅에서 승인했다는 뜻입니다. `mcp-elicitation`은 MCP 클라이언트가 승인 요청을 수락했다는 뜻입니다. 서버는 클라이언트 안에서 누가 그 요청에 응답했는지 확인하지 않습니다. 승인이 필요 없었던 호출은 `approval`이 비어 있습니다.
+
+오래된 행은 다시 쓰지 않습니다. 이 열이 생기기 전에 기록된 행은 호출이 승인되었더라도 클라이언트와 승인 필드가 비어 있습니다. `human` 또는 `system`으로 저장된 오래된 `mcp`, `webmcp`, `a2a` 행은 `agent`로 읽히므로 필터와 내보내기에서 새 행과 똑같이 다뤄집니다.
 
 ## 행동이 무엇을 변경했는지 선언 {#target}
 
@@ -105,7 +116,7 @@ const { data } = useActionQuery("list-audit-events", {
 
 `{ events, hasMore, nextCursor }`를 반환합니다. `events`가 비어 있어도 매번 반환된 `nextCursor`를 저장해 다음 가져오기에 보내세요. 빈 페이지도 ready watermark를 진행합니다. 늦게 기록된 항목을 찾기 위해 커서는 5분 중첩 구간을 다시 읽으므로 가져오기 사이에 `metadata.uid`로 중복을 제거하세요. 늦게 기록된 행을 건너뛰지 않도록 가장 최근 5초의 이벤트는 제외됩니다.
 
-각 이벤트는 `status`를 `status_id`로(`success`는 Success, `error`와 `denied`는 Failure이며 `denied`는 `action_id` Denied와 더 높은 `severity_id`도 가짐), 행위자를 `actor.user`로(서비스 프린시펄은 Service 유형), 액션을 `api.operation`으로, 대상을 `resources`로 매핑합니다. 실행, 작업, 상위 작업, 스레드, 턴, 앱 ID에는 해당하는 OCSF 필드가 없어 `unmapped` 아래에 들어갑니다. 호출 인자는 내보내지 않습니다.
+각 이벤트는 `status`를 `status_id`로(`success`는 Success, `error`와 `denied`는 Failure이며 `denied`는 `action_id` Denied와 더 높은 `severity_id`도 가짐), 행위자를 `actor.user`로(서비스 프린시펄은 Service 유형), 액션을 `api.operation`으로, 대상을 `resources`로 매핑합니다. 실행, 작업, 상위 작업, 스레드, 턴, 앱 ID에는 해당하는 OCSF 필드가 없어 `unmapped` 아래에 들어갑니다. 클라이언트가 보고한 이름과 버전, OAuth 클라이언트 ID, 승인도 `unmapped` 아래에 들어갑니다. SIEM이 검증된 값으로 읽을 수 있으므로 클라이언트 이름은 `actor` 필드에 넣지 않습니다. 호출 인자는 내보내지 않습니다.
 
 ## 개인정보 보호 및 보존 {#privacy}
 

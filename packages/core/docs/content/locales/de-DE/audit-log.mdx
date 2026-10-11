@@ -26,7 +26,7 @@ Ein Prüfprotokoll, das als Stichprobe erstellt oder an einen Analyseanbieter ge
 Wenn eine **mutierende** Aktion ausgeführt wird (alles, was kein schreibgeschütztes `GET` ist), hängt das Framework eine Zeile an `agent_audit_log` an mit:
 
 - **Aktion** – der Aktionsname (z. B. `delete-recording`).
-- **Akteur** – `agent`, `human` oder `system`, plus die E-Mail-Adresse des Schauspielers – wird **auch für Agentenanrufe** ausgefüllt, sodass Sie „der Agent, der für Alice@ handelt, …“ erhalten.
+- **Akteur** – `agent`, `human` oder `system`, plus die E-Mail-Adresse des Schauspielers – wird **auch für Agentenanrufe** ausgefüllt, sodass Sie „der Agent, der für Alice@ handelt, …“ erhalten. Die E-Mail-Adresse ist das Konto, unter dem der Aufruf läuft. Sie sagt nicht, wer den Aufruf genehmigt hat.
 - **Run linkage** – der Agent `threadId` / `turnId`, der den Aufruf (einen Tool-Aufruf) ausgelöst hat, sodass eine Mutation auf den genauen Agentenzug zurückgeführt werden kann.
 - **Oberfläche** – `tool` (Agent), `frontend`, `http`, `cli`, `mcp`, `webmcp` oder `a2a`. Das sind Agentenprotokolle, daher wird ein Aufruf über `mcp`, `webmcp` oder `a2a` als `agent` in Ihrem Auftrag erfasst, nicht als Sie selbst.
 - **Ergebnis** – `success`, `error` (mit einem Fehlercode) oder `denied` (durch ein menschliches Genehmigungstor blockiert).
@@ -34,6 +34,17 @@ Wenn eine **mutierende** Aktion ausgeführt wird (alles, was kein schreibgeschü
 - **Ziel und Eigentümer** – die Ressource, die durch die Aktion geändert wurde, verwendet für [scope reads](#reading).
 
 Keine Verkabelung erforderlich – die Erfassung wird transparent in `defineAction` eingehängt. Schreibgeschützte actions werden übersprungen, und einige Hochfrequenz-Frameworks actions (App-State-Synchronisierung, Kontext-Röntgen, Navigation) werden standardmäßig übersprungen, um eine Überflutung des Protokolls zu vermeiden.
+
+### Prinzipal, Client und Genehmigung {#attribution}
+
+Ein Agentenaufruf zeichnet vier getrennte Fakten auf. Keiner davon ersetzt einen anderen.
+
+- **Prinzipal**: `actor_email` ist das Konto, unter dem der Aufruf läuft. Es ist kein Nachweis, dass jemand den Aufruf genehmigt hat.
+- **Ausführungsquelle**: `caller` nennt die Oberfläche. Ein Aufruf über `mcp`, `webmcp` oder `a2a` hat `actor_kind` `agent`, oder `service` für die eigenen Dienst-Principals der Organisation.
+- **Client**: Bei einem `mcp`-Aufruf enthalten `reported_client_name` und `reported_client_version`, was der Client als MCP-`clientInfo` gesendet hat. Der Client wählt diese Werte selbst, behandeln Sie sie also als Selbstauskunft. `oauth_client_id` ist der OAuth-Client, für den die Anmeldeinformation ausgestellt wurde, sofern es einen gibt. Ein Client, der `clientInfo` nur beim Verbinden sendet, lässt Name und Version leer.
+- **Genehmigung**: `approval` wird nur gesetzt, wenn eine Person genau diesen Aufruf genehmigt hat, bevor er lief. `agent-chat` bedeutet, dass die Genehmigung aus dem Agenten-Chat kam. `mcp-elicitation` bedeutet, dass der MCP-Client die Genehmigungsabfrage akzeptiert hat. Der Server prüft nicht, wer diese Abfrage im Client beantwortet hat. Ein Aufruf, der keine Genehmigung brauchte, lässt `approval` leer.
+
+Ältere Zeilen werden nie umgeschrieben. Zeilen, die vor diesen Spalten geschrieben wurden, haben leere Client- und Genehmigungsfelder, auch wenn der Aufruf genehmigt wurde. Ältere `mcp`-, `webmcp`- und `a2a`-Zeilen, die als `human` oder `system` gespeichert sind, werden als `agent` gelesen, damit Filter und Exporte sie wie neuere Zeilen behandeln.
 
 ## Erklären Sie, was eine Aktion geändert hat {#target}
 
@@ -105,7 +116,7 @@ Der Agent kann dieselbe Aktion aufrufen – fragen Sie ihn: „Was haben Sie an 
 
 Es gibt `{ events, hasMore, nextCursor }` zurück. Speichern Sie jeden zurückgegebenen `nextCursor` und senden Sie ihn beim nächsten Abruf zurück, auch wenn `events` leer ist; leere Seiten rücken den Ready-Watermark vor. Der Cursor liest ein fünfminütiges Überlappungsfenster erneut ein, um verspätete Commits zu erfassen; deduplizieren Sie daher anhand von `metadata.uid`. Die neuesten fünf Sekunden werden zurückgehalten, damit eine verspätet geschriebene Zeile nie übersprungen wird.
 
-Jedes Ereignis bildet `status` auf `status_id` ab (`success` ist Success; `error` und `denied` sind Failure, wobei `denied` zusätzlich `action_id` Denied und eine höhere `severity_id` erhält), den Akteur auf `actor.user` (ein Dienst-Principal hat den Typ Service), die Aktion auf `api.operation` und das Ziel auf `resources`. Lauf-, Aufgaben-, übergeordnete Aufgaben-, Thread-, Turn- und App-IDs haben kein OCSF-Feld und stehen unter `unmapped`. Aufrufargumente werden nie exportiert.
+Jedes Ereignis bildet `status` auf `status_id` ab (`success` ist Success; `error` und `denied` sind Failure, wobei `denied` zusätzlich `action_id` Denied und eine höhere `severity_id` erhält), den Akteur auf `actor.user` (ein Dienst-Principal hat den Typ Service), die Aktion auf `api.operation` und das Ziel auf `resources`. Lauf-, Aufgaben-, übergeordnete Aufgaben-, Thread-, Turn- und App-IDs haben kein OCSF-Feld und stehen unter `unmapped`. Der gemeldete Client-Name und die Version, die OAuth-Client-ID und die Genehmigung stehen ebenfalls unter `unmapped`. Der Client-Name steht in keinem `actor`-Feld, weil ein SIEM ihn dort als verifiziert lesen würde. Aufrufargumente werden nie exportiert.
 
 ## Datenschutz und Aufbewahrung {#privacy}
 

@@ -77,6 +77,15 @@ minimum useful addition is `target: () => ({ type, id })`.
   `a2a`) records as `agent` with the user's email, like the app's own agent
   (`tool`); `caller` names the protocol. Classify a new agent-only caller in
   `AGENT_AUDIT_CALLERS`, not in a per-action `audit` config.
+- **Client and approval** — keep four facts in four fields. `actorEmail` is
+  the principal the call runs as, never evidence of approval. `caller` and
+  `actorKind` are the execution source. `reportedClientName` /
+  `reportedClientVersion` are the MCP client's self-reported `clientInfo`, and
+  `oauthClientId` is the OAuth client its credential was issued to.
+  `approval` (`agent-chat` or `mcp-elicitation`) is set only when a person
+  approved that exact call; the recorder reads it from
+  `ctx.approvedToolCallKey` or `ctx.mcpApproved`. Never infer approval from
+  the email, and never backfill these fields on older rows.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 
