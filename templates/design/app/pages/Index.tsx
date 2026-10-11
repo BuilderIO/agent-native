@@ -1313,6 +1313,7 @@ export default function Index() {
                   : t("home.describeBuild")
               }
               onSkip={handleSkipToEditor}
+              showInlineSkip={!selectedTemplate}
               skipLabel={
                 selectedTemplate
                   ? t("templatesPage.useTemplate")

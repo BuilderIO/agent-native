@@ -202,6 +202,16 @@ describe("resolvePickTargetAtPoint", () => {
     expect(target?.info.sourceId).toBe("section");
   });
 
+  it("selects the deepest layer when the selection modifier is held", () => {
+    const target = resolvePickTargetAtPoint({
+      candidates: [WRAPPER, SECTION, HEADING, SPAN],
+      screenId: "screen-1",
+      point: { x: 60, y: 60 },
+      deep: true,
+    });
+    expect(target?.info.sourceId).toBe("span");
+  });
+
   it("returns null when only the wrapper sits under the pointer", () => {
     expect(
       resolvePickTargetAtPoint({

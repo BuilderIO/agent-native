@@ -3936,16 +3936,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var yAttribute = offsetStyle.getAttribute(
         "data-agent-native-content-offset-y"
       );
-      var x = xAttribute === null ? NaN : Number(xAttribute);
-      var y = yAttribute === null ? NaN : Number(yAttribute);
+      var x = xAttribute === null || !xAttribute.trim() ? NaN : Number(xAttribute);
+      var y = yAttribute === null || !yAttribute.trim() ? NaN : Number(yAttribute);
       var cssOffset = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : (function() {
         var match = /translate:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px\\s+(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px/.exec(
           offsetStyle.textContent || ""
         );
-        return match ? { x: Number(match[1]), y: Number(match[2]) } : { x: 0, y: 0 };
+        return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
       })();
+      if (!cssOffset) return null;
       var body = document.body;
-      if (!body) return cssOffset;
+      if (!body) return null;
       var ancestorTransform = { a: 1, b: 0, c: 0, d: 1 };
       for (var ancestor = body; ancestor; ancestor = ancestor.parentElement) {
         ancestorTransform = multiplyPositionTransforms(
@@ -3953,10 +3954,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           ancestorTransform
         );
       }
-      return {
+      var offset = {
         x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
         y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y
       };
+      return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
     }
     function boardContentOffsetRootForElement(el, offset) {
       if (offset.x === 0 && offset.y === 0) return null;
@@ -4347,6 +4349,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           frame.remove();
           var fallbackHost = document.createElement("div");
+          fallbackHost.setAttribute(
+            "data-agent-native-edit-overlay",
+            "portable-style-probe"
+          );
           fallbackHost.setAttribute(
             "style",
             "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;"
@@ -5700,16 +5706,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (designParent && parentStyles) {
         positionComputedStylesCache.set(designParent, parentStyles);
       }
-      var positionCoordinateContext = positionContainingBlockForElement(
+      var positionCoordinateContext = positionRenderOffset ? positionContainingBlockForElement(
         el,
         positionComputedStylesCache,
         positionRenderOffset
-      );
-      var positionReferenceRect = positionReferenceRectForElement(
+      ) : null;
+      var positionReferenceRect = positionCoordinateContext ? positionReferenceRectForElement(
         el,
         cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
         positionRenderOffset
-      );
+      ) : void 0;
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -5802,9 +5808,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         styleSnapshotCaptureFailed: portableStyleSnapshot === null ? true : void 0,
         boundingRect,
         parentBoundingRect: designParent ? rectInfoForElement(designParent) : void 0,
-        positionReferenceRect,
-        positionContainingBlockOrigin: positionCoordinateContext.origin,
-        positionContainingBlockTransform: positionCoordinateContext.transform,
+        ...positionCoordinateContext && positionReferenceRect ? {
+          positionReferenceRect,
+          positionContainingBlockOrigin: positionCoordinateContext.origin,
+          positionContainingBlockTransform: positionCoordinateContext.transform
+        } : {},
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
@@ -14232,8 +14240,70 @@ export const editorChromeBridgeScript: string = `"use strict";
       var size = dropContentSize(container);
       return size.width >= sourceWidth && size.height >= sourceHeight;
     }
+    function dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight) {
+      var html = container;
+      var elementStyle = html.style;
+      var computedStyle = window.getComputedStyle(container);
+      if (computedStyle.display !== "flex" && computedStyle.display !== "inline-flex") {
+        return false;
+      }
+      var currentSize = dropContentSize(container);
+      var rect = container.getBoundingClientRect();
+      function computedPixels(value) {
+        var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(String(value || ""));
+        var parsed = match?.[1] ? Number(match[1]) : Number.NaN;
+        return Number.isFinite(parsed) ? parsed : void 0;
+      }
+      function contentCapacity(cssPixels, axis) {
+        var scale = axis === "width" ? html.offsetWidth ? rect.width / html.offsetWidth : 1 : html.offsetHeight ? rect.height / html.offsetHeight : 1;
+        var insets = 0;
+        if (computedStyle.boxSizing === "border-box") {
+          var paddingBefore = computedPixels(
+            axis === "width" ? computedStyle.paddingLeft : computedStyle.paddingTop
+          );
+          var paddingAfter = computedPixels(
+            axis === "width" ? computedStyle.paddingRight : computedStyle.paddingBottom
+          );
+          var borderBefore = computedPixels(
+            axis === "width" ? computedStyle.borderLeftWidth : computedStyle.borderTopWidth
+          );
+          var borderAfter = computedPixels(
+            axis === "width" ? computedStyle.borderRightWidth : computedStyle.borderBottomWidth
+          );
+          if (paddingBefore === void 0 || paddingAfter === void 0 || borderBefore === void 0 || borderAfter === void 0) {
+            return -1;
+          }
+          insets = paddingBefore + paddingAfter + borderBefore + borderAfter;
+        }
+        return Math.max(0, cssPixels - insets) * scale;
+      }
+      function axisCanGrow(axis, required, current) {
+        if (current >= required) return true;
+        var authored = String(elementStyle[axis] || "").trim().toLowerCase();
+        var fitContentArgument = /^fit-content\\((.+)\\)$/.exec(authored);
+        if (authored !== "fit-content" && authored !== "max-content" && !fitContentArgument) {
+          return false;
+        }
+        if (fitContentArgument) {
+          var fitLimit = computedPixels(fitContentArgument[1]);
+          if (fitLimit === void 0 || contentCapacity(fitLimit, axis) < required) {
+            return false;
+          }
+        }
+        var maxProperty = axis === "width" ? "maxWidth" : "maxHeight";
+        var maximum = String(computedStyle[maxProperty] || "none").trim().toLowerCase();
+        if (!maximum || maximum === "none") return true;
+        var maxPixels = computedPixels(maximum);
+        return Boolean(
+          maxPixels !== void 0 && contentCapacity(maxPixels, axis) >= required
+        );
+      }
+      return axisCanGrow("width", sourceWidth, currentSize.width) && axisCanGrow("height", sourceHeight, currentSize.height);
+    }
     function dropFitsAutoLayoutFallback(container, sourceWidth, sourceHeight) {
-      if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
+      if (dropFitsContainer(container, sourceWidth, sourceHeight) || dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight)) {
+        return true;
+      }
       var style = window.getComputedStyle(container);
       var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
       if (!singleLineFlex) return false;
@@ -18182,6 +18252,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var crect = container.getBoundingClientRect();
         if (dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height
+        ) || dropCanGrowContentSizedAutoLayout(
           container,
           dragElStartRect.width,
           dragElStartRect.height

@@ -95,9 +95,12 @@ function readRenderedLayerInfo(
       const computed = preview.getComputedStyle(element);
       const parent = element.parentElement;
       const renderOffset = positionCoordinateRenderOffsetForWindow(preview);
-      const positionCoordinateContext = renderOffset
-        ? measurePositionCoordinateContext(element, preview, renderOffset)
-        : undefined;
+      if (!renderOffset) continue;
+      const positionCoordinateContext = measurePositionCoordinateContext(
+        element,
+        preview,
+        renderOffset,
+      );
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
         : undefined;

@@ -1408,6 +1408,67 @@ describe("PromptPopover skip affordance", () => {
     expect(skipButton).toBeTruthy();
   });
 
+  it("does not duplicate the blank start as a corner action", async () => {
+    await renderPopover({
+      offerStartChoice: true,
+      onSkip: vi.fn(),
+      skipLabel: "Start from scratch",
+    });
+
+    expect(container!.querySelector("[data-start-with-ai]")).toBeTruthy();
+    expect(container!.querySelector("[data-start-blank-canvas]")).toBeTruthy();
+    expect(
+      Array.from(container!.querySelectorAll("button")).some(
+        (button) => button.textContent === "Start from scratch",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the inline skip hidden unless the caller opts in", async () => {
+    await renderPopover({
+      inline: true,
+      onSkip: vi.fn(),
+      skipLabel: "Skip prompt",
+    });
+
+    expect(
+      Array.from(container!.querySelectorAll("button")).some(
+        (button) => button.textContent === "Skip prompt",
+      ),
+    ).toBe(false);
+  });
+
+  it("shows an opted-in inline skip and keeps the composer mounted", async () => {
+    const onSkip = vi.fn().mockResolvedValue(false);
+    const onOpenChange = vi.fn();
+    await renderPopover({
+      inline: true,
+      showInlineSkip: true,
+      onSkip,
+      onOpenChange,
+      skipLabel: "Skip prompt",
+    });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (button) => button.textContent === "Skip prompt",
+    );
+
+    expect(skipButton).toBeTruthy();
+    expect(
+      container!.querySelector('[data-testid="prompt-composer"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      skipButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(
+      container!.querySelector('[data-testid="prompt-composer"]'),
+    ).toBeTruthy();
+  });
+
   it("fires once and closes once after an async skip succeeds", async () => {
     let resolveSkip: (() => void) | undefined;
     const onSkip = vi.fn(

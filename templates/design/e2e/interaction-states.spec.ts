@@ -36,9 +36,42 @@ const STATE_OPACITY: Record<Exclude<StateValue, "default">, number> = {
 };
 
 let designId = "";
+type ClickProbeWindow = Window & { __interactionButtonClicks?: number };
 
 test.describe("element interaction states", () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript((nodeId) => {
+      if (window === window.parent) {
+        const host = window as ClickProbeWindow;
+        host.__interactionButtonClicks = 0;
+        window.addEventListener("message", (event) => {
+          if (
+            event.data?.type === "design-test-interaction-button-click" &&
+            event.data.nodeId === nodeId &&
+            event.source !== window
+          ) {
+            host.__interactionButtonClicks =
+              (host.__interactionButtonClicks ?? 0) + 1;
+          }
+        });
+        return;
+      }
+      window.addEventListener(
+        "click",
+        (event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest(`[data-agent-native-node-id="${nodeId}"]`)
+          ) {
+            window.parent.postMessage(
+              { type: "design-test-interaction-button-click", nodeId },
+              "*",
+            );
+          }
+        },
+        true,
+      );
+    }, NODE_ID);
     designId = await createFixtureDesign(
       page,
       `E2E interaction states ${Date.now()}`,
@@ -225,13 +258,11 @@ test.describe("element interaction states", () => {
           (node as HTMLElement).style.pointerEvents = "none";
         }
       });
+    await page.evaluate(() => {
+      (window as ClickProbeWindow).__interactionButtonClicks = 0;
+    });
     await button.evaluate((element) => {
-      const target = element as HTMLButtonElement & { __clickCount?: number };
-      target.__clickCount = 0;
-      target.addEventListener("click", () => {
-        target.__clickCount = (target.__clickCount ?? 0) + 1;
-      });
-      target.blur();
+      (element as HTMLButtonElement).blur();
     });
 
     const box = await button.boundingBox();
@@ -273,18 +304,16 @@ test.describe("element interaction states", () => {
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.64, 2);
     await page.mouse.up();
     await expect.poll(() => pseudoMatches(button, ":active")).toBe(false);
-    await expect.poll(() => clickCount(button)).toBe(2);
+    await expect.poll(() => clickCount(page)).toBe(2);
 
     await button.evaluate((element) => {
       (element as HTMLButtonElement).disabled = true;
     });
     await expect.poll(() => pseudoMatches(button, ":disabled")).toBe(true);
     await expect.poll(() => computedOpacity(button)).toBeCloseTo(0.55, 2);
-    const clicksBeforeDisabledAttempt = await clickCount(button);
+    const clicksBeforeDisabledAttempt = await clickCount(page);
     await page.mouse.click(center.x, center.y);
-    await expect
-      .poll(() => clickCount(button))
-      .toBe(clicksBeforeDisabledAttempt);
+    await expect.poll(() => clickCount(page)).toBe(clicksBeforeDisabledAttempt);
 
     await button.evaluate((element) => {
       const target = element as HTMLButtonElement;
@@ -379,11 +408,9 @@ async function pseudoMatches(button: Locator, selector: string) {
   return button.evaluate((element, value) => element.matches(value), selector);
 }
 
-async function clickCount(button: Locator): Promise<number> {
-  return button.evaluate(
-    (element) =>
-      (element as HTMLButtonElement & { __clickCount?: number }).__clickCount ??
-      0,
+async function clickCount(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as ClickProbeWindow).__interactionButtonClicks ?? 0,
   );
 }
 

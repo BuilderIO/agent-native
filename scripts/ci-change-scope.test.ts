@@ -995,9 +995,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 4 &&
-      jobTimeout >= stepTimeout + 5,
-    `focused Design tests need the exact four-minute cap and five minutes for setup (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 6 &&
+      jobTimeout >= stepTimeout + 3,
+    `focused Design tests need the exact six-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
@@ -1672,6 +1672,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
         specPath === "e2e/interaction-responsive-music-app.spec.ts",
       readFile: () =>
         'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
+        'test("create a responsive music-app tablet Screen from the desktop shell", async () => {});\n' +
         'test("keeps the short music-app regression", async () => {});',
     },
   );
@@ -1712,6 +1713,7 @@ test("fails closed if the long music-app title moves away from its routed spec",
     "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
   const sourceWithLongAndShortCases =
     'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
+    'test("create a responsive music-app tablet Screen from the desktop shell", async () => {});\n' +
     'test("keeps the short music-app regression", async () => {});';
 
   assert.deepEqual(
@@ -1743,8 +1745,35 @@ test("fails closed if the long music-app title moves away from its routed spec",
         readFile: () =>
           'test("keeps the short music-app regression", async () => {});',
       }),
-    /long music-app workflow test is missing from e2e\/interaction-responsive-music-app\.spec\.ts/,
-    "the dedicated old-path route must fail when the long test was removed from that file",
+    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: create a responsive music-app desktop shell under a Screen root, create a responsive music-app tablet Screen from the desktop shell/,
+    "the dedicated old-path route must fail when both long tests were removed from that file",
+  );
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
+        isFile: () => true,
+        readFile: () =>
+          'test("create a responsive music-app desktop shell under a Screen root", async () => {});',
+      }),
+    /long music-app workflow tests are missing from e2e\/interaction-responsive-music-app\.spec\.ts: create a responsive music-app tablet Screen from the desktop shell/,
+    "the canonical route must fail if the tablet test is missing",
+  );
+});
+
+test("fails closed if the tablet music-app test moves away from its routed spec", () => {
+  const renamedPath =
+    "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([renamedPath]), {
+        isFile: () => true,
+        readFile: () =>
+          'test("create a responsive music-app tablet Screen from the desktop shell", async () => {});',
+      }),
+    /long music-app workflow test must remain in e2e\/interaction-responsive-music-app\.spec\.ts/,
+    "a renamed file containing the tablet test must fail instead of silently skipping it",
   );
 });
 

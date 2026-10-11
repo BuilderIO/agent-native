@@ -987,7 +987,7 @@ test("footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its word
   await expect(navbarOnCanvas).toBeVisible({ timeout: 10_000 });
   const navbarBoxForSelect = (await navbarOnCanvas.boundingBox())!;
   await page.mouse.click(
-    navbarBoxForSelect.x + 10,
+    navbarBoxForSelect.x + navbarBoxForSelect.width / 2,
     navbarBoxForSelect.y + navbarBoxForSelect.height / 2,
   );
   await page.waitForTimeout(300);

@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const DESIGN_E2E_PREFIX = "templates/design/e2e/";
 const LONG_MUSIC_APP_SPEC = "e2e/interaction-responsive-music-app.spec.ts";
-const LONG_MUSIC_APP_TEST_TITLE =
-  "create a responsive music-app desktop shell under a Screen root";
+const LONG_MUSIC_APP_TEST_TITLES = [
+  "create a responsive music-app desktop shell under a Screen root",
+  "create a responsive music-app tablet Screen from the desktop shell",
+] as const;
 
 type IsFile = (specPath: string) => boolean;
 type ReadFile = (specPath: string) => string;
@@ -35,13 +37,14 @@ function isRunnableSpec(specPath: string): boolean {
   }
 }
 
-function declaresLongMusicAppTest(source: string): boolean {
-  const escapedTitle = LONG_MUSIC_APP_TEST_TITLE.replace(
-    /[.*+?^${}()|[\]\\]/gu,
-    "\\$&",
-  );
-  const quotedTitle = `(?:"${escapedTitle}"|'${escapedTitle}'|\`${escapedTitle}\`)`;
-  return new RegExp(`\\btest\\s*\\(\\s*${quotedTitle}\\s*,`, "u").test(source);
+function declaresLongMusicAppTests(source: string): string[] {
+  return LONG_MUSIC_APP_TEST_TITLES.filter((title) => {
+    const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const quotedTitle = `(?:"${escapedTitle}"|'${escapedTitle}'|\`${escapedTitle}\`)`;
+    return new RegExp(`\\btest\\s*\\(\\s*${quotedTitle}\\s*,`, "u").test(
+      source,
+    );
+  });
 }
 
 export function resolveDesignE2ESpecs(
@@ -86,15 +89,21 @@ export function resolveDesignE2ESpecs(
       continue;
     }
 
-    const declaresLongMusicApp = declaresLongMusicAppTest(readFile(specPath));
-    if (declaresLongMusicApp && specPath !== LONG_MUSIC_APP_SPEC) {
+    const longMusicAppTests = declaresLongMusicAppTests(readFile(specPath));
+    if (longMusicAppTests.length > 0 && specPath !== LONG_MUSIC_APP_SPEC) {
       throw new Error(
         `The long music-app workflow test must remain in ${LONG_MUSIC_APP_SPEC}`,
       );
     }
-    if (specPath === LONG_MUSIC_APP_SPEC && !declaresLongMusicApp) {
+    if (
+      specPath === LONG_MUSIC_APP_SPEC &&
+      longMusicAppTests.length !== LONG_MUSIC_APP_TEST_TITLES.length
+    ) {
+      const missingTests = LONG_MUSIC_APP_TEST_TITLES.filter(
+        (title) => !longMusicAppTests.includes(title),
+      );
       throw new Error(
-        `The long music-app workflow test is missing from ${LONG_MUSIC_APP_SPEC}`,
+        `The long music-app workflow tests are missing from ${LONG_MUSIC_APP_SPEC}: ${missingTests.join(", ")}`,
       );
     }
 

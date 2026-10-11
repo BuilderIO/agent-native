@@ -8,7 +8,7 @@ import {
 
 import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
-import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
+import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
@@ -57,7 +57,15 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fileId = file.id;
   if (!fileId) throw new Error("create-file did not return an id");
   await postAction(request, "index-components", { designId });
-  await seedComponentVariantMetadata(designId);
+  const metadataResponse = await request.post(
+    `${baseURLForActions}/api/e2e/component-variant-metadata`,
+    { data: { designId } },
+  );
+  if (!metadataResponse.ok()) {
+    throw new Error(
+      `component metadata fixture failed: ${metadataResponse.status()} ${await metadataResponse.text()}`,
+    );
+  }
 });
 
 test.afterAll(async ({ request }) => {

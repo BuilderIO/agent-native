@@ -11,6 +11,8 @@ import type { DesignFile } from "@/pages/design-editor/types";
 
 import { prepareCanonicalSourceContent } from "../source-publication";
 
+const lastSeededTextByDoc = new WeakMap<Y.Doc, Map<string, string>>();
+
 export interface SeedCollabContentArgs {
   publishCanonicalContent: (
     fileId: string,
@@ -60,6 +62,16 @@ export function runSeedCollabContent({
   const text = ytext.toJSON();
   const pending = pendingLocalFileContentsRef.current.get(fileId);
   const pendingLocalContent = pending?.content;
+  const seededTextByFile = lastSeededTextByDoc.get(ydoc);
+  const lastSeededText = seededTextByFile?.get(fileId);
+  const rememberSeededText = () => {
+    let seededText = lastSeededTextByDoc.get(ydoc);
+    if (!seededText) {
+      seededText = new Map();
+      lastSeededTextByDoc.set(ydoc, seededText);
+    }
+    seededText.set(fileId, text);
+  };
   if (
     pendingLocalContent &&
     pending.identityMigrationSourceContent === undefined
@@ -84,6 +96,22 @@ export function runSeedCollabContent({
       lastLocalContentRef.current = pendingLocalContent;
       latestActiveContentRef.current = pendingLocalContent;
     }
+    if (text === pendingLocalContent) rememberSeededText();
+    return;
+  }
+  const canonicalLiveContent =
+    text.length > 0
+      ? prepareCanonicalSourceContent(text, {
+          fileId,
+          fileType: activeFile?.fileType,
+        }).content
+      : text;
+  if (
+    pending?.identityMigrationSourceContent === undefined &&
+    lastSeededText === text &&
+    collabContentFileIdRef.current === fileId &&
+    canonicalLiveContent !== latestActiveContentRef.current
+  ) {
     return;
   }
   if (text.length > 0) {
@@ -124,12 +152,9 @@ export function runSeedCollabContent({
         setContentRenderRevision((revision) => revision + 1);
       }
 
+      rememberSeededText();
       return;
     }
-    const canonicalLiveContent = prepareCanonicalSourceContent(text, {
-      fileId,
-      fileType: activeFile?.fileType,
-    }).content;
     const hasPendingIdentityMigration =
       pending?.identityMigrationSourceContent !== undefined;
     if (
@@ -158,4 +183,5 @@ export function runSeedCollabContent({
       }
     }
   }
+  rememberSeededText();
 }

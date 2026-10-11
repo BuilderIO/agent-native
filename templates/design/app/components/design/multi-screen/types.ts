@@ -505,6 +505,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   cameraCommand?: {
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     paddingScreenPx?: number;
     nonce: number;
   } | null;

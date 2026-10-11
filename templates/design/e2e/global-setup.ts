@@ -1,13 +1,16 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createDbExec } from "@agent-native/core/db";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
+import {
+  E2E_CHILD_STARTUP_RETRY_MS,
+  E2E_CHILD_STARTUP_TIMEOUT_MS,
+  startE2EChildWithReadiness,
+} from "./startup-child.js";
 
 export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
@@ -24,161 +27,41 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
-const E2E_DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
-const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
-const LOOPBACK_READINESS_RETRY_MS = 50;
-const LOOPBACK_STARTUP_OUTPUT_LIMIT = 2_000;
 const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
-
-function formatLoopbackStartupError(stderr: string): string {
-  const output = stderr.trim();
-  return output
-    ? `\nProvider startup stderr:\n${output}`
-    : "\nProvider startup stderr was empty.";
-}
 
 export async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
   if (!runRoot) throw new Error("loopback provider requires an E2E run root");
   const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
   const instanceId = randomUUID();
-  const child = spawn(
-    process.execPath,
-    [
+  await startE2EChildWithReadiness({
+    serviceName: "loopback provider",
+    command: process.execPath,
+    args: [
       "--import",
       "tsx/esm",
       path.join(import.meta.dirname, "loopback-design-provider.ts"),
     ],
-    {
-      detached: true,
-      stdio: ["ignore", "ignore", "pipe"],
-      env: {
-        ...process.env,
-        E2E_LOOPBACK_PORT: String(port),
-        E2E_LOOPBACK_INSTANCE_ID: instanceId,
-      },
+    env: {
+      ...process.env,
+      E2E_LOOPBACK_PORT: String(port),
+      E2E_LOOPBACK_INSTANCE_ID: instanceId,
     },
-  );
-  let spawnError: Error | undefined;
-  let childExit:
-    | { code: number | null; signal: NodeJS.Signals | null }
-    | undefined;
-  let childClosed = false;
-  let stderrTail = "";
-  let captureStartupStderr = true;
-  child.stderr?.on("data", (chunk: Buffer | string) => {
-    if (captureStartupStderr) {
-      stderrTail = `${stderrTail}${chunk.toString()}`.slice(
-        -LOOPBACK_STARTUP_OUTPUT_LIMIT,
+    pidPath: loopbackPidPath,
+    readinessTarget: `on port ${port}`,
+    checkReady: async () => {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
+        { signal: AbortSignal.timeout(250) },
       );
-    }
-  });
-  child.once("error", (error) => {
-    spawnError = error;
-  });
-  child.once("exit", (code, signal) => {
-    childExit = { code, signal };
-  });
-  child.once("close", () => {
-    childClosed = true;
-  });
-  const processExit = () =>
-    childExit ??
-    (child.exitCode !== null || child.signalCode !== null
-      ? { code: child.exitCode, signal: child.signalCode }
-      : undefined);
-  const waitForChildClose = () =>
-    new Promise<void>((resolve) => {
-      if (childClosed) {
-        resolve();
-        return;
-      }
-      const finish = () => {
-        clearTimeout(timeout);
-        child.off("close", finish);
-        resolve();
-      };
-      const timeout = setTimeout(finish, 250);
-      child.once("close", finish);
-    });
-  if (!child.pid) {
-    await waitForChildClose();
-    throw new Error(
-      `loopback provider spawn failed: ${spawnError?.message ?? "process did not start"}${formatLoopbackStartupError(stderrTail)}`,
-    );
-  }
-  const assertChildRunning = async () => {
-    if (spawnError) {
-      await waitForChildClose();
-      throw new Error(
-        `loopback provider spawn failed: ${spawnError.message}${formatLoopbackStartupError(stderrTail)}`,
-      );
-    }
-    const exit = processExit();
-    if (exit) {
-      await waitForChildClose();
-      throw new Error(
-        `loopback provider exited before readiness (code ${exit.code ?? "none"}, signal ${exit.signal ?? "none"}).${formatLoopbackStartupError(stderrTail)}`,
-      );
-    }
-  };
-  try {
-    await mkdir(path.dirname(loopbackPidPath), { recursive: true });
-    await writeFile(loopbackPidPath, String(child.pid));
-    const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
-    let readinessAttempts = 0;
-    let lastError = "no readiness response completed";
-    while (Date.now() < deadline) {
-      await assertChildRunning();
-      readinessAttempts += 1;
-      try {
-        const response = await fetch(
-          `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
-          { signal: AbortSignal.timeout(250) },
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (response.headers.get(LOOPBACK_INSTANCE_HEADER) !== instanceId) {
+        throw new Error(
+          "readiness response came from a different provider instance",
         );
-        await assertChildRunning();
-        if (
-          response.ok &&
-          response.headers.get(LOOPBACK_INSTANCE_HEADER) === instanceId
-        ) {
-          captureStartupStderr = false;
-          const stderr = child.stderr as
-            | (NodeJS.ReadableStream & { unref?: () => void })
-            | null;
-          if (!stderr || typeof stderr.unref !== "function") {
-            throw new Error(
-              "loopback provider stderr pipe cannot be unreferenced",
-            );
-          }
-          stderr.unref();
-          child.unref();
-          return;
-        }
-        lastError = response.ok
-          ? "readiness response came from a different provider instance"
-          : `HTTP ${response.status}`;
-      } catch (error) {
-        await assertChildRunning();
-        lastError = error instanceof Error ? error.message : String(error);
       }
-      await new Promise((resolve) =>
-        setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
-      );
-    }
-    await assertChildRunning();
-    throw new Error(
-      `loopback provider did not become ready on port ${port} after ${LOOPBACK_READINESS_TIMEOUT_MS} ms (${readinessAttempts} attempts): ${lastError}${formatLoopbackStartupError(stderrTail)}`,
-    );
-  } catch (error) {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill();
-    }
-    await waitForChildClose();
-    await rm(loopbackPidPath, { force: true });
-    throw error;
-  }
+    },
+  });
 }
 
 async function startHttpsAttachmentStorage(
@@ -190,73 +73,41 @@ async function startHttpsAttachmentStorage(
     throw new Error("HTTPS attachment storage requires an E2E run directory.");
   }
   const pidPath = path.join(runRoot, "https-attachment-storage.pid");
-  const child = spawn(
-    process.execPath,
-    [
+  await startE2EChildWithReadiness({
+    serviceName: "HTTPS attachment storage",
+    command: process.execPath,
+    args: [
       "--import",
       "tsx/esm",
       path.join(import.meta.dirname, "https-attachment-storage.ts"),
     ],
-    {
-      detached: true,
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        E2E_ATTACHMENT_STORAGE_HTTPS_PORT: String(httpsPort),
-        E2E_ATTACHMENT_STORAGE_CONTROL_PORT: String(controlPort),
-        E2E_ATTACHMENT_STORAGE_CERT: path.join(
-          runRoot,
-          "attachment-storage-tls",
-          "attachment-storage-ca.pem",
-        ),
-        E2E_ATTACHMENT_STORAGE_KEY: path.join(
-          runRoot,
-          "attachment-storage-tls",
-          "attachment-storage-key.pem",
-        ),
-      },
+    env: {
+      ...process.env,
+      E2E_ATTACHMENT_STORAGE_HTTPS_PORT: String(httpsPort),
+      E2E_ATTACHMENT_STORAGE_CONTROL_PORT: String(controlPort),
+      E2E_ATTACHMENT_STORAGE_CERT: path.join(
+        runRoot,
+        "attachment-storage-tls",
+        "attachment-storage-ca.pem",
+      ),
+      E2E_ATTACHMENT_STORAGE_KEY: path.join(
+        runRoot,
+        "attachment-storage-tls",
+        "attachment-storage-key.pem",
+      ),
     },
-  );
-  if (!child.pid) throw new Error("HTTPS attachment storage did not start");
-  await mkdir(path.dirname(pidPath), { recursive: true });
-  await writeFile(pidPath, String(child.pid));
-
-  let spawnError: Error | undefined;
-  child.once("error", (error) => {
-    spawnError = error;
-  });
-  const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
-  let lastError: unknown;
-  try {
-    while (Date.now() < deadline) {
-      if (spawnError) throw spawnError;
-      try {
-        const response = await fetch(
-          `http://127.0.0.1:${controlPort}/health` /* e2e-harness-ignore: allocated local stub control port, not an app endpoint */,
-          { signal: AbortSignal.timeout(250) },
-        );
-        if (response.ok) {
-          child.unref();
-          return;
-        }
-        lastError = new Error(`HTTP ${response.status}`);
-      } catch (error) {
-        lastError = error;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
+    pidPath,
+    readinessTarget: `on port ${controlPort}`,
+    readinessTimeoutMs: E2E_CHILD_STARTUP_TIMEOUT_MS,
+    readinessRetryMs: E2E_CHILD_STARTUP_RETRY_MS,
+    checkReady: async () => {
+      const response = await fetch(
+        `http://127.0.0.1:${controlPort}/health` /* e2e-harness-ignore: allocated local stub control port, not an app endpoint */,
+        { signal: AbortSignal.timeout(250) },
       );
-    }
-    const detail =
-      lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(
-      `HTTPS attachment storage did not become ready on port ${controlPort}: ${detail}`,
-    );
-  } catch (error) {
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-    await rm(pidPath, { force: true });
-    throw error;
-  }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    },
+  });
 }
 
 export const FIXTURE_HTML = `<!doctype html>
@@ -332,63 +183,6 @@ async function postAction(
     );
   }
   return res.json();
-}
-
-function componentIndexId(designId: string, name: string): string {
-  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-}
-
-export async function seedComponentVariantMetadata(
-  designId: string,
-): Promise<void> {
-  const client = await createDbExec({ url: E2E_DATABASE_URL });
-  const name = "E2EButton";
-  const now = new Date().toISOString();
-  const variants = JSON.stringify({
-    variant: ["primary", "secondary", "ghost"],
-    size: ["sm", "md", "lg"],
-  });
-  const props = JSON.stringify([
-    { name: "variant", type: "primary | secondary | ghost" },
-    { name: "size", type: "sm | md | lg" },
-  ]);
-
-  try {
-    const result = await client.execute({
-      sql: `
-        UPDATE component_index
-        SET variants = ?, props = ?, file_path = ?, export_name = ?, updated_at = ?
-        WHERE design_id = ? AND name = ?
-      `,
-      args: [variants, props, "index.html", name, now, designId, name],
-    });
-
-    if (result.rowsAffected > 0) return;
-
-    await client.execute({
-      sql: `
-        INSERT INTO component_index (
-          id, design_id, name, file_path, export_name, props, variants,
-          runtime_selectors, owner_email, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        componentIndexId(designId, name),
-        designId,
-        name,
-        "index.html",
-        name,
-        props,
-        variants,
-        JSON.stringify(['[data-agent-native-node-id="e2e-component-button"]']),
-        E2E_EMAIL,
-        now,
-        now,
-      ],
-    });
-  } finally {
-    await client.close?.();
-  }
 }
 
 async function seedMentionMember(

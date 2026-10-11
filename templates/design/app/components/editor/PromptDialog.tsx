@@ -177,6 +177,7 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
+  showInlineSkip?: boolean;
   offerStartChoice?: boolean;
   onSubmit: (
     prompt: string,
@@ -273,6 +274,7 @@ export default function PromptPopover({
   placeholder,
   onSkip,
   skipLabel,
+  showInlineSkip = false,
   offerStartChoice = false,
   onSubmit,
   onBeforeSubmit,
@@ -940,32 +942,35 @@ export default function PromptPopover({
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}
-      {onSkip && skipLabel && !inline && !offerStartChoice && (
-        <div className="flex justify-end border-t border-border px-3.5 py-2">
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            disabled={loading || skipInFlight}
-            onClick={() => {
-              if (loading || skipInFlightRef.current) return;
-              skipInFlightRef.current = true;
-              setSkipInFlight(true);
-              void (async () => {
-                try {
-                  const shouldClose = await onSkip();
-                  if (shouldClose !== false) onOpenChange(false);
-                } catch {
-                  skipInFlightRef.current = false;
-                  setSkipInFlight(false);
-                }
-              })();
-            }}
-          >
-            {skipLabel}
-          </Button>
-        </div>
-      )}
+      {onSkip &&
+        skipLabel &&
+        (!inline || showInlineSkip) &&
+        !offerStartChoice && (
+          <div className="flex justify-end border-t border-border px-3.5 py-2">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              disabled={loading || skipInFlight}
+              onClick={() => {
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    const shouldClose = await onSkip();
+                    if (shouldClose !== false) onOpenChange(false);
+                  } catch {
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
+              }}
+            >
+              {skipLabel}
+            </Button>
+          </div>
+        )}
     </>
   );
 
