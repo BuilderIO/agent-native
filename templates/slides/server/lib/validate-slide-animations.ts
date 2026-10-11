@@ -118,10 +118,11 @@ function tagAndClass(element: Element): string {
 }
 
 /**
- * Whether the target's text change removed one occurrence of its old text among the
- * elements of its tag and class. An edit always does. A move, such as a swap of two
- * distinct texts, keeps every occurrence, so it is refused. Duplicate texts make the
- * edited element ambiguous, but the count still tells an edit from a move.
+ * Whether the target's text change is an edit of the target itself. Duplicate text,
+ * before or after, makes the target ambiguous: another sibling's edit can remove one
+ * occurrence just as an edit to the target does, so the save is refused. With unique
+ * text, an edit leaves the old text nowhere among the elements of its tag and class,
+ * while a move leaves it on another sibling.
  */
 function targetTextAccountedFor(
   prior: Element,
@@ -130,14 +131,18 @@ function targetTextAccountedFor(
   root: Element,
 ): boolean {
   const before = prior.textContent ?? "";
-  if (before === (current.textContent ?? "")) return true;
+  const after = current.textContent ?? "";
+  if (before === after) return true;
   const key = tagAndClass(prior);
-  const occurrences = (scope: Element) =>
+  const occurrences = (scope: Element, text: string) =>
     [scope, ...Array.from(scope.querySelectorAll("*"))].filter(
       (element) =>
-        tagAndClass(element) === key && (element.textContent ?? "") === before,
+        tagAndClass(element) === key && (element.textContent ?? "") === text,
     ).length;
-  return occurrences(root) < occurrences(baselineRoot);
+  if (occurrences(baselineRoot, before) > 1 || occurrences(root, after) > 1) {
+    return false;
+  }
+  return occurrences(root, before) === 0;
 }
 
 /**
