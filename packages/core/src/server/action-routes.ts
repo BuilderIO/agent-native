@@ -44,6 +44,14 @@ import {
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
 import {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "../shared/action-browser-persist.js";
+import {
+  ACTION_CHANGE_MARKER_FAILED,
+  ACTION_CHANGE_MARKER_HEADER,
+} from "../shared/action-change-marker-header.js";
+import {
   LLM_PROVIDER_MISSING_ERROR_CODE,
   LLM_PROVIDER_MISSING_STATUS,
 } from "../shared/action-error-codes.js";
@@ -57,6 +65,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
   allowsMcpDirectoryWidgetReadAction,
+  getMcpDirectoryWidgetReadCapabilityResourceIds,
   getMcpDirectoryWidgetWriteCapabilityGrant,
   isExpiredMcpDirectoryWidgetWriteCapability,
   isMcpDirectoryWidgetCapabilityScope,
@@ -75,7 +84,8 @@ import {
   countCredentialState,
 } from "../tracking/failure-counters.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
-import { notifyActionChange } from "./action-change.js";
+import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
+import { notifyActionChangeForResponse } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
@@ -143,7 +153,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 
-const ROUTE_PREFIX = "/_agent-native/actions";
+const ROUTE_PREFIX = ACTION_ROUTE_PREFIX;
 const WEBMCP_ACTION_ROUTE_PREFIX = "/_agent-native/webmcp/actions";
 const MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES = 32 * 1024;
 const MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES = 1024 * 1024;
@@ -303,7 +313,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -602,6 +612,44 @@ function resolveRequestEmbedSession(
   return resolveEmbedSessionFromRequest(event);
 }
 
+/**
+ * Widget-scoped action routes are auth-public, so the global guard never runs
+ * the workspace app access check for them; the handler runs it for the
+ * session-authenticated callers it resolves itself.
+ */
+async function denyWithoutWorkspaceAppAccess(
+  event: any,
+  name: string,
+  ownerContext: AgentRunOwnerContext,
+  resolvedCaller: ActionRouteResolvedCaller | null,
+  resolveOrgId: MountActionRoutesInternalOptions["resolveOrgId"],
+): Promise<{ status: 403 | 503; error: string } | null> {
+  const workspaceOrgId = resolvedCaller
+    ? resolvedCaller.orgId === null
+      ? undefined
+      : (normalizeOrgId(resolvedCaller.orgId) ??
+        (resolvedCaller.owner && !resolvedCaller.anonymous
+          ? await storedActiveOrgId(resolvedCaller.owner)
+          : undefined))
+    : await resolveAgentRunOrgId({ event, ownerContext, resolveOrgId });
+  const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+    path: `/_agent-native/actions/${name}`,
+    method: getMethod(event),
+    email: ownerContext.owner,
+    orgId: workspaceOrgId,
+  });
+  if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+    return { status: 503, error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+  }
+  if (workspaceAppAccess === false) {
+    return {
+      status: 403,
+      error: "You do not have access to this workspace app.",
+    };
+  }
+  return null;
+}
+
 function mountActionRoutesInternal(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -609,6 +657,10 @@ function mountActionRoutesInternal(
 ) {
   const mounted: string[] = [];
   const app = getH3App(nitroApp);
+
+  if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
+    bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
+  }
 
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.http === false && !options?.includeAgentOnly) continue;
@@ -660,10 +712,19 @@ function mountActionRoutesInternal(
         }
 
         setResponseHeader(event, "Cache-Control", "no-store");
+        // The browser decides what to persist from this header, not from
+        // Cache-Control, which is `no-store` on every action response.
+        if (effectiveMethod === "GET" && entry.persistInBrowser !== false) {
+          setResponseHeader(
+            event,
+            ACTION_BROWSER_PERSIST_HEADER,
+            ACTION_BROWSER_PERSIST_ALLOW,
+          );
+        }
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
+          `X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,${ACTION_BROWSER_PERSIST_HEADER},${ACTION_CHANGE_MARKER_HEADER},${MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER}`,
         );
 
         const isFrontendMutation =
@@ -731,6 +792,14 @@ function mountActionRoutesInternal(
                 orgId: embedSession.orgId,
               })
             : undefined;
+        const directoryWidgetResourceIds =
+          directoryWidgetWriteGrant?.resourceIds ??
+          (directoryWidgetCapability && embedSession
+            ? getMcpDirectoryWidgetReadCapabilityResourceIds(authCapability, {
+                appId: options?.mcpDirectoryWidgetAppId ?? options?.appId ?? "",
+                resourceUri: options?.mcpDirectoryWidgetResourceUri ?? "",
+              })
+            : undefined);
         const directoryWidgetReadRequest =
           isFrontendActionRequest(event) ||
           (options?.caller === "webmcp" &&
@@ -872,10 +941,33 @@ function mountActionRoutesInternal(
               authUserId = ownerContext.authUserId;
               ownerContextResolved = true;
               directoryWidgetReadAuthenticatedFallback = true;
+              const denied = await denyWithoutWorkspaceAppAccess(
+                event,
+                name,
+                ownerContext,
+                null,
+                options?.resolveOrgId,
+              );
+              if (denied) {
+                setResponseStatus(event, denied.status);
+                return { error: denied.error };
+              }
             } catch (error) {
               if (!isAuthResolutionFailure(error)) throw error;
               setResponseStatus(event, 401);
               return { error: "Unauthorized" };
+            }
+          } else {
+            const denied = await denyWithoutWorkspaceAppAccess(
+              event,
+              name,
+              resolvedCaller,
+              resolvedCaller,
+              options?.resolveOrgId,
+            );
+            if (denied) {
+              setResponseStatus(event, denied.status);
+              return { error: denied.error };
             }
           }
         }
@@ -909,33 +1001,16 @@ function mountActionRoutesInternal(
             ownerContextResolved = true;
           }
 
-          const workspaceOrgId = resolvedCaller
-            ? resolvedCaller.orgId === null
-              ? undefined
-              : (normalizeOrgId(resolvedCaller.orgId) ??
-                (resolvedCaller.owner && !resolvedCaller.anonymous
-                  ? await storedActiveOrgId(resolvedCaller.owner)
-                  : undefined))
-            : await resolveAgentRunOrgId({
-                event,
-                ownerContext,
-                resolveOrgId: options?.resolveOrgId,
-              });
-          const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
-            path: `/_agent-native/actions/${name}`,
-            method: getMethod(event),
-            email: ownerContext.owner,
-            orgId: workspaceOrgId,
-          });
-          if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
-            setResponseStatus(event, 503);
-            return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
-          }
-          if (workspaceAppAccess === false) {
-            setResponseStatus(event, 403);
-            return {
-              error: "You do not have access to this workspace app.",
-            };
+          const denied = await denyWithoutWorkspaceAppAccess(
+            event,
+            name,
+            ownerContext,
+            resolvedCaller,
+            options?.resolveOrgId,
+          );
+          if (denied) {
+            setResponseStatus(event, denied.status);
+            return { error: denied.error };
           }
         }
         if (
@@ -1296,6 +1371,12 @@ function mountActionRoutesInternal(
                 ...(directoryWidgetReadAllowed
                   ? { mcpDirectoryWidgetReadOnly: true as const }
                   : {}),
+                ...(directoryWidgetResourceIds &&
+                (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)
+                  ? {
+                      mcpDirectoryWidgetResourceIds: directoryWidgetResourceIds,
+                    }
+                  : {}),
                 ...(directoryWidgetWriteGrant &&
                 (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)
                   ? {
@@ -1413,22 +1494,25 @@ function mountActionRoutesInternal(
                 caller !== "mcp-widget" &&
                 actionCallEmitsChange(entry, params, method === "GET")
               ) {
-                try {
-                  await notifyActionChange({
-                    actionName: name,
-                    ...actionChangeResource(entry, params, result),
-                    ...(userEmail ? { owner: userEmail } : {}),
-                    ...(getHeader(event, "x-request-source")
-                      ? {
-                          requestSource: getHeader(
-                            event,
-                            "x-request-source",
-                          ) as string,
-                        }
-                      : {}),
-                  });
-                } catch {
-                  // ignore
+                const markerLanded = await notifyActionChangeForResponse({
+                  actionName: name,
+                  ...actionChangeResource(entry, params, result),
+                  ...(userEmail ? { owner: userEmail } : {}),
+                  ...(getHeader(event, "x-request-source")
+                    ? {
+                        requestSource: getHeader(
+                          event,
+                          "x-request-source",
+                        ) as string,
+                      }
+                    : {}),
+                });
+                if (!markerLanded) {
+                  setResponseHeader(
+                    event,
+                    ACTION_CHANGE_MARKER_HEADER,
+                    ACTION_CHANGE_MARKER_FAILED,
+                  );
                 }
               }
 

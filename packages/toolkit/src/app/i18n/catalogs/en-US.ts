@@ -36,6 +36,12 @@ const messages = {
   "agent.queued": "queued",
   "agent.completed": "finished",
   "agent.failed": "needs attention",
+  "agent.failureReason.failed": "Couldn't finish",
+  "agent.failureReason.setup": "Needs setup first",
+  "agent.failureReason.auth": "Access was rejected",
+  "agent.failureReason.timeout": "Took too long",
+  "agent.failureReason.budget": "Ran out of time",
+  "agent.failureReason.response": "No usable result",
   "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
@@ -82,6 +88,8 @@ const messages = {
     "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
     "Text to check for in the promoted eval reply",
+  "observability.promoteReviewedPromptLabel":
+    "Manually reviewed prompt (never copied from production)",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
@@ -122,7 +130,7 @@ const messages = {
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
-  "onboarding.builderSignInWithAccount": "Use Builder.io",
+  "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -143,8 +151,17 @@ const messages = {
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
   "onboarding.builderAccountExistsDescription": "Log in to use your account.",
+  "onboarding.builderActivationChecking":
+    "Checking whether new account activation is available.",
+  "onboarding.builderActivationUnavailable":
+    "New account creation isn't enabled for this app. You can still connect an existing account.",
+  "onboarding.builderActivationUnavailableInMode":
+    "New account activation isn't available in this mode. You can still connect an existing account.",
+  "onboarding.builderActivationCheckFailed":
+    "Couldn't check whether this app can create new accounts.",
+
   "onboarding.builderActivationDescription":
-    "Create or connect a Builder.io account in one click to get free credits.",
+    "Create a new account to activate free credits, or continue with an existing account.",
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
@@ -153,11 +170,12 @@ const messages = {
   "onboarding.builderTerms": "Terms of Service",
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
-  "onboarding.builderExistingAccount": "Use Builder.io",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
     "Creating your Builder.io account and activating free credits.",
+  "onboarding.builderCancelPending": "Checking connection status…",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":
@@ -501,10 +519,20 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
-  "composer.fileTooLarge": "This file exceeds the upload size limit.",
+  "composer.fileTooLarge":
+    "This file is larger than the {{size}} MB upload limit.",
   "composer.sessionExpired":
-    "Your session expired. Refresh the page and try again.",
+    "Your session expired. Sign in again, then send your message.",
   "composer.unsupportedFileType": "This file type isn't supported.",
+  "composer.uploadUnavailable":
+    "File uploads are unavailable right now. Try again in a moment.",
+  "composer.uploadOffline":
+    "The upload couldn't reach the server. Check your connection and try again.",
+  "composer.submissionNotReady":
+    "Chat isn't ready to send yet. Wait a moment, then send again.",
+  "composer.submissionScopeChanged":
+    "This chat changed before your message was sent. Send it again.",
+  "composer.attachmentNotSaved": "Not saved with this chat",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
@@ -1147,6 +1175,9 @@ const messages = {
   "recovery.copyFailed": "Copy failed",
   "recovery.continueUnavailable":
     "This run can't be continued anymore. Send a message to keep going.",
+  "errorMessages.invalidAttachmentNamed":
+    "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":
@@ -1218,6 +1249,12 @@ const messages = {
   "selection.attached_other":
     "{{formattedCount}} characters of selection attached",
   "selection.clear": "Clear selection context",
+  "setup.addKeyInSettings": "Add a key in Settings",
+  "setup.addKeyInSettingsDescription": "For your account or organization.",
+  "setup.setEnvironmentVariable": "Set an environment variable",
+  "setup.setEnvironmentVariableDescription":
+    "One provider key for everyone in this app.",
+
   "setup.addOwnKeys": "Add your own keys",
   "setup.builderCredits":
     "Builder.io includes free credits, or use your own API key.",

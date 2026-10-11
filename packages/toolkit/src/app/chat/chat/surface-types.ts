@@ -1,4 +1,7 @@
-import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import type {
+  AgentRequestContext,
+  AgentTransport,
+} from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import type { AgentChatContextItem } from "@agent-native/core/client/agent-chat";
@@ -31,6 +34,11 @@ type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
 export type AgentRecoveryAction = "continue" | "retry";
 
 export type AgentChatSurfaceKind = "app" | "dev-frame" | "desktop";
+
+export type AssistantChatSnapshotSaveSource =
+  | "transport"
+  | "metadata"
+  | "host-fallback";
 
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
@@ -72,10 +80,15 @@ export interface AssistantChatHandle {
    */
   setComposerContextItem(
     item: AgentChatContextItem,
-    options?: { focus?: boolean },
-  ): void;
+    options?: { focus?: boolean; threadScoped?: boolean },
+  ): void | Promise<AgentChatContextItem | void>;
+  /** Whether the composer can hold this item alongside the context it already has. */
+  canStageComposerContextItem(item: AgentChatContextItem): boolean;
   /** Remove a keyed context item from the composer. */
-  removeComposerContextItem(key: string): void;
+  removeComposerContextItem(
+    key: string,
+    options?: { threadScoped?: boolean; stagingId?: string },
+  ): void | Promise<void>;
   /** Clear all staged context items from the composer. */
   clearComposerContextItems(): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
@@ -224,7 +237,7 @@ export interface AssistantChatProps {
   onSwitchToCli?: () => void;
   /** Callback when message count changes */
   onMessageCountChange?: (count: number) => void;
-  /** Callback to save thread data to the server (provided by useChatThreads) */
+  /** Return `false` to keep a failed snapshot retryable; other legacy return values count as success. */
   onSaveThread?: (
     threadId: string,
     data: {
@@ -234,7 +247,11 @@ export interface AssistantChatProps {
       messageCount: number;
       titleSource?: "fallback";
     },
-  ) => void;
+    context?: AgentRequestContext,
+    source?: AssistantChatSnapshotSaveSource,
+  ) => unknown;
+  /** Called after the thread record and its transcript snapshot both save. */
+  onThreadSnapshotPersisted?: (threadId: string, messageCount: number) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */
   onGenerateTitle?: (
     threadId: string,

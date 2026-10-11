@@ -2187,6 +2187,8 @@ const ptBR = {
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",
     loadError: "Não foi possível carregar o instalador desktop mais recente.",
+    mountError:
+      "A página de download para desktop não conseguiu encontrar seu caminho no workspace. Peça ao administrador do workspace para verificar a configuração do caminho do app.",
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",
     unavailable: "Instalador indisponível para esta plataforma",

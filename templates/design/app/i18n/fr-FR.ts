@@ -23,6 +23,8 @@ export default {
       "{label}, exemple source {source}, position dans la galerie {current} sur {total}, capturé le {date}",
     screenshotMissing: "Aucune capture d’écran",
     recordingUnavailable: "indisponible",
+    recordingGap: "Intervalle sans enregistrement",
+    recordingGapDuration: "Intervalle sans enregistrement · {duration}",
     eventTime: "Heure de l’événement (UTC)",
     generationCompletedEvent: "événement generation_completed (UTC)",
     replayObservation: "Observation de la relecture",
@@ -67,6 +69,10 @@ export default {
       "{from} au {to} · cohortes distinctes par application{partial}",
     sessionCount: "{count} sessions",
     otherPaths: "Autres parcours",
+    otherBranchesShown: "Affichage de {shown} branches sur {total}",
+    otherBranchDetailsUnavailable:
+      "Les détails des branches ne figurent pas dans cet arbre de parcours",
+    otherBranchSourceKey: "Clé de l’étape source : {key}",
     htmlLanguage: "fr-FR",
   },
   composer: { menu: { integrations: "Intégrations" } },
@@ -223,7 +229,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Accueil",
     templates: "Modèles",
     designSystems: "Systèmes de design",
     setupDesignSystem: "Configurer le système de design",
@@ -779,13 +785,16 @@ export default {
         "L’accès au code source nécessite une application connectée",
     },
     leftRail: {
-      file: "Fichier",
-      agent: "Agent",
+      layers: "Calques",
+      agent: "Agents",
       assets: "Ressources",
       import: "Importer",
       tools: "Outils",
       tokens: "Jetons",
       label: "Espace de travail Design",
+      account: "Compte",
+      collapse: "Réduire la barre latérale",
+      expand: "Développer la barre latérale",
     },
     breakpointBar: {
       base: "Base",
@@ -877,12 +886,10 @@ export default {
       "{{path}} a été modifié sur le disque depuis son ouverture. Rechargez l'écran et réessayez.",
     applyToSourceError: "Impossible d'enregistrer dans la source : {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importer des jetons",
       importTitle: "Importer des jetons",
       importHint:
@@ -894,6 +901,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importer les jetons collés",
       importedCount: "{{count}} jetons importés",
+      count: "{{count}} jetons",
+      search: "Rechercher des jetons",
+      noMatches: "Aucun jeton correspondant",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1084,7 +1094,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
-      designs: "Designs",
+      allDesigns: "Tous les designs",
       rename: "Renommer",
       duplicate: "Dupliquer",
       versionHistory: "Historique des versions",
@@ -1631,6 +1641,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
+      previewCredentialsUnavailableTitle:
+        "Les identifiants de l’aperçu local ne sont pas disponibles",
+      previewCredentialsUnavailableDescription:
+        "Reconnectez la connexion localhost de cet écran dans l’inspecteur, puis réessayez.",
+      publicPreviewUnavailableDescription:
+        "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce design comme collaborateur pour voir cet écran.",
+      previewCredentialsRetry: "Réessayer les identifiants",
     },
   },
   multiScreenCanvas: {
@@ -1718,9 +1735,11 @@ export default {
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
     imageAttachmentUnavailable:
-      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
+      "Impossible de préparer cette image pour l’envoi. Essayez une image JPG, PNG, GIF ou WebP.",
+    imageAttachmentTooLarge:
+      "Chaque image peut atteindre {{perFile}} Mo, pour un total de {{total}} Mo d’images.",
     attachmentsTooLarge:
-      "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
+      "Les images sont optimisées automatiquement. Le total des images optimisées et des autres fichiers ne peut pas dépasser {{max}} Mo.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
     skipPrompt: "Ignorer le prompt",
     startBlankCanvas: "Commencer avec une toile vierge",
@@ -1883,7 +1902,7 @@ export default {
     browseAllTemplates: "Tout parcourir",
     connectBuilderIo: "Utiliser Builder.io",
     connectingBuilder: "Configuration de Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "Accueil",
     searchPlaceholder: "Rechercher des modèles...",
     newDesign: "Nouveau Design",
     newDesignLower: "Nouveau design",

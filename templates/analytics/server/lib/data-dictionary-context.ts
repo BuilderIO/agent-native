@@ -55,6 +55,20 @@ function renderEntry(
 
   const table = compact(entry.table, 240);
   if (table) lines.push(`  - table: ${table}`);
+  const entryType = compact(entry.entryType, 80);
+  if (entryType) lines.push(`  - entry type: ${entryType}`);
+  const status = compact(entry.status, 80);
+  if (status) lines.push(`  - source status: ${status}`);
+  const sourceKind = compact(entry.sourceKind, 80);
+  if (sourceKind) lines.push(`  - source kind: ${sourceKind}`);
+  const grain = compact(entry.grain, 240);
+  if (grain) lines.push(`  - grain: ${grain}`);
+  const primaryEntity = compact(entry.primaryEntity, 160);
+  if (primaryEntity) lines.push(`  - primary entity: ${primaryEntity}`);
+  const timeDimension = compact(entry.timeDimension, 160);
+  if (timeDimension) lines.push(`  - time dimension: ${timeDimension}`);
+  const semanticModel = compact(entry.semanticModel, 160);
+  if (semanticModel) lines.push(`  - semantic model: ${semanticModel}`);
   const source = compact(entry.source, 240);
   if (source) lines.push(`  - source: ${source}`);
   const action = compact(entry.action, 160);
@@ -106,7 +120,7 @@ function renderOmittedDictionaryEntries(omitted: number): string[] {
   return [
     `${omitted} additional data-dictionary entr${
       omitted === 1 ? "y was" : "ies were"
-    } omitted from prompt context for efficiency. Call \`list-data-dictionary\` with a focused \`search\` or \`department\` filter before writing SQL or making claims that may depend on omitted definitions.`,
+    } omitted from prompt context for efficiency. Call \`find-data\` with the user's focused metric or entity question before writing SQL or making claims that may depend on omitted definitions.`,
     "",
   ];
 }
@@ -193,7 +207,7 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     "<data-dictionary>",
     "Canonical metric/table/column definitions for this organization.",
     "Trust tiers: approved entries are canonical and should be used verbatim; unreviewed human entries are usable but should be verified for high-stakes numbers; AI-generated unapproved entries are suggestions only.",
-    "If the metric you need is not here, call `list-data-dictionary`, inspect configured schemas with `search-bigquery-schema`, or ask the user before guessing.",
+    "If the metric you need is not here, call `find-data`, inspect configured schemas with `search-bigquery-schema`, or ask one business-definition question when the intended meaning remains ambiguous. Never ask the user for internal schema identifiers.",
     "",
   ];
 
@@ -234,7 +248,7 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     lines.push(
       `${aiSuggestions.length} AI-generated unapproved suggestion${
         aiSuggestions.length === 1 ? "" : "s"
-      } available via \`list-data-dictionary\`; do not treat them as canonical without verification.`,
+      } searchable through \`find-data\` and browsable with \`list-data-dictionary\`; do not treat them as canonical without verification.`,
       "",
     );
   }

@@ -2155,6 +2155,8 @@ const hiIN = {
     downloadStarted: "डाउनलोड शुरू हो गया",
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
     loadError: "नवीनतम desktop installer लोड नहीं हो सका।",
+    mountError:
+      "डेस्कटॉप डाउनलोड पेज को वर्कस्पेस में अपना पाथ नहीं मिला। वर्कस्पेस एडमिन से ऐप के माउंट कॉन्फ़िगरेशन की जाँच करने को कहें।",
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
     retry: "फिर कोशिश करें",
     unavailable: "इस platform के लिए installer उपलब्ध नहीं है",

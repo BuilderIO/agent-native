@@ -2205,6 +2205,8 @@ const frFR = {
     downloadStarted: "Téléchargement démarré",
     downloadAgain: "Ça n’a pas fonctionné ? Réessayez le téléchargement",
     loadError: "Impossible de charger le dernier installateur desktop.",
+    mountError:
+      "La page de téléchargement de l’application de bureau n’a pas pu trouver son chemin dans l’espace de travail. Demandez à l’administrateur de vérifier la configuration du chemin de l’application.",
     checkingRelease: "Recherche de la dernière version desktop...",
     retry: "Réessayer",
     unavailable: "Installateur indisponible pour cette plateforme",

@@ -1,5 +1,6 @@
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   ensurePendingTasksTable,
   MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
@@ -67,7 +68,7 @@ function buildCreateSql(): string {
 
 async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = buildCreateSql();
       {
         await ensureTableExists("integration_campaigns", createSql);
@@ -94,6 +95,7 @@ async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

@@ -7,16 +7,20 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+import { z } from "zod";
 
 import { isActionContractError } from "../action.js";
 import { resolveThreadAccess } from "../chat-threads/store.js";
 import { getOrgContext } from "../org/context.js";
 import { isOrgMember } from "../org/membership.js";
 import { getSession } from "../server/auth.js";
-import { readBody } from "../server/h3-helpers.js";
+import { readBody, readBodyWithSizeLimit } from "../server/h3-helpers.js";
 import { getRequestContext } from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
-import { promoteTraceEvalFromStore } from "./actions/promote-trace-eval.js";
+import {
+  promoteTraceEvalFromStore,
+  PROMOTE_TRACE_EVAL_BODY_LIMIT,
+} from "./actions/promote-trace-eval.js";
 import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
   getObservabilityOverview,
@@ -47,6 +51,21 @@ const FEEDBACK_TYPES = [
 
 const MAX_FEEDBACK_VALUE_CHARS = 20_000;
 const MAX_ID_CHARS = 200;
+const tracePromotionRequestSchema = z
+  .object({
+    reviewedPrompt: z.string().optional(),
+    reviewedHistory: z
+      .array(
+        z.object({
+          role: z.enum(["user", "assistant"]),
+          text: z.string(),
+        }),
+      )
+      .optional(),
+    mustContain: z.string().optional(),
+    datasetName: z.string().optional(),
+  })
+  .strict();
 
 // An id past the bound is recorded truncated but never looked up: no real id is
 // that long, and its prefix can name a different row.
@@ -165,17 +184,30 @@ export function createObservabilityHandler() {
       parts[2] === "promote"
     ) {
       const runId = decodeURIComponent(parts[1]);
-      let body: { mustContain?: unknown; datasetName?: unknown };
+      let body: z.infer<typeof tracePromotionRequestSchema>;
       try {
-        const raw = await readBody(event);
+        const raw = await readBodyWithSizeLimit(
+          event,
+          PROMOTE_TRACE_EVAL_BODY_LIMIT,
+        );
         // An unreadable or non-object payload is not the same as an absent
         // one. Absent bodies arrive as `{}` and may promote; garbage must not.
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
           setResponseStatus(event, 400);
           return { error: "Invalid JSON body" };
         }
-        body = raw as { mustContain?: unknown; datasetName?: unknown };
-      } catch {
+        const parsed = tracePromotionRequestSchema.safeParse(raw);
+        if (!parsed.success) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid trace promotion body" };
+        }
+        body = parsed.data;
+      } catch (error) {
+        const statusCode = (error as { statusCode?: unknown })?.statusCode;
+        if (statusCode === 413) {
+          setResponseStatus(event, 413);
+          return { error: "Request body too large" };
+        }
         setResponseStatus(event, 400);
         return { error: "Invalid JSON body" };
       }
@@ -183,6 +215,11 @@ export function createObservabilityHandler() {
         return await promoteTraceEvalFromStore(
           {
             runId,
+            reviewedPrompt:
+              typeof body.reviewedPrompt === "string"
+                ? body.reviewedPrompt
+                : undefined,
+            reviewedHistory: body.reviewedHistory,
             mustContain:
               typeof body.mustContain === "string"
                 ? body.mustContain

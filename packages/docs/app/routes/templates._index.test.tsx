@@ -63,7 +63,7 @@ vi.mock("../components/website-redesign/page-grid", () => ({
   ),
 }));
 
-import TemplatesPage, { loader } from "./templates._index";
+import TemplatesPage, { loader, meta } from "./templates._index";
 
 describe("templates index", () => {
   beforeEach(() => {
@@ -118,5 +118,18 @@ describe("templates index", () => {
 
     expect(screen.getByText("Published app")).toBeTruthy();
     expect(screen.queryByText("Seed app")).toBeNull();
+  });
+
+  it("gives the apps index its own title and description", () => {
+    const descriptors = meta();
+
+    expect(descriptors).toContainEqual({
+      title: "Agent-Native Apps - Open-source agentic apps you own",
+    });
+    expect(descriptors).toContainEqual({
+      name: "description",
+      content:
+        "Start from a working app and let the agent evolve it. You can customize everything.",
+    });
   });
 });

@@ -157,6 +157,10 @@ export interface MCPConfig {
   /** Unlisted from this MCP surface; editor mutations callable only by scoped widget grants. */
   widgetWriteActions?: Record<string, ActionEntry>;
   askAgent?: (message: string) => Promise<string>;
+  /** Server-only adapter for this app's durable tasks on authenticated HTTP MCP. */
+  createLocalAgentTaskClient?: (
+    event: import("h3").H3Event,
+  ) => import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   builtinCrossAppTools?: boolean;
   /**
    * `"app"` serves the app's own action registry flat. `"directory"` serves
@@ -206,6 +210,12 @@ export interface MCPConfig {
     widgetReadPrivateActions?: readonly string[];
     /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
     widgetReadAuthenticatedActions?: readonly string[];
+    /**
+     * Scoped reads minted only into a write capability, and only for a target
+     * that lists the mapped write action: `{ "list-resource-shares":
+     * "share-resource" }` keeps collaborator lists out of read-only tickets.
+     */
+    widgetReadActionWriteGates?: Record<string, string>;
     /** Omit the one shared resource title when tools have distinct invocation labels. */
     widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];
@@ -345,6 +355,7 @@ function actionApprovalError(message: string): CallToolResult {
 }
 
 export interface MCPRequestMeta {
+  localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
   basePath?: string;
   target?: "browser" | "desktop" | "terminal";
@@ -738,6 +749,19 @@ export function validateMcpDirectoryProfile(
     ) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory widget read route "${name}" must be an explicitly scoped read-only GET action with valid resource arguments in the connector allowlist or hidden-read profiles.`,
+      );
+    }
+  }
+
+  for (const [readAction, writeAction] of Object.entries(
+    profile?.widgetReadActionWriteGates ?? {},
+  )) {
+    if (
+      !Object.hasOwn(profile?.widgetReadActionArguments ?? {}, readAction) ||
+      !Object.hasOwn(profile?.widgetWriteActionArguments ?? {}, writeAction)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory widget read "${readAction}" is gated on "${writeAction}", which must both be declared widget actions.`,
       );
     }
   }
@@ -1440,21 +1464,6 @@ async function withServerMintedMcpAppEmbedStart(
     );
   }
 
-  const scope = restrictDirectoryWidgetCapability
-    ? directoryWidget.capability.mode === "write"
-      ? createMcpDirectoryWidgetWriteCapability(
-          directoryWidget.capability.value,
-        )
-      : createMcpDirectoryWidgetReadCapability(directoryWidget.capability.value)
-    : typeof out.chrome === "string"
-      ? out.chrome
-      : null;
-  if (restrictDirectoryWidgetCapability && !scope) {
-    throw new Error(
-      "Could not create a valid scoped capability for this MCP directory widget.",
-    );
-  }
-
   const revocationAnchorCandidate = ctx?.mcpCredentialIssuedAtMs;
   const revocationAnchorCreatedAtMs =
     typeof revocationAnchorCandidate === "number" &&
@@ -1470,18 +1479,69 @@ async function withServerMintedMcpAppEmbedStart(
     );
   }
 
-  const ticket = await createEmbedSessionTicket({
-    ownerEmail,
-    orgId: ctx?.orgId,
-    targetPath,
-    scope,
-    ...(directoryWidget?.capability.mode === "write"
-      ? { ttlSeconds: 5 * 60 }
-      : {}),
-    ...(restrictDirectoryWidgetCapability
-      ? { revocationAnchorCreatedAtMs }
-      : {}),
-  });
+  const mintTicket = async (
+    capability: NonNullable<typeof directoryWidget>["capability"] | undefined,
+  ) => {
+    const scope = capability
+      ? capability.mode === "write"
+        ? createMcpDirectoryWidgetWriteCapability(capability.value)
+        : createMcpDirectoryWidgetReadCapability(capability.value)
+      : typeof out.chrome === "string"
+        ? out.chrome
+        : null;
+    // An oversize or invalid scope has no ticket; the caller degrades or
+    // returns the result without one. Throwing here would fail a tool call
+    // whose action already ran.
+    if (capability && !scope) return null;
+    return createEmbedSessionTicket({
+      ownerEmail,
+      orgId: ctx?.orgId,
+      targetPath,
+      scope,
+      ...(capability?.mode === "write" ? { ttlSeconds: 5 * 60 } : {}),
+      ...(capability ? { revocationAnchorCreatedAtMs } : {}),
+    });
+  };
+  const writeCapability =
+    directoryWidget?.capability.mode === "write"
+      ? directoryWidget.capability
+      : undefined;
+  let ticket: Awaited<ReturnType<typeof mintTicket>> = null;
+  let writeMintError: unknown = new Error(
+    "Could not create a valid scoped capability for this MCP directory widget.",
+  );
+  try {
+    ticket = await mintTicket(directoryWidget?.capability);
+  } catch (error) {
+    if (!writeCapability) throw error;
+    writeMintError = error;
+  }
+  if (!ticket && writeCapability) {
+    // The write grant is an upgrade over the read grant. Losing it must not
+    // also lose the widget's session ticket, which the shell cannot start without.
+    console.error(
+      "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
+      writeMintError,
+    );
+    const { appId, resourceUri, resourceIds, readActionArguments } =
+      writeCapability.value;
+    ticket = await mintTicket({
+      mode: "read",
+      value: {
+        appId,
+        resourceUri,
+        resourceIds,
+        actionArguments: readActionArguments,
+      },
+    });
+  }
+  if (!ticket) {
+    console.error(
+      "[mcp:directory] Could not build a widget capability within the scope size limits; returning the result without a session ticket.",
+      { targetPath },
+    );
+    return resultWithoutExistingEmbedTicket;
+  }
   const startPath = buildEmbedStartPath(ticket.ticket);
   const embedStartUrl = meta?.origin
     ? new URL(startPath, meta.origin).toString()
@@ -1526,6 +1586,13 @@ async function mcpDirectoryWidgetCapabilityForTool(
   const actionArguments: Record<
     string,
     Record<string, McpDirectoryWidgetReadArgument>
+  > = {};
+  const writeGatedReadArguments: Record<
+    string,
+    {
+      writeGate: string;
+      scopedArguments: Record<string, McpDirectoryWidgetReadArgument>;
+    }
   > = {};
   for (const [actionName, argumentMap] of Object.entries(
     profile.widgetReadActionArguments ?? {},
@@ -1575,7 +1642,12 @@ async function mcpDirectoryWidgetCapabilityForTool(
     if (
       Object.keys(scopedArguments).length === Object.keys(argumentMap).length
     ) {
-      actionArguments[actionName] = scopedArguments;
+      const writeGate = profile.widgetReadActionWriteGates?.[actionName];
+      if (writeGate === undefined) {
+        actionArguments[actionName] = scopedArguments;
+      } else if (target.writeActions?.includes(writeGate)) {
+        writeGatedReadArguments[actionName] = { writeGate, scopedArguments };
+      }
     }
   }
   const writeActionArguments: Record<
@@ -1672,7 +1744,19 @@ async function mcpDirectoryWidgetCapabilityForTool(
       ...(typeof requestOrgId === "string" ? { orgId: requestOrgId } : {}),
       expiresAtMs:
         Date.now() + MCP_DIRECTORY_WIDGET_WRITE_CAPABILITY_MAX_AGE_MS,
-      readActionArguments: actionArguments,
+      readActionArguments: {
+        ...actionArguments,
+        ...Object.fromEntries(
+          Object.entries(writeGatedReadArguments)
+            .filter(([, { writeGate }]) =>
+              Object.hasOwn(writeActionArguments, writeGate),
+            )
+            .map(([actionName, { scopedArguments }]) => [
+              actionName,
+              scopedArguments,
+            ]),
+        ),
+      },
       writeActionArguments,
     };
     return {
@@ -2551,14 +2635,18 @@ export function conciseToolResultText(
   options?: { preserveObjectResult?: boolean },
 ): string {
   const purged = purgeEmbedStartUrls(result);
-  if (typeof purged === "string") return truncateToolText(purged);
+  // Text-only clients need the query payload: collection metadata alone can
+  // consume a text cap before any row in an already-paginated result.
+  const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;
+  if (typeof purged === "string")
+    return truncateToolText(purged, maxTextLength);
+  if (options?.preserveObjectResult) {
+    const text = JSON.stringify(purged);
+    return text === undefined ? `${name} completed.` : text;
+  }
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
-    if (options?.preserveObjectResult) {
-      const text = JSON.stringify(purged);
-      return text === undefined ? `${name} completed.` : truncateToolText(text);
-    }
     const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
     const next =
       typeof record.nextRequiredAction === "string" &&
@@ -2568,7 +2656,7 @@ export function conciseToolResultText(
     const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return `${truncateToolText(message.trim())}${tail}`;
+      return `${truncateToolText(message.trim(), maxTextLength)}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
@@ -2587,7 +2675,9 @@ export function conciseToolResultText(
     if (isSuccessOnlyResult(record)) return `${name} completed.${next}`;
   }
   const text = JSON.stringify(purged);
-  return text === undefined ? `${name} completed.` : truncateToolText(text);
+  return text === undefined
+    ? `${name} completed.`
+    : truncateToolText(text, maxTextLength);
 }
 
 export async function createMCPServerForRequest(
@@ -3439,6 +3529,21 @@ export async function createMCPServerForRequest(
             directoryWidget === undefined;
           const suppressDirectoryWidget =
             directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
+          // The host mounts a widget for this tool from its descriptor, with or
+          // without a ticket in the result, so a withheld ticket must be visible.
+          if (
+            missingDirectoryWidgetCapability &&
+            !suppressDirectoryWidget &&
+            !mcpResultIsError
+          ) {
+            console.warn(
+              `[mcp:directory] ${name} returned no widget session ticket: ${
+                typeof trustedCredentialIssuedAtMs === "number"
+                  ? "the result has no widget target or scoped actions"
+                  : "the credential carries no issue time"
+              }.`,
+            );
+          }
           const rawResultForClient =
             missingDirectoryWidgetCapability || suppressDirectoryWidget
               ? withoutMcpAppEmbedTicket(projectedRawResult)
@@ -3450,6 +3555,14 @@ export async function createMCPServerForRequest(
                     directoryWidget,
                   )
                 : projectedRawResult;
+          if (
+            directoryWidget &&
+            typeof metadataObject(rawResultForClient).embedStartUrl !== "string"
+          ) {
+            console.error(
+              `[mcp:directory] ${name} built a widget capability but issued no session ticket.`,
+            );
+          }
           const {
             value: actionResultForClient,
             images: resultImages,
@@ -4169,13 +4282,16 @@ async function admitIssuedMcpCredential(
   }
   const orgId =
     credential.orgId !== undefined ? credential.orgId : stored?.orgId;
+  // Access tokens signed before grant times existed carry no claim, and the
+  // directory widget refuses to mint a session without an issue time. Their
+  // signed `iat` is the only anchor they have. `iat` moves on every refresh, so
+  // it must stay the fallback and never outrank a signed grant time.
   const credentialIssuedAtMs =
-    credential.oauthClientId !== undefined
-      ? credential.grantCreatedAtMs
-      : typeof credential.issuedAt === "number" &&
-          Number.isSafeInteger(credential.issuedAt)
-        ? credential.issuedAt * 1000
-        : undefined;
+    credential.grantCreatedAtMs ??
+    (typeof credential.issuedAt === "number" &&
+    Number.isSafeInteger(credential.issuedAt)
+      ? credential.issuedAt * 1000
+      : undefined);
   const mcpCredentialIssuedAtMs =
     credentialIssuedAtMs !== undefined &&
     Number.isSafeInteger(credentialIssuedAtMs)

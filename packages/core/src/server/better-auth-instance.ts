@@ -52,6 +52,7 @@ import {
   neonPoolOptions,
   guardNeonPool,
   sharedDbPool,
+  resolveSharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
   onDbClientsClosing,
@@ -2731,13 +2732,15 @@ export async function buildDatabaseConfig(): Promise<
       url,
       () => new Pool({ connectionString: url, ...neonPoolOptions() }),
     );
+    const getActivePool = () => resolveSharedDbPool("neon", url, _neonAuthPool);
     guardNeonPool(_neonAuthPool, url, "db/neon-auth");
     const { drizzle } = await import("drizzle-orm/neon-serverless");
     const db = scopeDbToPoolTransactions(
-      drizzle(buildResilientNeonPool(_neonAuthPool), {
+      drizzle(buildResilientNeonPool(_neonAuthPool, getActivePool), {
         schema: pgAuthSchema,
       }),
       _neonAuthPool,
+      getActivePool,
     );
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
@@ -2752,12 +2755,14 @@ export async function buildDatabaseConfig(): Promise<
   const sql = sharedDbPool("postgres-js", url, () =>
     postgres(url, pgPoolOptions(url)),
   );
+  const getActivePool = () => resolveSharedDbPool("postgres-js", url, sql);
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const db = scopeDbToPoolTransactions(
-    drizzle(buildResilientPostgresJsClient(sql), {
+    drizzle(buildResilientPostgresJsClient(sql, getActivePool), {
       schema: pgAuthSchema,
     }),
     sql,
+    getActivePool,
   );
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {

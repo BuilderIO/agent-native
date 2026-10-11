@@ -52,6 +52,8 @@ import {
 export const AGENT_CHAT_PROCESS_RUN_PATH =
   "/_agent-native/agent-chat/_process-run";
 
+export const AGENT_CHAT_RECOVERY_OF_RUN_FIELD = "__agentChatRecoveryOfRunId";
+
 export const AGENT_TEAM_PROCESS_RUN_PATH =
   "/_agent-native/agent-teams/_process-run";
 
@@ -155,6 +157,10 @@ export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
  * verifies the HMAC token before invoking the handler.
  */
 export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
+
+/** Analytics-only source context captured before the run leaves its browser request. */
+export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
+  "__agentNativeBrowserSessionId";
 
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;

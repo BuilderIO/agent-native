@@ -4,7 +4,7 @@ import { createContentEditorStructuralSchema } from "../content-editor-structura
 import { markdownWithTitle } from "../document-export";
 import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "../nfm";
 import { finalizeMarkdownImport, ImportContractError } from "./finalize";
-import { parseMarkdownImport } from "./markdown";
+import { newTablePaddingBudget, parseMarkdownImport } from "./markdown";
 import {
   LIST_INDENTS_MD,
   README_MD,
@@ -30,6 +30,7 @@ function importMarkdown(
   const draft = parseMarkdownImport({
     sourcePath: options.sourcePath ?? "notes/page.md",
     text,
+    tablePadding: newTablePaddingBudget(),
   });
   return finalizeMarkdownImport(
     draft,
@@ -494,7 +495,11 @@ describe("Markdown import", () => {
       "---\ntitle: Phantom paragraph\ndescription: A phantom paragraph\n---\nVisible words",
     ],
   ])("names source text that never reached a page %s", (_, text) => {
-    const draft = parseMarkdownImport({ sourcePath: "notes/page.md", text });
+    const draft = parseMarkdownImport({
+      sourcePath: "notes/page.md",
+      text,
+      tablePadding: newTablePaddingBudget(),
+    });
     if (draft.coverage.kind !== "markdown")
       throw new Error("expected Markdown");
     const page = finalizeMarkdownImport(
@@ -540,6 +545,7 @@ describe("Markdown import", () => {
     expect(unreadable.title).toBe("Broken");
     expect(unreadable.frontmatter.unreadable).toBe("title: [unclosed");
     expect(noteKinds(unreadable)).toEqual(["frontmatter-unreadable"]);
+    expect(unreadable.report.notes[0].samples).toEqual([]);
     expect(unreadable.content).toBe("Body");
   });
 
@@ -576,6 +582,22 @@ describe("Markdown import", () => {
       ].join("\n"),
     );
   });
+
+  it.each([
+    'Text.\n\n<div hidden><img src="data:image/png;base64,SElEREVOPAYLOAD=="></div>',
+    'Text.\n\n<div hidden><img src="data:text/plain,HIDDEN(PAREN)PAYLOAD"></div>',
+    'A <a href="data:text/plain;base64,QUJD SPACEDPAYLOAD">link</a>.',
+    "A [link](<data:text/plain,LINK(PAREN)PAYLOAD>).",
+  ])(
+    "names an embedded file in a sample by its type instead of its bytes: %s",
+    (source) => {
+      const samples = importMarkdown(source)
+        .report.notes.flatMap((note) => note.samples)
+        .join(" ");
+      expect(samples).toMatch(/\/\w+ \(1 KB, embedded\)/);
+      expect(samples).not.toMatch(/PAYLOAD|PAREN/);
+    },
+  );
 
   it("keeps a footnote reference with no definition as written", () => {
     const page = importMarkdown("A claim.[^missing]");
@@ -687,7 +709,7 @@ describe("Markdown import", () => {
       ),
     ).toEqual([3, 3, 3]);
 
-    // Each table pads 39,999 cells; the budget is for the whole file.
+    // Each table pads 39,999 cells, and one budget covers all three.
     const paddedTable = [
       "| a |",
       "| - |",
@@ -790,6 +812,13 @@ describe("Markdown import", () => {
     expect(noteKinds(page)).not.toContain("text-not-landed");
     expect(page.content).toContain("Before");
     expect(page.content).toContain("After");
+  });
+
+  it("keeps a paragraph in block quotes nested up to the limit", () => {
+    const page = importMarkdown(`${"> ".repeat(63)}deep`);
+
+    expect(noteKinds(page)).not.toContain("unsupported-markdown");
+    expect(page.content).toContain("deep");
   });
 
   it("reports HTML elements nested past the limit and keeps their text", () => {
@@ -911,6 +940,228 @@ ${"<span>".repeat(70)}deep
 
     expect(Object.entries(page.frontmatter.unmapped ?? {})).toEqual([
       ["__proto__", "kept"],
+    ]);
+  });
+
+  it("reports a list nested past the limit by its indentation", () => {
+    const nested = Array.from(
+      { length: 700 },
+      (_, depth) => `${"  ".repeat(depth)}- level ${depth}`,
+    ).join("\n");
+    const page = importMarkdown(`Before\n\n${nested}\n\nAfter`);
+
+    expect(page.dialect).toBe("markdown");
+    expect(noteKinds(page)).toContain("unsupported-markdown");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+    expect(textOf(page.doc)).toContain("level 62");
+    expect(textOf(page.doc)).not.toContain("level 64");
+    expect(textOf(page.doc)).toContain("After");
+  });
+
+  it.each([
+    [
+      "inside a longer code fence",
+      ["````md", "```", "<callout>Example</callout>", "```", "````"].join("\n"),
+    ],
+    ["in inline code", 'Write `<mention-page url="x"/>` to link a page.'],
+    [
+      "in a fence inside a list item",
+      ["- Example:", "", "  ```", "  <callout>Example</callout>", "  ```"].join(
+        "\n",
+      ),
+    ],
+    [
+      "after a fence line indented too far to close the fence",
+      ["```text", "    ```", "<callout>Example</callout>", "```"].join("\n"),
+    ],
+  ])("reads a file with Content tags only %s as Markdown", (_, text) => {
+    expect(importMarkdown(`# Notes\n\n${text}\n`).dialect).toBe("markdown");
+  });
+
+  it("keeps text after an indented code block that shows a fence out of the code", () => {
+    const page = importMarkdown(
+      [
+        "Example:",
+        "",
+        "    ```",
+        "    code",
+        "",
+        "<callout>",
+        "\tInside",
+        "</callout>",
+      ].join("\n"),
+    );
+
+    expect(page.dialect).toBe("markdown");
+    expect(page.doc.content).toEqual([
+      expect.objectContaining({ type: "paragraph" }),
+      expect.objectContaining({
+        type: "codeBlock",
+        content: [{ type: "text", text: "```\ncode" }],
+      }),
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Inside" }],
+      },
+    ]);
+  });
+
+  it("reads Content Markdown with an escaped backtick as Content Markdown", () => {
+    const page = importMarkdown(
+      ["One \\` tick", "<callout>", "\tInside", "</callout>", "`code`"].join(
+        "\n",
+      ),
+    );
+
+    expect(page.dialect).toBe("nfm");
+  });
+
+  it("keeps everything inside a nested template hidden", () => {
+    const page = importMarkdown(
+      [
+        "<template><template>inner</template>outer secret</template>",
+        "",
+        "Visible <template><template>a</template>inline secret</template> text",
+      ].join("\n"),
+    );
+
+    expect(textOf(page.doc)).not.toContain("secret");
+    expect(textOf(page.doc)).toContain("Visible");
+    expect(textOf(page.doc)).toContain("text");
+    expect(noteKinds(page)).toContain("hidden-html-dropped");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("keeps a template written with a closing slash hidden, as HTML does", () => {
+    const page = importMarkdown(
+      [
+        "<template><template/>a</template>outer secret</template>",
+        "",
+        "Visible <template/>inline secret</template> text",
+      ].join("\n"),
+    );
+
+    expect(textOf(page.doc)).not.toContain("secret");
+    expect(textOf(page.doc)).toContain("Visible");
+    expect(textOf(page.doc)).toContain("text");
+  });
+
+  it("samples a line of many data: words without rescanning it for each", () => {
+    // Searched from every `data:` for a comma, this line took minutes.
+    const page = importMarkdown(`${">".repeat(65)}${"data:".repeat(190_000)}`);
+
+    expect(noteKinds(page)).toEqual(["unsupported-markdown"]);
+  });
+
+  it("ends a script only at a closing tag with its exact name", () => {
+    const page = importMarkdown(
+      [
+        "<details><summary>One</summary>",
+        "<script>const a = '</scriptx>'; const b = '</details>';</script>",
+        "Inside one",
+        "</details>",
+        "",
+        "<div><script>a</scriptx><!--</script>shown</div>",
+      ].join("\n"),
+    );
+
+    expect(
+      page.doc.content.map((node) =>
+        node.type === "notionToggle"
+          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          : textOf(node),
+      ),
+    ).toEqual(["One: Inside one", "shown"]);
+  });
+
+  it("reports an embedded image with no payload as missing", () => {
+    const asked: string[] = [];
+    const page = importMarkdown("![Logo](data:image/png)", {
+      mode: "preview",
+      resolvers: {
+        asset: (request) => {
+          asked.push(request.kind);
+          return { status: "available" };
+        },
+      },
+    });
+
+    expect(asked).toEqual([]);
+    expect(noteKinds(page)).toContain("asset-missing");
+  });
+
+  it("imports more blocks than fit in one function call's arguments", () => {
+    const page = importMarkdown(`<div>\n${"<p>a".repeat(200_000)}\n</div>`);
+
+    expect(page.doc.content.length).toBeGreaterThan(150_000);
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it("reads HTML tags and references named like object properties as text", () => {
+    const page = importMarkdown(
+      "<p><constructor>Plain</constructor> &constructor; &toString; done</p>",
+    );
+
+    expect(textOf(page.doc)).toContain("Plain &constructor; &toString; done");
+    expect(
+      nodesOfType(page.doc, "text").flatMap((node) => node.marks ?? []),
+    ).toEqual([]);
+    expectEditorAccepts(page);
+  });
+
+  it("decodes every named character reference HTML does", () => {
+    const page = importMarkdown(
+      "<p>caf&eacute; na&iuml;ve &hearts; &AMP; &bogus;</p>",
+    );
+
+    expect(textOf(page.doc)).toContain("café naïve ♥ & &bogus;");
+    expect(noteKinds(page)).not.toContain("text-not-landed");
+  });
+
+  it.each([
+    [
+      "Content Markdown",
+      [
+        "<callout>",
+        "\t[Tab](java&#x09;script:alert(1)) and [Named](java&Tab;script:alert(2))",
+        "</callout>",
+      ].join("\n"),
+    ],
+    [
+      "an HTML link",
+      '<a href="java&Tab;script:alert(1)">Named</a> and <a href="java&NewLine;script:alert(2)">Line</a>',
+    ],
+  ])(
+    "drops a link from %s whose scheme hides behind character references",
+    (_, text) => {
+      const page = importMarkdown(text);
+
+      expect(
+        nodesOfType(page.doc, "text").flatMap((node) => node.marks ?? []),
+      ).toEqual([]);
+      expect(page.content).not.toMatch(/script:alert/);
+      expect(noteKinds(page)).toContain("link-removed");
+    },
+  );
+
+  it("keeps the section a link to another imported file names", () => {
+    const page = importMarkdown(
+      "See [install](guide.md#installation), [top](guide.md#), and [all](./guide.md).",
+      {
+        resolvers: {
+          link: (path) => (path === "notes/guide.md" ? "/page/guide123" : null),
+        },
+      },
+    );
+
+    expect(
+      nodesOfType(page.doc, "text").flatMap((node) =>
+        (node.marks ?? []).map((mark) => mark.attrs?.href),
+      ),
+    ).toEqual([
+      "/page/guide123#installation",
+      "/page/guide123",
+      "/page/guide123",
     ]);
   });
 });

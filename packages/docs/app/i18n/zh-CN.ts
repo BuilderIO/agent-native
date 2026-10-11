@@ -2116,6 +2116,8 @@ const zhCN = {
     downloadStarted: "下载已开始",
     downloadAgain: "没有成功？再次尝试下载",
     loadError: "无法加载最新桌面安装程序。",
+    mountError:
+      "桌面下载页无法找到其在此工作区中的路径。请联系工作区管理员检查应用挂载配置。",
     checkingRelease: "正在检查最新桌面版...",
     retry: "重试",
     unavailable: "此平台暂无安装程序",

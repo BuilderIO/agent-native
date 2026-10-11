@@ -5,6 +5,7 @@ import {
   OBSERVABILITY_FLUSH_TIMEOUT_MS,
   __resetFlushFailureLogForTests,
   flushObservability,
+  recordActionChangeMarkerFailure,
   recordAgentRun,
   recordAgentToolCall,
   recordGenAiChat,
@@ -288,6 +289,23 @@ describe("GenAI and agent metrics", () => {
       { "gen_ai.tool.name": "explain-access" },
       { "gen_ai.tool.name": "other", "error.type": "tool_error" },
       { "gen_ai.tool.name": "other" },
+    ]);
+  });
+});
+
+describe("recordActionChangeMarkerFailure", () => {
+  it("counts one failed marker write by error name", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordActionChangeMarkerFailure(new TypeError("database unavailable"));
+
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "agent_native.action_change.marker_failures",
+        value: 1,
+        attributes: { "error.type": "TypeError" },
+      },
     ]);
   });
 });

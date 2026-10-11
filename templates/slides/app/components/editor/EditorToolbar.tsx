@@ -2,6 +2,7 @@ import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  openMcpAppHostLink,
   useIsMcpAppWidgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed,
 } from "@agent-native/core/client/mcp-app-host";
@@ -27,6 +28,7 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
+  IconExternalLink,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconLoader2,
@@ -242,8 +244,9 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
-  // The host owns navigation and chat, so the widget drops the way back to the
-  // deck list and the agent panel controls.
+  // The top bar is the app's own in a widget. It drops only what the host owns
+  // (the way back to the deck list, the agent panel) and what the widget's
+  // write grant cannot run (comments, saved versions, export, import).
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   // A read-only widget session refuses every save, so an offline or failed-save
   // pill would only restate that it is read-only.
@@ -770,6 +773,21 @@ export default function EditorToolbar({
 
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
+  // The host decides how a link leaves the widget frame; a host that cannot
+  // open it, or has no bridge, falls back to a plain new tab.
+  const openEditorInApp = () => {
+    const openTab = () =>
+      window.open(editorUrl, "_blank", "noopener,noreferrer");
+    const request = openMcpAppHostLink(editorUrl);
+    if (!request) {
+      openTab();
+      return;
+    }
+    void request.then((opened) => {
+      if (!opened) openTab();
+    }, openTab);
+  };
+
   const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
@@ -1127,55 +1145,73 @@ export default function EditorToolbar({
       </div>
 
       {/* Framework share (ownership, per-user/org grants, visibility) */}
-      {!widgetEmbed && (
-        <div className="flex-shrink-0">
-          <ShareButton
-            resourceType="deck"
-            resourceId={deckId}
-            resourceTitle={deckTitle}
-            panelTitle={t("share.title")}
-            roleCopy={{
-              commenter: {
-                label: t("editorToolbar.commenterRoleLabel"),
-                description: t("editorToolbar.commenterRoleDescription"),
-              },
-            }}
-            shareUrl={showShareLink ? primaryShareLink.url : undefined}
-            shareUrlLabel={primaryShareLink.label}
-            shareUrlDescription={primaryShareLink.description}
-            showShareLinks={showShareLink}
-            shareTabs={
-              creativeContextEnabled
-                ? {
-                    tabs: [
-                      {
-                        value: "context",
-                        label: t("creativeContext.share.tabLabel"),
-                        content: (
-                          <CreativeContextShareTab
-                            resource={{
-                              appId: "slides",
-                              resourceType: "deck",
-                              resourceId: deckId,
-                              title: deckTitle,
-                              updatedAt: deck.updatedAt,
-                              preview: {
-                                kind: "document",
-                                label: t("header.deck"),
-                              },
-                            }}
-                          />
-                        ),
-                      },
-                    ],
-                  }
-                : undefined
-            }
-          />
-        </div>
+      <div className="flex-shrink-0">
+        <ShareButton
+          resourceType="deck"
+          resourceId={deckId}
+          resourceTitle={deckTitle}
+          panelTitle={t("share.title")}
+          roleCopy={{
+            commenter: {
+              label: t("editorToolbar.commenterRoleLabel"),
+              description: t("editorToolbar.commenterRoleDescription"),
+            },
+          }}
+          shareUrl={showShareLink ? primaryShareLink.url : undefined}
+          shareUrlLabel={primaryShareLink.label}
+          shareUrlDescription={primaryShareLink.description}
+          showShareLinks={showShareLink}
+          basicSharingOnly={widgetEmbed}
+          shareTabs={
+            creativeContextEnabled && !widgetEmbed
+              ? {
+                  tabs: [
+                    {
+                      value: "context",
+                      label: t("creativeContext.share.tabLabel"),
+                      content: (
+                        <CreativeContextShareTab
+                          resource={{
+                            appId: "slides",
+                            resourceType: "deck",
+                            resourceId: deckId,
+                            title: deckTitle,
+                            updatedAt: deck.updatedAt,
+                            preview: {
+                              kind: "document",
+                              label: t("header.deck"),
+                            },
+                          }}
+                        />
+                      ),
+                    },
+                  ],
+                }
+              : undefined
+          }
+        />
+      </div>
+      {widgetEmbed && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+              aria-label={t("editorToolbar.openInAgentNative")}
+              onClick={openEditorInApp}
+            >
+              <IconExternalLink className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {t("editorToolbar.openInAgentNative")}
+          </TooltipContent>
+        </Tooltip>
       )}
       {/* Present button — matches Share trigger height (h-9) */}
-      {!widgetEmbed && hasSlides ? (
+      {hasSlides ? (
         <Link
           to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
           onClick={onPresent ? handlePresentClick : undefined}
@@ -1185,7 +1221,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Link>
-      ) : !widgetEmbed ? (
+      ) : (
         <Button
           type="button"
           disabled
@@ -1194,7 +1230,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Button>
-      ) : null}
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

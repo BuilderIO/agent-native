@@ -6,6 +6,22 @@ export interface DesignEditorWriteCapabilities {
   canRenderAuthenticatedShare: boolean;
 }
 
+export function shouldShowFullDesignProjectMenu(widgetEmbed: boolean): boolean {
+  return !widgetEmbed;
+}
+
+export function shouldRenderDesignShareControl({
+  widgetEmbed,
+  canShareDesign,
+  canRenderAuthenticatedShare,
+}: {
+  widgetEmbed: boolean;
+  canShareDesign: boolean;
+  canRenderAuthenticatedShare: boolean;
+}): boolean {
+  return canRenderAuthenticatedShare && (!widgetEmbed || canShareDesign);
+}
+
 export function applyMcpDirectoryWidgetWritePolicy(
   capabilities: DesignEditorWriteCapabilities,
   isDirectoryWidget: boolean,

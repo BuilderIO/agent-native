@@ -240,6 +240,7 @@ const messages = {
     importCompleteFile: "{{fileName}}에서 파일을 가져왔습니다.",
     backToDecks: "덱으로 돌아가기",
     toggleSlideList: "슬라이드 목록 전환",
+    openInAgentNative: "Agent-Native에서 열기",
     designSystem: "디자인 시스템",
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",

@@ -24,6 +24,7 @@ import {
   fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "./use-agent-engine-configured.js";
+import { SessionPreloadContext } from "./use-session.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -190,6 +191,32 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
     });
 
+    expect(container.textContent).toBe("configured");
+  });
+
+  it("does not probe readiness while the session preloads, and probes once it resolves", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const Preloaded = ({ preloading }: { preloading: boolean }) => (
+      <SessionPreloadContext.Provider value={preloading}>
+        <Probe />
+      </SessionPreloadContext.Provider>
+    );
+
+    await act(async () => {
+      root.render(<Preloaded preloading />);
+    });
+    await flushAfterPaint();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.textContent).toBe("unknown");
+
+    await act(async () => {
+      root.render(<Preloaded preloading={false} />);
+    });
+    await flushAfterPaint();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(container.textContent).toBe("configured");
   });
 

@@ -51,6 +51,11 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "../selection-state";
 import { resolveToolAfterSelection } from "../tool-state";
+import {
+  isPublicDesignViewer,
+  shouldShowLocalhostPreviewRecovery,
+  shouldShowPublicLocalhostPreviewUnavailable,
+} from "./localhost-preview-recovery";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./use-editor-clipboard";
@@ -189,6 +194,11 @@ export function useEditorScreenRendering({
     scheduleVisualEditSnapshotPublication,
     handleComponentSourceJump,
   } = editorGenerationAndAccess;
+  const publicViewer = isPublicDesignViewer({
+    publicVisualEdit,
+    visibility: design?.visibility,
+    accessRole: designAccessRole,
+  });
   const {
     navigate,
     cssVarValues,
@@ -201,7 +211,7 @@ export function useEditorScreenRendering({
     designDataJsonRef,
     boardFileId,
     overviewScreens,
-    publicVisualEditPreviewTokenQuery,
+    localhostPreviewTokenQuery,
     remoteVisualEditPending,
     handleScreenExternalContentSnapshot,
     getScreenRootComputedStylesCallback,
@@ -619,37 +629,79 @@ export function useEditorScreenRendering({
         designAccessRole !== "owner" &&
         screenSourceType === "localhost",
       );
-      const screenBridgeUrl = screenSnapshotOnly ? undefined : screen.bridgeUrl;
+      const refreshedLocalhostConnection = screen.connectionId
+        ? localhostPreviewTokenQuery.data?.connections?.[screen.connectionId]
+        : undefined;
+      const hasLocalhostConnection = Boolean(
+        screenSourceType === "localhost" && screen.connectionId,
+      );
+      const screenBridgeUrl = screenSnapshotOnly
+        ? undefined
+        : screenSourceType === "localhost"
+          ? (refreshedLocalhostConnection?.bridgeUrl ??
+            (hasLocalhostConnection ? undefined : screen.bridgeUrl))
+          : screen.bridgeUrl;
       const screenPreviewUrl = screen.url ?? screen.previewUrl;
       const currentLiveRoutePath =
         liveRoutePathsByScreenIdRef.current[screen.id];
       const screenPreviewToken =
         effectivePreviewTokensByScreenId[screen.id] ??
-        ("previewToken" in screen && typeof screen.previewToken === "string"
-          ? screen.previewToken
-          : (publicVisualEditPreviewTokenQuery.data?.connections?.[
-              screen.connectionId ?? ""
-            ]?.previewToken ??
-            (screen.connectionId === publicVisualEditConnectionId
-              ? publicVisualEditPreviewTokenQuery.data?.previewToken
-              : undefined)));
+        (screenSourceType === "localhost"
+          ? refreshedLocalhostConnection?.previewToken
+          : undefined) ??
+        (hasLocalhostConnection
+          ? undefined
+          : "previewToken" in screen && typeof screen.previewToken === "string"
+            ? screen.previewToken
+            : (localhostPreviewTokenQuery.data?.connections?.[
+                screen.connectionId ?? ""
+              ]?.previewToken ??
+              (screen.connectionId === publicVisualEditConnectionId
+                ? localhostPreviewTokenQuery.data?.previewToken
+                : undefined)));
       const screenLiveEditCapability =
         effectiveLiveEditCapabilitiesByScreenId[screen.id] ??
-        publicVisualEditPreviewTokenQuery.data?.connections?.[
+        localhostPreviewTokenQuery.data?.connections?.[
           screen.connectionId ?? ""
         ]?.liveEditCapability ??
         (screen.connectionId === publicVisualEditConnectionId
-          ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+          ? localhostPreviewTokenQuery.data?.liveEditCapability
           : undefined);
       const screenLiveEditRegistrationCapability =
         effectiveLiveEditRegistrationCapabilitiesByScreenId[screen.id] ??
-        publicVisualEditPreviewTokenQuery.data?.connections?.[
+        localhostPreviewTokenQuery.data?.connections?.[
           screen.connectionId ?? ""
         ]?.liveEditRegistrationCapability ??
         (screen.connectionId === publicVisualEditConnectionId
-          ? publicVisualEditPreviewTokenQuery.data
-              ?.liveEditRegistrationCapability
+          ? localhostPreviewTokenQuery.data?.liveEditRegistrationCapability
           : undefined);
+      const canRegisterLocalLiveEditPreview = Boolean(
+        screenPreviewToken &&
+        (screenLiveEditRegistrationCapability ?? screenLiveEditCapability),
+      );
+      const localhostPreviewUnavailablePublic =
+        shouldShowPublicLocalhostPreviewUnavailable({
+          sourceType: screenSourceType,
+          snapshotOnly: screenSnapshotOnly,
+          publicViewer,
+          serverUnavailable:
+            refreshedLocalhostConnection?.errorCode ===
+            "public_localhost_preview_unavailable",
+        });
+      const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: screenSourceType,
+        connectionId: screen.connectionId,
+        snapshotOnly: screenSnapshotOnly,
+        refreshFailed: localhostPreviewTokenQuery.isError,
+        hasUsablePreviewCredentials: Boolean(
+          screen.connectionId && screenBridgeUrl && screenPreviewToken,
+        ),
+        connectionUnavailable:
+          refreshedLocalhostConnection?.status === "unavailable",
+        canEdit: canEditDesign || canEditLiveScreen(screen.id),
+        publicUnavailable: localhostPreviewUnavailablePublic,
+        publicVisualEdit,
+      });
       const screenSnapshot = liveScreenSnapshotsById[screen.id]?.html;
       const useRuntimeReplacement = shouldUseOverviewRuntimeReplacement({
         sourceType: screenSourceType,
@@ -789,6 +841,12 @@ export function useEditorScreenRendering({
           nativePreviewActive={screenIsActive}
           sharedSnapshotPollActive={screenIsActive}
           previewToken={screenSnapshotOnly ? undefined : screenPreviewToken}
+          localhostPreviewUnavailable={localhostPreviewUnavailable}
+          localhostPreviewUnavailablePublic={localhostPreviewUnavailablePublic}
+          onRetryLocalhostPreview={() =>
+            void localhostPreviewTokenQuery.refetch()
+          }
+          localhostPreviewRetryPending={localhostPreviewTokenQuery.isFetching}
           liveEditCapability={
             screenSnapshotOnly ? undefined : screenLiveEditCapability
           }
@@ -901,6 +959,13 @@ export function useEditorScreenRendering({
           spacePanActive={spacePanActive}
           clearSelectionRequest={overviewClearSelectionRequest}
           registerRuntimeBridge={screenIsActive || screenIsBeingExported}
+          registerLiveEditPreview={
+            screenIsActive ||
+            screenIsBeingExported ||
+            (!screenSnapshotOnly &&
+              screenSourceType === "localhost" &&
+              canRegisterLocalLiveEditPreview)
+          }
           selectedSelector={screenOwnsSelection ? selectedCanvasSelector : null}
           selectedSelectorCandidates={
             screenOwnsSelection
@@ -1080,8 +1145,10 @@ export function useEditorScreenRendering({
       isVisualEditSurface,
       isLiveCanvasShareLink,
       publicVisualEditConnectionId,
-      publicVisualEditPreviewTokenQuery.data?.previewToken,
-      publicVisualEditPreviewTokenQuery.data?.connections,
+      localhostPreviewTokenQuery.data?.previewToken,
+      localhostPreviewTokenQuery.data?.connections,
+      localhostPreviewTokenQuery.isError,
+      localhostPreviewTokenQuery.isFetching,
       designAccessRole,
       scheduleVisualEditSnapshotPublication,
       canEditDesign,

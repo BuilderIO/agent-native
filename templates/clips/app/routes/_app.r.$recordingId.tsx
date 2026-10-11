@@ -81,6 +81,7 @@ import {
   PageHeader,
   type PageBreadcrumbItem,
 } from "@/components/library/page-header";
+import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import {
   BrowserDiagnosticsPanel,
   isFullBrowserDiagnostics,
@@ -2426,43 +2427,52 @@ export default function RecordingPage() {
         ) : null}
         <TabsContent
           value="transcript"
-          className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden"
+          className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
         >
-          <TranscriptPanel
-            segments={transcriptSegments}
-            fullText={transcriptFullText}
-            durationMs={recording.durationMs}
-            editsJson={recording.editsJson}
-            currentMs={playbackMs}
-            onSeek={(ms) => playerRef.current?.seek(ms)}
-            status={
-              requestTranscript.isPending && transcriptStatus === "failed"
-                ? "pending"
-                : transcriptStatus
+          <RecordingContextSection
+            recordingId={
+              recordingId === VIEWER_REDESIGN_PREVIEW_ID
+                ? undefined
+                : recording.id
             }
-            failureReason={transcriptFailureReason}
-            recordingTitle={recording.title}
-            onRetry={
-              canEdit
-                ? () =>
-                    requestTranscriptWithLifecycle({
-                      recordingId: recording.id,
-                      force: true,
-                    })
-                : undefined
-            }
-            onRegenerate={
-              canEdit && transcriptStatus === "ready"
-                ? () =>
-                    requestTranscriptWithLifecycle({
-                      recordingId: recording.id,
-                      force: true,
-                      regenerate: true,
-                    })
-                : undefined
-            }
-            isRegenerating={requestTranscript.isPending}
           />
+          <div className="min-h-0 flex-1">
+            <TranscriptPanel
+              segments={transcriptSegments}
+              fullText={transcriptFullText}
+              durationMs={recording.durationMs}
+              editsJson={recording.editsJson}
+              currentMs={playbackMs}
+              onSeek={(ms) => playerRef.current?.seek(ms)}
+              status={
+                requestTranscript.isPending && transcriptStatus === "failed"
+                  ? "pending"
+                  : transcriptStatus
+              }
+              failureReason={transcriptFailureReason}
+              recordingTitle={recording.title}
+              onRetry={
+                canEdit
+                  ? () =>
+                      requestTranscriptWithLifecycle({
+                        recordingId: recording.id,
+                        force: true,
+                      })
+                  : undefined
+              }
+              onRegenerate={
+                canEdit && transcriptStatus === "ready"
+                  ? () =>
+                      requestTranscriptWithLifecycle({
+                        recordingId: recording.id,
+                        force: true,
+                        regenerate: true,
+                      })
+                  : undefined
+              }
+              isRegenerating={requestTranscript.isPending}
+            />
+          </div>
         </TabsContent>
         <TabsContent
           value="agent"

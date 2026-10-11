@@ -172,6 +172,12 @@ function getDocument(id: string, databaseId?: string) {
 }
 
 describe("get-document context and properties", () => {
+  it("returns an empty context path for a standalone Page", async () => {
+    await addDocument({ id: "standalone-page" });
+
+    expect((await getDocument("standalone-page")).contextPath).toEqual([]);
+  });
+
   it("returns the readable ancestor path, with collection ancestors named by their collection", async () => {
     await addCollection({ id: "context-tracker", documentId: "tracker-page" });
     await addDocument({ id: "tracker-child", parentId: "tracker-page" });

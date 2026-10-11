@@ -89,6 +89,7 @@ export const OWNED_IMAGE_HYDRATION_TIMEOUT_MS =
 
 export interface OwnedAttachmentHydrationBudget {
   deadlineAt: number;
+  remainingCandidates: number;
   remainingBytes: number;
 }
 
@@ -99,8 +100,17 @@ export function createOwnedAttachmentHydrationBudget(
 ): OwnedAttachmentHydrationBudget {
   return {
     deadlineAt: now + OWNED_ATTACHMENT_HYDRATION_TIMEOUT_MS,
+    remainingCandidates: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
     remainingBytes: MAX_OWNED_ATTACHMENT_HYDRATION_BYTES,
   };
+}
+
+export function claimOwnedAttachmentHydrationCandidate(
+  budget: OwnedAttachmentHydrationBudget,
+): boolean {
+  if (budget.remainingCandidates <= 0) return false;
+  budget.remainingCandidates -= 1;
+  return true;
 }
 
 export const createOwnedImageHydrationBudget =

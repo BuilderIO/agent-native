@@ -23,6 +23,8 @@ export default {
       "{label}, Quellbeispiel {source}, Galerieposition {current} von {total}, aufgenommen am {date}",
     screenshotMissing: "Kein Screenshot aufgenommen",
     recordingUnavailable: "nicht verfügbar",
+    recordingGap: "Aufzeichnungslücke",
+    recordingGapDuration: "Aufzeichnungslücke · {duration}",
     eventTime: "Ereigniszeit (UTC)",
     generationCompletedEvent: "generation_completed-Ereignis (UTC)",
     replayObservation: "Replay-Beobachtung",
@@ -66,6 +68,10 @@ export default {
       "{from} bis {to} · getrennte Kohorten je App{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
+    otherBranchesShown: "{shown} von {total} Zweigen angezeigt",
+    otherBranchDetailsUnavailable:
+      "Branchendetails sind in diesem Journey-Baum nicht verfügbar",
+    otherBranchSourceKey: "Quellschlüssel des Schritts: {key}",
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },
@@ -221,7 +227,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Startseite",
     templates: "Vorlagen",
     designSystems: "Designsysteme",
     setupDesignSystem: "Designsystem einrichten",
@@ -777,13 +783,16 @@ export default {
         "Für den Sprung zur Quelle ist eine verbundene App erforderlich",
     },
     leftRail: {
-      file: "Datei",
-      agent: "Agent",
+      layers: "Ebenen",
+      agent: "Agenten",
       assets: "Ressourcen",
       import: "Import",
       tools: "Werkzeuge",
       tokens: "Design-Tokens",
       label: "Design-Arbeitsbereich",
+      account: "Konto",
+      collapse: "Seitenleiste einklappen",
+      expand: "Seitenleiste ausklappen",
     },
     breakpointBar: {
       base: "Basis",
@@ -875,12 +884,10 @@ export default {
       "{{path}} wurde seit dem Öffnen auf der Festplatte geändert. Bildschirm neu laden und erneut versuchen.",
     applyToSourceError: "Speichern in Quelle fehlgeschlagen: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Tokens importieren",
       importTitle: "Tokens importieren",
       importHint:
@@ -892,6 +899,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Eingefügte Tokens importieren",
       importedCount: "{{count}} Tokens importiert",
+      count: "{{count}} Tokens",
+      search: "Tokens suchen",
+      noMatches: "Keine passenden Tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1082,7 +1092,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
-      designs: "Designs",
+      allDesigns: "Alle Designs",
       rename: "Umbenennen",
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
@@ -1634,6 +1644,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
+      previewCredentialsUnavailableTitle:
+        "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
+      previewCredentialsUnavailableDescription:
+        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+      publicPreviewUnavailableDescription:
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+      previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {
@@ -1720,9 +1737,11 @@ export default {
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
     imageAttachmentUnavailable:
-      "Dieses Bild konnte nicht als visuelle Eingabe vorbereitet werden. Füge eine kleinere PNG-, JPG-, GIF- oder WebP-Datei an.",
+      "Dieses Bild konnte nicht für den Upload vorbereitet werden. Versuche es mit einem JPG-, PNG-, GIF- oder WebP-Bild.",
+    imageAttachmentTooLarge:
+      "Bilder dürfen jeweils bis zu {{perFile}} MB groß sein und insgesamt {{total}} MB umfassen.",
     attachmentsTooLarge:
-      "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
+      "Bilder werden automatisch optimiert. Optimierte Bilder und andere Dateien dürfen zusammen höchstens {{max}} MB groß sein.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
     skipPrompt: "Prompt überspringen",
     startBlankCanvas: "Mit leerer Zeichenfläche beginnen",
@@ -1890,7 +1909,7 @@ export default {
     browseAllTemplates: "Alle ansehen",
     connectBuilderIo: "Builder.io verwenden",
     connectingBuilder: "Builder.io wird eingerichtet…",
-    pageTitle: "Designs",
+    pageTitle: "Startseite",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",
     newDesignLower: "Neues Design",

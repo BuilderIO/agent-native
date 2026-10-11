@@ -1236,6 +1236,7 @@ function ScreenGeometryProperties({
           <SubsectionLabel>{t("editPanel.screenSource.title")}</SubsectionLabel>
           <Tabs
             value={sourceMode}
+            activationMode="manual"
             onValueChange={(value) => {
               const nextMode = value as "static" | "url";
               if (nextMode === "url") {
@@ -1319,7 +1320,9 @@ function ScreenGeometryProperties({
                     : t("editPanel.screenSource.update")}
                 </Button>
               </div>
-              {localhostConnections.length > 1 ? (
+              {localhostConnections.length > 1 ||
+              (!selectedScreenSource?.connectionId &&
+                localhostConnections.length > 0) ? (
                 <Select
                   value={connectionDraft}
                   onValueChange={(next) => {

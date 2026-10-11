@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadBody = vi.hoisted(() => vi.fn());
@@ -14,6 +16,7 @@ const mockInsertValues = vi.hoisted(() =>
   }),
 );
 const mockDeleteWhere = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const mockTrackSlides = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -60,6 +63,10 @@ vi.mock("./request-auth-context.js", () => ({
     mockResolveSlidesRequestAuth(...args),
   withSlidesRequestContext: (...args: unknown[]) =>
     mockWithSlidesRequestContext(...args),
+}));
+
+vi.mock("../lib/slides-tracking.js", () => ({
+  trackSlides: (...args: unknown[]) => mockTrackSlides(...args),
 }));
 
 import { shareDeck } from "./share";
@@ -165,6 +172,28 @@ describe("shareDeck", () => {
     expect(mockResolveAccess).toHaveBeenCalledWith(
       "design-system",
       "design-system-1",
+    );
+  });
+
+  it("records share_link_created on the server without the token", async () => {
+    const result = (await shareDeck({} as any)) as { shareToken: string };
+
+    expect(mockTrackSlides).toHaveBeenCalledTimes(1);
+    expect(mockTrackSlides).toHaveBeenCalledWith(
+      "share_link_created",
+      {
+        output_id: "deck-1",
+        output_type: "deck",
+        share_type: "presentation_link",
+        share_token_hash: createHash("sha256")
+          .update(result.shareToken)
+          .digest("hex")
+          .slice(0, 16),
+      },
+      { userId: "owner@example.com" },
+    );
+    expect(JSON.stringify(mockTrackSlides.mock.calls)).not.toContain(
+      result.shareToken,
     );
   });
 });

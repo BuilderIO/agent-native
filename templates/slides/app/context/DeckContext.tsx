@@ -492,6 +492,7 @@ interface DeckContextType {
       designSystemId?: string | null;
       deferPersistence?: boolean;
       undoableCreation?: boolean;
+      creation?: DeckCreation;
     },
   ) => Deck;
   ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
@@ -3666,9 +3667,24 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
   }
 }
 
-async function createDeckOnAPI(deck: Deck): Promise<void> {
+/** How a deck the browser creates came to exist; recorded once, by add-deck. */
+export type DeckCreation = {
+  method: "generated" | "import_pdf" | "import_docx" | "blank";
+  purpose?: "direct" | "reference";
+};
+
+async function createDeckOnAPI(
+  deck: Deck,
+  creation?: DeckCreation,
+): Promise<void> {
   const result = await callAction<unknown>("add-deck", {
     deck: deckPayload(deck),
+    ...(creation
+      ? {
+          creationMethod: creation.method,
+          ...(creation.purpose ? { purpose: creation.purpose } : {}),
+        }
+      : {}),
   });
   rememberDeckServerRevision(deck.id, result);
 }
@@ -3956,11 +3972,17 @@ export function DeckProvider({
   realtimeEnabled?: boolean;
   openDeckId?: string | null;
 }) {
-  const { data: org, isLoading: orgLoading } = useOrg();
+  const {
+    data: org,
+    isLoading: orgLoading,
+    isError: orgError,
+    refetch: refetchOrg,
+  } = useOrg();
   const t = useT();
   const tRef = useRef(t);
   tRef.current = t;
-  const activeOrgId = org?.orgId ?? null;
+  const activeOrgId = org?.orgId;
+  const orgResolved = activeOrgId !== undefined;
   const [decks, setDecks] = useState<Deck[]>([]);
   const [deckScopeOrgId, setDeckScopeOrgId] = useState<
     string | null | undefined
@@ -3996,6 +4018,7 @@ export function DeckProvider({
     new Map(),
   );
   const deferredCreateDecksRef = useRef<Map<string, Deck>>(new Map());
+  const deferredCreateMethodsRef = useRef<Map<string, DeckCreation>>(new Map());
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deletedSlideTombstonesRef = useRef<Map<string, Set<string>>>(new Map());
@@ -5143,6 +5166,10 @@ export function DeckProvider({
 
   const reloadDecksWithStatus =
     useCallback(async (): Promise<DeckReloadStatus> => {
+      if (!orgResolved) {
+        const resolvedOrg = await refetchOrg();
+        if (resolvedOrg.data === undefined) return "failed";
+      }
       const requestId = ++deckBaselineRequestIdRef.current;
       const createSeqAtRequest = localCreateSeqRef.current;
       const snapshotGeneration = serverSnapshotGenerationRef.current;
@@ -5172,7 +5199,7 @@ export function DeckProvider({
       setLoadError(false);
       setLoading(false);
       return "loaded";
-    }, [nextOpenDeckRequestId, resetDeckBaseline]);
+    }, [nextOpenDeckRequestId, orgResolved, refetchOrg, resetDeckBaseline]);
 
   const reloadDecks = useCallback(async () => {
     await reloadDecksWithStatus();
@@ -5219,6 +5246,7 @@ export function DeckProvider({
     confirmedPendingCreateIdsRef.current.clear();
     pendingCreatePromisesRef.current.clear();
     deferredCreateDecksRef.current.clear();
+    deferredCreateMethodsRef.current.clear();
     pendingDuplicateSourceIdsRef.current.clear();
     dirtyDeckIdsRef.current.clear();
     deletedSlideTombstonesRef.current.clear();
@@ -5241,7 +5269,7 @@ export function DeckProvider({
   }, []);
 
   useEffect(() => {
-    if (orgLoading) return;
+    if (orgLoading || !orgResolved) return;
     const requestId = ++deckBaselineRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const snapshotGeneration = serverSnapshotGenerationRef.current;
@@ -5284,15 +5312,15 @@ export function DeckProvider({
       setLoadError(loaded === null);
       setLoading(false);
     })();
-  }, [nextOpenDeckRequestId, orgLoading, resetDeckBaseline]);
+  }, [nextOpenDeckRequestId, orgLoading, orgResolved, resetDeckBaseline]);
 
   // Organization changes are a hard access boundary. Clear the previous
   // scope before loading the next one so optimistic state and stale responses
   // cannot keep prior-organization decks visible.
   const lastOrgIdRef = useRef<string | null | undefined>(undefined);
   useLayoutEffect(() => {
-    if (orgLoading) return;
-    const orgId = org?.orgId ?? null;
+    if (orgLoading || activeOrgId === undefined) return;
+    const orgId = activeOrgId;
     if (lastOrgIdRef.current === undefined) {
       lastOrgIdRef.current = orgId;
       setDeckScopeOrgId(orgId);
@@ -5303,7 +5331,7 @@ export function DeckProvider({
     replaceOpenDeckRouteWithDeckList();
     resetDeckScope(orgId);
     void reloadDecks();
-  }, [org?.orgId, orgLoading, reloadDecks, resetDeckScope]);
+  }, [activeOrgId, orgLoading, reloadDecks, resetDeckScope]);
 
   useEffect(() => {
     if (loading || !realtimeEnabled || isEmbedAuthActive()) return;
@@ -5739,6 +5767,7 @@ export function DeckProvider({
         designSystemId?: string | null;
         deferPersistence?: boolean;
         undoableCreation?: boolean;
+        creation?: DeckCreation;
       },
     ): Deck => {
       const insertIndex = decksRef.current.length;
@@ -5772,9 +5801,12 @@ export function DeckProvider({
       noteLocalCreate(newDeck.id);
       if (options?.deferPersistence) {
         deferredCreateDecksRef.current.set(newDeck.id, newDeck);
+        if (options.creation) {
+          deferredCreateMethodsRef.current.set(newDeck.id, options.creation);
+        }
       } else {
         const scopeGeneration = deckScopeGenerationRef.current;
-        const createPromise = createDeckOnAPI(newDeck);
+        const createPromise = createDeckOnAPI(newDeck, options?.creation);
         pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
         createPromise
           .catch((err) => {
@@ -5835,8 +5867,10 @@ export function DeckProvider({
       const deferredDeck = deferredCreateDecksRef.current.get(id);
       if (deferredDeck) {
         deferredCreateDecksRef.current.delete(id);
+        const creation = deferredCreateMethodsRef.current.get(id);
+        deferredCreateMethodsRef.current.delete(id);
         const scopeGeneration = deckScopeGenerationRef.current;
-        const createPromise = createDeckOnAPI(deferredDeck);
+        const createPromise = createDeckOnAPI(deferredDeck, creation);
         pendingCreatePromisesRef.current.set(id, createPromise);
         try {
           await createPromise;
@@ -5977,6 +6011,7 @@ export function DeckProvider({
     (id: string) => {
       const scopeGeneration = deckScopeGenerationRef.current;
       if (deferredCreateDecksRef.current.delete(id)) {
+        deferredCreateMethodsRef.current.delete(id);
         pendingCreateIdsRef.current.delete(id);
       }
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
@@ -6818,8 +6853,9 @@ export function DeckProvider({
     <DeckContext.Provider
       value={{
         decks: scopedDecks,
-        loading: loading || !deckScopeMatchesOrg,
-        loadError,
+        loading:
+          !orgResolved && orgError ? false : loading || !deckScopeMatchesOrg,
+        loadError: (!orgResolved && orgError) || loadError,
         deckListRefreshing: deckListRefreshCount > 0,
         createDeck,
         ensureDeckPersisted,

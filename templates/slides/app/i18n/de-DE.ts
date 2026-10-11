@@ -245,6 +245,7 @@ const messages = {
     importCompleteFile: "Datei aus {{fileName}} importiert.",
     backToDecks: "Zurück zu Decks",
     toggleSlideList: "Folienliste umschalten",
+    openInAgentNative: "In Agent-Native öffnen",
     designSystem: "Designsystem",
     usingDesignSystem: "{{title}} wird verwendet",
     usingLinkedDesignSystem: "Verknüpftes Designsystem wird verwendet",

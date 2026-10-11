@@ -155,7 +155,7 @@ describe("BigQuery alert batch", () => {
     const dedup = rendered.indexOf("QUALIFY ROW_NUMBER()");
     const beforeDedup = rendered.slice(0, dedup);
     expect(dedup).toBeGreaterThan(0);
-    expect(beforeDedup).toContain("event_name IN ( 'agent_run_terminal' )");
+    expect(beforeDedup).toMatch(/event_name IN \(\s*'agent_run_terminal'\s*\)/);
     expect(beforeDedup).toContain("event_date >=");
     expect(beforeDedup).toContain("event_date <=");
     expect(beforeDedup).toContain("user_id");
@@ -166,7 +166,7 @@ describe("BigQuery alert batch", () => {
         /FROM `example-project\.analytics\.events` WHERE ([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
       ),
     ];
-    expect(sources).toHaveLength(6);
+    expect(sources).toHaveLength(2);
     for (const event of rules) {
       const branches = sources.filter((source) =>
         source[1].includes(`event_name IN ( '${event.eventName}' )`),

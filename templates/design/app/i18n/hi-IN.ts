@@ -22,6 +22,8 @@ export default {
       "{label}, स्रोत उदाहरण {source}, गैलरी में स्थान {current}/{total}, कैप्चर की तारीख {date}",
     screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",
     recordingUnavailable: "उपलब्ध नहीं",
+    recordingGap: "रिकॉर्डिंग में अंतराल",
+    recordingGapDuration: "रिकॉर्डिंग में अंतराल · {duration}",
     eventTime: "इवेंट समय (UTC)",
     generationCompletedEvent: "generation_completed इवेंट (UTC)",
     replayObservation: "रीप्ले अवलोकन",
@@ -65,6 +67,9 @@ export default {
       "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
     sessionCount: "{count} सत्र",
     otherPaths: "अन्य रास्ते",
+    otherBranchesShown: "{total} में से {shown} शाखाएँ दिखाई गईं",
+    otherBranchDetailsUnavailable: "इस यात्रा ट्री में शाखाओं का विवरण उपलब्ध नहीं है",
+    otherBranchSourceKey: "स्रोत चरण कुंजी: {key}",
     htmlLanguage: "hi-IN",
   },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
@@ -217,7 +222,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "डिज़ाइन",
+    home: "होम",
     templates: "टेम्पलेट",
     designSystems: "डिज़ाइन सिस्टम",
     setupDesignSystem: "डिज़ाइन सिस्टम सेट करें",
@@ -762,13 +767,16 @@ export default {
       needsConnectedApp: "सोर्स पर जाने के लिए कनेक्टेड ऐप आवश्यक है",
     },
     leftRail: {
-      file: "फ़ाइल",
+      layers: "परतें",
       agent: "एजेंट",
       assets: "एसेट",
       import: "आयात",
       tools: "उपकरण",
       tokens: "टोकन",
       label: "डिज़ाइन कार्यक्षेत्र",
+      account: "खाता",
+      collapse: "साइडबार समेटें",
+      expand: "साइडबार फैलाएँ",
     },
     breakpointBar: {
       base: "आधार",
@@ -858,12 +866,10 @@ export default {
       "{{path}} इसके खुलने के बाद डिस्क पर बदल गई है। स्क्रीन को रीलोड करें और फिर से प्रयास करें।",
     applyToSourceError: "स्रोत में सहेजा नहीं जा सका: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "टोकन इम्पोर्ट करें",
       importTitle: "टोकन इम्पोर्ट करें",
       importHint:
@@ -875,6 +881,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      count: "{{count}} टोकन",
+      search: "टोकन खोजें",
+      noMatches: "कोई मेल खाता टोकन नहीं",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1057,7 +1066,7 @@ export default {
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     fileMenu: {
       pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
-      designs: "डिज़ाइन",
+      allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
@@ -1585,6 +1594,12 @@ export default {
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
+      previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
+      previewCredentialsUnavailableDescription:
+        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+      publicPreviewUnavailableDescription:
+        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+      previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
@@ -1671,9 +1686,11 @@ export default {
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
     imageAttachmentUnavailable:
-      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
+      "इस छवि को अपलोड के लिए तैयार नहीं किया जा सका। JPG, PNG, GIF या WebP छवि आज़माएँ।",
+    imageAttachmentTooLarge:
+      "हर छवि {{perFile}} MB तक हो सकती है; सभी छवियों का कुल आकार {{total}} MB तक हो सकता है।",
     attachmentsTooLarge:
-      "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
+      "छवियाँ अपने आप अनुकूलित होती हैं। अनुकूलित छवियों और अन्य फ़ाइलों का कुल आकार {{max}} MB से अधिक नहीं होना चाहिए।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
     startBlankCanvas: "खाली कैनवास से शुरू करें",
@@ -1832,7 +1849,7 @@ export default {
     browseAllTemplates: "सभी ब्राउज़ करें",
     connectBuilderIo: "Builder.io इस्तेमाल करें",
     connectingBuilder: "Builder.io सेट अप हो रहा है…",
-    pageTitle: "Designs",
+    pageTitle: "होम",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
     newDesignLower: "नया डिज़ाइन",

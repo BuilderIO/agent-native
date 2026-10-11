@@ -226,11 +226,10 @@ export async function trackGenerationCompletedForRun(
   for (const output of outputs) {
     const slideCount = counts.get(output.deckId) ?? null;
     if (slideCount === null || slideCount === 0) continue;
-    const eventSource = output.sessionId
-      ? source && "caller" in source
-        ? source
-        : { ...(source ?? {}), sessionId: output.sessionId }
-      : source;
+    const eventSource: TrackingSource = {
+      ...(source ?? {}),
+      sessionId: output.sessionId ?? null,
+    };
     track(
       "generation_completed",
       {

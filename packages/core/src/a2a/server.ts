@@ -53,6 +53,25 @@ function warnA2AUnauthOnce(): void {
   );
 }
 
+const warnedDemotions = new Set<string>();
+// A token that asserts a user but resolves to an organization principal is the
+// signature of misaligned A2A secrets; without this the only symptom is every
+// delegated call from that org failing later with no verified user. Keyed by
+// org and cause so a changed cause logs again. Never log the secret or the
+// asserted email.
+function warnUserAssertionDemotedOnce(
+  orgId: string,
+  payload: jose.JWTPayload,
+  reason: string,
+): void {
+  if (typeof payload.sub !== "string" || !payload.sub.trim()) return;
+  const key = `${orgId}\n${reason}`;
+  if (warnedDemotions.has(key)) return;
+  warnedDemotions.add(key);
+  // eslint-disable-next-line no-console
+  console.warn(`[a2a] orgId=${orgId} ${reason}`);
+}
+
 /**
  * Result of verifying an inbound A2A JWT. `email` is present only when a
  * deployment-secret user assertion verifies; org-secret tokens carry an
@@ -357,6 +376,11 @@ async function verifyA2ATokenInternal(
           if (!claims) {
             return { payload: { email: null, orgDomain: null } };
           }
+          warnUserAssertionDemotedOnce(
+            organization.orgId,
+            payload,
+            "user assertion demoted: org secret equals deploy secret",
+          );
           return {
             payload: {
               email: null,
@@ -427,6 +451,11 @@ async function verifyA2ATokenInternal(
   const claims = organizationPrincipalClaims(payload, organization);
   if (!claims) return { payload: { email: null, orgDomain: null } };
 
+  warnUserAssertionDemotedOnce(
+    organization.orgId,
+    payload,
+    "user token verified only with org secret",
+  );
   return {
     payload: {
       email: null,

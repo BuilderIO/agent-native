@@ -106,6 +106,12 @@ function eventChange(id: string, title: string) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Update a Google Calendar event. Supports moving an existing event between connected Google account calendars, as well as title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
   schema: z.object({

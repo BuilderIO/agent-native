@@ -46,6 +46,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: true,
         canCommentDesign: true,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("editor");
   });
@@ -57,6 +58,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: true,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("commenter");
   });
@@ -68,6 +70,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: true,
         canCommentDesign: true,
         hasActiveFile: false,
+        scopedWidget: false,
       }),
     ).toBe("editor");
   });
@@ -79,6 +82,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: true,
         hasActiveFile: false,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
   });
@@ -90,6 +94,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: false,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
     expect(
@@ -98,6 +103,43 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: false,
         hasActiveFile: false,
+        scopedWidget: false,
+      }),
+    ).toBe("hidden");
+  });
+
+  it("gives a scoped widget editor the toolbar without a signed-in session", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: false,
+        canEditDesign: true,
+        canCommentDesign: false,
+        hasActiveFile: true,
+        scopedWidget: true,
+      }),
+    ).toBe("editor");
+  });
+
+  it("does not let a widget without a write ticket borrow the toolbar", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: false,
+        canEditDesign: false,
+        canCommentDesign: false,
+        hasActiveFile: true,
+        scopedWidget: true,
+      }),
+    ).toBe("hidden");
+  });
+
+  it("still hides the toolbar from a signed-out editor outside a widget", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: false,
+        canEditDesign: true,
+        canCommentDesign: false,
+        hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
   });
@@ -109,6 +151,7 @@ describe("getDesignBottomToolbarMode", () => {
         canEditDesign: false,
         canCommentDesign: false,
         hasActiveFile: true,
+        scopedWidget: false,
       }),
     ).toBe("hidden");
   });

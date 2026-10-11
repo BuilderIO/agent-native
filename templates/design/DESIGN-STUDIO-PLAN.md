@@ -78,7 +78,7 @@ matrix is defined in §5.
 | Tokens — live CSS-var editing (friendly swatches for the design's own `:root` vars)                                                                                       | ✅                               | ✅                            | Design owns its CSS vars                         |
 | **Tokens-as-code** — parse `globals.css` / `tailwind.config` and **write back to source**                                                                                 | **Real app** → CTA               | ✅                            | Auto-parse + source write-back needs real files  |
 | **Motion** — multi-layer keyframe timeline → managed `<style data-agent-native-motion>` block                                                                             | ✅                               | ✅                            | CSS is the runtime truth; works on any HTML      |
-| Motion source export — write to real CSS modules / `motion`-react two-way / Dev Mode export                                                                               | **Real app** → CTA               | ✅                            | Two-way code round-trip needs real files         |
+| Motion source export — write to real CSS modules / `motion`-react two-way / developer handoff export                                                                      | **Real app** → CTA               | ✅                            | Two-way code round-trip needs real files         |
 | Responsive / breakpoints                                                                                                                                                  | ✅                               | ✅                            | CSS media queries                                |
 | Simple design states (logged out, empty, loading, error) as alternate `x-data` / DOM                                                                                      | ✅                               | ✅                            | Markup snapshots                                 |
 | **Data fixtures & live captures** (real running-app data, route, props, API)                                                                                              | **Real app** → CTA               | ✅                            | No live data on a static design                  |
@@ -358,7 +358,7 @@ The CSS is the runtime truth; the JSON `tracks` only aid editing.
   reduced-motion strategy in both preview and output.
 
 **Real-app superset:** write keyframes into real CSS modules, optional
-`motion`-react round-trip, Dev Mode export.
+`motion`-react round-trip, developer handoff export.
 
 **Acceptance:** scrubbing never writes; timeline edits autosave through one atomic
 action with diff/rollback proof; multiple layers and tracks animate.

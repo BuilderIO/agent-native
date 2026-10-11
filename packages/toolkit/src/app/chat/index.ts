@@ -69,6 +69,7 @@ export {
 export type {
   MultiTabAssistantChatProps,
   MultiTabAssistantChatHeaderProps,
+  MultiTabAssistantChatHeaderCallbackProps,
 } from "./MultiTabAssistantChat.js";
 export * from "./chat/index.js";
 export * from "./agentkit-chat/index.js";

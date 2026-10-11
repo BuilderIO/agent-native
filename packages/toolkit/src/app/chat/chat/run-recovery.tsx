@@ -14,6 +14,11 @@ import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconLoader2,
@@ -57,7 +62,11 @@ type SetupTelemetryEventName =
   | "integration_setup_exposed"
   | "integration_method_clicked"
   | "integration_method_outcome";
-type SetupTelemetryMethodId = "setup_card" | "builder" | "custom_keys";
+type SetupTelemetryMethodId =
+  | "setup_card"
+  | "builder"
+  | "custom_keys"
+  | "environment_variable";
 type SetupTelemetryAction = "view" | "click" | "connect";
 type SetupTelemetryOutcome =
   | "exposed"
@@ -482,6 +491,40 @@ export function BuilderSetupContent({
   const sidebarLayout = layout === "sidebar";
   // Model providers moved to Agent › Model in the redesigned Settings.
   const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  const settingsRoute = buildSettingsRoute(redesign.enabled ? "model" : "keys");
+  const trackCustomKeysClick = () =>
+    trackSetupFunnelEvent(
+      "integration_method_clicked",
+      "custom_keys",
+      "click",
+      "started",
+    );
+  const trackEnvironmentVariableClick = () =>
+    trackSetupFunnelEvent(
+      "integration_method_clicked",
+      "environment_variable",
+      "click",
+      "started",
+    );
+  const customKeysClassName = cn(
+    "agent-builder-setup-card__key-button inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md text-[11px] font-medium",
+    sidebarLayout
+      ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+      : "h-8 border border-border bg-transparent px-3 text-foreground hover:bg-accent",
+  );
+
+  const settingsLink = (
+    <Link
+      to={settingsRoute}
+      state={{ providerSetupTrackingFlow: "chat_setup" }}
+      onClick={trackCustomKeysClick}
+      className={customKeysClassName}
+    >
+      {t("agentPanel.addOwnKeys", {
+        defaultValue: "Custom keys",
+      })}
+    </Link>
+  );
 
   return (
     <div
@@ -529,28 +572,63 @@ export function BuilderSetupContent({
           )}
         >
           <BuilderConnectCta variant="compact" onConnected={onConnected} />
-          <Link
-            to={buildSettingsRoute(redesign.enabled ? "model" : "keys")}
-            state={{ providerSetupTrackingFlow: "chat_setup" }}
-            onClick={() =>
-              trackSetupFunnelEvent(
-                "integration_method_clicked",
-                "custom_keys",
-                "click",
-                "started",
-              )
-            }
-            className={cn(
-              "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
-              sidebarLayout
-                ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
-            )}
-          >
-            {t("agentPanel.addOwnKeys", {
-              defaultValue: "Custom keys",
-            })}
-          </Link>
+          {import.meta.env.DEV ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={customKeysClassName}
+                >
+                  {t("agentPanel.addOwnKeys", {
+                    defaultValue: "Custom keys",
+                  })}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 p-2">
+                <div className="flex flex-col gap-1">
+                  <Link
+                    to={settingsRoute}
+                    state={{ providerSetupTrackingFlow: "chat_setup" }}
+                    onClick={trackCustomKeysClick}
+                    className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      {t("agentChat.setup.addKeyInSettings", {
+                        defaultValue: "Add a key in Settings",
+                      })}
+                    </span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">
+                      {t("agentChat.setup.addKeyInSettingsDescription", {
+                        defaultValue: "For your account or organization.",
+                      })}
+                    </span>
+                  </Link>
+                  <a
+                    href="https://www.agent-native.com/docs/environment-variables#llm-provider-keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={trackEnvironmentVariableClick}
+                    className="flex flex-col gap-0.5 rounded-sm px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span className="text-xs font-medium text-foreground">
+                      {t("agentChat.setup.setEnvironmentVariable", {
+                        defaultValue: "Set an environment variable",
+                      })}
+                    </span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">
+                      {t("agentChat.setup.setEnvironmentVariableDescription", {
+                        defaultValue:
+                          "One provider key for everyone in this app.",
+                      })}
+                    </span>
+                  </a>
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : (
+            settingsLink
+          )}
         </div>
       </div>
     </div>
@@ -666,6 +744,8 @@ export function RunErrorRecoveryCard({
   info,
   onContinue,
   onRetry,
+  onRetryWithoutAttachments,
+  onRetryWithoutAttachment,
   retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
@@ -677,6 +757,9 @@ export function RunErrorRecoveryCard({
   onContinue?: () => void;
   continueError?: string | null;
   onRetry: () => void;
+  /** Resends the rejected request without its attachments. */
+  onRetryWithoutAttachments?: () => void;
+  onRetryWithoutAttachment?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
@@ -694,7 +777,13 @@ export function RunErrorRecoveryCard({
     provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
-  const canRecover = info.recoverable === true;
+  // Retrying or continuing sends the rejected attachment again.
+  const attachmentRejected = info.errorCode === "invalid_attachment";
+  const canRecover = info.recoverable === true && !attachmentRejected;
+  const retryWithoutAttachments =
+    onRetryWithoutAttachments ?? onRetryWithoutAttachment;
+  const canRetryWithoutAttachments =
+    attachmentRejected && retryWithoutAttachments;
   const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
@@ -965,6 +1054,18 @@ export function RunErrorRecoveryCard({
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
+          </button>
+        )}
+        {canRetryWithoutAttachments && (
+          <button
+            type="button"
+            onClick={retryWithoutAttachments}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconRefresh size={13} />
+            <span className="truncate">
+              {t("agentChat.recovery.retryWithoutAttachment")}
+            </span>
           </button>
         )}
         <div className="flex shrink-0 items-center gap-0.5">

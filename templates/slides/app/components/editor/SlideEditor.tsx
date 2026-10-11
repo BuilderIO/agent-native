@@ -12,7 +12,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -149,7 +148,6 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { hasInlineHeight } from "./fit-text-object";
-import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -326,6 +324,13 @@ import {
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
+import {
+  SLIDE_SCROLL_CONTAINER_CLASS,
+  SLIDE_SCROLL_TRACK_CLASS,
+  type SlideScroll,
+  SlideScrollPreviews,
+  useSlideScrollFollow,
+} from "./SlideScrollStack";
 import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 import {
   SlidesLayersPanel,
@@ -1121,12 +1126,9 @@ interface SlideEditorProps {
   comments?: CommentThread[];
   /** Opens the thread anchored to text the user clicked on the canvas. */
   onSelectCommentThread?: (threadId: string) => void;
-  /** MCP App widget only: every slide in the deck. The ones after this one are
-   *  stacked below it at the same width so a slide shorter than the pane is
-   *  followed by the next ones instead of an empty band. */
-  deckSlides?: readonly Slide[];
-  /** Makes a clicked following slide the current slide. */
-  onSelectFollowingSlide?: (slideId: string) => void;
+  /** With no room for the slide rail: the deck's slides, scrolled through as
+   *  one column with this slide's editor in its place among them. */
+  slideScroll?: SlideScroll;
   /** Objects the last Undo/Redo changed; selected once the slide shows them. */
   undoSelection?: UndoSelectionRequest | null;
   /** The editor is done with `undoSelection` (applied or not applicable). */
@@ -1731,8 +1733,6 @@ export default function SlideEditor({
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
-  deckSlides,
-  onSelectFollowingSlide,
   undoSelection,
   onUndoSelectionConsumed,
   slideIndex = 0,
@@ -1756,6 +1756,7 @@ export default function SlideEditor({
   slideId,
   comments = [],
   onSelectCommentThread,
+  slideScroll,
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
@@ -1766,9 +1767,6 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const t = useT();
-  // The host pane owns every surface around the slide, so the widget shows the
-  // slide alone: top-aligned, filling the width, with no toolbar rows or notes.
-  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const layoutOverflowWarningEnabled = useLabState(
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
@@ -1984,9 +1982,17 @@ export default function SlideEditor({
   }, [onUpdateSlide, slide.id]);
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
+  const stacked = slideScroll !== undefined;
   const userSetCanvasZoomRef = useRef(false);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
   const canvasTrackRef = useRef<HTMLDivElement>(null);
+  useSlideScrollFollow({
+    scroll: slideScroll,
+    currentSlideId: slide.id,
+    width: canvasWidth,
+    scrollContainerRef,
+    currentSlideRef: containerRef,
+  });
   const setManualCanvasZoom = useCallback((next: number) => {
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
@@ -2057,12 +2063,12 @@ export default function SlideEditor({
         (parseFloat(trackStyle?.paddingBottom ?? "0") || 0);
       const nextFitZoom = computeCanvasFitZoom({
         viewportWidth: scrollContainer.clientWidth,
-        viewportHeight: scrollContainer.clientHeight,
+        // Slides that scroll fit the pane's width; its height only bounds one.
+        viewportHeight: stacked ? undefined : scrollContainer.clientHeight,
         canvasWidth: dims.width,
         canvasHeight: dims.height,
         horizontalPadding,
         verticalPadding,
-        fillViewport: widgetEmbed,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -2090,14 +2096,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height, widgetEmbed]);
-
-  // The widget scrolls through the slides that follow this one, so a newly
-  // selected slide starts at the top of the pane.
-  useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (widgetEmbed && scrollContainer) scrollContainer.scrollTop = 0;
-  }, [slide.id, widgetEmbed]);
+  }, [dims.width, dims.height, stacked]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -10391,9 +10390,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--slides-editor-surface)] ${
-        widgetEmbed ? "" : "rounded-l-lg"
-      } ${animationsOpen || layersOpen ? "rounded-r-lg" : ""}`}
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
+        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+      }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -10445,17 +10444,26 @@ export default function SlideEditor({
                 ref={scrollContainerRef}
                 className={`h-full overflow-auto ${
                   drawMode ? "pb-24 sm:pb-28" : ""
-                }`}
+                } ${stacked ? SLIDE_SCROLL_CONTAINER_CLASS : ""}`}
               >
                 <div
                   ref={canvasTrackRef}
-                  className={`flex min-h-full w-max min-w-full justify-center ${
-                    widgetEmbed
-                      ? "flex-col items-center"
-                      : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  className={`flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16 ${
+                    stacked ? SLIDE_SCROLL_TRACK_CLASS : ""
                   }`}
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
+                  {slideScroll ? (
+                    <SlideScrollPreviews
+                      side="before"
+                      scroll={slideScroll}
+                      currentSlideId={slide.id}
+                      width={canvasWidth}
+                      aspectRatio={aspectRatio}
+                      designSystem={designSystem}
+                      scrollContainerRef={scrollContainerRef}
+                    />
+                  ) : null}
                   <div
                     ref={containerRef}
                     data-main-slide-canvas="true"
@@ -10495,11 +10503,7 @@ export default function SlideEditor({
                           <SlideRenderer
                             slide={slide}
                             slidePosition={slidePosition}
-                            className={
-                              widgetEmbed
-                                ? "rounded-none!"
-                                : "shadow-2xl shadow-black/40"
-                            }
+                            className="shadow-2xl shadow-black/40"
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
@@ -10630,14 +10634,15 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
-                  {widgetEmbed && deckSlides && onSelectFollowingSlide ? (
-                    <FollowingSlideStack
-                      slides={deckSlides}
-                      afterSlideId={slide.id}
+                  {slideScroll ? (
+                    <SlideScrollPreviews
+                      side="after"
+                      scroll={slideScroll}
+                      currentSlideId={slide.id}
                       width={canvasWidth}
                       aspectRatio={aspectRatio}
                       designSystem={designSystem}
-                      onSelect={onSelectFollowingSlide}
+                      scrollContainerRef={scrollContainerRef}
                     />
                   ) : null}
                 </div>
@@ -10652,13 +10657,11 @@ export default function SlideEditor({
           : null}
       </div>
 
-      {!widgetEmbed && (
-        <SpeakerNotesPanel
-          notes={slide.notes}
-          onChange={(notes) => onUpdateSlide({ notes })}
-          readOnly={readOnly}
-        />
-      )}
+      <SpeakerNotesPanel
+        notes={slide.notes}
+        onChange={(notes) => onUpdateSlide({ notes })}
+        readOnly={readOnly}
+      />
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline

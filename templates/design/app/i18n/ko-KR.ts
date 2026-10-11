@@ -22,6 +22,8 @@ export default {
       "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
     screenshotMissing: "스크린샷이 캡처되지 않음",
     recordingUnavailable: "사용할 수 없음",
+    recordingGap: "기록 공백",
+    recordingGapDuration: "기록 공백 · {duration}",
     eventTime: "이벤트 시간(UTC)",
     generationCompletedEvent: "generation_completed 이벤트(UTC)",
     replayObservation: "리플레이 관찰",
@@ -64,6 +66,9 @@ export default {
     journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
     sessionCount: "세션 {count}개",
     otherPaths: "기타 경로",
+    otherBranchesShown: "분기 {total}개 중 {shown}개 표시",
+    otherBranchDetailsUnavailable: "이 여정 트리에는 분기 세부 정보가 없습니다",
+    otherBranchSourceKey: "원본 단계 키: {key}",
     htmlLanguage: "ko-KR",
   },
   composer: { menu: { integrations: "연동" } },
@@ -217,7 +222,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "디자인",
+    home: "홈",
     templates: "템플릿",
     designSystems: "디자인 시스템",
     setupDesignSystem: "디자인 시스템 설정",
@@ -761,13 +766,16 @@ export default {
       needsConnectedApp: "소스로 이동하려면 연결된 앱이 필요합니다",
     },
     leftRail: {
-      file: "파일",
+      layers: "레이어",
       agent: "에이전트",
       assets: "에셋",
       import: "가져오기",
       tools: "도구",
       tokens: "토큰",
       label: "디자인 작업공간",
+      account: "계정",
+      collapse: "사이드바 접기",
+      expand: "사이드바 펼치기",
     },
     breakpointBar: {
       base: "기본",
@@ -859,12 +867,10 @@ export default {
       "{{path}}이(가) 열린 이후 디스크에서 변경되었습니다. 화면을 새로고침한 후 다시 시도하세요.",
     applyToSourceError: "소스에 저장하지 못했습니다: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "토큰 가져오기",
       importTitle: "토큰 가져오기",
       importHint:
@@ -876,6 +882,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "붙여넣은 토큰 가져오기",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      count: "토큰 {{count}}개",
+      search: "토큰 검색",
+      noMatches: "일치하는 토큰이 없습니다",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1062,7 +1071,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
-      designs: "디자인",
+      allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
       duplicate: "복제",
       versionHistory: "버전 기록",
@@ -1597,6 +1606,13 @@ export default {
       permissionPromptSettingsInstructions:
         "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
+      previewCredentialsUnavailableTitle:
+        "로컬 미리보기 자격 증명을 사용할 수 없습니다",
+      previewCredentialsUnavailableDescription:
+        "검사기에서 이 화면의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
+      publicPreviewUnavailableDescription:
+        "로컬호스트 미리보기는 공개 사용자와 공유되지 않습니다. 이 화면을 보려면 공동작업자로 이 디자인을 여세요.",
+      previewCredentialsRetry: "자격 증명 다시 시도",
     },
   },
   multiScreenCanvas: {
@@ -1682,9 +1698,11 @@ export default {
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
     imageAttachmentUnavailable:
-      "이 이미지를 시각 입력으로 준비하지 못했습니다. 더 작은 PNG, JPG, GIF 또는 WebP 파일을 첨부하세요.",
+      "이 이미지를 업로드할 수 있도록 준비하지 못했습니다. JPG, PNG, GIF 또는 WebP 이미지를 사용해 보세요.",
+    imageAttachmentTooLarge:
+      "이미지는 각각 최대 {{perFile}}MB, 전체 최대 {{total}}MB까지 첨부할 수 있습니다.",
     attachmentsTooLarge:
-      "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
+      "이미지는 자동으로 최적화됩니다. 최적화된 이미지와 다른 파일의 총 크기는 {{max}}MB 이하여야 합니다.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
     skipPrompt: "프롬프트 건너뛰기",
     startBlankCanvas: "빈 캔버스로 시작",
@@ -1843,7 +1861,7 @@ export default {
     browseAllTemplates: "모두 둘러보기",
     connectBuilderIo: "Builder.io 사용",
     connectingBuilder: "Builder.io 설정 중…",
-    pageTitle: "Design",
+    pageTitle: "홈",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
     newDesignLower: "새로운 디자인",

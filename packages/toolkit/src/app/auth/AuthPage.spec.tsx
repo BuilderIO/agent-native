@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 
 import { getOnboardingHtml as getCoreOnboardingHtml } from "@agent-native/core/server/onboarding-html";
+import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
   AuthPage,
+  hasInvalidVerificationLinkInSearch,
   isAuthenticatedAuthSession,
   isConfirmedAnonymousAuthSession,
   isVerificationLinkInvalid,
@@ -62,6 +64,20 @@ describe("AuthPage", () => {
       propsFromHtml(getOnboardingHtml({ requestPath: "/?error=INVALID_TOKEN" }))
         .initialView,
     ).toBe("login");
+  });
+
+  it("recognizes invalid verification links inside the sign-in continuation", () => {
+    const continuation = encodeContinuation("/home?error=INVALID_TOKEN");
+
+    expect(hasInvalidVerificationLinkInSearch(`?c=${continuation}`)).toBe(true);
+    expect(shouldStartWithLocalDev("/sign-in", `?c=${continuation}`)).toBe(
+      false,
+    );
+    expect(
+      hasInvalidVerificationLinkInSearch(
+        `?c=${encodeContinuation("/home?error=INVALID_CALLBACK_URL")}`,
+      ),
+    ).toBe(false);
   });
 
   it("hides account-only guidance when local development sign-in is available", () => {

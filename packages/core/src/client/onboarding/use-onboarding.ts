@@ -17,6 +17,7 @@ import {
   scheduleAfterPaint,
   scheduleAfterStartup,
 } from "../use-after-paint.js";
+import { useSessionPreloading } from "../use-session.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
@@ -786,6 +787,7 @@ export interface UseOnboardingResult {
   profile: OnboardingAppProfile | null;
   loading: boolean;
   error: string | null;
+  summaryKnown: boolean;
   currentStepId: string | null;
   completeCount: number;
   totalCount: number;
@@ -815,6 +817,7 @@ export function useOnboarding(
   const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [summaryKnown, setSummaryKnown] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [firstRun, setFirstRun] = useState(preview || initialFirstRun);
   const [completeFirstRunError, setCompleteFirstRunError] = useState<
@@ -845,10 +848,14 @@ export function useOnboarding(
           : initialFirstRun
             ? Promise.resolve(true)
             : fetchFirstRunOnboardingStatus();
-        const [summary, firstRunRes] = await Promise.all([
-          readOnboardingSummary(summaryUrl, reuseSharedRead !== true),
-          firstRunPromise,
-        ]);
+        const firstRunResultPromise = firstRunPromise.then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          (reason: unknown) => ({ status: "rejected" as const, reason }),
+        );
+        const summary = await readOnboardingSummary(
+          summaryUrl,
+          reuseSharedRead !== true,
+        );
         if (
           !mountedRef.current ||
           fetchGeneration !== fetchGenerationRef.current
@@ -874,14 +881,27 @@ export function useOnboarding(
         setSteps(summary.steps);
 
         setProfile(summary.profile);
+        setDismissed(!!summary.dismissed);
+        setSummaryKnown(true);
+        setError(null);
+
+        const firstRunResult = await firstRunResultPromise;
+        if (
+          !mountedRef.current ||
+          fetchGeneration !== fetchGenerationRef.current
+        ) {
+          return;
+        }
+        if (firstRunResult.status === "rejected") {
+          throw firstRunResult.reason;
+        }
 
         if (preview) {
           setFirstRun(true);
         } else if (!initialFirstRun) {
-          setFirstRun(firstRunRes === true);
+          setFirstRun(firstRunResult.value === true);
         }
 
-        setDismissed(!!summary.dismissed);
         setError(null);
       } catch (e) {
         if (
@@ -911,8 +931,12 @@ export function useOnboarding(
   );
   const deferUntilStartup =
     !preview && !initialFirstRun && !(firstRunSurface && !firstRunCookieAbsent);
+  const preloading = useSessionPreloading();
 
   useEffect(() => {
+    // Under a hinted preload the session is unknown. Onboarding events from
+    // this read would carry the anonymous identity, so the read waits for it.
+    if (preloading) return;
     mountedRef.current = true;
     let initialFetchRan = false;
     const schedule = deferUntilStartup
@@ -943,7 +967,7 @@ export function useOnboarding(
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
-  }, [deferUntilStartup, fetchAll]);
+  }, [deferUntilStartup, fetchAll, preloading]);
 
   const complete = useCallback(
     async (id: string) => {
@@ -963,6 +987,11 @@ export function useOnboarding(
         flow: "checklist",
         step_id: id,
       });
+      const updatedSteps = stepsRef.current.map((step) =>
+        step.id === id ? { ...step, complete: true } : step,
+      );
+      stepsRef.current = updatedSteps;
+      setSteps(updatedSteps);
       await fetchAll();
     },
     [fetchAll],
@@ -1069,6 +1098,7 @@ export function useOnboarding(
     profile,
     loading,
     error,
+    summaryKnown,
     currentStepId,
     completeCount,
     totalCount,

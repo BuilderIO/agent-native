@@ -15,6 +15,56 @@ export class ReplayScreenshotAssetError extends Error {
   }
 }
 
+export class ReplayScreenshotCaptureError extends Error {
+  constructor(
+    readonly reason:
+      | "captureSetup"
+      | "replayRender"
+      | "stageRender"
+      | "pngEncode"
+      | "unsupportedColor"
+      | "unsupportedImageFunction"
+      | "unsupportedTransform"
+      | "rendererCloneWindow"
+      | "rendererCloneElement",
+  ) {
+    super("Replay screenshot capture failed");
+    this.name = "ReplayScreenshotCaptureError";
+  }
+}
+
+function rendererFailureReason(
+  error: unknown,
+  fallback: ReplayScreenshotCaptureError["reason"],
+): ReplayScreenshotCaptureError["reason"] {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+  // Only fixed codes leave this boundary; renderer errors can contain replay asset URLs.
+  if (message.startsWith("Attempting to parse an unsupported color function "))
+    return "unsupportedColor";
+  if (message.startsWith("Attempting to parse an unsupported image function "))
+    return "unsupportedImageFunction";
+  if (
+    message.startsWith("Attempting to parse an unsupported transform function ")
+  )
+    return "unsupportedTransform";
+  if (
+    message === "Unable to find iframe window" ||
+    message === "No window assigned for iframe"
+  )
+    return "rendererCloneWindow";
+  if (
+    message === "Unable to find element in cloned iframe" ||
+    /^Error finding the [A-Z]+ in the cloned document$/.test(message)
+  )
+    return "rendererCloneElement";
+  return fallback;
+}
+
 const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
 const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 2;
 const REPLAY_FONT_TIMEOUT_MS = 8_000;
@@ -32,7 +82,7 @@ const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
 
 type ReplayImageResource = { document: Document; url: string };
 type ReplayScreenshotAssets = Map<Document, Map<string, string>>;
-type Html2Canvas = typeof import("html2canvas").default;
+type Html2Canvas = typeof import("html2canvas-pro").default;
 
 function readUint32BE(bytes: Uint8Array, offset: number): number {
   return new DataView(
@@ -725,6 +775,7 @@ export function crossOriginImageUrls(document: Document): string[] {
 export async function assertRemoteImagesCapturable(
   document: Document,
   signal?: AbortSignal,
+  credentials: RequestCredentials = "same-origin",
 ): Promise<ReplayScreenshotAssets> {
   const documents = replayDocuments(document);
   const resources = imageResourcesInDocuments(documents);
@@ -763,7 +814,7 @@ export async function assertRemoteImagesCapturable(
           throw new ReplayScreenshotAssetError();
         }
         const response = await fetch(resource.url, {
-          credentials: "same-origin",
+          credentials,
           mode: "cors",
           signal: controller.signal,
         });
@@ -1124,6 +1175,8 @@ export function inlineReplayAssets(
 }
 
 async function assertDocumentFontsReady(document: Document): Promise<void> {
+  // rrweb rebuilds with document.open(); font readiness also waits for parsing to finish.
+  if (document.readyState === "loading") document.close();
   const fontSet = document.fonts;
   if (!fontSet?.ready) return;
 
@@ -1274,6 +1327,7 @@ export async function captureReplayScreenshot(
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
   signal?: AbortSignal,
+  options: { assetCredentials?: RequestCredentials } = {},
 ): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
@@ -1305,12 +1359,18 @@ export async function captureReplayScreenshot(
     REPLAY_SCREENSHOT_MARKER,
   );
   const stageFrameMarker = `${captureId}-stage-frame`;
+  let failureReason:
+    | "captureSetup"
+    | "replayRender"
+    | "stageRender"
+    | "pngEncode" = "captureSetup";
   try {
     await assertReplayFontsReady(replayDocument, signal);
     assertCaptureAvailable();
     const replayAssets = await assertRemoteImagesCapturable(
       replayDocument,
       signal,
+      options.assetCredentials,
     );
     assertCaptureAvailable();
     await waitForReplayPaint(signal);
@@ -1321,8 +1381,9 @@ export async function captureReplayScreenshot(
     assertScreenshotDimensions(width, height);
 
     iframe.setAttribute(REPLAY_SCREENSHOT_MARKER, stageFrameMarker);
-    const { default: html2canvas } = await import("html2canvas");
+    const { default: html2canvas } = await import("html2canvas-pro");
     assertCaptureAvailable();
+    failureReason = "replayRender";
     const replayImageUrl = await captureReplayDocument(
       replayDocument,
       replayAssets,
@@ -1334,6 +1395,7 @@ export async function captureReplayScreenshot(
     );
     assertCaptureAvailable();
 
+    failureReason = "stageRender";
     const canvas = await html2canvas(stageRoot, {
       allowTaint: false,
       backgroundColor:
@@ -1382,9 +1444,15 @@ export async function captureReplayScreenshot(
     });
     assertCaptureAvailable();
     assertScreenshotDimensions(canvas.width, canvas.height);
+    failureReason = "pngEncode";
     const blob = await canvasToBlob(canvas);
     assertCaptureAvailable();
     return blob;
+  } catch (error) {
+    if (error instanceof ReplayScreenshotAssetError) throw error;
+    throw new ReplayScreenshotCaptureError(
+      rendererFailureReason(error, failureReason),
+    );
   } finally {
     if (previousStageFrameMarker === null) {
       iframe.removeAttribute(REPLAY_SCREENSHOT_MARKER);

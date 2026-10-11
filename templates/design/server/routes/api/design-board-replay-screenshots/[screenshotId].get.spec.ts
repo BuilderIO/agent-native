@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   getDb: vi.fn(),
+  getQuery: vi.fn(),
   getRouterParam: vi.fn(),
   getSession: vi.fn(),
   readPrivateBlob: vi.fn(),
+  ForbiddenError: class extends Error {
+    statusCode = 403;
+  },
   row: undefined as
     | {
         id: string;
@@ -33,6 +37,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  ForbiddenError: mocks.ForbiddenError,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -43,11 +48,19 @@ vi.mock("h3", () => ({
   createError: ({
     statusCode,
     statusMessage,
+    headers,
   }: {
     statusCode: number;
     statusMessage: string;
-  }) => Object.assign(new Error(statusMessage), { statusCode, statusMessage }),
+    headers?: HeadersInit;
+  }) =>
+    Object.assign(new Error(statusMessage), {
+      statusCode,
+      statusMessage,
+      headers: headers ? new Headers(headers) : undefined,
+    }),
   defineEventHandler: (handler: unknown) => handler,
+  getQuery: mocks.getQuery,
   getRouterParam: mocks.getRouterParam,
   setResponseHeader: mocks.setResponseHeader,
 }));
@@ -66,10 +79,15 @@ vi.mock("../../../db/index.js", () => ({
   },
 }));
 
+import { ForbiddenError } from "@agent-native/core/sharing";
+
 import handler from "./[screenshotId].get.js";
 
 function makeEvent() {
-  return { screenshotId: "screenshot-id" };
+  return {
+    screenshotId: "screenshot-id",
+    res: { errHeaders: new Headers() },
+  };
 }
 
 describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
@@ -95,6 +113,7 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       orgId: "org-id",
     });
     mocks.getRouterParam.mockReturnValue("screenshot-id");
+    mocks.getQuery.mockReturnValue({});
     mocks.runWithRequestContext.mockImplementation((_context, callback) =>
       callback(),
     );
@@ -131,6 +150,110 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       opaque: true,
       encrypted: true,
     });
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
+      "same-origin",
+    );
+  });
+
+  it("keeps the same-origin resource policy when private blob integrity checks fail", async () => {
+    mocks.readPrivateBlob.mockResolvedValue({
+      data: new Uint8Array([...imageData, 0]),
+      mimeType: "image/png",
+    });
+    const event = makeEvent();
+
+    const error = await handler(event as never).catch(
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({
+      statusCode: 502,
+      statusMessage: "Stored screenshot failed integrity checks",
+    });
+    expect(
+      (error as { headers?: Headers }).headers?.get(
+        "Cross-Origin-Resource-Policy",
+      ),
+    ).toBe("same-origin");
+    expect((error as { headers?: Headers }).headers?.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+    expect(event.res.errHeaders.get("Cross-Origin-Resource-Policy")).toBe(
+      "same-origin",
+    );
+    expect(event.res.errHeaders.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
+      "same-origin",
+    );
+  });
+
+  it("keeps the same-origin resource policy and does not read a screenshot when viewer access is denied", async () => {
+    mocks.assertAccess.mockRejectedValue(new ForbiddenError("No access"));
+    const event = makeEvent();
+
+    const error = await handler(event as never).catch(
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({
+      statusCode: 403,
+      statusMessage: "Forbidden",
+    });
+    expect(
+      (error as { headers?: Headers }).headers?.get(
+        "Cross-Origin-Resource-Policy",
+      ),
+    ).toBe("same-origin");
+    expect((error as { headers?: Headers }).headers?.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+
+    expect(event.res.errHeaders.get("Cross-Origin-Resource-Policy")).toBe(
+      "same-origin",
+    );
+    expect(event.res.errHeaders.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cross-Origin-Resource-Policy",
+      "same-origin",
+    );
+  });
+
+  it("keeps response security headers for unexpected errors", async () => {
+    mocks.assertAccess.mockRejectedValue(new Error("Access lookup failed"));
+    const event = makeEvent();
+
+    await expect(handler(event as never)).rejects.toThrow(
+      "Access lookup failed",
+    );
+
+    expect(event.res.errHeaders.get("Cross-Origin-Resource-Policy")).toBe(
+      "same-origin",
+    );
+    expect(event.res.errHeaders.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("rejects a parent bridge scope that does not own the screenshot", async () => {
+    mocks.getQuery.mockReturnValue({ designId: "another-design-id" });
+
+    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+      statusCode: 404,
+      statusMessage: "Screenshot not found",
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
   });
 
   it("rejects fallback handles without both prefixes and encryption", async () => {

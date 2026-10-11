@@ -12,12 +12,12 @@ import {
   type InlineAttachmentBlockReason,
 } from "./inline-attachment-limits.js";
 import {
+  claimOwnedAttachmentHydrationCandidate,
   createOwnedAttachmentHydrationBudget,
   describeOwnedFileReadFailure,
   describeOwnedImageReadFailure,
   hydrateOwnedFileUrl,
   hydrateOwnedImageUrl,
-  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
   type OwnedAttachmentHydrationBudget,
   type OwnedAttachmentReadFailure,
   type OwnedFileReadFailureCode,
@@ -259,6 +259,7 @@ export async function preUploadAttachments(opts: {
   attachments: AgentChatAttachment[] | undefined;
   ownerEmail: string | null | undefined;
   includeFiles?: boolean;
+  hydrationBudget?: OwnedAttachmentHydrationBudget;
 }): Promise<PreUploadAttachmentsResult> {
   const list = Array.isArray(opts.attachments) ? opts.attachments : [];
   const includeFiles = opts.includeFiles !== false;
@@ -266,8 +267,7 @@ export async function preUploadAttachments(opts: {
   const uploadedFiles: PreUploadedFileAttachment[] = [];
   const readFailures: PreUploadAttachmentsResult["readFailures"] = [];
   const spreadsheetContexts: string[] = [];
-  let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
-  let attachmentHydrationCandidates = 0;
+  let attachmentHydrationBudget = opts.hydrationBudget;
   const summarizedCandidateLimit = new Set<"image" | "file">();
   let providerMissing = false;
   let uploadFailed = false;
@@ -399,17 +399,15 @@ export async function preUploadAttachments(opts: {
         let hydration:
           | Awaited<ReturnType<typeof hydrateOwnedFileUrl>>
           | { kind: "failed"; code: "request-candidate-limit" };
+        attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
         if (
-          attachmentHydrationCandidates >=
-          MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES
+          !claimOwnedAttachmentHydrationCandidate(attachmentHydrationBudget)
         ) {
           hydration = {
             kind: "failed",
             code: "request-candidate-limit",
           };
         } else {
-          attachmentHydrationCandidates += 1;
-          attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
           if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
             hydration = { kind: "failed", code: "request-time-limit" };
           } else if (attachmentHydrationBudget.remainingBytes <= 0) {
@@ -449,17 +447,15 @@ export async function preUploadAttachments(opts: {
         let hydration:
           | Awaited<ReturnType<typeof hydrateOwnedImageUrl>>
           | { kind: "failed"; code: "request-candidate-limit" };
+        attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
         if (
-          attachmentHydrationCandidates >=
-          MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES
+          !claimOwnedAttachmentHydrationCandidate(attachmentHydrationBudget)
         ) {
           hydration = {
             kind: "failed",
             code: "request-candidate-limit",
           };
         } else {
-          attachmentHydrationCandidates += 1;
-          attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
           if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
             hydration = { kind: "failed", code: "request-time-limit" };
           } else if (attachmentHydrationBudget.remainingBytes <= 0) {

@@ -11,6 +11,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { SecretScope } from "../secrets/register.js";
 import {
   deleteAppSecret,
@@ -169,7 +170,7 @@ const INDEXES = [
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const ddl = createSql();
       {
@@ -187,6 +188,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

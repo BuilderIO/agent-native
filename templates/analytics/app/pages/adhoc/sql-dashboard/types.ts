@@ -28,6 +28,7 @@ export type FilterType =
   | "date"
   | "date-range"
   | "select"
+  | "multi-select"
   | "toggle"
   | "text"
   | "toggle-date";

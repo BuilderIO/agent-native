@@ -525,7 +525,10 @@ vi.mock("../agent/run-manager.js", () => ({
           if (terminal) return;
           pendingEventWrites.push(
             options
-              .persistEvent(async () => {}, { terminal: false })
+              .persistEvent(async () => {}, {
+                terminal: false,
+                eventData: JSON.stringify(e),
+              })
               .then(() => {
                 persistedRunEventIds.push(runId);
               }),
@@ -558,7 +561,10 @@ vi.mock("../agent/run-manager.js", () => ({
       try {
         if (onComplete) await onComplete(run);
         if (options?.persistEvent) {
-          await options.persistEvent(async () => {}, { terminal: true });
+          await options.persistEvent(async () => {}, {
+            terminal: true,
+            eventData: '{"type":"done"}',
+          });
           persistedRunEventIds.push(runId);
           persistedTerminalRunEventIds.push(runId);
         }

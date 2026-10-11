@@ -114,8 +114,8 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --corpus ../../.tmp/private/corpus --
 
 Run seeded authoring soak checks. Each seed performs 500 mixed editing steps by
 default, checks caret, typing, layout, exception, undo/redo, and persistence
-invariants, and prints the seed plus a bounded operation log on failure. Use
-`--seeds 20` for the pre-merge cross-browser soak; seeds rotate through
+invariants, and prints the seed plus a bounded operation log on failure. For the
+manual cross-browser soak, use `--seeds 20`; seeds rotate through
 synthetic, absolute, flex/grid, semantic-list, imported flex bullet-row, imported
 paragraph bullet-row, and scaled committed-corpus text targets:
 
@@ -130,9 +130,10 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser
 ```
 
 The `slides-authoring-fuzz-soak.yml` workflow is manual (`workflow_dispatch`). It
-runs 20 seeds of 500 steps for Chromium, WebKit, and Firefox in four five-seed
-shards per browser. PR CI runs one bounded 80-step smoke seed (seed 16) per
-browser. It does not run the full soak.
+runs 20 seeds of 500 steps for each browser, with one seed per job and at most
+four jobs at a time. PR CI runs a bounded 80-step smoke with seed 16 in each
+browser, plus an 80-step seed 2 absolute-layout smoke in Chromium. It does not
+run the full soak.
 
 ## Authoring parity checklist
 

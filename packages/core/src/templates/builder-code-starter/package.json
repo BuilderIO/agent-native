@@ -6,7 +6,7 @@
     "migrate:production": "tsx scripts/migrate-production.ts && pnpm db:migrate",
     "dev": "agent-native dev",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "agent-native db-migrate"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

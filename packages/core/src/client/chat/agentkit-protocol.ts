@@ -52,6 +52,7 @@ import {
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
 import type { AgentChatAttachment } from "../../agent/types.js";
+import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
 import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,
@@ -4044,10 +4045,18 @@ export function createAgentKitProtocolAdapter(
           { code: CONTINUE_UNAVAILABLE_CODE, retryable: false },
         );
       }
+      const attachments = (input.attachments ?? [])
+        .filter(
+          (part) =>
+            !part.omitted &&
+            (part.fileId !== undefined || isPersistableAttachmentUrl(part.url)),
+        )
+        .map(runtimeAttachmentFromFilePart);
       const turn = await session.continueTurn({
         turnId: state.turnId,
         prompt: AUTO_CONTINUE_PROMPT,
         metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: state.runId },
+        ...(attachments.length ? { attachments } : {}),
         abortSignal: readers.signal,
       });
       const runId = await openStartedRun(

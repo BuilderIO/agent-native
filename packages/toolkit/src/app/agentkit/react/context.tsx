@@ -276,6 +276,7 @@ export interface AgentKitLabels {
   collapseMessage: string;
   previewAttachment: string;
   pastedText: string;
+  attachmentNotSaved: string;
   imagePreview: string;
   closePreview: string;
   dropFilesToAttach: string;
@@ -394,6 +395,7 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   collapseMessage: "Collapse",
   previewAttachment: "Preview {{name}}",
   pastedText: "Pasted text",
+  attachmentNotSaved: "Not saved with this chat",
   imagePreview: "Image preview",
   closePreview: "Close preview",
   dropFilesToAttach: "Drop files to attach",
@@ -953,6 +955,10 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       queue: (text: string) => controller.queueMessage({ threadId, text }),
       queueMessage: (input: Omit<SendMessageInput, "threadId">) =>
         controller.queueMessage({ ...input, threadId }),
+      reserveQueuedMessage: (text: string, onLocalSubmit?: () => void) =>
+        controller.reserveQueuedMessage({ threadId, text }, onLocalSubmit),
+      cancelQueuedMessageReservation: (messageId: string) =>
+        controller.cancelQueuedMessageReservation(threadId, messageId),
       cancel: (runId: string) => controller.cancelRun(threadId, runId),
       canContinueRun: controller.supportsRunContinuation?.() === true,
       continueRun: (runId: string) =>

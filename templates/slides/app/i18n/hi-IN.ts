@@ -238,6 +238,7 @@ const messages = {
     importCompleteFile: "{{fileName}} से फ़ाइल आयात हुई।",
     backToDecks: "डेक पर वापस जाएं",
     toggleSlideList: "स्लाइड सूची टॉगल करें",
+    openInAgentNative: "Agent-Native में खोलें",
     designSystem: "डिज़ाइन सिस्टम",
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",

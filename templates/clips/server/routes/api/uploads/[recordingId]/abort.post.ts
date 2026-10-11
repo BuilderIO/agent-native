@@ -30,6 +30,7 @@ import {
   getResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
 
 function uploadStateMatchesRecording(
   state: Record<string, unknown>,
@@ -219,6 +220,15 @@ export async function handleAbortRecordingUpload(
       return {
         error: "A newer upload retry is already active.",
         staleAttempt: true,
+      };
+    }
+
+    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
       };
     }
 

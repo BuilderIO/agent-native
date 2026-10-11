@@ -17,6 +17,7 @@ import {
 import { ToolkitProvider } from "../../../provider.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentActivityGroup,
   AgentConnectionErrorView,
   AgentKitComposer,
   AgentKitChat,
@@ -703,6 +704,307 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Read framework contracts");
     expect(html).toContain("Agent-Native");
     expect(html.match(/Read framework contracts/g)).toHaveLength(1);
+  });
+
+  it("names a delegated app once per interaction row and shows why it failed", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const transport: AgentTransport = {
+      capabilities: { multiAgentActivity: true },
+      async startRun() {
+        return { runId: "run-delegated-failure" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-1",
+          runId: "run-delegated-failure",
+          occurredAt: "2026-10-06T00:00:00.000Z",
+        };
+        yield { ...base, id: "event-1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 2,
+          type: "agent.registered",
+          agent: {
+            id: "call-ok",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "working",
+            origin: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 3,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-ok:delegated:1",
+            kind: "delegated",
+            agentId: "call-ok",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 4,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-ok:completed:2",
+            kind: "completed",
+            agentId: "call-ok",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-5",
+          sequence: 5,
+          type: "agent.registered",
+          agent: {
+            id: "call-bad",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "failed",
+            origin: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-6",
+          sequence: 6,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-bad:failed:3",
+            kind: "failed",
+            agentId: "call-bad",
+            detail: "Needs setup first",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield { ...base, id: "event-7", sequence: 7, type: "run.completed" };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    // The prompt must not contain the app name: the feed renders it as text.
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Ask the app",
+    });
+    await run.completed;
+
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-1">
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    // Each row is a flat div, so its markup ends at the first closing tag.
+    const rows = html
+      .split('<div class="agentkit-agent-interaction"')
+      .slice(1)
+      .map((markup) => markup.split("</div>")[0]);
+
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.match(/Brain/g)).toHaveLength(1);
+      expect(row).not.toContain("agentkit-object");
+    }
+    expect(rows[0]).toContain("delegated work");
+    expect(rows[1]).toContain("finished");
+    expect(rows[2]).toContain("needs attention");
+    expect(rows[2]).toContain("Needs setup first");
+  });
+
+  it("names a delegated app once in its activity, task, and message rows", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const transport: AgentTransport = {
+      capabilities: { multiAgentActivity: true },
+      async startRun() {
+        return { runId: "run-delegated-rows" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-1",
+          runId: "run-delegated-rows",
+          occurredAt: "2026-10-06T00:00:00.000Z",
+        };
+        yield { ...base, id: "event-1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 2,
+          type: "agent.registered",
+          agent: {
+            id: "call-1",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "working",
+            origin: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 3,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-1:message:3",
+            kind: "messaged",
+            agentId: "call-1",
+            detail: "Found the runtime boundary.",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 4,
+          type: "activity.started",
+          activity: {
+            id: "call-1:progress",
+            kind: "agent",
+            label: "processing",
+            detail: "Reading the contract",
+            status: "running",
+            agentId: "call-1",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-5",
+          sequence: 5,
+          type: "task.created",
+          task: {
+            id: "remote-task-1",
+            title: "Brain",
+            kind: "delegated-agent",
+            status: "running",
+            assignedAgentId: "call-1",
+            source: app,
+          },
+        };
+        yield { ...base, id: "event-6", sequence: 6, type: "run.completed" };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Ask the app",
+    });
+    await run.completed;
+
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-1">
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    // Each row is a flat div, so its markup ends at the first closing tag.
+    const row = (className: string) => {
+      const markup = html.match(
+        new RegExp(`<div class="${className}"[^]*?</div>`),
+      )?.[0];
+      expect(markup, className).toBeDefined();
+      return markup!;
+    };
+    const message = row("agentkit-agent-interaction");
+    const activity = row("agentkit-activity-row");
+    const task = row("agentkit-task-row");
+
+    for (const markup of [message, activity, task]) {
+      expect(markup.match(/Brain/g)).toHaveLength(1);
+      expect(markup).not.toContain("agentkit-object");
+    }
+    expect(message).toContain("sent a message");
+    expect(message).toContain("Found the runtime boundary");
+    expect(activity).toContain("Working");
+    expect(activity).toContain("Reading the contract");
+  });
+
+  it("names a delegated app once in a repeated activity cluster", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const transport: AgentTransport = {
+      capabilities: { multiAgentActivity: true },
+      async startRun() {
+        return { runId: "run-delegated-cluster" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-1",
+          runId: "run-delegated-cluster",
+          occurredAt: "2026-10-06T00:00:00.000Z",
+        };
+        yield { ...base, id: "event-1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 2,
+          type: "agent.registered",
+          agent: {
+            id: "call-1",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "working",
+            origin: app,
+          },
+        };
+        for (const [index, id] of ["call-1:a", "call-1:b"].entries()) {
+          yield {
+            ...base,
+            id: `event-${index + 3}`,
+            sequence: index + 3,
+            type: "activity.completed",
+            activity: {
+              id,
+              kind: "agent",
+              label: "processing",
+              status: "completed",
+              agentId: "call-1",
+              scope: "external",
+              source: app,
+            },
+          };
+        }
+        yield { ...base, id: "event-5", sequence: 5, type: "run.completed" };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Ask the app",
+    });
+    await run.completed;
+
+    // The chat feed lists delegated activities itself; the group is where a
+    // delegated app's repeated activities cluster.
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-1">
+        <AgentActivityGroup runId="run-delegated-cluster" />
+      </AgentKitProvider>,
+    );
+    const summary = html.match(
+      /<summary class="agentkit-activity-row">[^]*?<\/summary>/,
+    )?.[0];
+
+    expect(summary).toContain("×2");
+    expect(summary).toContain("Working");
+    expect(summary?.match(/Brain/g)).toHaveLength(1);
+    expect(summary).not.toContain("agentkit-object");
   });
 
   it("distinguishes run state, searches, and MCP tools in activity traces", async () => {

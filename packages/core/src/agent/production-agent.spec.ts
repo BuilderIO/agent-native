@@ -20,6 +20,10 @@ import {
 } from "../app-config/run-lifecycle-invariants.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
+import {
+  createOwnedAttachmentHydrationBudget,
+  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+} from "../file-upload/owned-attachment.js";
 import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
 import * as fileUploadRegistry from "../file-upload/registry.js";
 import {
@@ -30,6 +34,9 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import * as experiments from "../observability/experiments.js";
+import * as appRoles from "../org/app-roles.js";
+import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -37,10 +44,12 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import * as settingsStore from "../settings/store.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
+  EngineContentPart,
   EngineEvent,
   EngineMessage,
   EngineStreamOptions,
@@ -56,6 +65,7 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
@@ -64,7 +74,9 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   appendRequestAttachmentContextToResumedHistory,
+  endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
+  queuedPromotionAttachments,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
@@ -89,6 +101,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
   resolveAgentExperimentModelOverride,
+  resolveAgentExperimentSelection,
   resolveAgentOwnerEmail,
   resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
@@ -109,6 +122,7 @@ import {
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
+  hydrateStructuredHistoryImageReferences,
   trimOldToolResults,
   type ActionEntry,
   type AgentActionSurfaceDetails,
@@ -117,8 +131,13 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runStore from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
-import type { AgentChatEvent, RunEvent } from "./types.js";
+import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
 
 function createProductionAgentHandler(
   options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
@@ -298,6 +317,25 @@ function actionEntry(opts: {
   };
 }
 
+function preExecutionCheckedWrite(
+  check: (args: Record<string, unknown>) => Promise<unknown>,
+): ActionEntry {
+  const run = vi.fn(async () => "saved");
+  return {
+    ...actionEntry({ readOnly: false }),
+    ...defineAction({
+      description: "Test checked write",
+      schema: z.record(z.string(), z.unknown()),
+      readOnly: false,
+      authorize: async (args) => {
+        await check(args);
+        return true;
+      },
+      run,
+    }),
+  };
+}
+
 function engineWithUncalledStream(): AgentEngine {
   return {
     name: "test",
@@ -331,6 +369,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
+  options?: { threadId: string; turnId: string },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -385,6 +424,7 @@ async function runToolCallSequence(
     actions,
     send: (event) => events.push(event),
     signal: new AbortController().signal,
+    ...options,
   });
 
   return events;
@@ -487,6 +527,33 @@ describe("resolveAgentExperimentModelOverride", () => {
         experimentModel: "gpt-5-6-luna",
       }),
     ).toBe("gpt-5-6-luna");
+  });
+
+  it("records assignments unless the request pins a model", () => {
+    const assignments = [
+      { experimentId: "experiment-1", variantId: "variant-b" },
+    ];
+
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ assignments: [] });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ model: "gpt-5-6-luna", assignments });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        assignments,
+      }),
+    ).toEqual({ assignments });
   });
 });
 
@@ -836,6 +903,45 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("serializeDurableDispatchPayload", () => {
+  it.each([false, true])(
+    "preserves own JSON keys in saved request context with attachments=%s",
+    (withAttachment) => {
+      const body = JSON.parse(
+        '{"message":"finish the original ticket","__proto__":{"request":"original"},"metadata":{"__proto__":{"saved":"original"},"visible":"keep"},"structuredHistory":[{"metadata":{"__proto__":{"turn":"original"}}}]}',
+      );
+      const expected = JSON.parse(JSON.stringify(body));
+      if (withAttachment) {
+        const metadata = JSON.parse(
+          '{"__proto__":{"saved":"original attachment"},"visible":"keep"}',
+        );
+        body.attachments = [
+          {
+            type: "image",
+            url: "https://files.example.test/reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            metadata,
+          },
+        ];
+        expected.attachments = [
+          { type: "image", url: body.attachments[0].url, metadata },
+        ];
+      }
+      const payload = serializeDurableDispatchPayload(body);
+      const saved = JSON.parse(payload);
+      expect(saved).toEqual(expected);
+      expect(Object.hasOwn(saved, "__proto__")).toBe(true);
+      expect(Object.hasOwn(saved.metadata, "__proto__")).toBe(true);
+      expect(
+        Object.hasOwn(saved.structuredHistory[0].metadata, "__proto__"),
+      ).toBe(true);
+      if (withAttachment)
+        expect(Object.hasOwn(saved.attachments[0].metadata, "__proto__")).toBe(
+          true,
+        );
+      expect(payload).not.toContain("INLINE_IMAGE_BYTES");
+    },
+  );
+
   it("keeps the resized vision URL and original reference when stripping inline pixels", () => {
     const payload = serializeDurableDispatchPayload({
       attachments: [
@@ -867,6 +973,22 @@ describe("serializeDurableDispatchPayload", () => {
           name: "screen.png",
           data: "data:image/png;base64,INLINE_IMAGE_BYTES",
           url: "https://files.example.test/screen.png",
+          metadata: {
+            base64: "A".repeat(96),
+            bytes: new Uint8Array([0, 1, 2, 3]),
+            preview: {
+              url: "data:image/png;base64,INLINE_NESTED_PREVIEW_URL",
+              data: "data:image/png;base64,INLINE_NESTED_PREVIEW_BYTES",
+              bytes: [4, 5, 6],
+            },
+            references: [
+              {
+                thumbnail: {
+                  src: "data:image/png;base64,INLINE_NESTED_THUMBNAIL_URL",
+                },
+              },
+            ],
+          },
         },
       ],
       requestAttachments: [
@@ -874,6 +996,7 @@ describe("serializeDurableDispatchPayload", () => {
           type: "image",
           name: "reference.png",
           data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+          url: "https://files.example.test/reference-resized.png",
           referenceUrl: "https://files.example.test/reference.png",
         },
       ],
@@ -883,7 +1006,7 @@ describe("serializeDurableDispatchPayload", () => {
           parts: [
             {
               type: "image",
-              data: "INLINE_HISTORY_IMAGE_BYTES",
+              data: "data:image/png;base64,INLINE_HISTORY_IMAGE_BYTES",
               url: "https://files.example.test/history.png",
             },
           ],
@@ -893,20 +1016,45 @@ describe("serializeDurableDispatchPayload", () => {
     const parsed = JSON.parse(payload);
 
     expect(payload).not.toContain("INLINE_");
+    expect(payload).not.toContain("data:image/");
     expect(parsed.attachments[0]).toEqual({
       type: "image",
       name: "screen.png",
       url: "https://files.example.test/screen.png",
+      metadata: { preview: {}, references: [{ thumbnail: {} }] },
     });
     expect(parsed.requestAttachments[0]).toEqual({
       type: "image",
       name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
       referenceUrl: "https://files.example.test/reference.png",
     });
     expect(parsed.structuredHistory[0].parts[0]).toEqual({
       type: "image",
       url: "https://files.example.test/history.png",
     });
+  });
+
+  it("redacts data URLs outside attachment fields", () => {
+    const preview = "data:image/png;base64,INLINE_UNRELATED_PREVIEW";
+    const payload = serializeDurableDispatchPayload({
+      metadata: { preview },
+    });
+
+    expect(JSON.parse(payload).metadata.preview).toBe(
+      "[inline image/png data omitted]",
+    );
+    expect(payload).not.toContain(preview);
+  });
+
+  it("treats only recognizable data URLs as inline attachment data", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        { type: "file", name: "notes.txt", data: "plain text metadata" },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0].data).toBe("plain text metadata");
   });
 
   it("fails closed when attachment bytes have no durable reference", () => {
@@ -923,6 +1071,72 @@ describe("serializeDurableDispatchPayload", () => {
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
 
+  it("recognizes short raw base64 in attachment payload fields", () => {
+    const tinyGifBase64 = "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+    expect(tinyGifBase64.length).toBeLessThan(64);
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "tiny.gif",
+            data: tinyGifBase64,
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it.each([
+    ["raw base64 metadata", { metadata: { base64: "A".repeat(96) } }],
+    [
+      "nested preview URL",
+      { metadata: { preview: { url: "data:image/png;base64,INLINE" } } },
+    ],
+    ["nested byte arrays", { metadata: { bytes: [0, 1, 2, 3] } }],
+  ])(
+    "requires durable storage for an attachment with %s only",
+    (_label, attachment) => {
+      expect(() =>
+        serializeDurableDispatchPayload({ attachments: [attachment] }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
+
+  it("requires a durable vision URL when an inline request image has only its original reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            referenceUrl: "https://files.example.test/reference-original.png",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("stores neither attachment bytes nor data URLs pasted into text", () => {
+    const payload = serializeDurableDispatchPayload({
+      message: "use data:image/png;base64,iVBORw0KGgo= as the logo",
+      attachments: [
+        {
+          type: "image",
+          name: "logo.png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+          url: "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Flogo",
+        },
+      ],
+    });
+
+    assertNoInlineImageBytes(payload, "dispatch_payload");
+    expect(JSON.parse(payload).message).toBe(
+      "use [inline image/png data omitted] as the logo",
+    );
+  });
+
   it("rejects a data URL masquerading as a durable attachment reference", () => {
     expect(() =>
       serializeDurableDispatchPayload({
@@ -936,9 +1150,117 @@ describe("serializeDurableDispatchPayload", () => {
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
+
+  it.each(["url", "referenceUrl"])(
+    "rejects raw base64 masquerading as an attachment %s",
+    (field) => {
+      expect(() =>
+        serializeDurableDispatchPayload({
+          attachments: [
+            {
+              type: "image",
+              name: "inline-url.png",
+              [field]: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+            },
+          ],
+        }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
+
+  it.each([
+    "https://files.example.test/reference.png?token=private",
+    "https://private-token@files.example.test/reference.png",
+  ])("rejects ephemeral attachment reference %s", (url) => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [{ type: "image", name: "reference.png", url }],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+});
+
+describe("queuedPromotionAttachments", () => {
+  it("promotes a queued image part as a vision image and other files as files", () => {
+    const attachments = queuedPromotionAttachments([
+      {
+        type: "file",
+        name: "ad.png",
+        mediaType: "image/png",
+        url: "https://storage.example.test/ad.png",
+      },
+      {
+        type: "file",
+        name: "brief.pdf",
+        mediaType: "application/pdf",
+        url: "https://storage.example.test/brief.pdf",
+      },
+      { type: "file", name: "notes", fileId: "file-1" },
+    ]);
+
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        name: "ad.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/ad.png",
+      }),
+      expect.objectContaining({ type: "file", name: "brief.pdf" }),
+      expect.objectContaining({ type: "file", name: "notes", id: "file-1" }),
+    ]);
+  });
+
+  it("treats an image media type with parameters or different case as an image", () => {
+    const [attachment] = queuedPromotionAttachments([
+      {
+        type: "file",
+        name: "photo",
+        mediaType: "IMAGE/JPEG; charset=binary",
+        url: "https://storage.example.test/photo",
+      },
+    ]);
+
+    expect(attachment?.type).toBe("image");
+  });
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it.each([
+    ["Groq Llama 4 Scout", "meta-llama/llama-4-scout-17b-16e-instruct"],
+    ["Groq Qwen 3.6", "qwen/qwen3.6-27b"],
+    ["Mistral Small 3.2", "mistral-small-2506"],
+    ["Cohere Command A Vision", "command-a-vision-07-2025"],
+    ["Ollama Llama 3.2 Vision", "llama3.2-vision:90b"],
+    ["Ollama Gemma 3 4B", "gemma3:4b"],
+    ["Ollama Gemma 3", "gemma3:12b"],
+  ])(
+    "recognizes vision support for %s despite provider defaults",
+    (_label, model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(true);
+    },
+  );
+
+  it.each([
+    "gemma3:1b",
+    "ollama/gemma3:1b",
+    "google/gemma-3-1b-it",
+    "gemma3:270m",
+  ])(
+    "does not classify text-only Gemma models as vision-capable: %s",
+    (model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(false);
+      expect(isAgentModelVisionCapable(model, true)).toBe(false);
+    },
+  );
+
+  it("keeps unknown models on providers without vision disabled", () => {
+    expect(isAgentModelVisionCapable("custom-text-model", false)).toBe(false);
+  });
+
+  it("retains engine vision support for unlisted models", () => {
+    expect(isAgentModelVisionCapable("custom-vision-model", true)).toBe(true);
+  });
+
   it("rehydrates a durable PDF reference into a provider file block", async () => {
     const url = "https://storage.example.test/uploads/reference.pdf";
     const inlinePdf = `data:application/pdf;base64,${PDF_BASE64}`;
@@ -1074,6 +1396,32 @@ describe("buildUserContentWithAttachments", () => {
         .map((part) => part.text)
         .join("\n"),
     ).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("does not send image blocks to engines without vision support", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this image",
+      vision: false,
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(content.some((part) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+    );
+    expect(text).toContain("Describe this image");
+    expect(text).not.toContain(PNG_BASE64);
   });
 
   it("surfaces attachments that arrive without a payload or reference", () => {
@@ -1377,6 +1725,7 @@ describe("buildUserContentWithAttachments", () => {
       .join("\n");
     expect(text).toContain("https://cdn.example.com/url-only.png");
     expect(text).toContain("not sent as a vision image");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -1459,6 +1808,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain('name="report.pdf"');
     expect(text).toContain("no readable contents were included");
     expect(text).not.toContain('code="unsupported-or-malformed-payload"');
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("reports malformed inline payloads as unreadable even when a URL exists", () => {
@@ -1505,6 +1855,28 @@ describe("buildUserContentWithAttachments", () => {
     );
     expect(text).not.toContain("<attachment name=transcript.txt>");
     expect(text).toContain("Summarize the transcript");
+  });
+
+  it("keeps long pasted text readable when it also has a storage URL", () => {
+    const longBody = "A".repeat(60_010);
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the pasted text",
+      attachments: [
+        {
+          type: "file",
+          name: "pasted-text-1718000000000-ab12cd.txt",
+          contentType: "text/plain",
+          text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
+          url: "https://files.example.test/pasted-text.txt",
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain("Attachment truncated after 60,000 characters");
+    expect(text).toContain("Summarize the pasted text");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("caps the aggregate text from multiple attachments", () => {
@@ -1654,6 +2026,318 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("reference-only file");
     expect(text).toContain("https://cdn.example.com/logo.svg");
     expect(text).toContain("Use this logo in the deck");
+  });
+
+  it("hydrates an earlier image reference into a later text-only turn", async () => {
+    const url = "https://storage.example.test/uploads/reference.png";
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Use this as the visual reference." },
+          {
+            type: "image-reference" as const,
+            url,
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PNG_BASE64, "base64"), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Use this as the visual reference." },
+            { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+          ],
+        },
+      ]);
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(JSON.stringify(history)).not.toContain(PNG_BASE64);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hydrates repeated image URLs only once when metadata differs", async () => {
+    const url = "https://storage.example.test/uploads/repeated.png";
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url,
+            name: "first-name.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url,
+            name: "second-name.png",
+            mediaType: "image/jpeg",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const bytes = Buffer.from(PNG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const budget = createOwnedAttachmentHydrationBudget();
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget,
+      });
+
+      expect(resolved).toHaveLength(2);
+      expect([...resolved.values()]).toEqual([
+        { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+        { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+      ]);
+      expect(findProvider).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(budget.remainingCandidates).toBe(
+        MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES - 1,
+      );
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps each image name in failure notes for repeated URLs", async () => {
+    const url = "https://outside.example.test/repeated.png";
+    const history = ["first-name.png", "second-name.png"].map((name) => ({
+      role: "user" as const,
+      content: [
+        {
+          type: "image-reference" as const,
+          url,
+          name,
+          mediaType: "image/png",
+        },
+      ],
+    }));
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const notes = [...resolved.values()].map((resolution) =>
+        resolution.type === "text" ? resolution.text : "",
+      );
+
+      expect(notes).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('image "first-name.png"'),
+          expect.stringContaining('image "second-name.png"'),
+        ]),
+      );
+      expect(findProvider).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prioritizes the newest history images within the shared candidate budget", async () => {
+    const urls = Array.from(
+      { length: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES + 1 },
+      (_, index) => `https://storage.example.test/uploads/image-${index}.png`,
+    );
+    const history = urls.map((url, index) => ({
+      role: "user" as const,
+      content: [
+        { type: "text" as const, text: `Image ${index}` },
+        {
+          type: "image-reference" as const,
+          url,
+          name: `image-${index}.png`,
+          mediaType: "image/png",
+        },
+      ],
+    }));
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      requestedUrls.push(String(input));
+      return new Response(Buffer.from(PNG_BASE64, "base64"), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(requestedUrls).toEqual(urls.slice(1).reverse());
+      expect(messages?.map((message) => message.content[0])).toEqual(
+        urls.map((_, index) => ({ type: "text", text: `Image ${index}` })),
+      );
+      expect(messages?.map((message) => message.content[1]?.type)).toEqual([
+        "text",
+        ...urls.slice(1).map(() => "image"),
+      ]);
+      expect(messages?.[0]?.content[1]).toEqual(
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "the request reached its limit for checking image attachments",
+          ),
+        }),
+      );
+      expect(messages?.slice(1).map((message) => message.content[1])).toEqual(
+        urls.slice(1).map(() => ({
+          type: "image",
+          data: PNG_BASE64,
+          mediaType: "image/png",
+        })),
+      );
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps honest text context when a prior image is not available", async () => {
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url: "https://outside.example.test/reference.png",
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages?.[0]?.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "does not belong to a configured upload provider",
+          ),
+        }),
+      ]);
+      expect(
+        messages?.flatMap((message) => message.content),
+      ).not.toContainEqual(expect.objectContaining({ type: "image" }));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not download prior images for a model without vision", async () => {
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url: "https://storage.example.test/uploads/reference.png",
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi.spyOn(
+      fileUploadRegistry,
+      "findFileUploadProviderOwningUrl",
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: false,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages?.[0]?.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "selected model does not support vision",
+          ),
+        }),
+      ]);
+      expect(findProvider).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {
@@ -1836,7 +2520,9 @@ describe("buildUserContentWithAttachments", () => {
             toolCallId: "history_tc_1",
             toolName: "chat-history",
             toolInput: '{"action":"search"}',
-            content: "Interrupted before this tool returned a result.",
+            content:
+              "Interrupted before this tool returned a result. Its outcome is UNKNOWN: the tool may have run. Verify the current state before repeating any write.",
+            isError: true,
           },
         ],
       },
@@ -2395,6 +3081,50 @@ describe("buildUserContentWithAttachments", () => {
 });
 
 describe("appendRequestAttachmentContextToResumedHistory", () => {
+  it("does not duplicate files or text already combined with the original prompt", () => {
+    const attachments: AgentChatAttachment[] = [
+      {
+        type: "file",
+        name: "refund.pdf",
+        contentType: "application/pdf",
+        data: `data:application/pdf;base64,${PDF_BASE64}`,
+      },
+      {
+        type: "file",
+        name: "refund.txt",
+        contentType: "text/plain",
+        text: "Unique refund attachment text",
+      },
+    ];
+    const content = buildUserContentWithAttachments({
+      text: "Finish this refund",
+      attachments,
+      vision: true,
+    });
+    const messages: EngineMessage[] = [
+      { role: "user", content },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "read-1", name: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read-1",
+            toolName: "read",
+            content: "read result",
+          },
+        ],
+      },
+    ];
+    const original = structuredClone(messages);
+    appendRequestAttachmentContextToResumedHistory(messages, attachments, {
+      vision: true,
+    });
+    expect(messages).toEqual(original);
+  });
   it("restores image pixels and visible attachment failures on durable continuation", () => {
     const messages: EngineMessage[] = [
       {
@@ -2458,6 +3188,40 @@ describe("appendRequestAttachmentContextToResumedHistory", () => {
     expect(
       messages[0]?.content.filter((part) => part.type === "image"),
     ).toHaveLength(1);
+  });
+
+  it("keeps unsupported images as named notes when resuming on a model without vision", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Describe this" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(
+      messages,
+      [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+      { vision: false },
+    );
+
+    expect(messages[0]?.content.some((part) => part.type === "image")).toBe(
+      false,
+    );
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          'code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
   });
 });
 
@@ -2791,7 +3555,35 @@ describe("createProductionAgentHandler", () => {
                   name: "notes.txt",
                   fileId: "file-1",
                   mediaType: "text/plain",
+                  data: "data:text/plain;base64,SGVsbG8=",
                   url: "https://files.example/notes.txt",
+                },
+                {
+                  type: "file",
+                  name: "scan.png",
+                  fileId: "file-image-1",
+                  mediaType: "image/png",
+                  url: "https://files.example/scan-original.png",
+                },
+              ],
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
+                },
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
                 },
               ],
               metadata: { queuedContext: "persisted" },
@@ -2873,12 +3665,35 @@ describe("createProductionAgentHandler", () => {
             id: "file-1",
             mediaType: "text/plain",
             contentType: "text/plain",
+            data: "data:text/plain;base64,SGVsbG8=",
             url: "https://files.example/notes.txt",
+          },
+          {
+            type: "file",
+            name: "scan.png",
+            id: "file-image-1",
+            mediaType: "image/png",
+            contentType: "image/png",
+            url: "https://files.example/scan-original.png",
+            referenceOnly: true,
+          },
+          {
+            type: "image",
+            name: "scan.png",
+            contentType: "image/png",
+            data: "data:image/png;base64,SGVsbG8=",
+            url: "https://files.example/scan-resized.png",
+            id: "file-image-1",
           },
         ],
         references: [],
         mode: "plan",
       });
+      expect(
+        (captured.request as { attachments: unknown[] }).attachments.filter(
+          (attachment) => (attachment as { type?: string }).type === "image",
+        ),
+      ).toHaveLength(1);
       expect(
         JSON.stringify(
           (captured.request as { requestContext?: unknown }).requestContext,
@@ -3115,6 +3930,7 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Inspect this image",
           threadId: "thread-image-payload",
+          __agentNativeBrowserSessionId: "untrusted-session",
           attachments: [
             {
               type: "image",
@@ -3129,7 +3945,11 @@ describe("createProductionAgentHandler", () => {
 
     try {
       const result = await runWithRequestContext(
-        { userEmail: "alice@example.com", run: {} },
+        {
+          userEmail: "alice@example.com",
+          browserSessionId: "origin-session",
+          run: {},
+        },
         () => handler(event),
       );
 
@@ -3145,6 +3965,9 @@ describe("createProductionAgentHandler", () => {
         contentType: "image/png",
         url: "https://files.example.test/screen.png",
       });
+      expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+        "origin-session",
+      );
     } finally {
       preUpload.mockRestore();
       if (previousDurableFlag === undefined) {
@@ -3194,7 +4017,7 @@ describe("createProductionAgentHandler", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: false,
       },
@@ -3255,6 +4078,9 @@ describe("createProductionAgentHandler", () => {
         name: "screen.png",
         url: "https://files.example.test/fallback.png",
       });
+      expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+        null,
+      );
       expect(
         modelMessageInputs.flatMap((messages) =>
           messages.flatMap((message) => message.content),
@@ -3713,7 +4539,7 @@ describe("createProductionAgentHandler", () => {
     expect(stream).not.toHaveBeenCalled();
   });
 
-  it("passes a typed attachment-processing failure into the model request", async () => {
+  it("keeps inline image pixels readable when pre-upload fails", async () => {
     const preUploadFailure = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockRejectedValueOnce(
@@ -3728,7 +4554,7 @@ describe("createProductionAgentHandler", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: false,
       },
@@ -3751,13 +4577,13 @@ describe("createProductionAgentHandler", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          message: "Describe this file",
+          message: "Describe this image",
           attachments: [
             {
-              type: "file",
-              name: "reference.pdf",
-              contentType: "application/pdf",
-              data: "data:application/pdf;base64,UEsDBA==",
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
             },
           ],
         }),
@@ -3785,9 +4611,498 @@ describe("createProductionAgentHandler", () => {
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("\n");
-    expect(userText).toContain('code="pre-upload-failed"');
-    expect(userText).toContain("attachment processing failed");
+    expect(userText).toContain(
+      '<chat-attachment-preparation-warning code="pre-upload-failed">',
+    );
+    expect(userText).not.toContain("<chat-attachment-processing-error");
     expect(userText).not.toContain("private storage implementation detail");
+    expect(
+      streamedMessages
+        .flatMap((messages) => messages)
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content)
+        .some((part) => part.type === "image" && part.data === PNG_BASE64),
+    ).toBe(true);
+  });
+
+  it("sends a named capability note instead of image pixels to engines without vision", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Choose a vision model." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.some((part) => part.type === "image")).toBe(false);
+    expect(userContent).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
+    expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "test-model",
+      vision: false,
+      historyImageUrls: [],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    expect(hydratePriorImages).not.toHaveBeenCalled();
+  });
+
+  it("sends images to a vision-capable Mistral model despite the provider default", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "text-only-model",
+      supportedModels: ["text-only-model", "mistral-small-2506"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The image is ready for analysis." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          model: "mistral-small-2506",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.filter((part) => part.type === "image")).toHaveLength(2);
+    expect(
+      userContent.some(
+        (part) => part.type === "image" && part.data === PNG_BASE64,
+      ),
+    ).toBe(true);
+    expect(
+      userContent.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.includes('code="vision-not-supported"'),
+      ),
+    ).toBe(false);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "mistral-small-2506",
+      vision: true,
+      historyImageUrls: [],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    expect(hydratePriorImages).toHaveBeenCalledOnce();
+  });
+
+  it("tells prepared context which earlier history images are already sent", async () => {
+    const url = "https://storage.example.test/uploads/earlier.png";
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(Buffer.from(PNG_BASE64, "base64"), {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          }),
+      ),
+    );
+    const prepareAfterModel = vi.fn(async () => undefined);
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "vision-model",
+      supportedModels: ["vision-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The earlier image is visible." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe the earlier image",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Earlier reference" },
+                {
+                  type: "image-reference",
+                  url,
+                  name: "earlier.png",
+                  mediaType: "image/png",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "vision-model",
+      vision: true,
+      historyImageUrls: [url],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    const sentImages = streamedMessages
+      .flatMap((messages) => messages)
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image");
+    expect(sentImages).toHaveLength(1);
+  });
+
+  it("reports a failed earlier history image as attempted so the prior-thread fallback skips it", async () => {
+    const url = "https://storage.example.test/uploads/unreadable.png";
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 500 })),
+    );
+    const prepareAfterModel = vi.fn(async () => undefined);
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "vision-model",
+      supportedModels: ["vision-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [
+            { type: "text", text: "The earlier image could not be read." },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe the earlier image",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Earlier reference" },
+                {
+                  type: "image-reference",
+                  url,
+                  name: "unreadable.png",
+                  mediaType: "image/png",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "vision-model",
+      vision: true,
+      historyImageUrls: [url],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    const sentImages = streamedMessages
+      .flatMap((messages) => messages)
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image");
+    expect(sentImages).toHaveLength(0);
+  });
+
+  it("skips experiment assignment resolution for an explicit request model", async () => {
+    const resolveExperiment = vi
+      .spyOn(experiments, "resolveActiveExperimentConfig")
+      .mockResolvedValue({
+        configs: { model: "experiment-model" },
+        assignments: [{ experimentId: "experiment-1", variantId: "variant-b" }],
+      });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "default-model",
+      supportedModels: ["default-model", "explicit-model", "experiment-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use my selected model",
+          model: "explicit-model",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(resolveExperiment).not.toHaveBeenCalled();
+    } finally {
+      resolveExperiment.mockRestore();
+    }
   });
 
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
@@ -4319,20 +5634,31 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
-    await Promise.all([
-      runThread("thread-alpha", "alpha@example.com"),
-      runThread("thread-beta", "beta@example.com"),
-    ]);
+    const readLedger = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([]);
+    try {
+      await Promise.all([
+        runThread("thread-alpha", "alpha@example.com"),
+        runThread("thread-beta", "beta@example.com"),
+      ]);
 
-    expect(seenTools).toHaveLength(4);
-    expect(seenTools).toContainEqual([
-      "suggest-follow-ups",
-      "alpha",
-      "tool-search",
-    ]);
-    expect(seenTools).toContainEqual(["suggest-follow-ups"]);
-    expect(seenContinuations).toContainEqual(["thread-alpha", false]);
-    expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(seenTools).toHaveLength(4);
+      expect(seenTools).toContainEqual([
+        "suggest-follow-ups",
+        "alpha",
+        "tool-search",
+      ]);
+      expect(seenTools).toContainEqual(["suggest-follow-ups"]);
+      expect(seenContinuations).toContainEqual(["thread-alpha", false]);
+      expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(readLedger).toHaveBeenCalledWith(
+        "thread-beta",
+        expect.any(String),
+      );
+    } finally {
+      readLedger.mockRestore();
+    }
   });
 
   it("fails closed when resolveActionSurface returns an unknown action", async () => {
@@ -4857,6 +6183,61 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("reuses the original invocation receipt after an action mutates its arguments", async () => {
+    const original = {
+      destination: "fixture@example.test",
+      metadata: { title: "original" },
+    };
+    const result = JSON.stringify({
+      id: "fixture-ticket",
+      title: "Previous step did NOT execute",
+    });
+    const sendReport = vi.fn(async (input: Record<string, unknown>) => {
+      input.receiptId = "fixture-receipt";
+      (input.metadata as Record<string, unknown>).title = "action mutation";
+      return result;
+    });
+    const actions = {
+      "send-report": { ...actionEntry({ readOnly: false }), run: sendReport },
+    };
+    const events = await runToolCallSequence(
+      [{ name: "send-report", input: structuredClone(original) }],
+      actions,
+    );
+    const persisted = JSON.parse(JSON.stringify(events)) as AgentChatEvent[];
+    for (const event of persisted.filter(
+      (event) => event.type === "tool_start" || event.type === "tool_done",
+    ))
+      expect(event.input).toEqual(original);
+    expect(
+      findCompletedJournalEntry(
+        classifyToolCallJournal(persisted),
+        "send-report",
+        original,
+      )?.result,
+    ).toBe(result);
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue(persisted);
+    try {
+      const resumed = await runToolCallSequence(
+        [{ name: "send-report", input: structuredClone(original) }],
+        actions,
+        { threadId: "fixture-thread", turnId: "fixture-turn" },
+      );
+      expect(sendReport).toHaveBeenCalledTimes(1);
+      expect(resumed).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "send-report",
+          replayed: true,
+        }),
+      );
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("passes trusted automation context through to the selected action", async () => {
     const run = vi.fn(async () => "updated");
     let streamCalls = 0;
@@ -5932,7 +7313,7 @@ describe("runAgentLoop", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: true,
       },
@@ -9411,7 +10792,7 @@ describe("runAgentLoop", () => {
 
   it("retains the mutating tool's keyed repeat-error count", async () => {
     let attempts = 0;
-    const write = vi.fn(async () => {
+    const check = vi.fn(async () => {
       attempts += 1;
       if (attempts <= 2 || attempts === 4) fail("same failure");
       return "saved";
@@ -9421,10 +10802,10 @@ describe("runAgentLoop", () => {
         name: "repair",
         input: { id: "same" },
       })),
-      { repair: { ...actionEntry({ readOnly: false }), run: write } },
+      { repair: preExecutionCheckedWrite(check) },
     );
 
-    expect(write).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(4);
     expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
       4,
     );
@@ -9439,7 +10820,7 @@ describe("runAgentLoop", () => {
 
   it("retains the mutating tool's across-argument repeat-error count", async () => {
     let attempts = 0;
-    const write = vi.fn(async () => {
+    const check = vi.fn(async () => {
       attempts += 1;
       if (attempts <= 2 || attempts === 4) fail("same failure");
       return "saved";
@@ -9450,14 +10831,11 @@ describe("runAgentLoop", () => {
         input: { id: index },
       })),
       {
-        "repair-across-arguments": {
-          ...actionEntry({ readOnly: false }),
-          run: write,
-        },
+        "repair-across-arguments": preExecutionCheckedWrite(check),
       },
     );
 
-    expect(write).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(4);
     expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
       4,
     );
@@ -9551,11 +10929,9 @@ describe("runAgentLoop", () => {
         input: { id },
       })),
       {
-        "edit-panel": {
-          ...actionEntry({ readOnly: false }),
-          run: async () =>
-            fail("panel width must be a number\nsecond line of detail"),
-        },
+        "edit-panel": preExecutionCheckedWrite(async () =>
+          fail("panel width must be a number\nsecond line of detail"),
+        ),
       },
     );
 
@@ -9585,7 +10961,7 @@ describe("runAgentLoop", () => {
         [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
         {
           "run-query": {
-            ...actionEntry({ readOnly: false }),
+            ...actionEntry({ readOnly: true }),
             run: async () =>
               fail(
                 JSON.stringify(
@@ -9634,7 +11010,7 @@ describe("runAgentLoop", () => {
         [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
         {
           "run-query": {
-            ...actionEntry({ readOnly: false }),
+            ...actionEntry({ readOnly: true }),
             run: async () => fail(errorText),
           },
         },
@@ -9655,7 +11031,7 @@ describe("runAgentLoop", () => {
       [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
       {
         "run-query": {
-          ...actionEntry({ readOnly: false }),
+          ...actionEntry({ readOnly: true }),
           run: async () => fail(`${"a".repeat(299)}${"😀".repeat(5)}`),
         },
       },
@@ -9677,11 +11053,9 @@ describe("runAgentLoop", () => {
         input: { id },
       })),
       {
-        "edit-panel": {
-          ...actionEntry({ readOnly: false }),
-          run: async (args: Record<string, unknown>) =>
-            fail(`panel[${args.id}].width must be a number`),
-        },
+        "edit-panel": preExecutionCheckedWrite(async (args) =>
+          fail(`panel[${args.id}].width must be a number`),
+        ),
       },
     );
 
@@ -10234,15 +11608,48 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each([
+    "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    "'options' must be a non-empty JSON array.",
+  ])(
+    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    async (message) => {
+      const run = vi.fn(async () => {
+        throw new Error(message);
+      });
+      const events = await runToolCallSequence(
+        [
+          { name: "write", input: { id: "first" } },
+          { name: "write", input: { id: "second" } },
+        ],
+        { write: { ...actionEntry({ readOnly: false }), run } },
+      );
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          outcomeUnknown: true,
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    },
+  );
+
   it("lets the model revise arguments after a role mismatch", async () => {
     let streamCalls = 0;
-    const run = vi.fn(async (input: { panelId: string }) => {
+    const authorize = vi.fn(async (input: { panelId: string }) => {
       if (input.panelId === "p1") {
         throw new Error(
           "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
         );
       }
-      return "updated";
+      return true;
     });
     const engine: AgentEngine = {
       name: "test",
@@ -10289,14 +11696,23 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "mutate-dashboard": { ...actionEntry({}), run },
+        "mutate-dashboard": {
+          ...actionEntry({}),
+          ...defineAction({
+            description: "Mutate dashboard",
+            schema: z.object({ panelId: z.string() }),
+            readOnly: false,
+            authorize,
+            run: vi.fn(async () => "updated"),
+          }),
+        },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
       maxIterations: 3,
     });
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(authorize).toHaveBeenCalledTimes(2);
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -11474,6 +12890,113 @@ describe("runAgentLoop", () => {
       events.filter((event) => event.type === "tool_done" && event.isError),
     ).toHaveLength(0);
   });
+
+  it.each(["timeout", "abort"] as const)(
+    "does not invoke a write after %s during authorization",
+    async (interruption) => {
+      let releaseAuthorization!: (value: null) => void;
+      let markAuthorizationStarted!: () => void;
+      const authorizationStarted = new Promise<void>((resolve) => {
+        markAuthorizationStarted = resolve;
+      });
+      const authorization = vi
+        .spyOn(appRoles, "resolveAppAuthorizationContext")
+        .mockImplementation(() => {
+          markAuthorizationStarted();
+          return new Promise((resolve) => {
+            releaseAuthorization = resolve;
+          });
+        });
+      const timeout = new AbortController();
+      const timeoutFactory = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockReturnValue(timeout.signal);
+      const controller = new AbortController();
+      const writeAction = vi.fn(async () => "sent");
+      const events: AgentChatEvent[] = [];
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: "delayed-auth",
+                  name: "save-data",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const loop = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "save" }] }],
+        actions: {
+          "save-data": {
+            ...actionEntry({ readOnly: false }),
+            run: writeAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: controller.signal,
+        ownerEmail: "ada@example.com",
+        orgId: "test-org",
+        appId: "test-app",
+      });
+      try {
+        await authorizationStarted;
+        (interruption === "timeout" ? timeout : controller).abort();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const completedBeforeAuthorization = events.some(
+          (event) => event.type === "tool_done",
+        );
+        releaseAuthorization(null);
+        await loop;
+        await Promise.resolve();
+        expect(writeAction).not.toHaveBeenCalled();
+        expect(completedBeforeAuthorization).toBe(true);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "tool_done",
+            tool: "save-data",
+            isError: true,
+            completedSideEffect: false,
+            result: expect.stringContaining(
+              interruption === "timeout"
+                ? "before the action started"
+                : "Interrupted before this tool returned a result.",
+            ),
+          }),
+        );
+      } finally {
+        releaseAuthorization?.(null);
+        await loop;
+        authorization.mockRestore();
+        timeoutFactory.mockRestore();
+      }
+    },
+  );
 
   it("does not repeat a write tool after it times out in the current run", async () => {
     const writeAction = vi.fn(() => new Promise(() => {}));
@@ -15742,13 +17265,13 @@ describe("runAgentLoop endsTurn", () => {
                 type: "tool-call" as const,
                 id: "ask-1",
                 name: "ask-question",
-                input: { question: "Which range?" },
+                input: { question: "Which range?", options: "[]" },
               },
               {
                 type: "tool-call" as const,
                 id: "ask-2",
                 name: "ask-question",
-                input: { question: "Which grain?" },
+                input: { question: "Which grain?", options: "[]" },
               },
             ],
           };
@@ -15812,9 +17335,8 @@ describe("runAgentLoop endsTurn", () => {
 
   it("keeps the turn running when the endsTurn action fails", async () => {
     const { engine, streamCalls } = yieldEngine();
-    const run = vi.fn(async () => {
-      throw new Error("'options' must be a non-empty JSON array.");
-    });
+    const ask = createUrlTools()["ask-question"]!;
+    const events: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
@@ -15824,17 +17346,23 @@ describe("runAgentLoop endsTurn", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "ask-question": {
-          ...actionEntry({ readOnly: false }),
-          endsTurn: true,
-          run,
-        },
+        "ask-question": ask,
       },
-      send: () => {},
+      send: (event) => events.push(event),
       onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
     });
 
+    const results = events.filter((event) => event.type === "tool_done");
+    expect(results).toHaveLength(2);
+    expect(
+      results.every(
+        (event) =>
+          event.isError &&
+          !event.outcomeUnknown &&
+          event.result.includes("non-empty JSON array"),
+      ),
+    ).toBe(true);
     expect(streamCalls()).toBe(2);
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
@@ -16562,6 +18090,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       }),
     ).toBe(true);
     expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
+  it("does NOT chain a run that yielded to a connection request after a failed tool", () => {
+    // The card is the user's turn. Chaining re-ran the model after the yield and
+    // it retried the same unconnectable provider run after run.
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "provider-api-request",
+        id: "tool-1",
+        input: {},
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+      {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    ]);
+
+    expect(endsAtContinuationBoundary(run)).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        foregroundSelfChainEligible: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("does NOT chain a background run that sent final text after completed tools", () => {
@@ -17868,5 +19434,152 @@ describe("runAgentLoop tool-result images", () => {
     expect(toolDone.result).toContain("https://cdn.example.com/shot.png");
     expect(toolDone.result).not.toContain("A".repeat(100));
     expect(toolDone.images).toBeUndefined();
+  });
+});
+
+describe("runAgentLoop attachment delivery", () => {
+  const imagePart = {
+    type: "image" as const,
+    data: "aW1hZ2U=",
+    mediaType: "image/png" as const,
+  };
+
+  function attachmentEngine(
+    vision: boolean,
+    stop: Extract<EngineEvent, { type: "stop" }>,
+  ) {
+    const calls: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        calls.push(opts.messages);
+        if (stop.reason !== "error") {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "ok" }],
+          };
+        }
+        yield stop;
+      },
+    };
+    return { engine, calls };
+  }
+
+  const run = (engine: AgentEngine, content: EngineContentPart[]) =>
+    runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+  it("replaces images with a typed note for a model without vision", async () => {
+    const { engine, calls } = attachmentEngine(false, {
+      type: "stop",
+      reason: "end_turn",
+    });
+
+    await run(engine, [imagePart, { type: "text", text: "what is this?" }]);
+
+    const sent = calls[0]!.flatMap((message) => message.content);
+    expect(sent.some((part) => part.type === "image")).toBe(false);
+    expect(sent[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining(
+        '<chat-attachment-processing-error code="model-without-vision" model="test-model">',
+      ),
+    });
+  });
+
+  it("sends images unchanged to a vision model", async () => {
+    const { engine, calls } = attachmentEngine(true, {
+      type: "stop",
+      reason: "end_turn",
+    });
+
+    await run(engine, [imagePart, { type: "text", text: "what is this?" }]);
+
+    expect(calls[0]![0]!.content[0]).toEqual(imagePart);
+  });
+
+  it.each([
+    [
+      "Anthropic",
+      400,
+      "messages.0.content.0.image.source.base64: image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes",
+    ],
+    ["Anthropic", 400, "Could not process image"],
+    ["OpenAI", 400, "Invalid image."],
+    [
+      "Google",
+      400,
+      "Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting",
+    ],
+    ["Builder gateway", undefined, "Unsupported image media type: image/heic"],
+    ["any", 413, "Request exceeds the maximum allowed number of bytes."],
+  ])(
+    "stops a %s attachment rejection (%s) as non-retryable invalid_attachment naming the file",
+    async (_provider, statusCode, error) => {
+      const { engine, calls } = attachmentEngine(true, {
+        type: "stop",
+        reason: "error",
+        error,
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : { errorCode: "invalid_request_error" }),
+        providerRetryable: true,
+      });
+
+      await expect(
+        run(engine, [
+          imagePart,
+          {
+            type: "file",
+            data: "JVBERi0=",
+            mediaType: "application/pdf",
+            filename: "report.pdf",
+          },
+          { type: "text", text: "read these" },
+        ]),
+      ).rejects.toMatchObject({
+        name: "EngineError",
+        errorCode: "invalid_attachment",
+        providerRetryable: false,
+        message: `The model provider rejected an attachment in this request ("report.pdf"): ${error}`,
+      });
+      expect(calls).toHaveLength(1);
+    },
+  );
+
+  it("leaves the provider's code alone when the request carries no attachment", async () => {
+    const { engine } = attachmentEngine(true, {
+      type: "stop",
+      reason: "error",
+      error: "Invalid image.",
+      errorCode: "http_400",
+      statusCode: 400,
+      providerRetryable: false,
+    });
+
+    await expect(
+      run(engine, [{ type: "text", text: "hello" }]),
+    ).rejects.toMatchObject({
+      errorCode: "http_400",
+      message: "Invalid image.",
+    });
   });
 });

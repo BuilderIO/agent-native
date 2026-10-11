@@ -1,0 +1,483 @@
+name: Beta E2E report
+
+on:
+  workflow_call:
+    inputs:
+      run_result:
+        description: Result of the beta E2E jobs in the caller run
+        required: true
+        type: string
+      update_baseline:
+        description: Whether this run covers the full suite and may update shared notification state
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      QA_SLACK_BOT_TOKEN:
+        required: false
+
+jobs:
+  report:
+    name: Report beta E2E status
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: beta-e2e-report-${{ github.repository }}
+      queue: max
+    permissions:
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_RESULT: ${{ inputs.run_result }}
+      UPDATE_BASELINE: ${{ inputs.update_baseline }}
+      REPORT_DIR: .tmp/beta-e2e
+      SLACK_CHANNEL: C0C4U4XRT6X
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/beta-e2e-digest.ts
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Collect run data and restore the previous state artifact
+        id: collect
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out" "$REPORT_DIR/previous"
+          : > "$REPORT_DIR/notes.txt"
+          note() {
+            echo "$1" >> "$REPORT_DIR/notes.txt"
+            echo "::warning::$1"
+          }
+
+          metadata_incomplete=false
+          current_data_incomplete=false
+          previous_state_artifact_missing=false
+          if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[]' > "$REPORT_DIR/jobs.ndjson" 2> "$REPORT_DIR/jobs-api-error.txt" && \
+            jq -s '
+              {
+                jobs: [
+                  .[]
+                  | select(
+                      (.name // "") == "Beta E2E pre-flight"
+                      or ((.name // "") | test("(^| / )(Resolve host shards|Typecheck and helper tests|Fleet-wide checks|Advisory findings \\(non-gating\\)|Signup canary|[A-Za-z0-9_-]+ public sweep|Authenticated .*)$"))
+                    )
+                ]
+              }
+            ' "$REPORT_DIR/jobs.ndjson" > "$REPORT_DIR/jobs.json"; then
+            :
+          else
+            detail="$(tr '\r\n' ' ' < "$REPORT_DIR/jobs-api-error.txt" | cut -c 1-300)"
+            note "Could not collect run job metadata; the Slack report will be degraded. ${detail:-GitHub returned unreadable job data.}"
+            printf '{"jobs":[]}\n' > "$REPORT_DIR/jobs.json"
+            metadata_incomplete=true
+            current_data_incomplete=true
+          fi
+          if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[]' > "$REPORT_DIR/artifacts.ndjson" 2> "$REPORT_DIR/artifacts-api-error.txt" && \
+            jq -s '{artifacts: .}' "$REPORT_DIR/artifacts.ndjson" > "$REPORT_DIR/artifacts.json"; then
+            :
+          else
+            detail="$(tr '\r\n' ' ' < "$REPORT_DIR/artifacts-api-error.txt" | cut -c 1-300)"
+            note "Could not collect run artifact metadata; the Slack report will be degraded. ${detail:-GitHub returned unreadable artifact data.}"
+            printf '{"artifacts":[]}\n' > "$REPORT_DIR/artifacts.json"
+            metadata_incomplete=true
+            current_data_incomplete=true
+          fi
+          have_artifacts="$(jq '[.artifacts[] | select((.name | startswith("beta-e2e-")) and ((.name | startswith("beta-e2e-digest-")) | not) and (.expired | not))] | length' "$REPORT_DIR/artifacts.json")"
+          if [ "$have_artifacts" -gt 0 ]; then
+            if ! gh run download "$RUN_ID" --repo "$REPO" --pattern 'beta-e2e-*' --dir "$REPORT_DIR/results"; then
+              note "Downloading the beta-e2e artifacts failed, so test results are missing from this report."
+              metadata_incomplete=true
+              current_data_incomplete=true
+            fi
+          else
+            note "No beta-e2e result artifacts were uploaded, so test findings may be incomplete."
+            metadata_incomplete=true
+            current_data_incomplete=true
+          fi
+
+          jobs_to_read="$(jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .id' "$REPORT_DIR/jobs.json" | head -n 30)"
+          for job_id in $jobs_to_read; do
+            raw="$(mktemp)"
+            if gh api "repos/$REPO/actions/jobs/$job_id/logs" > "$raw" 2> "$raw.err"; then
+              { grep -F '[beta-e2e]' "$raw" | tail -n 60 || true; tail -n 300 "$raw"; } > "$REPORT_DIR/logs/$job_id.log"
+            else
+              note "Could not read the log of job $job_id: $(head -c 200 "$raw.err")"
+              metadata_incomplete=true
+              current_data_incomplete=true
+            fi
+          done
+
+          current_state_prefix="beta-e2e-digest-$RUN_ID-"
+          current_state_artifact="$(jq -r --arg prefix "$current_state_prefix" '[.artifacts[] | select(.name | startswith($prefix)) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty' "$REPORT_DIR/artifacts.json")"
+          if [ -n "$current_state_artifact" ]; then
+            current_state_dir="$REPORT_DIR/previous/current-attempt"
+            mkdir -p "$current_state_dir"
+            if gh run download "$RUN_ID" --repo "$REPO" --name "$current_state_artifact" --dir "$current_state_dir"; then
+              state_file="$(find "$current_state_dir" -type f -name state.json -print -quit)"
+              if [ -n "$state_file" ]; then
+                cp "$state_file" "$REPORT_DIR/previous/state.json"
+              else
+                note "The previous attempt artifact for run $RUN_ID has no state.json; checking earlier runs."
+                metadata_incomplete=true
+              fi
+            else
+              note "Could not download the previous attempt state artifact for run $RUN_ID; checking earlier runs."
+              metadata_incomplete=true
+            fi
+          fi
+
+          runs_file="$REPORT_DIR/previous/runs.txt"
+          history_failed=false
+          if [ ! -f "$REPORT_DIR/previous/state.json" ]; then
+            : > "$runs_file"
+            for workflow_file in beta-e2e-scheduled.yml beta-e2e.yml deploy-production-sites-prebuilt.yml; do
+              workflow_runs_file="$REPORT_DIR/previous/runs-$workflow_file.tsv"
+              if ! gh api --paginate --method GET \
+                -f "branch=$GITHUB_REF_NAME" \
+                -f status=completed \
+                -f per_page=100 \
+                "repos/$REPO/actions/workflows/$workflow_file/runs" \
+                --jq '.workflow_runs[] | [.created_at, .id] | @tsv' > "$workflow_runs_file"; then
+                note "Could not list prior beta E2E runs for $workflow_file; state comparison starts without a restored artifact."
+                history_failed=true
+                break
+              fi
+              if [ "$workflow_file" = "deploy-production-sites-prebuilt.yml" ]; then
+                workflow_source=production
+              elif [ "$workflow_file" = "beta-e2e.yml" ]; then
+                workflow_source=direct
+              else
+                workflow_source=scheduled
+              fi
+              while IFS=$'\t' read -r created_at previous_run; do
+                [ -n "$previous_run" ] || continue
+                printf '%s\t%s\t%s\n' "$created_at" "$previous_run" "$workflow_source" >> "$runs_file"
+              done < "$workflow_runs_file"
+            done
+            if [ "$history_failed" = "true" ]; then
+              metadata_incomplete=true
+              previous_state_artifact_missing=true
+            else
+              awk -F '\t' -v current="$RUN_ID" '$2 != current && $1 != ""' "$runs_file" \
+                | sort -r \
+                | cut -f 2,3 > "$REPORT_DIR/previous/runs-ordered.txt"
+              mv "$REPORT_DIR/previous/runs-ordered.txt" "$runs_file"
+            fi
+          fi
+          if [ ! -f "$REPORT_DIR/previous/state.json" ] && [ "$history_failed" != "true" ]; then
+            while IFS=$'\t' read -r previous_run workflow_source; do
+              [ -n "$previous_run" ] || continue
+              [ "$previous_run" != "$RUN_ID" ] || continue
+              if [ "$workflow_source" != "scheduled" ]; then
+                case "$workflow_source" in
+                  production)
+                    report_job_prefix="Report production Beta E2E pre-flight status"
+                    ;;
+                  direct)
+                    report_job_prefix="Report directly dispatched beta E2E status"
+                    ;;
+                esac
+                report_jobs_file="$REPORT_DIR/previous/jobs-$previous_run.ndjson"
+                if ! gh api --paginate \
+                  "repos/$REPO/actions/runs/$previous_run/jobs?per_page=100" \
+                  --jq '.jobs[]' > "$report_jobs_file" 2> "$report_jobs_file.err"; then
+                  detail="$(tr '\r\n' ' ' < "$report_jobs_file.err" | cut -c 1-300)"
+                  note "Could not inspect the jobs for the $workflow_source beta E2E run $previous_run; state comparison starts without a restored artifact. ${detail:-GitHub returned unreadable job data.}"
+                  metadata_incomplete=true
+                  previous_state_artifact_missing=true
+                  break
+                fi
+                report_job_result="$(jq -sr --arg prefix "$report_job_prefix" '[.[] | select((.name // "") | startswith($prefix)) | .conclusion][0] // empty' "$report_jobs_file")"
+                if [ -z "$report_job_result" ] || [ "$report_job_result" = "skipped" ]; then
+                  continue
+                fi
+              fi
+              artifact_list="$REPORT_DIR/previous/artifacts-$previous_run.json"
+              if ! gh api "repos/$REPO/actions/runs/$previous_run/artifacts?per_page=100" > "$artifact_list"; then
+                note "Could not inspect artifacts for the latest prior run $previous_run; state comparison starts without restored state."
+                metadata_incomplete=true
+                previous_state_artifact_missing=true
+                break
+              fi
+              if ! jq -e '.artifacts | type == "array"' "$artifact_list" >/dev/null; then
+                note "GitHub returned invalid artifact metadata for the latest prior run $previous_run; state comparison starts without restored state."
+                metadata_incomplete=true
+                previous_state_artifact_missing=true
+                break
+              fi
+              state_artifact_prefix="beta-e2e-digest-$previous_run-"
+              state_artifact="$(jq -r --arg prefix "$state_artifact_prefix" '[.artifacts[] | select(.name | startswith($prefix)) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty' "$artifact_list")"
+              if [ -z "$state_artifact" ]; then
+                note "The latest prior beta E2E report run $previous_run has no unexpired state artifact; state comparison starts without restored state."
+                metadata_incomplete=true
+                previous_state_artifact_missing=true
+                break
+              fi
+
+              download_dir="$REPORT_DIR/previous/download"
+              mkdir -p "$download_dir"
+              if ! gh run download "$previous_run" --repo "$REPO" --name "$state_artifact" --dir "$download_dir"; then
+                note "Could not download the state artifact from the latest prior run $previous_run; state comparison starts without restored state."
+                metadata_incomplete=true
+                previous_state_artifact_missing=true
+                break
+              fi
+              state_file="$(find "$download_dir" -type f -name state.json -print -quit)"
+              if [ -z "$state_file" ]; then
+                note "The state artifact from the latest prior run $previous_run has no state.json; state comparison starts without restored state."
+                metadata_incomplete=true
+                previous_state_artifact_missing=true
+              else
+                cp "$state_file" "$REPORT_DIR/previous/state.json"
+              fi
+              break
+            done < "$runs_file"
+          fi
+          if [ ! -f "$REPORT_DIR/previous/state.json" ]; then
+            note "No prior beta-e2e state artifact was restored; this report starts a new comparison."
+          fi
+          {
+            echo "metadata_incomplete=$metadata_incomplete"
+            echo "current_data_incomplete=$current_data_incomplete"
+            echo "previous_state_artifact_missing=$previous_state_artifact_missing"
+          } >> "$GITHUB_OUTPUT"
+      - name: Check Slack configuration
+        id: slack_config
+        if: ${{ always() }}
+        env:
+          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            message="Slack notification not configured: the QA_SLACK_BOT_TOKEN repository secret is empty, so nothing is posted to #qa-agent-native."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "slack_note=$message" >> "$GITHUB_OUTPUT"
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build the report
+        id: digest
+        if: ${{ always() }}
+        env:
+          SLACK_NOTE: ${{ steps.slack_config.outputs.slack_note }}
+          METADATA_INCOMPLETE: ${{ steps.collect.outputs.metadata_incomplete }}
+          CURRENT_DATA_INCOMPLETE: ${{ steps.collect.outputs.current_data_incomplete }}
+          PREVIOUS_STATE_ARTIFACT_MISSING: ${{ steps.collect.outputs.previous_state_artifact_missing }}
+          COLLECT_OUTCOME: ${{ steps.collect.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out" "$REPORT_DIR/previous"
+          metadata_incomplete="${METADATA_INCOMPLETE:-false}"
+          current_data_incomplete="${CURRENT_DATA_INCOMPLETE:-false}"
+          previous_state_artifact_missing="${PREVIOUS_STATE_ARTIFACT_MISSING:-false}"
+          if [ "$COLLECT_OUTCOME" != "success" ]; then
+            metadata_incomplete=true
+            current_data_incomplete=true
+            touch "$REPORT_DIR/notes.txt"
+            note="The run-data collector did not complete; findings and deduplication history may be incomplete."
+            echo "$note" >> "$REPORT_DIR/notes.txt"
+            if [ ! -s "$REPORT_DIR/jobs.json" ] || ! jq -e '.jobs | type == "array"' "$REPORT_DIR/jobs.json" >/dev/null; then
+              printf '{"jobs":[]}\n' > "$REPORT_DIR/jobs.json"
+            fi
+            if [ ! -s "$REPORT_DIR/artifacts.json" ] || ! jq -e '.artifacts | type == "array"' "$REPORT_DIR/artifacts.json" >/dev/null; then
+              printf '{"artifacts":[]}\n' > "$REPORT_DIR/artifacts.json"
+            fi
+            if [ ! -f scripts/beta-e2e-digest.ts ] || ! node --experimental-strip-types -e '' >/dev/null 2>&1; then
+              run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID"
+              report_text="$(printf '%s\n' \
+                ':warning: *Beta E2E report is degraded*' \
+                'Run metadata collection failed before the full digest could be built.' \
+                'Findings: 1 total; showing 1; 0 omitted from this Slack message.' \
+                '• Report collection failure: findings and deduplication history are unknown.' \
+                "Full report artifact and collector logs: <$run_url|workflow run>.")"
+              jq -n --arg channel "$SLACK_CHANNEL" --arg text "$report_text" \
+                '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
+                > "$REPORT_DIR/out/slack-payload.json"
+              printf '%s\n' "$report_text" > "$REPORT_DIR/out/slack.txt"
+              printf '# Beta E2E degraded report\n\n%s\n' "$report_text" > "$REPORT_DIR/out/report.md"
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+              jq -n '{previousStateAvailable: false, status: "red", failing: 1, newFailures: 1, notifyReason: "degraded-collection"}' \
+                > "$REPORT_DIR/out/decision.json"
+              {
+                echo "should_notify=true"
+                echo "notify_reason=degraded-collection"
+                echo "metadata_incomplete=true"
+                echo "current_data_incomplete=true"
+                echo "previous_state_artifact_missing=$previous_state_artifact_missing"
+              } >> "$GITHUB_OUTPUT"
+              echo "## Beta E2E report: DEGRADED" >> "$GITHUB_STEP_SUMMARY"
+              echo "$note" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
+          args=(
+            --run-id "$RUN_ID" --run-number "$GITHUB_RUN_NUMBER" --run-attempt "$GITHUB_RUN_ATTEMPT"
+            --repo "$REPO" --server-url "$GITHUB_SERVER_URL" --sha "$GITHUB_SHA" --event "$GITHUB_EVENT_NAME"
+            --run-result "$RUN_RESULT"
+            --results-dir "$REPORT_DIR/results" --jobs "$REPORT_DIR/jobs.json"
+            --artifacts "$REPORT_DIR/artifacts.json" --logs-dir "$REPORT_DIR/logs"
+            --out-dir "$REPORT_DIR/out"
+          )
+          if [ "$UPDATE_BASELINE" = "true" ] && [ -f "$REPORT_DIR/previous/state.json" ]; then args+=(--previous-state "$REPORT_DIR/previous/state.json"); fi
+          if [ "$UPDATE_BASELINE" != "true" ]; then args+=(--note "This scoped run is reported independently and does not update the full-suite notification baseline."); fi
+          if [ -n "$SLACK_NOTE" ]; then args+=(--slack-note "$SLACK_NOTE"); fi
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then args+=(--note "$line"); fi
+          done < "$REPORT_DIR/notes.txt"
+          node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
+          if [ "$(jq -r '.previousStateUnavailable // false' "$REPORT_DIR/out/decision.json")" = "true" ]; then
+            metadata_incomplete=true
+          fi
+          if [ "$metadata_incomplete" = "true" ]; then
+            jq -n --arg channel "$SLACK_CHANNEL" --rawfile digest "$REPORT_DIR/out/slack.txt" \
+              '{channel: $channel, text: (":warning: *Beta E2E report is degraded*\nSome run metadata could not be read, so findings may be incomplete. The report below includes every finding we could recover.\n\n" + $digest), unfurl_links: false, unfurl_media: false}' \
+              > "$REPORT_DIR/out/slack-payload.json"
+          else
+            jq -n --arg channel "$SLACK_CHANNEL" --rawfile text "$REPORT_DIR/out/slack.txt" \
+              '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > "$REPORT_DIR/out/slack-payload.json"
+          fi
+          if [ "$metadata_incomplete" = "true" ]; then
+            should_notify=true
+            notify_reason=degraded-collection
+          else
+            should_notify="$(jq -r .shouldNotify "$REPORT_DIR/out/decision.json")"
+            notify_reason="$(jq -r .notifyReason "$REPORT_DIR/out/decision.json")"
+          fi
+          {
+            echo "should_notify=$should_notify"
+            echo "notify_reason=$notify_reason"
+            echo "metadata_incomplete=$metadata_incomplete"
+            echo "current_data_incomplete=$current_data_incomplete"
+            echo "previous_state_artifact_missing=$previous_state_artifact_missing"
+          } >> "$GITHUB_OUTPUT"
+          {
+            jq -r '"## Beta E2E report: " + (.status | ascii_upcase) + "\n\n- Gating findings: \(.failing)\n- New failures: \(.newFailures)\n- Notification: \(.notifyReason // "none")"' "$REPORT_DIR/out/decision.json"
+            echo ""
+            echo "[Open the full report and Playwright artifacts]($GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Render the Slack message
+        id: slack_message
+        if: ${{ always() && steps.digest.outputs.should_notify == 'true' && steps.slack_config.outputs.configured == 'true' }}
+        run: |
+          set -euo pipefail
+          cp "$REPORT_DIR/out/slack-payload.json" "$REPORT_DIR/slack-payload.json"
+
+      - name: Post the rolled-up Slack report
+        id: slack
+        if: ${{ always() && steps.slack_message.outcome == 'success' }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          errors: false
+          payload-file-path: .tmp/beta-e2e/slack-payload.json
+
+      - name: Verify the Slack report was posted
+        if: ${{ always() && steps.digest.outputs.should_notify == 'true' }}
+        env:
+          SLACK_CONFIGURED: ${{ steps.slack_config.outputs.configured }}
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_OK: ${{ steps.slack.outputs.ok }}
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+          NOTIFY_REASON: ${{ steps.digest.outputs.notify_reason }}
+        run: |
+          set -euo pipefail
+          if [ "$SLACK_CONFIGURED" = "true" ] && [ "$SLACK_OUTCOME" = "success" ] && [ "$SLACK_OK" = "true" ]; then
+            echo "Posted the $NOTIFY_REASON beta E2E report to #qa-agent-native."
+            echo "Posted the $NOTIFY_REASON beta E2E report to #qa-agent-native." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
+          if [ "$SLACK_CONFIGURED" != "true" ]; then
+            reason="QA_SLACK_BOT_TOKEN is missing"
+          fi
+          reason="${reason:-no Slack API success response; step outcome $SLACK_OUTCOME}"
+          message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The scheduled report was not delivered."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Preserve notification state only after delivery
+        if: ${{ always() && steps.digest.outcome == 'success' }}
+        env:
+          SHOULD_NOTIFY: ${{ steps.digest.outputs.should_notify }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline }}
+          METADATA_INCOMPLETE: ${{ steps.digest.outputs.metadata_incomplete }}
+          CURRENT_DATA_INCOMPLETE: ${{ steps.digest.outputs.current_data_incomplete }}
+          PREVIOUS_STATE_ARTIFACT_MISSING: ${{ steps.digest.outputs.previous_state_artifact_missing }}
+          SLACK_CONFIGURED: ${{ steps.slack_config.outputs.configured }}
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_OK: ${{ steps.slack.outputs.ok }}
+        run: |
+          set -euo pipefail
+          if [ "$UPDATE_BASELINE" != "true" ]; then
+            if [ -f "$REPORT_DIR/previous/state.json" ]; then
+              cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+            elif [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ]; then
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+            else
+              jq -n '{_betaE2EStateAvailability: "absent"}' > "$REPORT_DIR/out/state.json"
+            fi
+            message="This scoped report did not update the shared full-suite notification baseline."
+            echo "::notice::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$SHOULD_NOTIFY" = "true" ] && { [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ] || [ "$CURRENT_DATA_INCOMPLETE" = "true" ] || [ "$SLACK_CONFIGURED" != "true" ] || [ "$SLACK_OUTCOME" != "success" ] || [ "$SLACK_OK" != "true" ]; }; then
+            if [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ]; then
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+            elif [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" = "true" ]; then
+              cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+            elif [ -s "$REPORT_DIR/previous/state.json" ]; then
+              prior_state_availability="$(jq -r '._betaE2EStateAvailability // empty' "$REPORT_DIR/previous/state.json" 2>/dev/null || true)"
+              if [ "$prior_state_availability" = "absent" ] || [ "$prior_state_availability" = "unknown" ]; then
+                cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+              else
+                jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+              fi
+            elif [ "$METADATA_INCOMPLETE" = "true" ]; then
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+            else
+              jq -n '{_betaE2EStateAvailability: "absent"}' > "$REPORT_DIR/out/state.json"
+            fi
+            if [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ]; then
+              message="The latest prior run has no readable state artifact; notification state was marked unknown to avoid a false recovery."
+            elif [ "$CURRENT_DATA_INCOMPLETE" = "true" ]; then
+              message="Run metadata collection was incomplete; the prior notification state was retained to avoid a false recovery."
+            else
+              message="Slack delivery failed; the prior notification state was retained so the next scheduled run can retry."
+            fi
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Fail after posting an incomplete metadata report
+        if: ${{ always() && steps.digest.outputs.metadata_incomplete == 'true' && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' }}
+        run: |
+          message="Beta E2E run metadata could not be collected; the degraded report was posted to #qa-agent-native. See the collection notes and run links above."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Upload the full report and dedup state
+        if: ${{ always() && steps.digest.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: beta-e2e-digest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/beta-e2e/out/
+          retention-days: 90
+          if-no-files-found: error

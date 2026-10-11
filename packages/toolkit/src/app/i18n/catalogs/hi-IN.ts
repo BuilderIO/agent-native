@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "कतार में",
   "agent.completed": "काम पूरा किया",
   "agent.failed": "ध्यान देने की ज़रूरत है",
+  "agent.failureReason.failed": "पूरा नहीं हो सका",
+  "agent.failureReason.setup": "पहले सेटअप ज़रूरी है",
+  "agent.failureReason.auth": "पहुँच अस्वीकार की गई",
+  "agent.failureReason.timeout": "बहुत देर लगी",
+  "agent.failureReason.budget": "समय समाप्त हो गया",
+  "agent.failureReason.response": "कोई उपयोगी परिणाम नहीं",
   "agent.closed": "बंद किया",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
@@ -83,6 +89,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
   "observability.promoteMustContainLabel":
     "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+  "observability.promoteReviewedPromptLabel":
+    "मैन्युअल रूप से समीक्षा किया गया प्रॉम्प्ट (प्रोडक्शन से कभी स्वतः कॉपी नहीं किया जाता)",
   "observability.promoteNeedsContains":
     "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.viewDetails": "विवरण देखें",
@@ -123,7 +131,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
   "onboarding.builderCreateAccount": "Builder.io इस्तेमाल करें",
-  "onboarding.builderSignInWithAccount": "Builder.io इस्तेमाल करें",
+  "onboarding.builderSignInWithAccount": "Builder.io खाते से साइन इन करें",
   "onboarding.builderActivateDescription":
     "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
   "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
@@ -141,8 +149,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
   "onboarding.builderAccountExistsDescription":
     "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
+  "onboarding.builderActivationChecking":
+    "जाँचा जा रहा है कि नया खाता बनाना उपलब्ध है या नहीं।",
+  "onboarding.builderActivationUnavailable":
+    "इस ऐप में नया खाता बनाना सक्षम नहीं है। आप मौजूदा खाता कनेक्ट कर सकते हैं।",
+  "onboarding.builderActivationUnavailableInMode":
+    "इस मोड में नया खाता सक्रिय करना उपलब्ध नहीं है। आप फिर भी मौजूदा खाता कनेक्ट कर सकते हैं।",
+  "onboarding.builderActivationCheckFailed":
+    "यह जाँचा नहीं जा सका कि यह ऐप नए खाते बना सकता है या नहीं।",
+
   "onboarding.builderActivationDescription":
-    "मुफ़्त क्रेडिट पाने के लिए एक क्लिक में Builder.io खाता बनाएँ या कनेक्ट करें।",
+    "मुफ़्त क्रेडिट सक्रिय करने के लिए नया खाता बनाएँ, या मौजूदा खाते से आगे बढ़ें।",
   "onboarding.builderOrgActivationDescription":
     "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
@@ -150,11 +167,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "सेवा की शर्तों",
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
-  "onboarding.builderExistingAccount": "Builder.io इस्तेमाल करें",
+  "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
     "आपका Builder.io खाता बनाया जा रहा है और मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं।",
+  "onboarding.builderCancelPending": "कनेक्शन की स्थिति जाँची जा रही है…",
   "onboarding.builderConnectionDescription":
     "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "onboarding.builderReadyWithCodeChanges":
@@ -494,10 +512,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
-  "composer.fileTooLarge": "यह फ़ाइल अपलोड की अधिकतम सीमा से बड़ी है।",
+  "composer.fileTooLarge": "यह फ़ाइल {{size}} MB की अपलोड सीमा से बड़ी है।",
   "composer.sessionExpired":
-    "आपका सत्र समाप्त हो गया है। पेज रीफ़्रेश करें और फिर कोशिश करें।",
+    "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
+  "composer.uploadUnavailable":
+    "फ़ाइल अपलोड अभी उपलब्ध नहीं है। कुछ देर बाद फिर कोशिश करें।",
+  "composer.uploadOffline":
+    "अपलोड सर्वर तक नहीं पहुंच सका। अपना कनेक्शन जांचें और फिर कोशिश करें।",
+  "composer.submissionNotReady":
+    "चैट अभी भेजने के लिए तैयार नहीं है। थोड़ा रुकें, फिर दोबारा भेजें।",
+  "composer.submissionScopeChanged":
+    "आपका संदेश भेजे जाने से पहले यह चैट बदल गई। इसे फिर से भेजें।",
+  "composer.attachmentNotSaved": "इस चैट के साथ सहेजा नहीं गया",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
   "mentions.learnMore": "और जानें",
@@ -1128,6 +1155,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.continueUnavailable":
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
+  "errorMessages.invalidAttachmentNamed":
+    "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
+  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से कोशिश करें",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
@@ -1197,6 +1227,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.clear": "चयन संदर्भ हटाएँ",
+  "setup.addKeyInSettings": "सेटिंग में कुंजी जोड़ें",
+  "setup.addKeyInSettingsDescription": "आपके खाते या संगठन के लिए।",
+  "setup.setEnvironmentVariable": "एनवायरनमेंट वेरिएबल सेट करें",
+  "setup.setEnvironmentVariableDescription":
+    "इस ऐप के सभी उपयोगकर्ताओं के लिए एक प्रदाता कुंजी।",
+
   "setup.addOwnKeys": "अपनी कुंजियाँ जोड़ें",
   "setup.builderCredits":
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",

@@ -22,6 +22,7 @@
 @import "tw-animate-css";
 
 @source "./**/*.{ts,tsx}";
+@source "../../shared/screen-history-scrubber.tsx";
 
 .recording-recovery-entry {
   padding: 0 14px 7px;

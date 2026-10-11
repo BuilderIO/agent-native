@@ -51,6 +51,21 @@ export interface ShareableResourceRegistration {
     userEmail?: string;
     orgId?: string;
   }) => void | Promise<void>;
+  /**
+   * Runs before a sharing change is persisted. Throw to refuse the change.
+   * It receives the resource row, so a registration can refuse per-row states
+   * (for example, a resource that holds private content). Runs only for a
+   * visibility change that differs from the current value, and for every
+   * `share-resource` grant. It runs again after that change is written, and a
+   * refusal then undoes the write, so one change can call it twice: keep it
+   * free of side effects.
+   */
+  assertSharingChange?: (args: {
+    resource: any;
+    change:
+      | { kind: "visibility"; visibility: "private" | "org" | "public" }
+      | { kind: "grant" };
+  }) => void | Promise<void>;
   allowPublic?: boolean;
   publicAccessRole?:
     | "viewer"

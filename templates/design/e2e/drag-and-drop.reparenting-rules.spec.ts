@@ -139,10 +139,15 @@ test.describe("reparenting rules", () => {
         x: draggedBox.x + grabOffset.x,
         y: draggedBox.y + grabOffset.y,
       };
+      const gapStart = nestedBox.x + nestedBox.width;
+      const gapWidth = candidateBox.x - gapStart;
+      expect(gapWidth).toBeGreaterThan(0);
       const release = {
-        x: nestedBox.x + nestedBox.width + 12,
+        x: gapStart + gapWidth / 2,
         y: nestedBox.y + nestedBox.height / 2,
       };
+      expect(release.x).toBeGreaterThan(gapStart);
+      expect(release.x).toBeLessThan(candidateBox.x);
       expect(release.x).toBeLessThan(outerBox.x + outerBox.width);
       expect(release.y).toBeLessThan(outerBox.y + outerBox.height);
       const crossedPath = {

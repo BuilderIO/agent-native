@@ -22,11 +22,12 @@ const COLLAPSED_ONLY = "hidden [html[data-content-sidebar-collapsed]_&]:flex";
 const SIDEBAR_SKELETON_CLASS_NAME =
   "rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
-// Without room for the rail, the app drops the sidebar for a menu button.
+// Without room for the rail, the app drops the sidebar for a menu button. A
+// widget never has one: its host owns navigation.
 const compactSidebarTrigger = (
   <div
     aria-hidden="true"
-    className="hidden size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground [html[data-content-sidebar-drawer]_&]:flex"
+    className="hidden size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground [html[data-content-sidebar-drawer]:not([data-agent-native-mcp-widget])_&]:flex"
   >
     <IconMenu2 size={18} />
   </div>

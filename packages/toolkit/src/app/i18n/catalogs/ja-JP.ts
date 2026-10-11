@@ -39,6 +39,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
   "agent.failed": "対応が必要です",
+  "agent.failureReason.failed": "完了できませんでした",
+  "agent.failureReason.setup": "先に設定が必要です",
+  "agent.failureReason.auth": "アクセスが拒否されました",
+  "agent.failureReason.timeout": "応答がタイムアウトしました",
+  "agent.failureReason.budget": "時間切れになりました",
+  "agent.failureReason.response": "使える結果がありません",
   "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -85,6 +91,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "返信で確認する任意のテキスト…",
   "observability.promoteMustContainLabel":
     "昇格した評価の返信で確認するテキスト",
+  "observability.promoteReviewedPromptLabel":
+    "手動で確認したプロンプト（本番環境から自動コピーされません）",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",
@@ -127,7 +135,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
   "onboarding.builderCreateAccount": "Builder.io を使う",
-  "onboarding.builderSignInWithAccount": "Builder.io を使う",
+  "onboarding.builderSignInWithAccount": "Builder.io アカウントでサインイン",
   "onboarding.builderActivateDescription":
     "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
   "onboarding.builderActiveCredits":
@@ -149,8 +157,17 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io アカウントをすでにお持ちです",
   "onboarding.builderAccountExistsDescription":
     "ログインしてアカウントを使用してください。",
+  "onboarding.builderActivationChecking":
+    "新しいアカウントを作成できるか確認しています。",
+  "onboarding.builderActivationUnavailable":
+    "このアプリでは新しいアカウントの作成が有効になっていません。既存のアカウントは接続できます。",
+  "onboarding.builderActivationUnavailableInMode":
+    "このモードでは新しいアカウントを有効化できません。既存のアカウントは引き続き接続できます。",
+  "onboarding.builderActivationCheckFailed":
+    "このアプリで新しいアカウントを作成できるか確認できませんでした。",
+
   "onboarding.builderActivationDescription":
-    "ワンクリックで Builder.io アカウントを作成または接続して、無料クレジットを獲得します。",
+    "新しいアカウントを作成して無料クレジットを有効にするか、既存のアカウントで続行します。",
   "onboarding.builderOrgActivationDescription":
     "ワンクリックで Builder.io アカウントを作成し、組織で使えるようにします。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
@@ -159,11 +176,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "利用規約",
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
-  "onboarding.builderExistingAccount": "Builder.io を使う",
+  "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
     "Builder.io アカウントを作成し、無料クレジットを有効化しています。",
+  "onboarding.builderCancelPending": "接続状態を確認しています…",
   "onboarding.builderConnectionDescription":
     "新しいウィンドウでワンクリック接続を完了してください。",
   "onboarding.builderReadyWithCodeChanges":
@@ -517,10 +535,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
   "composer.fileTooLarge":
-    "このファイルはアップロード可能なサイズ上限を超えています。",
+    "このファイルはアップロード上限の {{size}} MB を超えています。",
   "composer.sessionExpired":
-    "セッションの有効期限が切れました。ページを更新して、もう一度お試しください。",
+    "セッションの有効期限が切れました。もう一度サインインしてから、メッセージを送信してください。",
   "composer.unsupportedFileType": "このファイル形式はサポートされていません。",
+  "composer.uploadUnavailable":
+    "現在ファイルをアップロードできません。しばらくしてからもう一度お試しください。",
+  "composer.uploadOffline":
+    "アップロードがサーバーに届きませんでした。接続を確認して、もう一度お試しください。",
+  "composer.submissionNotReady":
+    "チャットはまだ送信できる状態ではありません。少し待ってから、もう一度送信してください。",
+  "composer.submissionScopeChanged":
+    "メッセージの送信前にこのチャットが変更されました。もう一度送信してください。",
+  "composer.attachmentNotSaved": "このチャットには保存されていません",
   "composer.useAttachedContext": "添付されたコンテキストを使用してください。",
   "mentions.commands": "コマンド",
   "mentions.learnMore": "詳細を見る",
@@ -1162,6 +1189,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.continueUnavailable":
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
+  "errorMessages.invalidAttachmentNamed":
+    "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
   "recovery.deferredSubmissionFailed":
@@ -1232,6 +1262,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.clear": "選択範囲のコンテキストを消去",
+  "setup.addKeyInSettings": "設定でキーを追加",
+  "setup.addKeyInSettingsDescription": "個人または組織のアカウント用です。",
+  "setup.setEnvironmentVariable": "環境変数を設定",
+  "setup.setEnvironmentVariableDescription":
+    "このアプリの全ユーザーで1つのプロバイダーキーを共有します。",
+
   "setup.addOwnKeys": "独自のキーを追加",
   "setup.builderCredits":
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",

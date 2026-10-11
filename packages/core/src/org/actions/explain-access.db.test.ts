@@ -23,6 +23,7 @@ import { assertAccess, ForbiddenError } from "../../sharing/access.js";
 import { registerShareableResource } from "../../sharing/registry.js";
 import { createSharesTable } from "../../sharing/schema.js";
 import { defineAppRoles } from "../app-roles.js";
+import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 import explainAccess from "./explain-access.js";
 
 const owner = "owner+qa@example.com";
@@ -303,6 +304,9 @@ describe("workspace explain-access uses the deployed workspace identity", () => 
     await pglite.query(
       "UPDATE workspace_apps SET org_enabled = false WHERE id = 'workspace-forms'",
     );
+    // The set-workspace-app-access action invalidates after its own write;
+    // this test writes the row directly, so it performs that invalidation.
+    invalidateMemberOrgCaches();
     for (const email of [owner, member]) {
       await expect(
         explain(email, "shared-form", "forms.edit"),
@@ -317,6 +321,7 @@ describe("workspace explain-access uses the deployed workspace identity", () => 
     await pglite.query(
       "UPDATE workspace_apps SET visibility = 'private' WHERE id = 'workspace-forms'",
     );
+    invalidateMemberOrgCaches();
     await expect(
       explain(member, "shared-form", "forms.edit"),
     ).resolves.toMatchObject({ allowed: false, resourceRole: null });

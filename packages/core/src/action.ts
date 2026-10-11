@@ -17,6 +17,7 @@ import {
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
+import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export type ActionCaller =
@@ -66,6 +67,8 @@ export interface ActionRunContext {
   actionName?: string;
   /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
   mcpDirectoryWidgetReadOnly?: true;
+  /** Present only on frontend calls authorized by a scoped directory-widget capability: the resource IDs it is bound to. */
+  mcpDirectoryWidgetResourceIds?: Record<string, string>;
   /** Present only on frontend mutations authorized by a scoped directory-widget write capability. */
   mcpDirectoryWidgetWrite?: {
     appId: string;
@@ -424,6 +427,11 @@ interface DefineActionWithSchema<
    *  needs to see, such as telemetry. Defaults to publishing; read-only
    *  actions never publish. */
   changeEvents?: boolean;
+  /** `false` keeps this action's query results out of the browser's persisted
+   *  query cache, so a read that must not outlive the page (secrets, one-time
+   *  codes, private data) is never painted from disk on a revisit. Defaults to
+   *  persisting. */
+  persistInBrowser?: boolean;
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
@@ -511,6 +519,7 @@ interface DefineActionWithParams<
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
+  persistInBrowser?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
     result: TReturn,
@@ -558,6 +567,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
+  readonly persistInBrowser?: boolean;
   readonly changeResource?: (
     input: TInput,
     result: TReturn,
@@ -617,10 +627,22 @@ export function defineAction(options: any) {
     };
   }
 
+  const executionKey = {};
+  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
+    const frame = actionExecutionStorage?.getStore()?.frame;
+    if (frame?.key === executionKey) {
+      frame.handlerEntered = true;
+      if (readOnly !== true) {
+        for (let parent = frame.parent; parent; parent = parent.parent)
+          parent.descendantWriteEntered = true;
+      }
+    }
+    return options.run(args, ctx);
+  };
   const guardedRun =
     typeof options.authorize === "function" || options.access
-      ? wrapRunWithAccess(options.run, options.access, options.authorize)
-      : options.run;
+      ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
+      : handlerRun;
   const uiOnlyGuardedRun =
     options.uiOnly === true
       ? async (args: any, ctx?: ActionRunContext) => {
@@ -759,7 +781,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    run: trackedRun,
+    run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -791,6 +813,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.changeEvents === "boolean"
       ? { changeEvents: options.changeEvents }
+      : {}),
+    ...(typeof options.persistInBrowser === "boolean"
+      ? { persistInBrowser: options.persistInBrowser }
       : {}),
     ...(typeof options.changeResource === "function"
       ? { changeResource: options.changeResource }
@@ -866,9 +891,7 @@ function wrapRunWithAccess(
   authorize: ActionAuthorize<any> | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
-    if (access) {
-      await assertRegisteredActionAccess(access, args, ctx);
-    }
+    if (access) await assertRegisteredActionAccess(access, args, ctx);
     if (authorize) {
       const verdict = await authorize(args, ctx);
       if (verdict === false) {
@@ -885,9 +908,9 @@ function wrapRunWithAccess(
 }
 
 /**
- * Outermost wrapper, so a refused call is audited once as a denial and never
- * as a failed run of the action. Every route to running an action as a service
- * identity (MCP, HTTP, delegated agent runs, sandbox bridges) passes here.
+ * Runs outside action tracking, so a refused call is audited once as a denial
+ * and never as a failed run of the action. Every route to running an action as
+ * a service identity passes here.
  */
 function wrapRunWithServicePrincipalGrant(
   run: (args: any, ctx?: ActionRunContext) => any,
@@ -1407,6 +1430,106 @@ const preValidatedForContext = new WeakMap<
   { schema: StandardSchemaV1; value: unknown }
 >();
 
+/** Rejected action input; execution phase determines whether effects are possible. */
+export class ActionInputValidationError extends Error {}
+
+type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
+type ActionExecutionFrame = {
+  key: object;
+  run: ActionExecutionRun;
+  parent?: ActionExecutionFrame;
+  handlerEntered: boolean;
+  descendantWriteEntered: boolean;
+  boundaryPending?: boolean;
+};
+type ActionExecutionState = {
+  frame?: ActionExecutionFrame;
+  failures: WeakMap<object, ActionExecutionFrame>;
+};
+const ActionExecutionStorage = getAsyncLocalStorageCtor();
+const actionExecutionStorage = ActionExecutionStorage
+  ? new ActionExecutionStorage<ActionExecutionState>()
+  : undefined;
+
+function wrapRunWithExecutionBoundary(
+  run: ActionExecutionRun,
+  key: object,
+): ActionExecutionRun {
+  const boundaryRun: ActionExecutionRun = async (args, ctx) => {
+    if (!actionExecutionStorage) return run(args, ctx);
+    const parent = actionExecutionStorage.getStore();
+    const frame: ActionExecutionFrame =
+      parent?.frame?.boundaryPending && parent.frame.run === boundaryRun
+        ? parent.frame
+        : {
+            key,
+            run: boundaryRun,
+            parent: parent?.frame,
+            handlerEntered: false,
+            descendantWriteEntered: false,
+          };
+    frame.key = key;
+    frame.boundaryPending = false;
+    frame.handlerEntered = false;
+    const state: ActionExecutionState = {
+      frame,
+      failures: parent?.failures ?? new WeakMap(),
+    };
+    return actionExecutionStorage.run(state, async () => {
+      try {
+        return await run(args, ctx);
+      } catch (error) {
+        if (error !== null && typeof error === "object") {
+          state.failures.set(error, frame);
+        }
+        throw error;
+      }
+    });
+  };
+  return boundaryRun;
+}
+
+/** @internal Observe one public action invocation without transferring child refusals. */
+export async function runActionWithExecutionOutcome(
+  run: ActionExecutionRun,
+  args: unknown,
+  ctx: ActionRunContext | undefined,
+  outcome: { refused: boolean },
+): Promise<any> {
+  outcome.refused = false;
+  // A mutable async stack cannot safely attribute overlapping invocations.
+  if (!actionExecutionStorage) return run(args, ctx);
+  const parent = actionExecutionStorage.getStore();
+  const frame: ActionExecutionFrame = {
+    key: {},
+    run,
+    parent: parent?.frame,
+    handlerEntered: true,
+    descendantWriteEntered: false,
+    boundaryPending: true,
+  };
+  const state: ActionExecutionState = {
+    frame,
+    failures: parent?.failures ?? new WeakMap(),
+  };
+  return actionExecutionStorage.run(state, async () => {
+    try {
+      return await run(args, ctx);
+    } catch (error) {
+      const failure =
+        error !== null && typeof error === "object"
+          ? state.failures.get(error)
+          : undefined;
+      // Error types cannot prove non-execution once the handler has entered.
+      outcome.refused =
+        !frame.descendantWriteEntered &&
+        !frame.handlerEntered &&
+        failure === frame;
+      throw error;
+    }
+  });
+}
+
 export async function validateActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
@@ -1458,7 +1581,7 @@ export async function validateActionArgs(
       ? ` Expected: ${signature} (where * = required, ? = optional).`
       : "";
 
-    throw new Error(
+    throw new ActionInputValidationError(
       `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
     );
   }

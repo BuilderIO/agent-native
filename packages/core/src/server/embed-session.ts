@@ -11,6 +11,7 @@ import {
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
@@ -197,7 +198,7 @@ export function resolvedEmbedCapabilityScope(
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const embedTicketsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
           ticket_hash TEXT PRIMARY KEY,
@@ -237,6 +238,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -1676,12 +1678,29 @@ function crossSiteCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
+// A browser drops a cookie whose name and value exceed 4096 bytes, and the
+// widest directory widget grants sign a larger token than that.
+const EMBED_SESSION_COOKIE_MAX_BYTES = 4096;
+
 export function setEmbedSessionCookie(event: H3Event, token: string): void {
-  setCookie(event, EMBED_SESSION_COOKIE, token, {
+  const attrs = {
     httpOnly: true,
     ...crossSiteCookieAttrs(event),
     ...cookieDomainAttrs(event),
     path: "/",
+  };
+  if (
+    Buffer.byteLength(`${EMBED_SESSION_COOKIE}=${token}`) >
+    EMBED_SESSION_COOKIE_MAX_BYTES
+  ) {
+    // The page keeps the token it was handed (query or bearer), which resolves
+    // ahead of the cookie. Expire any earlier cookie so it cannot stand in for
+    // this session on requests that carry no token.
+    setCookie(event, EMBED_SESSION_COOKIE, "", { ...attrs, maxAge: 0 });
+    return;
+  }
+  setCookie(event, EMBED_SESSION_COOKIE, token, {
+    ...attrs,
     maxAge: DEFAULT_TOKEN_TTL_SECONDS,
   });
 }

@@ -241,6 +241,7 @@ const messages = {
     importCompleteFile: "تم استيراد الملف من {{fileName}}.",
     backToDecks: "العودة إلى العروض",
     toggleSlideList: "تبديل قائمة الشرائح",
+    openInAgentNative: "فتح في Agent-Native",
     designSystem: "نظام التصميم",
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",

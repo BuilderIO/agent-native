@@ -23,6 +23,8 @@ export default {
       "{label}، مثال المصدر {source}، موضعه في المعرض {current} من {total}، تاريخ الالتقاط {date}",
     screenshotMissing: "لم تُلتقط لقطة شاشة",
     recordingUnavailable: "غير متاح",
+    recordingGap: "فجوة في التسجيل",
+    recordingGapDuration: "فجوة في التسجيل · {duration}",
     eventTime: "وقت الحدث (UTC)",
     generationCompletedEvent: "حدث generation_completed (UTC)",
     replayObservation: "ملاحظة إعادة التشغيل",
@@ -65,6 +67,9 @@ export default {
       "من {from} إلى {to} · مجموعات مستقلة لكل تطبيق{partial}",
     sessionCount: "\u200f{count} جلسة",
     otherPaths: "مسارات أخرى",
+    otherBranchesShown: "يُعرض {shown} من أصل {total} فرعًا",
+    otherBranchDetailsUnavailable: "تفاصيل الفروع غير متاحة في شجرة الرحلة هذه",
+    otherBranchSourceKey: "مفتاح الخطوة المصدر: {key}",
     htmlLanguage: "ar-SA",
   },
   composer: { menu: { integrations: "التكاملات" } },
@@ -216,7 +221,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "التصاميم",
+    home: "الرئيسية",
     templates: "القوالب",
     designSystems: "أنظمة التصميم",
     setupDesignSystem: "إعداد نظام التصميم",
@@ -759,13 +764,16 @@ export default {
       needsConnectedApp: "الانتقال إلى المصدر يتطلب تطبيقًا متصلًا",
     },
     leftRail: {
-      file: "ملف",
+      layers: "الطبقات",
       agent: "الوكيل",
       assets: "الأصول",
       import: "استيراد",
       tools: "الأدوات",
       tokens: "الرموز",
       label: "مساحة عمل التصميم",
+      account: "الحساب",
+      collapse: "طي الشريط الجانبي",
+      expand: "توسيع الشريط الجانبي",
     },
     breakpointBar: {
       base: "الأساس",
@@ -855,12 +863,10 @@ export default {
       "تم تغيير {{path}} على القرص منذ فتحه. أعد تحميل الشاشة وحاول مرة أخرى.",
     applyToSourceError: "تعذّر الحفظ في المصدر: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "استيراد الرموز",
       importTitle: "استيراد الرموز",
       importHint:
@@ -872,6 +878,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "استيراد الرموز الملصقة",
       importedCount: "تم استيراد {{count}} رمزا",
+      count: "{{count}} رمز",
+      search: "البحث في الرموز",
+      noMatches: "لا توجد رموز مطابقة",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1053,7 +1062,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
-      designs: "التصاميم",
+      allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
@@ -1579,6 +1588,13 @@ export default {
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
+      previewCredentialsUnavailableTitle:
+        "بيانات اعتماد المعاينة المحلية غير متاحة",
+      previewCredentialsUnavailableDescription:
+        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+      publicPreviewUnavailableDescription:
+        "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
+      previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {
@@ -1663,9 +1679,11 @@ export default {
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
     imageAttachmentUnavailable:
-      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
+      "تعذّر تجهيز هذه الصورة للرفع. جرّب صورة بتنسيق JPG أو PNG أو GIF أو WebP.",
+    imageAttachmentTooLarge:
+      "يمكن أن يصل حجم كل صورة إلى {{perFile}} ميغابايت، وبإجمالي {{total}} ميغابايت للصور.",
     attachmentsTooLarge:
-      "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
+      "يتم تحسين الصور تلقائيًا. يجب ألا يتجاوز الحجم الإجمالي للصور المحسّنة والملفات الأخرى {{max}} ميغابايت.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
     skipPrompt: "تخطي المطالبة",
     startBlankCanvas: "ابدأ بلوحة فارغة",
@@ -1824,7 +1842,7 @@ export default {
     browseAllTemplates: "تصفح الكل",
     connectBuilderIo: "استخدم Builder.io",
     connectingBuilder: "جارٍ إعداد Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "الرئيسية",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
     newDesignLower: "تصميم جديد",

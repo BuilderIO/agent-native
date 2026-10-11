@@ -46,7 +46,7 @@ describe("extractFigmeta", () => {
     });
   });
 
-  it("extracts exact single and multi-selection node ids from current Figma clipboard metadata", () => {
+  it("extracts single and multi-selection node ids from clipboard metadata", () => {
     const html = `<span data-metadata="<!--(figmeta)${base64Json({
       fileKey: "abcDEF12345",
       pasteID: 7,

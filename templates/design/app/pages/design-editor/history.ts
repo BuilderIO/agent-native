@@ -244,6 +244,8 @@ export function insertFileCreationHistoryEntry(
 
 export interface FileDeletionHistorySnapshot {
   id: string;
+  restoreClaimId?: string;
+  restoreSourceFileId?: string;
   filename: string;
   content: string;
   fileType: string;
@@ -253,6 +255,12 @@ export interface FileDeletionHistorySnapshot {
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
   variantMemberships?: FileDeletionVariantMembershipSnapshot[];
+}
+
+export interface FileDeletionRestoreClaim {
+  claimId: string;
+  sourceFileId: string;
+  targetFileId: string;
 }
 
 export interface FileDeletionVariantMembershipSnapshot {

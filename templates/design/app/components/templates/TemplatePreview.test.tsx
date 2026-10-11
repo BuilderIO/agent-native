@@ -55,6 +55,24 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 describe("template artboard preview", () => {
+  it("does not request private screenshots without a design scope", async () => {
+    const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    await act(async () =>
+      root.render(
+        <TemplatePreview
+          html={`<img src="${route}">`}
+          title="Unscoped template"
+        />,
+      ),
+    );
+
+    const frame = container.querySelector("iframe")!;
+    expect(frame.srcdoc).not.toContain(`src="${route}"`);
+    expect(frame.srcdoc).not.toContain(
+      "design-private-replay-screenshot:connect",
+    );
+  });
+
   it.each([
     [1080, 1080],
     [612, 792],

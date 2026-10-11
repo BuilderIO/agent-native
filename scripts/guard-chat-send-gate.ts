@@ -973,7 +973,7 @@ function structuralDispatchViolations(
   if (relativeFile === AGENTKIT_CONTROLLER_FILE) {
     for (const [methodName, owner, member] of [
       ["sendMessage", "this", "setThread"],
-      ["queueMessage", "this", "setThread"],
+      ["queueMessage", "this", "invokeRequest"],
     ] as const) {
       const violation = methodDispatchGateViolation(
         sourceFile,

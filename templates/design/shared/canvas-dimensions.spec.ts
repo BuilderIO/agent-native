@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   explicitCanvasDimensionsFromPrompt,
   InvalidCanvasDimensionsError,
+  requestedCanvasDeviceVariants,
   resolveCanvasIntent,
 } from "./canvas-dimensions.js";
 import {
@@ -343,6 +344,12 @@ describe("resolveCanvasIntent", () => {
       627,
     ],
     ["Create an ad for LinkedIn", "LinkedIn Single Image Ad", 1200, 627],
+    [
+      "Create a LinkedIn ad for LinkedIn",
+      "LinkedIn Single Image Ad",
+      1200,
+      627,
+    ],
     ["Diseña un anuncio de LinkedIn", "LinkedIn Single Image Ad", 1200, 627],
     ["Create a Meta feed ad", "Meta Feed Square Ad", 1080, 1080],
     ["Create a landscape Meta feed ad", "Meta Feed Landscape Ad", 1200, 628],
@@ -354,6 +361,9 @@ describe("resolveCanvasIntent", () => {
     ["Create a thumbnail for YouTube", "YouTube Thumbnail", 1280, 720],
     ["Create a display ad", "Medium Rectangle", 300, 250],
     ["Create a display leaderboard", "Leaderboard", 728, 90],
+    ["Create a leaderboard ad", "Leaderboard", 728, 90],
+    ["Create a leaderboard banner", "Leaderboard", 728, 90],
+    ["Create a mobile leaderboard", "Mobile Leaderboard", 320, 50],
     ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
     ["Create an email header", "Email Header", 600, 200],
   ])("resolves %s to %s", (prompt, preset, width, height) => {
@@ -399,7 +409,19 @@ describe("resolveCanvasIntent", () => {
     "Build a Google Ads dashboard",
     "Build a Google Ads reporting tool",
     "Design an ad campaign manager",
+    "Create a sales leaderboard",
+    "Create a mobile leaderboard app",
+    "Build a mobile leaderboard component",
+    "Create a display leaderboard editor",
+    "Create a display leaderboard screen",
+    "Design a Facebook ads reporting screen",
+    "Design an ad performance report screen",
+    "Design an ads manager",
+    "Build a social media scheduler",
     "Create a leaderboard page for our game",
+    "Create a leaderboard screen for our game",
+    "Create a LinkedIn ad editor",
+    "Create a LinkedIn ads dashboard for LinkedIn",
     "Create a social post scheduler app",
     "Create a settings page with an avatar upload",
     "Create a login screen with a logo",
@@ -409,6 +431,18 @@ describe("resolveCanvasIntent", () => {
     "Build a responsive landing page for our product",
     "Create a mobile app that manages ad campaigns",
     "Design a poster maker tool",
+    "Design a leaderboard page for our fitness app",
+    "Design an email header editor",
+    "Build a banner editor",
+    "Build a logo upload page",
+    "Build a CRM dashboard",
+    "Design a Google Ads dashboard",
+    "Make a settings page with an avatar upload",
+    "Create a reporting dashboard for Facebook ads",
+    "Create a sales leaderboard for our Facebook ads team",
+    "Show 3 options for a CRM dashboard for our ad agency",
+    "Design a Facebook ads dashboard UI",
+    "Create an email header editor UI",
   ])("keeps app surfaces responsive in %s", (prompt) => {
     expect(resolveCanvasIntent(prompt)).toEqual({ kind: "responsive" });
   });
@@ -417,11 +451,50 @@ describe("resolveCanvasIntent", () => {
     "Twitter/X promo graphic",
     "YouTube thumbnail",
     "OG image",
-    "LinkedIn ad",
     "Make a flyer for the conference",
     "Design a social post announcing our new landing page",
+    "Create a LinkedIn ad",
+    "Make a Twitter/X promo graphic",
+    "Design a poster for our event",
+    "1200x627 LinkedIn ad",
+    "Create a banner ad",
+    "Make an Instagram story",
+    "Create a YouTube thumbnail",
+    "Design an OG image",
+    "Make a newsletter header",
+    "Genera un anuncio para LinkedIn",
+    "Make a graphic for our LinkedIn ads",
+    "Explore 3 directions for a LinkedIn ad",
+    "Show 3 variations of a Facebook ad",
   ])("recognizes fixed artwork in %s", (prompt) => {
     expect(resolveCanvasIntent(prompt).kind).toBe("fixed");
+  });
+
+  it.each([
+    [
+      "Create a LinkedIn ad",
+      {
+        kind: "fixed",
+        source: "preset",
+        preset: "LinkedIn Single Image Ad",
+        dimensions: { width: 1200, height: 627 },
+      },
+    ],
+    [
+      "Design a poster for our event",
+      { kind: "fixed", source: "fixed-output" },
+    ],
+    [
+      "Make a Twitter/X promo graphic",
+      {
+        kind: "fixed",
+        source: "preset",
+        preset: "X Promo Graphic",
+        dimensions: { width: 1200, height: 675 },
+      },
+    ],
+  ])("keeps artwork outputs fixed in %s", (prompt, intent) => {
+    expect(resolveCanvasIntent(prompt)).toMatchObject(intent);
   });
 
   it("uses exact pixels before a platform preset", () => {
@@ -466,5 +539,39 @@ describe("resolveCanvasIntent", () => {
     expect(
       resolveCanvasIntent("Create a 1080x1080 poster and a 1200x628 banner"),
     ).toEqual({ kind: "fixed", source: "multiple-dimensions" });
+  });
+});
+
+describe("requestedCanvasDeviceVariants", () => {
+  it.each([
+    [
+      "Create a LinkedIn ad with desktop and mobile versions",
+      ["desktop", "mobile"],
+    ],
+    ["Make a mobile version of the existing ad", ["mobile"]],
+    [
+      "Create desktop, tablet, and mobile layouts",
+      ["desktop", "tablet", "mobile"],
+    ],
+  ] as const)("reads explicit variants from %s", (prompt, variants) => {
+    expect(requestedCanvasDeviceVariants(prompt)).toEqual(variants);
+  });
+
+  it("does not treat a device mention as a requested variant", () => {
+    expect(
+      requestedCanvasDeviceVariants("Create a mobile LinkedIn ad"),
+    ).toEqual([]);
+  });
+
+  it.each([
+    "Create a promo banner, no mobile version",
+    "Create a promo banner without a mobile version",
+    "Create a banner with no mobile or tablet versions",
+    "Create a banner without mobile and tablet versions",
+    "Create a desktop and mobile banner, excluding tablet variants",
+  ])("respects excluded device variants in %s", (prompt) => {
+    expect(requestedCanvasDeviceVariants(prompt)).toEqual(
+      prompt.includes("desktop and mobile") ? ["desktop", "mobile"] : [],
+    );
   });
 });

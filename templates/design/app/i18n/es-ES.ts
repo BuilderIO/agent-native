@@ -23,6 +23,8 @@ export default {
       "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
     screenshotMissing: "No se capturó ninguna captura",
     recordingUnavailable: "no disponible",
+    recordingGap: "Intervalo sin grabación",
+    recordingGapDuration: "Intervalo sin grabación · {duration}",
     eventTime: "Hora del evento (UTC)",
     generationCompletedEvent: "evento generation_completed (UTC)",
     replayObservation: "Observación de reproducción",
@@ -67,6 +69,10 @@ export default {
       "{from} a {to} · cohortes separadas por aplicación{partial}",
     sessionCount: "{count} sesiones",
     otherPaths: "Otras rutas",
+    otherBranchesShown: "Se muestran {shown} de {total} ramas",
+    otherBranchDetailsUnavailable:
+      "Este árbol de recorrido no incluye el detalle de las ramas",
+    otherBranchSourceKey: "Clave del paso de origen: {key}",
     htmlLanguage: "es-ES",
   },
   composer: { menu: { integrations: "Integraciones" } },
@@ -222,7 +228,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Diseños",
+    home: "Inicio",
     templates: "Plantillas",
     designSystems: "Sistemas de diseño",
     setupDesignSystem: "Configurar sistema de diseño",
@@ -774,13 +780,16 @@ export default {
       needsConnectedApp: "Saltar al código fuente requiere una app conectada",
     },
     leftRail: {
-      file: "Archivo",
-      agent: "Agente",
+      layers: "Capas",
+      agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
       tools: "Herramientas",
       tokens: "Tokens de diseño",
       label: "Espacio de trabajo de diseño",
+      account: "Cuenta",
+      collapse: "Contraer barra lateral",
+      expand: "Expandir barra lateral",
     },
     breakpointBar: {
       base: "Base",
@@ -872,12 +881,10 @@ export default {
       "{{path}} cambió en el disco desde que se abrió. Recarga la pantalla e inténtalo de nuevo.",
     applyToSourceError: "No se pudo guardar en el código fuente: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importar tokens",
       importTitle: "Importar tokens",
       importHint:
@@ -889,6 +896,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importar tokens pegados",
       importedCount: "{{count}} tokens importados",
+      count: "{{count}} tokens",
+      search: "Buscar tokens",
+      noMatches: "No hay tokens coincidentes",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1077,7 +1087,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
-      designs: "Diseños",
+      allDesigns: "Todos los diseños",
       rename: "Renombrar",
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
@@ -1618,6 +1628,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
       permissionPromptRetry: "Reintentar conexión",
+      previewCredentialsUnavailableTitle:
+        "Las credenciales de la vista previa local no están disponibles",
+      previewCredentialsUnavailableDescription:
+        "Vuelve a conectar la conexión localhost de esta pantalla en el inspector y vuelve a intentarlo.",
+      publicPreviewUnavailableDescription:
+        "Las vistas previas de localhost no se comparten con los visitantes públicos. Abre este diseño como colaborador para ver esta pantalla.",
+      previewCredentialsRetry: "Reintentar credenciales",
     },
   },
   multiScreenCanvas: {
@@ -1704,9 +1721,11 @@ export default {
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
     imageAttachmentUnavailable:
-      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
+      "No se pudo preparar esta imagen para subirla. Prueba con una imagen JPG, PNG, GIF o WebP.",
+    imageAttachmentTooLarge:
+      "Cada imagen puede ocupar hasta {{perFile}} MB, con un máximo total de {{total}} MB para las imágenes.",
     attachmentsTooLarge:
-      "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
+      "Las imágenes se optimizan automáticamente. El total de imágenes optimizadas y otros archivos no puede superar {{max}} MB.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",
     skipPrompt: "Omitir prompt",
     startBlankCanvas: "Empezar con un lienzo en blanco",
@@ -1868,7 +1887,7 @@ export default {
     browseAllTemplates: "Ver todo",
     connectBuilderIo: "Usar Builder.io",
     connectingBuilder: "Configurando Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "Inicio",
     searchPlaceholder: "Buscar diseños...",
     newDesign: "Nuevo Design",
     newDesignLower: "Nuevo diseño",

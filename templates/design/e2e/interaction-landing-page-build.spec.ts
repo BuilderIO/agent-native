@@ -382,7 +382,7 @@ test.afterAll(async ({ request }) => {
   await deleteDesign(request);
 });
 
-test("step 1: Screen tool draws the root Landing Page frame at 1440x1024 with standard frame-tool defaults", async ({
+test("step 1: Screen tool draws the root Landing Page frame at 1440x1024 with the default top-level frame fill and clip", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
@@ -814,22 +814,13 @@ test("step 12: Cmd+D duplicates CTAButton into Hero and its label is retyped to 
   expect(html).toContain(">Start Free Trial<");
   expect(html).toContain(">Get Started<");
 
-  // NOTE (harness-blocked, see harnessNotes): the tutorial's step 12 also
-  // drags the retyped duplicate out of Navbar and into Hero. Every drag
-  // start-point this spec tried after the retype (the wrapper's own
-  // bounding-box center via a stable node-id locator; the text leaf's
-  // position; a layers-panel row keyed by the same node id, which the panel
-  // did not expose under that id) either mis-hit a child element mid-drag or
-  // could not re-establish the wrapper as the selection at all — genuinely
-  // reproducible friction in this app for a nested-flex-child duplicate
-  // right after a content edit, not a harness mistake in the final attempt.
-  // Steps 13-14 build the Hero's actual primary button fresh instead
-  // (Rectangle + Text + Shift+A, the same recipe as CTAButton) so the build
-  // continues; this duplicate+retype step still stands as proof that Cmd+D
-  // and the retype themselves work correctly in place.
+  // NOTE: dragging the retyped duplicate out of Navbar into Hero is not
+  // covered here; drag start points mis-hit child elements right after a
+  // content edit. Steps 13-14 build the Hero button fresh. This test still
+  // proves Cmd+D and the retype work in place.
 });
 
-test("steps 13-14: secondary 'Watch Demo' button is built and Shift+A wraps both hero buttons into 'HeroCTAGroup'", async ({
+test("the secondary button is built and both hero buttons are grouped in HeroCTAGroup", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
@@ -981,7 +972,7 @@ test("steps 16-17: HeroImage is drawn and Hero's own auto layout is enabled hori
   expect(heroDisplay).toBe("flex");
 });
 
-test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its wordmark retyped", async ({
+test("footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its wordmark retyped", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
@@ -1068,7 +1059,7 @@ test("FD4B footer: Cmd+D duplicates the Navbar frame, renamed 'Footer', with its
   );
 });
 
-test("FD4B card: Rectangle Thumbnail + title/description text wrap into a nested auto-layout 'Card'", async ({
+test("card: Rectangle Thumbnail + title/description text wrap into a nested auto-layout 'Card'", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
@@ -1130,7 +1121,7 @@ test("FD4B card: Rectangle Thumbnail + title/description text wrap into a nested
   expect(bodyInner).toContain(">Noise-cancelling, 30-hour battery<");
 });
 
-test("FD4B card row: Cmd+D duplicates Card, its title is retyped, and both wrap into a horizontal 'CardRow'", async ({
+test("card row: Cmd+D duplicates Card, its title is retyped, and both wrap into a horizontal 'CardRow'", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
@@ -1228,7 +1219,7 @@ test("layers panel: renaming a deeply-nested layer only changes that layer", asy
   await expect(layerRowButton(page, "HeroCTAGroup")).toBeVisible();
 });
 
-test("group: marquee-selects two sections, Cmd+G groups them with standard Group semantics, one undo ungroups", async ({
+test("group: marquee-selects two sections, Cmd+G groups them, one undo ungroups", async ({
   page,
 }) => {
   await openOverview(page, designId, 1);
@@ -1446,7 +1437,7 @@ test("final structure: desktop Landing Page layer tree (names + order + nesting)
   const secondNavbarCount = names.filter((n) => n === "Navbar").length - 1;
   expect(
     names.includes("Footer") || secondNavbarCount === 1,
-    `expected either a "Footer" name or a second "Navbar" for the FD4B footer duplicate; names were ${JSON.stringify(names)}`,
+    `expected either a "Footer" name or a second "Navbar" for the footer duplicate; names were ${JSON.stringify(names)}`,
   ).toBe(true);
   expect(names.indexOf("Navbar")).toBeLessThan(names.indexOf("Hero"));
 
@@ -1483,7 +1474,7 @@ test("final structure: mobile screen layer tree (names + order + nesting) matche
     names.filter((n) => n === "Navbar").length - 1;
   expect(
     names.includes("Footer") || mobileSecondNavbarCount === 1,
-    `expected either a "Footer" name or a second "Navbar" for the mobile FD4B footer duplicate; names were ${JSON.stringify(names)}`,
+    `expected either a "Footer" name or a second "Navbar" for the mobile footer duplicate; names were ${JSON.stringify(names)}`,
   ).toBe(true);
   expect(html).toContain(">Build products faster with our platform<");
   expect(html).toContain(">Bluetooth Speaker<");
@@ -1643,7 +1634,7 @@ test("step 18: alt-dragging HeroImage duplicates it; one undo removes the copy a
   expect(Math.round(afterUndo.y)).toBe(Math.round(before.y));
 });
 
-test("step 20/26: Shift+1 zooms to fit the whole Landing Page; Shift+2 zooms tighter to the selected Navbar", async ({
+test("Shift+1 zooms to fit the whole Landing Page; Shift+2 zooms in on the selected Navbar", async ({
   page,
 }) => {
   await openOverview(page, designId, 2);

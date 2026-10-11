@@ -130,6 +130,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.recovery.copyFailed": "Copy failed",
         "agentChat.recovery.retryAttachmentUnavailable":
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
+        "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.credentialRejected":
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
@@ -222,6 +223,7 @@ describe("run recovery surfaces", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.stubEnv("DEV", false);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -632,6 +634,88 @@ describe("run recovery surfaces", () => {
     expect(onRetry).not.toHaveBeenCalled();
   });
 
+  it("offers a non-retrying recovery that resends without attachments", async () => {
+    const onRetryWithoutAttachment = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model provider rejected this attachment's format or size.",
+              errorCode: "invalid_attachment",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onRetryWithoutAttachment={onRetryWithoutAttachment}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.textContent?.trim() === "Retry without attachment",
+    );
+    expect(button).toBeTruthy();
+    await act(async () => button?.click());
+    expect(onRetryWithoutAttachment).toHaveBeenCalledOnce();
+  });
+
+  it("offers only an attachment-free retry for a rejected attachment", async () => {
+    const onRetry = vi.fn();
+    const onRetryWithoutAttachments = vi.fn();
+    const onContinue = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider rejected this attachment.",
+              errorCode: "invalid_attachment",
+              runId: "run-attachment",
+              // A misreported retryable flag must not bring plain Retry back.
+              recoverable: true,
+            }}
+            onContinue={onContinue}
+            onRetry={onRetry}
+            onRetryWithoutAttachments={onRetryWithoutAttachments}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const retryWithout = buttons.find(
+      (button) => button.textContent?.trim() === "Retry without attachment",
+    );
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Continue"),
+    ).toBe(false);
+    expect(
+      container.querySelector('button[aria-label="Copy debug info"]'),
+    ).not.toBeNull();
+
+    await act(async () => retryWithout?.click());
+    expect(onRetryWithoutAttachments).toHaveBeenCalledOnce();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
   it("gives Continue vertical padding and leaves icon actions unframed", async () => {
     await act(async () => {
       root.render(
@@ -759,6 +843,81 @@ describe("run recovery surfaces", () => {
     expect(customKeysLink?.textContent).toBe("Custom keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.textContent).not.toContain("Choose a provider");
+  });
+
+  it("offers scoped keys and an app-wide environment key in local development", async () => {
+    vi.stubEnv("DEV", true);
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/ask",
+          element: (
+            <AgentNativeI18nProvider
+              initialLocale="en-US"
+              initialPreference="en-US"
+              persistPreference={false}
+            >
+              <BuilderSetupContent />
+            </AgentNativeI18nProvider>
+          ),
+        },
+        { path: "/settings/keys", element: <SetupTrackingFlowProbe /> },
+      ],
+      { initialEntries: ["/ask"] },
+    );
+
+    await act(async () => {
+      root.render(<RouterProvider router={router} />);
+    });
+
+    const customKeysButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "Custom keys");
+    expect(customKeysButton?.className).toContain("justify-center");
+    expect(customKeysButton?.className).not.toContain("bg-background");
+
+    await act(async () => {
+      customKeysButton?.click();
+    });
+
+    const setupLinks = Array.from(document.querySelectorAll("a"));
+    const settingsOption = setupLinks.find((link) =>
+      link.textContent?.includes("Add a key in Settings"),
+    );
+    const environmentOption = setupLinks.find((link) =>
+      link.textContent?.includes("Set an environment variable"),
+    );
+    expect(settingsOption?.getAttribute("href")).toBe("/settings/keys");
+    expect(settingsOption?.textContent).toContain(
+      "For your account or organization.",
+    );
+    expect(environmentOption?.getAttribute("href")).toBe(
+      "https://www.agent-native.com/docs/environment-variables#llm-provider-keys",
+    );
+    expect(environmentOption?.textContent).toContain(
+      "One provider key for everyone in this app.",
+    );
+
+    await act(async () => {
+      environmentOption?.click();
+    });
+    expect(setupTelemetryMock).toHaveBeenCalledWith(
+      "integration_method_clicked",
+      expect.objectContaining({
+        method_id: "environment_variable",
+        action: "click",
+        outcome: "started",
+      }),
+    );
+
+    await act(async () => {
+      settingsOption?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[data-testid="setup-tracking-flow"]')
+        ?.textContent,
+    ).toBe("chat_setup");
   });
 
   it("tracks setup card exposure once and the Builder and custom key choices", async () => {

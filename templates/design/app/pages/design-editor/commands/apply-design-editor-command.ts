@@ -1,8 +1,12 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { getResponsiveBreakpointHeightPx } from "@shared/responsive-frame-layout";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { InspectorTab } from "@/components/design/EditPanel";
-import { resolveFrameGeometrySync } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getResponsiveScreenCullGeometry,
+  resolveFrameGeometrySync,
+} from "@/components/design/multi-screen/frame-geometry";
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
@@ -62,6 +66,8 @@ export interface ApplyDesignEditorCommandArgs {
   overviewDataReady?: boolean;
   viewModeRef: RefObject<"single" | "overview">;
   requestCameraFit?: (camera: CreatedScreenNavigationPlan["camera"]) => void;
+  /** False frames the named screen without selecting it. Defaults to true. */
+  selectTargetScreen?: boolean;
 }
 
 export function runApplyDesignEditorCommand(
@@ -90,6 +96,7 @@ export function runApplyDesignEditorCommand(
     overviewDataReady = true,
     viewModeRef,
     requestCameraFit,
+    selectTargetScreen = true,
   }: ApplyDesignEditorCommandArgs,
   command: DesignEditorCommand | Record<string, unknown>,
 ) {
@@ -168,7 +175,7 @@ export function runApplyDesignEditorCommand(
 
   if (targetFile) {
     setActiveFileId(targetFile.id);
-    if (targetView === "overview") {
+    if (targetView === "overview" && (selectTargetScreen || selectionId)) {
       if (pendingOverviewScreenSelectionRef) {
         pendingOverviewScreenSelectionRef.current = targetFile.id;
       }
@@ -241,14 +248,31 @@ export function runApplyDesignEditorCommand(
       ) {
         return false;
       }
+      // The screen's breakpoint frames sit beside it; frame them together.
+      const group = getResponsiveScreenCullGeometry(
+        {
+          id: targetScreen.id,
+          metadata: {
+            width: targetScreen.width ?? 1280,
+            height: targetScreen.height ?? 2560,
+          },
+          breakpointWidths: targetScreen.breakpointWidths,
+        },
+        geometry,
+        (widthPx) =>
+          getResponsiveBreakpointHeightPx(
+            { breakpointHeights: targetScreen.breakpointHeights },
+            widthPx,
+          ),
+      );
       requestCameraFit(
         getCreatedScreenNavigationPlan({
           screenId: targetScreen.id,
           geometry: {
-            x: geometry.x as number,
-            y: geometry.y as number,
-            width: geometry.width as number,
-            height: geometry.height as number,
+            x: group.x,
+            y: group.y,
+            width: group.width,
+            height: group.height,
           },
         }).camera,
       );
@@ -266,7 +290,7 @@ export function runApplyDesignEditorCommand(
       setExplicitOverviewScreenSelection?.(
         selectedScreen ? [selectedScreen.id] : [],
       );
-    } else if (targetFile) {
+    } else if (targetFile && selectTargetScreen) {
       setExplicitOverviewScreenSelection?.([targetFile.id]);
     }
   }

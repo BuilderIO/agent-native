@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 
 import { defineAction, embedApp } from "@agent-native/core";
@@ -48,6 +49,7 @@ import {
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import {
@@ -59,6 +61,28 @@ import {
   nextAppendPosition,
   withPositionLock,
 } from "./_position-utils.js";
+
+type CreationTransactionWrite = {
+  documentId: string;
+  write: (tx: ReturnType<typeof getDb>) => Promise<void>;
+};
+
+const creationTransactionWrite =
+  new AsyncLocalStorage<CreationTransactionWrite>();
+
+/**
+ * Runs `create` so that `write` executes inside the transaction that inserts
+ * page `documentId`, letting a caller's own rows commit or roll back with the
+ * page itself. A request that replays an existing page inserts nothing, so
+ * `write` doesn't run and `create` still resolves.
+ */
+export function withinDocumentCreation<T>(
+  documentId: string,
+  write: CreationTransactionWrite["write"],
+  create: () => Promise<T>,
+): Promise<T> {
+  return creationTransactionWrite.run({ documentId, write }, create);
+}
 
 function nanoid(size = 12): string {
   const chars =
@@ -466,7 +490,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (args, ctx) => {
+  run: observeRecoveryDocumentCreate(async (args, ctx, measurement) => {
     const title = args.title;
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
@@ -575,6 +599,8 @@ export default defineAction({
         reuseLabels: args.reuseLabels,
         contextModeOverride: args.contextModeOverride,
       });
+      measurement.outcome = "replayed";
+      measurement.settled = true;
       await writeAppState("refresh-signal", { ts: Date.now() });
       return documentCreationResult(
         existingAccess.resource as typeof schema.documents.$inferSelect,
@@ -752,7 +778,7 @@ export default defineAction({
 
         const position = nextAppendPosition(maxPos[0]?.max);
 
-        return db.transaction(async (tx) => {
+        const insertedDocument = await db.transaction(async (tx) => {
           const [inserted] = await tx
             .insert(schema.documents)
             .values({
@@ -834,8 +860,15 @@ export default defineAction({
             userEmail: currentUserEmail,
             orgId: orgId ?? undefined,
           });
+          const scoped = creationTransactionWrite.getStore();
+          if (scoped?.documentId === id) {
+            await scoped.write(tx as unknown as ReturnType<typeof getDb>);
+          }
           return true;
         });
+        measurement.outcome = insertedDocument ? "written" : "replayed";
+        measurement.settled = true;
+        return insertedDocument;
       },
     );
 
@@ -895,7 +928,7 @@ export default defineAction({
         ? { creativeContextProjectionStatus }
         : {}),
     };
-  },
+  }),
   link: ({ result }) => {
     const id = (result as { id?: string } | null)?.id;
     if (!id) return null;

@@ -110,6 +110,7 @@ const ADVANCED_PANEL_SPEC_FILES = [
 
 const config = defineConfig({
   metadata: {
+    serverInspectPort: INSPECT_PORT,
     sidebarLoopbackPort: LOOPBACK_PORT,
     attachmentStorageHttpsPort: ATTACHMENT_STORAGE_HTTPS_PORT,
     attachmentStorageControlPort: ATTACHMENT_STORAGE_CONTROL_PORT,

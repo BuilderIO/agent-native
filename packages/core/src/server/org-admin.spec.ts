@@ -61,15 +61,17 @@ describe("currentRequestUserIsOrgAdmin", () => {
     await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
   });
 
-  it("fails closed without request identity or when the lookup fails", async () => {
+  it("rejects missing request identity without a membership lookup", async () => {
     mocks.getRequestUserEmail.mockReturnValue(null);
     await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+    expect(mocks.validateMembership).not.toHaveBeenCalled();
+  });
 
-    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
-    mocks.validateMembership.mockRejectedValue(
-      new Error("identity authority unavailable"),
-    );
-    await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+  it("preserves lookup failures instead of classifying them as permission refusals", async () => {
+    const error = new Error("identity authority unavailable");
+    mocks.validateMembership.mockRejectedValue(error);
+    await expect(currentRequestUserIsOrgAdmin()).rejects.toBe(error);
+    await expect(assertCurrentRequestUserIsOrgAdmin()).rejects.toBe(error);
   });
 
   it("provides an assertion helper", async () => {
@@ -77,8 +79,11 @@ describe("currentRequestUserIsOrgAdmin", () => {
       active: true,
       role: "member",
     });
-    await expect(assertCurrentRequestUserIsOrgAdmin()).rejects.toThrow(
-      "Only organization owners and admins",
-    );
+    await expect(assertCurrentRequestUserIsOrgAdmin()).rejects.toMatchObject({
+      name: "ActionContractError",
+      message: "Only organization owners and admins can do this.",
+      errorCode: "forbidden",
+      statusCode: 403,
+    });
   });
 });

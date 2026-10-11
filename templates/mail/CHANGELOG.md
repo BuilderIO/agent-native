@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Chats open on their own shareable URL at /chat/<id>, and /chat always starts a blank chat.
+
 ## 2026-10-06
 
 ### Fixed

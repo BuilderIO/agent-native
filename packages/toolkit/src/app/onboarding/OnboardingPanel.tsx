@@ -12,6 +12,7 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "@agent-native/core/onboarding/types";
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -56,10 +57,13 @@ export function OnboardingPanel({
     currentStepId: rawCurrentStepId,
     dismissed,
     loading,
+    error,
+    summaryKnown,
     refresh,
     complete,
     dismiss,
   } = onboarding;
+  const t = useT();
   const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
   const steps = isDevMode
     ? rawSteps
@@ -75,6 +79,7 @@ export function OnboardingPanel({
   const checklistVisible =
     !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
   const [expanded, setExpanded] = useState(true);
+  const [retrying, setRetrying] = useState(false);
   const stepViewRef = useRef<{ key: string; id: string } | null>(null);
 
   useEffect(() => {
@@ -102,12 +107,58 @@ export function OnboardingPanel({
     });
   }, [checklistVisible, currentStepId, expanded, previewMode, steps]);
 
-  if (loading || totalCount === 0) return null;
-  if (!previewMode) {
-    if (dismissed) return null;
-    if (allComplete) return null;
-  }
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      setRetrying(false);
+    }
+  };
+  const errorNotice =
+    error &&
+    (previewMode ||
+      !summaryKnown ||
+      (totalCount > 0 && !dismissed && !allComplete)) ? (
+      <div role="alert" style={styles.errorNotice}>
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          data-testid="onboarding-summary-retry"
+          disabled={retrying}
+          onClick={() => void handleRetry()}
+        >
+          {retrying ? (
+            <IconLoader2 className="animate-spin" aria-hidden />
+          ) : null}
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
+    ) : null;
 
+  if (loading) return null;
+  if (!previewMode && !summaryKnown) {
+    if (!errorNotice) return null;
+    return (
+      <div className={className} style={styles.errorOnly}>
+        {errorNotice}
+      </div>
+    );
+  }
+  if (!previewMode && (dismissed || (totalCount > 0 && allComplete))) {
+    return null;
+  }
+  if (error && totalCount === 0) {
+    if (!errorNotice) return null;
+    return (
+      <div className={className} style={styles.errorOnly}>
+        {errorNotice}
+      </div>
+    );
+  }
+  if (totalCount === 0) return null;
   if (!expanded) {
     return (
       <div className={className} style={styles.compactBanner}>
@@ -139,6 +190,7 @@ export function OnboardingPanel({
           </TooltipTrigger>
           <TooltipContent>Expand setup</TooltipContent>
         </Tooltip>
+        {errorNotice}
       </div>
     );
   }
@@ -173,6 +225,8 @@ export function OnboardingPanel({
           <TooltipContent>Collapse</TooltipContent>
         </Tooltip>
       </div>
+
+      {errorNotice}
 
       <div style={styles.list}>
         {steps.map((step) => (
@@ -853,6 +907,19 @@ function badgeStyle(
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  errorOnly: {
+    borderBottom: "1px solid hsl(var(--border) / 0.7)",
+    background: "hsl(var(--muted) / 0.25)",
+    fontSize: 12,
+  },
+  errorNotice: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    padding: "8px 12px",
+    color: "hsl(var(--muted-foreground))",
+  },
   root: {
     borderBottom: "1px solid hsl(var(--border) / 0.7)",
     background: "hsl(var(--muted) / 0.25)",

@@ -1,5 +1,66 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  lookbackContext: {
+    includeLast: "Include last",
+    whatIsThis: "What is this?",
+    off: "Off",
+    custom: "Custom…",
+    customLabel: "Custom length",
+    customAmount: "Length",
+    customUnit: "Unit",
+    unitSeconds: "seconds",
+    unitMinutes: "minutes",
+    customSave: "Use length",
+    customErrorEmpty: "Enter a length.",
+    customErrorInvalid: "Enter a whole number of seconds or minutes.",
+    customErrorTooLong: "Keep it to 5 min or less.",
+    turnOnRewind: "Turn on Rewind",
+    rewindOffTitle: "Turn on Rewind",
+    rewindOffBody:
+      "Rewind keeps a local history of your screen so you can include the last few minutes before a recording. Footage uploads only when you include it or approve it.",
+    requestFailed:
+      "Couldn't include earlier screen time. The recording continues without it.",
+    localOnlyUnavailable:
+      "Earlier screen time isn't saved for local-only recordings.",
+    saving: "Saving {{window}} before…",
+    ready: "With {{window}} before",
+    failed: "Couldn't save earlier screen time",
+    unreadable: "Couldn't check earlier screen time",
+    edit: "Edit",
+    editTitle: "Earlier screen time",
+    editSave: "Save",
+    editFailed: "Couldn't save the window. Try again.",
+    previewPreparing: "Preparing preview…",
+    previewFailed: "Couldn't prepare the preview.",
+    previewLabel: "Earlier screen time preview",
+    retry: "Retry",
+    playSelection: "Play selection",
+    removeFailed:
+      "Couldn't remove earlier screen time for the discarded recording.",
+    removeFailedAction: "Couldn't remove earlier screen time. Try again.",
+    removeAction: "Remove earlier screen time",
+    removeConfirmTitle: "Remove earlier screen time?",
+    removeConfirmBody:
+      "The footage is moved to Trash and the clip no longer includes it.",
+    removeConfirm: "Remove",
+    removed: "Earlier screen time removed",
+    scrubberFromBefore: "From {{offset}} before",
+    scrubberFromStart: "From recording start",
+    scrubberToBefore: "To {{offset}} before",
+    scrubberToStart: "To recording start",
+    scrubberLength: "Length",
+    scrubberStartHandle: "Window start",
+    scrubberEndHandle: "Window end",
+    tab: "Context",
+    label: "Screen before recording",
+    window: "{{start}}–{{end}} before recording",
+    savingEarlierTime: "Saving earlier screen time…",
+    loadFailed: "Couldn't load earlier screen time.",
+    empty: "No earlier screen time is attached to this clip.",
+    larger: "Larger",
+    editHint: "Edit the window in Clips Desktop.",
+    waitingOtherDevice: "Waiting for the device that recorded this clip",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Use Builder.io",
@@ -690,6 +751,8 @@ const messages = {
     switchToNightly: "Switch to Nightly builds",
     switchToStable: "Switch to stable builds",
     retry: "Try again",
+    mountError:
+      "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",
@@ -749,6 +812,9 @@ const messages = {
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
     labWisprFlow: "Voice dictation",
     labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
+    labLookbackContext: "Include earlier screen time",
+    labLookbackContextDescription:
+      "Attach up to five minutes of screen time from before a recording as passive context.",
     uploadWorkspaceTitle: "Active workspace",
     uploadWorkspaceDescription:
       "Choose the workspace Clips uses for new recordings, including desktop uploads.",
@@ -2138,21 +2204,6 @@ const messages = {
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
-  },
-  rewindExtension: {
-    title: "Add what happened before",
-    description:
-      "Pull a specific interval from local Rewind and add it to the start of this Clip. Nothing is added automatically.",
-    progressLabel: "Rewind history processing progress",
-    privateFirstTitle: "Make this Clip private first",
-    privateFirstDescription:
-      "Local Rewind history can contain context from before you chose to record. This changes the Clip to private. If anyone still has direct access, Clips will stop here so you can remove them in Share first.",
-    makePrivateContinue: "Make private and continue",
-    add30Seconds: "Add the previous 30 seconds",
-    add5Minutes: "Add the previous 5 minutes",
-    add5MinutesDescription:
-      "Good for recovering the lead-in to a longer explanation.",
-    privateReady: "This Clip is private. You can now add local Rewind history.",
   },
   browserDiagnostics: {
     debug: "Debug",

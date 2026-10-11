@@ -378,20 +378,6 @@ button[title="Open agent sidebar"] {
   }
 }
 
-/* Inside a host-owned MCP App pane the area around the slide is the pane's own
- * background, not the darker editor well. */
-.deck-editor-shell[data-slides-widget="true"] {
-  --slides-editor-surface: hsl(var(--background));
-}
-
-.deck-editor-shell[data-slides-widget="true"] .deck-editor-toolbar,
-.deck-editor-shell[data-slides-widget="true"]
-  .deck-editor-context-toolbar-host {
-  min-width: 0;
-  max-width: 100%;
-  overscroll-behavior-inline: contain;
-}
-
 .deck-editor-context-toolbar-host {
   min-width: 0;
   overflow: auto;
@@ -411,13 +397,6 @@ button[title="Open agent sidebar"] {
   min-width: 0;
   width: 100%;
   flex: 1 1 auto;
-}
-
-@container deck-editor (max-width: 36rem) {
-  .deck-editor-shell[data-slides-widget="true"] .deck-editor-toolbar,
-  .deck-editor-shell[data-slides-widget="true"] .slide-context-toolbar {
-    padding-inline: 0.375rem;
-  }
 }
 
 @container (max-width: 36rem) {

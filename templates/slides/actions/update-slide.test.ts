@@ -323,6 +323,37 @@ describe("update-slide", () => {
     );
   });
 
+  it("reports deck_edited with the slide count, attempt id and run keys", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      generationContext: { generationAttemptId: "attempt-1" },
+      slides: [
+        { id: "slide-1", content: "<div>Old</div>" },
+        { id: "slide-2", content: "<div>Two</div>" },
+      ],
+    });
+
+    await runSlideActionWithCurrentHash(
+      { deckId: "deck-1", slideId: "slide-1", find: "Old", replace: "New" },
+      { caller: "tool", runId: "run-1", turnId: "turn-1" },
+    );
+
+    const edited = mockTrack.mock.calls.find(
+      ([name]) => name === "deck_edited",
+    );
+    expect(edited?.[1]).toMatchObject({
+      app_name: "slides",
+      output_id: "deck-1",
+      edit_mode: "update_slide",
+      slide_count: 2,
+      generation_attempt_id: "attempt-1",
+      run_id: "run-1",
+      turn_id: "turn-1",
+      caller: "tool",
+    });
+  });
+
   it("requires a source hash for full-slide and selected-object replacements", async () => {
     await expect(
       action.run({

@@ -241,6 +241,7 @@ const messages = {
     importCompleteFile: "Arquivo importado de {{fileName}}.",
     backToDecks: "Voltar aos decks",
     toggleSlideList: "Alternar lista de slides",
+    openInAgentNative: "Abrir no Agent-Native",
     designSystem: "Sistema de design",
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando um sistema de design vinculado",

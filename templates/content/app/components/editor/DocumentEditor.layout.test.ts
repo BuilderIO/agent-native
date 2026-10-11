@@ -2893,7 +2893,9 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl && !commentsInMenu ?");
+    expect(source).toContain(
+      "showCommentsControl && !inWidget && !commentsInMenu ?",
+    );
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
@@ -3335,7 +3337,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync({"),
+      source.indexOf("return await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
@@ -3347,8 +3349,8 @@ describe("document editor layout", () => {
     expect(keepalive).toContain(
       "loadedUpdatedAtForSave(\n          pending.contentBase,\n          documentUpdatedAtRef.current,\n        )",
     );
-    expect(flush).toContain(
-      "loadedUpdatedAtForSave(\n            options.contentBase,\n            documentUpdatedAtRef.current,\n          )",
+    expect(flush).toMatch(
+      /loadedUpdatedAtForSave\(\s*options\.contentBase,\s*documentUpdatedAtRef\.current,\s*\)/,
     );
     expect(
       loadedUpdatedAtForSave(

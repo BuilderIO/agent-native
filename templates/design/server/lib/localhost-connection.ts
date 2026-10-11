@@ -65,6 +65,15 @@ export async function resolveLocalhostConnectionScope(options?: {
     }
   }
 
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) {
+    const requestOrgId = getRequestOrgId();
+    return {
+      ownerEmail,
+      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
+    };
+  }
+
   const capability = getRequestAuthCapability();
   if (
     designId &&
@@ -90,15 +99,6 @@ export async function resolveLocalhostConnectionScope(options?: {
     return {
       ownerEmail: resource.ownerEmail,
       orgId: typeof resource.orgId === "string" ? resource.orgId : null,
-    };
-  }
-
-  const ownerEmail = getRequestUserEmail();
-  if (ownerEmail) {
-    const requestOrgId = getRequestOrgId();
-    return {
-      ownerEmail,
-      orgId: requestOrgId ?? (await resolveOrgIdForEmail(ownerEmail)),
     };
   }
 

@@ -2116,6 +2116,8 @@ const messages = {
     downloadStarted: "已開始下載",
     downloadAgain: "沒有成功？再試一次下載",
     loadError: "無法載入最新桌面安裝程式。",
+    mountError:
+      "桌面下載頁無法找到其在此工作區中的路徑。請聯絡工作區管理員檢查應用程式掛載設定。",
     checkingRelease: "正在檢查最新桌面版...",
     retry: "重試",
     unavailable: "此平台沒有可用的安裝程式",

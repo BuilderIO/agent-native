@@ -1,5 +1,19 @@
 # @agent-native/agentkit
 
+## 0.207.0
+
+### Minor Changes
+
+- 41700be: Expose server-confirmed chat persistence, report snapshot save results, and allow canceled persistence requests so the UI can retry failed saves safely. The legacy `persistThreadSnapshot()` method rejects on unexpected transport failure and resolves for expected cancellation or queue deferral without confirming that the snapshot was saved. Use `persistThreadSnapshotWithResult()` when callers need the save outcome.
+
+### Patch Changes
+
+- 19cd58b: Fix chat turns that died or looked broken for recoverable reasons. A turn that yields to a connection request is recorded as awaiting input instead of a truncated run (no synthetic auto-continue, no chained successor), and automations record the yield as a typed connection_required failure and pause. Stale connection cards retire with their run, and a chat that does not own a pending connection resume no longer shows a stuck "Connection failed" banner. A failed peer-app call shows the app name once with a short reason and keeps its participant after the run finishes. Peer-app failures carry typed codes so the caller stops retrying an unfixable peer, and a peer that needs a connection returns a do-not-retry result. An org A2A secret equal to the deploy secret is refused, and the resulting identity demotion is logged.
+- aa34418: Never persist inline image or file bytes in chat storage: thread snapshots, queued messages, run events and dispatch payloads keep a durable URL or an explicit omitted marker instead of `data:` URLs. Chat now reports typed, localized upload and attachment errors (including a "Retry without attachment" action for provider-rejected files), replays earlier attachments and the original ask in long threads, keeps a provider ownership check from failing on one unreachable provider, marks interrupted tool results as unknown-outcome errors, and no longer records experiment assignments when a model was chosen explicitly.
+- ccddd3a: Preserve image attachments and user-selected output dimensions throughout agent chat and Design generation.
+- Release all public npm packages with a patch version bump.
+- ecfe037: Preserve opaque uploaded file IDs and show an error when retrying without attachments fails.
+
 ## 0.206.0
 
 ### Minor Changes

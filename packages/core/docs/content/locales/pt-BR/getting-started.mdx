@@ -15,7 +15,7 @@ Neste guia, você criará um agente com uma UI de chat e chamará a ação `hell
 
 - [Node.js](https://nodejs.org) 22.22 ou posterior
 - [pnpm](https://pnpm.io) instalado e disponível no seu `PATH`
-- Uma conexão com LLM para o agente: Builder.io, uma chave de API Anthropic ou OpenAI, ou um modelo Ollama local
+- Opcional durante a configuração; necessário para executar o agente: Builder.io, uma chave Anthropic/OpenAI ou Ollama local
 
 ## Crie um agente
 
@@ -52,15 +52,15 @@ Na tela de Boas-vindas, selecione **Continue as local dev**. Você não precisa 
 
 </Callout>
 
-## Conectar um LLM
+## Conectar um LLM (opcional) {#connect-an-llm}
 
-Em seguida, conecte um LLM. Selecione **Use o Builder.io** para usar créditos gratuitos ou **Custom keys**, escolha um provedor e informe os detalhes de conexão solicitados.
+Conecte uma conta da Builder com **Use Builder.io**, salve uma chave pessoal ou da organização em **Custom keys**, ou configure uma chave de provedor no `.env` para desenvolvimento local e no ambiente de implantação para uso em todo o app auto-hospedado. Consulte [Configuração de provedores LLM](/docs/environment-variables#llm-provider-keys).
 
 ## Execute a ação pelo agente
 
 Uma ação é uma função tipada que sua UI React pode chamar pelo código e que os agentes podem usar como ferramenta. O modelo de Chat inclui uma ação `hello` simples para que você possa experimentar o padrão antes de escrever uma.
 
-No painel do agente, peça:
+No campo de prompt da página **Comece aqui**, peça:
 
 > Call the hello action for Alex.
 
