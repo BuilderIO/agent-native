@@ -1058,6 +1058,32 @@ export async function runAuthoringFuzz(
       ageMs: Date.now() - startedAt,
       requestWasPendingAtNavigation: true,
     }));
+    // Captured now, not when the log runs: Firefox normalization finishes
+    // asynchronously, after reload state may have been reset. startOffsetMs is
+    // relative to reload start (negative = started before reload began).
+    const startOffsetMs = (startedAt: number) =>
+      reloadNavigationStartedAt === null
+        ? null
+        : startedAt - reloadNavigationStartedAt;
+    const consoleTiming = {
+      sinceReloadMs:
+        reloadNavigationStartedAt === null
+          ? null
+          : Date.now() - reloadNavigationStartedAt,
+      reloadMap: [...reloadNavigationRequests.entries()].map(
+        ([request, startedAt]) => ({
+          pathname: new URL(request.url()).pathname,
+          ageMs: Date.now() - startedAt,
+          startOffsetMs: startOffsetMs(startedAt),
+        }),
+      ),
+      watched: [...watchedRequests.entries()].map(([request, startedAt]) => ({
+        pathname: new URL(request.url()).pathname,
+        method: request.method(),
+        ageMs: Date.now() - startedAt,
+        startOffsetMs: startOffsetMs(startedAt),
+      })),
+    };
     const recordUnlessExpected = (text: string) => {
       if (
         isExpectedSaveReloadBrowserSessionConsoleError(
@@ -1073,16 +1099,10 @@ export async function runAuthoringFuzz(
       ) {
         return;
       }
-      // Diagnostic only: CI runs without tracing, so record the browser-session
-      // requests in each map with startOffsetMs (negative = started before reload
-      // began). Map membership is not reported: the reload map keeps failed requests
-      // and also admits requests started after reload begins.
-      const startOffsetMs = (startedAt: number) =>
-        reloadNavigationStartedAt === null
-          ? null
-          : startedAt - reloadNavigationStartedAt;
+      // Diagnostic only: CI runs without tracing. consoleTiming was captured when
+      // the console event arrived, so deferred Firefox messages report the same state.
       console.log(
-        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${reloadNavigationStartedAt === null ? "n/a" : Date.now() - reloadNavigationStartedAt} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify([...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({ pathname: new URL(request.url()).pathname, ageMs: Date.now() - startedAt, startOffsetMs: startOffsetMs(startedAt) })))} watched=${JSON.stringify([...watchedRequests.entries()].map(([request, startedAt]) => ({ pathname: new URL(request.url()).pathname, method: request.method(), ageMs: Date.now() - startedAt, startOffsetMs: startOffsetMs(startedAt) })))}`,
+        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${consoleTiming.sinceReloadMs ?? "n/a"} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify(consoleTiming.reloadMap)} watched=${JSON.stringify(consoleTiming.watched)}`,
       );
       pageErrors.push(text);
     };
