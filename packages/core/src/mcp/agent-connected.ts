@@ -19,13 +19,17 @@ export function connectionApp(origin: string, appId?: string): string {
 
 export async function trackAgentConnected(input: {
   email: string;
-  app: string;
+  origin: string;
+  appId?: string;
   client: string | readonly string[] | null;
   method: "mcp" | "oauth";
 }): Promise<"emitted" | "duplicate" | "disabled" | "failed"> {
   if (listTrackingProviders().length === 0 || isTrackingSuppressed(input.email))
     return "disabled";
   try {
+    // Resolved inside the try: a misconfigured deploy environment must not
+    // turn an already-committed connection into a failed response.
+    const app = connectionApp(input.origin, input.appId);
     const raw = input.client;
     const clients = new Set(
       (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map(
@@ -39,7 +43,7 @@ export async function trackAgentConnected(input: {
     for (const client of clients) {
       const email = input.email.trim().toLowerCase();
       const key = createHash("sha256")
-        .update(JSON.stringify([email, input.app, client]))
+        .update(JSON.stringify([email, app, client]))
         .digest("hex");
       const claimId = randomUUID();
       // Both success paths share a durable CAS claim; process-local state
@@ -55,7 +59,7 @@ export async function trackAgentConnected(input: {
         "agent_connected",
         {
           email,
-          app: input.app,
+          app,
           client,
           connection_method: input.method,
         },

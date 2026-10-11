@@ -18,7 +18,7 @@ import { getAuthSecret } from "../server/better-auth-instance.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
-import { connectionApp, trackAgentConnected } from "./agent-connected.js";
+import { trackAgentConnected } from "./agent-connected.js";
 import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
@@ -1175,7 +1175,8 @@ async function handleAuthorizationCodeGrant(
     if (response.status === 200) {
       await trackAgentConnected({
         email: row.ownerEmail,
-        app: connectionApp(issuer, options.appId),
+        origin: issuer,
+        appId: options.appId,
         client: row.clientName ?? null,
         method: "oauth",
       });

@@ -57,7 +57,7 @@ beforeEach(async () => {
 describe("agent connection attribution", () => {
   const connection = {
     email: "Person@Example.com",
-    app: "plan",
+    origin: "https://plan.agent-native.com",
     client: "Claude",
     method: "mcp" as const,
   };
@@ -102,7 +102,10 @@ describe("agent connection attribution", () => {
   it("counts different people, apps and clients independently and preserves multi-client choices", async () => {
     await trackAgentConnected(connection);
     await trackAgentConnected({ ...connection, email: "second@example.com" });
-    await trackAgentConnected({ ...connection, app: "clips" });
+    await trackAgentConnected({
+      ...connection,
+      origin: "https://clips.agent-native.com",
+    });
     await trackAgentConnected({
       ...connection,
       client: ["claude", "cursor", "cursor"],
@@ -204,5 +207,14 @@ describe("agent connection attribution", () => {
     expect(connectionApp("https://beta.clips.agent-native.com")).toBe("clips");
     vi.unstubAllEnvs();
     expect(connectionApp("https://clips.agent-native.com")).toBe("clips");
+  });
+
+  it("reports an unresolvable app as failed instead of throwing", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await trackAgentConnected(connection)).toBe("failed");
+    expect(trackMock).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+    error.mockRestore();
   });
 });

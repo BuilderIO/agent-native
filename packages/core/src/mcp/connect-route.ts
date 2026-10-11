@@ -34,7 +34,7 @@ import {
   type McpConnectGuideId,
   type McpConnectIdentity,
 } from "../shared/mcp-connect-content.js";
-import { connectionApp, trackAgentConnected } from "./agent-connected.js";
+import { trackAgentConnected } from "./agent-connected.js";
 import { connectAppLabel, connectEnvironment } from "./connect-app-label.js";
 import {
   ensureConnectTables,
@@ -1556,7 +1556,8 @@ export async function handleMcpConnect(
       });
       await trackAgentConnected({
         email: session.email,
-        app: connectionApp(issuer, options.appId),
+        origin: issuer,
+        appId: options.appId,
         client: typeof body.client === "string" ? body.client : null,
         method: "mcp",
       });
@@ -1792,7 +1793,8 @@ export async function handleMcpConnect(
       if (connected && row.purpose !== "credential") {
         await trackAgentConnected({
           email: row.ownerEmail,
-          app: connectionApp(issuer, options.appId),
+          origin: issuer,
+          appId: options.appId,
           client: row.client?.split(",") ?? null,
           method: "mcp",
         });
