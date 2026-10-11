@@ -1,3 +1,7 @@
+import {
+  requestAgentChatThreadOpen,
+  requestAgentTaskOpen,
+} from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useChangeVersion } from "@agent-native/core/client/use-change-version";
@@ -288,6 +292,8 @@ export function RunsTray({
     showRecent,
   });
 
+  const openRunThread = onOpenThread ?? openAgentRunThread;
+
   if (!hasRuns && hideWhenIdle) return null;
 
   const trigger = (
@@ -372,7 +378,7 @@ export function RunsTray({
         terminalCount={terminalCount}
         onDismiss={dismissRun}
         onStop={stopRun}
-        onOpenThread={onOpenThread}
+        onOpenThread={openRunThread}
       />
     </DesignSystemPopover>
   );
@@ -407,6 +413,8 @@ export function RunsTrayMenuItem({
     hideWhenIdle,
     showRecent,
   });
+
+  const openRunThread = onOpenThread ?? openAgentRunThread;
 
   if (!hasRuns && hideWhenIdle) return null;
 
@@ -461,7 +469,7 @@ export function RunsTrayMenuItem({
           terminalCount={terminalCount}
           onDismiss={dismissRun}
           onStop={stopRun}
-          onOpenThread={onOpenThread}
+          onOpenThread={openRunThread}
         />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
@@ -619,6 +627,29 @@ function getRunThreadId(run: AgentRunDto): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
+function openAgentRunThread(threadId: string, run: AgentRunDto): void {
+  const metadata = run.metadata ?? {};
+  const parentThreadId =
+    typeof metadata.parentThreadId === "string"
+      ? metadata.parentThreadId.trim()
+      : "";
+  const isAgentTeam =
+    metadata.kind === "agent-team" || metadata.source === "agent-teams";
+  if (isAgentTeam && parentThreadId && parentThreadId !== threadId) {
+    requestAgentTaskOpen({
+      threadId,
+      parentThreadId,
+      description:
+        typeof metadata.description === "string"
+          ? metadata.description
+          : run.title || "",
+      name: typeof metadata.name === "string" ? metadata.name : "",
+    });
+    return;
+  }
+  requestAgentChatThreadOpen({ threadId });
+}
+
 function formatRunTime(
   run: AgentRunDto,
   t: ReturnType<typeof useT>,
@@ -693,16 +724,37 @@ function RunRow({
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-foreground">
-            {run.title}
-          </div>
-          {run.step ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              {run.step}
+        {threadId && onOpenThread ? (
+          <button
+            type="button"
+            className="group flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpenThread(threadId, run)}
+          >
+            <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+              <span className="truncate font-medium text-foreground group-hover:underline">
+                {run.title}
+              </span>
+              <IconExternalLink size={12} className="shrink-0" aria-hidden />
+              <span className="sr-only">{t("runsTray.open")}</span>
+            </span>
+            {run.step ? (
+              <span className="mt-0.5 max-w-full truncate text-xs text-muted-foreground">
+                {run.step}
+              </span>
+            ) : null}
+          </button>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-foreground">
+              {run.title}
             </div>
-          ) : null}
-        </div>
+            {run.step ? (
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {run.step}
+              </div>
+            ) : null}
+          </div>
+        )}
         <StatusPill status={run.status} backgroundStatus={backgroundStatus} />
       </div>
       {run.percent != null || isRunning ? (
@@ -732,16 +784,6 @@ function RunRow({
           {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          {threadId && onOpenThread ? (
-            <button
-              type="button"
-              className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              onClick={() => onOpenThread(threadId, run)}
-            >
-              {t("runsTray.open")}
-              <IconExternalLink size={12} aria-hidden />
-            </button>
-          ) : null}
           {canStop ? (
             <button
               type="button"

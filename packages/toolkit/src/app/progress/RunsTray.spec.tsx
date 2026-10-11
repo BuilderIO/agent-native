@@ -198,4 +198,156 @@ describe("RunsTray polling", () => {
       document.querySelector('[aria-label="Stop Codex harness"]'),
     ).toBeTruthy();
   });
+
+  it("opens a run chat from its title when no callback is supplied", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "harness-run-2",
+              kind: "harness",
+              source: "agent-harness",
+              title: "Slides import",
+              status: "running",
+              goalId: "agent-harness",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-slides-import" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="1 active run"]'),
+        ).toBeTruthy(),
+      );
+    });
+
+    const trigger = document.querySelector(
+      '[aria-label="1 active run"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    const openedThreads: unknown[] = [];
+    const onOpen = (event: Event) =>
+      openedThreads.push((event as CustomEvent).detail);
+    window.addEventListener("agent-chat:open-thread", onOpen);
+    try {
+      const titleButton = Array.from(document.querySelectorAll("button")).find(
+        (button) => button.textContent?.includes("Slides import"),
+      );
+      expect(titleButton).toBeTruthy();
+
+      await act(async () => {
+        titleButton?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+        await vi.waitFor(() => expect(openedThreads).toHaveLength(1));
+      });
+
+      expect(openedThreads[0]).toMatchObject({
+        threadId: "thread-slides-import",
+      });
+    } finally {
+      window.removeEventListener("agent-chat:open-thread", onOpen);
+    }
+  });
+
+  it("opens an agent-team run with its parent task context", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "team-run-1",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Review Slides task",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "child-thread" },
+              metadata: {
+                parentThreadId: "parent-thread",
+                description: "Review the Slides task",
+                name: "Slides review",
+              },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RunsTray pollMs={0} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="1 active run"]'),
+        ).toBeTruthy(),
+      );
+    });
+
+    const trigger = document.querySelector(
+      '[aria-label="1 active run"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    const openedTasks: unknown[] = [];
+    const onOpen = (event: Event) =>
+      openedTasks.push((event as CustomEvent).detail);
+    window.addEventListener("agent-task-open", onOpen);
+    try {
+      const titleButton = Array.from(document.querySelectorAll("button")).find(
+        (button) => button.textContent?.includes("Review Slides task"),
+      );
+      expect(titleButton).toBeTruthy();
+
+      await act(async () => {
+        titleButton?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+        await vi.waitFor(() => expect(openedTasks).toHaveLength(1));
+      });
+
+      expect(openedTasks[0]).toMatchObject({
+        threadId: "child-thread",
+        parentThreadId: "parent-thread",
+        description: "Review the Slides task",
+        name: "Slides review",
+      });
+    } finally {
+      window.removeEventListener("agent-task-open", onOpen);
+    }
+  });
 });
