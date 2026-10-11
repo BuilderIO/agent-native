@@ -24,7 +24,7 @@ exits with an error before running or scoring any case.
 
 ## Synthetic source and grain cases
 
-`production-source-cases.eval.ts` adds six synthetic questions. They ask for
+`production-source-cases.eval.ts` adds seven synthetic questions. They ask for
 model selection and declared grain only; they do not use captured prompts,
 people, identifiers, event rows, or production result values. Their scorer
 rejects failed or aborted runs, email-shaped output, and calls outside the
@@ -36,8 +36,10 @@ The expected source contracts are:
 - Builder.io user roster: `dbt_mart.dim_users_core` at user grain,
   `dbt_mart.dim_organizations` at organization grain, joined through
   `dbt_intermediate.user_organization_role` at user-organization membership
-  grain. The nonexistent `dbt_mapping.user_id_to_org_id` is not an accepted
-  alternative.
+  grain. `dbt_mapping.user_id_to_org_id` is also a real one-row-per-membership
+  map with `user_id`, `organization_id`, and `is_root_org`; it does not carry
+  `organization_role`, so it cannot replace the role bridge for role-aware
+  rosters.
 - Builder.io current and historical counts: `dbt_mart.organization_user_count`
   is one row per organization per date; `dbt_mart.aggregate_monthly_users_per_org`
   is one row per organization per month.
