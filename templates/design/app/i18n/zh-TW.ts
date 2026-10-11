@@ -213,7 +213,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "設計",
+    home: "首頁",
     templates: "範本",
     designSystems: "設計系統",
     setupDesignSystem: "設定設計系統",
@@ -989,7 +989,7 @@ export default {
       "{{path}} 自開啟後已在磁碟上變更。請重新載入畫面後再試一次。",
     applyToSourceError: "無法儲存至來源：{{message}}",
     leftRail: {
-      file: "檔案",
+      layers: "圖層",
       agent: "代理",
       assets: "資源",
       import: "匯入",
@@ -1169,7 +1169,7 @@ export default {
     backToDesigns: "返回設計",
     fileMenu: {
       pendingEditsBlocked: "複製前，請先套用或捨棄待處理的視覺編輯。",
-      designs: "設計",
+      allDesigns: "所有設計",
       rename: "重新命名",
       duplicate: "複製",
       versionHistory: "版本記錄",
@@ -1744,9 +1744,11 @@ export default {
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
     imageAttachmentUnavailable:
-      "無法將此圖片準備為視覺輸入。請附加較小的 PNG、JPG、GIF 或 WebP 檔案。",
+      "無法準備此圖片以供上傳。請嘗試使用 JPG、PNG、GIF 或 WebP 圖片。",
+    imageAttachmentTooLarge:
+      "每張圖片最大 {{perFile}} MB，所有圖片合計最大 {{total}} MB。",
     attachmentsTooLarge:
-      "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
+      "圖片會自動最佳化。最佳化後的圖片和其他檔案總大小不得超過 {{max}} MB。",
     failedToSubmitPrompt: "無法提交提示",
     skipPrompt: "略過提示",
     startBlankCanvas: "從空白畫布開始",
@@ -1901,7 +1903,7 @@ export default {
     browseAllTemplates: "瀏覽全部",
     connectBuilderIo: "使用 Builder.io",
     connectingBuilder: "正在設定 Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "首頁",
     searchPlaceholder: "搜尋設計...",
     newDesign: "新Design",
     newDesignLower: "新設計",

@@ -10,8 +10,27 @@ type RelationGrainClaim = {
   grains: string[];
 };
 
+type RelationMeaningClaim = {
+  relation: string;
+  meanings: string[];
+};
+
+type RelationFieldsClaim = {
+  relation: string;
+  fields: string[];
+};
+
+type FieldMeaningClaim = {
+  relation: string;
+  field: string;
+  meanings: string[];
+};
+
 type SourceContract = {
   relationGrains: RelationGrainClaim[];
+  relationFields?: RelationFieldsClaim[];
+  relationMeanings?: RelationMeaningClaim[];
+  fieldMeanings?: FieldMeaningClaim[];
   relationGrainAlternatives: Array<{
     label: string;
     alternatives: RelationGrainClaim[];
@@ -49,17 +68,65 @@ export const sourceContracts = {
               "one row per user-organization membership",
             ],
           },
-          {
-            relation: "dbt_mapping.user_id_to_org_id",
-            grains: [
-              "membership grain",
-              "one row per user-organization membership",
-            ],
-          },
         ],
       },
     ],
     concepts: ["user", "organization", "membership"],
+  },
+  builderCurrentAndHistoricalUserCounts: {
+    relationGrains: [
+      {
+        relation: "dbt_mart.organization_user_count",
+        grains: [
+          "one row per organization per date",
+          "organization by date grain",
+        ],
+      },
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        grains: [
+          "one row per organization per month",
+          "organization by month grain",
+        ],
+      },
+    ],
+    relationMeanings: [
+      {
+        relation: "dbt_mart.organization_user_count",
+        meanings: ["current", "daily"],
+      },
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        meanings: ["historical", "month-end", "monthly trend"],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: ["current", "historical", "date", "month"],
+  },
+  builderExternalAndInternalUserCounts: {
+    relationGrains: [
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        grains: [
+          "one row per organization per month",
+          "organization by month grain",
+        ],
+      },
+    ],
+    fieldMeanings: [
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        field: "user_count",
+        meanings: ["external", "customer", "product users"],
+      },
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        field: "internal_user_count",
+        meanings: ["internal", "staff", "employee"],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: ["user_count", "internal_user_count", "month-end", "builder.io"],
   },
   builderProductActivity: {
     relationGrains: [
@@ -102,21 +169,130 @@ export const sourceContracts = {
     relationGrainAlternatives: [],
     concepts: ["connect", "event"],
   },
+  builderUserOrganizationIdMapping: {
+    relationGrains: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        grains: ["one row per user-organization membership"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        grains: ["one row per user-organization membership"],
+      },
+    ],
+    relationMeanings: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        meanings: [
+          "does not carry organization_role",
+          "does not include organization_role",
+          "lacks organization_role",
+        ],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        meanings: ["includes organization_role"],
+      },
+    ],
+    relationFields: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        fields: ["user_id", "organization_id", "is_root_org"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        fields: ["organization_role"],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: [
+      "user_id",
+      "organization_id",
+      "organization_role",
+      "is_root_org",
+      "maps user_id to organization_id",
+    ],
+  },
 } satisfies Record<string, SourceContract>;
 
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
-const GRAIN_NEGATION =
-  /\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/;
+const CLAIM_NEGATION_PREFIX =
+  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|without|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+const MEANING_NEGATION_MARKER =
+  /\b(?:not|never|no|without|cannot|can['’]t|(?:do|does|did)(?:\s+not|n['’]t)|(?:is|are|was|were)(?:\s+not|n['’]t))\b/gi;
+const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:(?:don|doesn|didn|isn|aren|wasn|weren)['’]t)|cannot|can['’]t)`;
+const GRAIN_NEGATION_ADVERBS = String.raw`(?:(?:actually|clearly|definitely|explicitly|likely|necessarily|perhaps|probably|really|truly)\s+)*`;
+const GRAIN_NEGATION_TARGET = String.raw`(?:(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)(?:\s+grain)?\b|(?:match(?:es)?|equal(?:s)?|represent(?:s)?|define(?:s)?|describe(?:s)?|reflect(?:s)?|correspond(?:s)?(?:\s+to)?)\s+(?:(?:a|an|the)\s+)?(?:(?:declared|expected|actual|correct|true|valid)\s+)?(?:grain|row unit)\b)`;
+const GRAIN_NEGATION_SUFFIX = new RegExp(
+  String.raw`^\s*(?:\(\s*)?(?:(?:is|are|was|were|do|does|did)\s+)?${GRAIN_NEGATION_ADVERBS}${GRAIN_NEGATION_MARKER}\s+${GRAIN_NEGATION_TARGET}`,
+  "i",
+);
+const GRAIN_NEGATION_CLAUSE = new RegExp(
+  String.raw`^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were|do|does|did)\s+)?${GRAIN_NEGATION_ADVERBS}${GRAIN_NEGATION_MARKER}\s+${GRAIN_NEGATION_TARGET}`,
+  "i",
+);
 
-function findCompletePhraseIndex(text: string, phrase: string): number {
+function findCompletePhraseIndexes(text: string, phrase: string): number[] {
   const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
+  const expression = new RegExp(
     `(?<!${PHRASE_EDGE})${escapedPhrase}(?!${PHRASE_EDGE})`,
-    "u",
-  ).exec(text);
-  return match?.index ?? -1;
+    "gu",
+  );
+  return Array.from(text.matchAll(expression), (match) => match.index);
+}
+
+function isNegatedGrainClaim(line: string, index: number, phrase: string) {
+  const prefix = line.slice(Math.max(0, index - 64), index);
+  const suffix = line.slice(index + phrase.length, index + phrase.length + 112);
+  return (
+    CLAIM_NEGATION_PREFIX.test(prefix) ||
+    GRAIN_NEGATION_SUFFIX.test(suffix) ||
+    GRAIN_NEGATION_CLAUSE.test(suffix)
+  );
+}
+
+function isNegatedMeaningClaim(line: string, index: number, phrase: string) {
+  const prefix = line.slice(Math.max(0, index - 72), index);
+  if (CLAIM_NEGATION_PREFIX.test(prefix)) return true;
+
+  const clausePrefix = prefix.split(/[,;:.!?]/u).at(-1) ?? prefix;
+  const negationMarkers = Array.from(
+    clausePrefix.matchAll(MEANING_NEGATION_MARKER),
+  );
+  const lastNegation = negationMarkers.at(-1);
+  if (lastNegation?.index !== undefined) {
+    const interveningText = clausePrefix.slice(
+      lastNegation.index + lastNegation[0].length,
+    );
+    if (
+      interveningText.length <= 56 &&
+      !/\b(?:but|however|instead|rather|yet|although|only)\b/i.test(
+        interveningText,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  // A negation after this phrase usually targets the following claim, as in
+  // "current, not historical". Treat only negation before the phrase as
+  // negating the phrase itself.
+  return false;
+}
+
+function getMeaningClaimState(text: string, meanings: string[]) {
+  let affirmative = false;
+  let negated = false;
+  for (const meaning of meanings) {
+    const phrase = meaning.toLowerCase();
+    for (const index of findCompletePhraseIndexes(text, phrase)) {
+      if (isNegatedMeaningClaim(text, index, phrase)) negated = true;
+      else affirmative = true;
+    }
+  }
+  return { affirmative, negated };
 }
 
 function hasRelationGrainClaim(
@@ -126,12 +302,13 @@ function hasRelationGrainClaim(
 ): boolean {
   const relation = claim.relation.toLowerCase();
   const matchingLines = lines.filter(
-    (line) => findCompletePhraseIndex(line, relation) >= 0,
+    (line) => findCompletePhraseIndexes(line, relation).length > 0,
   );
   return matchingLines.some((line) => {
     const relationsOnLine = allClaims.filter(
       (candidate) =>
-        findCompletePhraseIndex(line, candidate.relation.toLowerCase()) >= 0,
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
     );
     if (relationsOnLine.length !== 1) return false;
 
@@ -140,40 +317,147 @@ function hasRelationGrainClaim(
     const competingGrain = allClaims.some(
       (candidate) =>
         candidate.grains[0]?.toLowerCase() !== expectedGrain &&
-        candidate.grains.some(
-          (grain) => findCompletePhraseIndex(line, grain.toLowerCase()) >= 0,
-        ),
+        candidate.grains.some((grain) => {
+          const phrase = grain.toLowerCase();
+          return findCompletePhraseIndexes(line, phrase).some(
+            (index) => !isNegatedGrainClaim(line, index, phrase),
+          );
+        }),
     );
     if (competingGrain) return false;
 
     return claim.grains.some((grain) => {
       const phrase = grain.toLowerCase();
-      const index = findCompletePhraseIndex(line, phrase);
-      if (index < 0) return false;
-      const clauseStart = Math.max(
-        line.lastIndexOf(";", index),
-        line.lastIndexOf(",", index),
-        line.lastIndexOf(".", index),
-      );
-      const precedingClause = line.slice(clauseStart + 1, index);
-      const phraseEnd = index + phrase.length;
-      const followingClauseEnd = [
-        line.indexOf(";", phraseEnd),
-        line.indexOf(",", phraseEnd),
-        line.indexOf(".", phraseEnd),
-      ]
-        .filter((boundary) => boundary >= 0)
-        .sort((left, right) => left - right)[0];
-      const followingClause = line.slice(
-        phraseEnd,
-        followingClauseEnd ?? line.length,
-      );
-      return (
-        !GRAIN_NEGATION.test(precedingClause) &&
-        !GRAIN_NEGATION.test(followingClause)
+      return findCompletePhraseIndexes(line, phrase).some(
+        (index) => !isNegatedGrainClaim(line, index, phrase),
       );
     });
   });
+}
+
+function hasRelationMeaningClaim(
+  lines: string[],
+  claim: RelationMeaningClaim,
+  allClaims: RelationMeaningClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    const relationsOnLine = allClaims.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
+    );
+    return relationsOnLine.length === 1;
+  });
+  if (matchingLines.length === 0) return false;
+
+  const expected = matchingLines.reduce(
+    (state, line) => {
+      const lineState = getMeaningClaimState(line, claim.meanings);
+      return {
+        affirmative: state.affirmative || lineState.affirmative,
+        negated: state.negated || lineState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  if (!expected.affirmative || expected.negated) return false;
+
+  return !allClaims.some(
+    (candidate) =>
+      candidate.relation !== claim.relation &&
+      matchingLines.some(
+        (line) => getMeaningClaimState(line, candidate.meanings).affirmative,
+      ),
+  );
+}
+
+function hasRelationFieldsClaim(
+  lines: string[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    const relationsOnLine = allRelations.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
+    );
+    return relationsOnLine.length === 1;
+  });
+  if (matchingLines.length === 0) return false;
+
+  return claim.fields.every((field) =>
+    matchingLines.some((line) => {
+      const relationIndex = findCompletePhraseIndexes(line, relation)[0];
+      return (
+        relationIndex !== undefined &&
+        findCompletePhraseIndexes(line, field.toLowerCase()).some(
+          (fieldIndex) => fieldIndex > relationIndex,
+        )
+      );
+    }),
+  );
+}
+
+function hasFieldMeaningClaim(
+  lines: string[],
+  claim: FieldMeaningClaim,
+  allClaims: FieldMeaningClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const field = claim.field.toLowerCase();
+  const fields = Array.from(
+    new Set(
+      allClaims
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => candidate.field.toLowerCase()),
+    ),
+  );
+  const assignments = lines.flatMap((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return [];
+    return findCompletePhraseIndexes(line, field).map((index) => {
+      const nextFieldIndex = Math.min(
+        line.length,
+        ...fields.flatMap((candidateField) =>
+          findCompletePhraseIndexes(
+            line.slice(index + field.length),
+            candidateField,
+          ).map((offset) => index + field.length + offset),
+        ),
+      );
+      return line.slice(index + field.length, nextFieldIndex);
+    });
+  });
+  if (assignments.length === 0) return false;
+
+  const expected = assignments.reduce(
+    (state, assignment) => {
+      const assignmentState = getMeaningClaimState(assignment, claim.meanings);
+      return {
+        affirmative: state.affirmative || assignmentState.affirmative,
+        negated: state.negated || assignmentState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  if (!expected.affirmative || expected.negated) return false;
+
+  return !allClaims
+    .filter(
+      (candidate) =>
+        candidate.relation === claim.relation &&
+        candidate.field !== claim.field,
+    )
+    .some((candidate) =>
+      assignments.some(
+        (assignment) =>
+          getMeaningClaimState(assignment, candidate.meanings).affirmative,
+      ),
+    );
 }
 
 function sourceContractScorer(
@@ -199,6 +483,14 @@ function sourceContractScorer(
         }
       }
 
+      for (const claim of contract.relationFields ?? []) {
+        if (!hasRelationFieldsClaim(lines, claim, allClaims)) {
+          reasons.push(
+            `${claim.relation} did not attribute its expected fields: ${claim.fields.join(", ")}`,
+          );
+        }
+      }
+
       for (const group of contract.relationGrainAlternatives) {
         if (
           !group.alternatives.some((claim) =>
@@ -206,6 +498,28 @@ function sourceContractScorer(
           )
         ) {
           reasons.push(`missing ${group.label} with its expected grain`);
+        }
+      }
+
+      for (const claim of contract.relationMeanings ?? []) {
+        if (
+          !hasRelationMeaningClaim(
+            lines,
+            claim,
+            contract.relationMeanings ?? [],
+          )
+        ) {
+          reasons.push(
+            `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
+          );
+        }
+      }
+
+      for (const claim of contract.fieldMeanings ?? []) {
+        if (!hasFieldMeaningClaim(lines, claim, contract.fieldMeanings ?? [])) {
+          reasons.push(
+            `${claim.relation}.${claim.field} was not mapped to its expected population`,
+          );
         }
       }
 
@@ -254,9 +568,19 @@ function sourceEval(name: string, prompt: string, contract: SourceContract) {
 
 export default [
   sourceEval(
-    "Builder.io product users by organization use the dbt membership bridge",
-    "SYNTHETIC source selection only: I am designing a Builder.io product report that will count distinct product users per organization. Which canonical dbt user and organization relations and membership bridge should define the join, and what is each relation's grain? Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query production rows, list users or organizations, or return counts.",
+    "Builder.io user roster and roles use the dbt membership bridge",
+    "SYNTHETIC source selection only: I am designing a Builder.io product roster with each user's organization and role. Which canonical dbt user and organization relations and membership bridge should define the join, and what is each relation's grain? Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query production rows, list users or organizations, or return counts.",
     sourceContracts.builderUsersByOrganization,
+  ),
+  sourceEval(
+    "Builder.io current and historical organization user counts have different grains",
+    "SYNTHETIC source selection only: I need a current organization user count and a historical month-end trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? Use model or schema metadata only. Put one relation on each line as `<relation>: current or historical; grain: <declared row unit>`. Do not query production rows or return count values.",
+    sourceContracts.builderCurrentAndHistoricalUserCounts,
+  ),
+  sourceEval(
+    "Builder.io month-end customer and internal user counts are separate",
+    "SYNTHETIC source selection only: for a month-end organization report, I need external Builder.io product users and Builder staff users shown separately. Which dbt model and fields define those counts, and what is its row grain? Use model or schema metadata only. Put the relation and grain on one line as `<relation>: grain: <declared row unit>`, then map each field on its own line as `<relation>.<field>: <population>`. Do not query production rows, list users, or return count values.",
+    sourceContracts.builderExternalAndInternalUserCounts,
   ),
   sourceEval(
     "Builder.io product activity uses its activity fact",
@@ -272,5 +596,10 @@ export default [
     "Connect product events are Analytics telemetry, not Builder.io user counts",
     "SYNTHETIC source selection only: Connect usage here means Analytics first-party Connect setup events, not Builder.io product account membership. Identify the dbt staging model and its upstream Connect dashboard event source, then state the event row grain. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query events or return counts.",
     sourceContracts.connectEvents,
+  ),
+  sourceEval(
+    "Builder.io's existing user-organization map is narrower than the roles bridge",
+    "SYNTHETIC source selection only: a teammate says `dbt_mapping.user_id_to_org_id` does not exist. Verify that claim from dbt model metadata. For a Builder.io roster with each user's organization and role, compare that mapping with `dbt_intermediate.user_organization_role`: state the grain of each, which fields the mapping contains, and which relation carries `organization_role`. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>; <fields or meaning>`. Do not query production rows, list users or organizations, or return counts.",
+    sourceContracts.builderUserOrganizationIdMapping,
   ),
 ];

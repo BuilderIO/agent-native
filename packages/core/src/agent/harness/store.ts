@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../../db/request-pool-context.js";
 
 export type AgentHarnessSessionStatus =
   | "running"
@@ -72,7 +73,7 @@ let initPromise: Promise<void> | undefined;
 
 export async function ensureAgentHarnessSessionTables(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS agent_harness_sessions (
           id TEXT PRIMARY KEY,
@@ -140,6 +141,7 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
       initPromise = undefined;
       throw err;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

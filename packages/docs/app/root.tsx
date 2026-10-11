@@ -1,3 +1,7 @@
+import {
+  getInitialAgentSidebarOpen,
+  subscribeAgentSidebarUrlChanges,
+} from "@agent-native/core/client/agent-sidebar-state";
 import { defineClientAction } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
@@ -10,6 +14,12 @@ import {
   isClientRouteUrl,
 } from "@agent-native/core/client/route-warmup";
 import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+import {
+  isAgentPanelChatShortcut,
+  isAgentSidebarToggleShortcut,
+  agentPanelShortcutSelectionText,
+  type AgentPanelChatShortcutEvent,
+} from "@agent-native/toolkit/app/chat/agent-sidebar-events";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AgentNativeWebMcpActionRegistration } from "@agent-native/toolkit/app/providers";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,6 +27,7 @@ import {
   lazy,
   Suspense,
   useState,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -60,7 +71,11 @@ import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
-import { ShellSettledProvider } from "./shell-ready";
+import {
+  AssistantLoadingProvider,
+  AssistantReadyProvider,
+  ShellSettledProvider,
+} from "./shell-ready";
 
 import tokensCss from "./components/website-redesign/tokens.css?url";
 import appCss from "./global.css?url";
@@ -69,10 +84,7 @@ const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
-const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/toolkit/app/chat");
-  return { default: AgentSidebar };
-});
+const LazyAgentSidebar = lazy(() => import("./components/DocsAgentSidebar"));
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
@@ -372,7 +384,6 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -441,31 +452,6 @@ function scrollElementIntoContainerView(target: HTMLElement) {
       containerRect.top -
       scrollMarginTop,
   });
-}
-
-function getManagedScrollTop(): number | null {
-  if (typeof document === "undefined") return null;
-  const marker = document.querySelector<HTMLElement>(
-    `[data-${SCROLL_MANAGER_MARKER}]`,
-  );
-  if (!marker) return null;
-  const scrollContainer = findScrollContainerFrom(marker);
-  if (scrollContainer === window) return window.scrollY;
-  return (scrollContainer as HTMLElement).scrollTop;
-}
-
-function setManagedScrollTop(top: number) {
-  if (typeof document === "undefined") return;
-  const marker = document.querySelector<HTMLElement>(
-    `[data-${SCROLL_MANAGER_MARKER}]`,
-  );
-  if (!marker) return;
-  const scrollContainer = findScrollContainerFrom(marker);
-  if (scrollContainer === window) {
-    window.scrollTo(0, top);
-  } else {
-    (scrollContainer as HTMLElement).scrollTop = top;
-  }
 }
 
 function ScrollManager() {
@@ -593,35 +579,10 @@ export default function Root() {
       }),
   );
   const [mounted, setMounted] = useState(false);
-  const pendingHydrationScrollTopRef = useRef<number | null>(null);
 
   useEffect(() => {
-    pendingHydrationScrollTopRef.current = window.location.hash
-      ? null
-      : getManagedScrollTop();
     setMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const top = pendingHydrationScrollTopRef.current;
-    pendingHydrationScrollTopRef.current = null;
-    if (!top || top <= 0) return;
-
-    let raf = 0;
-    let secondRaf = 0;
-    const timer = window.setTimeout(() => setManagedScrollTop(top), 100);
-    raf = window.requestAnimationFrame(() => {
-      setManagedScrollTop(top);
-      secondRaf = window.requestAnimationFrame(() => setManagedScrollTop(top));
-    });
-
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.cancelAnimationFrame(secondRaf);
-      window.clearTimeout(timer);
-    };
-  }, [mounted]);
 
   useEffect(() => {
     void import("@agent-native/core/client/analytics").then(
@@ -647,58 +608,116 @@ export default function Root() {
 }
 
 export function RootShell({ mounted }: { mounted: boolean }) {
-  const t = useT();
+  const [assistantRequested, setAssistantRequested] = useState(false);
+  const [assistantReady, setAssistantReady] = useState(false);
+  const assistantReadyRef = useRef(false);
+  const assistantWaiters = useRef<Array<() => void>>([]);
+  const ensureAssistantReady = useCallback(() => {
+    if (assistantReadyRef.current) return Promise.resolve();
+    setAssistantRequested(true);
+    return new Promise<void>((resolve) =>
+      assistantWaiters.current.push(resolve),
+    );
+  }, []);
+  const pendingAssistantEvents = useRef<
+    Array<{ target: EventTarget; event: Event }>
+  >([]);
+  const activateAssistant = useCallback(() => {
+    assistantReadyRef.current = true;
+    setAssistantReady(true);
+    for (const { target, event } of pendingAssistantEvents.current.splice(0)) {
+      target.dispatchEvent(event);
+    }
+    if (assistantWaiters.current.length > 0) {
+      window.dispatchEvent(new Event("agent-panel:prepare"));
+      for (const resolve of assistantWaiters.current.splice(0)) resolve();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || assistantReady) return;
+    const requestAssistant = () => {
+      setAssistantRequested(true);
+    };
+    const bufferPanelEvent = (event: Event) => {
+      if (assistantReadyRef.current) return;
+      pendingAssistantEvents.current.push({ target: window, event });
+      if (
+        event.type !== "agent-panel:close" &&
+        event.type !== "agent-panel:set-mode"
+      ) {
+        requestAssistant();
+      }
+    };
+    const restoreAssistant = () => {
+      if (getInitialAgentSidebarOpen(false, "docs")) requestAssistant();
+    };
+    const handleShortcut = (event: AgentPanelChatShortcutEvent) => {
+      if (assistantReadyRef.current) return;
+      if (
+        isAgentSidebarToggleShortcut(event) ||
+        isAgentPanelChatShortcut(event)
+      ) {
+        event.preventDefault();
+        if (isAgentPanelChatShortcut(event)) {
+          event.agentNativeSelectionText =
+            agentPanelShortcutSelectionText(event);
+        }
+        pendingAssistantEvents.current.push({ target: document, event });
+        requestAssistant();
+      }
+    };
+    restoreAssistant();
+    const unsubscribe = subscribeAgentSidebarUrlChanges(restoreAssistant);
+    const panelEvents = [
+      "agent-panel:toggle",
+      "agent-panel:open",
+      "agent-panel:prepare",
+      "agent-panel:close",
+      "agent-panel:set-mode",
+    ];
+    for (const event of panelEvents)
+      window.addEventListener(event, bufferPanelEvent);
+    document.addEventListener("keydown", handleShortcut);
+    return () => {
+      unsubscribe();
+      for (const event of panelEvents)
+        window.removeEventListener(event, bufferPanelEvent);
+      document.removeEventListener("keydown", handleShortcut);
+    };
+  }, [mounted, assistantReady]);
   const content = (
     <DocsChrome>
       <Outlet />
     </DocsChrome>
   );
 
-  const fallback = (
-    <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
-        {content}
-      </div>
-    </div>
-  );
-
   return (
-    <>
-      {mounted && (
-        <>
-          <AgentNativeRouteWarmup />
-          <AgentNativeWebMcpActionRegistration />
-          <DocsWebMcpNavigationRegistration />
-        </>
-      )}
-      <Suspense fallback={fallback}>
-        {mounted ? (
-          <LazyAgentSidebar
-            screenRefreshEnabled={false}
-            storageKey="docs"
-            position="right"
-            defaultOpen={false}
-            defaultSidebarWidth={400}
-            emptyStateText={t("agent.emptyState")}
-            suggestions={[
-              t("agent.suggestionGettingStarted"),
-              t("agent.suggestionActions"),
-              t("agent.suggestionPolling"),
-              t("agent.suggestionDeploy"),
-            ]}
-          >
-            {/* Provided from inside the final tree, not from a state flag: the
-                lazy component still resolves a tick after its chunk arrives, so
-                anything keyed off "chunk loaded" opens while Suspense is still
-                showing the placeholder -- and mounts into the subtree that is
-                about to be thrown away. */}
-            <ShellSettledProvider value>{content}</ShellSettledProvider>
-          </LazyAgentSidebar>
-        ) : (
-          fallback
+    <AssistantReadyProvider value={ensureAssistantReady}>
+      <AssistantLoadingProvider value={assistantRequested && !assistantReady}>
+        {mounted && (
+          <>
+            <AgentNativeRouteWarmup />
+            <AgentNativeWebMcpActionRegistration />
+            <DocsWebMcpNavigationRegistration />
+          </>
         )}
-      </Suspense>
-    </>
+        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+            <ShellSettledProvider value={mounted}>
+              {content}
+            </ShellSettledProvider>
+          </div>
+          {mounted && assistantRequested && (
+            <div className="flex shrink-0">
+              <Suspense fallback={null}>
+                <LazyAgentSidebar onReady={activateAssistant} />
+              </Suspense>
+            </div>
+          )}
+        </div>
+      </AssistantLoadingProvider>
+    </AssistantReadyProvider>
   );
 }
 

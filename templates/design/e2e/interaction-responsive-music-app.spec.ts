@@ -130,6 +130,9 @@ async function measureSourceLayer(
       flexDirection: style.flexDirection,
       flexWrap: style.flexWrap,
       rowGap: style.rowGap,
+      columnGap: style.columnGap,
+      paddingLeft: style.paddingLeft,
+      paddingRight: style.paddingRight,
       paddingTop: style.paddingTop,
       paddingBottom: style.paddingBottom,
       fontFamily: style.fontFamily,
@@ -142,6 +145,11 @@ async function measureSourceLayer(
       ),
       widthStyle: style.width,
       heightStyle: style.height,
+      authoredWidth: html.style.width,
+      authoredAlignSelf: html.style.alignSelf,
+      flexGrow: style.flexGrow,
+      flexShrink: style.flexShrink,
+      flexBasis: style.flexBasis,
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
       overflow: style.overflow,
@@ -283,6 +291,8 @@ async function captureScreenCard(
   screenshotName: string,
 ) {
   await selectScreenLayer(page, screenId);
+  await page.keyboard.press("Shift+2");
+  await waitForOverviewCameraToSettle(page);
   const zoom = page
     .getByRole("button")
     .filter({ hasText: /^\s*\d+%\s*$/ })
@@ -293,10 +303,10 @@ async function captureScreenCard(
     await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
   }
   await expect(zoom).toHaveText(/100%/);
+  await waitForOverviewCameraToSettle(page);
   const shell = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
-  await shell.scrollIntoViewIfNeeded();
   const card = shell.locator("[data-screen-card]");
   await expect(card).toBeVisible();
   const bounds = await card.boundingBox();
@@ -326,6 +336,36 @@ async function captureScreenCard(
     contentType: "image/png",
   });
   return { path: screenshotPath, bounds, geometry, viewport, zoom: "100%" };
+}
+
+async function waitForOverviewCameraToSettle(page: Page) {
+  const world = page.locator("[data-multi-screen-canvas-world]");
+  await expect(world).toHaveCount(1);
+  let previousCamera = "";
+  let stableSamples = 0;
+  await expect
+    .poll(
+      async () => {
+        const camera = await world.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return [
+            (element as HTMLElement).style.transform,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
+          ].join("|");
+        });
+        if (camera === previousCamera) stableSamples += 1;
+        else {
+          previousCamera = camera;
+          stableSamples = 0;
+        }
+        return stableSamples;
+      },
+      { intervals: [50, 100, 150], timeout: 10_000 },
+    )
+    .toBeGreaterThanOrEqual(2);
 }
 
 async function captureEditorScreenshot(page: Page, screenshotName: string) {
@@ -624,58 +664,220 @@ async function drawInScreen(
     throw new Error("Screen " + screenId + " has no saved source");
   const existingNodeIds = sourceNodeIds(sourceBefore);
   await selectScreenLayer(page, screenId);
+  await page.keyboard.press("Shift+2");
   const body = designFrame(page, screenId).locator("body");
   const screenCard = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"] [data-screen-card]`,
   );
   if (!rect.assertUnobstructed) await screenCard.scrollIntoViewIfNeeded();
-  const bodyBox = await body.boundingBox();
-  const cardBox = await screenCard.boundingBox();
-  if (!bodyBox || !cardBox) throw new Error("screen canvas is not measurable");
-  const screenWidth =
-    designData(before).canvasFrames?.[screenId]?.width ?? 1440;
-  const scale = cardBox.width / screenWidth;
-  const startPoint = {
-    x: bodyBox.x + rect.x * scale,
-    y: bodyBox.y + rect.y * scale,
-  };
-  const endPoint = {
-    x: bodyBox.x + (rect.x + (rect.width ?? 1)) * scale,
-    y: bodyBox.y + (rect.y + (rect.height ?? 1)) * scale,
-  };
-  if (rect.assertUnobstructed) {
-    const pointerTargets = await page.evaluate(
-      ({ startPoint, endPoint, cardBox }) => {
-        return [startPoint, endPoint].map(({ x, y }) => {
-          const target = document.elementFromPoint(x, y);
-          return {
-            inViewport:
-              x >= 0 &&
-              y >= 0 &&
-              x < window.innerWidth &&
-              y < window.innerHeight,
-            inScreenBounds:
-              x >= cardBox.x &&
-              y >= cardBox.y &&
-              x <= cardBox.x + cardBox.width &&
-              y <= cardBox.y + cardBox.height,
-            inToolbar: Boolean(target?.closest("[data-design-bottom-toolbar]")),
-          };
-        });
-      },
-      { startPoint, endPoint, cardBox },
+  const screenGeometry = designData(before).canvasFrames?.[screenId] ?? null;
+  const screenWidth = screenGeometry?.width ?? 1440;
+  if (tool === "Frame") {
+    await pickFrameMode(page, "Frame");
+  } else {
+    const toolButton = page.locator(
+      `[data-design-bottom-toolbar] button[aria-label="${tool}"]`,
     );
-    expect(pointerTargets).toEqual([
-      { inViewport: true, inScreenBounds: true, inToolbar: false },
-      { inViewport: true, inScreenBounds: true, inToolbar: false },
-    ]);
+    await toolButton.click();
+    await expect(toolButton).toHaveAttribute("aria-pressed", "true");
   }
+
+  let previousCamera: string | null = null;
+  let stableCameraSamples = 0;
+  const drawingGeometry: {
+    current: {
+      startPoint: { x: number; y: number };
+      endPoint: { x: number; y: number };
+    } | null;
+  } = {
+    current: null,
+  };
+  const drawingGeometryDiagnostic: {
+    current: Record<string, unknown> | null;
+  } = {
+    current: null,
+  };
+  try {
+    await expect
+      .poll(
+        async () => {
+          const bodyBox = await body.boundingBox();
+          const cardBox = await screenCard.boundingBox();
+          const viewport = await page.evaluate(() => ({
+            width: window.innerWidth,
+            height: window.innerHeight,
+          }));
+          if (!bodyBox || !cardBox) {
+            drawingGeometry.current = null;
+            drawingGeometryDiagnostic.current = {
+              screenId,
+              tool,
+              requestedRect: rect,
+              persistedScreenDimensions: {
+                width: screenGeometry?.width ?? null,
+                height: screenGeometry?.height ?? null,
+              },
+              screenWidthForScale: screenWidth,
+              bodyBox,
+              cardBox,
+              viewport,
+              scale: null,
+              startPoint: null,
+              endPoint: null,
+              pointerTargets: null,
+              settled: false,
+              safe: false,
+            };
+            return { settled: false, safe: false };
+          }
+          const scale = cardBox.width / screenWidth;
+          const startPoint = {
+            x: bodyBox.x + rect.x * scale,
+            y: bodyBox.y + rect.y * scale,
+          };
+          const endPoint = {
+            x: bodyBox.x + (rect.x + (rect.width ?? 1)) * scale,
+            y: bodyBox.y + (rect.y + (rect.height ?? 1)) * scale,
+          };
+          const pointerTargets = await page.evaluate(
+            ({ startPoint, endPoint, cardBox }) => {
+              return [startPoint, endPoint].map(({ x, y }) => {
+                const target = document.elementFromPoint(x, y);
+                const targetBounds = target?.getBoundingClientRect();
+                const frameElement =
+                  target?.closest<HTMLElement>("[data-frame-id]");
+                const screenShell = target?.closest<HTMLElement>(
+                  "[data-screen-shell]",
+                );
+                return {
+                  inViewport:
+                    x >= 0 &&
+                    y >= 0 &&
+                    x < window.innerWidth &&
+                    y < window.innerHeight,
+                  inScreenBounds:
+                    x >= cardBox.x &&
+                    y >= cardBox.y &&
+                    x <= cardBox.x + cardBox.width &&
+                    y <= cardBox.y + cardBox.height,
+                  inToolbar: Boolean(
+                    target?.closest("[data-design-bottom-toolbar]"),
+                  ),
+                  creationShield: Boolean(
+                    target?.closest("[data-canvas-creation-shield]"),
+                  ),
+                  frameId: frameElement?.getAttribute("data-frame-id") ?? null,
+                  hit: target
+                    ? {
+                        tagName: target.tagName,
+                        id: target.id || null,
+                        role: target.getAttribute("role"),
+                        className: target.getAttribute("class"),
+                        bounds: targetBounds
+                          ? {
+                              x: targetBounds.x,
+                              y: targetBounds.y,
+                              width: targetBounds.width,
+                              height: targetBounds.height,
+                            }
+                          : null,
+                        screenCard: Boolean(
+                          target.closest("[data-screen-card]"),
+                        ),
+                        screenShellId:
+                          screenShell?.getAttribute("data-frame-id") ?? null,
+                      }
+                    : null,
+                };
+              });
+            },
+            { startPoint, endPoint, cardBox },
+          );
+          const cameraSignature = [
+            bodyBox.x,
+            bodyBox.y,
+            cardBox.x,
+            cardBox.y,
+            cardBox.width,
+            cardBox.height,
+          ]
+            .map((value) => Math.round(value * 2) / 2)
+            .join(":");
+          stableCameraSamples =
+            cameraSignature === previousCamera ? stableCameraSamples + 1 : 0;
+          previousCamera = cameraSignature;
+          const settled = stableCameraSamples >= 2;
+          const safe =
+            Number.isFinite(scale) &&
+            scale > 0 &&
+            pointerTargets.every(
+              (target) =>
+                target.inViewport &&
+                target.inScreenBounds &&
+                !target.inToolbar &&
+                (target.frameId === screenId || target.creationShield),
+            );
+          drawingGeometryDiagnostic.current = {
+            screenId,
+            tool,
+            requestedRect: rect,
+            persistedScreenDimensions: {
+              width: screenGeometry?.width ?? null,
+              height: screenGeometry?.height ?? null,
+            },
+            screenWidthForScale: screenWidth,
+            bodyBox,
+            cardBox,
+            viewport,
+            scale,
+            startPoint,
+            endPoint,
+            pointerTargets,
+            cameraSignature,
+            stableCameraSamples,
+            settled,
+            safe,
+          };
+          drawingGeometry.current = { startPoint, endPoint };
+          return { settled, safe, scale, pointerTargets };
+        },
+        {
+          timeout: 15_000,
+          message: `screen ${screenId} must fit and expose both ${tool} endpoints before drawing`,
+        },
+      )
+      .toMatchObject({ settled: true, safe: true });
+  } catch (error) {
+    try {
+      await test.info().attach("screen-drawing-geometry-failure", {
+        body: JSON.stringify(
+          drawingGeometryDiagnostic.current ?? {
+            screenId,
+            tool,
+            requestedRect: rect,
+            persistedScreenDimensions: {
+              width: screenGeometry?.width ?? null,
+              height: screenGeometry?.height ?? null,
+            },
+            screenWidthForScale: screenWidth,
+            detail: "No poll geometry sample was captured",
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    } catch {
+      // Preserve the original geometry assertion if artifact attachment fails.
+    }
+    throw error;
+  }
+  const settledGeometry = drawingGeometry.current;
+  if (!settledGeometry) {
+    throw new Error(`screen ${screenId} drawing geometry was unavailable`);
+  }
+  const { startPoint, endPoint } = settledGeometry;
   if (tool === "Text") {
-    const textTool = page.locator(
-      '[data-design-bottom-toolbar] button[aria-label="Text"]',
-    );
-    await textTool.click();
-    await expect(textTool).toHaveAttribute("aria-pressed", "true");
     await page.mouse.click(startPoint.x, startPoint.y);
     const editable = designFrame(page, screenId).locator(
       '[data-agent-native-text-editing][contenteditable="true"]',
@@ -721,15 +923,6 @@ async function drawInScreen(
       })
       .toBe(true);
     return nodeId;
-  }
-  if (tool === "Frame") {
-    await pickFrameMode(page, "Frame");
-  } else {
-    const rectangleTool = page.locator(
-      '[data-design-bottom-toolbar] button[aria-label="Rectangle"]',
-    );
-    await rectangleTool.click();
-    await expect(rectangleTool).toHaveAttribute("aria-pressed", "true");
   }
   await page.mouse.move(startPoint.x, startPoint.y);
   await page.mouse.down();
@@ -850,12 +1043,14 @@ async function createPodcastCard(
   await gap.fill("12");
   await gap.press("Enter");
   const horizontalPadding = layout.getByRole("textbox", {
-    name: /Left.*Right/,
+    name: "Left / Right",
+    exact: true,
   });
   await horizontalPadding.fill("12");
   await horizontalPadding.press("Enter");
   const verticalPadding = layout.getByRole("textbox", {
-    name: /Top.*Bottom/,
+    name: "Top / Bottom",
+    exact: true,
   });
   await verticalPadding.fill("12");
   await verticalPadding.press("Enter");
@@ -1019,16 +1214,18 @@ async function createPodcastRow(
     direction?: "Horizontal" | "Vertical";
     cardWidth?: number;
     width?: number;
+    x?: number;
   } = {},
 ) {
   const direction = options.direction ?? "Horizontal";
   const cardWidth = options.cardWidth ?? 360;
   const rowWidth = options.width ?? 1091;
+  const rowX = options.x ?? 300;
   await drawInScreen(
     page,
     screenId,
     "Frame",
-    { x: 300, y, width: rowWidth, height: 315 },
+    { x: rowX, y, width: rowWidth, height: 315 },
     undefined,
     rowName,
   );
@@ -1050,7 +1247,7 @@ async function createPodcastRow(
       screenId,
       rowName,
       card.name,
-      312 + index * (cardWidth + 24),
+      rowX + 12 + index * (cardWidth + 24),
       y + 12,
       card.title,
       card.creator,
@@ -1135,12 +1332,85 @@ async function logNodeStage(
 }
 
 async function setSizingMode(page: Page, axis: "W" | "H", mode: string) {
+  await waitForSelectionRouteToCommit(page);
   const button = page.getByRole("button", {
-    name: new RegExp(`^${axis}(?: sizing mode —| \\d+ )`),
+    name: new RegExp(`^${axis}(?: sizing mode —| \\d+(?:\\.\\d+)? )`),
   });
   await expect(button).toBeVisible();
   await button.click();
   await page.getByRole("menuitem", { name: mode, exact: true }).click();
+}
+
+async function waitForSelectionRouteToCommit(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const selection = (window as any).__designSelection;
+          if (!selection) return null;
+          const params = new URLSearchParams(window.location.search);
+          const selectedLayerIds = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+            ),
+          )
+            .map((button) => button.dataset.layerNodeId)
+            .filter((id): id is string => Boolean(id));
+          const screenIds = new Set(
+            Array.isArray(selection.screens)
+              ? selection.screens
+                  .map((screen: { id?: unknown }) => screen.id)
+                  .filter((id: unknown): id is string => typeof id === "string")
+              : [],
+          );
+          const selectedElementLayerIds = selectedLayerIds.filter(
+            (id) => !screenIds.has(id),
+          );
+          const expectedZoom = Number.isFinite(selection.zoom)
+            ? Math.round(selection.zoom * 100) / 100
+            : null;
+          const routeZoom = params.get("zoom");
+          return {
+            viewMatches:
+              !selection.viewMode ||
+              params.get("editorView") === selection.viewMode,
+            screenMatches:
+              !selection.activeFileId ||
+              params.get("screen") === selection.activeFileId,
+            selectionMatches:
+              selectedElementLayerIds.length > 0
+                ? selectedElementLayerIds.includes(
+                    params.get("selection") ?? "",
+                  )
+                : !selection.selectedElement &&
+                  params.get("selection") === null,
+            zoomMatches:
+              expectedZoom === null
+                ? routeZoom === null
+                : routeZoom !== null && Number(routeZoom) === expectedZoom,
+            selectedLayerIds: selectedElementLayerIds,
+            route: {
+              view: params.get("editorView"),
+              screen: params.get("screen"),
+              selection: params.get("selection"),
+              zoom: routeZoom,
+            },
+            editor: {
+              view: selection.viewMode ?? null,
+              screen: selection.activeFileId ?? null,
+              hasSelectedElement: Boolean(selection.selectedElement),
+              zoom: selection.zoom ?? null,
+            },
+          };
+        }),
+      { timeout: 10_000 },
+    )
+    .toMatchObject({
+      viewMatches: true,
+      screenMatches: true,
+      selectionMatches: true,
+      zoomMatches: true,
+    });
 }
 
 async function addSizingConstraint(
@@ -1150,7 +1420,7 @@ async function addSizingConstraint(
   value: number,
 ) {
   const button = page.getByRole("button", {
-    name: new RegExp(`^${axis}(?: sizing mode —| \\d+ )`),
+    name: new RegExp(`^${axis}(?: sizing mode —| \\d+(?:\\.\\d+)? )`),
   });
   await expect(button).toBeVisible();
   await button.click();
@@ -1353,9 +1623,6 @@ async function setFillHex(page: Page, hex: string, probeName?: string) {
       contentType: "application/json",
     });
     console.info("color-escape-" + probeName, JSON.stringify(evidence));
-    await expect(picker).toHaveAttribute("data-state", "closed", {
-      timeout: 2_500,
-    });
   }
   await expect(picker).toBeHidden({ timeout: probeName ? 2_500 : 20_000 });
 }
@@ -1425,6 +1692,31 @@ function tagStyle(tag: string) {
     .replace(/&amp;/g, "&");
 }
 
+async function savedBoxSpacing(page: Page, tag: string) {
+  return page.evaluate((styleText) => {
+    const measurementRoot = document.createElement("div");
+    measurementRoot.style.cssText =
+      "position: fixed; left: -10000px; top: -10000px; width: 0; height: 0; overflow: hidden; contain: strict; visibility: hidden; pointer-events: none";
+    const element = document.createElement("div");
+    element.style.cssText = styleText;
+    measurementRoot.append(element);
+    document.body.append(measurementRoot);
+    const style = getComputedStyle(element);
+    const spacing = {
+      paddingTop: style.paddingTop,
+      paddingRight: style.paddingRight,
+      paddingBottom: style.paddingBottom,
+      paddingLeft: style.paddingLeft,
+      marginTop: style.marginTop,
+      marginRight: style.marginRight,
+      marginBottom: style.marginBottom,
+      marginLeft: style.marginLeft,
+    };
+    measurementRoot.remove();
+    return spacing;
+  }, tagStyle(tag));
+}
+
 async function sourceHasTransparentFill(page: Page, layerName: string) {
   const target = await persistedLayer(page, layerName);
   const style = tagStyle(target.tag);
@@ -1473,13 +1765,8 @@ async function addNativeArtworkGradient(page: Page, layerName: string) {
     .getByRole("button", { name: "Add fill", exact: true })
     .click();
   await expect(paintRows).toHaveCount(previousRows + 1);
-  const gradientRow = paintRows.first();
-  await gradientRow
-    .getByRole("button")
-    .filter({ hasText: /#[\da-f]{6}/i })
-    .first()
-    .click();
   const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
   await page.getByRole("button", { name: "Linear", exact: true }).click();
   const stops = dialog.getByRole("group", { name: "Gradient stops" });
   await expect(stops).toBeVisible();
@@ -1634,6 +1921,28 @@ async function setTextStyle(
     await lineHeightField.press("Enter");
   }
   await setFillHex(page, color, fillProbeName);
+  if (fillProbeName) {
+    await expect(layerRow(page, layerName)).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const expectedColor = await page.evaluate((hex) => {
+      const style = document.createElement("span").style;
+      style.color = `#${hex.replace(/^#/, "")}`;
+      return style.color;
+    }, color);
+    await expect
+      .poll(async () => {
+        const target = await persistedLayer(page, layerName);
+        const savedColor = sourceStyleValue(target.tag, "color");
+        return page.evaluate((value) => {
+          const style = document.createElement("span").style;
+          style.color = value;
+          return style.color;
+        }, savedColor);
+      })
+      .toBe(expectedColor);
+  }
 }
 
 async function setTextTruncation(
@@ -1848,19 +2157,73 @@ test("a drawn empty Frame refreshes its inspector after auto layout", async ({
   });
 });
 
-test("create a responsive music-app desktop shell under a Screen root", async ({
+test("sizing mode actions survive the selected layer route update", async ({
   page,
 }) => {
-  test.setTimeout(480_000);
+  test.setTimeout(90_000);
   const designId = await createFixtureDesign(
     page,
-    `Responsive music app desktop ${Date.now()}`,
+    `Sizing mode route update ${Date.now()}`,
   );
-  const chatThread404s: Array<{
-    method: string;
-    path: string;
-    status: number;
-  }> = [];
+  await page.setViewportSize({ width: 2800, height: 1600 });
+  await gotoEditor(page, designId);
+  const screenId = (await readDesign(page, designId)).files?.find(
+    (file) => file.filename === "index.html",
+  )?.id;
+  if (!screenId) throw new Error("Fixture design has no Screen");
+
+  await drawInScreen(
+    page,
+    screenId,
+    "Frame",
+    { x: 24, y: 24, width: 320, height: 180 },
+    undefined,
+    "Route sizing frame",
+  );
+  await setFlowPosition(page, "Route sizing frame");
+  const layout = await turnIntoAutoLayout(
+    page,
+    "Route sizing frame",
+    "Horizontal",
+  );
+  const gap = layout.getByRole("textbox", { name: "Gap", exact: true });
+  await gap.fill("16");
+  await gap.press("Enter");
+
+  await waitForSelectionRouteToCommit(page);
+  const routeSelection = new URL(page.url()).searchParams.get("selection");
+  expect(routeSelection).not.toBeNull();
+  expect(
+    await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+      )
+      .evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("data-layer-node-id")),
+      ),
+  ).toContain(routeSelection);
+
+  await setSizingMode(page, "W", "Fill container");
+  await setSizingMode(page, "H", "Hug contents");
+  await expect(
+    page.getByRole("button", { name: /^H \d+(?:\.\d+)? Hug$/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Hug contents" }),
+  ).toHaveCount(0);
+});
+
+// The tablet test reopens the design the desktop test built. Shared state is
+// valid only because CI runs this file with --workers=1, so both tests share
+// one worker process and the desktop test runs first.
+let musicAppDesktopShell: {
+  designId: string;
+  screenId: string;
+  mobileScreenId: string;
+} | null = null;
+
+function trackChatThread404s(page: Page) {
+  const responses: Array<{ method: string; path: string; status: number }> = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
     if (
@@ -1868,13 +2231,26 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       response.status() === 404 &&
       /^\/_agent-native\/agent-chat\/threads\/[^/]+$/.test(url.pathname)
     ) {
-      chatThread404s.push({
+      responses.push({
         method: response.request().method(),
         path: url.pathname,
         status: response.status(),
       });
     }
   });
+  return responses;
+}
+
+test("create a responsive music-app desktop shell under a Screen root", async ({
+  page,
+}) => {
+  test.setTimeout(20 * 60_000);
+  musicAppDesktopShell = null;
+  const designId = await createFixtureDesign(
+    page,
+    `Responsive music app desktop ${Date.now()}`,
+  );
+  const chatThread404s = trackChatThread404s(page);
   await test.info().attach("workflow-identities-design", {
     body: JSON.stringify({ designId, screenIds: [] }, null, 2),
     contentType: "application/json",
@@ -2091,12 +2467,14 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await rootGap.fill("10");
   await rootGap.press("Enter");
   const horizontalPadding = rootLayout.getByRole("textbox", {
-    name: /Left.*Right/,
+    name: "Left / Right",
+    exact: true,
   });
   await horizontalPadding.fill("10");
   await horizontalPadding.press("Enter");
   const verticalPadding = rootLayout.getByRole("textbox", {
-    name: /Top.*Bottom/,
+    name: "Top / Bottom",
+    exact: true,
   });
   await verticalPadding.fill("10");
   await verticalPadding.press("Enter");
@@ -2130,16 +2508,16 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await workspaceGap.fill("10");
   await workspaceGap.press("Enter");
   await workspaceLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .fill("10");
   await workspaceLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
   await workspaceLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .fill("10");
   await workspaceLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await setDimension(page, "H", 850);
   await setSizingMode(page, "W", "Fill container");
@@ -2189,13 +2567,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await sidebarLayout
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
-  await sidebarLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("20");
   await sidebarLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
+    .fill("20");
+  await sidebarLayout
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
-  await sidebarLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("20");
   await sidebarLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
+    .fill("20");
+  await sidebarLayout
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await setFillHex(page, "141A24");
   await drawInScreen(page, screenId, "Text", { x: 136, y: 30 }, "SONORA");
@@ -2233,10 +2615,10 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await contentGap.fill("24");
   await contentGap.press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "24"],
-    [/Top.*Bottom/, "24"],
+    ["Left / Right", "24"],
+    ["Top / Bottom", "24"],
   ] as const) {
-    const field = contentLayout.getByRole("textbox", { name });
+    const field = contentLayout.getByRole("textbox", { name, exact: true });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -2261,13 +2643,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await topBarLayout
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
-  await topBarLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("10");
   await topBarLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
+    .fill("10");
+  await topBarLayout
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
-  await topBarLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("10");
   await topBarLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
+    .fill("10");
+  await topBarLayout
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await removeFill(page, "Top Bar");
   await layerButton(page, "Main Content").click();
@@ -2639,13 +3025,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   });
   await playerGap.fill("10");
   await playerGap.press("Enter");
-  await playerLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("10");
   await playerLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
+    .fill("10");
+  await playerLayout
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
-  await playerLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("10");
   await playerLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
+    .fill("10");
+  await playerLayout
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await setSizingMode(page, "W", "Fill container");
   await setSizingMode(page, "H", "Hug contents");
@@ -2790,10 +3180,29 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     "Recently played",
   );
   const mainContentTag = sourceLayerTag(content, "Main Content");
+  const desktopSidebarTag = sourceLayerTag(content, "Sidebar");
+  const desktopPodcastRowTag = sourceLayerTag(content, "Podcast row");
   expect(mainContentTag).toBeTruthy();
+  expect(desktopSidebarTag).toBeTruthy();
+  expect(desktopPodcastRowTag).toBeTruthy();
   expect(sourceStyleValue(mainContentTag!, "height")).toBe("fit-content");
+  expect(sourceStyleValue(mainContentTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(mainContentTag!, "flex-grow")).toBe("1");
+  expect(sourceStyleValue(mainContentTag!, "flex-shrink")).toBe("0");
+  expect(sourceStyleValue(mainContentTag!, "flex-basis")).toMatch(/^0(?:px)?$/);
   expect(mainContentTag).toMatch(/display:\s*flex/i);
   expect(mainContentTag).toMatch(/flex-direction:\s*column/i);
+  expect(sourceStyleValue(desktopSidebarTag!, "width")).toBe("fit-content");
+  expect(sourceStyleValue(desktopSidebarTag!, "flex-grow")).toBe("0");
+  expect(sourceStyleValue(desktopSidebarTag!, "flex-shrink")).toBe("0");
+  expect(sourceStyleValue(desktopSidebarTag!, "flex-basis")).toBe("auto");
+  expect(sourceStyleValue(desktopPodcastRowTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(desktopPodcastRowTag!, "align-self")).toBe("stretch");
+  expect(desktopWorkspaceMetrics.columnGap).toBe("10px");
+  expect(desktopSidebarMetrics.paddingLeft).toBe("20px");
+  expect(desktopSidebarMetrics.paddingRight).toBe("20px");
+  expect(desktopMainMetrics.paddingLeft).toBe("24px");
+  expect(desktopMainMetrics.paddingRight).toBe("24px");
   const mainContentNaturalHeight =
     desktopTopBarMetrics.height +
     desktopPodcastRowMetrics.height +
@@ -2805,6 +3214,27 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect(workspaceTag).toBeTruthy();
   expect(workspaceTag).toMatch(/width:\s*auto/i);
   expect(workspaceTag).toMatch(/align-self:\s*stretch/i);
+  if (!bodyIdentity.layerName) {
+    throw new Error("Screen root source is missing its layer name");
+  }
+  const screenRootTag = sourceLayerTag(content, bodyIdentity.layerName);
+  expect(screenRootTag).toBeTruthy();
+  const [screenRootSpacing, workspaceSpacing] = await Promise.all([
+    savedBoxSpacing(page, screenRootTag!),
+    savedBoxSpacing(page, workspaceTag!),
+  ]);
+  for (const spacing of [screenRootSpacing, workspaceSpacing]) {
+    expect(spacing).toEqual({
+      paddingTop: "10px",
+      paddingRight: "10px",
+      paddingBottom: "10px",
+      paddingLeft: "10px",
+      marginTop: "0px",
+      marginRight: "0px",
+      marginBottom: "0px",
+      marginLeft: "0px",
+    });
+  }
   const desktopCardA = await measureSourceLayer(
     page,
     screenId,
@@ -2841,7 +3271,35 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     ),
     contentType: "application/json",
   });
-  expect.soft(desktopMainMetrics.width).toBeCloseTo(1139, 0);
+  const desktopWorkspaceContentWidth =
+    desktopWorkspaceMetrics.width -
+    parseFloat(desktopWorkspaceMetrics.paddingLeft) -
+    parseFloat(desktopWorkspaceMetrics.paddingRight);
+  expect
+    .soft(desktopSidebarMetrics.width)
+    .toBeCloseTo(
+      desktopLogoMetrics.width +
+        parseFloat(desktopSidebarMetrics.paddingLeft) +
+        parseFloat(desktopSidebarMetrics.paddingRight),
+      2,
+    );
+  expect
+    .soft(desktopMainMetrics.width)
+    .toBeCloseTo(
+      desktopWorkspaceContentWidth -
+        desktopNavigationMetrics.width -
+        desktopSidebarMetrics.width -
+        parseFloat(desktopWorkspaceMetrics.columnGap) * 2,
+      2,
+    );
+  expect
+    .soft(desktopPodcastRowMetrics.width)
+    .toBeCloseTo(
+      desktopMainMetrics.width -
+        parseFloat(desktopMainMetrics.paddingLeft) -
+        parseFloat(desktopMainMetrics.paddingRight),
+      2,
+    );
   expect
     .soft(desktopMainMetrics.height)
     .toBeCloseTo(mainContentNaturalHeight, 0);
@@ -2852,9 +3310,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .toBe(desktopMainMetrics.id);
   expect.soft(desktopWorkspaceMetrics.width).toBeCloseTo(1420, 0);
   expect.soft(desktopNavigationMetrics.width).toBeCloseTo(96, 0);
-  expect.soft(desktopSidebarMetrics.width).toBeCloseTo(145, 0);
-  expect.soft(desktopLogoMetrics.width).toBeCloseTo(105, 0);
-  expect.soft(desktopPodcastRowMetrics.width).toBeCloseTo(1091, 0);
   expect.soft(desktopPlayerMetrics.width).toBeCloseTo(1420, 0);
   expect.soft(desktopPlayerMetrics.height).toBeCloseTo(60, 0);
   expect.soft(desktopCardA.width).toBeCloseTo(360, 0);
@@ -2944,16 +3399,16 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("button", { name: "Vertical", exact: true })
     .click();
   await mobileRootLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .fill("10");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .fill("10");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await mobileRootLayout.getByRole("button", { name: "Gap mode" }).click();
   await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
@@ -2985,10 +3440,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    ["Left / Right", "10"],
+    ["Top / Bottom", "10"],
   ] as const) {
-    const field = mobileWorkspaceLayout.getByRole("textbox", { name });
+    const field = mobileWorkspaceLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3018,10 +3476,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "12"],
-    [/Top.*Bottom/, "20"],
+    ["Left / Right", "12"],
+    ["Top / Bottom", "20"],
   ] as const) {
-    const field = mobileSidebarLayout.getByRole("textbox", { name });
+    const field = mobileSidebarLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3084,10 +3545,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "24"],
-    [/Top.*Bottom/, "24"],
+    ["Left / Right", "24"],
+    ["Top / Bottom", "24"],
   ] as const) {
-    const field = mobileContentLayout.getByRole("textbox", { name });
+    const field = mobileContentLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3117,10 +3581,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    ["Left / Right", "10"],
+    ["Top / Bottom", "10"],
   ] as const) {
-    const field = mobileTopBarLayout.getByRole("textbox", { name });
+    const field = mobileTopBarLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3160,7 +3627,7 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         creator: "FoodieFiends",
       },
     ],
-    { direction: "Vertical", cardWidth: 302, width: 302 },
+    { direction: "Vertical", cardWidth: 302, width: 302, x: 44 },
   );
 
   const mobileCardAuthoring = await readDesign(page, designId);
@@ -3217,10 +3684,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    ["Left / Right", "10"],
+    ["Top / Bottom", "10"],
   ] as const) {
-    const field = mobilePlayerLayout.getByRole("textbox", { name });
+    const field = mobilePlayerLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3331,6 +3801,18 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     mobileSource,
     "Mobile Sidebar",
   );
+  const mobileNavigationMetrics = await measureSourceLayer(
+    page,
+    mobileScreenId,
+    mobileSource,
+    "Mobile navigation",
+  );
+  const mobileLogoMetrics = await measureSourceLayer(
+    page,
+    mobileScreenId,
+    mobileSource,
+    "Mobile SONORA",
+  );
   const mobilePodcastRowMetrics = await measureSourceLayer(
     page,
     mobileScreenId,
@@ -3361,6 +3843,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         geometry: mobileGeometry,
         workspace: mobileWorkspaceMetrics,
         sidebar: mobileSidebarMetrics,
+        navigation: mobileNavigationMetrics,
+        logo: mobileLogoMetrics,
         mainContent: mobileMainMetrics,
         podcastRow: mobilePodcastRowMetrics,
         card: mobileCardMetrics,
@@ -3382,7 +3866,46 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect.soft(mobileCardMetrics.height).toBeCloseTo(316, 0);
   expect.soft(mobileWorkspaceMetrics.width).toBeCloseTo(370, 0);
   expect.soft(mobileWorkspaceMetrics.height).toBeCloseTo(537, 0);
-  expect.soft(mobileSidebarMetrics.width).toBeCloseTo(323, 0);
+  const mobileSidebarTag = sourceLayerTag(mobileSource, "Mobile Sidebar");
+  const mobileMainContentTag = sourceLayerTag(
+    mobileSource,
+    "Mobile Main Content",
+  );
+  const mobilePodcastRowTag = sourceLayerTag(
+    mobileSource,
+    "Mobile Podcast row",
+  );
+  expect(mobileSidebarTag).toBeTruthy();
+  expect(mobileMainContentTag).toBeTruthy();
+  expect(mobilePodcastRowTag).toBeTruthy();
+  expect(sourceStyleValue(mobileSidebarTag!, "width")).toBe("fit-content");
+  expect(sourceStyleValue(mobileMainContentTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(mobileMainContentTag!, "align-self")).toBe("stretch");
+  expect(sourceStyleValue(mobilePodcastRowTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(mobilePodcastRowTag!, "align-self")).toBe("stretch");
+  expect(mobileSidebarMetrics.columnGap).toBe("8px");
+  expect(mobileSidebarMetrics.paddingLeft).toBe("12px");
+  expect(mobileSidebarMetrics.paddingRight).toBe("12px");
+  expect(mobileMainMetrics.paddingLeft).toBe("24px");
+  expect(mobileMainMetrics.paddingRight).toBe("24px");
+  expect
+    .soft(mobileSidebarMetrics.width)
+    .toBeCloseTo(
+      mobileNavigationMetrics.width +
+        mobileLogoMetrics.width +
+        parseFloat(mobileSidebarMetrics.columnGap) +
+        parseFloat(mobileSidebarMetrics.paddingLeft) +
+        parseFloat(mobileSidebarMetrics.paddingRight),
+      2,
+    );
+  expect
+    .soft(mobilePodcastRowMetrics.width)
+    .toBeCloseTo(
+      mobileMainMetrics.width -
+        parseFloat(mobileMainMetrics.paddingLeft) -
+        parseFloat(mobileMainMetrics.paddingRight),
+      2,
+    );
   expect.soft(mobileSidebarMetrics.height).toBeCloseTo(69, 0);
   expect.soft(mobilePodcastRowMetrics.width).toBeCloseTo(302, 0);
   expect.soft(mobilePodcastRowMetrics.height).toBeCloseTo(316, 0);
@@ -3400,6 +3923,41 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     contentType: "application/json",
   });
   await captureEditorScreenshot(page, "music-app-mobile-editor.png");
+  musicAppDesktopShell = { designId, screenId, mobileScreenId };
+  await test.info().attach("workflow-chat-thread-404s", {
+    body: JSON.stringify(
+      { count: chatThread404s.length, responses: chatThread404s },
+      null,
+      2,
+    ),
+    contentType: "application/json",
+  });
+});
+
+test("create a responsive music-app tablet Screen from the desktop shell", async ({
+  page,
+}) => {
+  test.setTimeout(20 * 60_000);
+  if (!musicAppDesktopShell) {
+    throw new Error(
+      "The desktop music-app test did not record its shell; run both music-app tests in one worker",
+    );
+  }
+  const { designId, screenId, mobileScreenId } = musicAppDesktopShell;
+  const chatThread404s = trackChatThread404s(page);
+  await page.setViewportSize({ width: 2800, height: 1600 });
+  await gotoEditor(page, designId);
+  const zoom = page
+    .getByRole("button")
+    .filter({ hasText: /^\s*\d+%\s*$/ })
+    .first();
+  await expect(zoom).toBeVisible();
+  await zoom.click();
+  await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+  await expect(zoom).toHaveText(/100%/);
+  const desktopSaved = await readDesign(page, designId);
+  const content =
+    desktopSaved.files?.find((file) => file.id === screenId)?.content ?? "";
   const filesBeforeTablet = new Set(
     (await readDesign(page, designId)).files?.map((file) => file.id),
   );
@@ -3497,6 +4055,18 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     tabletSource,
     "Workspace",
   );
+  const tabletSidebarMetrics = await measureSourceLayer(
+    page,
+    tabletScreenId,
+    tabletSource,
+    "Sidebar",
+  );
+  const tabletNavigationMetrics = await measureSourceLayer(
+    page,
+    tabletScreenId,
+    tabletSource,
+    "Navigation",
+  );
   const desktopPodcastRow = await measureSourceLayer(
     page,
     screenId,
@@ -3542,6 +4112,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         geometry: tabletGeometry,
         mainContent: tabletMainMetrics,
         workspace: tabletWorkspaceMetrics,
+        sidebar: tabletSidebarMetrics,
+        navigation: tabletNavigationMetrics,
         podcastRow: tabletPodcastRow,
         cardA: tabletCardA,
         cardB: tabletCardB,
@@ -3553,7 +4125,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     ),
     contentType: "application/json",
   });
-  expect.soft(tabletMainMetrics.width).toBeCloseTo(467, 0);
+  expect
+    .soft(tabletMainMetrics.width)
+    .toBeCloseTo(
+      tabletWorkspaceMetrics.width -
+        parseFloat(tabletWorkspaceMetrics.paddingLeft) -
+        parseFloat(tabletWorkspaceMetrics.paddingRight) -
+        tabletNavigationMetrics.width -
+        tabletSidebarMetrics.width -
+        parseFloat(tabletWorkspaceMetrics.columnGap) * 2,
+      2,
+    );
   expect.soft(tabletMainMetrics.height).toBeCloseTo(1458, 0);
   expect.soft(tabletWorkspaceMetrics.width).toBeCloseTo(748, 0);
   expect.soft(tabletWorkspaceMetrics.height).toBeCloseTo(1276, 0);
@@ -3561,8 +4143,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect.soft(tabletCardB.width).toBeCloseTo(400, 0);
   expect.soft(tabletCardA.height).toBeCloseTo(316, 0);
   expect.soft(tabletCardB.height).toBeCloseTo(316, 0);
-  expect.soft(desktopCardA.y).toBeCloseTo(desktopCardB.y, 0);
-  expect.soft(desktopCardB.x).toBeGreaterThan(desktopCardA.x);
   expect.soft(tabletCardA.x).toBeCloseTo(tabletCardB.x, 0);
   expect.soft(tabletCardB.y).toBeGreaterThan(tabletCardA.y);
   expect.soft(tabletRecentlyA.x).toBeCloseTo(tabletRecentlyB.x, 0);

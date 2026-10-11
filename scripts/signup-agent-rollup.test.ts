@@ -86,6 +86,21 @@ test("an incomplete signup agent run surfaces a missing findings report", () => 
   assert.match(rollup.slackText, /report artifact is unavailable/);
 });
 
+test("unknown prior continuity is included in the grouped report and Slack message", () => {
+  const rollup = buildSignupAgentRollup({
+    markdown: "",
+    status: "reported no findings",
+    targets: "chat",
+    environments: "beta",
+    runUrl: "https://github.com/BuilderIO/agent-native/actions/runs/123",
+    continuityUnknown: true,
+  });
+
+  assert.match(rollup.slackText, /continued without prior state/);
+  assert.match(rollup.slackText, /No findings were reported/);
+  assert.match(rollup.reportMarkdown, /Cross-run recovery may be incomplete/);
+});
+
 test("signup agent report text cannot create Slack mentions or links", () => {
   const maliciousMarkdown = [
     "### <@U123> <!channel> https://evil.test",

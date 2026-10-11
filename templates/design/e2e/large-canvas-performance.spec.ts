@@ -205,12 +205,74 @@ async function screenSelectionLatency(page: Page, screenId: string) {
     `[data-layer-row-button][data-layer-node-id="${screenId}"]`,
   );
   const row = rowButton.locator('xpath=ancestor::*[@role="treeitem"][1]');
-  const startedAt = await page.evaluate(() => performance.now());
+  if ((await row.getAttribute("aria-selected")) === "true") {
+    const alternateRow = page
+      .locator(
+        `[data-layer-row-button][data-layer-node-id]:not([data-layer-node-id="${screenId}"])`,
+      )
+      .first();
+    await alternateRow.click();
+    await expect(row).toHaveAttribute("aria-selected", "false");
+  }
+  await page.evaluate((id) => {
+    const button = document.querySelector<HTMLElement>(
+      `[data-layer-row-button][data-layer-node-id="${CSS.escape(id)}"]`,
+    );
+    const selectedRow = button?.closest<HTMLElement>('[role="treeitem"]');
+    if (!button || !selectedRow) {
+      throw new Error("could not find the layer row for selection timing");
+    }
+    if (selectedRow.getAttribute("aria-selected") === "true") {
+      throw new Error("selection timing requires an unselected row");
+    }
+    const state = window as typeof window & {
+      __screenSelectionLatencyMs?: number | null;
+    };
+    state.__screenSelectionLatencyMs = null;
+    let pointerDownAt: number | null = null;
+    const observer = new MutationObserver(() => {
+      if (
+        pointerDownAt === null ||
+        selectedRow.getAttribute("aria-selected") !== "true"
+      ) {
+        return;
+      }
+      state.__screenSelectionLatencyMs = performance.now() - pointerDownAt;
+      observer.disconnect();
+      button.removeEventListener("pointerdown", onPointerDown);
+    });
+    const onPointerDown = () => {
+      pointerDownAt = performance.now();
+    };
+    observer.observe(selectedRow, {
+      attributes: true,
+      attributeFilter: ["aria-selected"],
+    });
+    button.addEventListener("pointerdown", onPointerDown, { once: true });
+  }, screenId);
   await rowButton.click();
   await expect(row).toHaveAttribute("aria-selected", "true", {
     timeout: 2_000,
   });
-  return page.evaluate((start) => performance.now() - start, startedAt);
+  await page.waitForFunction(
+    () => typeof (window as any).__screenSelectionLatencyMs === "number",
+    undefined,
+    { timeout: 2_000 },
+  );
+  return page.evaluate(
+    () => (window as any).__screenSelectionLatencyMs as number,
+  );
+}
+
+async function readWorldCamera(page: Page) {
+  return page
+    .locator("[data-multi-screen-canvas-world]")
+    .evaluate((element) => {
+      const transform = getComputedStyle(element).transform;
+      if (transform === "none") return { x: 0, y: 0, scale: 1 };
+      const matrix = new DOMMatrixReadOnly(transform);
+      return { x: matrix.e, y: matrix.f, scale: matrix.a };
+    });
 }
 
 async function performPanZoomGesture(page: Page): Promise<{
@@ -445,6 +507,71 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
       gesturePerf.iframeAdded + gesturePerf.iframeRemoved,
     ).toBeLessThanOrEqual(12);
     expect(gesturePerf.iframeLoads).toBeLessThanOrEqual(6);
+
+    const cameraBeforeConcurrentZoom = await readWorldCamera(page);
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(panStart.x + 80, panStart.y + 50);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -28);
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(180);
+    const cameraAfterConcurrentZoom = await readWorldCamera(page);
+    expect(cameraAfterConcurrentZoom.scale).not.toBeCloseTo(
+      cameraBeforeConcurrentZoom.scale,
+      3,
+    );
+    expect(
+      Math.abs(cameraAfterConcurrentZoom.x - cameraBeforeConcurrentZoom.x),
+    ).toBeGreaterThan(30);
+    await page.mouse.up({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
+    await expect
+      .poll(() => readWorldCamera(page))
+      .toEqual(cameraAfterConcurrentZoom);
+
+    const cameraBeforeEscape = await readWorldCamera(page);
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(panStart.x + 80, panStart.y + 50);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -28);
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(180);
+    const cameraAfterEscapeZoom = await readWorldCamera(page);
+    expect(cameraAfterEscapeZoom.scale).not.toBeCloseTo(
+      cameraBeforeEscape.scale,
+      3,
+    );
+    await page.keyboard.press("Escape");
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
+    await page.mouse.up({ button: "middle" });
+    await expect.poll(() => readWorldCamera(page)).toEqual(cameraBeforeEscape);
+
+    const cameraBeforeSequentialPans = await readWorldCamera(page);
+    for (const delta of [
+      { x: 45, y: 25 },
+      { x: -20, y: 10 },
+    ]) {
+      await page.mouse.move(panStart.x, panStart.y);
+      await page.mouse.down({ button: "middle" });
+      await page.mouse.move(panStart.x + delta.x, panStart.y + delta.y);
+      await page.mouse.up({ button: "middle" });
+    }
+    await expect
+      .poll(async () => {
+        const camera = await readWorldCamera(page);
+        return (
+          Math.abs(camera.x - (cameraBeforeSequentialPans.x + 25)) < 0.1 &&
+          Math.abs(camera.y - (cameraBeforeSequentialPans.y + 35)) < 0.1 &&
+          Math.abs(camera.scale - cameraBeforeSequentialPans.scale) < 0.001
+        );
+      })
+      .toBe(true);
   } finally {
     await postAction(page.request, baseURL, "delete-design", {
       id: designId,

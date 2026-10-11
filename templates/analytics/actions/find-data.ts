@@ -37,13 +37,24 @@ export default defineAction({
       orgId: getRequestOrgId() || null,
     });
     const { candidates, ...paginationAndCoverage } = result;
+    const sourceIndexGuidance =
+      result.sourceIndexStatus === "not-configured"
+        ? "The generated source index is not configured, so absence from these references is not evidence that a warehouse relation does not exist. Use search-bigquery-schema for connected BigQuery schemas."
+        : result.sourceIndexStatus === "invalid" ||
+            result.sourceIndexStatus === "unavailable"
+          ? "The generated source index could not be read, so treat these references as incomplete and verify with search-bigquery-schema."
+          : "";
     return {
       question,
       results: candidates,
       ...paginationAndCoverage,
       resultType: "reference-metadata",
-      guidance:
+      guidance: [
         "Treat saved SQL and source-index entries as examples or unapproved metadata. Verify source scope, live schema, partitions, and current values before answering. If truncated is true and nextPage is present, continue with that cursor; if truncated is true and nextPage is null, refine the search or use an explicit dashboard/schema search because a source cap was reached.",
+        sourceIndexGuidance,
+      ]
+        .filter(Boolean)
+        .join(" "),
     };
   },
 });

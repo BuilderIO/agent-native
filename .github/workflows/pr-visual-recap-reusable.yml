@@ -270,6 +270,7 @@ jobs:
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || inputs.plan-url }}
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
+      REPOSITORY_ID: ${{ github.repository_id }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_STATE: ${{ github.event.pull_request.state }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
@@ -483,7 +484,6 @@ jobs:
         id: prompt
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
-          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
@@ -491,7 +491,6 @@ jobs:
           ARGS=(--diff recap.diff --stat recap.stat --block-reference recap-blocks.md --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
           if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
           if [ "${IS_FORK:-}" = "true" ]; then ARGS+=(--fork-pr true); fi
-          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
           $RECAP_CLI recap build-prompt "${ARGS[@]}"
 
       - name: Run agent (Claude Code)
@@ -639,12 +638,11 @@ jobs:
         id: publish
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true' && steps.source_status.outputs.ready == 'true'
         continue-on-error: true
-        env:
-          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
-          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          # Plan caps idempotency keys at 200 characters; the numeric repository ID keeps this bounded.
+          ARGS+=(--idempotency-key "pr-recap:$REPOSITORY_ID:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
           ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
           if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
             ARGS+=(--source-pr-state merged)
@@ -758,12 +756,10 @@ jobs:
         id: publish_repair
         if: steps.repaired_source.outputs.ok == 'true'
         continue-on-error: true
-        env:
-          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
-          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          ARGS+=(--idempotency-key "pr-recap:$REPOSITORY_ID:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
           ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
           if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
             ARGS+=(--source-pr-state merged)

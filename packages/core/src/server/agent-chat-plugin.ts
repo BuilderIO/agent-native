@@ -175,9 +175,11 @@ import {
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
+import type { OwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
 import {
   hydratePriorThreadImages,
   PriorThreadImageHistoryReadError,
+  retainedStructuredHistoryImageUrls,
 } from "../file-upload/thread-image-history.js";
 import {
   filterFrameworkToolGroups,
@@ -2216,7 +2218,7 @@ export function createAgentChatPlugin(
         : undefined;
 
       const { mountA2A } = await import("../a2a/server.js");
-      mountA2A(nitroApp, {
+      const localA2AConfig: import("../a2a/types.js").A2AConfig = {
         appId: options?.appId,
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
@@ -3000,7 +3002,8 @@ export function createAgentChatPlugin(
             ],
           };
         },
-      });
+      };
+      mountA2A(nitroApp, localA2AConfig);
 
       // Generate an "Available Actions" section from template-specific actions
       // so the agent knows to use them instead of raw SQL.
@@ -3118,6 +3121,8 @@ export function createAgentChatPlugin(
       };
 
       if (mcpOptions.enabled) {
+        const { createMcpAgentTaskClient } =
+          await import("../a2a/mcp-task-client.js");
         // Mount MCP remote server — same action registry as A2A + agent chat
         const {
           mountMCP,
@@ -3125,6 +3130,8 @@ export function createAgentChatPlugin(
           selectMcpDirectoryWidgetWriteActions,
         } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
+          createLocalAgentTaskClient: (event) =>
+            createMcpAgentTaskClient(localA2AConfig, event),
           name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
@@ -4053,23 +4060,20 @@ export function createAgentChatPlugin(
         }
       };
 
-      const priorThreadImageContext = async (details: {
+      const resolveAccessibleRequestThread = async (details: {
         event: any;
         ownerEmail: string | null;
         threadId?: string;
       }) => {
-        if (!details.threadId || !details.ownerEmail) return undefined;
-
-        let existingThread: ChatThread | null;
-        try {
-          existingThread = await getThread(details.threadId);
-        } catch {
+        if (!details.threadId) return undefined;
+        if (!details.ownerEmail?.trim()) {
           throw createError({
-            statusCode: 503,
-            statusMessage: "Prior chat attachment history could not be read.",
-            data: { code: "prior_attachment_history_unreadable" },
+            statusCode: 404,
+            statusMessage: "Thread not found",
           });
         }
+
+        const existingThread = await getThread(details.threadId);
         if (!existingThread) return undefined;
         if (
           threadScopeMismatch(
@@ -4083,21 +4087,13 @@ export function createAgentChatPlugin(
           });
         }
 
-        let thread: ChatThread | null;
-        try {
-          thread = await resolveThreadAccess(
-            details.ownerEmail,
-            details.threadId,
-            "editor",
-            { orgId: await getOrgIdFromEvent(details.event) },
-          );
-        } catch {
-          throw createError({
-            statusCode: 503,
-            statusMessage: "Prior chat attachment history could not be read.",
-            data: { code: "prior_attachment_history_unreadable" },
-          });
-        }
+        const orgId = await getOrgIdFromEvent(details.event);
+        const thread = await resolveThreadAccess(
+          details.ownerEmail,
+          details.threadId,
+          "editor",
+          { orgId },
+        );
         if (!thread)
           throw createError({
             statusCode: 404,
@@ -4112,8 +4108,33 @@ export function createAgentChatPlugin(
           });
         }
 
+        return {
+          thread,
+          cacheScope: {
+            ownerEmail: details.ownerEmail,
+            orgId,
+            threadId: thread.id,
+          },
+        };
+      };
+
+      const priorThreadImageContext = async (
+        accessibleThread: Awaited<
+          ReturnType<typeof resolveAccessibleRequestThread>
+        >,
+        excludeUrls: ReadonlySet<string>,
+        hydrationBudget: OwnedAttachmentHydrationBudget,
+      ) => {
+        if (!accessibleThread) return undefined;
         try {
-          return await hydratePriorThreadImages(thread.threadData);
+          return await hydratePriorThreadImages(
+            accessibleThread.thread.threadData,
+            {
+              cacheScope: accessibleThread.cacheScope,
+              excludeUrls,
+              budget: hydrationBudget,
+            },
+          );
         } catch (error) {
           if (!(error instanceof PriorThreadImageHistoryReadError)) throw error;
           throw createError({
@@ -4145,18 +4166,32 @@ export function createAgentChatPlugin(
         };
       };
 
-      const deferPriorThreadImageContext = (
+      const deferPriorThreadImageContext = async (
         prepared: void | PreparedAgentRequest,
-        details: Parameters<typeof priorThreadImageContext>[0],
-      ): void | PreparedAgentRequest => {
-        if (!details.threadId || !details.ownerEmail) return prepared;
+        details: Parameters<typeof resolveAccessibleRequestThread>[0] & {
+          structuredHistory?: unknown;
+        },
+      ): Promise<void | PreparedAgentRequest> => {
+        if (!details.threadId) return prepared;
+        const thread = await resolveAccessibleRequestThread(details);
+        const structuredHistoryImageUrls = retainedStructuredHistoryImageUrls(
+          details.structuredHistory,
+        );
         return {
           ...(prepared ?? {}),
           prepareAfterModel: async (modelDetails) => {
             const preparedContext =
               await prepared?.prepareAfterModel?.(modelDetails);
             if (!modelDetails.vision) return preparedContext;
-            const prior = await priorThreadImageContext(details);
+            const excludeUrls = new Set([
+              ...structuredHistoryImageUrls,
+              ...modelDetails.historyImageUrls,
+            ]);
+            const prior = await priorThreadImageContext(
+              thread,
+              excludeUrls,
+              modelDetails.hydrationBudget,
+            );
             return addPriorThreadImageContext(preparedContext, prior);
           },
         };
@@ -4777,7 +4812,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           // Also run the template-provided prepareRequest (if any).
           const templateResult = await options?.prepareRequest?.(details);
-          const prepared = deferPriorThreadImageContext(
+          const prepared = await deferPriorThreadImageContext(
             templateResult,
             details,
           );

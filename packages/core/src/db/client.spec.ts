@@ -2342,6 +2342,76 @@ describe("db/client shared connection pools", () => {
   });
 });
 
+describe("db/client postgres-js request pool recovery", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.doUnmock("postgres");
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    vi.resetModules();
+  });
+
+  it("keeps the shared facade stable after a request pool times out", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+    vi.stubGlobal("__env__", {});
+
+    const pools: any[] = [];
+    const postgres = vi.fn(() => {
+      const pool: any = Object.assign(() => undefined, { closed: false });
+      pool.unsafe = vi.fn((query: string) => {
+        if (pools.length === 1 && query === "SELECT 1") {
+          return new Promise(() => {});
+        }
+        if (pool.closed) {
+          return Promise.reject(
+            Object.assign(new Error("pool is closed"), {
+              code: "CONNECTION_CLOSED",
+            }),
+          );
+        }
+        return Promise.resolve(Object.assign([{ query }], { count: 1 }));
+      });
+      pool.end = vi.fn(async () => {
+        pool.closed = true;
+      });
+      pools.push(pool);
+      return pool;
+    });
+    vi.doMock("postgres", () => ({ default: postgres }));
+
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    await expect(
+      runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().execute({ sql: "SELECT 1", timeoutMs: 25, maxAttempts: 1 }),
+      ),
+    ).rejects.toMatchObject({ code: "CONNECT_TIMEOUT" });
+
+    expect(pools).toHaveLength(2);
+    expect(pools[0].end).toHaveBeenCalledOnce();
+    expect(pools[1].end).toHaveBeenCalledOnce();
+
+    await expect(
+      runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().execute({ sql: "SELECT 2", maxAttempts: 1 }),
+      ),
+    ).resolves.toMatchObject({ rows: [{ query: "SELECT 2" }] });
+
+    expect(pools).toHaveLength(3);
+    expect(pools[1].unsafe).not.toHaveBeenCalled();
+    expect(pools[2].unsafe).toHaveBeenCalledOnce();
+  });
+});
+
 describe("retryOnConnectionError budget", () => {
   const connectTimeout = () =>
     Object.assign(new Error("DB connect timed out"), {

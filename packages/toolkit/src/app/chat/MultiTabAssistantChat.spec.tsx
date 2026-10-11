@@ -10,6 +10,7 @@ import {
   clearAgentChatContext,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  isAgentChatSubmitCancelled,
   listAgentChatContext,
   removeAgentChatContextItem,
   requestAgentChatThreadOpen,
@@ -27,8 +28,12 @@ import { buildChatModelGroups } from "@agent-native/core/client/chat-model-group
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
 import { ComposerContextError } from "@agent-native/toolkit/composer";
+import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import {
   afterEach,
   beforeEach,
@@ -39,6 +44,15 @@ import {
   vi,
 } from "vitest";
 
+import {
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  ComposerRuntimeAdaptersProvider,
+} from "../../composer/runtime-adapters.js";
+import { TiptapComposer } from "../../composer/TiptapComposer.js";
+import { TooltipProvider } from "../../ui/tooltip.js";
+import { AgentSidebar } from "./AgentSidebar.js";
+import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
@@ -92,6 +106,10 @@ const chatHandleMocks = vi.hoisted(() => ({
 }));
 
 const assistantChatMockState = vi.hoisted(() => ({
+  referenceProbe: false,
+  referenceDisabled: true,
+  deferredHandleThread: null as string | null,
+  referenceDeliveries: [] as Array<{ threadId: string; context: string }>,
   onThreadRestoreNotFound: undefined as (() => void) | undefined,
   onRetryModelList: undefined as (() => void) | undefined,
   onSlashCommand: undefined as ((command: string) => void) | undefined,
@@ -148,7 +166,9 @@ const threadMocks = vi.hoisted(() => ({
   createThread: vi.fn(
     async (requestedId?: string) => requestedId ?? "thread-2",
   ),
-  openThread: vi.fn(async () => "opened" as const),
+  openThread: vi.fn(
+    async (): Promise<"opened" | "missing" | "unavailable"> => "opened",
+  ),
   switchThread: vi.fn(),
   detachThread: vi.fn(),
   forkThread: vi.fn(),
@@ -179,7 +199,10 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => {
     sendToBuilderChat: vi.fn(),
   };
 });
-vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/mcp-app-host")
+  >()),
   sendMcpAppHostMessage: () => null,
 }));
 vi.mock("@agent-native/core/client/api-path", async (importOriginal) => {
@@ -203,7 +226,10 @@ vi.mock("./RunStuckBanner.js", () => ({
   RunStuckBanner: () => null,
 }));
 
-vi.mock("@agent-native/toolkit/ui/tooltip", () => ({
+vi.mock("@agent-native/toolkit/ui/tooltip", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/ui/tooltip")
+  >()),
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
@@ -377,6 +403,35 @@ async function mountWithCatalog(
 
 chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 
+function ReferenceProbe({
+  threadId,
+  selected,
+}: {
+  threadId: string;
+  selected: boolean;
+}) {
+  const runtime = useLocalRuntime({ async *run() {} });
+  return (
+    <div data-reference-thread={threadId}>
+      <AssistantRuntimeProvider runtime={runtime}>
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ builder: { isTrustedFrameMessage: () => true } }}
+        >
+          <TooltipProvider>
+            <TiptapComposer
+              disabled={assistantChatMockState.referenceDisabled}
+              isReferenceTarget={selected}
+              includeDefaultSlashSkills={false}
+              plusMenuMode="hidden"
+              voiceEnabled={false}
+            />
+          </TooltipProvider>
+        </ComposerRuntimeAdaptersProvider>
+      </AssistantRuntimeProvider>
+    </div>
+  );
+}
+
 vi.mock("./AgentKitAssistantChat.js", async () => {
   const React = await import("react");
   return {
@@ -385,6 +440,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       ref,
     ) {
       const props = _props as {
+        threadId: string;
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
         selectedModel?: string;
@@ -398,6 +454,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         composerDisabled?: boolean;
         composerDisabledPlaceholder?: string;
         isActiveComposer?: boolean;
+        isReferenceTarget?: boolean;
         isNewThread?: boolean;
         isThreadStateLoading?: boolean;
         contextScope?: ChatThreadScope | null;
@@ -421,22 +478,39 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onThreadSnapshotPersisted =
         props.onThreadSnapshotPersisted;
       assistantChatMockState.branchNavigation = props.branchNavigation;
-      React.useImperativeHandle(ref, () => ({
-        sendMessage: chatHandleMocks.sendMessage,
-        implementPlan: chatHandleMocks.implementPlan,
-        prefillMessage: chatHandleMocks.prefillMessage,
-        setComposerContextItem: chatHandleMocks.setComposerContextItem,
-        canStageComposerContextItem:
-          chatHandleMocks.canStageComposerContextItem,
-        removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
-        clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
-        sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
-        queueMessage: chatHandleMocks.queueMessage,
-        isRunning: () => false,
-        hasInFlightWork: () => false,
-        focusComposer: chatHandleMocks.focusComposer,
-        exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
-      }));
+      React.useImperativeHandle(ref, () =>
+        assistantChatMockState.deferredHandleThread === props.threadId
+          ? null
+          : {
+              sendMessage: chatHandleMocks.sendMessage,
+              implementPlan: chatHandleMocks.implementPlan,
+              prefillMessage: assistantChatMockState.referenceProbe
+                ? (message: string) => {
+                    const element = document.querySelector(
+                      `[data-reference-thread="${props.threadId}"]`,
+                    );
+                    assistantChatMockState.referenceDeliveries.push({
+                      threadId: props.threadId,
+                      context: element?.textContent ?? "",
+                    });
+                    chatHandleMocks.prefillMessage(message);
+                  }
+                : chatHandleMocks.prefillMessage,
+              setComposerContextItem: chatHandleMocks.setComposerContextItem,
+              canStageComposerContextItem:
+                chatHandleMocks.canStageComposerContextItem,
+              removeComposerContextItem:
+                chatHandleMocks.removeComposerContextItem,
+              clearComposerContextItems:
+                chatHandleMocks.clearComposerContextItems,
+              sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
+              queueMessage: chatHandleMocks.queueMessage,
+              isRunning: () => false,
+              hasInFlightWork: () => false,
+              focusComposer: chatHandleMocks.focusComposer,
+              exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
+            },
+      );
       return (
         <div
           data-testid="assistant-chat"
@@ -455,6 +529,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
+          data-reference-target={props.isReferenceTarget ? "true" : "false"}
           data-new-thread={props.isNewThread ? "true" : "false"}
           data-thread-state-loading={
             props.isThreadStateLoading ? "true" : "false"
@@ -468,6 +543,12 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         >
           {props.emptyStateAddon}
           {props.composerSlot}
+          {assistantChatMockState.referenceProbe && (
+            <ReferenceProbe
+              threadId={props.threadId}
+              selected={props.isReferenceTarget === true}
+            />
+          )}
         </div>
       );
     }),
@@ -475,6 +556,10 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
 });
 
 function resetThreadMocks() {
+  assistantChatMockState.referenceProbe = false;
+  assistantChatMockState.referenceDisabled = true;
+  assistantChatMockState.deferredHandleThread = null;
+  assistantChatMockState.referenceDeliveries = [];
   assistantChatMockState.onThreadRestoreNotFound = undefined;
   assistantChatMockState.onRetryModelList = undefined;
   assistantChatMockState.onSlashCommand = undefined;
@@ -574,6 +659,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    clearBufferedAgentChatRequests();
     resetThreadMocks();
     actionMocks.callAction.mockReset();
     actionMocks.callAction.mockResolvedValue(null as never);
@@ -607,6 +693,2883 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it.each(["custom", "message"])(
+    "inserts %s references only into the selected mounted chat tab",
+    async (transport) => {
+      assistantChatMockState.referenceProbe = true;
+      assistantChatMockState.referenceDisabled = false;
+      threadMocks.threads.push({
+        ...threadMocks.threads[0],
+        id: "thread-2",
+        title: "Other thread",
+      });
+      window.localStorage.setItem(
+        openTabsStorageKey("bridge-test"),
+        JSON.stringify(["thread-1", "thread-2"]),
+      );
+      const render = (id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      };
+      threadMocks.switchThread.mockImplementation(render);
+      await act(async () => render("thread-2"));
+      await act(async () => render("thread-1"));
+      expect(
+        container.querySelectorAll("[data-reference-thread]"),
+      ).toHaveLength(2);
+      const reference = (label: string) => {
+        const detail = {
+          label,
+          refType: "file",
+          refId: "/selected.md",
+          slotKey: "document",
+          insertMessageId: `selected-${transport}`,
+        };
+        window.dispatchEvent(
+          transport === "custom"
+            ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+            : new MessageEvent("message", {
+                origin: window.location.origin,
+                data: {
+                  type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+                  data: detail,
+                },
+              }),
+        );
+      };
+      await act(async () => reference("First selected document"));
+      const first = container.querySelector(
+        '[data-reference-thread="thread-1"]',
+      )!;
+      const second = container.querySelector(
+        '[data-reference-thread="thread-2"]',
+      )!;
+      expect(first.textContent).toContain("First selected document");
+      expect(second.textContent).not.toContain("First selected document");
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2" },
+          }),
+        ),
+      );
+      await act(async () => reference("Second selected document"));
+      expect(second.textContent).toContain("Second selected document");
+      expect(first.textContent).not.toContain("Second selected document");
+    },
+  );
+
+  it.each([
+    { transport: "custom", cold: false },
+    { transport: "message", cold: false },
+    { transport: "custom", cold: true },
+    { transport: "message", cold: true },
+  ])(
+    "cancels a queued $transport reference when its selected tab changes (cold=$cold)",
+    async ({ transport, cold }) => {
+      assistantChatMockState.referenceProbe = true;
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      threadMocks.threads.push({
+        ...threadMocks.threads[0],
+        id: "thread-2",
+        title: "Other thread",
+      });
+      window.localStorage.setItem(
+        openTabsStorageKey("bridge-test"),
+        JSON.stringify(["thread-1", "thread-2"]),
+      );
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen={!cold}
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      await act(async () => {
+        root.render(sidebar());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      if (cold) expect(container.querySelector(".tiptap")).toBeNull();
+      const detail = {
+        label: "Original tab document",
+        refType: "file",
+        refId: "/original-tab.md",
+        slotKey: "document",
+        insertMessageId: `original-tab-${transport}`,
+      };
+      const results: unknown[] = [];
+      const recordResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            transport === "custom"
+              ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+              : new MessageEvent("message", {
+                  origin: window.location.origin,
+                  data: {
+                    type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+                    data: detail,
+                  },
+                }),
+          );
+          dispatchSubmitChat({
+            message: "Use the original tab document",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `original-tab-draft-${transport}-${cold}`,
+          });
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Independent queued draft",
+            targetTabId: "thread-2",
+            submit: false,
+            openSidebar: false,
+          });
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        assistantChatMockState.referenceDisabled = false;
+        await act(async () => root.render(sidebar()));
+        expect(results).toContainEqual({
+          submitMessageId: `original-tab-draft-${transport}-${cold}`,
+          delivered: false,
+          reason: "navigation-superseded",
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original tab document"),
+          },
+        ]);
+        expect(
+          container.querySelector('[data-reference-thread="thread-2"]')
+            ?.textContent,
+        ).not.toContain("Original tab document");
+        const controls: string[] = [];
+        const recordControl = (event: Event) => controls.push(event.type);
+        window.addEventListener("agent-panel:open-settings", recordControl);
+        window.addEventListener("agent-panel:set-mode", recordControl);
+        try {
+          await act(async () => {
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:open-settings", {
+                detail: { section: "api-keys" },
+              }),
+            );
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:set-mode", {
+                detail: { mode: "chat" },
+              }),
+            );
+          });
+          expect(controls).toEqual([
+            "agent-panel:open-settings",
+            "agent-panel:set-mode",
+          ]);
+          expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        } finally {
+          window.removeEventListener(
+            "agent-panel:open-settings",
+            recordControl,
+          );
+          window.removeEventListener("agent-panel:set-mode", recordControl);
+        }
+        await act(async () => threadMocks.switchThread("thread-1"));
+        expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        expect(
+          container.querySelector('[data-reference-thread="thread-1"]')
+            ?.textContent,
+        ).not.toContain("Original tab document");
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Independent draft after changing selection",
+            submit: false,
+            openSidebar: false,
+          });
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original tab document"),
+          },
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original tab document"),
+          },
+        ]);
+        expect(
+          container.querySelector('[data-reference-thread="thread-2"]')
+            ?.textContent,
+        ).not.toContain("Original tab document");
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
+    },
+  );
+
+  it.each([
+    { closeMethod: "others", attachBeforeClose: false },
+    { closeMethod: "all", attachBeforeClose: false },
+    { closeMethod: "others", attachBeforeClose: true },
+    { closeMethod: "all", attachBeforeClose: true },
+  ])(
+    "reports undelivered drafts when closing $closeMethod tabs (handle attached=$attachBeforeClose)",
+    async ({ closeMethod, attachBeforeClose }) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      let header!: MultiTabAssistantChatHeaderProps;
+      const results: unknown[] = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      threadMocks.createThread.mockImplementation(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      try {
+        await act(async () => root.render(chat()));
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Undelivered draft",
+            submit: false,
+            targetTabId: "thread-2",
+            submitMessageId: `pending-close-${closeMethod}-${attachBeforeClose}`,
+          }),
+        );
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+        if (attachBeforeClose) {
+          assistantChatMockState.deferredHandleThread = null;
+          await act(async () => root.render(chat()));
+        }
+        await act(async () => {
+          if (closeMethod === "others") header.closeOtherTabs("thread-1");
+          else await header.closeAllTabs();
+        });
+        expect(results).toEqual([
+          {
+            submitMessageId: `pending-close-${closeMethod}-${attachBeforeClose}`,
+            delivered: false,
+            reason: "target-tab-closed",
+          },
+        ]);
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(chat()));
+        await act(
+          async () => new Promise((resolve) => setTimeout(resolve, 75)),
+        );
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+        expect(results).toHaveLength(1);
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "keeps later sends behind a scheduled delivery (submit=%s)",
+    async (submit) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Earlier send",
+          submit,
+          targetTabId: "thread-2",
+        }),
+      );
+      vi.useFakeTimers();
+      try {
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(chat()));
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Later send",
+            submit,
+            targetTabId: "thread-2",
+          }),
+        );
+        const delivered = submit
+          ? chatHandleMocks.sendMessage
+          : chatHandleMocks.prefillMessage;
+        expect(delivered).not.toHaveBeenCalled();
+        const reenter = () =>
+          dispatchSubmitChat({
+            message: "Reentrant send",
+            submit,
+            targetTabId: "thread-2",
+          });
+        if (submit)
+          chatHandleMocks.sendMessage.mockImplementationOnce(async () => {
+            reenter();
+            return { status: "submitted" as const };
+          });
+        else chatHandleMocks.prefillMessage.mockImplementationOnce(reenter);
+        await act(async () => vi.advanceTimersByTimeAsync(200));
+        expect(delivered.mock.calls.map(([message]) => message)).toEqual([
+          "Earlier send",
+          "Later send",
+          "Reentrant send",
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("queues navigation prefill behind an older scheduled draft before acknowledging selection", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Earlier scheduled draft",
+        submit: false,
+        targetTabId: "thread-2",
+      }),
+    );
+    vi.useFakeTimers();
+    try {
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Later navigation prefill",
+            },
+          }),
+        ),
+      );
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      expect(outcomes).toEqual(["started"]);
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Draft after navigation",
+          submit: false,
+          targetTabId: "thread-2",
+        }),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Earlier scheduled draft", "Later navigation prefill"]);
+      expect(outcomes).toEqual(["started", "selected"]);
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual([
+        "Earlier scheduled draft",
+        "Later navigation prefill",
+        "Draft after navigation",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports failed navigation prefill and accepts an explicit retry", async () => {
+    const outcomes: string[] = [];
+    const failedEvents: CustomEvent[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(event, outcome) => {
+          outcomes.push(outcome);
+          if (outcome === "failed") failedEvents.push(event as CustomEvent);
+        }}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    chatHandleMocks.prefillMessage.mockImplementationOnce(() => {
+      throw new Error("Draft insertion failed");
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-2",
+            prefill: "Retryable navigation draft",
+            openRequestId: "failed-prefill-original-open",
+          },
+        }),
+      );
+    });
+    expect(outcomes).toEqual(["started", "failed"]);
+    expect(failedEvents[0].detail).toEqual({
+      threadId: "thread-2",
+      prefill: "Retryable navigation draft",
+      openRequestId: "failed-prefill-original-open",
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            ...failedEvents[0].detail,
+            openRequestId: "failed-prefill-retry-open",
+          },
+        }),
+      );
+    });
+    expect(outcomes).toEqual(["started", "failed", "started", "selected"]);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels drafts dependent on a failed navigation prefill", async () => {
+    await mountNavigationSidebar();
+    const results: unknown[] = [];
+    const recordResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    chatHandleMocks.prefillMessage.mockImplementationOnce(() => {
+      throw new Error("Draft insertion failed");
+    });
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Failed navigation draft",
+            },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Dependent draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "failed-navigation-dependent-draft",
+        });
+      });
+      expect(results).toEqual([
+        {
+          submitMessageId: "failed-navigation-dependent-draft",
+          delivered: false,
+          reason: "navigation-failed",
+        },
+      ]);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Dependent draft",
+      );
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Explicit retry draft" },
+          }),
+        );
+      });
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+        "Explicit retry draft",
+      );
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
+  it("retires a navigation prefill waiting in a delivery lane", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Earlier lane owner",
+        submit: false,
+        targetTabId: "thread-2",
+      }),
+    );
+    vi.useFakeTimers();
+    try {
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Retired queued prefill" },
+          }),
+        ),
+      );
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Current queued prefill" },
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(150));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Earlier lane owner", "Current queued prefill"]);
+      expect(outcomes).toEqual([
+        "started",
+        "started",
+        "superseded",
+        "selected",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes the delivery head after its handle disappears at handoff", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Waiting head",
+        submit: false,
+        targetTabId: "thread-2",
+      }),
+    );
+    vi.useFakeTimers();
+    try {
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      await act(async () => root.render(chat()));
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Later waiting send",
+          submit: false,
+          targetTabId: "thread-2",
+        }),
+      );
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      await act(async () => vi.advanceTimersByTimeAsync(150));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Waiting head", "Later waiting send"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "cancels blocked implicit work before %s delivers a destination draft",
+    async (type) => {
+      assistantChatMockState.referenceProbe = true;
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      threadMocks.threads.push({
+        ...threadMocks.threads[0],
+        id: "thread-2",
+        title: "Other thread",
+      });
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      await act(async () => {
+        root.render(sidebar());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const results: unknown[] = [];
+      const recordResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Original document",
+                refType: "file",
+                refId: "/original.md",
+                slotKey: "document",
+                insertMessageId: `ordered-${type}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Use this document",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `superseded-draft-${type}`,
+          });
+          window.dispatchEvent(
+            new CustomEvent(type, {
+              detail: {
+                threadId: "thread-2",
+                ...(type === "agent-chat:open-thread"
+                  ? { prefill: "New destination draft" }
+                  : {}),
+              },
+            }),
+          );
+          if (type === "agent-task-open")
+            dispatchSubmitChat({
+              message: "New destination draft",
+              submit: false,
+              openSidebar: false,
+              submitMessageId: "after-task-navigation",
+            });
+        });
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        expect(results).toContainEqual({
+          submitMessageId: `superseded-draft-${type}`,
+          delivered: false,
+          reason: "navigation-superseded",
+        });
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original document"),
+          },
+        ]);
+        expect(
+          chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+        ).toEqual(["New destination draft"]);
+        assistantChatMockState.referenceDisabled = false;
+        await act(async () => root.render(sidebar()));
+        expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
+    },
+  );
+
+  it("cancels closed-tab reference work and releases later navigation", async () => {
+    assistantChatMockState.referenceProbe = true;
+    threadMocks.threads.push({ ...threadMocks.threads[0], id: "thread-2" });
+    window.localStorage.setItem(
+      openTabsStorageKey("bridge-test"),
+      JSON.stringify(["thread-1", "thread-2"]),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const sidebar = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar
+            defaultOpen
+            storageKey="bridge-test"
+            showMissingApiKeySetup={false}
+          >
+            <div>Content</div>
+          </AgentSidebar>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(sidebar());
+    });
+    const results: unknown[] = [];
+    const recordResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    try {
+      await act(async () => {
+        root.render(sidebar());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              label: "Closed tab document",
+              refType: "file",
+              refId: "/closed.md",
+              slotKey: "document",
+              insertMessageId: "closed-reference",
+            },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Needs the closed document",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "closed-dependent",
+        });
+        dispatchSubmitChat({
+          message: "Independent B draft",
+          targetTabId: "thread-2",
+          submit: false,
+          openSidebar: false,
+        });
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2" },
+          }),
+        );
+        window.dispatchEvent(new CustomEvent("agent-chat:close-current-tab"));
+      });
+      expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+      expect(results).toContainEqual({
+        submitMessageId: "closed-dependent",
+        delivered: false,
+        reason: "target-tab-closed",
+      });
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-2",
+          context: expect.not.stringContaining("Closed tab document"),
+        },
+      ]);
+      assistantChatMockState.referenceDisabled = false;
+      await act(async () => threadMocks.switchThread("thread-1"));
+      expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
+  it("cancels dependent drafts when selection changes during reference replay", async () => {
+    const sidebar = await mountNavigationSidebar();
+    assistantChatMockState.referenceDisabled = true;
+    await act(async () => root.render(sidebar()));
+    const results: Array<{
+      submitMessageId?: string;
+      delivered: boolean;
+      reason?: string;
+    }> = [];
+    const recordResult = (event: Event) => {
+      const result = (event as CustomEvent).detail;
+      results.push(result);
+      if (
+        result.submitMessageId === "reentrant-selection-first" &&
+        !result.delivered
+      ) {
+        expect(claimAgentChatSubmit("reentrant-selection-second")).toBe(false);
+        expect(isAgentChatSubmitCancelled("reentrant-selection-first")).toBe(
+          false,
+        );
+        dispatchSubmitChat({
+          message: "Fresh explicit B draft",
+          targetTabId: "thread-2",
+          submit: false,
+          openSidebar: false,
+        });
+      }
+    };
+    const switchDuringReplay = () => {
+      flushSync(() => threadMocks.switchThread("thread-2"));
+      flushSync(() => threadMocks.switchThread("thread-1"));
+    };
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    window.addEventListener(
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      switchDuringReplay,
+    );
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              label: "Committed A reference",
+              refType: "file",
+              refId: "/reentrant-selection.md",
+              slotKey: "document",
+              insertMessageId: "reentrant-selection-reference",
+            },
+          }),
+        );
+        for (const suffix of ["first", "second"])
+          dispatchSubmitChat({
+            message: `Dependent ${suffix}`,
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `reentrant-selection-${suffix}`,
+          });
+      });
+      assistantChatMockState.referenceDisabled = false;
+      await act(async () => root.render(sidebar()));
+      expect(results.filter((result) => !result.delivered)).toEqual([
+        {
+          submitMessageId: "reentrant-selection-first",
+          delivered: false,
+          reason: "reference-target-changed",
+        },
+        {
+          submitMessageId: "reentrant-selection-second",
+          delivered: false,
+          reason: "reference-target-changed",
+        },
+      ]);
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+        "Fresh explicit B draft",
+      );
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-2",
+          context: expect.not.stringContaining("Committed A reference"),
+        },
+      ]);
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      window.removeEventListener(
+        AGENT_CHAT_INSERT_REFERENCE_EVENT,
+        switchDuringReplay,
+      );
+    }
+  });
+
+  async function mountNavigationSidebar(cold = false, destinationOpen = true) {
+    assistantChatMockState.referenceProbe = true;
+    assistantChatMockState.referenceDisabled = false;
+    threadMocks.threads.push({
+      ...threadMocks.threads[0],
+      id: "thread-2",
+      title: "Destination",
+    });
+    window.localStorage.setItem(
+      openTabsStorageKey("bridge-test"),
+      JSON.stringify(destinationOpen ? ["thread-1", "thread-2"] : ["thread-1"]),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const sidebar = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar
+            defaultOpen={!cold}
+            storageKey="bridge-test"
+            showMissingApiKeySetup={false}
+          >
+            <div>Content</div>
+          </AgentSidebar>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(sidebar());
+    });
+    await act(async () => root.render(sidebar()));
+    return sidebar;
+  }
+
+  it("cancels in-flight navigation when its inactive destination closes", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    await mountNavigationSidebar();
+    const results: unknown[] = [];
+    const recordResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2" },
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              label: "Closed lookup document",
+              refType: "file",
+              refId: "/lookup.md",
+              slotKey: "document",
+              insertMessageId: "closed-lookup-reference",
+            },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Closed lookup draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "closed-lookup-draft",
+        });
+        dispatchSubmitChat({
+          message: "Independent A draft",
+          submit: false,
+          openSidebar: false,
+          targetTabId: "thread-1",
+        });
+      });
+      const destination = [
+        ...container.querySelectorAll('button,[role="button"]'),
+      ].find((button) => button.textContent === "Destination");
+      const close =
+        destination?.parentElement?.querySelector<HTMLButtonElement>(
+          'button[aria-label="Close tab"]',
+        );
+      expect(close).toBeTruthy();
+      await act(async () => close!.click());
+      expect(results).toContainEqual({
+        submitMessageId: "closed-lookup-draft",
+        delivered: false,
+        reason: "navigation-closed",
+      });
+      await act(async () => finishLookup("opened"));
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-1",
+          context: expect.not.stringContaining("Closed lookup document"),
+        },
+      ]);
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2" },
+          }),
+        ),
+      );
+      expect(threadMocks.activeThreadId).toBe("thread-2");
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
+  it.each([
+    ["others", true],
+    ["all", true],
+    ["others", false],
+    ["all", false],
+  ] as const)(
+    "invalidates in-flight destinations when closing %s tabs (alreadyOpen=%s)",
+    async (closeMethod, alreadyOpen) => {
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      if (alreadyOpen)
+        threadMocks.threads.push({ ...threadMocks.threads[0], id: "thread-2" });
+      window.localStorage.setItem(
+        openTabsStorageKey("close-navigation"),
+        JSON.stringify(alreadyOpen ? ["thread-1", "thread-2"] : ["thread-1"]),
+      );
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="close-navigation"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      threadMocks.createThread.mockImplementation(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Cancelled navigation prefill",
+            },
+          }),
+        ),
+      );
+      await act(async () => {
+        if (closeMethod === "others") header.closeOtherTabs("thread-1");
+        else await header.closeAllTabs();
+      });
+      expect(outcomes).toEqual(["started", "closed"]);
+      await act(async () => finishLookup("opened"));
+      expect(threadMocks.activeThreadId).toBe(
+        closeMethod === "others" ? "thread-1" : "thread-3",
+      );
+      expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Cancelled navigation prefill",
+      );
+      expect(outcomes).toEqual(["started", "closed"]);
+    },
+  );
+
+  it("cancels in-flight opens once the close-all replacement is available", async () => {
+    let finishLookup!: (result: "opened") => void;
+    let finishReplacement!: (id: string) => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-2",
+            prefill: "Cancelled navigation prefill",
+          },
+        }),
+      ),
+    );
+    let closing!: Promise<void>;
+    await act(async () => {
+      closing = header.closeAllTabs();
+    });
+    expect(outcomes).toEqual(["started"]);
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
+    await act(async () => {
+      finishReplacement("thread-3");
+      await closing;
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(outcomes).toEqual(["started", "closed"]);
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+      "Cancelled navigation prefill",
+    );
+  });
+
+  it("shares one optimistic replacement for overlapping close-all calls", async () => {
+    let finishReplacement!: (id: string) => void;
+    const drafts: string[] = [];
+    let header!: MultiTabAssistantChatHeaderProps;
+    const closedTabs: string[][] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onTabsClosed={(ids) => closedTabs.push(ids)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    threadMocks.createThread.mockImplementation(() => {
+      const id = `replacement-${drafts.length + 1}`;
+      drafts.push(id);
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+      return new Promise((resolve) => {
+        finishReplacement = resolve;
+      });
+    });
+    await act(async () => root.render(chat()));
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    await act(async () => {
+      first = header.closeAllTabs();
+      second = header.closeAllTabs();
+    });
+    expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+    expect(drafts).toEqual(["replacement-1"]);
+    await act(async () => {
+      finishReplacement("replacement-1");
+      await Promise.all([first, second]);
+    });
+    expect(threadMocks.activeThreadId).toBe("replacement-1");
+    expect(header.tabs.map((tab) => tab.id)).toEqual(["replacement-1"]);
+    expect(closedTabs).toEqual([["thread-1"]]);
+    let next!: Promise<void>;
+    await act(async () => {
+      next = header.closeAllTabs();
+    });
+    expect(drafts).toEqual(["replacement-1", "replacement-2"]);
+    await act(async () => {
+      finishReplacement("replacement-2");
+      await next;
+    });
+    expect(header.tabs.map((tab) => tab.id)).toEqual(["replacement-2"]);
+    expect(closedTabs).toEqual([["thread-1"], ["replacement-1"]]);
+  });
+
+  it.each(["creator", "closing callback"])(
+    "shares the close-all operation with a reentrant %s",
+    async (source) => {
+      let header!: MultiTabAssistantChatHeaderProps;
+      let nested!: Promise<void>;
+      const chat = () => (
+        <MultiTabAssistantChat
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onTabsClosing={() => {
+            if (source === "closing callback") nested = header.closeAllTabs();
+          }}
+        />
+      );
+      threadMocks.createThread.mockImplementationOnce(() => {
+        if (source === "creator") nested = header.closeAllTabs();
+        threadMocks.activeThreadId = "thread-2";
+        root.render(chat());
+        return Promise.resolve("thread-2");
+      });
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      let closing!: Promise<void>;
+      await act(async () => {
+        closing = header.closeAllTabs();
+        await closing;
+      });
+      expect(nested).toBe(closing);
+      expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+      expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-2"]);
+    },
+  );
+
+  it.each(["throw", "reject", "null"])(
+    "releases the shared close-all operation after creation fails (%s)",
+    async (result) => {
+      const failure = new Error("Replacement unavailable");
+      if (result === "throw")
+        threadMocks.createThread.mockImplementationOnce(() => {
+          throw failure;
+        });
+      else if (result === "reject")
+        threadMocks.createThread.mockRejectedValueOnce(failure);
+      else threadMocks.createThread.mockResolvedValueOnce(null);
+      let header!: MultiTabAssistantChatHeaderProps;
+      const closed = vi.fn();
+      const chat = () => (
+        <MultiTabAssistantChat
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onTabsClosed={closed}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () => {
+        const first = header.closeAllTabs();
+        const second = header.closeAllTabs();
+        expect(second).toBe(first);
+        const outcomes = await Promise.allSettled([first, second]);
+        expect(outcomes).toEqual(
+          result === "null"
+            ? [
+                { status: "fulfilled", value: undefined },
+                { status: "fulfilled", value: undefined },
+              ]
+            : [
+                { status: "rejected", reason: failure },
+                { status: "rejected", reason: failure },
+              ],
+        );
+      });
+      expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+      expect(closed).not.toHaveBeenCalled();
+      expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-1"]);
+      await act(async () => {
+        await header.closeAllTabs();
+      });
+      expect(threadMocks.createThread).toHaveBeenCalledTimes(2);
+      expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-2"]);
+      expect(closed).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("reports tabs opened during delayed close-all replacement cleanup", async () => {
+    let finishReplacement!: (id: string) => void;
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const closedTabs: string[][] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onTabsClosed={(ids) => closedTabs.push(ids)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    let closing!: Promise<void>;
+    await act(async () => {
+      closing = header.closeAllTabs();
+    });
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    expect(threadMocks.activeThreadId).toBe("thread-2");
+    expect(closedTabs).toEqual([]);
+    await act(async () => {
+      finishReplacement("thread-3");
+      await closing;
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
+    expect(closedTabs).toEqual([["thread-1", "thread-2"]]);
+  });
+
+  it("preserves a pending open for the close-other-tabs survivor", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-1",
+            prefill: "Surviving navigation prefill",
+          },
+        }),
+      ),
+    );
+    await act(async () => header.closeOtherTabs("thread-1"));
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(outcomes).toEqual(["started", "selected"]);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Surviving navigation prefill",
+    );
+  });
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "retires a superseded lookup before its response arrives (%s)",
+    async (eventType) => {
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const active = new Set<Event>();
+      const outcomes: Array<{ threadId: string; outcome: string }> = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          onNavigationChange={(event, outcome) => {
+            outcomes.push({
+              threadId: (event as CustomEvent).detail.threadId,
+              outcome,
+            });
+            if (outcome === "started") active.add(event);
+            else active.delete(event);
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Stale prefill" },
+          }),
+        ),
+      );
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent(eventType, {
+            detail: { threadId: "thread-3", prefill: "Current prefill" },
+          }),
+        ),
+      );
+      expect(threadMocks.activeThreadId).toBe("thread-3");
+      expect(active.size).toBe(0);
+      expect(
+        outcomes.filter(
+          ({ threadId, outcome }) =>
+            threadId === "thread-2" && outcome === "superseded",
+        ),
+      ).toHaveLength(1);
+      await act(async () => finishLookup("opened"));
+      expect(threadMocks.activeThreadId).toBe("thread-3");
+      expect(active.size).toBe(0);
+      expect(
+        outcomes.filter(
+          ({ threadId, outcome }) =>
+            threadId === "thread-2" && outcome === "superseded",
+        ),
+      ).toHaveLength(1);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Stale prefill",
+      );
+    },
+  );
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "keeps a callback-created navigation ahead of an older %s request",
+    async (eventType) => {
+      const outcomes: Array<{ threadId: string; outcome: string }> = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          onNavigationChange={(event, outcome) => {
+            const threadId = (event as CustomEvent).detail.threadId;
+            outcomes.push({ threadId, outcome });
+            if (threadId === "thread-2" && outcome === "started")
+              window.dispatchEvent(
+                new CustomEvent("agent-chat:open-thread", {
+                  detail: { threadId: "thread-3", prefill: "Newest draft" },
+                }),
+              );
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent(eventType, {
+            detail: { threadId: "thread-2", prefill: "Older draft" },
+          }),
+        ),
+      );
+      expect(threadMocks.openThread.mock.calls.map((call) => call[0])).toEqual([
+        "thread-3",
+      ]);
+      expect(threadMocks.activeThreadId).toBe("thread-3");
+      expect(threadMocks.switchThread).not.toHaveBeenCalledWith("thread-2");
+      expect(outcomes).toContainEqual({
+        threadId: "thread-2",
+        outcome: "superseded",
+      });
+      expect(outcomes).toContainEqual({
+        threadId: "thread-3",
+        outcome: "selected",
+      });
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+        "Newest draft",
+      );
+    },
+  );
+
+  it("discards a superseded prefill for the same destination", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2", prefill: "Superseded prefill" },
+        }),
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2", prefill: "Current same-tab prefill" },
+        }),
+      ),
+    );
+    assistantChatMockState.deferredHandleThread = null;
+    await act(async () => root.render(chat()));
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+      "Current same-tab prefill",
+    );
+  });
+
+  it("retires an unresolved lookup when its replacement is unavailable", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.openThread.mockResolvedValueOnce("unavailable");
+    const outcomes: Array<{ threadId: string; outcome: string }> = [];
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          onNavigationChange={(event, outcome) =>
+            outcomes.push({
+              threadId: (event as CustomEvent).detail.threadId,
+              outcome,
+            })
+          }
+        />,
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-3" },
+        }),
+      ),
+    );
+    expect(outcomes).toContainEqual({
+      threadId: "thread-2",
+      outcome: "superseded",
+    });
+    expect(outcomes).toContainEqual({
+      threadId: "thread-3",
+      outcome: "unavailable",
+    });
+    const settled = [...outcomes];
+    await act(async () => finishLookup("opened"));
+    expect(outcomes).toEqual(settled);
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+  });
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "does not reopen a %s destination closed by its start callback",
+    async (eventType) => {
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => {
+            outcomes.push(outcome);
+            if (outcome === "started") header.closeOtherTabs("thread-1");
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent(eventType, {
+            detail: { threadId: "thread-2", prefill: "Cancelled draft" },
+          }),
+        ),
+      );
+      expect(threadMocks.openThread).not.toHaveBeenCalled();
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(threadMocks.switchThread).not.toHaveBeenCalledWith("thread-2");
+      expect(outcomes).toEqual(["started", "closed"]);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Cancelled draft",
+      );
+    },
+  );
+
+  it.each(["others", "all"] as const)(
+    "retains callback-created navigation after closing %s tabs",
+    async (closeMethod) => {
+      let finishOldLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldLookup = resolve;
+          }),
+      );
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="close-navigation"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => {
+            outcomes.push(outcome);
+            if (outcome === "closed")
+              window.dispatchEvent(
+                new CustomEvent("agent-chat:open-thread", {
+                  detail: {
+                    threadId: "thread-2",
+                    prefill: "Fresh callback prefill",
+                  },
+                }),
+              );
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      threadMocks.createThread.mockImplementation(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Cancelled original prefill",
+            },
+          }),
+        ),
+      );
+      await act(async () => {
+        if (closeMethod === "others") header.closeOtherTabs("thread-1");
+        else await header.closeAllTabs();
+      });
+      expect(outcomes).toEqual(["started", "closed", "started", "selected"]);
+      expect(threadMocks.activeThreadId).toBe("thread-2");
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+        "Fresh callback prefill",
+      );
+      await act(async () => finishOldLookup("opened"));
+      expect(outcomes).toEqual(["started", "closed", "started", "selected"]);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Cancelled original prefill",
+      );
+    },
+  );
+
+  it.each(["throw", "reject", "empty", "null"])(
+    "keeps queued work when close-all replacement fails (%s)",
+    async (result) => {
+      assistantChatMockState.deferredHandleThread = "thread-1";
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const failure = new Error("Replacement unavailable");
+      if (result === "throw")
+        threadMocks.createThread.mockImplementationOnce(() => {
+          throw failure;
+        });
+      else if (result === "reject")
+        threadMocks.createThread.mockRejectedValueOnce(failure);
+      else if (result === "null")
+        threadMocks.createThread.mockResolvedValueOnce(null);
+      else threadMocks.createThread.mockResolvedValueOnce("");
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const closing = vi.fn();
+      const results: Array<{ submitMessageId: string; delivered: boolean }> =
+        [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      try {
+        const pendingId = `failed-close-${result}`;
+        const chat = () => (
+          <MultiTabAssistantChat
+            storageKey="close-navigation"
+            renderHeader={(props) => {
+              header = props;
+              return null;
+            }}
+            onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+            onTabsClosing={closing}
+          />
+        );
+        threadMocks.switchThread.mockImplementation((id: string) => {
+          threadMocks.activeThreadId = id;
+          root.render(chat());
+        });
+        await act(async () => root.render(chat()));
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Kept draft",
+            submit: false,
+            targetTabId: "thread-1",
+            submitMessageId: pendingId,
+          }),
+        );
+        await act(async () =>
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          ),
+        );
+        await act(async () => {
+          if (result === "reject" || result === "throw")
+            await expect(header.closeAllTabs()).rejects.toBe(failure);
+          else await header.closeAllTabs();
+        });
+        expect(outcomes).toEqual(["started"]);
+        expect(closing).not.toHaveBeenCalled();
+        expect(
+          results.filter((result) => result.submitMessageId === pendingId),
+        ).toEqual([]);
+        expect(header.tabs.some((tab) => tab.id === "thread-1")).toBe(true);
+        expect(threadMocks.activeThreadId).toBe("thread-1");
+        await act(async () => finishLookup("opened"));
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        expect(outcomes).toEqual(["started", "selected"]);
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(chat()));
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 75));
+        });
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+          "Kept draft",
+        );
+        expect(
+          results.filter(
+            (result) =>
+              result.submitMessageId === pendingId && !result.delivered,
+          ),
+        ).toEqual([]);
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Still usable",
+            submit: false,
+            targetTabId: "thread-1",
+          }),
+        );
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+          "Still usable",
+        );
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
+  it("settles unavailable opens on unmount during replacement creation exactly once", async () => {
+    let finishLookup!: (result: "opened") => void;
+    let finishReplacement!: (id: string) => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const publish = vi.fn();
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="close-navigation"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+          onTabsClosing={() => publish}
+        />,
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    let closing!: Promise<void>;
+    await act(async () => {
+      closing = header.closeAllTabs();
+    });
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => root.render(<div />));
+    expect(outcomes).toEqual(["started", "unavailable"]);
+    expect(publish).not.toHaveBeenCalled();
+    await act(async () => {
+      finishLookup("opened");
+      finishReplacement("thread-3");
+      await closing;
+    });
+    expect(outcomes).toEqual(["started", "unavailable"]);
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("publishes final-tab closure after replacement so callback recovery survives", async () => {
+    let finishLookup!: (result: "opened") => void;
+    let finishReplacement!: (id: string) => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => {
+          outcomes.push(outcome);
+          if (outcome === "closed")
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:open-thread", {
+                detail: { threadId: "thread-2", prefill: "Final tab recovery" },
+              }),
+            );
+        }}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    await act(async () => header.closeTab("thread-1"));
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => finishReplacement("thread-3"));
+    expect(threadMocks.activeThreadId).toBe("thread-2");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(true);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Final tab recovery",
+    );
+    await act(async () => finishLookup("opened"));
+    expect(outcomes).toEqual(["started", "closed", "started", "selected"]);
+  });
+
+  it("preserves fresh work to the same destination accepted before closure publication", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    await mountNavigationSidebar();
+    const cancellations: unknown[] = [];
+    const recordResult = (event: Event) => {
+      const result = (event as CustomEvent).detail;
+      if (result.delivered === false) cancellations.push(result);
+    };
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    const reference = (label: string, insertMessageId: string) =>
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: {
+            label,
+            insertMessageId,
+            refType: "file",
+            refId: "/same-destination.md",
+            slotKey: "document",
+          },
+        }),
+      );
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-1" },
+          }),
+        );
+        reference("Old same-tab reference", "same-destination-old-reference");
+        dispatchSubmitChat({
+          message: "Old same-tab draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "same-destination-old-draft",
+        });
+      });
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-chat:close-current-tab"));
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-1" },
+          }),
+        );
+        reference(
+          "Fresh same-tab reference",
+          "same-destination-fresh-reference",
+        );
+        dispatchSubmitChat({
+          message: "Fresh same-tab draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "same-destination-fresh-draft",
+        });
+      });
+      const expectedCancellations = [
+        {
+          submitMessageId: "same-destination-old-draft",
+          delivered: false,
+          reason: "navigation-closed",
+        },
+      ];
+      expect(cancellations).toEqual(expectedCancellations);
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledTimes(1);
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+        "Fresh same-tab draft",
+      );
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-1",
+          context: expect.stringContaining("Fresh same-tab reference"),
+        },
+      ]);
+      expect(
+        assistantChatMockState.referenceDeliveries[0].context,
+      ).not.toContain("Old same-tab reference");
+      await act(async () => finishLookup("opened"));
+      expect(cancellations).toEqual(expectedCancellations);
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledTimes(1);
+      expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
+  it.each([false, true])(
+    "cancels dependent sidebar work for an unopened destination (recover=%s)",
+    async (recover) => {
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      await mountNavigationSidebar(false, false);
+      threadMocks.createThread.mockImplementationOnce(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      const results: unknown[] = [];
+      const recordResult = (event: Event) => {
+        results.push((event as CustomEvent).detail);
+        if (recover) {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Fresh recovery document",
+                refType: "file",
+                refId: "/recovery.md",
+                slotKey: "document",
+                insertMessageId: `bulk-close-recovery-reference-${recover}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Fresh recovery draft",
+            submit: false,
+            openSidebar: false,
+          });
+        }
+      };
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => {
+          requestAgentChatThreadOpen({ threadId: "thread-2" });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Cancelled document",
+                refType: "file",
+                refId: "/cancelled.md",
+                slotKey: "document",
+                insertMessageId: `bulk-close-reference-${recover}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Cancelled dependent draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `bulk-close-draft-${recover}`,
+          });
+        });
+        await act(async () =>
+          window.dispatchEvent(new CustomEvent("agent-chat:close-all-tabs")),
+        );
+        expect(results).toEqual([
+          {
+            submitMessageId: `bulk-close-draft-${recover}`,
+            delivered: false,
+            reason: "navigation-closed",
+          },
+        ]);
+        await act(async () => finishLookup("opened"));
+        expect(threadMocks.activeThreadId).toBe(
+          recover ? "thread-2" : "thread-3",
+        );
+        if (recover) {
+          expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+            "Fresh recovery draft",
+          );
+          expect(assistantChatMockState.referenceDeliveries).toContainEqual({
+            threadId: "thread-2",
+            context: expect.stringContaining("Fresh recovery document"),
+          });
+        }
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+          "Cancelled dependent draft",
+        );
+        await act(async () => {
+          requestAgentChatThreadOpen({ threadId: "thread-2" });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        await act(async () => {
+          dispatchSubmitChat({
+            message: "Fresh navigation draft",
+            submit: false,
+            openSidebar: false,
+          });
+        });
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+          "Fresh navigation draft",
+        );
+        expect(
+          assistantChatMockState.referenceDeliveries.every(
+            ({ context }) => !context.includes("Cancelled document"),
+          ),
+        ).toBe(true);
+        expect(results).toEqual([
+          {
+            submitMessageId: `bulk-close-draft-${recover}`,
+            delivered: false,
+            reason: "navigation-closed",
+          },
+        ]);
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "commits navigation prefill before later drafts (mounted=%s)",
+    async (mounted) => {
+      await mountNavigationSidebar();
+      if (mounted) {
+        await act(async () => threadMocks.switchThread("thread-2"));
+        await act(async () => threadMocks.switchThread("thread-1"));
+      }
+      chatHandleMocks.prefillMessage.mockClear();
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Navigation prefill" },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Later draft",
+          submit: false,
+          openSidebar: false,
+        });
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+      });
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Navigation prefill", "Later draft"]);
+      expect(
+        assistantChatMockState.referenceDeliveries.every(
+          (delivery) => delivery.threadId === "thread-2",
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["attach", "close"] as const)(
+    "retains navigation until its delayed handle can receive prefill (%s)",
+    async (action) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      const sidebar = await mountNavigationSidebar();
+      const results: unknown[] = [];
+      const recordResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: {
+                threadId: "thread-2",
+                prefill: "Delayed navigation prefill",
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Delayed later draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `delayed-${action}`,
+          });
+        });
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+        if (action === "close") {
+          await act(async () =>
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:close-current-tab"),
+            ),
+          );
+          expect(results).toContainEqual({
+            submitMessageId: "delayed-close",
+            delivered: false,
+            reason: "navigation-closed",
+          });
+        }
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(sidebar()));
+        if (action === "attach")
+          expect(
+            chatHandleMocks.prefillMessage.mock.calls.map(
+              ([message]) => message,
+            ),
+          ).toEqual(["Delayed navigation prefill", "Delayed later draft"]);
+        else expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
+    },
+  );
+
+  it("preserves navigation settlements added by a reentrant callback", async () => {
+    threadMocks.threads.push(
+      { ...threadMocks.threads[0], id: "thread-2" },
+      { ...threadMocks.threads[0], id: "thread-3" },
+    );
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(event, outcome) => {
+          outcomes.push(`${event.type}:${outcome}`);
+          if (event.type === "agent-chat:open-thread" && outcome === "selected")
+            window.dispatchEvent(
+              new CustomEvent("agent-task-open", {
+                detail: {
+                  threadId: "thread-3",
+                  openRequestId: "reentrant-task",
+                },
+              }),
+            );
+        }}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2", openRequestId: "reentrant-thread" },
+        }),
+      ),
+    );
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(outcomes).toEqual([
+      "agent-chat:open-thread:started",
+      "agent-chat:open-thread:selected",
+      "agent-task-open:started",
+      "agent-task-open:selected",
+    ]);
+  });
+
+  it.each(["missing", "unavailable", "superseded"] as const)(
+    "keeps buffered navigation dependents attached through %s",
+    async (outcome) => {
+      let finishLookup!: (result: "opened" | "missing" | "unavailable") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      await mountNavigationSidebar(true);
+      const results: unknown[] = [];
+      const recordResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => {
+          requestAgentChatThreadOpen({ threadId: "thread-2" });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Buffered navigation document",
+                refType: "file",
+                refId: "/buffered.md",
+                slotKey: "document",
+                insertMessageId: `buffered-${outcome}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Buffered dependent draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `buffered-draft-${outcome}`,
+          });
+        });
+        if (outcome === "superseded")
+          await act(async () => threadMocks.switchThread("thread-2"));
+        await act(async () =>
+          finishLookup(outcome === "superseded" ? "opened" : outcome),
+        );
+        expect(results).toContainEqual({
+          submitMessageId: `buffered-draft-${outcome}`,
+          delivered: false,
+          reason: `navigation-${outcome}`,
+        });
+        expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
+    },
+  );
+
+  it.each([
+    { transport: "custom", create: false },
+    { transport: "message", create: false },
+    { transport: "custom", create: true },
+  ])(
+    "binds a cold $transport reference after earlier asynchronous navigation commits (create=$create)",
+    async ({ transport, create }) => {
+      assistantChatMockState.referenceProbe = true;
+      assistantChatMockState.referenceDisabled = false;
+      threadMocks.threads.push({ ...threadMocks.threads[0], id: "thread-2" });
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen={false}
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      if (create)
+        threadMocks.createThread.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              finishLookup = () => {
+                threadMocks.switchThread("thread-2");
+                resolve("thread-2");
+              };
+            }),
+        );
+      await act(async () => root.render(sidebar()));
+      const detail = {
+        label: "Destination document",
+        refType: "file",
+        refId: "/destination.md",
+        slotKey: "document",
+        insertMessageId: `cold-navigation-${transport}`,
+      };
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", newThread: create },
+          }),
+        );
+        window.dispatchEvent(
+          transport === "custom"
+            ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+            : new MessageEvent("message", {
+                origin: window.location.origin,
+                data: {
+                  type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+                  data: detail,
+                },
+              }),
+        );
+        dispatchSubmitChat({
+          message: "Use the destination document",
+          submit: false,
+          openSidebar: false,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        create ? threadMocks.createThread : threadMocks.openThread,
+      ).toHaveBeenCalledWith("thread-2");
+      expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+      expect(
+        container.querySelector('[data-reference-thread="thread-1"]')
+          ?.textContent,
+      ).not.toContain("Destination document");
+      await act(async () => finishLookup("opened"));
+      expect(threadMocks.activeThreadId).toBe("thread-2");
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-2",
+          context: expect.stringContaining("Destination document"),
+        },
+      ]);
+    },
+  );
+
+  it.each(["missing", "unavailable", "failed", "skipped", "superseded"])(
+    "cancels navigation-dependent work on %s and releases the next request",
+    async (outcome) => {
+      assistantChatMockState.referenceProbe = true;
+      assistantChatMockState.referenceDisabled = false;
+      threadMocks.threads.push({ ...threadMocks.threads[0], id: "thread-2" });
+      let finishLookup!: () => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finishLookup = () =>
+              outcome === "failed"
+                ? reject(new Error("Fixture lookup failed"))
+                : resolve(
+                    outcome === "missing" || outcome === "unavailable"
+                      ? outcome
+                      : "opened",
+                  );
+          }),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen={false}
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      const results: unknown[] = [];
+      const recordResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => root.render(sidebar()));
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: {
+                threadId: "thread-2",
+                onlyIfActiveThreadId:
+                  outcome === "skipped" ? "another-thread" : undefined,
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Failed navigation document",
+                refType: "file",
+                refId: "/failed.md",
+                slotKey: "document",
+                insertMessageId: `nav-${outcome}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Dependent draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `nav-dependent-${outcome}`,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        if (outcome === "superseded")
+          await act(async () => threadMocks.switchThread("thread-2"));
+        if (outcome !== "skipped") await act(async () => finishLookup());
+        expect(results).toContainEqual({
+          submitMessageId: `nav-dependent-${outcome}`,
+          delivered: false,
+          reason: `navigation-${outcome}`,
+        });
+        expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+        threadMocks.openThread.mockReset();
+        threadMocks.openThread.mockResolvedValue("opened");
+        await act(async () =>
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          ),
+        );
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
+    },
+  );
+
+  it.each([
+    [false, "agent-chat:open-thread"],
+    [false, "agent-task-open"],
+    [true, "agent-chat:open-thread"],
+    [true, "agent-task-open"],
+  ] as const)(
+    "lets sidebar navigation supersede a held lookup (cold=%s, replacement=%s)",
+    async (cold, replacement) => {
+      assistantChatMockState.referenceProbe = true;
+      assistantChatMockState.referenceDisabled = false;
+      threadMocks.threads.push(
+        { ...threadMocks.threads[0], id: "thread-2" },
+        { ...threadMocks.threads[0], id: "thread-3" },
+      );
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen={!cold}
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      const results: Array<{
+        submitMessageId: string;
+        delivered: boolean;
+        reason?: string;
+      }> = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      const dependentId = `held-dependent-${cold}-${replacement}`;
+      const openOriginal = () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              openRequestId: `held-${cold}-${replacement}`,
+            },
+          }),
+        );
+      try {
+        await act(async () => root.render(sidebar()));
+        if (!cold) await act(async () => openOriginal());
+        await act(async () => {
+          if (cold) openOriginal();
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Original reference",
+                refType: "file",
+                refId: "/original.md",
+                slotKey: "document",
+                insertMessageId: `old-${cold}-${replacement}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Original dependent draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: dependentId,
+          });
+          window.dispatchEvent(
+            new CustomEvent(replacement, {
+              detail: {
+                threadId: "thread-3",
+                openRequestId: `replacement-${cold}-${replacement}`,
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Replacement reference",
+                refType: "file",
+                refId: "/replacement.md",
+                slotKey: "document",
+                insertMessageId: `new-${cold}-${replacement}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Replacement dependent draft",
+            submit: false,
+            openSidebar: false,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 75));
+        });
+        expect(threadMocks.activeThreadId).toBe("thread-3");
+        expect(
+          results.filter((result) => result.submitMessageId === dependentId),
+        ).toEqual([
+          {
+            submitMessageId: dependentId,
+            delivered: false,
+            reason: "navigation-superseded",
+          },
+        ]);
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-3",
+            context: expect.stringContaining("Replacement reference"),
+          },
+        ]);
+        expect(
+          assistantChatMockState.referenceDeliveries[0].context,
+        ).not.toContain("Original reference");
+        await act(async () => finishLookup("opened"));
+        expect(threadMocks.activeThreadId).toBe("thread-3");
+        expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        expect(
+          results.filter((result) => result.submitMessageId === dependentId),
+        ).toHaveLength(1);
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "rejects queued sends when the panel unmounts (scheduled=%s)",
+    async (scheduled) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+      const pendingId = `unmount-pending-${scheduled}`;
+      const results: Array<{ submitMessageId: string; delivered: boolean }> =
+        [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Queued before unmount",
+          submit: false,
+          targetTabId: "thread-2",
+          submitMessageId: pendingId,
+        }),
+      );
+      vi.useFakeTimers();
+      try {
+        if (scheduled) {
+          assistantChatMockState.deferredHandleThread = null;
+          await act(async () => root.render(chat()));
+        }
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Already handed off",
+            submit: false,
+            targetTabId: "thread-1",
+            submitMessageId: `unmount-delivered-${scheduled}`,
+          }),
+        );
+        await act(async () => root.render(null));
+        expect(
+          results.filter((result) => result.submitMessageId === pendingId),
+        ).toEqual([
+          {
+            submitMessageId: pendingId,
+            delivered: false,
+            reason: "panel-unmounted",
+          },
+        ]);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+          "Already handed off",
+        );
+        expect(
+          results.filter((result) => result.submitMessageId === pendingId),
+        ).toHaveLength(1);
+        expect(
+          results.filter(
+            (result) =>
+              result.submitMessageId === `unmount-delivered-${scheduled}` &&
+              !result.delivered,
+          ),
+        ).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
+  it("starts cold thread navigation without a ready composer and preserves explicit targets", async () => {
+    assistantChatMockState.referenceProbe = true;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    threadMocks.threads.push({
+      ...threadMocks.threads[0],
+      id: "thread-2",
+      title: "Other thread",
+    });
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    const sidebar = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentSidebar
+            defaultOpen={false}
+            storageKey="bridge-test"
+            showMissingApiKeySetup={false}
+          >
+            <div>Content</div>
+          </AgentSidebar>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(sidebar());
+    });
+    await act(async () => root.render(sidebar()));
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "thread-1" },
+        }),
+      ),
+    );
+    expect(
+      container.querySelector(".agent-sidebar-panel-inner"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(".tiptap")?.getAttribute("contenteditable"),
+    ).toBe("false");
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-2");
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Target the original",
+        targetTabId: "thread-1",
+        submit: false,
+        openSidebar: false,
+      }),
+    );
+    expect(assistantChatMockState.referenceDeliveries).toEqual([
+      { threadId: "thread-1", context: expect.any(String) },
+    ]);
+  });
+
+  it("receives queued commands when the real client-only panel reports ready", async () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    chatHandleMocks.prefillMessage.mockClear();
+    const onOpenSettings = vi.fn();
+    const onReadyChange = vi.fn((ready: boolean) => {
+      if (ready) {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:set-mode", { detail: { mode: "cli" } }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "agent" },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Queued draft",
+          submit: false,
+          openSidebar: false,
+        });
+      }
+    });
+    const panel = (key: string) => (
+      <MemoryRouter>
+        <AgentSidebarPanel
+          key={key}
+          storageKey="bridge-test"
+          showHeader={false}
+          renderCliTab={() => <div>Terminal</div>}
+          onOpenSettings={onOpenSettings}
+          onReadyChange={onReadyChange}
+        />
+      </MemoryRouter>
+    );
+    await act(async () => {
+      root.render(panel("initial"));
+      await Promise.resolve();
+    });
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+      "Queued draft",
+    );
+    expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith("agent");
+    expect(localStorage.getItem("agent-native-panel-mode:bridge-test")).toBe(
+      "cli",
+    );
+    onReadyChange.mockClear();
+    chatHandleMocks.prefillMessage.mockClear();
+    await act(async () => root.render(panel("replacement")));
+    expect(onReadyChange.mock.calls[0]).toEqual([false]);
+    expect(onReadyChange).toHaveBeenLastCalledWith(true);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+      "Queued draft",
+    );
+    act(() => root.unmount());
+    expect(onReadyChange).toHaveBeenLastCalledWith(false);
+    root = createRoot(container);
   });
 
   it("keeps thread saves metadata-only for built-in, runtime, and custom transports", async () => {
@@ -881,6 +3844,257 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     consoleError.mockRestore();
   });
 
+  it.each([false, true])(
+    "keeps later deliveries behind context persistence (submit=%s)",
+    async (submit) => {
+      const persisted = Promise.withResolvers<{ stagingId: string }>();
+      chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+        persisted.promise,
+      );
+      vi.useFakeTimers();
+      try {
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Earlier draft",
+            context: "Selected rows",
+            submit: false,
+            targetTabId: "thread-1",
+          }),
+        );
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Later delivery",
+            submit,
+            targetTabId: "thread-1",
+          }),
+        );
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+        expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+        await act(async () => {
+          persisted.resolve({ stagingId: "prefill-staging-id-7" });
+          await persisted.promise;
+          await vi.advanceTimersByTimeAsync(100);
+        });
+        expect(chatHandleMocks.prefillMessage.mock.calls[0]?.[0]).toBe(
+          "Earlier draft",
+        );
+        const later = submit
+          ? chatHandleMocks.sendMessage
+          : chatHandleMocks.prefillMessage;
+        expect(later.mock.calls.at(-1)?.[0]).toBe("Later delivery");
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("cancels a context prefill still persisting when the panel unmounts", async () => {
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+    try {
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Undelivered draft",
+          context: "Selected rows",
+          submit: false,
+          submitMessageId: "persisting-unmount",
+        }),
+      );
+      act(() => root.unmount());
+      root = createRoot(container);
+      expect(results).toEqual([
+        {
+          submitMessageId: "persisting-unmount",
+          delivered: false,
+          reason: "panel-unmounted",
+        },
+      ]);
+      await act(async () => {
+        persisted.resolve({ stagingId: "prefill-staging-id-7" });
+        await persisted.promise;
+      });
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
+        "agent-chat-prefill-context",
+        { threadScoped: true, stagingId: "prefill-staging-id-7" },
+      );
+      expect(results).toHaveLength(1);
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    }
+  });
+
+  it.each(["close", "unmount"])(
+    "does not cancel a delivered prefill when its receipt triggers %s",
+    async (action) => {
+      const submitMessageId = `persisted-receipt-${action}`;
+      if (action === "close") {
+        threadMocks.threads.push({
+          ...threadMocks.threads[0],
+          id: "thread-2",
+          title: "Other thread",
+        });
+        window.localStorage.setItem(
+          openTabsStorageKey("bridge-test"),
+          JSON.stringify(["thread-1", "thread-2"]),
+        );
+        act(() => root.unmount());
+        root = createRoot(container);
+        await act(async () =>
+          root.render(<MultiTabAssistantChat storageKey="bridge-test" />),
+        );
+      }
+      const persisted = Promise.withResolvers<{ stagingId: string }>();
+      const results: unknown[] = [];
+      const onResult = (event: Event) => {
+        const result = (event as CustomEvent).detail;
+        results.push(result);
+        if (result.delivered) {
+          if (action === "close")
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:close-current-tab"),
+            );
+          else {
+            root.unmount();
+            root = createRoot(container);
+          }
+        }
+      };
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+        persisted.promise,
+      );
+      try {
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Delivered draft",
+            context: "Selected rows",
+            submit: false,
+            submitMessageId,
+          }),
+        );
+        await act(async () => {
+          persisted.resolve({ stagingId: "prefill-staging-id-7" });
+          await persisted.promise;
+        });
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+          "Delivered draft",
+        );
+        expect(results).toEqual([{ submitMessageId, delivered: true }]);
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      }
+    },
+  );
+
+  it.each(["close", "unmount"])(
+    "preserves cancellation when context persistence rejects after %s",
+    async (action) => {
+      const submitMessageId = `rejected-context-${action}`;
+      if (action === "close") {
+        threadMocks.threads.push({
+          ...threadMocks.threads[0],
+          id: "thread-2",
+          title: "Other thread",
+        });
+        window.localStorage.setItem(
+          openTabsStorageKey("bridge-test"),
+          JSON.stringify(["thread-1", "thread-2"]),
+        );
+        act(() => root.unmount());
+        root = createRoot(container);
+        await act(async () =>
+          root.render(<MultiTabAssistantChat storageKey="bridge-test" />),
+        );
+      }
+      const persisted = Promise.withResolvers<{ stagingId: string }>();
+      const results: unknown[] = [];
+      const onResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+        persisted.promise,
+      );
+      try {
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Cancelled draft",
+            context: "Selected rows",
+            submit: false,
+            submitMessageId,
+          }),
+        );
+        await act(async () => {
+          if (action === "close")
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:close-current-tab"),
+            );
+          else {
+            root.unmount();
+            root = createRoot(container);
+          }
+        });
+        expect(results).toEqual([
+          {
+            submitMessageId,
+            delivered: false,
+            reason:
+              action === "close" ? "target-tab-closed" : "panel-unmounted",
+          },
+        ]);
+        await act(async () => {
+          persisted.reject(new Error("Context write failed"));
+          await expect(persisted.promise).rejects.toThrow(
+            "Context write failed",
+          );
+        });
+        expect(results).toHaveLength(1);
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      }
+    },
+  );
+
+  it("releases the delivery lane when a queued send throws synchronously", async () => {
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+    chatHandleMocks.sendMessage.mockImplementationOnce(() => {
+      throw new Error("Synchronous send failure");
+    });
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        dispatchSubmitChat({
+          message: "Earlier draft",
+          context: "Selected rows",
+          submit: false,
+        });
+        dispatchSubmitChat({ message: "Throwing send", submit: true });
+        dispatchSubmitChat({ message: "Later send", submit: true });
+        persisted.resolve({ stagingId: "prefill-staging-id-7" });
+        await persisted.promise;
+      });
+      await expect(
+        act(async () => vi.advanceTimersByTimeAsync(50)),
+      ).rejects.toThrow("Synchronous send failure");
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      expect(
+        chatHandleMocks.sendMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Throwing send", "Later send"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("waits for thread context persistence before prefilling", async () => {
     const persisted = Promise.withResolvers<void>();
     const results: unknown[] = [];
@@ -1008,8 +4222,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
   });
 
-  it("replaces the staged context when prefilled again", () => {
-    act(() => {
+  it("replaces the staged context when prefilled again", async () => {
+    await act(async () => {
       dispatchSubmitChat({
         message: "Review this before sending",
         context: "Selected rows: a, b",
@@ -1017,7 +4231,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         openSidebar: true,
       });
     });
-    act(() => {
+    await act(async () => {
       dispatchSubmitChat({
         message: "Review this before sending",
         context: "Selected rows: c, d",
@@ -1208,6 +4422,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
     const composer = container.querySelector('[data-testid="assistant-chat"]');
     expect(composer?.getAttribute("data-composer-active")).toBe("false");
+    expect(composer?.getAttribute("data-reference-target")).toBe("true");
     await act(async () =>
       root.render(
         <MultiTabAssistantChat

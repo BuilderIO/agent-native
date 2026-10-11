@@ -37,6 +37,7 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
 import abortUpload from "./abort.post.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -154,6 +155,14 @@ export default defineEventHandler(async (event: H3Event) => {
       return {
         error: "A newer upload generation is already active.",
         staleAttempt: true,
+      };
+    }
+    if (isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
       };
     }
     const alreadyInterrupted =

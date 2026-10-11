@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { withCommittedActionAudit } from "@agent-native/core/audit";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import {
   iconValueSchema,
@@ -10,10 +11,12 @@ import {
   serializeIconValue,
   type IconValue,
 } from "@agent-native/core/icons";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
@@ -39,6 +42,10 @@ import {
 } from "../server/lib/document-body-intents.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  lockDocumentMetadataDatabase,
+  nextDocumentMetadataUpdatedAt,
+} from "../server/lib/document-metadata-updated-at.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -129,6 +136,29 @@ export interface DocumentUpdatePreservationResponse {
   document: DocumentUpdateResponse;
   reason: "structure" | "provenance";
   checkpointId: string;
+}
+
+type DocumentUpdateActionResponse =
+  | BrowserDocumentUpdateResponse
+  | DocumentUpdateConflictResponse
+  | DocumentUpdateSupersededResponse
+  | DocumentUpdatePreservationResponse;
+
+function documentMetadataResponse(result: DocumentUpdateActionResponse) {
+  if ("document" in result) {
+    const {
+      content: _content,
+      contentFidelity: _contentFidelity,
+      ...document
+    } = result.document;
+    return { ...result, document };
+  }
+  const {
+    content: _content,
+    contentFidelity: _contentFidelity,
+    ...metadata
+  } = result;
+  return metadata;
 }
 
 const documentAuditOwner = Symbol("documentAuditOwner");
@@ -370,6 +400,10 @@ async function setFavoriteAndOrder(args: {
         favorite: args.favorite,
         now: args.now,
       });
+      const ordered =
+        migrated?.views
+          .find((view) => view.id === activeViewId)
+          ?.sidebarOrder?.itemIds.includes(membership.membershipId) ?? false;
       return {
         value: applyContentPersonalNavigationPatch(
           migrated,
@@ -382,7 +416,10 @@ async function setFavoriteAndOrder(args: {
           },
           [{ id: activeViewId, sorts: [], filters: [], filterMode: "and" }],
         ) as unknown as Record<string, unknown>,
-        result: membership,
+        result: {
+          ...membership,
+          changed: membership.changed || ordered !== args.favorite,
+        },
       };
     },
   );
@@ -490,8 +527,15 @@ const saveObservationTimestampSchema = z.iso.datetime({ offset: true });
 
 const updateDocumentAction = defineAction({
   description:
-    "Update an existing document's metadata or browser-owned content. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
+    "Update an existing page's or database's metadata, preserving omitted fields. To replace or clear its description, pass only id and description (an empty string clears it); for a database, id is its backing documentId, not its databaseId. Returns saved metadata including the full description in structuredContent. Agents must use get-document followed by edit-document with baseRevision and idempotencyKey for body changes.",
   deferLoading: false,
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  mcpApp: { structuredContent: true },
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -499,16 +543,18 @@ const updateDocumentAction = defineAction({
     isConsequential: true,
     title: "Update Content Document",
     description:
-      "Delegate a sparse metadata update to an existing Content document while preserving omitted fields. For body changes, use get-document followed by edit-document with its revision protocol.",
+      "Update a page's or database's metadata while preserving omitted fields. Use id and description to replace or clear page guidance. For body changes, use get-document followed by edit-document with its revision protocol.",
   },
   schema: z.object({
-    id: z.string().optional().describe("Document ID (required)"),
+    id: z.string().describe("Document ID (required)"),
     title: z.string().optional().describe("New title"),
     content: z.string().optional().describe("New markdown content"),
     description: z
       .string()
       .optional()
-      .describe("Stable page guidance; this does not alter page content"),
+      .describe(
+        "Full page or database guidance; an empty string clears it. Does not alter the Markdown body. Leading and trailing whitespace is trimmed.",
+      ),
     icon: z
       .union([z.string(), iconValueSchema])
       .nullable()
@@ -620,403 +666,1068 @@ const updateDocumentAction = defineAction({
       `update-document outcome=${contentSaveOutcome(result) ?? contentSaveAuditOutcome() ?? "refused"} document=${args.id}`,
   },
   changeResource: (input) => documentChangeResource(input.id),
-  run: observeDocumentUpdateOutcome(async (args, ctx, measurement) => {
-    measurement.record = !isFavoriteOnlyUpdate(args);
-    const id = args.id;
-    if (!id) throw new Error("--id is required");
-    assertWidgetDocumentWriteScope(ctx, id);
-    if (
-      (args.editorSessionId === undefined) !==
-      (args.editorEditGeneration === undefined)
-    ) {
-      throw new ActionContractError(
-        "editorSessionId and editorEditGeneration must be provided together.",
-        { errorCode: "INVALID_EDITOR_EDIT_IDENTITY", statusCode: 400 },
-      );
-    }
-    if (
-      (args.editorSnapshotTitle === undefined) !==
-      (args.editorSnapshotContent === undefined)
-    ) {
-      throw new ActionContractError(
-        "editorSnapshotTitle and editorSnapshotContent must be provided together.",
-        { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
-      );
-    }
-    const authoredFields = [
-      args.authoredBaseRevision,
-      args.authoredBaseContent,
-      args.authoredCandidateContent,
-    ];
-    if (
-      authoredFields.some((value) => value !== undefined) &&
-      (authoredFields.some((value) => value === undefined) ||
-        args.content === undefined ||
-        args.editorSessionId === undefined ||
-        args.editorEditGeneration === undefined ||
-        args.browserSaveAttemptId === undefined)
-    ) {
-      throw new ActionContractError(
-        "Authored body intent requires a complete base, candidate, editor identity, and save attempt ID.",
-        { errorCode: "INVALID_AUTHORED_BODY_INTENT", statusCode: 400 },
-      );
-    }
-    const authoredBase = args.authoredBaseRevision
-      ? parseDocumentRevisionToken(args.authoredBaseRevision)
-      : null;
-    if (
-      args.authoredBaseRevision &&
-      (!authoredBase ||
-        authoredBase.contentHash !==
-          documentContentHash(args.authoredBaseContent as string))
-    ) {
-      throw new ActionContractError(
-        "The authored body base does not match its revision.",
-        { errorCode: "INVALID_AUTHORED_BODY_BASE", statusCode: 400 },
-      );
-    }
-    if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
-      throw new ActionContractError(
-        "Favorite changes must be submitted separately from document field changes.",
-        {
-          errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+  run: observeDocumentUpdateOutcome(
+    async (
+      args,
+      ctx,
+      measurement,
+    ): Promise<
+      DocumentUpdateActionResponse | ReturnType<typeof documentMetadataResponse>
+    > => {
+      measurement.record = !isFavoriteOnlyUpdate(args);
+      const id = args.id;
+      if (!id)
+        throw new ActionContractError("--id is required", {
+          errorCode: "DOCUMENT_ID_REQUIRED",
           statusCode: 400,
-        },
-      );
-    }
-    if (
-      args.title !== undefined &&
-      args.content !== undefined &&
-      args.baseRevision !== undefined &&
-      args.baseTitle === undefined
-    ) {
-      throw new ActionContractError(
-        "Combined title and body saves require baseTitle with baseRevision.",
-        { errorCode: "BASE_TITLE_REQUIRED", statusCode: 400 },
-      );
-    }
-
-    const isExternalCaller =
-      ctx?.caller === "tool" ||
-      ctx?.caller === "mcp" ||
-      ctx?.caller === "webmcp" ||
-      ctx?.caller === "a2a";
-    if (
-      args.browserSaveAttemptId !== undefined &&
-      ((ctx?.caller !== "frontend" && !isScopedWidgetDocumentWriter(ctx, id)) ||
-        (args.title === undefined && args.content === undefined))
-    ) {
-      throw new ActionContractError(
-        "Browser save attempts require a frontend title or content save.",
-        { errorCode: "INVALID_BROWSER_SAVE_ATTEMPT", statusCode: 400 },
-      );
-    }
-    if (isExternalCaller && args.content !== undefined) {
-      throw new ActionContractError(
-        "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
-        {
-          errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
-          statusCode: 400,
-        },
-      );
-    }
-
-    const isAgentCaller =
-      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
-
-    const favoriteOnly = isFavoriteOnlyUpdate(args);
-    const access = favoriteOnly
-      ? await resolveDocumentAccessForMutation(id, "id")
-      : await assertDocumentMutationAccess(id, "editor", "id");
-    const existing = access.resource;
-    const ownerEmail = existing.ownerEmail as string;
-
-    const observeSaveBase = (snapshot: {
-      bodyRevision: number;
-      content: string;
-      title: string;
-      updatedAt: string;
-    }) => {
-      const observedBaseRevision =
-        args.authoredBaseRevision ?? args.baseRevision;
-      const bodyBaseStale =
-        observedBaseRevision !== undefined &&
-        observedBaseRevision !==
-          documentRevisionToken(snapshot.bodyRevision, snapshot.content);
-      const snapshotTime = Date.parse(snapshot.updatedAt);
-      const compareTimestampKey = (timestamp: string | undefined) => {
-        const parsed = saveObservationTimestampSchema.safeParse(timestamp);
-        return parsed.success ? [parsed.data !== snapshot.updatedAt] : [];
-      };
-      const compareLoadedTimestamp = (timestamp: string | undefined) => {
-        const parsed = saveObservationTimestampSchema.safeParse(timestamp);
-        const baseTime = parsed.success ? Date.parse(parsed.data) : NaN;
-        return Number.isFinite(baseTime) && Number.isFinite(snapshotTime)
-          ? [baseTime !== snapshotTime]
-          : [];
-      };
-      const staleComparisons = [
-        ...(observedBaseRevision &&
-        parseDocumentRevisionToken(observedBaseRevision)
-          ? [bodyBaseStale]
-          : compareTimestampKey(args.baseUpdatedAt)),
-        ...(args.baseTitle !== undefined
-          ? [args.baseTitle !== snapshot.title]
-          : []),
-        ...compareTimestampKey(args.recoveryExpectedUpdatedAt),
-        ...compareLoadedTimestamp(args.loadedUpdatedAt),
-      ];
-      measurement.stale_base =
-        staleComparisons.length === 0
-          ? "unknown"
-          : staleComparisons.some(Boolean)
-            ? "true"
-            : "false";
-      return bodyBaseStale;
-    };
-    observeSaveBase(existing);
-
-    const db = getDb();
-    const requestUserEmail = getRequestUserEmail();
-    const requestOrgId = getRequestOrgId() ?? "";
-    const actor = requireDocumentRequestActor(ctx);
-    if (args.browserSaveAttemptId !== undefined && !requestUserEmail) {
-      throw new ActionContractError(
-        "Browser save attempts require an authenticated user.",
-        { errorCode: "BROWSER_SAVE_ACTOR_REQUIRED", statusCode: 401 },
-      );
-    }
-    if (args.isFavorite !== undefined && !requestUserEmail) {
-      throw new Error("no authenticated user");
-    }
-    if (args.icon !== undefined) {
-      if (!requestUserEmail) throw new Error("no authenticated user");
-      await verifyPrivateIconAssignment({
-        icon: args.icon,
-        userEmail: requestUserEmail,
-        orgId: (existing.orgId as string | null) ?? null,
-      });
-    }
-    if (args.isFavorite !== undefined) {
-      await provisionContentSpaces(db, requestUserEmail as string);
-    }
-    const currentFavorite = requestUserEmail
-      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
-      : parseDocumentFavorite(existing.isFavorite);
-    const browserSavePayload = args.browserSaveAttemptId
-      ? browserSavePayloadDigest(args)
-      : undefined;
-    const authoredMetadataHash = authoredBase
-      ? browserSavePayloadDigest({
-          title: args.title,
-          baseTitle: args.baseTitle,
-          description: args.description,
-          icon: args.icon,
-          isFavorite: args.isFavorite,
-          preserveLeadingTitleHeading: args.preserveLeadingTitleHeading,
-        })
-      : undefined;
-    if (args.browserSaveAttemptId && browserSavePayload) {
-      const stored = await findBrowserSaveAttempt({
-        db,
-        documentId: id,
-        actorEmail: (requestUserEmail as string).toLowerCase(),
-        orgId: requestOrgId,
-        attemptId: args.browserSaveAttemptId,
-      });
-      if (stored) {
-        measurement.outcome = "replayed";
-        const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id));
-        if ("kind" in receipt) {
-          return scopeDocumentAudit(
-            {
-              preservationRequired: true,
-              id,
-              document: documentUpdateResponse(
-                current,
-                access.role,
-                currentFavorite,
-              ),
-              reason: receipt.reason,
-              checkpointId: receipt.checkpointId,
-            } satisfies DocumentUpdatePreservationResponse,
-            ownerEmail,
-          );
-        }
-        return scopeDocumentAudit(
-          documentUpdateResponse(
-            current,
-            access.role,
-            currentFavorite,
-            receipt.softDeletedDatabaseIds ?? [],
-            receipt,
-          ),
-          ownerEmail,
+        });
+      assertWidgetDocumentWriteScope(ctx, id);
+      if (
+        (args.editorSessionId === undefined) !==
+        (args.editorEditGeneration === undefined)
+      ) {
+        throw new ActionContractError(
+          "editorSessionId and editorEditGeneration must be provided together.",
+          { errorCode: "INVALID_EDITOR_EDIT_IDENTITY", statusCode: 400 },
         );
       }
-    }
-
-    const normalizeAuthoredContent = (value: string) => {
-      if (args.preserveLeadingTitleHeading) return value;
-      const titleToCheck = args.title || existing.title;
-      if (!titleToCheck) return value;
-      const h1Match = value.match(/^#\s+(.+?)(\r?\n|$)/);
-      return h1Match &&
-        h1Match[1].trim().toLowerCase() === titleToCheck.trim().toLowerCase()
-        ? value.slice(h1Match[0].length).trimStart()
-        : value;
-    };
-    let content =
-      args.content === undefined
-        ? undefined
-        : normalizeAuthoredContent(args.content);
-    const authoredCandidateContent =
-      args.authoredCandidateContent === undefined
-        ? undefined
-        : normalizeAuthoredContent(args.authoredCandidateContent);
-    let browserSaveContentRejected = false;
-    if (content !== undefined && !args.preserveLeadingTitleHeading) {
       if (
-        content.includes('componentName="Image"') &&
-        existing.content.includes("![")
+        (args.editorSnapshotTitle === undefined) !==
+        (args.editorSnapshotContent === undefined)
       ) {
-        const [builderBody] = await db
-          .select({
-            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+        throw new ActionContractError(
+          "editorSnapshotTitle and editorSnapshotContent must be provided together.",
+          { errorCode: "INVALID_EDITOR_SNAPSHOT", statusCode: 400 },
+        );
+      }
+      const authoredFields = [
+        args.authoredBaseRevision,
+        args.authoredBaseContent,
+        args.authoredCandidateContent,
+      ];
+      if (
+        authoredFields.some((value) => value !== undefined) &&
+        (authoredFields.some((value) => value === undefined) ||
+          args.content === undefined ||
+          args.editorSessionId === undefined ||
+          args.editorEditGeneration === undefined ||
+          args.browserSaveAttemptId === undefined)
+      ) {
+        throw new ActionContractError(
+          "Authored body intent requires a complete base, candidate, editor identity, and save attempt ID.",
+          { errorCode: "INVALID_AUTHORED_BODY_INTENT", statusCode: 400 },
+        );
+      }
+      const authoredBase = args.authoredBaseRevision
+        ? parseDocumentRevisionToken(args.authoredBaseRevision)
+        : null;
+      if (
+        args.authoredBaseRevision &&
+        (!authoredBase ||
+          authoredBase.contentHash !==
+            documentContentHash(args.authoredBaseContent as string))
+      ) {
+        throw new ActionContractError(
+          "The authored body base does not match its revision.",
+          { errorCode: "INVALID_AUTHORED_BODY_BASE", statusCode: 400 },
+        );
+      }
+      if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
+        throw new ActionContractError(
+          "Favorite changes must be submitted separately from document field changes.",
+          {
+            errorCode: "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+            statusCode: 400,
+          },
+        );
+      }
+      if (
+        args.title !== undefined &&
+        args.content !== undefined &&
+        args.baseRevision !== undefined &&
+        args.baseTitle === undefined
+      ) {
+        throw new ActionContractError(
+          "Combined title and body saves require baseTitle with baseRevision.",
+          { errorCode: "BASE_TITLE_REQUIRED", statusCode: 400 },
+        );
+      }
+
+      const isExternalCaller =
+        ctx?.caller === "tool" ||
+        ctx?.caller === "mcp" ||
+        ctx?.caller === "webmcp" ||
+        ctx?.caller === "a2a";
+      const respond = (result: DocumentUpdateActionResponse, owner: string) =>
+        scopeDocumentAudit(
+          isExternalCaller ? documentMetadataResponse(result) : result,
+          owner,
+        );
+      if (
+        args.browserSaveAttemptId !== undefined &&
+        ((ctx?.caller !== "frontend" &&
+          !isScopedWidgetDocumentWriter(ctx, id)) ||
+          (args.title === undefined && args.content === undefined))
+      ) {
+        throw new ActionContractError(
+          "Browser save attempts require a frontend title or content save.",
+          { errorCode: "INVALID_BROWSER_SAVE_ATTEMPT", statusCode: 400 },
+        );
+      }
+      if (isExternalCaller && args.content !== undefined) {
+        throw new ActionContractError(
+          "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
+          {
+            errorCode: "DOCUMENT_EDIT_PROTOCOL_REQUIRED",
+            statusCode: 400,
+          },
+        );
+      }
+
+      const isAgentCaller =
+        ctx?.caller === "tool" ||
+        ctx?.caller === "mcp" ||
+        ctx?.caller === "a2a";
+
+      const favoriteOnly = isFavoriteOnlyUpdate(args);
+      let access = favoriteOnly
+        ? await resolveDocumentAccessForMutation(id, "id")
+        : await assertDocumentMutationAccess(id, "editor", "id");
+      let existing = access.resource;
+      let ownerEmail = existing.ownerEmail as string;
+
+      const observeSaveBase = (snapshot: {
+        bodyRevision: number;
+        content: string;
+        title: string;
+        updatedAt: string;
+      }) => {
+        const observedBaseRevision =
+          args.authoredBaseRevision ?? args.baseRevision;
+        const bodyBaseStale =
+          observedBaseRevision !== undefined &&
+          observedBaseRevision !==
+            documentRevisionToken(snapshot.bodyRevision, snapshot.content);
+        const snapshotTime = Date.parse(snapshot.updatedAt);
+        const compareTimestampKey = (timestamp: string | undefined) => {
+          const parsed = saveObservationTimestampSchema.safeParse(timestamp);
+          return parsed.success ? [parsed.data !== snapshot.updatedAt] : [];
+        };
+        const compareLoadedTimestamp = (timestamp: string | undefined) => {
+          const parsed = saveObservationTimestampSchema.safeParse(timestamp);
+          const baseTime = parsed.success ? Date.parse(parsed.data) : NaN;
+          return Number.isFinite(baseTime) && Number.isFinite(snapshotTime)
+            ? [baseTime !== snapshotTime]
+            : [];
+        };
+        const staleComparisons = [
+          ...(observedBaseRevision &&
+          parseDocumentRevisionToken(observedBaseRevision)
+            ? [bodyBaseStale]
+            : compareTimestampKey(args.baseUpdatedAt)),
+          ...(args.baseTitle !== undefined
+            ? [args.baseTitle !== snapshot.title]
+            : []),
+          ...compareTimestampKey(args.recoveryExpectedUpdatedAt),
+          ...compareLoadedTimestamp(args.loadedUpdatedAt),
+        ];
+        measurement.stale_base =
+          staleComparisons.length === 0
+            ? "unknown"
+            : staleComparisons.some(Boolean)
+              ? "true"
+              : "false";
+        return bodyBaseStale;
+      };
+      observeSaveBase(existing);
+
+      const db = getDb();
+      const requestUserEmail = getRequestUserEmail();
+      const requestOrgId = getRequestOrgId() ?? "";
+      const actor = requireDocumentRequestActor(ctx);
+      if (args.browserSaveAttemptId !== undefined && !requestUserEmail) {
+        throw new ActionContractError(
+          "Browser save attempts require an authenticated user.",
+          { errorCode: "BROWSER_SAVE_ACTOR_REQUIRED", statusCode: 401 },
+        );
+      }
+      if (args.isFavorite !== undefined && !requestUserEmail) {
+        throw new ActionContractError("no authenticated user", {
+          errorCode: "DOCUMENT_UPDATE_ACTOR_REQUIRED",
+          statusCode: 401,
+        });
+      }
+      if (args.icon !== undefined) {
+        if (!requestUserEmail)
+          throw new ActionContractError("no authenticated user", {
+            errorCode: "DOCUMENT_UPDATE_ACTOR_REQUIRED",
+            statusCode: 401,
+          });
+        await verifyPrivateIconAssignment({
+          icon: args.icon,
+          userEmail: requestUserEmail,
+          orgId: (existing.orgId as string | null) ?? null,
+        });
+      }
+      if (args.isFavorite !== undefined) {
+        await provisionContentSpaces(db, requestUserEmail as string);
+      }
+      const currentFavorite = requestUserEmail
+        ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+        : parseDocumentFavorite(existing.isFavorite);
+      const browserSavePayload = args.browserSaveAttemptId
+        ? browserSavePayloadDigest(args)
+        : undefined;
+      const authoredMetadataHash = authoredBase
+        ? browserSavePayloadDigest({
+            title: args.title,
+            baseTitle: args.baseTitle,
+            description: args.description,
+            icon: args.icon,
+            isFavorite: args.isFavorite,
+            preserveLeadingTitleHeading: args.preserveLeadingTitleHeading,
           })
-          .from(schema.contentDatabaseSourceRows)
-          .innerJoin(
-            schema.contentDatabaseSources,
-            eq(
-              schema.contentDatabaseSources.id,
-              schema.contentDatabaseSourceRows.sourceId,
+        : undefined;
+      if (args.browserSaveAttemptId && browserSavePayload) {
+        const stored = await findBrowserSaveAttempt({
+          db,
+          documentId: id,
+          actorEmail: (requestUserEmail as string).toLowerCase(),
+          orgId: requestOrgId,
+          attemptId: args.browserSaveAttemptId,
+        });
+        if (stored) {
+          measurement.outcome = "replayed";
+          const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
+          const currentAccess = await resolveDocumentAccessForMutation(
+            id,
+            "id",
+          );
+          const current = currentAccess.resource;
+          const currentOwnerEmail = current.ownerEmail as string;
+          const currentFavorite = requestUserEmail
+            ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+            : parseDocumentFavorite(current.isFavorite);
+          if ("kind" in receipt) {
+            return respond(
+              {
+                preservationRequired: true,
+                id,
+                document: documentUpdateResponse(
+                  current,
+                  currentAccess.role,
+                  currentFavorite,
+                ),
+                reason: receipt.reason,
+                checkpointId: receipt.checkpointId,
+              } satisfies DocumentUpdatePreservationResponse,
+              currentOwnerEmail,
+            );
+          }
+          return respond(
+            documentUpdateResponse(
+              current,
+              currentAccess.role,
+              currentFavorite,
+              receipt.softDeletedDatabaseIds ?? [],
+              receipt,
             ),
-          )
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.documentId, id),
-              eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
-            ),
-          )
-          .limit(1);
-        const sourceValues = JSON.parse(
-          builderBody?.sourceValuesJson ?? "{}",
-        ) as Record<string, unknown>;
-        const sourceContent = sourceValues[BUILDER_CMS_BODY_CONTENT_KEY];
+            currentOwnerEmail,
+          );
+        }
+      }
+
+      const normalizeAuthoredContent = (value: string) => {
+        if (args.preserveLeadingTitleHeading) return value;
+        const titleToCheck = args.title || existing.title;
+        if (!titleToCheck) return value;
+        const h1Match = value.match(/^#\s+(.+?)(\r?\n|$)/);
+        return h1Match &&
+          h1Match[1].trim().toLowerCase() === titleToCheck.trim().toLowerCase()
+          ? value.slice(h1Match[0].length).trimStart()
+          : value;
+      };
+      let content =
+        args.content === undefined
+          ? undefined
+          : normalizeAuthoredContent(args.content);
+      const authoredCandidateContent =
+        args.authoredCandidateContent === undefined
+          ? undefined
+          : normalizeAuthoredContent(args.authoredCandidateContent);
+      let browserSaveContentRejected = false;
+      if (content !== undefined && !args.preserveLeadingTitleHeading) {
         if (
-          typeof sourceContent === "string" &&
-          isStaleBuilderImageSourceComponentSave({
+          content.includes('componentName="Image"') &&
+          existing.content.includes("![")
+        ) {
+          const [builderBody] = await db
+            .select({
+              sourceValuesJson:
+                schema.contentDatabaseSourceRows.sourceValuesJson,
+            })
+            .from(schema.contentDatabaseSourceRows)
+            .innerJoin(
+              schema.contentDatabaseSources,
+              eq(
+                schema.contentDatabaseSources.id,
+                schema.contentDatabaseSourceRows.sourceId,
+              ),
+            )
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.documentId, id),
+                eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+              ),
+            )
+            .limit(1);
+          const sourceValues = JSON.parse(
+            builderBody?.sourceValuesJson ?? "{}",
+          ) as Record<string, unknown>;
+          const sourceContent = sourceValues[BUILDER_CMS_BODY_CONTENT_KEY];
+          if (
+            typeof sourceContent === "string" &&
+            isStaleBuilderImageSourceComponentSave({
+              incomingContent: content,
+              currentContent: existing.content,
+              sourceContent,
+            })
+          ) {
+            browserSaveContentRejected = true;
+            measurement.reason_code = "stale_builder_image";
+            content = existing.content;
+          }
+        }
+        if (
+          shouldRejectStaleEmptyBodySave({
             incomingContent: content,
             currentContent: existing.content,
-            sourceContent,
+            loadedUpdatedAt: args.loadedUpdatedAt,
+            currentUpdatedAt: existing.updatedAt,
+            loadedContentWasEmpty: args.loadedContentWasEmpty,
           })
         ) {
           browserSaveContentRejected = true;
-          measurement.reason_code = "stale_builder_image";
+          measurement.stale_base = "true";
+          measurement.reason_code = "stale_empty_body";
           content = existing.content;
         }
       }
-      if (
-        shouldRejectStaleEmptyBodySave({
-          incomingContent: content,
-          currentContent: existing.content,
-          loadedUpdatedAt: args.loadedUpdatedAt,
-          currentUpdatedAt: existing.updatedAt,
-          loadedContentWasEmpty: args.loadedContentWasEmpty,
-        })
-      ) {
-        browserSaveContentRejected = true;
-        measurement.stale_base = "true";
-        measurement.reason_code = "stale_empty_body";
-        content = existing.content;
+      if (browserSaveContentRejected && args.browserSaveAttemptId) {
+        measurement.outcome = "conflict";
+        return respond(
+          documentConflictResponse(existing, access.role, currentFavorite),
+          ownerEmail,
+        );
       }
-    }
-    if (browserSaveContentRejected && args.browserSaveAttemptId) {
-      measurement.outcome = "conflict";
-      return scopeDocumentAudit(
-        documentConflictResponse(existing, access.role, currentFavorite),
-        ownerEmail,
-      );
-    }
 
-    const titleChanged =
-      args.title !== undefined && args.title !== existing.title;
-    const titleOrganizationIds =
-      titleChanged && requestUserEmail
-        ? (await listContentOrganizationMemberships(requestUserEmail)).map(
-            (membership) => membership.orgId,
-          )
-        : [];
-    const contentChanged =
-      content !== undefined && content !== existing.content;
-    const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
-    const favoriteChanged =
-      args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
-    const descriptionChanged =
-      args.description !== undefined &&
-      args.description.trim() !== existing.description;
-    const anyChange =
-      titleChanged ||
-      contentChanged ||
-      iconChanged ||
-      favoriteChanged ||
-      descriptionChanged ||
-      args.isFavorite === false;
+      const titleChanged =
+        args.title !== undefined && args.title !== existing.title;
+      const titleOrganizationIds =
+        titleChanged && requestUserEmail
+          ? (await listContentOrganizationMemberships(requestUserEmail)).map(
+              (membership) => membership.orgId,
+            )
+          : [];
+      const contentChanged =
+        content !== undefined && content !== existing.content;
+      const iconChanged =
+        args.icon !== undefined && args.icon !== existing.icon;
+      const favoriteChanged =
+        args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
+      const descriptionChanged =
+        args.description !== undefined &&
+        args.description.trim() !== existing.description;
+      const anyChange =
+        titleChanged ||
+        contentChanged ||
+        iconChanged ||
+        favoriteChanged ||
+        descriptionChanged ||
+        args.isFavorite === false;
 
-    let softDeletedDatabaseIds: string[] = [];
-    let browserSaveConfirmation: BrowserSaveAttemptConfirmation | undefined;
-    let bodyIntentOutcome: BrowserDocumentUpdateResponse["bodyIntentOutcome"];
-    let discardedEditorGeneration: number | undefined;
-    let preservationRequired:
-      | { reason: "structure" | "provenance"; checkpointId: string }
-      | undefined;
-    let creativeContext:
-      | Awaited<ReturnType<typeof documentMutationCreativeContext>>
-      | undefined;
+      let softDeletedDatabaseIds: string[] = [];
+      let browserSaveConfirmation: BrowserSaveAttemptConfirmation | undefined;
+      let bodyIntentOutcome: BrowserDocumentUpdateResponse["bodyIntentOutcome"];
+      let discardedEditorGeneration: number | undefined;
+      let preservationRequired:
+        | {
+            reason: "structure" | "provenance";
+            checkpointId: string;
+            mutationOwnerEmail?: string;
+          }
+        | undefined;
+      let creativeContext:
+        | Awaited<ReturnType<typeof documentMutationCreativeContext>>
+        | undefined;
 
-    const useBodyRevisionCas =
-      args.content !== undefined && args.baseRevision !== undefined;
-    const useDocumentCas =
-      args.content !== undefined &&
-      args.baseRevision === undefined &&
-      args.baseUpdatedAt !== undefined;
+      const useBodyRevisionCas =
+        args.content !== undefined && args.baseRevision !== undefined;
+      const useDocumentCas =
+        args.content !== undefined &&
+        args.baseRevision === undefined &&
+        args.baseUpdatedAt !== undefined;
 
-    const settlesPreviewDraft =
-      ctx?.caller === "frontend" &&
-      !!requestUserEmail &&
-      !!args.editorSessionId &&
-      args.editorEditGeneration !== undefined &&
-      (args.title !== undefined || args.content !== undefined);
+      const settlesPreviewDraft =
+        ctx?.caller === "frontend" &&
+        !!requestUserEmail &&
+        !!args.editorSessionId &&
+        args.editorEditGeneration !== undefined &&
+        (args.title !== undefined || args.content !== undefined);
 
-    if (anyChange || settlesPreviewDraft || args.browserSaveAttemptId) {
-      let contentCasConflict = false;
-      let committedContentChanged = false;
-      let committedContentBefore = existing.content;
-      let committedEditorSnapshot: { title: string; content: string } | null =
-        null;
-      const mutate = async (tx: any) => {
-        measurement.outcome = "unchanged";
-        measurement.history_effect = "none";
-        await tx
-          .select({ id: schema.documents.id })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id))
-          .for("update");
-        if (args.browserSaveAttemptId && browserSavePayload) {
-          const stored = await findBrowserSaveAttempt({
-            db: tx as ReturnType<typeof getDb>,
+      let writeCommitted = false;
+      if (anyChange || settlesPreviewDraft || args.browserSaveAttemptId) {
+        if (isAgentCaller) {
+          creativeContext = await documentMutationCreativeContext({
             documentId: id,
-            actorEmail: (requestUserEmail as string).toLowerCase(),
-            orgId: requestOrgId,
-            attemptId: args.browserSaveAttemptId,
+            contextPackId: args.contextPackId,
+            contextModeOverride: args.contextModeOverride,
+            reuseLabels: args.reuseLabels,
+            artifactAccessAsserted: true,
           });
-          if (stored) {
-            measurement.outcome = "replayed";
+        }
+        let documentFieldsApplied = false;
+        let contentCasConflict = false;
+        let committedContentChanged = false;
+        let committedContentBefore = existing.content;
+        let committedEditorSnapshot: { title: string; content: string } | null =
+          null;
+        const mutate = async (tx: any) => {
+          measurement.outcome = "unchanged";
+          measurement.history_effect = "none";
+          const lockedDatabaseId = await lockDocumentMetadataDatabase({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            documentId: id,
+            ownerEmail,
+          });
+          await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .for("update");
+          access = favoriteOnly
+            ? await resolveDocumentAccessForMutation(id, "id")
+            : await assertDocumentMutationAccess(id, "editor", "id");
+          existing = access.resource;
+          ownerEmail = existing.ownerEmail as string;
+          if (args.icon !== undefined) {
+            await verifyPrivateIconAssignment({
+              icon: args.icon,
+              userEmail: requestUserEmail as string,
+              orgId: (existing.orgId as string | null) ?? null,
+            });
+          }
+          if (args.browserSaveAttemptId && browserSavePayload) {
+            const stored = await findBrowserSaveAttempt({
+              db: tx as ReturnType<typeof getDb>,
+              documentId: id,
+              actorEmail: (requestUserEmail as string).toLowerCase(),
+              orgId: requestOrgId,
+              attemptId: args.browserSaveAttemptId,
+            });
+            if (stored) {
+              measurement.outcome = "replayed";
+              const receipt = readBrowserSaveAttempt(
+                stored,
+                browserSavePayload,
+              );
+              if ("kind" in receipt) {
+                preservationRequired = {
+                  reason: receipt.reason,
+                  checkpointId: receipt.checkpointId,
+                };
+              } else {
+                browserSaveConfirmation = receipt;
+              }
+              return;
+            }
+          }
+          if (settlesPreviewDraft) {
+            await lockPreviewDocumentDraftSettlement({
+              db: tx,
+              ownerEmail: requestUserEmail as string,
+              orgId: requestOrgId,
+              documentId: id,
+              editorSessionId: args.editorSessionId as string,
+              now: new Date().toISOString(),
+            });
+            const discardedGeneration =
+              await readDiscardedPreviewDraftGeneration({
+                db: tx,
+                ownerEmail: requestUserEmail as string,
+                orgId: requestOrgId,
+                documentId: id,
+                editorSessionId: args.editorSessionId as string,
+              });
+            if (
+              discardedGeneration !== null &&
+              (args.editorEditGeneration as number) <= discardedGeneration
+            ) {
+              discardedEditorGeneration = discardedGeneration;
+              measurement.outcome = "superseded";
+              return;
+            }
+          }
+          const [historyBefore] = await tx
+            .select({
+              ownerEmail: schema.documents.ownerEmail,
+              title: schema.documents.title,
+              content: schema.documents.content,
+              bodyRevision: schema.documents.bodyRevision,
+              description: schema.documents.description,
+              icon: schema.documents.icon,
+              updatedAt: schema.documents.updatedAt,
+            })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, id))
+            .limit(1);
+          const bodyBaseStale = observeSaveBase(historyBefore);
+          if (
+            isScopedWidgetDocumentWriter(ctx, id) &&
+            args.content !== undefined &&
+            args.baseRevision === undefined &&
+            args.baseUpdatedAt === undefined &&
+            args.recoveryExpectedUpdatedAt === undefined &&
+            !authoredBase
+          ) {
+            contentCasConflict = true;
+            return;
+          }
+          if (
+            args.recoveryExpectedUpdatedAt !== undefined &&
+            historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt
+          ) {
+            measurement.reason_code = "recovery_base_changed";
+            contentCasConflict = true;
+            return;
+          }
+          const confirmBrowserSave = async (
+            snapshot: { title: string; content: string },
+            now: string,
+          ) => {
+            if (
+              settlesPreviewDraft &&
+              args.editorSnapshotTitle !== undefined &&
+              args.editorSnapshotContent !== undefined &&
+              snapshot.title === args.editorSnapshotTitle &&
+              (snapshot.content === args.editorSnapshotContent ||
+                bodyIntentOutcome?.status === "applied" ||
+                bodyIntentOutcome?.status === "displaced-preserved")
+            ) {
+              await settlePreviewDocumentDraft({
+                db: tx,
+                ownerEmail: requestUserEmail as string,
+                orgId: requestOrgId,
+                documentId: id,
+                editorSessionId: args.editorSessionId as string,
+                editGeneration: args.editorEditGeneration as number,
+                now,
+              });
+            }
+            if (args.browserSaveAttemptId && browserSavePayload) {
+              const [confirmed] = await tx
+                .select({
+                  bodyRevision: schema.documents.bodyRevision,
+                  content: schema.documents.content,
+                  updatedAt: schema.documents.updatedAt,
+                })
+                .from(schema.documents)
+                .where(eq(schema.documents.id, id))
+                .limit(1);
+              const confirmation: BrowserSaveAttemptConfirmation = {
+                attemptId: args.browserSaveAttemptId,
+                result: "applied",
+                revision: documentRevisionToken(
+                  confirmed.bodyRevision,
+                  confirmed.content,
+                ),
+                updatedAt: confirmed.updatedAt,
+                softDeletedDatabaseIds,
+              };
+              await tx.insert(schema.documentBrowserSaveAttempts).values({
+                id: randomUUID(),
+                ownerEmail,
+                orgId: requestOrgId,
+                documentId: id,
+                actorEmail: (requestUserEmail as string).toLowerCase(),
+                attemptId: args.browserSaveAttemptId,
+                payloadDigest: browserSavePayload,
+                resultJson: JSON.stringify(confirmation),
+              });
+              browserSaveConfirmation = confirmation;
+            }
+          };
+          const preserveUnmergedContent = async (
+            candidateContent: string,
+            reason: "structure" | "provenance",
+          ) => {
+            const checkpointId = await preserveDocumentBodyIntent({
+              db: tx as ReturnType<typeof getDb>,
+              ownerEmail,
+              documentId: id,
+              title: args.title ?? historyBefore.title,
+              candidateContent,
+              actorEmail: requestUserEmail ?? null,
+              origin: "frontend",
+              operation: "update-document-preservation",
+              now: nextDocumentUpdatedAt(historyBefore.updatedAt),
+            });
+            preservationRequired = {
+              reason,
+              checkpointId,
+              mutationOwnerEmail: ownerEmail,
+            };
+            measurement.outcome = "preserved_to_history";
+            measurement.history_effect = "preservation";
+            measurement.reason_code = reason;
+            if (args.browserSaveAttemptId && browserSavePayload) {
+              await tx.insert(schema.documentBrowserSaveAttempts).values({
+                id: randomUUID(),
+                ownerEmail,
+                orgId: requestOrgId,
+                documentId: id,
+                actorEmail: (requestUserEmail as string).toLowerCase(),
+                attemptId: args.browserSaveAttemptId,
+                payloadDigest: browserSavePayload,
+                resultJson: JSON.stringify({
+                  kind: "preservation-required",
+                  attemptId: args.browserSaveAttemptId,
+                  result: "applied",
+                  revision: documentRevisionToken(
+                    historyBefore.bodyRevision,
+                    historyBefore.content,
+                  ),
+                  updatedAt: historyBefore.updatedAt,
+                  reason,
+                  checkpointId,
+                }),
+              });
+            }
+          };
+          if (authoredBase && authoredCandidateContent !== undefined) {
+            const prior = await findDocumentBodyIntent({
+              db: tx as ReturnType<typeof getDb>,
+              ownerEmail,
+              documentId: id,
+              writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
+              operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
+            });
+            if (prior) {
+              // The base alone can differ on a resend: the editor rebases an
+              // unsent save onto its own confirmed saves, while the page's
+              // draft journal replays it from the base it first recorded. The
+              // same authored body is the same delivery.
+              if (
+                prior.candidateHash !==
+                  documentContentHash(authoredCandidateContent) ||
+                prior.metadataHash !== authoredMetadataHash
+              ) {
+                throw new ActionContractError(
+                  "An editor generation cannot be reused with a different authored body.",
+                  { errorCode: "EDITOR_BODY_INTENT_REUSED", statusCode: 409 },
+                );
+              }
+              bodyIntentOutcome = prior.displacedCheckpointId
+                ? {
+                    status: "displaced-preserved",
+                    displacedCheckpointId: prior.displacedCheckpointId,
+                  }
+                : { status: "applied" };
+              measurement.outcome = "replayed";
+              await confirmBrowserSave(historyBefore, historyBefore.updatedAt);
+              return;
+            }
+          }
+          if (
+            ctx?.caller === "frontend" &&
+            !authoredBase &&
+            content !== undefined &&
+            content !== historyBefore.content
+          ) {
+            await preserveUnmergedContent(content, "provenance");
+            return;
+          }
+          let intentMerge:
+            | Extract<
+                ReturnType<typeof mergeDocumentBodyIntents>,
+                { status: "resolved" }
+              >
+            | undefined;
+          if (authoredBase && authoredCandidateContent !== undefined) {
+            const priorIntents = await readDocumentBodyIntents({
+              db: tx as ReturnType<typeof getDb>,
+              ownerEmail,
+              documentId: id,
+              afterRevision: authoredBase.revision,
+              throughRevision: historyBefore.bodyRevision,
+            });
+            const resolved = mergeDocumentBodyIntents({
+              authoredBaseContent: args.authoredBaseContent as string,
+              authoredCandidateContent,
+              currentContent: historyBefore.content,
+              currentRevision: historyBefore.bodyRevision,
+              incoming: {
+                writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
+                operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
+                generation: args.editorEditGeneration,
+                authoredBaseRevision: authoredBase.revision,
+              },
+              priorIntents,
+            });
+            if (resolved.status === "preservation-required") {
+              await preserveUnmergedContent(
+                authoredCandidateContent,
+                resolved.reason,
+              );
+              return;
+            }
+            intentMerge = resolved;
+            content = resolved.content;
+          }
+          const lockedTitleChanged =
+            titleChanged && args.title !== historyBefore.title;
+          const lockedContentChanged =
+            content !== undefined && content !== historyBefore.content;
+          const lockedDescriptionChanged =
+            args.description !== undefined &&
+            args.description.trim() !== historyBefore.description;
+          const lockedIconChanged =
+            args.icon !== undefined && args.icon !== historyBefore.icon;
+          const lockedDocumentFieldsChanged =
+            lockedTitleChanged ||
+            lockedContentChanged ||
+            lockedDescriptionChanged ||
+            lockedIconChanged;
+          const parsedBaseRevision = args.baseRevision
+            ? parseDocumentRevisionToken(args.baseRevision)
+            : null;
+          if (args.baseRevision && !parsedBaseRevision) {
+            throw new ActionContractError(
+              "baseRevision is not a valid document revision token.",
+              { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
+            );
+          }
+          if (
+            lockedContentChanged &&
+            args.baseRevision &&
+            !intentMerge &&
+            args.baseRevision !==
+              documentRevisionToken(
+                historyBefore.bodyRevision,
+                historyBefore.content,
+              )
+          ) {
+            measurement.reason_code = "body_base_changed";
+            contentCasConflict = true;
+            return;
+          }
+          if (
+            lockedTitleChanged &&
+            args.baseTitle !== undefined &&
+            historyBefore.title !== args.baseTitle
+          ) {
+            measurement.reason_code = "title_base_changed";
+            contentCasConflict = true;
+            return;
+          }
+          const updatedAt =
+            lockedTitleChanged || lockedDescriptionChanged
+              ? await nextDocumentMetadataUpdatedAt({
+                  db: tx as unknown as ReturnType<typeof getDb>,
+                  documentId: id,
+                  ownerEmail,
+                  currentUpdatedAt: historyBefore.updatedAt,
+                  lockedDatabaseId,
+                })
+              : nextDocumentUpdatedAt(historyBefore.updatedAt);
+          const updates: Record<string, unknown> = { updatedAt };
+          if (lockedTitleChanged) updates.title = args.title;
+          if (lockedDescriptionChanged)
+            updates.description = args.description?.trim();
+          if (lockedContentChanged) {
+            updates.content = content;
+            updates.bodyRevision = historyBefore.bodyRevision + 1;
+          }
+          if (lockedIconChanged)
+            updates.icon =
+              args.icon === null
+                ? null
+                : serializeIconValue(parseIconValue(args.icon));
+          if (lockedDocumentFieldsChanged) {
+            Object.assign(updates, documentEditAttribution(actor));
+          }
+          const primaryBlocksFields = lockedContentChanged
+            ? await lockPrimaryBlocksFields(
+                tx as unknown as ReturnType<typeof getDb>,
+                id,
+              )
+            : [];
+          const applied = await commitCanonicalDocumentBodyMutation({
+            write: async () => {
+              if (
+                intentMerge ||
+                (useBodyRevisionCas && lockedContentChanged) ||
+                useDocumentCas
+              ) {
+                const rows = await tx
+                  .update(schema.documents)
+                  .set(updates)
+                  .where(
+                    and(
+                      eq(schema.documents.id, id),
+                      ...(intentMerge || parsedBaseRevision
+                        ? [
+                            eq(
+                              schema.documents.bodyRevision,
+                              intentMerge
+                                ? historyBefore.bodyRevision
+                                : parsedBaseRevision!.revision,
+                            ),
+                          ]
+                        : [
+                            eq(
+                              schema.documents.updatedAt,
+                              args.baseUpdatedAt as string,
+                            ),
+                          ]),
+                    ),
+                  )
+                  .returning({ id: schema.documents.id });
+                return rows.length > 0;
+              }
+              if (lockedDocumentFieldsChanged) {
+                await tx
+                  .update(schema.documents)
+                  .set(updates)
+                  .where(eq(schema.documents.id, id));
+              }
+              return true;
+            },
+            afterWrite: async () => {
+              if (lockedContentChanged && content !== undefined) {
+                for (const field of primaryBlocksFields) {
+                  await persistBlocksFieldIdentity({
+                    db: tx as unknown as ReturnType<typeof getDb>,
+                    ownerEmail: field.ownerEmail,
+                    documentId: id,
+                    propertyId: field.propertyId,
+                    previousMarkdown: historyBefore.content,
+                    markdown: content,
+                    now: updatedAt,
+                  });
+                }
+              }
+            },
+          });
+          if (!applied) {
+            measurement.reason_code =
+              intentMerge || parsedBaseRevision
+                ? "body_revision_cas_conflict"
+                : "timestamp_cas_conflict";
+            contentCasConflict = true;
+            return;
+          }
+          if (lockedDescriptionChanged && lockedDatabaseId !== null) {
+            await tx
+              .update(schema.contentDatabases)
+              .set({ updatedAt })
+              .where(
+                and(
+                  eq(schema.contentDatabases.documentId, id),
+                  eq(schema.contentDatabases.id, lockedDatabaseId),
+                ),
+              );
+          }
+          documentFieldsApplied = lockedDocumentFieldsChanged;
+          if (lockedIconChanged) {
+            await syncPrivateIconReference(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                elementType: "document",
+                elementId: id,
+                documentId: id,
+                icon: updates.icon ?? null,
+                ownerEmail,
+                orgId: (existing.orgId as string | null) ?? null,
+              },
+            );
+          }
+          if (lockedContentChanged && content !== undefined) {
+            await syncPrivateCalloutReferences(
+              tx as unknown as ReturnType<typeof getDb>,
+              {
+                documentId: id,
+                before: historyBefore.content,
+                after: content,
+                userEmail: actor,
+                ownerEmail,
+                orgId: (existing.orgId as string | null) ?? null,
+              },
+            );
+          }
+          committedContentChanged = lockedContentChanged;
+          measurement.outcome = lockedDocumentFieldsChanged
+            ? intentMerge && bodyBaseStale && lockedContentChanged
+              ? "merged"
+              : "written"
+            : "unchanged";
+          committedContentBefore = historyBefore.content;
+
+          if (lockedTitleChanged && args.title !== undefined) {
+            await propagateDocumentTitle({
+              db: tx as unknown as ReturnType<typeof getDb>,
+              documentId: id,
+              title: args.title,
+              updatedAt,
+              organizationIds: titleOrganizationIds,
+              databaseId: lockedDatabaseId,
+            });
+          }
+          if (lockedTitleChanged || lockedContentChanged) {
+            const [after] = await tx
+              .select({
+                title: schema.documents.title,
+                content: schema.documents.content,
+              })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.id, id),
+                  eq(schema.documents.ownerEmail, historyBefore.ownerEmail),
+                ),
+              )
+              .limit(1);
+            committedEditorSnapshot = after;
+            await recordDocumentHistoryTransition({
+              db: tx as unknown as ReturnType<typeof getDb>,
+              ownerEmail,
+              documentId: id,
+              before: historyBefore,
+              after,
+              beforeBodyRevision: historyBefore.bodyRevision,
+              afterBodyRevision:
+                historyBefore.bodyRevision + (lockedContentChanged ? 1 : 0),
+              cause: {
+                ctx,
+                historySessionId: args.historySessionId,
+                operation: "update-document",
+              },
+              now: updatedAt,
+            });
+            measurement.history_effect = "transition";
+          }
+          if (intentMerge && authoredBase) {
+            const intent = {
+              writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
+              operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
+              generation: args.editorEditGeneration,
+              authoredBaseRevision: authoredBase.revision,
+            };
+            const displacedCheckpointId = intentMerge.displaced
+              ? await preserveDocumentBodyIntent({
+                  db: tx as ReturnType<typeof getDb>,
+                  ownerEmail,
+                  documentId: id,
+                  title: historyBefore.title,
+                  candidateContent: authoredCandidateContent as string,
+                  actorEmail: requestUserEmail ?? null,
+                  origin: "frontend",
+                  operation: "update-document-displaced",
+                  now: updatedAt,
+                })
+              : undefined;
+            if (displacedCheckpointId) {
+              measurement.outcome = "merged_with_displaced_text";
+              measurement.history_effect =
+                measurement.history_effect === "transition"
+                  ? "transition_and_preservation"
+                  : "preservation";
+            }
+            await recordDocumentBodyIntent({
+              db: tx as ReturnType<typeof getDb>,
+              ownerEmail,
+              orgId: requestOrgId,
+              documentId: id,
+              intent,
+              candidateHash: documentContentHash(
+                authoredCandidateContent as string,
+              ),
+              metadataHash: authoredMetadataHash,
+              committedRevision:
+                historyBefore.bodyRevision + (lockedContentChanged ? 1 : 0),
+              changedBlockIndexes: intentMerge.changedBlockIndexes,
+              canonicalChanged: lockedContentChanged,
+              displacedCheckpointId,
+              now: updatedAt,
+            });
+            bodyIntentOutcome = intentMerge.displaced
+              ? { status: "displaced-preserved", displacedCheckpointId }
+              : { status: "applied" };
+          }
+          if (lockedContentChanged && content !== undefined) {
+            softDeletedDatabaseIds =
+              await reconcileInlineDatabasesForDocumentWithDb({
+                db: tx as ReturnType<typeof getDb>,
+                documentId: id,
+                content,
+                ownerEmail,
+                now: updatedAt,
+              });
+          }
+          if (
+            (settlesPreviewDraft || args.browserSaveAttemptId) &&
+            committedEditorSnapshot === null
+          ) {
+            const [snapshot] = await tx
+              .select({
+                title: schema.documents.title,
+                content: schema.documents.content,
+              })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.id, id),
+                  eq(schema.documents.ownerEmail, historyBefore.ownerEmail),
+                ),
+              )
+              .limit(1);
+            committedEditorSnapshot = snapshot ?? null;
+          }
+          if (committedEditorSnapshot)
+            await confirmBrowserSave(committedEditorSnapshot, updatedAt);
+        };
+        if (
+          (favoriteChanged || args.isFavorite === false) &&
+          !settlesPreviewDraft
+        ) {
+          const favoriteMutation = await setFavoriteAndOrder({
+            db,
+            userEmail: requestUserEmail as string,
+            documentId: id,
+            favorite: args.isFavorite as boolean,
+            now: nextDocumentUpdatedAt(existing.updatedAt),
+          });
+          writeCommitted = favoriteMutation.result.changed;
+          measurement.outcome = writeCommitted ? "written" : "unchanged";
+        } else {
+          try {
+            await db.transaction(mutate);
+            writeCommitted = documentFieldsApplied;
+          } catch (error) {
+            if (!args.browserSaveAttemptId || !browserSavePayload) throw error;
+            const stored = await findBrowserSaveAttempt({
+              db,
+              documentId: id,
+              actorEmail: (requestUserEmail as string).toLowerCase(),
+              orgId: requestOrgId,
+              attemptId: args.browserSaveAttemptId,
+            });
+            if (!stored) throw error;
             const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
+            measurement.outcome = "replayed";
+            measurement.history_effect = "none";
+            measurement.stale_base = "unknown";
+            delete measurement.reason_code;
             if ("kind" in receipt) {
               preservationRequired = {
                 reason: receipt.reason,
@@ -1025,672 +1736,121 @@ const updateDocumentAction = defineAction({
             } else {
               browserSaveConfirmation = receipt;
             }
-            return;
           }
         }
-        if (settlesPreviewDraft) {
-          await lockPreviewDocumentDraftSettlement({
-            db: tx,
-            ownerEmail: requestUserEmail as string,
-            orgId: requestOrgId,
-            documentId: id,
-            editorSessionId: args.editorSessionId as string,
-            now: new Date().toISOString(),
-          });
-          const discardedGeneration = await readDiscardedPreviewDraftGeneration(
-            {
-              db: tx,
-              ownerEmail: requestUserEmail as string,
-              orgId: requestOrgId,
-              documentId: id,
-              editorSessionId: args.editorSessionId as string,
-            },
+
+        if (contentCasConflict && measurement.outcome !== "replayed")
+          measurement.outcome = "conflict";
+        measurement.settled = true;
+
+        if (
+          discardedEditorGeneration !== undefined ||
+          browserSaveConfirmation?.result === "replayed" ||
+          preservationRequired ||
+          contentCasConflict
+        ) {
+          const currentAccess = await resolveDocumentAccessForMutation(
+            id,
+            "id",
           );
-          if (
-            discardedGeneration !== null &&
-            (args.editorEditGeneration as number) <= discardedGeneration
-          ) {
-            discardedEditorGeneration = discardedGeneration;
-            measurement.outcome = "superseded";
-            return;
-          }
-        }
-        const [historyBefore] = await tx
-          .select({
-            title: schema.documents.title,
-            content: schema.documents.content,
-            bodyRevision: schema.documents.bodyRevision,
-            description: schema.documents.description,
-            icon: schema.documents.icon,
-            updatedAt: schema.documents.updatedAt,
-          })
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id))
-          .limit(1);
-        const bodyBaseStale = observeSaveBase(historyBefore);
-        if (
-          isScopedWidgetDocumentWriter(ctx, id) &&
-          args.content !== undefined &&
-          args.baseRevision === undefined &&
-          args.baseUpdatedAt === undefined &&
-          args.recoveryExpectedUpdatedAt === undefined &&
-          !authoredBase
-        ) {
-          contentCasConflict = true;
-          return;
-        }
-        if (
-          args.recoveryExpectedUpdatedAt !== undefined &&
-          historyBefore.updatedAt !== args.recoveryExpectedUpdatedAt
-        ) {
-          measurement.reason_code = "recovery_base_changed";
-          contentCasConflict = true;
-          return;
-        }
-        const confirmBrowserSave = async (
-          snapshot: { title: string; content: string },
-          now: string,
-        ) => {
-          if (
-            settlesPreviewDraft &&
-            args.editorSnapshotTitle !== undefined &&
-            args.editorSnapshotContent !== undefined &&
-            snapshot.title === args.editorSnapshotTitle &&
-            (snapshot.content === args.editorSnapshotContent ||
-              bodyIntentOutcome?.status === "applied" ||
-              bodyIntentOutcome?.status === "displaced-preserved")
-          ) {
-            await settlePreviewDocumentDraft({
-              db: tx,
-              ownerEmail: requestUserEmail as string,
-              orgId: requestOrgId,
-              documentId: id,
-              editorSessionId: args.editorSessionId as string,
-              editGeneration: args.editorEditGeneration as number,
-              now,
-            });
-          }
-          if (args.browserSaveAttemptId && browserSavePayload) {
-            const [confirmed] = await tx
-              .select({
-                bodyRevision: schema.documents.bodyRevision,
-                content: schema.documents.content,
-                updatedAt: schema.documents.updatedAt,
-              })
-              .from(schema.documents)
-              .where(eq(schema.documents.id, id))
-              .limit(1);
-            const confirmation: BrowserSaveAttemptConfirmation = {
-              attemptId: args.browserSaveAttemptId,
-              result: "applied",
-              revision: documentRevisionToken(
-                confirmed.bodyRevision,
-                confirmed.content,
-              ),
-              updatedAt: confirmed.updatedAt,
-              softDeletedDatabaseIds,
-            };
-            await tx.insert(schema.documentBrowserSaveAttempts).values({
-              id: randomUUID(),
-              ownerEmail,
-              orgId: requestOrgId,
-              documentId: id,
-              actorEmail: (requestUserEmail as string).toLowerCase(),
-              attemptId: args.browserSaveAttemptId,
-              payloadDigest: browserSavePayload,
-              resultJson: JSON.stringify(confirmation),
-            });
-            browserSaveConfirmation = confirmation;
-          }
-        };
-        const preserveUnmergedContent = async (
-          candidateContent: string,
-          reason: "structure" | "provenance",
-        ) => {
-          const checkpointId = await preserveDocumentBodyIntent({
-            db: tx as ReturnType<typeof getDb>,
-            ownerEmail,
-            documentId: id,
-            title: args.title ?? historyBefore.title,
-            candidateContent,
-            actorEmail: requestUserEmail ?? null,
-            origin: "frontend",
-            operation: "update-document-preservation",
-            now: nextDocumentUpdatedAt(historyBefore.updatedAt),
-          });
-          preservationRequired = { reason, checkpointId };
-          measurement.outcome = "preserved_to_history";
-          measurement.history_effect = "preservation";
-          measurement.reason_code = reason;
-          if (args.browserSaveAttemptId && browserSavePayload) {
-            await tx.insert(schema.documentBrowserSaveAttempts).values({
-              id: randomUUID(),
-              ownerEmail,
-              orgId: requestOrgId,
-              documentId: id,
-              actorEmail: (requestUserEmail as string).toLowerCase(),
-              attemptId: args.browserSaveAttemptId,
-              payloadDigest: browserSavePayload,
-              resultJson: JSON.stringify({
-                kind: "preservation-required",
-                attemptId: args.browserSaveAttemptId,
-                result: "applied",
-                revision: documentRevisionToken(
-                  historyBefore.bodyRevision,
-                  historyBefore.content,
+          const current = currentAccess.resource;
+          const currentOwnerEmail = current.ownerEmail as string;
+          const currentFavorite = requestUserEmail
+            ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+            : parseDocumentFavorite(current.isFavorite);
+          if (discardedEditorGeneration !== undefined) {
+            return respond(
+              {
+                superseded: true,
+                id,
+                document: documentUpdateResponse(
+                  current,
+                  currentAccess.role,
+                  currentFavorite,
                 ),
-                updatedAt: historyBefore.updatedAt,
-                reason,
-                checkpointId,
-              }),
-            });
+                editorSessionId: args.editorSessionId as string,
+                editGeneration: args.editorEditGeneration as number,
+                discardedGeneration: discardedEditorGeneration,
+              } satisfies DocumentUpdateSupersededResponse,
+              currentOwnerEmail,
+            );
           }
-        };
-        if (authoredBase && authoredCandidateContent !== undefined) {
-          const prior = await findDocumentBodyIntent({
-            db: tx as ReturnType<typeof getDb>,
-            ownerEmail,
-            documentId: id,
-            writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
-            operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
-          });
-          if (prior) {
-            // The base alone can differ on a resend: the editor rebases an
-            // unsent save onto its own confirmed saves, while the page's
-            // draft journal replays it from the base it first recorded. The
-            // same authored body is the same delivery.
-            if (
-              prior.candidateHash !==
-                documentContentHash(authoredCandidateContent) ||
-              prior.metadataHash !== authoredMetadataHash
-            ) {
+
+          if (browserSaveConfirmation?.result === "replayed") {
+            return respond(
+              documentUpdateResponse(
+                current,
+                currentAccess.role,
+                currentFavorite,
+                browserSaveConfirmation.softDeletedDatabaseIds ?? [],
+                browserSaveConfirmation,
+              ),
+              currentOwnerEmail,
+            );
+          }
+
+          if (preservationRequired) {
+            return respond(
+              {
+                preservationRequired: true,
+                id,
+                document: documentUpdateResponse(
+                  current,
+                  currentAccess.role,
+                  currentFavorite,
+                ),
+                reason: preservationRequired.reason,
+                checkpointId: preservationRequired.checkpointId,
+              } satisfies DocumentUpdatePreservationResponse,
+              preservationRequired.mutationOwnerEmail ?? currentOwnerEmail,
+            );
+          }
+
+          if (contentCasConflict) {
+            if (isExternalCaller) {
               throw new ActionContractError(
-                "An editor generation cannot be reused with a different authored body.",
-                { errorCode: "EDITOR_BODY_INTENT_REUSED", statusCode: 409 },
+                "Document update conflicted; no changes were saved. Read get-document and retry against its current metadata.",
+                { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
               );
             }
-            bodyIntentOutcome = prior.displacedCheckpointId
-              ? {
-                  status: "displaced-preserved",
-                  displacedCheckpointId: prior.displacedCheckpointId,
-                }
-              : { status: "applied" };
-            measurement.outcome = "replayed";
-            await confirmBrowserSave(historyBefore, historyBefore.updatedAt);
-            return;
-          }
-        }
-        if (
-          ctx?.caller === "frontend" &&
-          !authoredBase &&
-          content !== undefined &&
-          content !== historyBefore.content
-        ) {
-          await preserveUnmergedContent(content, "provenance");
-          return;
-        }
-        let intentMerge:
-          | Extract<
-              ReturnType<typeof mergeDocumentBodyIntents>,
-              { status: "resolved" }
-            >
-          | undefined;
-        if (authoredBase && authoredCandidateContent !== undefined) {
-          const priorIntents = await readDocumentBodyIntents({
-            db: tx as ReturnType<typeof getDb>,
-            ownerEmail,
-            documentId: id,
-            afterRevision: authoredBase.revision,
-            throughRevision: historyBefore.bodyRevision,
-          });
-          const resolved = mergeDocumentBodyIntents({
-            authoredBaseContent: args.authoredBaseContent as string,
-            authoredCandidateContent,
-            currentContent: historyBefore.content,
-            currentRevision: historyBefore.bodyRevision,
-            incoming: {
-              writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
-              operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
-              generation: args.editorEditGeneration,
-              authoredBaseRevision: authoredBase.revision,
-            },
-            priorIntents,
-          });
-          if (resolved.status === "preservation-required") {
-            await preserveUnmergedContent(
-              authoredCandidateContent,
-              resolved.reason,
+            return respond(
+              documentConflictResponse(
+                current,
+                currentAccess.role,
+                currentFavorite,
+              ),
+              currentOwnerEmail,
             );
-            return;
           }
-          intentMerge = resolved;
-          content = resolved.content;
         }
-        const lockedTitleChanged =
-          titleChanged && args.title !== historyBefore.title;
-        const lockedContentChanged =
-          content !== undefined && content !== historyBefore.content;
-        const lockedDescriptionChanged =
-          args.description !== undefined &&
-          args.description.trim() !== historyBefore.description;
-        const lockedIconChanged =
-          args.icon !== undefined && args.icon !== historyBefore.icon;
-        const lockedDocumentFieldsChanged =
-          lockedTitleChanged ||
-          lockedContentChanged ||
-          lockedDescriptionChanged ||
-          lockedIconChanged;
-        const parsedBaseRevision = args.baseRevision
-          ? parseDocumentRevisionToken(args.baseRevision)
-          : null;
-        if (args.baseRevision && !parsedBaseRevision) {
-          throw new ActionContractError(
-            "baseRevision is not a valid document revision token.",
-            { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
-          );
-        }
-        if (
-          lockedContentChanged &&
-          args.baseRevision &&
-          !intentMerge &&
-          args.baseRevision !==
-            documentRevisionToken(
-              historyBefore.bodyRevision,
-              historyBefore.content,
-            )
-        ) {
-          measurement.reason_code = "body_base_changed";
-          contentCasConflict = true;
-          return;
-        }
-        if (
-          lockedTitleChanged &&
-          args.baseTitle !== undefined &&
-          historyBefore.title !== args.baseTitle
-        ) {
-          measurement.reason_code = "title_base_changed";
-          contentCasConflict = true;
-          return;
-        }
-        const updatedAt = nextDocumentUpdatedAt(historyBefore.updatedAt);
-        const updates: Record<string, unknown> = { updatedAt };
-        if (lockedTitleChanged) updates.title = args.title;
-        if (lockedDescriptionChanged)
-          updates.description = args.description?.trim();
-        if (lockedContentChanged) {
-          updates.content = content;
-          updates.bodyRevision = historyBefore.bodyRevision + 1;
-        }
-        if (lockedIconChanged)
-          updates.icon =
-            args.icon === null
-              ? null
-              : serializeIconValue(parseIconValue(args.icon));
-        if (lockedTitleChanged || lockedContentChanged) {
-          Object.assign(updates, documentEditAttribution(actor));
-        }
-        const primaryBlocksFields = lockedContentChanged
-          ? await lockPrimaryBlocksFields(
-              tx as unknown as ReturnType<typeof getDb>,
-              id,
-            )
-          : [];
-        const applied = await commitCanonicalDocumentBodyMutation({
-          write: async () => {
-            if (
-              intentMerge ||
-              (useBodyRevisionCas && lockedContentChanged) ||
-              useDocumentCas
-            ) {
-              const rows = await tx
-                .update(schema.documents)
-                .set(updates)
-                .where(
-                  and(
-                    eq(schema.documents.id, id),
-                    ...(intentMerge || parsedBaseRevision
-                      ? [
-                          eq(
-                            schema.documents.bodyRevision,
-                            intentMerge
-                              ? historyBefore.bodyRevision
-                              : parsedBaseRevision!.revision,
-                          ),
-                        ]
-                      : [
-                          eq(
-                            schema.documents.updatedAt,
-                            args.baseUpdatedAt as string,
-                          ),
-                        ]),
+
+        if (isAgentCaller && committedContentChanged) {
+          try {
+            agentTouchDocument(id, {
+              edit: {
+                descriptor: {
+                  kind: "text",
+                  quote: firstChangedQuote(
+                    committedContentBefore,
+                    content ?? "",
                   ),
-                )
-                .returning({ id: schema.documents.id });
-              return rows.length > 0;
-            }
-            if (lockedDocumentFieldsChanged) {
-              await tx
-                .update(schema.documents)
-                .set(updates)
-                .where(eq(schema.documents.id, id));
-            }
-            return true;
-          },
-          afterWrite: async () => {
-            if (lockedContentChanged && content !== undefined) {
-              for (const field of primaryBlocksFields) {
-                await persistBlocksFieldIdentity({
-                  db: tx as unknown as ReturnType<typeof getDb>,
-                  ownerEmail: field.ownerEmail,
-                  documentId: id,
-                  propertyId: field.propertyId,
-                  previousMarkdown: historyBefore.content,
-                  markdown: content,
-                  now: updatedAt,
-                });
-              }
-            }
-          },
-        });
-        if (!applied) {
-          measurement.reason_code =
-            intentMerge || parsedBaseRevision
-              ? "body_revision_cas_conflict"
-              : "timestamp_cas_conflict";
-          contentCasConflict = true;
-          return;
-        }
-        if (lockedIconChanged) {
-          await syncPrivateIconReference(
-            tx as unknown as ReturnType<typeof getDb>,
-            {
-              elementType: "document",
-              elementId: id,
-              documentId: id,
-              icon: updates.icon ?? null,
-              ownerEmail,
-              orgId: (existing.orgId as string | null) ?? null,
-            },
-          );
-        }
-        if (lockedContentChanged && content !== undefined) {
-          await syncPrivateCalloutReferences(
-            tx as unknown as ReturnType<typeof getDb>,
-            {
-              documentId: id,
-              before: historyBefore.content,
-              after: content,
-              userEmail: actor,
-              ownerEmail,
-              orgId: (existing.orgId as string | null) ?? null,
-            },
-          );
-        }
-        committedContentChanged = lockedContentChanged;
-        measurement.outcome = lockedDocumentFieldsChanged
-          ? intentMerge && bodyBaseStale && lockedContentChanged
-            ? "merged"
-            : "written"
-          : "unchanged";
-        committedContentBefore = historyBefore.content;
-
-        if (lockedTitleChanged && args.title !== undefined) {
-          await propagateDocumentTitle({
-            db: tx as unknown as ReturnType<typeof getDb>,
-            documentId: id,
-            title: args.title,
-            updatedAt,
-            organizationIds: titleOrganizationIds,
-          });
-        }
-        if (lockedTitleChanged || lockedContentChanged) {
-          const [after] = await tx
-            .select({
-              title: schema.documents.title,
-              content: schema.documents.content,
-            })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id))
-            .limit(1);
-          committedEditorSnapshot = after;
-          await recordDocumentHistoryTransition({
-            db: tx as unknown as ReturnType<typeof getDb>,
-            ownerEmail,
-            documentId: id,
-            before: historyBefore,
-            after,
-            beforeBodyRevision: historyBefore.bodyRevision,
-            afterBodyRevision:
-              historyBefore.bodyRevision + (lockedContentChanged ? 1 : 0),
-            cause: {
-              ctx,
-              historySessionId: args.historySessionId,
-              operation: "update-document",
-            },
-            now: updatedAt,
-          });
-          measurement.history_effect = "transition";
-        }
-        if (intentMerge && authoredBase) {
-          const intent = {
-            writerId: `browser:${(requestUserEmail as string).toLowerCase()}:${args.editorSessionId}`,
-            operationId: `${args.editorSessionId}:${args.editorEditGeneration}`,
-            generation: args.editorEditGeneration,
-            authoredBaseRevision: authoredBase.revision,
-          };
-          const displacedCheckpointId = intentMerge.displaced
-            ? await preserveDocumentBodyIntent({
-                db: tx as ReturnType<typeof getDb>,
-                ownerEmail,
-                documentId: id,
-                title: historyBefore.title,
-                candidateContent: authoredCandidateContent as string,
-                actorEmail: requestUserEmail ?? null,
-                origin: "frontend",
-                operation: "update-document-displaced",
-                now: updatedAt,
-              })
-            : undefined;
-          if (displacedCheckpointId) {
-            measurement.outcome = "merged_with_displaced_text";
-            measurement.history_effect =
-              measurement.history_effect === "transition"
-                ? "transition_and_preservation"
-                : "preservation";
-          }
-          await recordDocumentBodyIntent({
-            db: tx as ReturnType<typeof getDb>,
-            ownerEmail,
-            orgId: requestOrgId,
-            documentId: id,
-            intent,
-            candidateHash: documentContentHash(
-              authoredCandidateContent as string,
-            ),
-            metadataHash: authoredMetadataHash,
-            committedRevision:
-              historyBefore.bodyRevision + (lockedContentChanged ? 1 : 0),
-            changedBlockIndexes: intentMerge.changedBlockIndexes,
-            canonicalChanged: lockedContentChanged,
-            displacedCheckpointId,
-            now: updatedAt,
-          });
-          bodyIntentOutcome = intentMerge.displaced
-            ? { status: "displaced-preserved", displacedCheckpointId }
-            : { status: "applied" };
-        }
-        if (lockedContentChanged && content !== undefined) {
-          softDeletedDatabaseIds =
-            await reconcileInlineDatabasesForDocumentWithDb({
-              db: tx as ReturnType<typeof getDb>,
-              documentId: id,
-              content,
-              ownerEmail,
-              now: updatedAt,
-            });
-        }
-        if (
-          (settlesPreviewDraft || args.browserSaveAttemptId) &&
-          committedEditorSnapshot === null
-        ) {
-          const [snapshot] = await tx
-            .select({
-              title: schema.documents.title,
-              content: schema.documents.content,
-            })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id))
-            .limit(1);
-          committedEditorSnapshot = snapshot ?? null;
-        }
-        if (committedEditorSnapshot)
-          await confirmBrowserSave(committedEditorSnapshot, updatedAt);
-      };
-      if (
-        (favoriteChanged || args.isFavorite === false) &&
-        !settlesPreviewDraft
-      ) {
-        await setFavoriteAndOrder({
-          db,
-          userEmail: requestUserEmail as string,
-          documentId: id,
-          favorite: args.isFavorite as boolean,
-          now: nextDocumentUpdatedAt(existing.updatedAt),
-        });
-        measurement.outcome =
-          favoriteChanged || args.isFavorite === false
-            ? "written"
-            : "unchanged";
-      } else {
-        try {
-          await db.transaction(mutate);
-        } catch (error) {
-          if (!args.browserSaveAttemptId || !browserSavePayload) throw error;
-          const stored = await findBrowserSaveAttempt({
-            db,
-            documentId: id,
-            actorEmail: (requestUserEmail as string).toLowerCase(),
-            orgId: requestOrgId,
-            attemptId: args.browserSaveAttemptId,
-          });
-          if (!stored) throw error;
-          const receipt = readBrowserSaveAttempt(stored, browserSavePayload);
-          measurement.outcome = "replayed";
-          measurement.history_effect = "none";
-          measurement.stale_base = "unknown";
-          delete measurement.reason_code;
-          if ("kind" in receipt) {
-            preservationRequired = {
-              reason: receipt.reason,
-              checkpointId: receipt.checkpointId,
-            };
-          } else {
-            browserSaveConfirmation = receipt;
-          }
-        }
-      }
-
-      if (contentCasConflict && measurement.outcome !== "replayed")
-        measurement.outcome = "conflict";
-      measurement.settled = true;
-
-      if (discardedEditorGeneration !== undefined) {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id));
-        return scopeDocumentAudit(
-          {
-            superseded: true,
-            id,
-            document: documentUpdateResponse(
-              current,
-              access.role,
-              currentFavorite,
-            ),
-            editorSessionId: args.editorSessionId as string,
-            editGeneration: args.editorEditGeneration as number,
-            discardedGeneration: discardedEditorGeneration,
-          } satisfies DocumentUpdateSupersededResponse,
-          ownerEmail,
-        );
-      }
-
-      if (browserSaveConfirmation?.result === "replayed") {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id));
-        return scopeDocumentAudit(
-          documentUpdateResponse(
-            current,
-            access.role,
-            currentFavorite,
-            browserSaveConfirmation.softDeletedDatabaseIds ?? [],
-            browserSaveConfirmation,
-          ),
-          ownerEmail,
-        );
-      }
-
-      if (preservationRequired) {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id));
-        return scopeDocumentAudit(
-          {
-            preservationRequired: true,
-            id,
-            document: documentUpdateResponse(
-              current,
-              access.role,
-              currentFavorite,
-            ),
-            ...preservationRequired,
-          } satisfies DocumentUpdatePreservationResponse,
-          ownerEmail,
-        );
-      }
-
-      if (contentCasConflict) {
-        const [current] = await db
-          .select()
-          .from(schema.documents)
-          .where(eq(schema.documents.id, id));
-        return scopeDocumentAudit(
-          documentConflictResponse(current, access.role, currentFavorite),
-          ownerEmail,
-        );
-      }
-
-      if (isAgentCaller && committedContentChanged) {
-        try {
-          agentTouchDocument(id, {
-            edit: {
-              descriptor: {
-                kind: "text",
-                quote: firstChangedQuote(committedContentBefore, content ?? ""),
+                },
+                label: (args.title ?? existing.title) || undefined,
               },
-              label: (args.title ?? existing.title) || undefined,
-            },
-          });
-        } catch (error) {
-          console.error(
-            "update-document: agent presence publish failed",
-            error,
-          );
+            });
+          } catch (error) {
+            console.error(
+              "update-document: agent presence publish failed",
+              error,
+            );
+          }
         }
       }
-      if (isAgentCaller) {
-        creativeContext = await documentMutationCreativeContext({
-          documentId: id,
-          contextPackId: args.contextPackId,
-          contextModeOverride: args.contextModeOverride,
-          reuseLabels: args.reuseLabels,
-          artifactAccessAsserted: true,
-        });
-        if (creativeContext) {
+
+      measurement.settled = true;
+      let resolvingDocumentAccess = false;
+      try {
+        if (isAgentCaller && creativeContext) {
           await recordGenerationCreativeContext({
             appId: "content",
             artifactType: "document",
@@ -1698,56 +1858,97 @@ const updateDocumentAction = defineAction({
             ...creativeContext,
           });
         }
+        resolvingDocumentAccess = true;
+        const finalAccess = await resolveDocumentAccessForMutation(id, "id");
+        resolvingDocumentAccess = false;
+        const doc = finalAccess.resource;
+        const finalFavorite = requestUserEmail
+          ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+          : parseDocumentFavorite(doc.isFavorite);
+
+        await writeAppState("refresh-signal", { ts: Date.now() });
+
+        if (isAgentCaller && doc.content !== existing.content) {
+          track(
+            "ai_refine_used",
+            {
+              app_name: "content",
+              template_name: "content",
+              output_id: id,
+              output_type: "document",
+              edit_count: 1,
+              refine_type: "full_update",
+            },
+            ctx,
+          );
+        }
+
+        return respond(
+          {
+            ...documentUpdateResponse(
+              doc,
+              finalAccess.role,
+              finalFavorite,
+              softDeletedDatabaseIds,
+              browserSaveConfirmation,
+            ),
+            ...(bodyIntentOutcome ? { bodyIntentOutcome } : {}),
+            ...(creativeContext
+              ? {
+                  contextMode: creativeContext.contextMode,
+                  contextPackId: creativeContext.contextPackId,
+                  reuseLabels: creativeContext.reuseLabels,
+                }
+              : {}),
+          } satisfies BrowserDocumentUpdateResponse,
+          ownerEmail,
+        );
+      } catch (error) {
+        if (!writeCommitted) throw error;
+        if (
+          resolvingDocumentAccess &&
+          (error instanceof ForbiddenError ||
+            (error instanceof ActionContractError &&
+              error.errorCode === "DOCUMENT_NOT_FOUND"))
+        ) {
+          throw withCommittedActionAudit(
+            new ActionContractError(
+              "The update was saved, but the document is no longer accessible. Do not retry this write.",
+              {
+                errorCode: "DOCUMENT_SAVED_ACCESS_CHANGED",
+                statusCode: error.statusCode,
+                details: { id, saved: true },
+              },
+            ),
+            scopeDocumentAudit({ id, saved: true }, ownerEmail),
+          );
+        }
+        throw withCommittedActionAudit(
+          new ActionContractError(
+            "The update was saved, but its response could not be completed. Do not retry this write.",
+            {
+              errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
+              statusCode: 500,
+              details: { id, saved: true },
+            },
+          ),
+          scopeDocumentAudit({ id, saved: true }, ownerEmail),
+        );
       }
-    }
-
-    measurement.settled = true;
-    const [doc] = await db
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, id));
-    const finalFavorite = requestUserEmail
-      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
-      : parseDocumentFavorite(doc.isFavorite);
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
-    if (isAgentCaller && doc.content !== existing.content) {
-      track(
-        "ai_refine_used",
-        {
-          app_name: "content",
-          template_name: "content",
-          output_id: id,
-          output_type: "document",
-          edit_count: 1,
-          refine_type: "full_update",
-        },
-        ctx,
-      );
-    }
-
-    return scopeDocumentAudit(
-      {
-        ...documentUpdateResponse(
-          doc,
-          access.role,
-          finalFavorite,
-          softDeletedDatabaseIds,
-          browserSaveConfirmation,
-        ),
-        ...(bodyIntentOutcome ? { bodyIntentOutcome } : {}),
-        ...(creativeContext
-          ? {
-              contextMode: creativeContext.contextMode,
-              contextPackId: creativeContext.contextPackId,
-              reuseLabels: creativeContext.reuseLabels,
-            }
-          : {}),
-      } satisfies BrowserDocumentUpdateResponse,
-      ownerEmail,
-    );
-  }),
+    },
+  ),
+  link: ({ result }) => {
+    if (!result.id) return null;
+    return {
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId: result.id },
+      }),
+      label: "Open document",
+      view: "editor",
+    };
+  },
 });
 
 export default {

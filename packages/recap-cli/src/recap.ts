@@ -2843,6 +2843,7 @@ export async function publishRecapSource(input: {
   sourcePath?: string;
   out?: string;
   prevPlanId?: string;
+  idempotencyKey?: string;
   repo?: string;
   pr?: string;
   sourceUrl?: string;
@@ -2904,13 +2905,15 @@ export async function publishRecapSource(input: {
     name: explicitSourceAuthor.name ?? resolvedSourceAuthor?.name,
     login: explicitSourceAuthor.login ?? resolvedSourceAuthor?.login,
   };
-  const idempotencyKey = recapPublishIdempotencyKey({
-    prevPlanId: input.prevPlanId,
-    repo: input.repo,
-    pr: input.pr,
-    sourcePath,
-    sourceUrl,
-  });
+  const idempotencyKey =
+    input.idempotencyKey?.trim() ||
+    recapPublishIdempotencyKey({
+      prevPlanId: input.prevPlanId,
+      repo: input.repo,
+      pr: input.pr,
+      sourcePath,
+      sourceUrl,
+    });
   const body = {
     ...(input.prevPlanId ? { planId: input.prevPlanId } : {}),
     idempotencyKey,
@@ -3096,6 +3099,7 @@ async function runPublish(
       sourcePath: optionalArg(args, "source") ?? RECAP_SOURCE_FILENAME,
       out,
       prevPlanId: optionalArg(args, "prev-plan-id"),
+      idempotencyKey: optionalArg(args, "idempotency-key"),
       repo: optionalArg(args, "repo") ?? process.env.GITHUB_REPOSITORY,
       pr: optionalArg(args, "pr") ?? process.env.PR_NUMBER,
       sourceUrl: optionalArg(args, "source-url"),
@@ -4720,7 +4724,7 @@ Usage:
   npx @agent-native/recap-cli@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--block-reference recap-blocks.md] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   npx @agent-native/recap-cli@latest recap repair-prompt [--source recap-source.json] [--reason-file recap-url-reason.txt] [--out recap-repair-prompt.md]
   npx @agent-native/recap-cli@latest recap validate-repair --original recap-source.initial.json [--source recap-source.json] [--reason-file recap-url-reason.txt]
-  npx @agent-native/recap-cli@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--source-author-email <email>] [--source-author-name <name>] [--source-author-login <login>] [--app-url <url>] [--token <planToken>] [--github-token <ghToken>]
+  npx @agent-native/recap-cli@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--idempotency-key <key>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--source-author-email <email>] [--source-author-name <name>] [--source-author-login <login>] [--app-url <url>] [--token <planToken>] [--github-token <ghToken>]
   npx @agent-native/recap-cli@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark] [--image-cache-key <key>]
   npx @agent-native/recap-cli@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex|openai-compatible] [--model <id>]
   npx @agent-native/recap-cli@latest recap agent-summary --result-file <path> [--stderr-file <path>] [--exit-code-file <path>] [--agent claude|codex|openai-compatible]

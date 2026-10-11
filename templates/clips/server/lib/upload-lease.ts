@@ -71,6 +71,7 @@ export async function renewUploadLease(
     generationId?: string | null;
     ownerEmail?: string;
     loomImportClaimId?: string;
+    preserveParked?: boolean;
   } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
@@ -98,6 +99,11 @@ export async function renewUploadLease(
         claimScoped
           ? eq(schema.recordings.status, "processing")
           : inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        ...(options.preserveParked
+          ? [
+              sql`NOT (${schema.recordings.status} = 'uploading' AND ${schema.recordings.failureReason} IS NOT NULL AND ${schema.recordings.failureReason} <> '')`,
+            ]
+          : []),
         ...(options.ownerEmail === undefined
           ? []
           : [

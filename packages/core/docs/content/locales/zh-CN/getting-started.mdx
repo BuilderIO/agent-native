@@ -15,7 +15,7 @@ Agent-Native 是一个开源 TypeScript 框架，用于构建配备直观 UI 的
 
 - [Node.js](https://nodejs.org) 22.22 或更高版本
 - [pnpm](https://pnpm.io) 已安装并可通过 `PATH` 运行
-- 供智能体使用的 LLM 连接：Builder.io、Anthropic 或 OpenAI API 密钥，或本地 Ollama 模型
+- 设置期间可选；运行智能体时需要：Builder.io、Anthropic/OpenAI 密钥或本地 Ollama
 
 ## 创建智能体
 
@@ -52,15 +52,15 @@ pnpm dev
 
 </Callout>
 
-## 连接 LLM
+## 连接 LLM（可选） {#connect-an-llm}
 
-接下来，连接 LLM。选择 **使用 Builder.io** 以使用免费额度，或选择 **Custom keys**，选择提供商并输入所需的连接信息。
+使用 **Use Builder.io** 连接 Builder.io 账户，通过 **Custom keys** 保存个人或组织密钥，或在本地开发时将提供商密钥设为 `.env`，并在自托管应用的部署环境中设置应用级密钥。请参阅 [LLM 提供商设置](/docs/environment-variables#llm-provider-keys)。
 
 ## 从智能体运行动作
 
 动作是 React UI 可以从代码中调用、智能体可以作为工具使用的类型化函数。Chat 模板包含一个简单的 `hello` 动作，让你可以在自己编写动作前先体验这一模式。
 
-在智能体面板中，输入：
+在 **开始使用** 页面的输入框中，输入：
 
 > Call the hello action for Alex.
 

@@ -16,6 +16,8 @@ export const FACTORY_INBOX_LIMIT_MAX = 50;
 export const FACTORY_WORK_LIMIT_MAX = 10;
 export const FACTORY_INBOX_LIMIT_DEFAULT = 25;
 export const FACTORY_INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_ID = "C0C4U4XRT6X";
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_NAME = "#qa-agent-native";
 
 export type FactoryAutomationSource = "slack" | "github" | "sentry";
 export type FactoryAutomationAuthorMode = "include" | "exclude";
@@ -51,6 +53,17 @@ export type FactoryAutomationConfig = {
   inboxLimit: number;
   workLimit: number;
 };
+
+export function requiresSlackFindingsDestination(
+  config: Pick<FactoryAutomationConfig, "source" | "template">,
+): boolean {
+  if (config.source === "sentry") return true;
+  return (
+    config.source === "github" &&
+    config.template !== "pr-governance" &&
+    config.template !== "pr-babysit"
+  );
+}
 
 const SLACK_MEMBER_ID = /^[UW][A-Z0-9]+$/i;
 const GITHUB_USER_ID = /^[1-9][0-9]*$/;
@@ -611,9 +624,15 @@ export function buildGuardrailsText(
     );
   }
   if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
-    lines.push(
-      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
-    );
+    if (config.source === "github" || config.source === "sentry") {
+      lines.push(
+        "Classify every item. Record non-eligible items as skips with dispatch-factory-item. Group all eligible GitHub issue or Sentry findings into one report-factory-findings call per run; it posts one message to #qa-agent-native and never writes to GitHub issues.",
+      );
+    } else {
+      lines.push(
+        "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
+      );
+    }
   }
   if (config.source === "slack") {
     lines.push(

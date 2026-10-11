@@ -8,6 +8,16 @@ import {
 export const STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.";
 
+export class VideoStorageStatusUnavailableError extends Error {
+  readonly causes: unknown[];
+
+  constructor(causes: unknown[]) {
+    super("Video storage status could not be checked");
+    this.name = "VideoStorageStatusUnavailableError";
+    this.causes = causes;
+  }
+}
+
 function appDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
   if (appName) {
@@ -39,23 +49,35 @@ export async function hasRequestVideoStorage(
   context?: VideoStorageResolveContext,
 ): Promise<boolean> {
   const resolve = async () => {
+    const failures: unknown[] = [];
     for (const provider of listFileUploadProviders()) {
       if (provider.id === "builder") continue;
-      if (provider.isConfigured()) return true;
+      try {
+        if (provider.isConfigured()) return true;
+      } catch (error) {
+        failures.push(error);
+      }
       if (provider.isConfiguredForRequest) {
         try {
           if (await provider.isConfiguredForRequest()) return true;
-        } catch {
-          // Treat a failed scoped lookup as not configured.
+        } catch (error) {
+          failures.push(error);
         }
       }
     }
 
     try {
-      return await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE);
-    } catch {
-      return false;
+      if (await canAuthorizeBuilderApiRequest(BUILDER_ASSETS_WRITE_SCOPE)) {
+        return true;
+      }
+    } catch (error) {
+      failures.push(error);
     }
+
+    if (failures.length > 0) {
+      throw new VideoStorageStatusUnavailableError(failures);
+    }
+    return false;
   };
 
   if (context?.userEmail) {

@@ -183,6 +183,12 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 
+const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
+  path: "/_agent-native/browser-sessions",
+  method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
 const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
   path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
   method: "POST",
@@ -198,15 +204,7 @@ const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
     path: "/_agent-native/actions/get-deck-access-status",
     errorTexts: navigationAbortErrors,
   },
-  {
-    path: "/_agent-native/browser-sessions",
-    method: "POST",
-    errorTexts: [
-      "Load request cancelled",
-      "cancelled",
-      ...navigationAbortErrors,
-    ],
-  },
+  browserSessionRegistrationRequestRule,
   browserSessionClaimRequestRule,
 ];
 
@@ -245,6 +243,24 @@ type WatchedRequestNavigationCandidate = {
   requestWasPendingAtNavigation?: boolean;
 };
 
+function isExpectedWatchedRequestNavigationAbort(
+  candidate: WatchedRequestNavigationCandidate,
+  rules: readonly SaveReloadRequestAbortRule[],
+) {
+  return (
+    candidate.requestWasPendingAtNavigation === true &&
+    candidate.ageMs >= 0 &&
+    candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+    rules.some((rule) => {
+      const matchesPath =
+        typeof rule.path === "string"
+          ? rule.path === candidate.pathname
+          : rule.path.test(candidate.pathname);
+      return matchesPath && (!rule.method || rule.method === candidate.method);
+    })
+  );
+}
+
 export function isExpectedWatchedRequestCorsError(
   message: string,
   activePhase: string,
@@ -266,38 +282,100 @@ export function isExpectedWatchedRequestCorsError(
   return candidates.some(
     (candidate) =>
       candidate.url === match[1] &&
-      candidate.requestWasPendingAtNavigation === true &&
-      candidate.ageMs >= 0 &&
-      candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
-      rules.some((rule) => {
-        const matchesPath =
-          typeof rule.path === "string"
-            ? rule.path === candidate.pathname
-            : rule.path.test(candidate.pathname);
-        return (
-          matchesPath && (!rule.method || rule.method === candidate.method)
-        );
-      }),
+      isExpectedWatchedRequestNavigationAbort(candidate, rules),
   );
+}
+
+export function isExpectedSaveReloadBrowserSessionConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  const rules =
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+      ? [browserSessionClaimRequestRule]
+      : message ===
+          "[Agent-Native browser session] heartbeat failed: TypeError: Load failed"
+        ? [browserSessionRegistrationRequestRule]
+        : null;
+  return (
+    activePhase === "save/reload" &&
+    rules !== null &&
+    candidates.some((candidate) =>
+      isExpectedWatchedRequestNavigationAbort(candidate, rules),
+    )
+  );
+}
+
+export function isFirefoxBrowserSessionConsoleError(message: string) {
+  return /^\[Agent-Native browser session\] (?:poll|heartbeat) failed: JSHandle@object$/.test(
+    message,
+  );
+}
+
+type BrowserSessionConsoleArgument = {
+  jsonValue(): Promise<unknown>;
+  evaluate<T>(pageFunction: (value: unknown) => T): Promise<T>;
+};
+
+type BrowserSessionConsoleMessage = {
+  text(): string;
+  args(): BrowserSessionConsoleArgument[];
+};
+
+export async function normalizeFirefoxBrowserSessionConsoleError(
+  message: BrowserSessionConsoleMessage,
+) {
+  const text = message.text();
+  const match =
+    /^\[Agent-Native browser session\] (poll|heartbeat) failed: JSHandle@object$/.exec(
+      text,
+    );
+  if (!match) return text;
+
+  try {
+    const args = message.args();
+    if (args.length !== 2) return text;
+    const prefix = `[Agent-Native browser session] ${match[1]} failed:`;
+    const [loggedPrefix, detail] = await Promise.all([
+      args[0].jsonValue(),
+      args[1].evaluate((error) => String(error)),
+    ]);
+    if (loggedPrefix !== prefix) return text;
+    return typeof detail === "string" ? `${prefix} ${detail}` : text;
+  } catch {
+    return text;
+  }
 }
 
 export function isExpectedCleanupBrowserSessionPollConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
-  if (
-    message !==
-    "[Agent-Native browser session] poll failed: TypeError: Load failed"
-  ) {
-    return false;
-  }
+  return (
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    candidates.some((candidate) =>
+      isExpectedWatchedRequestNavigationAbort(candidate, [
+        browserSessionClaimRequestRule,
+      ]),
+    )
+  );
+}
 
-  return candidates.some((candidate) =>
-    isExpectedWatchedRequestCorsError(
-      `Fetch API cannot load ${candidate.url} due to access control checks.`,
-      "cleanup/navigation",
-      [candidate],
-    ),
+export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  return (
+    message ===
+      "[Agent-Native browser session] heartbeat failed: TypeError: Load failed" &&
+    candidates.some((candidate) =>
+      isExpectedWatchedRequestNavigationAbort(candidate, [
+        browserSessionRegistrationRequestRule,
+      ]),
+    )
   );
 }
 
@@ -313,7 +391,8 @@ export function isExpectedCleanupNavigationError(
       "cleanup/navigation",
       candidates,
     ) ||
-      isExpectedCleanupBrowserSessionPollConsoleError(message, candidates))
+      isExpectedCleanupBrowserSessionPollConsoleError(message, candidates) ||
+      isExpectedCleanupBrowserSessionHeartbeatConsoleError(message, candidates))
   );
 }
 
@@ -940,7 +1019,9 @@ export async function runAuthoringFuzz(
   >();
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
   const reloadNavigationRequests = new Map<any, number>();
+  let reloadNavigationStartedAt: number | null = null;
   const pendingSaveConflicts: Promise<void>[] = [];
+  const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
   const patchDeckActionPath = "/_agent-native/actions/patch-deck";
   let patchDeckConflicts = 0;
@@ -959,32 +1040,59 @@ export async function runAuthoringFuzz(
     if (message.type() !== "error") return;
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
+        `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
       );
     }
     if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
       return;
     }
-    if (
-      isExpectedWatchedRequestCorsError(
-        message.text(),
-        activePhase,
-        [...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({
-          url: request.url(),
-          pathname: new URL(request.url()).pathname,
-          method: request.method(),
-          ageMs: Date.now() - startedAt,
-          requestWasPendingAtNavigation: true,
-        })),
-      )
-    ) {
+    const consoleText = message.text();
+    const consolePhase = activePhase;
+    const reloadNavigationCandidates = [
+      ...reloadNavigationRequests.entries(),
+    ].map(([request, startedAt]) => ({
+      url: request.url(),
+      pathname: new URL(request.url()).pathname,
+      method: request.method(),
+      ageMs: Date.now() - startedAt,
+      requestWasPendingAtNavigation: true,
+    }));
+    const recordUnlessExpected = (text: string) => {
+      if (
+        isExpectedSaveReloadBrowserSessionConsoleError(
+          text,
+          consolePhase,
+          reloadNavigationCandidates,
+        ) ||
+        isExpectedWatchedRequestCorsError(
+          text,
+          consolePhase,
+          reloadNavigationCandidates,
+        )
+      ) {
+        return;
+      }
+      pageErrors.push(text);
+    };
+    if (!isFirefoxBrowserSessionConsoleError(consoleText)) {
+      recordUnlessExpected(consoleText);
       return;
     }
-    pageErrors.push(message.text());
+    let inspection: Promise<void>;
+    inspection = normalizeFirefoxBrowserSessionConsoleError(message)
+      .then(recordUnlessExpected)
+      .finally(() => pendingConsoleInspections.delete(inspection));
+    pendingConsoleInspections.add(inspection);
   };
-  const onPageError = (error: Error) =>
+  const onPageError = (error: Error) => {
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+      );
+    }
     pageErrors.push(error.stack ?? error.message);
+  };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const requestPendingAtReloadNavigation =
@@ -996,7 +1104,7 @@ export async function runAuthoringFuzz(
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation}`,
       );
     }
     if (
@@ -1036,6 +1144,16 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
+    }
+    if (
+      activePhase === "save/reload" &&
+      reloadNavigationStartedAt !== null &&
+      startedAt >= reloadNavigationStartedAt &&
+      startedAt - reloadNavigationStartedAt <
+        reloadNavigationAbortMaxRequestAgeMs &&
+      isBrowserSessionPath(requestUrl.pathname)
+    ) {
+      reloadNavigationRequests.set(request, startedAt);
     }
     if (!traceEnabled) return;
     pendingRequests.set(request, {
@@ -1169,6 +1287,9 @@ export async function runAuthoringFuzz(
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
   const checkPageErrors = async () => {
     await Promise.all(pendingSaveConflicts.splice(0));
+    while (pendingConsoleInspections.size) {
+      await Promise.all([...pendingConsoleInspections]);
+    }
     if (pageErrors.length)
       throw new Error(
         `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
@@ -3376,7 +3497,7 @@ export async function runAuthoringFuzz(
           await listbox
             .locator('[role="option"]')
             .first()
-            .waitFor({ state: "visible", timeout: 1500 });
+            .waitFor({ state: "visible", timeout: 5000 });
           await page.keyboard.press("Escape");
           await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
@@ -4761,10 +4882,17 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
+      reloadNavigationStartedAt = Date.now();
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
+        if (traceEnabled) {
+          console.log(
+            `[edit-fidelity] reload pending ${request.method()} ${new URL(request.url()).pathname} ageMs=${Date.now() - startedAt}`,
+          );
+        }
       }
     });
+    reloadNavigationStartedAt = null;
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [

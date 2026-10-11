@@ -247,6 +247,59 @@ describe("upload lease", () => {
     });
   });
 
+  it("preserves a parked lease during a storage-status retry and rejects stale attempts", async () => {
+    await insertRecording({
+      id: "preserved-parked",
+      status: "uploading",
+      lease: waitingStorageLeaseExpiry(NOW),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ?, upload_attempt_id = ?, upload_generation_id = ? WHERE id = ?`,
+      args: [
+        "Connect storage to finish saving.",
+        "attempt-current",
+        "generation-current",
+        "preserved-parked",
+      ],
+    });
+
+    const parked = await renewUploadLease("preserved-parked", {
+      now: NOW,
+      attemptId: "attempt-current",
+      generationId: "generation-current",
+      ownerEmail: "owner@example.com",
+      preserveParked: true,
+    });
+    expect(parked).toMatchObject({
+      held: false,
+      staleAttempt: false,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+    });
+    const { rows: parkedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, failure_reason FROM recordings WHERE id = ?`,
+      args: ["preserved-parked"],
+    });
+    expect(parkedRows[0]).toEqual({
+      upload_lease_expires_at: waitingStorageLeaseExpiry(NOW),
+      failure_reason: "Connect storage to finish saving.",
+    });
+
+    const stale = await renewUploadLease("preserved-parked", {
+      now: NOW,
+      attemptId: "attempt-stale",
+      generationId: "generation-current",
+      ownerEmail: "owner@example.com",
+      preserveParked: true,
+    });
+    expect(stale).toMatchObject({
+      held: false,
+      staleAttempt: true,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+    });
+  });
+
   it("leaves a leased, actively-uploading recording alone", async () => {
     await insertRecording({
       id: "live",

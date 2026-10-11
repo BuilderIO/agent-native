@@ -185,8 +185,10 @@ export function settingsRouteHashForSection(
 
 export function AgentPanelSettingsNavigation({
   onOpenSettings,
+  onReadyChange,
 }: {
   onOpenSettings?: (section?: string) => void;
+  onReadyChange?: (ready: boolean) => void;
 } = {}) {
   const navigate = useNavigate();
 
@@ -223,12 +225,15 @@ export function AgentPanelSettingsNavigation({
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
       handleOpenSettings,
     );
-    return () =>
+    onReadyChange?.(true);
+    return () => {
+      onReadyChange?.(false);
       window.removeEventListener(
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [navigate, onOpenSettings]);
+    };
+  }, [navigate, onOpenSettings, onReadyChange]);
 
   return null;
 }
@@ -540,7 +545,12 @@ export interface AgentPanelProps extends Omit<
   AssistantChatProps,
   "onSwitchToCli"
 > {
+  onReadyChange?: (ready: boolean) => void;
   defaultMode?: "chat" | "cli";
+  onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
+  onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
+  onTabsClosed?: MultiTabAssistantChatProps["onTabsClosed"];
+  onTabsClosing?: MultiTabAssistantChatProps["onTabsClosing"];
   className?: string;
   style?: React.CSSProperties;
   onCollapse?: () => void;
@@ -724,6 +734,11 @@ function CodeAccessUnavailablePanel({
 }
 
 function AgentPanelInner({
+  onReadyChange,
+  onReferenceTargetChange,
+  onNavigationChange,
+  onTabsClosed,
+  onTabsClosing,
   defaultMode = "chat",
   className,
   style,
@@ -774,6 +789,20 @@ function AgentPanelInner({
   const t = useT();
   const location = useLocation();
   const mounted = useClientOnly();
+  const [chatCommandsReady, setChatCommandsReady] = useState(false);
+  const [modeCommandsReady, setModeCommandsReady] = useState(false);
+  const [settingsCommandsReady, setSettingsCommandsReady] = useState(false);
+  useEffect(() => {
+    onReadyChange?.(
+      chatCommandsReady && modeCommandsReady && settingsCommandsReady,
+    );
+    return () => onReadyChange?.(false);
+  }, [
+    onReadyChange,
+    chatCommandsReady,
+    modeCommandsReady,
+    settingsCommandsReady,
+  ]);
   const [activeChatModelEngine, setActiveChatModelEngine] =
     useState<ModelEngineConfig | null>(null);
   const onboardingPreviewMode = useOnboardingPreviewMode();
@@ -911,8 +940,11 @@ function AgentPanelInner({
       }
     }
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
-    return () =>
+    setModeCommandsReady(true);
+    return () => {
+      setModeCommandsReady(false);
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
+    };
   }, [switchMode]);
 
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -2333,7 +2365,10 @@ function AgentPanelInner({
 
   return (
     <ThinkingDisplayProvider value={assistantChatProps.thinkingDisplay}>
-      <AgentPanelSettingsNavigation onOpenSettings={onOpenSettings} />
+      <AgentPanelSettingsNavigation
+        onOpenSettings={onOpenSettings}
+        onReadyChange={setSettingsCommandsReady}
+      />
       <div
         className={cn(
           "agent-panel-root agent-kit-density flex flex-1 flex-col min-h-0 min-w-0 h-full antialiased",
@@ -2401,6 +2436,11 @@ function AgentPanelInner({
           {mounted && (
             <MultiTabAssistantChat
               {...assistantChatProps}
+              onCommandListenersReadyChange={setChatCommandsReady}
+              onReferenceTargetChange={onReferenceTargetChange}
+              onNavigationChange={onNavigationChange}
+              onTabsClosed={onTabsClosed}
+              onTabsClosing={onTabsClosing}
               threadContentSlot={assistantChatProps.threadContentSlot}
               agentChatSurface={effectiveAgentChatSurface}
               apiUrl={apiUrl}

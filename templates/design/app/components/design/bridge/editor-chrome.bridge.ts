@@ -712,13 +712,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function reportCanvasFocusState(reason?: string): void {
-    if (readOnly || interactionMode) return;
+  function reportCanvasFocusState(reason?: string, requestId?: number): void {
+    if ((readOnly || interactionMode) && !Number.isSafeInteger(requestId)) {
+      return;
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:canvas-focus-state",
-        focusSafe: isCanvasFocusTransferSafe(),
+        focusSafe:
+          !readOnly &&
+          !interactionMode &&
+          !activeTextEditEl &&
+          isCanvasFocusTransferSafe(),
         ...(reason ? { reason } : {}),
+        ...(Number.isSafeInteger(requestId) ? { requestId } : {}),
       },
       "*",
     );
@@ -4197,15 +4204,102 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
+  function appliedContentOffset() {
+    var offsetStyle = document.querySelector(
+      "style[data-agent-native-content-offset]",
+    );
+    if (!offsetStyle) return { x: 0, y: 0 };
+    var xAttribute = offsetStyle.getAttribute(
+      "data-agent-native-content-offset-x",
+    );
+    var yAttribute = offsetStyle.getAttribute(
+      "data-agent-native-content-offset-y",
+    );
+    var x = xAttribute === null ? NaN : Number(xAttribute);
+    var y = yAttribute === null ? NaN : Number(yAttribute);
+    var cssOffset =
+      Number.isFinite(x) && Number.isFinite(y)
+        ? { x: x, y: y }
+        : (function () {
+            var match =
+              /translate:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))px\s+(-?(?:\d+(?:\.\d*)?|\.\d+))px/.exec(
+                offsetStyle.textContent || "",
+              );
+            return match
+              ? { x: Number(match[1]), y: Number(match[2]) }
+              : { x: 0, y: 0 };
+          })();
+    var body = document.body;
+    if (!body) return cssOffset;
+    var ancestorTransform = { a: 1, b: 0, c: 0, d: 1 };
+    for (
+      var ancestor: Element | null = body;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      ancestorTransform = multiplyPositionTransforms(
+        positionElementTransform(window.getComputedStyle(ancestor)),
+        ancestorTransform,
+      );
+    }
+    return {
+      x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
+      y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y,
+    };
+  }
+
+  function boardContentOffsetRootForElement(
+    el: Element,
+    offset: { x: number; y: number },
+  ): Element | null {
+    if (offset.x === 0 && offset.y === 0) return null;
+    var body = el.ownerDocument.body;
+    if (!body) return null;
+    var root = el;
+    while (root.parentElement && root.parentElement !== body) {
+      root = root.parentElement;
+    }
+    return root.parentElement === body &&
+      root.hasAttribute("data-agent-native-node-id")
+      ? root
+      : null;
+  }
+
+  function positionOriginWithBoardContentOffset(
+    origin: { x: number; y: number },
+    offsetRoot: Element | null,
+    originElement: Element | null,
+    offset: { x: number; y: number },
+  ) {
+    if (!offsetRoot || (originElement && offsetRoot.contains(originElement))) {
+      return origin;
+    }
+    return {
+      x: origin.x + offset.x,
+      y: origin.y + offset.y,
+    };
+  }
+
   function positionReferenceRectForElement(
     el: Element,
     fixedWithoutContainingBlock: boolean,
+    offset: { x: number; y: number },
   ) {
+    var offsetRoot = boardContentOffsetRootForElement(el, offset);
     if (fixedWithoutContainingBlock) {
       var fixedRoot = el.ownerDocument.documentElement;
+      var fixedReferenceOrigin = positionOriginWithBoardContentOffset(
+        {
+          x: window.scrollX || window.pageXOffset || 0,
+          y: window.scrollY || window.pageYOffset || 0,
+        },
+        offsetRoot,
+        null,
+        offset,
+      );
       return {
-        x: window.scrollX || window.pageXOffset || 0,
-        y: window.scrollY || window.pageYOffset || 0,
+        x: fixedReferenceOrigin.x,
+        y: fixedReferenceOrigin.y,
         width: fixedRoot.clientWidth,
         height: fixedRoot.clientHeight,
       };
@@ -4213,14 +4307,32 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var ancestor = el.parentElement;
     while (ancestor) {
       if (ancestor.getAttribute("data-an-primitive") === "frame") {
-        return rectInfoForElement(ancestor);
+        var frameRect = rectInfoForElement(ancestor);
+        var frameReferenceOrigin = positionOriginWithBoardContentOffset(
+          frameRect,
+          offsetRoot,
+          ancestor,
+          offset,
+        );
+        return {
+          x: frameReferenceOrigin.x,
+          y: frameReferenceOrigin.y,
+          width: frameRect.width,
+          height: frameRect.height,
+        };
       }
       ancestor = ancestor.parentElement;
     }
     var root = el.ownerDocument.documentElement;
+    var rootReferenceOrigin = positionOriginWithBoardContentOffset(
+      { x: 0, y: 0 },
+      offsetRoot,
+      null,
+      offset,
+    );
     return {
-      x: 0,
-      y: 0,
+      x: rootReferenceOrigin.x,
+      y: rootReferenceOrigin.y,
       width: root.clientWidth,
       height: root.clientHeight,
     };
@@ -4317,7 +4429,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function positionContainingBlockForElement(
     el: Element,
     cache: PositionComputedStylesCache,
+    offset: { x: number; y: number },
   ) {
+    var offsetRoot = boardContentOffsetRootForElement(el, offset);
     var fixed =
       positionComputedStylesForElement(el, cache).position === "fixed";
     var containingBlock: Element | null = null;
@@ -4352,12 +4466,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     if (!containingBlock) {
       return {
-        origin: fixed
-          ? {
-              x: window.scrollX || window.pageXOffset || 0,
-              y: window.scrollY || window.pageYOffset || 0,
-            }
-          : { x: 0, y: 0 },
+        origin: positionOriginWithBoardContentOffset(
+          fixed
+            ? {
+                x: window.scrollX || window.pageXOffset || 0,
+                y: window.scrollY || window.pageYOffset || 0,
+              }
+            : { x: 0, y: 0 },
+          offsetRoot,
+          null,
+          offset,
+        ),
         transform: transform,
         hasContainingBlock: false,
       };
@@ -4376,18 +4495,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var scrollY = htmlContainingBlock.scrollTop || 0;
     if (paddingQuad) {
       return {
-        origin: {
-          x:
-            paddingQuad.p1.x +
-            window.scrollX -
-            transform.a * scrollX -
-            transform.c * scrollY,
-          y:
-            paddingQuad.p1.y +
-            window.scrollY -
-            transform.b * scrollX -
-            transform.d * scrollY,
-        },
+        origin: positionOriginWithBoardContentOffset(
+          {
+            x:
+              paddingQuad.p1.x +
+              window.scrollX -
+              transform.a * scrollX -
+              transform.c * scrollY,
+            y:
+              paddingQuad.p1.y +
+              window.scrollY -
+              transform.b * scrollX -
+              transform.d * scrollY,
+          },
+          offsetRoot,
+          containingBlock,
+          offset,
+        ),
         transform: transform,
         hasContainingBlock: true,
       };
@@ -4395,16 +4519,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     var rect = rectInfoForElement(containingBlock);
     return {
-      origin: {
-        x:
-          rect.x +
-          transform.a * (htmlContainingBlock.clientLeft - scrollX) +
-          transform.c * (htmlContainingBlock.clientTop - scrollY),
-        y:
-          rect.y +
-          transform.b * (htmlContainingBlock.clientLeft - scrollX) +
-          transform.d * (htmlContainingBlock.clientTop - scrollY),
-      },
+      origin: positionOriginWithBoardContentOffset(
+        {
+          x:
+            rect.x +
+            transform.a * (htmlContainingBlock.clientLeft - scrollX) +
+            transform.c * (htmlContainingBlock.clientTop - scrollY),
+          y:
+            rect.y +
+            transform.b * (htmlContainingBlock.clientLeft - scrollX) +
+            transform.d * (htmlContainingBlock.clientTop - scrollY),
+        },
+        offsetRoot,
+        containingBlock,
+        offset,
+      ),
       transform: transform,
       hasContainingBlock: true,
     };
@@ -6449,6 +6578,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var cs = window.getComputedStyle(el);
     var positionComputedStylesCache =
       sharedPositionComputedStylesCache || new WeakMap();
+    var positionRenderOffset = appliedContentOffset();
     positionComputedStylesCache.set(el, cs);
     var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
     var boundingRect = rectInfoForElement(el);
@@ -6464,10 +6594,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var positionCoordinateContext = positionContainingBlockForElement(
       el,
       positionComputedStylesCache,
+      positionRenderOffset,
     );
     var positionReferenceRect = positionReferenceRectForElement(
       el,
       cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
+      positionRenderOffset,
     );
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
@@ -6728,11 +6860,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       type: string;
       payload: unknown;
       intent?: ReturnType<typeof selectionIntentFromEvent>;
+      trustedPointer?: boolean;
+      focusSafe?: boolean;
     } = {
       type: "element-select",
       payload: getElementInfo(el),
     };
     if (intent) message.intent = intent;
+    if (e?.isTrusted && intent?.source === "pointer") {
+      message.trustedPointer = true;
+      message.focusSafe = !activeTextEditEl && isCanvasFocusTransferSafe();
+    }
     (window.parent as Window).postMessage(message, "*");
 
     var framework = frameworkDebugProvenance(el);
@@ -27774,6 +27912,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.data.type === "agent-native:canvas-focus-state-probe") {
       reportCanvasFocusState(
         e.data.reason === "route-change" ? "route-change" : undefined,
+        Number.isSafeInteger(e.data.requestId) ? e.data.requestId : undefined,
       );
       return;
     }
@@ -27975,6 +28114,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             "px " +
             Math.round(designCanvasContentOffsetY) +
             "px;}";
+          contentOffsetStyle.setAttribute(
+            "data-agent-native-content-offset-x",
+            String(Math.round(designCanvasContentOffsetX)),
+          );
+          contentOffsetStyle.setAttribute(
+            "data-agent-native-content-offset-y",
+            String(Math.round(designCanvasContentOffsetY)),
+          );
         }
       }
       return;

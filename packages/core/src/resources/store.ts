@@ -6,6 +6,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
 import {
@@ -1148,10 +1149,12 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
+    _initPromise = retainRequestDbPoolScope(
+      _doEnsureTable().catch((err) => {
+        _initPromise = undefined;
+        throw err;
+      }),
+    );
   }
   return _initPromise;
 }
@@ -1352,40 +1355,36 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  try {
-    const { getBuiltinAgentsForSeeding } =
-      await import("../server/agent-discovery.js");
-    const builtins = getBuiltinAgentsForSeeding();
-    for (const agent of builtins) {
-      const agentJson = JSON.stringify(
-        {
-          id: agent.id,
-          name: agent.name,
-          description: agent.description,
-          url: agent.url, // always prod
-          color: agent.color,
-        },
-        null,
-        2,
-      );
-      assertResourcePayloadIsSqlSafe(agentJson, "application/json");
-      const agentSize = Buffer.byteLength(agentJson, "utf8");
-      await client.execute({
-        sql: seedSql,
-        args: [
-          crypto.randomUUID(),
-          `remote-agents/${agent.id}.json`,
-          SHARED_OWNER,
-          agentJson,
-          "application/json",
-          agentSize,
-          now,
-          now,
-        ],
-      });
-    }
-  } catch {
-    // Agent discovery not available — skip seeding
+  const { getBuiltinAgentsForSeeding } =
+    await import("../server/agent-discovery.js");
+  const builtins = getBuiltinAgentsForSeeding();
+  for (const agent of builtins) {
+    const agentJson = JSON.stringify(
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        url: agent.url, // always prod
+        color: agent.color,
+      },
+      null,
+      2,
+    );
+    assertResourcePayloadIsSqlSafe(agentJson, "application/json");
+    const agentSize = Buffer.byteLength(agentJson, "utf8");
+    await client.execute({
+      sql: seedSql,
+      args: [
+        crypto.randomUUID(),
+        `remote-agents/${agent.id}.json`,
+        SHARED_OWNER,
+        agentJson,
+        "application/json",
+        agentSize,
+        now,
+        now,
+      ],
+    });
   }
 
   try {
@@ -1905,6 +1904,44 @@ async function resourcePutIfAbsentInternal(
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
+  const resource = await writeResourceIfCurrent(input, getDbExec());
+  if (resource) await notifyResourceIfCurrent(input, resource);
+  return resource;
+}
+
+/** The caller must emit the returned notification only after its transaction commits. */
+export async function resourcePutIfCurrentInTransaction(
+  input: ResourceConditionalWrite,
+  tx: DbExec,
+): Promise<{ resource: Resource; notify: () => Promise<void> } | null> {
+  const resource = await writeResourceIfCurrent(input, tx);
+  return resource
+    ? {
+        resource,
+        notify: () => notifyResourceIfCurrent(input, resource),
+      }
+    : null;
+}
+
+async function notifyResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  resource: Resource,
+): Promise<void> {
+  await noteJobFrontmatterWrite({
+    owner: resource.owner,
+    orgId: organizationIdFromResourceOwner(resource.owner),
+    path: resource.path,
+    before: input.expectedContent,
+    after: resource.content,
+    writer: "resourcePutIfCurrent",
+  });
+  emitResourceChange(resource.id, resource.path, resource.owner);
+}
+
+async function writeResourceIfCurrent(
+  input: ResourceConditionalWrite,
+  client: DbExec,
+): Promise<Resource | null> {
   assertResourcePayloadIsSqlSafe(input.content, input.mimeType);
   await ensureTable();
   if (
@@ -1917,7 +1954,6 @@ export async function resourcePutIfCurrent(
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
-  const client = getDbExec();
   const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
@@ -1947,15 +1983,6 @@ export async function resourcePutIfCurrent(
   });
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
-  await noteJobFrontmatterWrite({
-    owner: resource.owner,
-    orgId: organizationIdFromResourceOwner(resource.owner),
-    path: resource.path,
-    before: input.expectedContent,
-    after: resource.content,
-    writer: "resourcePutIfCurrent",
-  });
-  emitResourceChange(resource.id, resource.path, resource.owner);
   return resource;
 }
 

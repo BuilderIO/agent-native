@@ -368,6 +368,45 @@ describe("llmJudge scorer via the analyze context (mocked engine)", () => {
 });
 
 describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
+  it("resolves the production engine and model inside the caller org context", async () => {
+    const context = {
+      ...testProductionContext(),
+      appId: "analytics",
+      productionChatPath: testProductionChatPath(),
+    };
+    const { getRequestContext } = await import("../server/request-context.js");
+    const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
+    engineMod.resolveEngine.mockImplementation(async (config) => {
+      expect(config).toEqual({ appId: "analytics" });
+      expect(getRequestContext()).toMatchObject({
+        userEmail: "eval@example.com",
+        orgId: "org-eval",
+        isSyntheticTraffic: true,
+      });
+      return engine;
+    });
+    engineMod.getStoredModelForEngine.mockImplementation(
+      async (_engine, options) => {
+        expect(options).toEqual({ appId: "analytics" });
+        expect(getRequestContext()).toMatchObject({
+          userEmail: "eval@example.com",
+          orgId: "org-eval",
+          isSyntheticTraffic: true,
+        });
+        return null;
+      },
+    );
+
+    await createAgentRunner({ productionContext: context });
+
+    expect(engineMod.resolveEngine).toHaveBeenCalledWith({
+      appId: "analytics",
+    });
+    expect(engineMod.getStoredModelForEngine).toHaveBeenCalledWith(engine, {
+      appId: "analytics",
+    });
+  });
+
   it("supports the legacy actions and systemPrompt runner options", async () => {
     const actions = { search: { readOnly: true } as never };
     const engine = { defaultModel: "fake-model" } as unknown as AgentEngine;
@@ -735,7 +774,7 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
   });
 
   it.each(["timed_out", "failed"] as const)(
-    "fails production eval when prefetch status is %s",
+    "scores the production run when prefetch status is %s",
     async (prefetchStatus) => {
       const runner = await createAgentRunner({
         productionContext: {
@@ -748,8 +787,7 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
 
       const output = await runner.runAgent({ prompt: "find active users" });
 
-      expect(output.ok).toBe(false);
-      expect(output.error).toContain(`prefetch status "${prefetchStatus}"`);
+      expect(output.ok).toBe(true);
     },
   );
 
@@ -978,6 +1016,41 @@ describe("runEvalSuite runner creation", () => {
       });
     },
   );
+
+  it("reports an aborted production adapter run as a failed eval", async () => {
+    const evalCase = defineEval({
+      name: "aborted-production-adapter",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async () => {
+      throw new Error("request aborted");
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+      results: [
+        {
+          status: "failed",
+          passed: false,
+          error: "request aborted",
+        },
+      ],
+    });
+  });
 
   it("persists eval results by default", async () => {
     const e = defineEval({

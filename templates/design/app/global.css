@@ -59,6 +59,11 @@
   padding: 0;
 }
 
+[data-design-agent-panel]
+  [data-agent-composer-slot="area"][data-agent-composer-variant="default"] {
+  padding: 0;
+}
+
 [data-design-app]
   .agent-composer-context-row:not(
     [data-design-home-composer] .agent-composer-context-row

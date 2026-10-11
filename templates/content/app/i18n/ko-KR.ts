@@ -796,7 +796,6 @@ const editor = {
     linkToNotionPage: "Notion 페이지 링크",
     localFile: "로컬 파일",
     morePageActions: "추가 페이지 작업",
-    formatting: "서식",
     noPagesFound: "페이지를 찾을 수 없습니다",
     notifications: "알림",
     notionSync: "노션싱크",
@@ -1104,6 +1103,8 @@ const exactEnglish = {
       openInClaude: "Claude에서 열기",
       openInClaudeCode: "Claude Code에서 열기",
       openInCodex: "Codex에서 열기",
+      connectContent: "Content 연결",
+      otherAgents: "다른 에이전트",
       agentCopyAccessNote:
         "에이전트는 기존 권한으로 Content MCP를 사용할 수 있습니다",
       temporaryAgentLink: "임시 에이전트 링크",

@@ -15,6 +15,7 @@ export function pickMimeType(): string {
   for (const type of pickMimeTypeCandidates()) {
     try {
       if (MediaRecorder.isTypeSupported(type)) return type;
+      // coercion-ok: failed optional parsing leaves the original HTTP body intact.
     } catch {
       // isTypeSupported can throw on some builds — treat as unsupported.
     }
@@ -27,6 +28,7 @@ export type UploadMode = "streaming" | "buffered";
 export const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
 
 export type UploadResponseFailureStage = "chunk_upload" | "reset_chunks";
+export type UploadResponseErrorCode = "video_storage_status_unavailable";
 
 export function classifyUploadResponseError(input: {
   contentType: string | null;
@@ -36,6 +38,7 @@ export function classifyUploadResponseError(input: {
 }): {
   isHtml: boolean;
   responseText: string | null;
+  errorCode?: UploadResponseErrorCode;
   status: number;
   failureCode: "upload_failed" | "chunk_html_error";
   failureStage: UploadResponseFailureStage;
@@ -43,10 +46,25 @@ export function classifyUploadResponseError(input: {
   const isHtml =
     /^\s*text\/html(?:\s*;|$)/i.test(input.contentType ?? "") ||
     /(?:<!doctype\s+html\b|<html\b)/i.test(input.body);
+  let errorCode: UploadResponseErrorCode | undefined;
+  if (!isHtml) {
+    try {
+      const payload = JSON.parse(input.body) as { errorCode?: unknown };
+      if (
+        input.status === 503 &&
+        payload.errorCode === "video_storage_status_unavailable"
+      ) {
+        errorCode = payload.errorCode;
+      }
+    } catch {
+      // coercion-ok: failed optional parsing leaves the original responseText intact.
+    }
+  }
 
   return {
     isHtml,
-    responseText: isHtml ? null : input.body,
+    responseText: isHtml || errorCode ? null : input.body,
+    ...(errorCode ? { errorCode } : {}),
     status: input.status,
     failureCode: isHtml ? "chunk_html_error" : "upload_failed",
     failureStage: input.stage,

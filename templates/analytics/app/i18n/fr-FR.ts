@@ -1945,6 +1945,10 @@ export default {
     presetWeekdays: "Jours ouvrés à 06:00",
     presetWeekly: "Chaque lundi à 06:00",
     status: "Statut",
+    unresolvedTrackingCallSites: "Appels de suivi non résolus",
+    unresolvedTrackingCallSitesUnavailable: "Indisponible",
+    dynamicTrackingCoverageCaveat:
+      "Les appels dont le nom d’événement est calculé à l’exécution sont exclus ; les alias et autres API de suivi peuvent ne pas être détectés.",
     overviewFailed: "L’état de la création n’a pas pu être chargé.",
     build: "Créer",
     building: "Création en cours…",

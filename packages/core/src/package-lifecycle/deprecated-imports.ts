@@ -32,6 +32,8 @@ const SKIP_DIRECTORIES = new Set([
   "coverage",
   "dist",
   "node_modules",
+  "playwright-report",
+  "test-results",
 ]);
 const REGEX_PREFIX_KEYWORDS = new Set([
   "await",
@@ -82,10 +84,56 @@ export interface ScanDeprecatedImportsOptions {
   manifests?: MigrationManifest[];
 }
 
+function isMissingPathError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "ENOENT" || error.code === "ENOTDIR")
+  );
+}
+
+function isSourcePath(root: string, file: string): boolean {
+  const relative = path.relative(root, file);
+  return (
+    relative.length > 0 &&
+    !relative.startsWith(`..${path.sep}`) &&
+    relative !== ".." &&
+    !relative
+      .split(path.sep)
+      .some((segment) => SKIP_DIRECTORIES.has(segment)) &&
+    SOURCE_EXTENSIONS.has(path.extname(file)) &&
+    !file.endsWith(".d.ts")
+  );
+}
+
+type DirectoryEntries =
+  | { kind: "entries"; entries: fs.Dirent[] }
+  | { kind: "missing" };
+
+function readDirectoryEntries(
+  directory: string,
+  root: string,
+): DirectoryEntries {
+  try {
+    return {
+      kind: "entries",
+      entries: fs.readdirSync(directory, { withFileTypes: true }),
+    };
+  } catch (error) {
+    if (directory !== root && isMissingPathError(error)) {
+      return { kind: "missing" };
+    }
+    throw error;
+  }
+}
+
 function sourceFiles(root: string): string[] {
   const files: string[] = [];
   const visit = (directory: string): void => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const result = readDirectoryEntries(directory, root);
+    if (result.kind === "missing") return;
+    for (const entry of result.entries) {
       if (entry.isDirectory() && SKIP_DIRECTORIES.has(entry.name)) continue;
       const entryPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
@@ -100,6 +148,17 @@ function sourceFiles(root: string): string[] {
   };
   visit(root);
   return files.sort();
+}
+
+type SourceText = { kind: "read"; text: string } | { kind: "missing" };
+
+function readSourceText(file: string): SourceText {
+  try {
+    return { kind: "read", text: fs.readFileSync(file, "utf-8") };
+  } catch (error) {
+    if (isMissingPathError(error)) return { kind: "missing" };
+    throw error;
+  }
 }
 
 function mergeMoves(
@@ -977,17 +1036,7 @@ export function scanDeprecatedImports(
   const findings: DeprecatedImportFinding[] = [];
   const files = options.files
     ? [...new Set(options.files.map((file) => path.resolve(file)))].filter(
-        (file) => {
-          const relative = path.relative(root, file);
-          return (
-            relative.length > 0 &&
-            !relative.startsWith(`..${path.sep}`) &&
-            relative !== ".." &&
-            SOURCE_EXTENSIONS.has(path.extname(file)) &&
-            !file.endsWith(".d.ts") &&
-            fs.existsSync(file)
-          );
-        },
+        (file) => isSourcePath(root, file),
       )
     : sourceFiles(root);
   const fromDeclaration =
@@ -1021,7 +1070,9 @@ export function scanDeprecatedImports(
     /@import\s+(?:["']([^"']+)["']|url\(\s*(?:(["'])([^"']+)\2|([^)'"\s]+))\s*\))\s*;?/g;
 
   for (const file of files) {
-    const sourceText = fs.readFileSync(file, "utf-8");
+    const sourceResult = readSourceText(file);
+    if (sourceResult.kind === "missing") continue;
+    const sourceText = sourceResult.text;
     const commentMask = new Uint8Array(sourceText.length);
     const codeMask = codePositionMask(sourceText, commentMask);
     const text = replaceCommentsWithWhitespace(sourceText, commentMask);

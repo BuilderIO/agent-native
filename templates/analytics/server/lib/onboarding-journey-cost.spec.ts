@@ -112,6 +112,10 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
       {
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
       },
     );
     expect(mocks.scopedAnalyticsSql).toHaveBeenNthCalledWith(
@@ -122,6 +126,10 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
       {
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
       },
     );
     expect(
@@ -134,6 +142,10 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
       },
     );
     expect(JSON.stringify(estimate)).not.toContain("private");

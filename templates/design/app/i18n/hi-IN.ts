@@ -222,7 +222,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "डिज़ाइन",
+    home: "होम",
     templates: "टेम्पलेट",
     designSystems: "डिज़ाइन सिस्टम",
     setupDesignSystem: "डिज़ाइन सिस्टम सेट करें",
@@ -767,7 +767,7 @@ export default {
       needsConnectedApp: "सोर्स पर जाने के लिए कनेक्टेड ऐप आवश्यक है",
     },
     leftRail: {
-      file: "फ़ाइल",
+      layers: "परतें",
       agent: "एजेंट",
       assets: "एसेट",
       import: "आयात",
@@ -1066,7 +1066,7 @@ export default {
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     fileMenu: {
       pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
-      designs: "डिज़ाइन",
+      allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
@@ -1686,9 +1686,11 @@ export default {
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
     imageAttachmentUnavailable:
-      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
+      "इस छवि को अपलोड के लिए तैयार नहीं किया जा सका। JPG, PNG, GIF या WebP छवि आज़माएँ।",
+    imageAttachmentTooLarge:
+      "हर छवि {{perFile}} MB तक हो सकती है; सभी छवियों का कुल आकार {{total}} MB तक हो सकता है।",
     attachmentsTooLarge:
-      "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
+      "छवियाँ अपने आप अनुकूलित होती हैं। अनुकूलित छवियों और अन्य फ़ाइलों का कुल आकार {{max}} MB से अधिक नहीं होना चाहिए।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
     startBlankCanvas: "खाली कैनवास से शुरू करें",
@@ -1847,7 +1849,7 @@ export default {
     browseAllTemplates: "सभी ब्राउज़ करें",
     connectBuilderIo: "Builder.io इस्तेमाल करें",
     connectingBuilder: "Builder.io सेट अप हो रहा है…",
-    pageTitle: "Designs",
+    pageTitle: "होम",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
     newDesignLower: "नया डिज़ाइन",

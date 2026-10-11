@@ -75,6 +75,7 @@ export function buildSignupAgentRollup(input: {
   runUrl: string;
   artifactUrl?: string;
   reportIncomplete?: boolean;
+  continuityUnknown?: boolean;
 }): SignupAgentRollup {
   const findings = parseSignupAgentFindings(input.markdown);
   if (input.reportIncomplete && findings.length === 0) {
@@ -118,6 +119,9 @@ export function buildSignupAgentRollup(input: {
       "",
     ]),
     input.reportIncomplete ? "The review report was incomplete." : "",
+    input.continuityUnknown
+      ? "Prior scheduled report state was unavailable, so this review continued without prior state. Cross-run recovery may be incomplete."
+      : "",
   ].join("\n");
 
   const lines = [
@@ -125,6 +129,11 @@ export function buildSignupAgentRollup(input: {
     `Findings: ${findings.length} total; showing ${visible.length}; ${omittedFindingCount} omitted from this Slack message.`,
     ...(input.reportIncomplete
       ? ["The review did not produce complete evidence."]
+      : []),
+    ...(input.continuityUnknown
+      ? [
+          "Prior scheduled report state was unavailable; this review continued without prior state, so cross-run recovery may be incomplete.",
+        ]
       : []),
     ...(findings.length > 0
       ? ["", ...visible]
@@ -236,6 +245,7 @@ function main(): void {
     runUrl: requireArg(args, "run-url"),
     artifactUrl: args.get("artifact-url"),
     reportIncomplete: args.get("incomplete") === "true",
+    continuityUnknown: args.get("continuity-unknown") === "true",
   });
   const outDir = requireArg(args, "out-dir");
   mkdirSync(outDir, { recursive: true });

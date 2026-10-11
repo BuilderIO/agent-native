@@ -914,6 +914,10 @@ describe("getOnboardingJourney", () => {
         maxBytesBilled: 25_000_000_000,
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
       });
       expect(mocks.queryFirstPartyAnalytics.mock.calls[1]?.[2]).toMatchObject({
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },

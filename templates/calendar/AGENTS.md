@@ -21,6 +21,17 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - Distinguish an empty calendar from missing auth, reauth, or fetch failure. Treat working locations and full-day out-of-office as native status events. Use provider API actions for exact endpoints/filters or relationship history; stage large scans with `stageAs` and analyze via `query-staged-dataset`.
 - Use framework sharing actions. Keep scheduling answers concrete: dates, time zones, conflicts, and assumptions. See `event-management` for extensions, attendee adornments, RSVP scope, and multi-account details; `availability-booking` for booking controls and peer working-hours/time-zone hard filters.
 
+## Direct MCP actions
+
+| Action | Purpose |
+| --- | --- |
+| `list-events` | Read a schedule with account and source coverage |
+| `create-event` | Create on an owned Google account's primary calendar |
+| `update-event` | Edit an event using its id and accountEmail |
+| `respond-to-event` | RSVP; scope=single (default) answers one occurrence, scope=all answers the series |
+
+MCP writes use the authenticated caller's connected accounts. `respond-to-event` shares the in-app `rsvp-event` implementation; supply an occurrence id from `list-events` for a single-instance response.
+
 ## Application state
 
 - `navigation` exposes view, date, selected event, calendar account, booking link, and settings. `navigate` opens calendar, event, availability, booking, or settings; use actions for full event details and availability calculations.

@@ -2635,12 +2635,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70">
+            <div className="mt-3 shrink-0 min-w-0">
               <AppSidebarFooter
                 collapsed={false}
                 collapsible={false}
                 feedback={footerFeedback}
-                className="space-y-1 border-t-0 px-2"
+                className="border-border/70 px-2"
                 orgSwitcher={
                   <OrgSwitcher className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
                 }

@@ -126,7 +126,7 @@ https://<your-app>.agent-native.com/mcp
 
 Chaque application hébergée dispose également d'une page d'aide à l'adresse
 `https://&lt;app&gt;/mcp/connect` avec le URL copiable et
-onglets spécifiques à l'hôte pour Claude, ChatGPT, Cursor, Claude Code, Codex, Grok et autres.
+des onglets propres à chaque hôte pour Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok et Autre.
 
 ## Liens Content privés {#private-content-links}
 
@@ -177,9 +177,40 @@ instantanés. Les portées `mcp:read` / `mcp:write` / `mcp:apps` / `offline_acce
 que celles décrites plus bas dans
 [OAuth MCP distant standard](#standard-oauth).
 
-Cursor, Goose, Postman, MCPJam et VS Code GitHub Copilot utilisent la même télécommande
-MCP URL via leur propre serveur MCP UI lorsque leur version prend en charge les OAuth distants
-Serveurs MCP.
+### Cursor, VS Code et Codex {#install-links}
+
+Les onglets **Cursor** et **VS Code** de **Settings → MCP server** et de
+`/mcp/connect` proposent des boutons d’installation. **Ajouter à Cursor** ouvre
+l’invite **Install MCP server?** de Cursor. **Ajouter à VS Code** et **Ajouter à
+VS Code Insiders** ouvrent une page de serveur avec un bouton **Install**. Un
+lien ne contient que le nom du serveur, le transport et l’URL MCP ; il ne
+contient jamais de jeton, d’en-tête ni d’information de compte. Le client lance
+sa propre connexion OAuth lors de sa première connexion. Dans VS Code, les
+outils apparaissent ensuite dans la vue Chat, en mode Agent.
+
+Pour Codex, exécutez `codex mcp add <server-name> --url <mcp-url>`, puis
+`codex mcp login <server-name>` pour vous connecter avec OAuth. L’onglet
+**Codex** renseigne les deux valeurs.
+
+Goose, Postman, MCPJam et les autres clients utilisent la même URL MCP distante
+depuis leurs propres écrans de serveurs MCP lorsque leur version prend en
+charge les serveurs MCP distants avec OAuth.
+
+### Noms de serveur {#server-names}
+
+L’app nomme son serveur MCP, et chaque surface utilise ce nom : les liens
+d’installation, les commandes à copier et
+`npx @agent-native/core@latest connect`.
+La production utilise le nom sans préfixe, par exemple `agent-native-mail`. Les
+déploiements bêta, d’aperçu et locaux placent l’environnement en tête, par
+exemple `beta-agent-native-mail`, pour qu’un même client puisse garder une
+entrée de production et une entrée bêta côte à côte. Ces préfixes sont
+réservés : `mcp.serverName` ne peut pas commencer par `beta-`, `preview-` ou
+`local-`, si bien qu’un nom bêta ne correspond jamais au nom de production
+d’une autre app. Les scripts peuvent lire le nom avec
+`GET /mcp/connect/identity`, qui ne demande aucune connexion et renvoie le nom
+du serveur, le nom de l’app, l’URL de l’app, l’URL MCP et l’environnement, ainsi
+que l’indicateur `connect`, qui vaut `false` lorsque `mcp.connect` est désactivé.
 
 ### Invite de test rapide {#quick-test}
 

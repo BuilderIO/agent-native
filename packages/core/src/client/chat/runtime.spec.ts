@@ -689,6 +689,226 @@ describe("createAgentNativeChatRuntime", () => {
     expect(body.attachments).toEqual([attachment]);
   });
 
+  it("keeps an empty-prompt image turn out of prior history", async () => {
+    const currentImage = {
+      type: "image" as const,
+      alt: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,CURRENT_IMAGE_BYTES",
+      url: "https://files.example.test/reference.png",
+    };
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: currentImage.data,
+      url: currentImage.url,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-image-only",
+    });
+    const turn = await session.startTurn({
+      prompt: "",
+      attachments: [requestAttachment],
+      messages: [
+        {
+          id: "prior-request",
+          role: "user",
+          content: [{ type: "text", text: "Earlier request" }],
+        },
+        {
+          id: "current-image",
+          role: "user",
+          content: [currentImage],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = (body.structuredHistory ?? []) as Array<{
+      content: Array<{ type: string; url?: string }>;
+    }>;
+
+    expect(body.attachments).toEqual([requestAttachment]);
+    expect(body.history).toEqual([
+      { role: "user", content: "Earlier request" },
+    ]);
+    expect(
+      structuredHistory.flatMap((message) => message.content),
+    ).not.toContainEqual(
+      expect.objectContaining({
+        type: "image-reference",
+        url: currentImage.url,
+      }),
+    );
+  });
+
+  it("counts a repeated history image once so an older distinct image still fits", async () => {
+    const olderUrl = "https://files.example.test/older.png";
+    const repeatedUrl = "https://files.example.test/repeated.png";
+    const imagePart = (url: string, alt: string) => ({
+      type: "image" as const,
+      alt,
+      mediaType: "image/png",
+      data: `data:image/png;base64,${alt}`,
+      url,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-repeated-history-images",
+    });
+    const turn = await session.startTurn({
+      prompt: "Compare the references",
+      attachments: [],
+      messages: [
+        {
+          id: "older-image",
+          role: "user",
+          content: [imagePart(olderUrl, "older.png")],
+        },
+        ...Array.from({ length: 7 }, (_, index) => ({
+          id: `repeated-image-${index}`,
+          role: "user",
+          content: [imagePart(repeatedUrl, `repeated-${index}.png`)],
+        })),
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const references = (
+      (body.structuredHistory ?? []) as Array<{
+        content: Array<{ type: string; url?: string; name?: string }>;
+      }>
+    )
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image-reference");
+
+    expect(references).toHaveLength(2);
+    expect(references).toContainEqual(
+      expect.objectContaining({ url: olderUrl, name: "older.png" }),
+    );
+    expect(references).toContainEqual(
+      expect.objectContaining({ url: repeatedUrl, name: "repeated-6.png" }),
+    );
+  });
+
+  it("does not replay a current image in approval continuation history", async () => {
+    const imageUrl = "https://files.example.test/reference.png";
+    const currentImage = {
+      type: "image" as const,
+      alt: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,APPROVAL_IMAGE_BYTES",
+      url: imageUrl,
+    };
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: currentImage.data,
+      url: `${imageUrl}?token=fixture#download`,
+    };
+    const approvalKey = "publish-release:{}";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-continue-image",
+            tool: "publish-release",
+            input: {},
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            input: {},
+            approvalKey,
+            toolCallId: "call-continue-image",
+          },
+          {
+            type: "tool_done",
+            id: "call-continue-image",
+            tool: "publish-release",
+            result: "Awaiting approval.",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approval-image-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approval-image-history",
+      threadId: "thread-approval-image-history",
+    });
+    const first = await session.startTurn({
+      prompt: "Review this image before publishing.",
+      attachments: [requestAttachment],
+      messages: [
+        {
+          id: "originating-image",
+          role: "user",
+          content: [currentImage],
+        },
+        {
+          id: "latest-assistant-history",
+          role: "assistant",
+          content: [{ type: "text", text: "Preparing the release." }],
+        },
+      ],
+    });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalKey, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    for (const call of fetchMock.mock.calls) {
+      const body = JSON.parse(String(call[1]?.body));
+      const historyText = JSON.stringify(body.history ?? []);
+      const structuredHistory = JSON.stringify(body.structuredHistory ?? []);
+
+      expect(body.attachments).toEqual([requestAttachment]);
+      expect(body.history).toContainEqual({
+        role: "assistant",
+        content: "Preparing the release.",
+      });
+      expect(historyText).not.toContain("[attached: reference.png");
+      expect(structuredHistory).not.toContain("image-reference");
+      expect(structuredHistory).not.toContain(imageUrl);
+    }
+
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationBody.message).toBe(
+      "Approved. Go ahead and run the requested action.",
+    );
+    expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
+  });
+
   it("keeps the original request context when a run-timeout stream closes without done", async () => {
     const fetchMock = vi
       .fn()
@@ -1211,6 +1431,163 @@ describe("createAgentNativeChatRuntime", () => {
         ]),
       }),
     );
+  });
+
+  it("excludes the current prompt after trailing assistant messages", async () => {
+    const prompt = "Summarize the uploaded reference.";
+    const imageUrl = "https://files.example.test/current-reference.png";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-current-prompt-after-assistant-tail",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: "Review the project brief." }],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image",
+              alt: "current-reference.png",
+              mediaType: "image/png",
+              data: "data:image/png;base64,CURRENT_IMAGE_BYTES",
+              url: imageUrl,
+            },
+          ],
+        },
+        {
+          id: "assistant-continuation-1",
+          role: "assistant",
+          content: [{ type: "text", text: "I am checking the reference." }],
+        },
+        {
+          id: "assistant-continuation-2",
+          role: "assistant",
+          content: [{ type: "text", text: "The review is ready." }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = JSON.stringify({
+      history: body.history,
+      structuredHistory: body.structuredHistory,
+    });
+    expect(history).toContain("Review the project brief.");
+    expect(history).toContain("I am checking the reference.");
+    expect(history).not.toContain(prompt);
+    expect(history).not.toContain(imageUrl);
+    expect(history).not.toContain("CURRENT_IMAGE_BYTES");
+  });
+
+  it("keeps structured history after an assistant tail longer than its scan limit", async () => {
+    const prompt = "Use the final review summary.";
+    const assistantTail = Array.from({ length: 1_025 }, (_, index) => ({
+      id: `assistant-tail-${index}`,
+      role: "assistant" as const,
+      content: [
+        { type: "text" as const, text: `Assistant tail note ${index}.` },
+      ],
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-assistant-tail-structured-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: "Review the project brief." }],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        ...assistantTail,
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain("Assistant tail note 1024.");
+    expect(historyText).not.toContain(prompt);
+  });
+
+  it("does not pin the current prompt when a system tail hides its position", async () => {
+    const prompt = "Use the final review summary.";
+    const systemTail = Array.from({ length: 1_025 }, (_, index) => ({
+      id: `system-tail-${index}`,
+      role: "system" as const,
+      content: [
+        { type: "text" as const, text: `System context note ${index}.` },
+      ],
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-system-tail-structured-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        ...systemTail,
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).not.toContain(prompt);
   });
 
   it("keeps assistant conclusion text after its tool result", async () => {
@@ -2578,6 +2955,80 @@ describe("createAgentNativeChatRuntime", () => {
       "[attached: reference.png image/png no durable URL available]",
     );
     expect(plainHistoryText).not.toContain(privateImageBytes);
+  });
+
+  it("preserves safe prior image references without replaying inline bytes", async () => {
+    const privateImageBytes = "PRIVATE_PRIOR_IMAGE_BYTES";
+    const safeUrl = "https://files.example.test/reference.png";
+    const signedUrl =
+      "https://files.example.test/signed.png?token=private-image-secret";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-image-reference-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "What is in the picture?",
+      messages: [
+        {
+          id: "user-prior-images",
+          role: "user",
+          content: [
+            { type: "text", text: "Use these as visual references." },
+            {
+              type: "image",
+              alt: "reference.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: safeUrl,
+            },
+            {
+              type: "image",
+              alt: "signed.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: signedUrl,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "What is in the picture?" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; url?: string; name?: string }>;
+    }>;
+    const parts = structuredHistory.flatMap((message) => message.content);
+    const serializedHistory = JSON.stringify(structuredHistory);
+
+    expect(parts).toContainEqual({
+      type: "image-reference",
+      url: safeUrl,
+      name: "reference.png",
+      mediaType: "image/png",
+    });
+    expect(
+      parts.some(
+        (part) => part.type === "image-reference" && part.name === "signed.png",
+      ),
+    ).toBe(false);
+    expect(serializedHistory).toContain(
+      "[attached: signed.png image/png https://files.example.test/signed.png]",
+    );
+    expect(serializedHistory).not.toContain("token=private-image-secret");
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
   });
 
   it("pins every attachment-bearing prompt across 45 prior user turns", async () => {

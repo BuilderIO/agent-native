@@ -47,7 +47,8 @@ pnpm action search-documents --query "project plan" --format json
 
 ### get-document
 
-Get a single document by ID with full content.
+Get a single document by ID with full content and description. MCP callers read
+the complete values from `structuredContent`; the text preview may be shortened.
 
 ```bash
 pnpm action get-document --id abc123
@@ -87,6 +88,15 @@ or `spaceName` the page is created in the caller's Personal workspace, so read
 the returned `spaceId` before telling the user where the page landed. The
 Workspaces catalog is not a create target: its rows only list workspaces, and
 `add-database-item` against it is rejected.
+
+### update-document
+
+Update a page's or database's metadata while preserving omitted fields. To
+replace its guidance, pass only `id` and `description`; an empty string clears
+the description. For a database, use its backing `documentId`, not its collection
+`databaseId`. The saved description is returned in MCP `structuredContent`.
+Agent responses contain metadata only; `get-document` returns the body.
+This does not change the Markdown body; body edits use `edit-document`.
 
 ### import-content
 

@@ -77,6 +77,7 @@ import {
   DEFAULT_REASONING_EFFORT,
   formatPromptContextItems,
   getReasoningEffortOptionsForModel,
+  getComposerReferenceEventTarget,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type AgentChatContextItem,
@@ -1040,6 +1041,8 @@ export interface TiptapComposerProps {
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
+  isReferenceTarget?: boolean;
   /** Disable the + and @ launchers while the editor stays editable. */
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
@@ -2762,6 +2765,7 @@ export function TiptapComposer({
   placeholder,
   ariaLabel,
   disabled = false,
+  isReferenceTarget,
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
@@ -3884,6 +3888,9 @@ export function TiptapComposer({
 
   const insertReferenceIfEmpty = useCallback(
     (payload: AgentComposerReferenceInsertPayload) => {
+      const ed = editor;
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
+        return;
       const insertMessageId =
         typeof payload.insertMessageId === "string"
           ? payload.insertMessageId
@@ -3892,9 +3899,6 @@ export function TiptapComposer({
         if (seenReferenceInsertIdsRef.current.has(insertMessageId)) return;
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
-      const ed = editor;
-      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
-        return;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
       ) as any;
@@ -3910,8 +3914,16 @@ export function TiptapComposer({
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || isReferenceTarget === false) return;
+    const acceptsReferenceEvent = (event: Event) => {
+      const target = getComposerReferenceEventTarget(event);
+      return (
+        !target ||
+        (isComposerEditorUsable(editor) && target === editor.view.dom)
+      );
+    };
     const handleEvent = (event: Event) => {
+      if (!acceptsReferenceEvent(event)) return;
       const payload = (event as CustomEvent).detail;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
@@ -3935,6 +3947,7 @@ export function TiptapComposer({
       if (event.data?.type !== AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE) {
         return;
       }
+      if (!acceptsReferenceEvent(event)) return;
       const payload = event.data.data;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
@@ -3950,14 +3963,33 @@ export function TiptapComposer({
     };
     window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleEvent);
     window.addEventListener("message", handleMessage);
+    const element = isComposerEditorUsable(editor) ? editor.view.dom : null;
+    const reportUnavailable = () => {
+      if (isReferenceTarget === true && element)
+        window.dispatchEvent(
+          new CustomEvent("agentNative:composer-reference-unavailable", {
+            detail: element,
+          }),
+        );
+    };
+    if (isReferenceTarget === true) editor?.on("destroy", reportUnavailable);
+    if (isReferenceTarget === true && element && !disabled) {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: element,
+        }),
+      );
+    } else reportUnavailable();
     return () => {
+      reportUnavailable();
+      editor?.off("destroy", reportUnavailable);
       window.removeEventListener(
         AGENT_CHAT_INSERT_REFERENCE_EVENT,
         handleEvent,
       );
       window.removeEventListener("message", handleMessage);
     };
-  }, [adapters, insertReferenceIfEmpty]);
+  }, [adapters, insertReferenceIfEmpty, isReferenceTarget]);
 
   useImperativeHandle(focusRef, () => ({
     focus() {

@@ -16,6 +16,8 @@ This package builds the public docs site for Agent-Native.
 
 Search is built at runtime from the loaded docs. Public `.md` mirrors are generated from the MDX source for crawlers, agents, and copy-as-markdown. There is no generated `searchIndex.ts` source file.
 
+Public pages hydrate their navigation and controls, but load the assistant sidebar and question composer only when requested. Page content stays mounted while the sidebar loads beside it. Search questions wait for the sidebar before submitting, and panel requests, shortcuts, and chat deep links still activate it. Route warmup is disabled so passive visits do not download JavaScript for neighboring pages.
+
 ## Development
 
 ```bash

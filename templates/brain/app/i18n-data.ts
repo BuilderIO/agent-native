@@ -442,18 +442,15 @@ const enUS = {
     initialUpdatedAfter: "Initial updated-after",
     granolaDescription:
       "Granola Enterprise API returns Team-space notes; private notes are outside the API scope.",
-    zoomMeetingIds: "Meeting IDs",
+    zoomMeetingIds: "Approved recurring meeting series",
     zoomMeetingIdsDescription:
-      "One Zoom meeting ID per line, as shown in Zoom (spaces are fine). Recurring meetings keep the same ID.",
-    zoomMeetingTopics: "Meeting titles",
-    zoomMeetingTopicsDescription:
-      "One full meeting title per line. Titles must match exactly (capitals don't matter), so use IDs when you can.",
+      "Required. One Zoom meeting ID per line for each recurring series whose owner opted in (spaces are fine). Every occurrence keeps the same ID.",
     zoomLookbackDays: "Lookback days",
     zoomIncludeSummaries: "Import AI Companion summaries",
     invalidZoomMeetingIds:
       "Not valid Zoom meeting IDs: {{entries}}. Use the number from the meeting invite, like 123 4567 8901.",
     zoomDescription:
-      "Brain imports cloud-recording transcripts for the listed meetings every hour. With no meetings listed, every cloud-recorded meeting in the Zoom account is imported. Changing the list re-scans the lookback window.",
+      "Every hour, Brain imports transcripts (and summaries, if turned on) only from the approved series. Other meetings in the Zoom account are never downloaded. Changing the list re-scans the lookback window.",
     approvedRepositories: "Approved repositories",
     githubRepositoriesDescription:
       "Brain imports bounded issue and pull request context from these repositories using the workspace GitHub credential.",
@@ -7229,146 +7226,119 @@ const zoomSourceLocalizationOverrides: Partial<
 > = {
   "ar-SA": {
     sources: {
-      zoomMeetingIds: "معرّفات الاجتماعات",
+      zoomMeetingIds: "سلاسل الاجتماعات المتكررة المعتمدة",
       zoomMeetingIdsDescription:
-        "معرّف اجتماع Zoom واحد في كل سطر، كما يظهر في Zoom (المسافات مسموحة). تحتفظ الاجتماعات المتكررة بنفس المعرّف.",
-      zoomMeetingTopics: "عناوين الاجتماعات",
-      zoomMeetingTopicsDescription:
-        "عنوان اجتماع كامل واحد في كل سطر. يجب أن تتطابق العناوين تمامًا (لا يهم حجم الأحرف)، لذا استخدم المعرّفات متى أمكن.",
+        "مطلوب. معرّف اجتماع Zoom واحد في كل سطر لكل سلسلة متكررة وافق مالكها على الانضمام (المسافات مسموحة). تحتفظ كل جلسة بنفس المعرّف.",
       zoomLookbackDays: "عدد أيام الرجوع",
       zoomIncludeSummaries: "استيراد ملخصات AI Companion",
       invalidZoomMeetingIds:
         "معرّفات اجتماعات Zoom غير صالحة: {{entries}}. استخدم الرقم الموجود في دعوة الاجتماع، مثل 123 4567 8901.",
       zoomDescription:
-        "يستورد Brain كل ساعة نصوص التسجيلات السحابية للاجتماعات المدرجة. إذا لم تُدرج أي اجتماعات، فسيتم استيراد كل اجتماع مسجّل سحابيًا في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
+        "كل ساعة، يستورد Brain النصوص (والملخصات إذا كانت مفعّلة) من السلاسل المعتمدة فقط. لا يتم تنزيل أي اجتماعات أخرى في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
     },
   },
   "de-DE": {
     sources: {
-      zoomMeetingIds: "Meeting-IDs",
+      zoomMeetingIds: "Freigegebene wiederkehrende Meeting-Serien",
       zoomMeetingIdsDescription:
-        "Eine Zoom-Meeting-ID pro Zeile, wie in Zoom angezeigt (Leerzeichen sind erlaubt). Wiederkehrende Meetings behalten dieselbe ID.",
-      zoomMeetingTopics: "Meeting-Titel",
-      zoomMeetingTopicsDescription:
-        "Ein vollständiger Meeting-Titel pro Zeile. Titel müssen genau übereinstimmen (Groß- und Kleinschreibung egal), verwende daher nach Möglichkeit IDs.",
+        "Erforderlich. Eine Zoom-Meeting-ID pro Zeile für jede wiederkehrende Serie, deren Verantwortliche zugestimmt haben (Leerzeichen sind erlaubt). Jeder Termin behält dieselbe ID.",
       zoomLookbackDays: "Rückblick in Tagen",
       zoomIncludeSummaries: "AI Companion-Zusammenfassungen importieren",
       invalidZoomMeetingIds:
         "Keine gültigen Zoom-Meeting-IDs: {{entries}}. Verwende die Nummer aus der Meeting-Einladung, z. B. 123 4567 8901.",
       zoomDescription:
-        "Brain importiert stündlich die Cloud-Aufzeichnungs-Transkripte der aufgeführten Meetings. Ohne aufgeführte Meetings wird jedes in der Cloud aufgezeichnete Meeting des Zoom-Kontos importiert. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
+        "Brain importiert stündlich Transkripte (und, falls aktiviert, Zusammenfassungen) nur aus den freigegebenen Serien. Andere Meetings im Zoom-Konto werden nie heruntergeladen. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
     },
   },
   "es-ES": {
     sources: {
-      zoomMeetingIds: "ID de reunión",
+      zoomMeetingIds: "Series de reuniones periódicas aprobadas",
       zoomMeetingIdsDescription:
-        "Un ID de reunión de Zoom por línea, tal como aparece en Zoom (se admiten espacios). Las reuniones periódicas mantienen el mismo ID.",
-      zoomMeetingTopics: "Títulos de reunión",
-      zoomMeetingTopicsDescription:
-        "Un título de reunión completo por línea. Los títulos deben coincidir exactamente (sin importar mayúsculas), así que usa ID siempre que puedas.",
+        "Obligatorio. Un ID de reunión de Zoom por línea para cada serie periódica cuyo propietario haya dado su aprobación (se admiten espacios). Cada sesión mantiene el mismo ID.",
       zoomLookbackDays: "Días hacia atrás",
       zoomIncludeSummaries: "Importar resúmenes de AI Companion",
       invalidZoomMeetingIds:
         "ID de reunión de Zoom no válidos: {{entries}}. Usa el número de la invitación, como 123 4567 8901.",
       zoomDescription:
-        "Brain importa cada hora las transcripciones de grabaciones en la nube de las reuniones indicadas. Si no hay reuniones indicadas, se importan todas las reuniones grabadas en la nube de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
+        "Cada hora, Brain importa transcripciones (y resúmenes, si están activados) solo de las series aprobadas. Nunca se descargan otras reuniones de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
     },
   },
   "fr-FR": {
     sources: {
-      zoomMeetingIds: "ID de réunion",
+      zoomMeetingIds: "Séries de réunions récurrentes approuvées",
       zoomMeetingIdsDescription:
-        "Un ID de réunion Zoom par ligne, tel qu'affiché dans Zoom (les espaces sont acceptés). Les réunions récurrentes conservent le même ID.",
-      zoomMeetingTopics: "Titres de réunion",
-      zoomMeetingTopicsDescription:
-        "Un titre de réunion complet par ligne. Les titres doivent correspondre exactement (sans tenir compte des majuscules) ; utilisez donc les ID si possible.",
+        "Obligatoire. Un ID de réunion Zoom par ligne pour chaque série récurrente dont le propriétaire a donné son accord (les espaces sont acceptés). Chaque occurrence conserve le même ID.",
       zoomLookbackDays: "Jours d'historique",
       zoomIncludeSummaries: "Importer les résumés AI Companion",
       invalidZoomMeetingIds:
         "ID de réunion Zoom non valides : {{entries}}. Utilisez le numéro de l'invitation, par exemple 123 4567 8901.",
       zoomDescription:
-        "Brain importe chaque heure les transcriptions des enregistrements cloud des réunions listées. Si aucune réunion n'est listée, toutes les réunions enregistrées dans le cloud du compte Zoom sont importées. Modifier la liste réanalyse la période d'historique.",
+        "Chaque heure, Brain importe les transcriptions (et les résumés, s'ils sont activés) uniquement des séries approuvées. Les autres réunions du compte Zoom ne sont jamais téléchargées. Modifier la liste réanalyse la période d'historique.",
     },
   },
   "hi-IN": {
     sources: {
-      zoomMeetingIds: "मीटिंग ID",
+      zoomMeetingIds: "स्वीकृत दोहराई जाने वाली मीटिंग सीरीज़",
       zoomMeetingIdsDescription:
-        "हर पंक्ति में एक Zoom मीटिंग ID, जैसा Zoom में दिखता है (स्पेस चल सकते हैं)। दोहराई जाने वाली मीटिंग की ID वही रहती है।",
-      zoomMeetingTopics: "मीटिंग शीर्षक",
-      zoomMeetingTopicsDescription:
-        "हर पंक्ति में एक पूरा मीटिंग शीर्षक। शीर्षक बिल्कुल मेल खाना चाहिए (बड़े-छोटे अक्षर से फर्क नहीं पड़ता), इसलिए जहाँ हो सके ID इस्तेमाल करें।",
+        "ज़रूरी। हर उस दोहराई जाने वाली सीरीज़ के लिए एक पंक्ति में एक Zoom मीटिंग ID जिसके मालिक ने सहमति दी है (स्पेस चल सकते हैं)। हर मीटिंग की ID वही रहती है।",
       zoomLookbackDays: "पीछे देखने के दिन",
       zoomIncludeSummaries: "AI Companion सारांश इंपोर्ट करें",
       invalidZoomMeetingIds:
         "अमान्य Zoom मीटिंग ID: {{entries}}। आमंत्रण में दिया नंबर इस्तेमाल करें, जैसे 123 4567 8901।",
       zoomDescription:
-        "Brain हर घंटे सूची में दी गई मीटिंग की क्लाउड रिकॉर्डिंग ट्रांसक्रिप्ट आयात करता है। अगर कोई मीटिंग नहीं दी गई है, तो Zoom खाते की हर क्लाउड-रिकॉर्डेड मीटिंग आयात होती है। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
+        "Brain हर घंटे केवल स्वीकृत सीरीज़ से ट्रांसक्रिप्ट (और चालू होने पर सारांश) आयात करता है। Zoom खाते की अन्य मीटिंग कभी डाउनलोड नहीं होतीं। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
     },
   },
   "ja-JP": {
     sources: {
-      zoomMeetingIds: "ミーティング ID",
+      zoomMeetingIds: "承認済みの定期ミーティング",
       zoomMeetingIdsDescription:
-        "1 行に 1 つ、Zoom に表示されるとおりにミーティング ID を入力します（スペース可）。定期ミーティングは同じ ID を使い続けます。",
-      zoomMeetingTopics: "ミーティング名",
-      zoomMeetingTopicsDescription:
-        "1 行に 1 つ、ミーティング名を正確に入力します（大文字と小文字は区別しません）。可能な場合は ID を使用してください。",
+        "必須。主催者が同意した定期ミーティングごとに、1 行に 1 つ Zoom ミーティング ID を入力します（スペース可）。各回は同じ ID を使い続けます。",
       zoomLookbackDays: "さかのぼる日数",
       zoomIncludeSummaries: "AI Companion の要約をインポート",
       invalidZoomMeetingIds:
         "無効な Zoom ミーティング ID: {{entries}}。招待に記載された番号（例: 123 4567 8901）を使用してください。",
       zoomDescription:
-        "Brain は一覧のミーティングのクラウド録画文字起こしを 1 時間ごとに取り込みます。一覧が空の場合は、Zoom アカウント内のクラウド録画されたすべてのミーティングを取り込みます。一覧を変更すると、さかのぼる期間を再スキャンします。",
+        "Brain は 1 時間ごとに、承認済みの定期ミーティングからのみ文字起こし（有効な場合は要約も）を取り込みます。Zoom アカウント内のほかのミーティングはダウンロードしません。一覧を変更すると、さかのぼる期間を再スキャンします。",
     },
   },
   "ko-KR": {
     sources: {
-      zoomMeetingIds: "회의 ID",
+      zoomMeetingIds: "승인된 반복 회의 시리즈",
       zoomMeetingIdsDescription:
-        "Zoom에 표시된 대로 한 줄에 하나씩 회의 ID를 입력하세요(공백 허용). 반복 회의는 같은 ID를 유지합니다.",
-      zoomMeetingTopics: "회의 제목",
-      zoomMeetingTopicsDescription:
-        "한 줄에 하나씩 전체 회의 제목을 입력하세요. 제목은 정확히 일치해야 하므로(대소문자 무관) 가능하면 ID를 사용하세요.",
+        "필수. 소유자가 동의한 반복 시리즈마다 한 줄에 하나씩 Zoom 회의 ID를 입력하세요(공백 허용). 모든 회차는 같은 ID를 유지합니다.",
       zoomLookbackDays: "조회 기간(일)",
       zoomIncludeSummaries: "AI Companion 요약 가져오기",
       invalidZoomMeetingIds:
         "유효하지 않은 Zoom 회의 ID: {{entries}}. 초대장의 번호(예: 123 4567 8901)를 사용하세요.",
       zoomDescription:
-        "Brain은 목록에 있는 회의의 클라우드 녹화 대본을 매시간 가져옵니다. 목록이 비어 있으면 Zoom 계정의 모든 클라우드 녹화 회의를 가져옵니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
+        "Brain은 매시간 승인된 시리즈에서만 대본(켜져 있으면 요약도)을 가져옵니다. Zoom 계정의 다른 회의는 다운로드하지 않습니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
     },
   },
   "pt-BR": {
     sources: {
-      zoomMeetingIds: "IDs de reunião",
+      zoomMeetingIds: "Séries de reuniões recorrentes aprovadas",
       zoomMeetingIdsDescription:
-        "Um ID de reunião do Zoom por linha, como aparece no Zoom (espaços são permitidos). Reuniões recorrentes mantêm o mesmo ID.",
-      zoomMeetingTopics: "Títulos de reunião",
-      zoomMeetingTopicsDescription:
-        "Um título de reunião completo por linha. Os títulos precisam corresponder exatamente (maiúsculas não importam), então use IDs sempre que possível.",
+        "Obrigatório. Um ID de reunião do Zoom por linha para cada série recorrente cujo responsável autorizou (espaços são permitidos). Cada ocorrência mantém o mesmo ID.",
       zoomLookbackDays: "Dias de retrospectiva",
       zoomIncludeSummaries: "Importar resumos do AI Companion",
       invalidZoomMeetingIds:
         "IDs de reunião do Zoom inválidos: {{entries}}. Use o número do convite, como 123 4567 8901.",
       zoomDescription:
-        "O Brain importa a cada hora as transcrições de gravações na nuvem das reuniões listadas. Sem reuniões listadas, todas as reuniões gravadas na nuvem da conta do Zoom são importadas. Alterar a lista verifica novamente o período de retrospectiva.",
+        "A cada hora, o Brain importa transcrições (e resumos, se ativados) somente das séries aprovadas. Outras reuniões da conta do Zoom nunca são baixadas. Alterar a lista verifica novamente o período de retrospectiva.",
     },
   },
   "zh-CN": {
     sources: {
-      zoomMeetingIds: "会议 ID",
+      zoomMeetingIds: "已批准的周期性会议系列",
       zoomMeetingIdsDescription:
-        "每行一个 Zoom 会议 ID，按 Zoom 中显示的格式填写（可包含空格）。周期性会议的 ID 保持不变。",
-      zoomMeetingTopics: "会议标题",
-      zoomMeetingTopicsDescription:
-        "每行一个完整的会议标题。标题必须完全匹配（不区分大小写），因此尽量使用 ID。",
+        "必填。每行一个 Zoom 会议 ID，对应主持人已同意加入的周期性会议系列（可包含空格）。每次会议的 ID 保持不变。",
       zoomLookbackDays: "回溯天数",
       zoomIncludeSummaries: "导入 AI Companion 摘要",
       invalidZoomMeetingIds:
         "无效的 Zoom 会议 ID：{{entries}}。请使用会议邀请中的号码，例如 123 4567 8901。",
       zoomDescription:
-        "Brain 每小时导入所列会议的云录制转录。如果未列出会议，则导入 Zoom 账户中所有云录制的会议。更改列表会重新扫描回溯期。",
+        "Brain 每小时仅从已批准的系列导入转录（开启后也导入摘要）。Zoom 账户中的其他会议绝不会被下载。更改列表会重新扫描回溯期。",
     },
   },
 };

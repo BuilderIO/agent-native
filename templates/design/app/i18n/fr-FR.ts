@@ -229,7 +229,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Accueil",
     templates: "Modèles",
     designSystems: "Systèmes de design",
     setupDesignSystem: "Configurer le système de design",
@@ -785,7 +785,7 @@ export default {
         "L’accès au code source nécessite une application connectée",
     },
     leftRail: {
-      file: "Fichier",
+      layers: "Calques",
       agent: "Agents",
       assets: "Ressources",
       import: "Importer",
@@ -1094,7 +1094,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
-      designs: "Designs",
+      allDesigns: "Tous les designs",
       rename: "Renommer",
       duplicate: "Dupliquer",
       versionHistory: "Historique des versions",
@@ -1735,9 +1735,11 @@ export default {
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
     imageAttachmentUnavailable:
-      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
+      "Impossible de préparer cette image pour l’envoi. Essayez une image JPG, PNG, GIF ou WebP.",
+    imageAttachmentTooLarge:
+      "Chaque image peut atteindre {{perFile}} Mo, pour un total de {{total}} Mo d’images.",
     attachmentsTooLarge:
-      "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
+      "Les images sont optimisées automatiquement. Le total des images optimisées et des autres fichiers ne peut pas dépasser {{max}} Mo.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
     skipPrompt: "Ignorer le prompt",
     startBlankCanvas: "Commencer avec une toile vierge",
@@ -1900,7 +1902,7 @@ export default {
     browseAllTemplates: "Tout parcourir",
     connectBuilderIo: "Utiliser Builder.io",
     connectingBuilder: "Configuration de Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "Accueil",
     searchPlaceholder: "Rechercher des modèles...",
     newDesign: "Nouveau Design",
     newDesignLower: "Nouveau design",

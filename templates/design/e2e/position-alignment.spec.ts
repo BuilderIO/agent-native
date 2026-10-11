@@ -8,7 +8,12 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
+import {
+  designFrame,
+  enterDirectMode,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 const ALIGN_HTML = `<!doctype html>
 <html>
@@ -151,6 +156,15 @@ const TRANSFORMED_POSITION_HTML = `<!doctype html>
   </body>
 </html>`;
 
+const BOARD_ORIGIN_POSITION_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Board origin position</title></head>
+  <body style="margin:0;position:relative;width:8192px;height:8192px;overflow:visible">
+    <div data-agent-native-node-id="board-origin-probe" data-agent-native-layer-name="Origin probe" data-an-primitive="rectangle"
+         style="position:absolute;left:0;top:0;width:120px;height:90px;background:#fca5a5"></div>
+  </body>
+</html>`;
+
 const BOUNDS_WIDTH = 780;
 const BOUNDS_HEIGHT = 580;
 const CHIP_WIDTH = 120;
@@ -268,6 +282,94 @@ async function expectOffset(
     .toEqual(expected);
 }
 
+function boardPreviewFrame(page: Page) {
+  return page
+    .locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
+    )
+    .first();
+}
+
+async function persistedBoardAuthoredOffset(
+  page: Page,
+  request: APIRequestContext,
+  baseURL: string,
+  designId: string,
+  nodeId: string,
+) {
+  const response = await request.get(
+    `${baseURL.replace(/\/$/, "")}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const design = await response.json();
+  const html = (design.files ?? []).find(
+    (file: { filename?: string }) => file.filename === "__board__.html",
+  )?.content;
+  if (typeof html !== "string") {
+    throw new Error("get-design did not return persisted __board__.html");
+  }
+  return page.evaluate(
+    ({ source, id }) => {
+      const parsed = new DOMParser().parseFromString(source, "text/html");
+      const element = parsed.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      if (!element) throw new Error(`persisted board is missing ${id}`);
+      return {
+        left: element.style.left,
+        top: element.style.top,
+        contentOffsetMetadataCount: parsed.querySelectorAll(
+          "[data-agent-native-content-offset], [data-agent-native-content-offset-x], [data-agent-native-content-offset-y]",
+        ).length,
+      };
+    },
+    { source: html, id: nodeId },
+  );
+}
+
+async function boardPositionState(page: Page) {
+  return boardPreviewFrame(page)
+    .contentFrame()
+    .locator('[data-agent-native-node-id="board-origin-probe"]')
+    .evaluate((element) => {
+      const html = element as HTMLElement;
+      const hostDocument = html.ownerDocument.defaultView?.parent.document;
+      const offsetStyle = html.ownerDocument.querySelector(
+        "style[data-agent-native-content-offset]",
+      );
+      const inputValue = (label: string) =>
+        hostDocument?.querySelector<HTMLInputElement>(
+          `input[aria-label="${label}"]`,
+        )?.value ?? null;
+      const offsetValue = (axis: "x" | "y") => {
+        const raw = offsetStyle?.getAttribute(
+          `data-agent-native-content-offset-${axis}`,
+        );
+        return raw === null || raw === undefined ? null : Number(raw);
+      };
+      return {
+        authored: { left: html.style.left, top: html.style.top },
+        translate: getComputedStyle(html).getPropertyValue("translate"),
+        contentOffset: { x: offsetValue("x"), y: offsetValue("y") },
+        inspector: {
+          x: inputValue("X-position"),
+          y: inputValue("Y-position"),
+        },
+      };
+    });
+}
+
+function expectNonzeroBoardOffset(
+  offset: Awaited<ReturnType<typeof boardPositionState>>["contentOffset"],
+) {
+  expect(Number.isFinite(offset.x) && offset.x !== 0).toBe(true);
+  expect(Number.isFinite(offset.y) && offset.y !== 0).toBe(true);
+}
+
 async function seedDesign(
   request: APIRequestContext,
   baseURL: string,
@@ -288,6 +390,104 @@ async function seedDesign(
   });
   return designId;
 }
+
+test("board Position reads authored origin and persists edits after reload", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const actionBaseURL = requireBaseURL(baseURL);
+  const created = await postAction(request, actionBaseURL, "create-design", {
+    title: `Board origin position ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  const board = await postAction(request, actionBaseURL, "create-file", {
+    designId,
+    filename: "__board__.html",
+    content: BOARD_ORIGIN_POSITION_HTML,
+    fileType: "html",
+  });
+  const boardFileId: string | undefined = board?.id ?? board?.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await postAction(request, actionBaseURL, "update-design", {
+    id: designId,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
+  });
+
+  await gotoEditor(page, designId);
+  await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
+  await expect(boardPreviewFrame(page)).toBeVisible();
+  await expandAllLayers(page);
+
+  const node = boardPreviewFrame(page)
+    .contentFrame()
+    .locator('[data-agent-native-node-id="board-origin-probe"]');
+  await expect(node).toBeAttached();
+  await selectLayer(page, "Origin probe");
+
+  const x = page.getByRole("textbox", { name: "X-position" });
+  const y = page.getByRole("textbox", { name: "Y-position" });
+  const selectedRows = page.locator('[role="treeitem"][aria-selected="true"]');
+  await expect(selectedRows).toHaveCount(1);
+  await expect(selectedRows).toContainText("Origin probe");
+  await expect(x).toHaveValue("0px");
+  await expect(y).toHaveValue("0px");
+  const layersState = await boardPositionState(page);
+  expect(layersState.authored).toEqual({ left: "0px", top: "0px" });
+  expectNonzeroBoardOffset(layersState.contentOffset);
+  expect(layersState.translate).toBe(
+    `${layersState.contentOffset.x}px ${layersState.contentOffset.y}px`,
+  );
+  expect(layersState.inspector).toEqual({ x: "0px", y: "0px" });
+
+  await page.keyboard.press("Shift+2");
+  await page.keyboard.press("Escape");
+  await expect(selectedRows).toHaveCount(0);
+  const box = await node.boundingBox();
+  if (!box) throw new Error("board origin object has no rendered bounds");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(selectedRows).toHaveCount(1);
+  await expect(selectedRows).toContainText("Origin probe");
+  await expect(x).toHaveValue("0px");
+  await expect(y).toHaveValue("0px");
+  const canvasState = await boardPositionState(page);
+  expect(canvasState.authored).toEqual({ left: "0px", top: "0px" });
+  expectNonzeroBoardOffset(canvasState.contentOffset);
+  expect(canvasState.translate).toBe(
+    `${canvasState.contentOffset.x}px ${canvasState.contentOffset.y}px`,
+  );
+  expect(canvasState.inspector).toEqual({ x: "0px", y: "0px" });
+
+  await x.fill("24");
+  await x.press("Enter");
+  await y.fill("24");
+  await y.press("Enter");
+  await expect
+    .poll(() =>
+      persistedBoardAuthoredOffset(
+        page,
+        request,
+        actionBaseURL,
+        designId,
+        "board-origin-probe",
+      ),
+    )
+    .toEqual({
+      left: "24px",
+      top: "24px",
+      contentOffsetMetadataCount: 0,
+    });
+
+  await page.reload();
+  await gotoEditor(page, designId);
+  await expandAllLayers(page);
+  await selectLayer(page, "Origin probe");
+  await expect(x).toHaveValue("24px");
+  await expect(y).toHaveValue("24px");
+});
 
 test("Left and Right alignment controls move to their named edges", async ({
   page,

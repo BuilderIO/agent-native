@@ -41,6 +41,11 @@
       "import": "./dist/app/agentkit/index.js",
       "default": "./dist/app/agentkit/index.js"
     },
+    "./app/chat/agent-sidebar-events": {
+      "types": "./dist/app/chat/agent-sidebar-events.d.ts",
+      "import": "./dist/app/chat/agent-sidebar-events.js",
+      "default": "./dist/app/chat/agent-sidebar-events.js"
+    },
     "./app/chat": {
       "types": "./dist/app/chat/index.d.ts",
       "browser": "./dist/app/chat/index.js",
