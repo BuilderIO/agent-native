@@ -1026,10 +1026,22 @@ export default function Index({ active = true }: { active?: boolean }) {
       FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
       handleFirstRunStatusResolved,
     );
-    void fetchFirstRunOnboardingStatus().catch(() => {
-      openInitialPrompt();
-    });
+    let cancelled = false;
+    let retryTimeout: number | undefined;
+    const resolveStatus = (attempt: number) => {
+      void fetchFirstRunOnboardingStatus().catch(() => {
+        if (cancelled) return;
+        if (attempt === 1) {
+          retryTimeout = window.setTimeout(() => resolveStatus(2), 500);
+          return;
+        }
+        openInitialPrompt();
+      });
+    };
+    resolveStatus(1);
     return () => {
+      cancelled = true;
+      if (retryTimeout !== undefined) window.clearTimeout(retryTimeout);
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
@@ -1148,6 +1160,7 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   useEffect(() => {
     if (active) return;
+    setIsStartingNewDeck(false);
     setDeckToDelete(null);
     setWorkspaceDefaultCandidate(null);
     setShowDesignSystemSetup(false);
@@ -1325,7 +1338,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     void navigate(
       `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
       {
-        replace: true,
         flushSync: true,
       },
     );
@@ -1790,6 +1802,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       const carriedDeckMissing =
         carriedImportedReference !== undefined &&
         !decks.some((deck) => deck.id === carriedImportedReference.deckId);
+      options?.onLocalSubmit?.();
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const promptReferenceDeckId = findPromptReferenceDeckId(
         prompt,

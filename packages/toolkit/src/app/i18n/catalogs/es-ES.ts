@@ -157,8 +157,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "Ya tienes una cuenta de Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Inicia sesión para usar tu cuenta.",
+  "onboarding.builderActivationChecking":
+    "Comprobando si se pueden crear cuentas nuevas.",
+  "onboarding.builderActivationUnavailable":
+    "Esta aplicación no permite crear cuentas nuevas. Puedes conectar una cuenta existente.",
+  "onboarding.builderActivationUnavailableInMode":
+    "La activación de una cuenta nueva no está disponible en este modo. Aún puedes conectar una cuenta existente.",
+  "onboarding.builderActivationCheckFailed":
+    "No se pudo comprobar si esta aplicación permite crear cuentas nuevas.",
+
   "onboarding.builderActivationDescription":
-    "Crea o conecta una cuenta de Builder.io con un solo clic para obtener créditos gratis.",
+    "Crea una cuenta nueva para activar créditos gratis o continúa con una cuenta existente.",
   "onboarding.builderOrgActivationDescription":
     "Crearemos tu cuenta de Builder.io con un solo clic para que tu organización pueda usarla.",
   "onboarding.builderCreateAndActivate": "Crear y activar",
@@ -167,7 +176,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Términos de servicio",
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
-  "onboarding.builderExistingAccount": "Usar Builder.io",
+  "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":
@@ -900,6 +909,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached":
     "{{formattedCount}} caracteres de la selección adjuntados",
   "selection.clear": "Borrar el contexto de la selección",
+  "setup.addKeyInSettings": "Añadir una clave en Ajustes",
+  "setup.addKeyInSettingsDescription": "Para tu cuenta o tu organización.",
+  "setup.setEnvironmentVariable": "Configurar una variable de entorno",
+  "setup.setEnvironmentVariableDescription":
+    "Una clave de proveedor para todos en esta aplicación.",
+
   "setup.addOwnKeys": "Añadir tus propias claves",
   "setup.builderCredits":
     "Builder.io incluye créditos gratuitos, o puedes usar tu propia clave de API.",

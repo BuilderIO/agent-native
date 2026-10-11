@@ -21,6 +21,7 @@ type NavItemConfig = {
   id: string;
   labelKey: keyof typeof enUS.nav;
   slug?: string;
+  anchor?: string;
   draft?: boolean;
   children?: NavItemConfig[];
 };
@@ -961,11 +962,27 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "toolkit-ui",
         labelKey: "toolkitUiPrimitives",
         slug: "toolkit-ui",
+        children: [
+          {
+            id: "toolkit-data-grid",
+            labelKey: "toolkitDataGrid",
+            slug: "toolkit-ui",
+            anchor: "data-grid",
+          },
+        ],
       },
       {
         id: "toolkit-editors-canvases",
         labelKey: "toolkitEditorsCanvases",
         slug: "toolkit-editors-canvases",
+        children: [
+          {
+            id: "toolkit-canvas-interactions",
+            labelKey: "toolkitCanvasInteractions",
+            slug: "toolkit-editors-canvases",
+            anchor: "canvas-interactions",
+          },
+        ],
       },
       {
         id: "toolkit-context-knowledge",
@@ -1000,6 +1017,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-observability",
             labelKey: "toolkitObservability",
             slug: "toolkit-observability",
+          },
+          {
+            id: "toolkit-dashboard",
+            labelKey: "toolkitDashboard",
+            slug: "agent-native-toolkit",
+            anchor: "dashboard-kit",
           },
         ],
       },
@@ -1036,6 +1059,23 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-agent-ux",
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
+          },
+          {
+            id: "toolkit-chat-history",
+            labelKey: "toolkitChatHistory",
+            slug: "toolkit-agent-ux",
+            anchor: "chat-history",
+          },
+          {
+            id: "toolkit-agent-page",
+            labelKey: "toolkitAgentPage",
+            slug: "agent-surfaces",
+            anchor: "agent-page",
+          },
+          {
+            id: "toolkit-notifications",
+            labelKey: "toolkitNotifications",
+            slug: "notifications",
           },
         ],
       },
@@ -1154,7 +1194,10 @@ function toNavItem(
   return {
     id: config.id,
     label: navLabel(t, config.labelKey),
-    to: slug ? docsPathForSlug(slug, locale) : undefined,
+    to: slug
+      ? docsPathForSlug(slug, locale) +
+        (config.anchor ? "#" + config.anchor : "")
+      : undefined,
     draft: config.draft || undefined,
     children,
   };

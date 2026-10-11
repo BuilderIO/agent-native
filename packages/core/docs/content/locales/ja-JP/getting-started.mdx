@@ -18,7 +18,7 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 
 - [Node.js](https://nodejs.org) 22.22以降
 - [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
-- エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
+- セットアップ中は任意。エージェントの実行には必要です: Builder.io、Anthropic/OpenAI のキー、またはローカル Ollama
 
 ## エージェントを作成する
 
@@ -57,21 +57,9 @@ Welcome画面で**Continue as local dev**を選択します。ローカル開発
 
 </Callout>
 
-## LLMを接続する {#connect-an-llm}
+## LLMを接続する（任意） {#connect-an-llm}
 
-アプリを開くと「はじめに」ページが表示されます。ローカル開発では、`pnpm dev` を開始する前にアプリの `.env` ファイルへプロバイダーキーを追加してください。
-
-```dotenv
-ANTHROPIC_API_KEY=replace-with-your-key
-```
-
-セルフホスト型アプリでは、環境変数に設定したキーをアプリ全体のフォールバックとして使うため、ユーザーがUIで個別のキーを追加する必要はありません。本番のHosted workspaceランタイムでは、デプロイ環境のプロバイダーキー共有をブロックします。保存済みのユーザーまたは組織スコープのキーが優先されます。
-
-このプロバイダーキーを設定することが、運用者によるアプリ全体のアクセスと料金共有への明示的な選択です。追加のフラグは必要ありません。スコープ付きキーがないログインユーザーは、アプリ内のどの組織からでもデプロイ用プロバイダーアカウントを使用でき、その利用料金はそのアカウントに請求されます。テナントごとに認証情報や請求を分けるにはスコープ付きキーを使います。
-
-PostgreSQL を使う場合、ユーザーは **Custom keys** からもキーを保存できます。自分のアカウントだけで使うには Personal スコープを選び、管理者は Organization スコープでワークスペースと共有できます。保存したキーは暗号化されたデータベース認証情報ストアに保管されます。
-
-Builder のマネージドプロバイダーを使うには、composer で **Use Builder.io** を選びます。対応するプロバイダーキーと適用範囲は[環境変数](/docs/environment-variables#optional-ai-search-and-email-fallbacks)を参照してください。
+**Use Builder.io** で Builder.io アカウントに接続するか、**Custom keys** で個人用または組織用のキーを追加するか、ローカル開発ではプロバイダーキーを `.env` に、セルフホスト型アプリ全体で使う場合はデプロイ環境に設定してください。詳しくは[LLM プロバイダーの設定](/docs/environment-variables#llm-provider-keys)を参照してください。
 
 ## エージェントからアクションを実行する
 

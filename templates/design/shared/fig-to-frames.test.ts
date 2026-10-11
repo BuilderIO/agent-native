@@ -213,6 +213,12 @@ describe("single-pass .fig render", () => {
         imageCount: 0,
         approximatedNodeCount: 0,
         unresolvedImageRefCount: 0,
+        skipCounts: {
+          unresolvedOverrideCount: 0,
+          unresolvedVariableAliasCount: 0,
+          missingComponentCount: 0,
+          skippedNodeTypeCount: 0,
+        },
         frames,
         imagePlaceholderPrefix: "__img_",
         images: [],

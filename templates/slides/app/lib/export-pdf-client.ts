@@ -654,6 +654,9 @@ async function downloadDeckPdf(
       ...(slide.imageUrl ? { imageUrl: slide.imageUrl } : {}),
       ...(slide.excalidrawData ? { excalidrawData: slide.excalidrawData } : {}),
       ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.transitionSpeed != null
+        ? { transitionSpeed: slide.transitionSpeed }
+        : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
       ...(slide.skipped ? { skipped: true } : {}),
       ...(slide.animations?.length ? { animations: slide.animations } : {}),

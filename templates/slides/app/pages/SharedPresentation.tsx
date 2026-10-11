@@ -3,8 +3,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { SharedDeckResponse } from "@shared/api";
 import { IconAlertCircle } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
-import { useParams } from "react-router";
+import { useState, useEffect, useLayoutEffect } from "react";
+import { useParams, useSearchParams } from "react-router";
 
 import PresentationView from "@/components/presentation/PresentationView";
 import type { Slide } from "@/context/DeckContext";
@@ -24,6 +24,19 @@ export default function SharedPresentation({
   const [deck, setDeck] = useState<SharedDeckResponse | null>(initialDeck);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(!initialDeck && !initialError);
+  // The public HTML is one shell cached per path, and the CDN ignores the query
+  // string. A `?slide=` read during render would bake one slide into that shell
+  // for every visitor, so the deep link is applied after the first client render.
+  const [searchParams] = useSearchParams();
+  const [deepLinkReady, setDeepLinkReady] = useState(false);
+  useLayoutEffect(() => {
+    setDeepLinkReady(true);
+  }, []);
+  const slideParam = Number.parseInt(searchParams.get("slide") ?? "", 10);
+  const startIndex =
+    deepLinkReady && Number.isFinite(slideParam)
+      ? Math.max(0, slideParam - 1)
+      : 0;
 
   useEffect(() => {
     if (!deck) return;
@@ -101,6 +114,7 @@ export default function SharedPresentation({
     <PresentationView
       slides={slides}
       deckId={`__shared__/${token}`}
+      startIndex={startIndex}
       aspectRatio={deck.aspectRatio}
       designSystem={designSystem}
       pdfExportTitle={token ? deck.title : undefined}

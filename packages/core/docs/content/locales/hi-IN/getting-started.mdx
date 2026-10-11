@@ -19,7 +19,7 @@ code से call करता है।
 
 - [Node.js](https://nodejs.org) 22.22 या बाद का संस्करण
 - [pnpm](https://pnpm.io) इंस्टॉल हो और आपके `PATH` में उपलब्ध हो
-- Agent के लिए LLM connection: Builder.io, Anthropic या OpenAI API key, या local Ollama model
+- सेटअप के दौरान वैकल्पिक; agent चलाने के लिए आवश्यक: Builder.io, Anthropic/OpenAI key, या local Ollama
 
 ## Agent बनाएं
 
@@ -59,21 +59,9 @@ Welcome screen पर **Continue as local dev** चुनें। Local develop
 
 </Callout>
 
-## LLM कनेक्ट करें {#connect-an-llm}
+## LLM कनेक्ट करें (वैकल्पिक) {#connect-an-llm}
 
-ऐप **शुरू करें** पेज खोलता है। लोकल डेवलपमेंट के लिए `pnpm dev` चलाने से पहले ऐप की `.env` फ़ाइल में provider key जोड़ें:
-
-```dotenv
-ANTHROPIC_API_KEY=replace-with-your-key
-```
-
-स्व-होस्ट किए गए ऐप पर्यावरण में रखी कुंजी को पूरे ऐप के लिए fallback के रूप में इस्तेमाल करते हैं, इसलिए उपयोगकर्ताओं को UI में अपनी कुंजी जोड़ने की ज़रूरत नहीं होती। Hosted workspace के production runtime deployment provider keys को साझा होने से रोकते हैं। सहेजी गई user या organization scoped keys को प्राथमिकता मिलती है।
-
-यह provider key सेट करना पूरे ऐप में access और billing साझा करने के लिए operator की स्पष्ट सहमति है; अलग shared-key flag की ज़रूरत नहीं है। बिना scoped key वाला कोई भी signed-in उपयोगकर्ता ऐप के सभी संगठनों में deployment provider account इस्तेमाल कर सकता है; उपयोग का बिल उसी account को दिया जाता है। अलग-अलग tenant के credentials या billing के लिए scoped keys इस्तेमाल करें।
-
-PostgreSQL के साथ, उपयोगकर्ता **Custom keys** से भी key सेव कर सकते हैं। अपने account तक सीमित रखने के लिए Personal scope चुनें; admins इसे workspace में साझा करने के लिए Organization scope चुन सकते हैं। सेव की गई keys encrypted, database-backed credential store में रहती हैं।
-
-Builder का managed provider इस्तेमाल करने के लिए composer में **Use Builder.io** चुनें। समर्थित provider keys और उनके scope के लिए [Environment Variables](/docs/environment-variables#optional-ai-search-and-email-fallbacks) देखें।
+**Use Builder.io** से Builder.io खाते से कनेक्ट करें, **Custom keys** में personal या organization key जोड़ें, या local development के लिए provider key को `.env` में और self-hosted app में app-wide उपयोग के लिए deployment environment में सेट करें। [LLM provider setup](/docs/environment-variables#llm-provider-keys) देखें।
 
 ## Agent से action चलाएं
 

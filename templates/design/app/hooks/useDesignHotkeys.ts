@@ -226,6 +226,34 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+export function isDesignHotkeyBlockedByOpenLayer(target: EventTarget | null) {
+  if (typeof Element === "undefined" || typeof document === "undefined") {
+    return false;
+  }
+  const targetElement = target instanceof Element ? target : null;
+  const layer = targetElement?.closest(
+    '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper]',
+  );
+  if (
+    layer &&
+    layer.getAttribute("aria-hidden") !== "true" &&
+    !layer.hasAttribute("hidden") &&
+    layer.getAttribute("data-state") !== "closed"
+  ) {
+    return true;
+  }
+  return Boolean(
+    document.querySelector(
+      [
+        '[role="menu"][data-state="open"]:not([aria-hidden="true"]):not([hidden])',
+        '[role="listbox"][data-state="open"]:not([aria-hidden="true"]):not([hidden])',
+        '[role="dialog"][data-state="open"]:not([aria-hidden="true"]):not([hidden])',
+        '[data-radix-popper-content-wrapper] [data-state="open"]',
+      ].join(","),
+    ),
+  );
+}
+
 export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
   if (!target || typeof Element === "undefined") return false;
   if (!(target instanceof Element)) return false;
@@ -234,9 +262,10 @@ export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
 
 function isDesignHistoryHotkey(event: KeyboardEvent) {
   return (
-    (event.metaKey || event.ctrlKey) &&
+    isPlatformPrimaryModifier(event) &&
     !event.altKey &&
-    (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")
+    (normalizeDesignHotkeyKey(event) === "z" ||
+      normalizeDesignHotkeyKey(event) === "y")
   );
 }
 
@@ -253,7 +282,7 @@ export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
     return false;
   }
-  const key = normalizedKey(event);
+  const key = normalizeDesignHotkeyKey(event);
   return key === "?" || key === "/";
 }
 
@@ -343,7 +372,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       if (current.preventDefault !== false) event.preventDefault();
       current.onOpacityChange?.({
         event,
-        key: normalizedKey(event),
+        key: normalizeDesignHotkeyKey(event),
         primary: false,
         shift: false,
         alt: false,
@@ -360,6 +389,16 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         return;
       }
       if (event.defaultPrevented || event.isComposing) {
+        resetOpacitySequence();
+        return;
+      }
+      if (
+        isDesignHotkeyEditableTarget(event.target) &&
+        isPlatformPrimaryModifier(event) &&
+        !event.altKey &&
+        ["=", "+", "-", "0"].includes(normalizeDesignHotkeyKey(event))
+      ) {
+        event.preventDefault();
         resetOpacitySequence();
         return;
       }
@@ -422,8 +461,42 @@ export function handleDesignHotkey(
   event: KeyboardEvent,
   props: UseDesignHotkeysProps,
 ) {
-  const key = normalizedKey(event);
-  const primary = event.metaKey || event.ctrlKey;
+  const key = normalizeDesignHotkeyKey(event);
+  const primary = isPlatformPrimaryModifier(event);
+  const isLayoutGridControlChord =
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    ((!event.shiftKey && key === "g") ||
+      (event.shiftKey && event.code === "Digit4"));
+  const isControlAltTidyChord =
+    event.ctrlKey &&
+    !event.metaKey &&
+    event.altKey &&
+    !event.shiftKey &&
+    key === "t";
+  const isSecondaryModifierHotkey =
+    isLayoutGridControlChord ||
+    isControlAltTidyChord ||
+    isShowKeyboardShortcutsHotkey(event) ||
+    (event.ctrlKey &&
+      !event.metaKey &&
+      event.altKey &&
+      !event.shiftKey &&
+      (key === "h" || (isApplePlatform() && key === "v"))) ||
+    (isApplePlatform() &&
+      event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      key === "c");
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !primary &&
+    !isSecondaryModifierHotkey
+  ) {
+    return false;
+  }
   const details: DesignHotkeyDetails = {
     event,
     key,
@@ -499,6 +572,17 @@ export function handleDesignHotkey(
         props[shiftToolShortcut.handler] as DesignHotkeyHandler | undefined,
       );
     }
+  }
+
+  if (
+    isApplePlatform() &&
+    event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey &&
+    key === "c"
+  ) {
+    return run(props.onEyedropper);
   }
 
   if (!primary && !event.altKey && !event.shiftKey) {
@@ -608,16 +692,6 @@ export function handleDesignHotkey(
     return run(props.onEyedropper);
   }
 
-  if (
-    isApplePlatform() &&
-    event.ctrlKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    !event.shiftKey &&
-    key === "c"
-  ) {
-    return run(props.onEyedropper);
-  }
   if (primary && key === "c") {
     if (event.altKey) return run(props.onCopyProps);
     if (event.shiftKey) return run(props.onCopyAsPng);
@@ -771,7 +845,7 @@ export function handleDesignHotkey(
   return false;
 }
 
-const ALT_CODE_KEYS: Record<string, string> = {
+const DESIGN_HOTKEY_CODE_FALLBACKS: Record<string, string> = {
   KeyA: "a",
   KeyB: "b",
   KeyC: "c",
@@ -810,23 +884,23 @@ export function isApplePlatform() {
     }
   ).userAgentData?.platform;
   return /Mac|iPhone|iPad|iPod/i.test(
-    userAgentDataPlatform || navigator.platform || "",
+    navigator.platform || userAgentDataPlatform || "",
   );
 }
 
-function isPlatformPrimaryModifier(event: KeyboardEvent) {
+export function isPlatformPrimaryModifier(event: KeyboardEvent) {
   return isApplePlatform()
     ? event.metaKey && !event.ctrlKey
     : event.ctrlKey && !event.metaKey;
 }
 
-function normalizedKey(event: KeyboardEvent) {
+export function normalizeDesignHotkeyKey(
+  event: Pick<KeyboardEvent, "key" | "code"> & { altKey?: boolean },
+) {
   if (event.key === " ") return "space";
-  if (event.altKey) {
-    const fromCode = ALT_CODE_KEYS[event.code];
-    if (fromCode) return fromCode;
-  }
-  return event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  if (/^[a-z]$/.test(key)) return key;
+  return DESIGN_HOTKEY_CODE_FALLBACKS[event.code] ?? key;
 }
 
 function digitFromEvent(event: KeyboardEvent) {

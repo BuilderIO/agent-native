@@ -8692,7 +8692,7 @@ describe("AgentKitClient", () => {
               id: "run-1",
               threadId: "thread-1",
               status: "running" as const,
-              lastSequence: 2,
+              lastSequence: 3,
             },
             {
               id: "run-2",
@@ -8711,6 +8711,10 @@ describe("AgentKitClient", () => {
                 label: "Inspect workspace",
                 status: "running",
               },
+            }),
+            protocolEvent(3, {
+              type: "x-agent-native.persisted-event-omission-range",
+              payload: { lastSequence: 5 },
             }),
           ],
         };
@@ -8735,7 +8739,8 @@ describe("AgentKitClient", () => {
       label: "Inspect workspace",
     });
     expect(thread.activeRunIds).toEqual(["run-1", "run-2"]);
-    expect(new Set(subscriptions)).toEqual(new Set(["run-1:2", "run-2:1"]));
+    expect(new Set(subscriptions)).toEqual(new Set(["run-1:5", "run-2:1"]));
+    expect(client.getThread("thread-1").runs["run-1"]?.lastSequence).toBe(6);
   });
 
   it("aborts active stream consumers when disposed", async () => {

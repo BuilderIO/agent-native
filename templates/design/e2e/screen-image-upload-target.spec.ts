@@ -347,11 +347,15 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       designId,
       screenAId,
     );
-    const screenAHtmlWithConcurrentEdit = screenAHtmlBeforeEdit.replace(
-      "Screen A source",
-      "Screen A source updated during upload",
-    );
+    // A stale save is three-way merged onto the live source and resent, so an
+    // edit elsewhere in the Screen would merge cleanly with the upload. The
+    // concurrent edit also recolours the root fill, right where the upload
+    // appends its background image, which makes the two a same-spot conflict.
+    const screenAHtmlWithConcurrentEdit = screenAHtmlBeforeEdit
+      .replace("Screen A source", "Screen A source updated during upload")
+      .replace("background-color:#253b50", "background-color:#2e4a62");
     expect(screenAHtmlWithConcurrentEdit).not.toBe(screenAHtmlBeforeEdit);
+    expect(screenAHtmlWithConcurrentEdit).toContain("#2e4a62");
     holdBrowserDesignReads = true;
     const externalUpdateResult = await postAction(page, "update-file", {
       id: screenAId,
@@ -387,9 +391,13 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
           return false;
         }
         try {
+          const body = response.request().postDataJSON() as Record<
+            string,
+            unknown
+          >;
           return (
-            (response.request().postDataJSON() as Record<string, unknown>)
-              .id === screenAId
+            body.id === screenAId &&
+            /qa-import-assets/.test(String(body.content ?? ""))
           );
         } catch {
           return false;
@@ -822,6 +830,8 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
 
     const activeFrame = page.frameLocator(screenAIframeSelector);
     await expect(activeFrame.locator("body")).toContainText("Screen A source");
+    // The recolour is a same-spot conflict with the upload's root fill, which
+    // the client's merge of a rejected save cannot resolve.
     const markerHtml = initialHtml
       .replace("Screen A source", marker)
       .replace("background-color:#253b50", "background-color:#2e4a62");
@@ -1034,10 +1044,9 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       uploadDone,
       new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
     ]);
-    await page.unroute(uploadRoute).catch(() => {});
-    await page.unroute(designReadRoute).catch(() => {});
-    await page.unroute(pollRoute).catch(() => {});
-    await page.unroute(eventsRoute).catch(() => {});
+    // A held get-design handler can still be fulfilling when its route is
+    // removed; that handler's late error must not hide the real failure.
+    await page.unrouteAll({ behavior: "ignoreErrors" });
     console.log(
       "screen-image-upload-active-collab-final-timeline",
       JSON.stringify(timeline),

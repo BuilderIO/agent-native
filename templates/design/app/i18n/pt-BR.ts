@@ -228,7 +228,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Início",
     templates: "Modelos",
     designSystems: "Sistemas de design",
     setupDesignSystem: "Configurar sistema de design",
@@ -780,7 +780,7 @@ export default {
       needsConnectedApp: "Ir para o código-fonte exige um aplicativo conectado",
     },
     leftRail: {
-      file: "Arquivo",
+      layers: "Camadas",
       agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
@@ -1089,7 +1089,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
-      designs: "Designs",
+      allDesigns: "Todos os designs",
       rename: "Renomear",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
@@ -1889,7 +1889,7 @@ export default {
     browseAllTemplates: "Ver todos",
     connectBuilderIo: "Usar Builder.io",
     connectingBuilder: "Configurando o Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "Início",
     searchPlaceholder: "Pesquisar desenhos...",
     newDesign: "Novo Design",
     newDesignLower: "Novo design",

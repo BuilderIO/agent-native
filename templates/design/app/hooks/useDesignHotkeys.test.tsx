@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 
 import {
+  isDesignHotkeyBlockedByOpenLayer,
   isDesignHotkeyEditableTarget,
   isDesignHistoryHotkeyTarget,
   isNativeKeyboardActivationTarget,
@@ -40,6 +41,31 @@ describe("isDesignHotkeyEditableTarget", () => {
 
     markedInput.remove();
     ordinaryInput.remove();
+  });
+});
+
+describe("isDesignHotkeyBlockedByOpenLayer", () => {
+  it("blocks canvas keys while a menu or popover is open", () => {
+    const target = document.createElement("div");
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-state", "open");
+    document.body.append(target, menu);
+
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(true);
+
+    menu.setAttribute("data-state", "closed");
+    const popover = document.createElement("div");
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute("data-state", "open");
+    document.body.append(popover);
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(true);
+
+    popover.setAttribute("data-state", "closed");
+    expect(isDesignHotkeyBlockedByOpenLayer(target)).toBe(false);
+    target.remove();
+    menu.remove();
+    popover.remove();
   });
 });
 
@@ -97,15 +123,37 @@ function dispatchKey(
   init: KeyboardEventInit & { code?: string } = {},
   target: EventTarget = window,
 ) {
+  const ownPlatformDescriptor = Object.getOwnPropertyDescriptor(
+    navigator,
+    "platform",
+  );
+  if (!navigatorPlatformOverride) {
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: init.metaKey && !init.ctrlKey ? "MacIntel" : "Win32",
+    });
+  }
   const event = new KeyboardEvent("keydown", {
     key,
     bubbles: true,
     cancelable: true,
     ...init,
   });
-  target.dispatchEvent(event);
+  try {
+    target.dispatchEvent(event);
+  } finally {
+    if (!navigatorPlatformOverride) {
+      if (ownPlatformDescriptor) {
+        Object.defineProperty(navigator, "platform", ownPlatformDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "platform");
+      }
+    }
+  }
   return event;
 }
+
+let navigatorPlatformOverride: string | null = null;
 
 async function withSelectedText(text: string, run: () => Promise<void> | void) {
   const node = document.createElement("p");
@@ -128,6 +176,8 @@ async function withNavigatorPlatform(
   platform: string,
   run: () => void | Promise<void>,
 ) {
+  const previousOverride = navigatorPlatformOverride;
+  navigatorPlatformOverride = platform;
   const ownDescriptor = Object.getOwnPropertyDescriptor(navigator, "platform");
   Object.defineProperty(navigator, "platform", {
     configurable: true,
@@ -141,6 +191,7 @@ async function withNavigatorPlatform(
     } else {
       Reflect.deleteProperty(navigator, "platform");
     }
+    navigatorPlatformOverride = previousOverride;
   }
 }
 
@@ -188,6 +239,99 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
       await act(async () => root.unmount());
       container.remove();
     }
+  });
+
+  it("uses a Latin key before its physical-key fallback", async () => {
+    const onMoveTool = vi.fn();
+    const onFrameTool = vi.fn();
+    await withHotkeys({ onMoveTool, onFrameTool }, () => {
+      dispatchKey("м", { code: "KeyV" });
+      dispatchKey("a", { code: "KeyQ" });
+    });
+
+    expect(onMoveTool).toHaveBeenCalledTimes(1);
+    expect(onFrameTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the platform primary modifier and leaves Mac Ctrl+G for layout grids", async () => {
+    const onGroup = vi.fn();
+    const onToggleLayoutGrids = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onGroup, onToggleLayoutGrids }, () => {
+        dispatchKey("g", { ctrlKey: true, code: "KeyG" });
+        dispatchKey("g", { metaKey: true, code: "KeyG" });
+      }),
+    );
+
+    expect(onToggleLayoutGrids).toHaveBeenCalledTimes(1);
+    expect(onGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents browser zoom from an inspector input", async () => {
+    const onZoomIn = vi.fn();
+    const inspectorInput = document.createElement("input");
+    inspectorInput.setAttribute("data-design-inspector-section", "");
+    document.body.append(inspectorInput);
+    try {
+      await withHotkeys({ onZoomIn }, () => {
+        const event = dispatchKey(
+          "=",
+          { metaKey: true, code: "Equal" },
+          inspectorInput,
+        );
+        expect(event.defaultPrevented).toBe(true);
+      });
+    } finally {
+      inspectorInput.remove();
+    }
+    expect(onZoomIn).not.toHaveBeenCalled();
+  });
+
+  it("prevents Cmd/Ctrl+- and Cmd/Ctrl+0 browser zoom from an inspector input", async () => {
+    const onZoomOut = vi.fn();
+    const onZoomReset = vi.fn();
+    const onOpacityChange = vi.fn();
+    const inspectorInput = document.createElement("input");
+    inspectorInput.setAttribute("data-design-inspector-section", "");
+    document.body.append(inspectorInput);
+    try {
+      await withHotkeys({ onZoomOut, onZoomReset, onOpacityChange }, () => {
+        const metaMinus = dispatchKey(
+          "-",
+          { metaKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        const metaZero = dispatchKey(
+          "0",
+          { metaKey: true, code: "Digit0" },
+          inspectorInput,
+        );
+        const ctrlMinus = dispatchKey(
+          "-",
+          { ctrlKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        expect(metaMinus.defaultPrevented).toBe(true);
+        expect(metaZero.defaultPrevented).toBe(true);
+        expect(ctrlMinus.defaultPrevented).toBe(true);
+
+        const plainMinus = dispatchKey("-", { code: "Minus" }, inspectorInput);
+        const plainZero = dispatchKey("0", { code: "Digit0" }, inspectorInput);
+        const ctrlAltMinus = dispatchKey(
+          "-",
+          { ctrlKey: true, altKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        expect(plainMinus.defaultPrevented).toBe(false);
+        expect(plainZero.defaultPrevented).toBe(false);
+        expect(ctrlAltMinus.defaultPrevented).toBe(false);
+      });
+    } finally {
+      inspectorInput.remove();
+    }
+    expect(onZoomOut).not.toHaveBeenCalled();
+    expect(onZoomReset).not.toHaveBeenCalled();
+    expect(onOpacityChange).not.toHaveBeenCalled();
   });
 
   it("routes history chords from marked design controls only", async () => {
@@ -303,6 +447,34 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
       });
     });
     expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens keyboard shortcuts with Control+Shift+? on macOS", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onShowKeyboardShortcuts }, () => {
+        dispatchKey("?", {
+          code: "Slash",
+          ctrlKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens keyboard shortcuts with Command+Shift+? on macOS", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onShowKeyboardShortcuts }, () => {
+        dispatchKey("?", {
+          code: "Slash",
+          metaKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
   });
 
   it("keeps shortcut help global without routing editing keys from editable targets", async () => {

@@ -41,6 +41,7 @@ import {
   AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AgentProtocolValidationError,
   AgentKitProtocolError,
+  agentEventSequenceEnd,
   createRequestAbortedError,
   createAgentKitProtocolVersionOffer,
   isInlineDataUrl,
@@ -2515,7 +2516,7 @@ export class AgentKitClient implements AgentKitController {
           snapshot?.events?.reduce(
             (sequence, event) =>
               event.runId === runId
-                ? Math.max(sequence, event.sequence)
+                ? Math.max(sequence, agentEventSequenceEnd(event))
                 : sequence,
             0,
           ) ?? 0;
@@ -5042,7 +5043,9 @@ export class AgentKitClient implements AgentKitController {
       this.getThread(threadId).runs[runId]?.lastSequence ?? 0,
       snapshot?.events?.reduce(
         (sequence, event) =>
-          event.runId === runId ? Math.max(sequence, event.sequence) : sequence,
+          event.runId === runId
+            ? Math.max(sequence, agentEventSequenceEnd(event))
+            : sequence,
         0,
       ) ?? 0,
     );

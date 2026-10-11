@@ -505,6 +505,73 @@ describe("bounded .fig decoding", () => {
 });
 
 describe("editable .fig conversion", () => {
+  it("reports bounded skip counts without rejecting an otherwise usable import", async () => {
+    const document = editableDocument();
+    const nodeChanges = document.nodeChanges as Array<Record<string, unknown>>;
+    nodeChanges[3]!.variableConsumptionMap = {
+      entries: [
+        {
+          variableField: "STACK_SPACING",
+          variableData: {
+            value: { alias: { guid: { sessionID: 99, localID: 99 } } },
+          },
+        },
+      ],
+    };
+    nodeChanges.push(
+      {
+        guid: { sessionID: 1, localID: 5 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 2 },
+          position: "b",
+        },
+        type: "RECTANGLE",
+        name: "Skipped canvas node",
+      },
+      {
+        guid: { sessionID: 1, localID: 6 },
+        parentIndex: {
+          guid: { sessionID: 1, localID: 3 },
+          position: "b",
+        },
+        type: "INSTANCE",
+        name: "Missing component",
+        symbolData: {
+          symbolID: { sessionID: 99, localID: 98 },
+          symbolOverrides: [
+            {
+              guidPath: { guids: [{ sessionID: 99, localID: 97 }] },
+              textData: { characters: "Unused" },
+            },
+          ],
+        },
+      },
+    );
+
+    const result = await convertDecodedFigToEditableHtml(
+      {
+        format: "kiwi",
+        version: 124,
+        document,
+        images: [],
+        thumbnail: null,
+      },
+      {
+        originalName: "sample.fig",
+        ownerEmail: "example@example.com",
+        uploader: vi.fn(),
+      },
+    );
+
+    expect(result.files).toHaveLength(1);
+    expect(result.stats.skipCounts).toEqual({
+      unresolvedOverrideCount: 1,
+      unresolvedVariableAliasCount: 1,
+      missingComponentCount: 1,
+      skippedNodeTypeCount: 1,
+    });
+  });
+
   it("converts pages and frames into editable HTML screens with geometry", async () => {
     const result = await convertDecodedFigToEditableHtml(
       {

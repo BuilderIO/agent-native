@@ -1425,6 +1425,7 @@ export interface UpdateThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
   preserveCurrentTitleAndPreview?: boolean;
+  trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
   transformThreadData?: (
     currentThreadData: string,
@@ -1508,6 +1509,7 @@ export async function updateThreadData(
             options.preserveExistingQueuedMessages ?? true,
           preserveExistingTopLevelKeys:
             options.preserveExistingTopLevelKeys ?? true,
+          trustedRunSequenceResetIds: options.trustedRunSequenceResetIds,
           onAnnotationConflict: (conflict) =>
             annotationConflicts.push(conflict),
         },

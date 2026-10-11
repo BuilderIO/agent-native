@@ -590,6 +590,14 @@ if (workflow) {
       /set \+e\s+BETA_E2E_AUTHED=0 pnpm e2e:beta "\$\{select_args\[@\]\}" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/,
     );
     const emptyCheck = authedRun.indexOf('grep -q "Total: 0 tests in 0 files"');
+    const narrowedSkip = authedRun.indexOf('"$BETA_E2E_NARROWED" = "true"');
+    const skipMessage = authedRun.indexOf(
+      "No authenticated tests in this slot match the app or title selection; skipping authenticated setup.",
+    );
+    const skipReportCleanup = authedRun.indexOf(
+      'rm -f "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT/results.json"',
+    );
+    const skipExit = authedRun.indexOf("exit 0", skipMessage);
     const propagate = authedRun.indexOf('exit "$selection_status"');
     const finalRun = authedRun.lastIndexOf('pnpm e2e:beta "${select_args[@]}"');
     if (
@@ -599,12 +607,15 @@ if (workflow) {
       listCommand < 0 ||
       emptyCheck < listCommand ||
       !authedRun.includes('grep -q "Error: No tests found"') ||
-      !authedRun.includes('"$BETA_E2E_NARROWED" = "true"') ||
+      narrowedSkip < emptyCheck ||
+      skipMessage < narrowedSkip ||
+      skipReportCleanup < skipMessage ||
+      skipExit < skipReportCleanup ||
       propagate < emptyCheck ||
       finalRun < propagate
     ) {
       issues.push(
-        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
+        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, remove the collection-only JSON report before artifact upload, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
       );
     }
 

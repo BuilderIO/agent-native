@@ -3,10 +3,39 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-09
+## 2026-10-11
 
 ### Improved
 
+- AI comments use the dedicated agent icon for the author fallback and send control.
+
+### Fixed
+
+- Share and copy buttons stay the same height in the editor
+
+## 2026-10-10
+
+### Improved
+
+- ChatGPT and Codex widgets use the app's standard document layout, with a normal-size Share button.
+- The ChatGPT and Codex widget no longer pins a formatting toolbar to the top of the page; formatting appears on a text selection and from the slash menu, as in the app.
+
+### Fixed
+
+- Accepting a suggested edit in a comment thread no longer shows a false save error or briefly loses the thread's highlight, and the Comment tooltip and Cancel button display correctly.
+- Content keeps acknowledged edits when a stale collaborator snapshot arrives
+- The Share and Copy link actions are clearly separated in the document toolbar.
+
+## 2026-10-09
+
+### Added
+
+- AI suggestions from a comment now appear in that comment thread, where accepting or rejecting them leaves the thread open, and replying to the AI there revises the suggestion
+- ChatGPT and Codex widgets show the document's top bar with a working Share button and the full formatting toolbar for bold, italic, headings, lists, links, and undo.
+
+### Improved
+
+- Pages open faster and recover more reliably from loading failures.
 - Format Content documents directly in ChatGPT widgets
 - Pages without a collection open faster.
 
@@ -17,6 +46,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-10-08
 
+### Added
+
+- Agents can update page and database descriptions and read their full saved guidance.
+
 ### Improved
 
 - The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
@@ -24,6 +57,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Collection rows remain readable through MCP even when descriptions and saved views are long
 - New blank documents open ready to edit without an unrelated collection prompt.
 - The sidebar hides empty Pinned sections and aligns the workspace selector and search with the navigation sections.
 - Unsaved edits stay attached to the latest title when another tab renames a page
@@ -51,6 +85,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Import Markdown files as pages from the page menu or by dropping them on a page, with a preview of anything that won't come across and one-click undo
 - External agents can now move a page and its sub-pages to recoverable Trash, list Trash, and restore it through Content's MCP tools.
 
 ### Improved
@@ -75,6 +110,10 @@ time from the command menu (Cmd+K → "What's new").
 - Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
 
 ## 2026-10-05
+
+### Added
+
+- The Share dialog's Agents tab can add Content to Cursor or VS Code in one click, so an agent there can read the page you share
 
 ### Improved
 

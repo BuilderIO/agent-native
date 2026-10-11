@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { vi } from "vitest";
 
 import {
   applySourceEdit,
@@ -54,4 +55,41 @@ describe("source workspace helpers", () => {
     expect(sourceContentHash("abc")).toBe(sourceContentHash("abc"));
     expect(sourceContentHash("abc")).not.toBe(sourceContentHash("abcd"));
   });
+});
+
+const hashComputation = vi.hoisted(() => vi.fn());
+
+vi.mock("./memoize-by-content", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./memoize-by-content")>();
+  return {
+    ...actual,
+    memoizeByContent: <T>(
+      limit: number,
+      compute: (content: string) => T,
+      derive?: (
+        previousContent: string,
+        previous: T,
+        content: string,
+      ) => T | null,
+    ) =>
+      actual.memoizeByContent(
+        limit,
+        (content) => {
+          hashComputation();
+          return compute(content);
+        },
+        derive,
+      ),
+  };
+});
+
+it("memoizes repeated source content hashes", async () => {
+  hashComputation.mockClear();
+  const { sourceContentHash } = await import("./source-workspace");
+  const content = "<main>same source</main>";
+
+  expect(sourceContentHash(content)).toBe(sourceContentHash(content));
+  expect(hashComputation).toHaveBeenCalledTimes(1);
+  expect(sourceContentHash(content + " ")).not.toBe(sourceContentHash(content));
+  expect(hashComputation).toHaveBeenCalledTimes(2);
 });

@@ -31,6 +31,15 @@ import {
 const PLATFORM_PRIMARY_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
 
+async function setAppleBrowserPlatform(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: "MacIntel",
+    });
+  });
+}
+
 declare global {
   interface Window {
     __bridgeMessages?: Array<{ type?: string; phase?: string }>;
@@ -16378,13 +16387,27 @@ it(
       await page.mouse.move(120, 120);
       await page.mouse.down();
       await page.mouse.move(150, 150, { steps: 3 });
-      await page.evaluate(() => {
-        window.postMessage(
-          { type: "agent-native:cross-screen-claim", claimed: true },
-          "*",
-        );
-      });
-      await page.waitForTimeout(0);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.source !== window ||
+                event.data?.type !== "agent-native:cross-screen-claim" ||
+                event.data.claimed !== true
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              { type: "agent-native:cross-screen-claim", claimed: true },
+              "*",
+            );
+          }),
+      );
       await page.mouse.up();
 
       const source = await page.locator("#target").evaluate((element) => {
@@ -16503,12 +16526,11 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
-  platformPrimary?: boolean;
 }> = [
   { name: "Cmd/Ctrl+Z undo", key: "z" },
   { name: "Cmd/Ctrl+Shift+Z redo", key: "z", shift: true },
   { name: "Cmd/Ctrl+Y redo", key: "y" },
-  { name: "Cmd/Ctrl+F find", key: "f", platformPrimary: true },
+  { name: "Cmd/Ctrl+F find", key: "f" },
   { name: "Cmd/Ctrl+A select all", key: "a" },
   { name: "Cmd/Ctrl+X cut", key: "x" },
   { name: "Cmd/Ctrl+Shift+X strikethrough", key: "x", shift: true },
@@ -16602,11 +16624,7 @@ it(
         await page.evaluate(() => {
           (window as any).__bridgeMessages = [];
         });
-        const modifier =
-          testCase.ctrlOnly ||
-          (testCase.platformPrimary && process.platform !== "darwin")
-            ? "Control"
-            : "Meta";
+        const modifier = testCase.ctrlOnly ? "Control" : PLATFORM_PRIMARY_KEY;
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");
@@ -17196,6 +17214,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent("<!doctype html><html><body></body></html>");
+      await setAppleBrowserPlatform(page);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await collectBridgeMessages(page);
 
@@ -17239,6 +17258,7 @@ it(
       await page.setContent(`<!doctype html><html><body>
         <div id="el" data-agent-native-node-id="el" style="position:absolute;left:40px;top:40px;width:80px;height:60px;background:#6366f1">El</div>
       </body></html>`);
+      await setAppleBrowserPlatform(page);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await page.mouse.click(80, 70);

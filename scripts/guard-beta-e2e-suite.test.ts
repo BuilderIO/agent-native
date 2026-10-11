@@ -289,6 +289,10 @@ describe("guard:beta-e2e-suite", () => {
       ['select_args+=("--shard=$BETA_E2E_SHARD")', "true"],
       ['grep -q "Error: No tests found"', "true"],
       ['"$BETA_E2E_NARROWED" = "true"', "true"],
+      [
+        'rm -f "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT/results.json"',
+        "true",
+      ],
       ['exit "$selection_status"', "exit 0"],
     ] as const) {
       rejects(

@@ -10,9 +10,11 @@ const clipboard = vi.hoisted(() => ({
   writeDesignClipboard: vi.fn<
     (representations: { plainText: string; html: string }) => Promise<void>
   >(async () => {}),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/design-clipboard", () => clipboard);
+vi.mock("sonner", () => ({ toast: { error: clipboard.toastError } }));
 
 import type {
   ElementInfo,
@@ -36,7 +38,10 @@ function ref<T>(current: T): RefObject<T> {
 }
 
 describe("copying a runtime-projected layer", () => {
-  beforeEach(() => clipboard.writeDesignClipboard.mockClear());
+  beforeEach(() => {
+    clipboard.writeDesignClipboard.mockClear();
+    clipboard.toastError.mockClear();
+  });
 
   it("preserves a failed style-capture marker through the OS clipboard payload", async () => {
     const file: DesignFile = {
@@ -308,5 +313,54 @@ describe("copying a runtime-projected layer", () => {
       )?.entries[0]?.sourceParentNodeId,
     ).toBe("runtime-group");
     expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports that a copy happened when the OS clipboard write fails", async () => {
+    clipboard.writeDesignClipboard.mockRejectedValueOnce(
+      new Error("clipboard unavailable"),
+    );
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    const copiedLayerHtmlRef = ref<string | null>(null);
+
+    const result = await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef,
+      copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
+        undefined,
+      ),
+      designSourceType: "inline",
+      files: [],
+      getScreenContent: () => "",
+      getSelectedLayerSnapshots: () =>
+        [
+          {
+            html: "<div>Layer</div>",
+            rootNodeId: "layer",
+            sourceParentNodeId: null,
+            sourceFileId: "file",
+            portableStyleSnapshot: undefined,
+            styleSnapshotCaptureFailed: false,
+            managedStyleSnapshot: undefined,
+            node: { layerName: "Layer" },
+          },
+        ] as never,
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("single"),
+    });
+
+    expect(result).toEqual({ copied: true, written: false });
+    expect(copiedLayerEntriesRef.current).toHaveLength(1);
+    expect(clipboard.toastError).toHaveBeenCalledWith(
+      "designEditor.toasts.clipboardBlocked",
+    );
   });
 });

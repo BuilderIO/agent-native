@@ -229,7 +229,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "デザイン",
+    home: "ホーム",
     templates: "テンプレート",
     designSystems: "デザインシステム",
     setupDesignSystem: "デザインシステムを設定",
@@ -781,7 +781,7 @@ export default {
       needsConnectedApp: "ソースへのジャンプには接続済みアプリが必要です",
     },
     leftRail: {
-      file: "ファイル",
+      layers: "レイヤー",
       agent: "エージェント",
       assets: "アセット",
       import: "インポート",
@@ -1091,7 +1091,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
-      designs: "デザイン",
+      allDesigns: "すべてのデザイン",
       rename: "名前を変更",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
@@ -1890,7 +1890,7 @@ export default {
     browseAllTemplates: "すべて見る",
     connectBuilderIo: "Builder.io を使う",
     connectingBuilder: "Builder.io を設定中…",
-    pageTitle: "Design",
+    pageTitle: "ホーム",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",
     newDesignLower: "新しいデザイン",

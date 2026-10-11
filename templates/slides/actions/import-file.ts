@@ -43,6 +43,10 @@ import {
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
 import {
+  normalizeSlideTransition,
+  type SlideTransitionType,
+} from "../shared/slide-transitions.js";
+import {
   assertDeckWriteApplied,
   deckRevisionWhere,
   nextDeckRevision,
@@ -799,7 +803,7 @@ async function buildPptxSlide(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
     splitByParagraph?: boolean;
   };
   imageSkippedCount: number;
@@ -820,7 +824,9 @@ async function buildPptxSlide(
       content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
-      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.transition
+        ? { transition: normalizeSlideTransition(slide.transition) }
+        : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     imageSkippedCount: uploadedImages.imageSkippedCount,
@@ -912,7 +918,8 @@ async function appendDeckSlides(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
+    transitionSpeed?: number;
     splitByParagraph?: boolean;
   }>,
   source: string,

@@ -219,14 +219,6 @@ describe("update-slide", () => {
           id: "slide-1",
           content: "<div>Old</div>",
           layoutWarningDismissed: true,
-          animations: [
-            {
-              id: "old-reveal",
-              elementIndex: 0,
-              elementPath: [0],
-              type: "fade",
-            },
-          ],
         },
       ],
     });
@@ -252,7 +244,6 @@ describe("update-slide", () => {
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
     expect(deck.slides[0].layoutWarningDismissed).toBeUndefined();
-    expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
@@ -1043,6 +1034,135 @@ describe("update-slide", () => {
     ).rejects.toThrow("protected layout CSS");
 
     expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("keeps reveals across a content edit that leaves them resolvable", async () => {
+    const animations = [
+      { id: "reveal-title", elementIndex: 0, elementPath: [0], type: "fade" },
+      { id: "reveal-body", elementIndex: 1, elementPath: [1], type: "zoom" },
+    ];
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations,
+        },
+      ],
+    });
+
+    await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: '<div class="fmd-slide"><h1>Retitled</h1><p>Body</p></div>',
+    });
+
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0].animations,
+    ).toEqual(animations);
+  });
+
+  it("refuses a content edit that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+          animations: [
+            {
+              id: "reveal-two",
+              elementIndex: 1,
+              elementPath: [1, 1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent:
+          '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "slide-1",
+        animationId: "reveal-two",
+      },
+    });
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("refuses a content edit that strands a reveal, with a typed error and no write", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations: [
+            {
+              id: "reveal-body",
+              elementIndex: 1,
+              elementPath: [1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      runSlideActionWithCurrentHash({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: '<div class="fmd-slide"><h1>Title</h1></div>',
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationId: "reveal-body",
+      },
+    });
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("does not block a content edit on a reveal that was already unresolved", async () => {
+    const animations = [
+      { id: "reveal-body", elementIndex: 1, elementPath: [4], type: "fade" },
+    ];
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations,
+        },
+      ],
+    });
+
+    await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: '<div class="fmd-slide"><h1>Retitled</h1><p>Body</p></div>',
+    });
+
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0].animations,
+    ).toEqual(animations);
   });
 
   it("preserves animations for style-only CSS edits", async () => {

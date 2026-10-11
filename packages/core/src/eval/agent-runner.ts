@@ -137,13 +137,29 @@ export async function createAgentRunner(
       "Production chat evals require the real final response guard and a read-only adapter action registry.",
     );
   }
-  const engine =
-    config.engine ?? (await resolveEngine({ engineOption: undefined }));
-  const modelCandidate =
-    config.model ??
-    (await getStoredModelForEngine(engine)) ??
-    engine.defaultModel;
-  const model = normalizeModelForEngine(engine, modelCandidate);
+  const resolveRuntimeModel = async () => {
+    const engine =
+      config.engine ??
+      (await resolveEngine({ appId: productionContext?.appId }));
+    const modelCandidate =
+      config.model ??
+      (await getStoredModelForEngine(engine, {
+        appId: productionContext?.appId,
+      })) ??
+      engine.defaultModel;
+    return { engine, model: normalizeModelForEngine(engine, modelCandidate) };
+  };
+  const runtimeModel = productionContext
+    ? await runWithRequestContext(
+        {
+          userEmail: productionContext.ownerEmail,
+          orgId: productionContext.orgId ?? undefined,
+          isSyntheticTraffic: true,
+        },
+        resolveRuntimeModel,
+      )
+    : await resolveRuntimeModel();
+  const { engine, model } = runtimeModel;
   const timeoutMs = config.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
   const initialToolNames = productionContext?.initialToolNames
     ? new Set(productionContext.initialToolNames)
@@ -512,9 +528,6 @@ function validateProductionPathRun(
     !["ok", "empty", "timed_out", "failed"].includes(receipt.prefetchStatus)
   ) {
     return "Production chat eval adapter returned an incomplete setup receipt.";
-  }
-  if (receipt.prefetchStatus !== "ok" && receipt.prefetchStatus !== "empty") {
-    return `Production chat eval adapter reported unsuccessful prefetch status "${receipt.prefetchStatus}".`;
   }
   if (
     receipt.ownerEmail.trim().toLowerCase() !==

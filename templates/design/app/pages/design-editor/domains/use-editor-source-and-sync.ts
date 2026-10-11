@@ -28,7 +28,13 @@ import {
 } from "@/components/design/inspector";
 import { isEditorHotkeyBlockedByShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
-import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
+import {
+  isDesignHotkeyBlockedByOpenLayer,
+  isPlatformPrimaryModifier,
+  normalizeDesignHotkeyKey,
+  isShowKeyboardShortcutsHotkey,
+  useDesignHotkeys,
+} from "@/hooks/useDesignHotkeys";
 
 import {
   collectCodeLayerAncestors,
@@ -539,8 +545,14 @@ export function useEditorSourceAndSync({
   const shouldHandleEditorHotkey = useCallback((event: KeyboardEvent) => {
     // The shortcuts dialog is modal: only its own open/close chord leaves it.
     if (isEditorHotkeyBlockedByShortcutsDialog(event)) return false;
-    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    const primary = event.metaKey || event.ctrlKey;
+    if (
+      isDesignHotkeyBlockedByOpenLayer(event.target) &&
+      !isShowKeyboardShortcutsHotkey(event)
+    ) {
+      return false;
+    }
+    const key = normalizeDesignHotkeyKey(event);
+    const primary = isPlatformPrimaryModifier(event);
     const plainPasteHotkey =
       primary && key === "v" && !event.altKey && !event.shiftKey;
     if (!plainPasteHotkey) return true;

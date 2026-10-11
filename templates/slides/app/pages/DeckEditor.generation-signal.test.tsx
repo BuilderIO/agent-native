@@ -628,7 +628,7 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.queryByTestId("editor-sidebar")).toBeNull();
   });
 
-  it("saves before leaving an empty generation deck and restores its prompt", async () => {
+  it("saves before leaving an empty generation deck without restoring its prompt", async () => {
     mocks.hasPendingDeckWrites = true;
     mocks.deck.generationContext.originalPrompt =
       "Create a product launch deck";
@@ -653,9 +653,7 @@ describe("DeckEditor generation signal wiring", () => {
 
     await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
     expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
-    expect(router?.state.location.state).toEqual({
-      retryPrompt: "Create a product launch deck",
-    });
+    expect(router?.state.location.state).toBeNull();
 
     await act(async () => {
       void router?.navigate(-1);

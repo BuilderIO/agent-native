@@ -85,7 +85,7 @@ export default function SettingsRoute() {
 应用页面通常从一个 `extraTabs` 条目开始，该条目会成为应用分组中的独立页面。如需更多控制，可在模块作用域调用 `registerSettingsPages`，注册一个 `SettingsPageDefinition`（包含 `id`、`group`、`order`、`label`、`icon`、`component`，以及可选的 `visible`、`subpages` 和 `searchEntries`）。如果定义的 ID 与现有页面相同，就会替换该页面。Dispatch 就是这样在“成员”页面中加入应用角色列的：
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,

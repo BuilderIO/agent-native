@@ -1819,6 +1819,54 @@ function isSyntheticToolHistoryOmissionMessage(
   );
 }
 
+function equivalentRuntimeContent(left: unknown, right: unknown): boolean {
+  let remaining = 4096;
+  const leftAncestors = new WeakSet<object>();
+  const rightAncestors = new WeakSet<object>();
+  const compare = (a: unknown, b: unknown, depth: number): boolean => {
+    if (--remaining < 0 || depth > 64) return false;
+    if (Object.is(a, b)) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object")
+      return false;
+    const prototype = Object.getPrototypeOf(a);
+    if (
+      prototype !== Object.getPrototypeOf(b) ||
+      (prototype !== Object.prototype &&
+        prototype !== Array.prototype &&
+        prototype !== null) ||
+      leftAncestors.has(a) ||
+      rightAncestors.has(b)
+    )
+      return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length))
+      return false;
+    const keys = Object.keys(a);
+    if (keys.length > remaining || keys.length !== Object.keys(b).length)
+      return false;
+    leftAncestors.add(a);
+    rightAncestors.add(b);
+    try {
+      return keys.every((key) => {
+        const leftValue = Object.getOwnPropertyDescriptor(a, key);
+        const rightValue = Object.getOwnPropertyDescriptor(b, key);
+        return Boolean(
+          leftValue &&
+          rightValue &&
+          rightValue.enumerable &&
+          "value" in leftValue &&
+          "value" in rightValue &&
+          compare(leftValue.value, rightValue.value, depth + 1),
+        );
+      });
+    } finally {
+      leftAncestors.delete(a);
+      rightAncestors.delete(b);
+    }
+  };
+  return compare(left, right, 0);
+}
+
 function priorNativeHistoryMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
@@ -4463,6 +4511,25 @@ export function createAgentNativeChatRuntime(
       const latestUserMessage = [...(turn.messages ?? [])]
         .reverse()
         .find((message) => message.role === "user");
+      const latestUserMessageIndex = latestUserMessage
+        ? (turn.messages?.lastIndexOf(latestUserMessage) ?? -1)
+        : -1;
+      const messagesForHistory =
+        latestUserMessage &&
+        typeof latestUserMessage.id === "string" &&
+        latestUserMessage.id.trim().length > 0 &&
+        latestUserMessageIndex >= 0
+          ? turn.messages!.filter(
+              (message, index) =>
+                message.role !== "user" ||
+                message.id !== latestUserMessage.id ||
+                !equivalentRuntimeContent(
+                  message.content,
+                  latestUserMessage.content,
+                ) ||
+                index === latestUserMessageIndex,
+            )
+          : turn.messages;
       const prompt =
         turn.prompt ??
         latestUserMessage?.content
@@ -4500,7 +4567,7 @@ export function createAgentNativeChatRuntime(
         turn.attachments,
       );
       const history = nativeHistoryFromMessages(
-        turn.messages,
+        messagesForHistory,
         prompt,
         currentAttachmentUrlSet,
       );
@@ -4510,7 +4577,7 @@ export function createAgentNativeChatRuntime(
           ? pendingApprovalRuntimeMessages(continuationMessageState)
           : { messages: [], omitted: false, toolHistoryOmitted: false };
       const structuredHistory = nativeStructuredHistoryFromMessages(
-        turn.messages,
+        messagesForHistory,
         prompt,
         currentAttachmentUrlSet,
         pendingApprovalHistory.messages,

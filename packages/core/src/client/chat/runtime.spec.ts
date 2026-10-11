@@ -1494,6 +1494,247 @@ describe("createAgentNativeChatRuntime", () => {
     expect(history).not.toContain("CURRENT_IMAGE_BYTES");
   });
 
+  it("omits repeated current message IDs without dropping a prior identical ask", async () => {
+    const prompt = "Repeat this question exactly.";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-repeated-current-message-id",
+      fetch: fetchMock as typeof fetch,
+    });
+    const currentMessage: AgentChatRuntimeMessage = {
+      id: "user-current",
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "data", data: { nested: { values: [1, "two"] } } },
+      ],
+    };
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        {
+          id: "assistant-prior",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-prior",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+          ],
+        },
+        currentMessage,
+        {
+          ...currentMessage,
+          content: JSON.parse(JSON.stringify(currentMessage.content)),
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).toEqual([{ role: "user", content: prompt }]);
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ text?: string; type?: string }>;
+    }>;
+    expect(
+      structuredHistory
+        .flatMap((message) => message.content)
+        .filter((part) => part.type === "text" && part.text === prompt),
+    ).toHaveLength(1);
+  });
+
+  it("preserves distinct user content sharing the current message ID", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-colliding-user-ids",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Current question",
+      messages: [
+        {
+          id: "shared-id",
+          role: "user",
+          content: [{ type: "text", text: "Prior question" }],
+        },
+        {
+          id: "assistant-prior",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "prior-call",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+          ],
+        },
+        {
+          id: "shared-id",
+          role: "user",
+          content: [{ type: "text", text: "Current question" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).toEqual([{ role: "user", content: "Prior question" }]);
+    expect(body.structuredHistory).toContainEqual({
+      role: "user",
+      content: [{ type: "text", text: "Prior question" }],
+    });
+  });
+
+  it("preserves different attachments under a shared user message ID", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-colliding-attachment-ids",
+      fetch: fetchMock as typeof fetch,
+    });
+    const priorUrl = "https://files.example.test/prior.png";
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Review this image",
+      messages: [
+        {
+          id: "shared-id",
+          role: "user",
+          content: [
+            { type: "text", text: "Review this image" },
+            { type: "image", url: priorUrl },
+          ],
+        },
+        {
+          id: "shared-id",
+          role: "user",
+          content: [
+            { type: "text", text: "Review this image" },
+            { type: "image", url: "https://files.example.test/current.png" },
+          ],
+        },
+      ],
+    });
+    await drain(turn.events);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).toHaveLength(1);
+    expect(body.history[0].content).toContain(priorUrl);
+    expect(JSON.stringify(body.structuredHistory)).toContain(priorUrl);
+  });
+
+  it.each(["different", "cyclic", "deep"])(
+    "retains same-ID content when nested equivalence is not proven (%s)",
+    async (kind) => {
+      let priorData: Record<string, unknown> = { value: "prior" };
+      let currentData: Record<string, unknown> = { value: "current" };
+      if (kind === "cyclic") {
+        priorData.value = "same";
+        currentData.value = "same";
+        priorData.self = priorData;
+        currentData.self = currentData;
+      } else if (kind === "deep") {
+        priorData = { value: "same" };
+        currentData = { value: "same" };
+        for (let index = 0; index < 80; index++) {
+          priorData = { nested: priorData };
+          currentData = { nested: currentData };
+        }
+      }
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-nested-equivalence-boundary",
+        fetch: fetchMock as typeof fetch,
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Current question",
+        messages: [
+          {
+            id: "shared-id",
+            role: "user",
+            content: [
+              { type: "text", text: "Current question" },
+              { type: "data", data: priorData },
+            ],
+          },
+          {
+            id: "shared-id",
+            role: "user",
+            content: [
+              { type: "text", text: "Current question" },
+              { type: "data", data: currentData },
+            ],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.history).toEqual([
+        { role: "user", content: "Current question" },
+      ]);
+    },
+  );
+
+  it.each([undefined, "", " "])(
+    "preserves prior user turns without a stable ID (%s)",
+    async (id) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-missing-current-id",
+        fetch: fetchMock as typeof fetch,
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Current question",
+        messages: [
+          {
+            id: id as unknown as string,
+            role: "user",
+            content: [{ type: "text", text: "Prior question" }],
+          },
+          {
+            id: id as unknown as string,
+            role: "user",
+            content: [{ type: "text", text: "Current question" }],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.history).toEqual([
+        { role: "user", content: "Prior question" },
+      ]);
+    },
+  );
+
   it("keeps structured history after an assistant tail longer than its scan limit", async () => {
     const prompt = "Use the final review summary.";
     const assistantTail = Array.from({ length: 1_025 }, (_, index) => ({
