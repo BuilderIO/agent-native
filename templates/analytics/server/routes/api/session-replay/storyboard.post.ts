@@ -9,7 +9,10 @@ import {
   workspacePrivateOrigins,
 } from "@agent-native/core/a2a";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { resolveVercelDeploymentProtectionHeaders } from "@agent-native/core/server";
+import {
+  resolveVercelDeploymentProtectionHeaders,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { createError, defineEventHandler, readMultipartFormData } from "h3";
 
 import { runApiHandlerWithContext } from "../../../lib/credentials";
@@ -920,10 +923,18 @@ export default defineEventHandler(async (event) =>
         selfAppId: "analytics",
       });
       failurePhase = "designAuthentication";
-      const caller = await resolveA2ACallerAuth({
-        audience: canonicalA2AAudience(designTarget.url),
-        userIdentityOnly: true,
-      });
+      const caller = await runWithRequestContext(
+        {
+          userEmail: ctx.userEmail,
+          orgId: undefined,
+          orgScope: "personal",
+        },
+        () =>
+          resolveA2ACallerAuth({
+            audience: canonicalA2AAudience(designTarget.url),
+            userIdentityOnly: true,
+          }),
+      );
       const uploadToken = caller.apiKey;
       if (!caller.userEmail || !uploadToken) {
         badRequest("Analytics could not authenticate the Design upload", 503);

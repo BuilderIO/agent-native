@@ -4,11 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
+  createDesign: vi.fn(),
   deleteAttachment: vi.fn(),
   mintAttachmentRef: vi.fn(),
   readMultipartFormData: vi.fn(),
   runWithRequestContext: vi.fn(),
   runAction: vi.fn(),
+  select: vi.fn(),
+  eq: vi.fn(),
   verifyA2AToken: vi.fn(),
 }));
 
@@ -52,8 +55,21 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
+vi.mock("drizzle-orm", () => ({
+  eq: (...args: unknown[]) => mocks.eq(...args),
+}));
+
+vi.mock("../../db/index.js", () => ({
+  getDb: () => ({ select: (...args: unknown[]) => mocks.select(...args) }),
+  schema: { designShares: { resourceId: "design-shares.resource-id" } },
+}));
+
 vi.mock("../../../actions/add-session-replay-screenshots-to-board.js", () => ({
   default: { run: mocks.runAction },
+}));
+
+vi.mock("../../../actions/create-design.js", () => ({
+  default: { run: mocks.createDesign },
 }));
 
 import handler from "./session-replay-storyboard.post";
@@ -146,17 +162,19 @@ function makeFormData({
   screenshots = [screenshot],
   pixelWidthOverride,
   pngOverride,
+  designId: requestedDesignId = designId,
 }: {
   screenshots?: Array<typeof screenshot>;
   pixelWidthOverride?: number;
   pngOverride?: Buffer;
+  designId?: string | null;
 } = {}) {
   const form = new FormData();
   const replayCount = new Set(screenshots.map(({ replayId }) => replayId)).size;
   form.set(
     "manifest",
     JSON.stringify({
-      designId,
+      ...(requestedDesignId ? { designId: requestedDesignId } : {}),
       cohortTotal: replayCount,
       selectedReplayCount: replayCount,
       screenshots,
@@ -203,12 +221,28 @@ describe("POST /api/session-replay-storyboard", () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.verifyA2AToken.mockResolvedValue({
       email: "ada@example.test",
-      orgId: "org-1",
     });
     mocks.runWithRequestContext.mockImplementation(
       async (_context: unknown, callback: () => unknown) => callback(),
     );
-    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: {
+        ownerEmail: "ada@example.test",
+        orgId: null,
+        visibility: "private",
+      },
+    });
+    mocks.createDesign.mockResolvedValue({ id: designId });
+    const query = {
+      from: vi.fn(),
+      where: vi.fn(),
+      limit: vi.fn().mockResolvedValue([]),
+    };
+    query.from.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    mocks.select.mockReturnValue(query);
+    mocks.eq.mockReturnValue({ type: "eq" });
     mocks.mintAttachmentRef.mockResolvedValue({
       status: "ok",
       ref: "private-attachment-ref",
@@ -250,11 +284,13 @@ describe("POST /api/session-replay-storyboard", () => {
       "test-a2a-token",
       expect.any(Object),
     );
-    expect(mocks.assertAccess).toHaveBeenCalledWith(
+    expect(mocks.assertAccess.mock.calls[0]).toEqual([
       "design",
       designId,
       "editor",
-    );
+      undefined,
+      { skipResourceBody: true },
+    ]);
     expect(mocks.mintAttachmentRef).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerEmail: "ada@example.test",
@@ -272,9 +308,19 @@ describe("POST /api/session-replay-storyboard", () => {
       expect.objectContaining({
         actionName: "add-session-replay-screenshots-to-board",
         userEmail: "ada@example.test",
-        orgId: "org-1",
+        orgId: null,
       }),
     );
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "ada@example.test",
+        orgId: undefined,
+        orgScope: "personal",
+      },
+      expect.any(Function),
+    );
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.select).toHaveBeenCalledOnce();
     expect(mocks.deleteAttachment).toHaveBeenCalledWith(
       "private-attachment-ref",
       { ownerEmail: "ada@example.test", orgId: null },
@@ -287,6 +333,90 @@ describe("POST /api/session-replay-storyboard", () => {
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(mocks.verifyA2AToken).not.toHaveBeenCalled();
     expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+  });
+
+  it.each([{ orgId: "org-1" }, { orgDomain: "workspace.example.test" }])(
+    "rejects an organization-bound caller before parsing or writing",
+    async (claims) => {
+      mocks.verifyA2AToken.mockResolvedValueOnce({
+        email: "ada@example.test",
+        ...claims,
+      });
+
+      await expect(
+        (handler as any)(makeEvent(makeFormData())),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.readMultipartFormData).not.toHaveBeenCalled();
+      expect(mocks.createDesign).not.toHaveBeenCalled();
+      expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    },
+  );
+
+  it("creates a private board before attaching screenshots when no board is supplied", async () => {
+    await (handler as any)(makeEvent(makeFormData({ designId: null })));
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Session replay storyboard",
+        projectType: "prototype",
+        designSystemId: null,
+      }),
+      expect.objectContaining({
+        actionName: "create-design",
+        userEmail: "ada@example.test",
+        orgId: null,
+      }),
+    );
+    expect(mocks.createDesign.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.mintAttachmentRef.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.assertAccess.mock.calls[0]?.slice(0, 3)).toEqual([
+      "design",
+      designId,
+      "editor",
+    ]);
+    expect(mocks.runAction).toHaveBeenCalledWith(
+      expect.objectContaining({ designId }),
+      expect.objectContaining({ orgId: null }),
+    );
+  });
+
+  it.each([
+    ["an organization-owned board", { orgId: "org-1" }],
+    ["a shared board", { visibility: "org" }],
+    ["another user's board", { ownerEmail: "other@example.test" }],
+  ])("rejects %s before writing", async (_label, resource) => {
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "editor",
+      resource: {
+        ownerEmail: "ada@example.test",
+        orgId: null,
+        visibility: "private",
+        ...resource,
+      },
+    });
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a board with explicit share rows before writing", async () => {
+    const query = {
+      from: vi.fn(),
+      where: vi.fn(),
+      limit: vi.fn().mockResolvedValue([{ resourceId: designId }]),
+    };
+    query.from.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+    mocks.select.mockReturnValueOnce(query);
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
   });
 
   it("preserves the oversized-request error when body cancellation fails", async () => {

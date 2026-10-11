@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   resolveA2ACallerAuth: vi.fn(),
   resolveAgentInvocationTarget: vi.fn(),
   resolveVercelDeploymentProtectionHeaders: vi.fn(),
+  runWithRequestContext: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   workspacePrivateOrigins: vi.fn(),
 }));
@@ -41,6 +42,8 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 vi.mock("@agent-native/core/server", () => ({
   resolveVercelDeploymentProtectionHeaders:
     mocks.resolveVercelDeploymentProtectionHeaders,
+  runWithRequestContext: (...args: unknown[]) =>
+    mocks.runWithRequestContext(...args),
 }));
 
 vi.mock("../../../lib/credentials", () => ({
@@ -220,6 +223,9 @@ describe("POST /api/session-replay/storyboard", () => {
     mocks.resolveVercelDeploymentProtectionHeaders.mockReturnValue({
       "x-test-deployment-protection": "enabled",
     });
+    mocks.runWithRequestContext.mockImplementation(
+      async (_context: unknown, callback: () => unknown) => callback(),
+    );
     mocks.getSessionReplaySummary.mockResolvedValue({
       id: screenshot.recordingId,
       app: "clips",
@@ -394,6 +400,14 @@ describe("POST /api/session-replay/storyboard", () => {
       audience: designUrl,
       userIdentityOnly: true,
     });
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "ada@example.test",
+        orgId: undefined,
+        orgScope: "personal",
+      },
+      expect.any(Function),
+    );
   });
 
   it("rejects a screenshot batch above the decoded pixel limit before replay lookups", async () => {

@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/private-blob";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -17,6 +18,8 @@ import {
 } from "h3";
 
 import addSessionReplayScreenshotsToBoard from "../../../actions/add-session-replay-screenshots-to-board.js";
+import createDesign from "../../../actions/create-design.js";
+import { getDb, schema } from "../../db/index.js";
 import { pngDimensions } from "../../lib/png-dimensions.js";
 
 const MAX_SCREENSHOTS = 9;
@@ -49,6 +52,38 @@ type Manifest = {
 
 function badRequest(message: string, statusCode = 400): never {
   throw createError({ statusCode, statusMessage: message });
+}
+
+async function assertPersonalPrivateDesignBoard(
+  designId: string,
+  userEmail: string,
+): Promise<void> {
+  const access = await assertAccess("design", designId, "editor", undefined, {
+    skipResourceBody: true,
+  });
+  const resource = access.resource as {
+    ownerEmail?: unknown;
+    orgId?: unknown;
+    visibility?: unknown;
+  };
+  if (
+    typeof resource.ownerEmail !== "string" ||
+    resource.ownerEmail.trim().toLowerCase() !==
+      userEmail.trim().toLowerCase() ||
+    resource.orgId != null ||
+    resource.visibility !== "private"
+  ) {
+    badRequest("A private personal Design board is required", 403);
+  }
+
+  const shares = await getDb()
+    .select({ resourceId: schema.designShares.resourceId })
+    .from(schema.designShares)
+    .where(eq(schema.designShares.resourceId, designId))
+    .limit(1);
+  if (shares.length > 0) {
+    badRequest("A private personal Design board is required", 403);
+  }
 }
 
 async function readBoundedMultipartFormData(
@@ -241,6 +276,9 @@ export default defineEventHandler(async (event) => {
 
   const caller = await verifyA2AToken(token, event);
   if (!caller.email) badRequest("A signed Analytics user is required", 401);
+  if (caller.orgId?.trim() || caller.orgDomain?.trim()) {
+    badRequest("Storyboard uploads require a personal Design identity", 403);
+  }
 
   const parts = await readBoundedMultipartFormData(event);
   if (!parts) badRequest("Screenshot export payload is missing");
@@ -301,12 +339,33 @@ export default defineEventHandler(async (event) => {
   return runWithRequestContext(
     {
       userEmail: caller.email,
-      ...(caller.orgId ? { orgId: caller.orgId } : {}),
+      orgId: undefined,
+      orgScope: "personal",
     },
     async () => {
-      if (manifest.designId) {
-        await assertAccess("design", manifest.designId, "editor");
+      let designId = manifest.designId;
+      if (!designId) {
+        const created = await createDesign.run(
+          {
+            title: manifest.title ?? "Session replay storyboard",
+            description: "Private session replay storyboard from Analytics.",
+            projectType: "prototype",
+            designSystemId: null,
+          },
+          {
+            caller: "frontend",
+            actionName: "create-design",
+            userEmail: caller.email!,
+            orgId: null,
+          } satisfies ActionRunContext,
+        );
+        designId =
+          typeof created.id === "string" ? created.id.trim() : undefined;
+        if (!designId || designId.length > 128) {
+          badRequest("Design did not confirm a private storyboard", 502);
+        }
       }
+      await assertPersonalPrivateDesignBoard(designId, caller.email!);
 
       const refs: string[] = [];
       let cleanupPending = false;
@@ -349,7 +408,7 @@ export default defineEventHandler(async (event) => {
 
         const result = await addSessionReplayScreenshotsToBoard.run(
           {
-            ...(manifest.designId ? { designId: manifest.designId } : {}),
+            designId,
             ...(manifest.title ? { title: manifest.title } : {}),
             cohortTotal: manifest.cohortTotal,
             selectedReplayCount: manifest.selectedReplayCount,
@@ -359,7 +418,7 @@ export default defineEventHandler(async (event) => {
             caller: "frontend",
             actionName: "add-session-replay-screenshots-to-board",
             userEmail: caller.email!,
-            orgId: caller.orgId ?? null,
+            orgId: null,
           } satisfies ActionRunContext,
         );
         if (!result.boardUrl || !result.designId) {
