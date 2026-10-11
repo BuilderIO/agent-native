@@ -23,6 +23,7 @@ const tsx = path.join(repoRoot, "node_modules", ".bin", "tsx");
 const GUARDED_FILES = [
   ".github/workflows/beta-e2e.yml",
   ".github/workflows/beta-e2e-scheduled.yml",
+  ".github/workflows/beta-e2e-report.yml",
   "scripts/beta-e2e-digest.ts",
   ".github/actions/beta-e2e-setup/action.yml",
   ".github/workflows/deploy-production-sites-prebuilt.yml",
@@ -381,12 +382,55 @@ describe("guard:beta-e2e-suite", () => {
     );
   });
 
-  it("holds the scheduled reporter to the artifact, Slack, and permission contract", () => {
+  it("reports only direct beta dispatches and waits for every lane", () => {
     rejects(
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e.yml",
+          "github.workflow == 'Beta E2E (browser)'",
+          "github.workflow == 'Deploy production sites'",
+        ),
+      /must report direct manual runs/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          "needs: [discover, gate, public, fleet, authed, advisory, signup]",
+          "needs: [discover]",
+        ),
+      /must wait for every lane and pass the aggregate result/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          /needs\.\*\.result/g,
+          "needs.gate.result",
+        ),
+      /must wait for every lane and pass the aggregate result/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e.yml",
+          "always()\n      && github.event_name == 'workflow_dispatch'",
+          "!cancelled()\n      && github.event_name == 'workflow_dispatch'",
+        ),
+      /including canceled lanes/,
+    );
+  });
+
+  it("holds the shared reporter to the artifact, Slack, and permission contract", () => {
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-report.yml",
           /QA_SLACK_BOT_TOKEN/g,
           "SOME_OTHER_TOKEN",
         ),
@@ -396,7 +440,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           /slackapi\/slack-github-action@[0-9a-f]{40}/,
           "slackapi/slack-github-action@v4",
         ),
@@ -406,7 +450,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           /(    permissions:\n      actions: read\n      contents: read\n)/,
           "$1      pull-requests: write\n",
         ),
@@ -416,7 +460,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           "      actions: read\n      contents: read\n",
           "      actions: read\n      contents: read\n      issues: write\n",
         ),
@@ -436,7 +480,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           "      - name: Build the report",
           "      - name: Create finding issue\n        run: gh issue create\n\n      - name: Build the report",
         ),
@@ -446,7 +490,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           "          method: chat.postMessage",
           "          method: chat.postMessage\n          method: chat.postMessage",
         ),
@@ -456,7 +500,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           "COLLECT_OUTCOME: ${{ steps.collect.outcome }}",
           "COLLECT_OUTCOME: skipped",
         ),
@@ -466,7 +510,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           /actions\/upload-artifact@[0-9a-f]{40}/,
           "actions/upload-artifact@v7",
         ),
@@ -476,7 +520,7 @@ describe("guard:beta-e2e-suite", () => {
       (files) =>
         edit(
           files,
-          ".github/workflows/beta-e2e-scheduled.yml",
+          ".github/workflows/beta-e2e-report.yml",
           /Slack notification not configured/g,
           "Slack skipped",
         ),

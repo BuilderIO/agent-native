@@ -1605,7 +1605,7 @@ describe("scheduled workflow state recovery", () => {
   it("does not fall back after the latest completed run lacks a state artifact", () => {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../.github/workflows/beta-e2e-scheduled.yml",
+      "../.github/workflows/beta-e2e-report.yml",
     );
     const workflow = parse(readFileSync(workflowPath, "utf8")) as {
       jobs?: {
@@ -1639,8 +1639,11 @@ const args = process.argv.slice(2);
 fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + "\\n");
 if (args[0] === "api") {
   const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
-  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs?")) {
-    process.stdout.write("1999\\n1998\\n");
+  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs")) {
+    process.stdout.write("2026-10-02T00:00:00Z\\t1999\\n2026-10-01T00:00:00Z\\t1998\\n");
+    process.exit(0);
+  }
+  if (endpoint.includes("/workflows/beta-e2e.yml/runs")) {
     process.exit(0);
   }
   if (endpoint.includes("/runs/1999/artifacts?")) {
@@ -1675,6 +1678,7 @@ process.exit(2);
           REPORT_DIR: reportDir,
           RUN_ID: "2000",
           REPO: "acme/repo",
+          GITHUB_REF_NAME: "main",
           GITHUB_OUTPUT: outputPath,
           GH_CALL_LOG: callLog,
         },
@@ -1713,7 +1717,7 @@ process.exit(2);
   it("includes recovered current findings in the degraded Slack payload", () => {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../.github/workflows/beta-e2e-scheduled.yml",
+      "../.github/workflows/beta-e2e-report.yml",
     );
     const workflow = parse(readFileSync(workflowPath, "utf8")) as {
       jobs?: {
@@ -1820,7 +1824,7 @@ process.exit(2);
   }): { outputState: unknown; summary: string } {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../.github/workflows/beta-e2e-scheduled.yml",
+      "../.github/workflows/beta-e2e-report.yml",
     );
     const workflow = parse(readFileSync(workflowPath, "utf8")) as {
       jobs?: {

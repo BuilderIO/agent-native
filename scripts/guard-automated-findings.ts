@@ -10,7 +10,7 @@ export const workflowPaths = readdirSync(WORKFLOW_DIR)
   .map((name) => `${WORKFLOW_DIR}/${name}`);
 
 export const reporterWorkflows = [
-  ".github/workflows/beta-e2e-scheduled.yml",
+  ".github/workflows/beta-e2e-report.yml",
   ".github/workflows/design-e2e.yml",
   ".github/workflows/keep-neon-warm.yml",
   ".github/workflows/signup-e2e-scheduled.yml",
@@ -21,7 +21,7 @@ const fullReportArtifactNames: Record<
   (typeof reporterWorkflows)[number],
   string
 > = {
-  ".github/workflows/beta-e2e-scheduled.yml": "beta-e2e-digest-",
+  ".github/workflows/beta-e2e-report.yml": "beta-e2e-digest-",
   ".github/workflows/design-e2e.yml": "design-e2e-scheduled-report-",
   ".github/workflows/keep-neon-warm.yml": "production-health-report-",
   ".github/workflows/signup-e2e-scheduled.yml": "signup-e2e-report-",
@@ -29,7 +29,10 @@ const fullReportArtifactNames: Record<
     "signup-agent-${{ github.run_id }}",
 };
 
-export const supportingWorkflows = [".github/workflows/beta-e2e.yml"] as const;
+export const supportingWorkflows = [
+  ".github/workflows/beta-e2e-scheduled.yml",
+  ".github/workflows/beta-e2e.yml",
+] as const;
 
 // This reports release promotion failures, not application or CI findings.
 const scheduledNonFindingSlackWorkflows = new Set([
@@ -715,6 +718,11 @@ export function inspectAutomatedFindingWorkflows(
     if (source === undefined) {
       problems.push(`${path} is missing from the automated reporter guard.`);
       continue;
+    }
+    if (!source.includes("uses: ./.github/workflows/beta-e2e-report.yml")) {
+      problems.push(
+        `${path} must delegate Beta E2E reporting to the shared Slack reporter.`,
+      );
     }
     if (
       /reports? failures? to (?:one )?deduplicated issue|GitHub issue fallback is active/i.test(
