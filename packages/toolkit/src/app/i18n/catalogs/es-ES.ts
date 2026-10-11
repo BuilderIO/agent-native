@@ -133,8 +133,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Describe tu función",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
-  "onboarding.builderCreateAccount": "Usar Builder.io",
-  "onboarding.builderSignInWithAccount": "Usar Builder.io",
+  "onboarding.builderCreateAccount": "Crear una cuenta de Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Iniciar sesión con una cuenta de Builder.io",
   "onboarding.builderActivateDescription":
     "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
   "onboarding.builderActiveCredits":
@@ -173,6 +174,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Configurando los créditos gratuitos de Builder.io",
   "onboarding.builderProvisioningDescription":
     "Estamos creando tu cuenta de Builder.io y activando los créditos gratis.",
+  "onboarding.builderCancelPending": "Comprobando el estado de la conexión…",
   "onboarding.builderConnectionDescription":
     "Finaliza la conexión con un clic en la nueva ventana.",
   "onboarding.builderReadyWithCodeChanges":

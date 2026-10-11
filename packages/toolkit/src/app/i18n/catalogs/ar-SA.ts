@@ -131,8 +131,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "صف دورك",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
-  "onboarding.builderCreateAccount": "استخدم Builder.io",
-  "onboarding.builderSignInWithAccount": "استخدم Builder.io",
+  "onboarding.builderCreateAccount": "أنشئ حسابًا على Builder.io",
+  "onboarding.builderSignInWithAccount": "سجّل الدخول بحساب Builder.io",
   "onboarding.builderActivateDescription":
     "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
   "onboarding.builderActiveCredits":
@@ -164,6 +164,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
     "جارٍ إنشاء حساب Builder.io الخاص بك وتفعيل الأرصدة المجانية.",
+  "onboarding.builderCancelPending": "جارٍ التحقق من حالة الاتصال…",
   "onboarding.builderConnectionDescription":
     "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
   "onboarding.builderReadyWithCodeChanges":

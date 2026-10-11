@@ -662,7 +662,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
-    ).toBe("Use Builder.io");
+    ).toBe("Sign in with a Builder.io account");
     expect(
       document.body
         .querySelector('[data-testid="first-run-builder-sign-in"]')
@@ -709,7 +709,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("lets users cancel a direct Builder connect during first run", () => {
+  it("returns to setup choices immediately after cancel", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -750,6 +750,60 @@ describe("FirstRunOnboarding", () => {
     expect(cancelButton?.textContent).toBe("Cancel");
     act(() => cancelButton?.click());
     expect(flow.cancel).toHaveBeenCalledOnce();
+    expect(flow.connecting).toBe(true);
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-pending"]')
+        ?.textContent,
+    ).toBe("Checking connection status…");
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-builder"]'),
+    ).toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
+    ).not.toBeNull();
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-pending"]')
+        ?.textContent,
+    ).toBe("Checking connection status…");
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        '[data-testid="first-run-open-key-settings"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        '[data-testid="first-run-builder-sign-in"]',
+      )?.disabled,
+    ).toBe(true);
+
+    flow.connecting = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        '[data-testid="first-run-builder-sign-in"]',
+      )?.disabled,
+    ).toBe(false);
   });
 
   it("keeps Cancel during a failed status poll without offering a fake retry", () => {
@@ -937,7 +991,11 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-create-account"]',
       )?.textContent,
-    ).toBe("Use Builder.io");
+    ).toBe("Create a Builder.io account");
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
+        ?.textContent,
+    ).toBe("Sign in with a Builder.io account");
     expect(
       document.body
         .querySelector('[data-testid="first-run-builder-create-account"]')
@@ -1369,10 +1427,11 @@ describe("FirstRunOnboarding", () => {
       )?.click();
     });
 
-    mocks.useBuilderConnectFlow.mockReturnValue({
+    const accountExistsFlow = {
       ...flow,
       accountExists: true,
-    });
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(accountExistsFlow);
     act(() => {
       root.render(
         <TooltipProvider>
@@ -1396,6 +1455,97 @@ describe("FirstRunOnboarding", () => {
       trackingFlow: "connect_llm",
       provisionAccount: false,
     });
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-open-key-settings"]',
+      ),
+    ).toBeTruthy();
+
+    accountExistsFlow.start.mockImplementation(() => {
+      accountExistsFlow.connecting = true;
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-sign-in"]',
+        )
+        ?.click();
+    });
+
+    expect(document.body.textContent).not.toContain(
+      "You already have a Builder.io account",
+    );
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-builder"]'),
+    ).toBeTruthy();
+  });
+
+  it("returns to setup choices after Builder provisioning fails", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      terminalError: "Builder account provisioning failed (503).",
+      error: "Builder account provisioning failed (503).",
+      start: vi.fn(),
+      retry: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>('[data-testid="first-run-role-skip"]')
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-create-account"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
+    ).toBeTruthy();
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-open-key-settings"]',
+      ),
+    ).toBeTruthy();
   });
 
   it("shows the role step first", () => {

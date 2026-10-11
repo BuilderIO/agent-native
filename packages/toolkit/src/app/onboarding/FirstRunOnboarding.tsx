@@ -200,6 +200,7 @@ export function FirstRunOnboarding({
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
+  const [builderCancelRequested, setBuilderCancelRequested] = useState(false);
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const beforeSetupExtensions = useMemo(
     () =>
@@ -568,6 +569,7 @@ export function FirstRunOnboarding({
   }
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
+    setBuilderCancelRequested(false);
     if (previewMode) {
       handleFinish(null);
       return;
@@ -811,6 +813,15 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
+                {connectFlow.connecting && builderCancelRequested && (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="first-run-cancel-pending"
+                    role="status"
+                  >
+                    {t("agentChat.onboarding.builderCancelPending")}
+                  </p>
+                )}
                 {connectFlow.error &&
                   connectFlow.errorKind === "status-read" && (
                     <div
@@ -1030,8 +1041,9 @@ export function FirstRunOnboarding({
     );
   }
 
-  const accountExists = connectFlow.accountExists;
+  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
   const provisioning = builderConnectionMode === "provision" && !accountExists;
+  const returnToSetupChoice = () => setScreen("choice");
   return (
     <OnboardingShell
       profile={profile}
@@ -1090,16 +1102,37 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
-            {connectFlow.connecting && (
-              <button
-                type="button"
-                data-testid="first-run-cancel-builder"
-                className={cn(secondaryButtonClass, "mt-4")}
-                onClick={connectFlow.cancel}
-              >
-                {t("common.cancel")}
-              </button>
-            )}
+            {connectFlow.connecting &&
+              (builderCancelRequested ? (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="first-run-cancel-pending"
+                  >
+                    {t("agentChat.onboarding.builderCancelPending")}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="first-run-back-to-choice"
+                    className={secondaryButtonClass}
+                    onClick={returnToSetupChoice}
+                  >
+                    {t("agentChat.onboarding.back")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="first-run-cancel-builder"
+                  className={cn(secondaryButtonClass, "mt-4")}
+                  onClick={() => {
+                    setBuilderCancelRequested(true);
+                    connectFlow.cancel();
+                  }}
+                >
+                  {t("common.cancel")}
+                </button>
+              ))}
             {connectFlow.statusUnavailable &&
               connectFlow.connecting &&
               !connectFlow.terminalError && (
@@ -1132,9 +1165,39 @@ export function FirstRunOnboarding({
                   >
                     Try again
                   </button>
+                  <button
+                    type="button"
+                    data-testid="first-run-back-to-choice"
+                    className={secondaryButtonClass}
+                    onClick={returnToSetupChoice}
+                  >
+                    {t("agentChat.onboarding.back")}
+                  </button>
                 </div>
               )}
+            {!connectFlow.connecting &&
+              !connectFlow.statusUnavailable &&
+              !connectFlow.terminalError && (
+                <button
+                  type="button"
+                  data-testid="first-run-back-to-choice"
+                  className={cn(secondaryButtonClass, "mt-4")}
+                  onClick={returnToSetupChoice}
+                >
+                  {t("agentChat.onboarding.back")}
+                </button>
+              )}
           </>
+        )}
+        {accountExists && !connectFlow.connecting && (
+          <button
+            type="button"
+            data-testid="first-run-back-to-choice"
+            className={cn(secondaryButtonClass, "mt-3")}
+            onClick={returnToSetupChoice}
+          >
+            {t("agentChat.onboarding.back")}
+          </button>
         )}
       </div>
     </OnboardingShell>

@@ -126,8 +126,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "描述你的角色",
   "onboarding.skipForNow": "暂时跳过",
   "onboarding.saveRoleError": "无法保存你的角色。",
-  "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io",
+  "onboarding.builderCreateAccount": "创建 Builder.io 账户",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io 账户登录",
   "onboarding.builderActivateDescription":
     "一键创建或重新使用您的 Builder.io 账户，并激活免费额度。",
   "onboarding.builderActiveCredits": "包含在有效的 Builder.io 免费额度中",
@@ -159,6 +159,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
     "正在创建您的 Builder.io 账户并激活免费额度。",
+  "onboarding.builderCancelPending": "正在检查连接状态…",
   "onboarding.builderConnectionDescription": "在新窗口中一键完成连接。",
   "onboarding.builderReadyWithCodeChanges": "AI 积分和云端代码更改已准备就绪。",
   "onboarding.builderReadyCreditsOnly":

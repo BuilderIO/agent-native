@@ -14,7 +14,9 @@ import {
   useBuilderConnectFlow,
   requestBuilderAccountActivation,
   withBuilderConnectTrackingParams,
+  type BuilderConnectTransport,
   type BuilderConnectionScope,
+  type BuilderStatus,
 } from "./useBuilderStatus.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
@@ -53,6 +55,7 @@ function BuilderConnectProbeContent({
   enabled = true,
   popupUrl,
   provisionAccount = false,
+  transport,
   startProvisionAccount,
   startScope,
   onConnected,
@@ -60,6 +63,7 @@ function BuilderConnectProbeContent({
   enabled?: boolean;
   popupUrl?: string;
   provisionAccount?: boolean;
+  transport?: BuilderConnectTransport;
   startProvisionAccount?: boolean;
   startScope?: BuilderConnectionScope;
   onConnected?: (state: { orgName: string | null }) => void | Promise<void>;
@@ -68,6 +72,7 @@ function BuilderConnectProbeContent({
     enabled,
     popupUrl,
     provisionAccount,
+    transport,
     onConnected,
   });
   return (
@@ -1638,10 +1643,105 @@ describe("useBuilderConnectFlow", () => {
 
     await flushAfterPaint();
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
   });
 
-  it("keeps existing-account mode when a login attempt is blocked", async () => {
+  it("clears existing-account state while starting a normal sign-in", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const pendingReads: Array<(response: Response) => void> = [];
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          connectError: {
+            message:
+              "A Builder account already exists for this email. Log in to connect it.",
+            code: "account_exists",
+            at: Date.now(),
+          },
+        }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            pendingReads.push(resolve);
+          }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe startProvisionAccount={false} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+    });
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured connecting resolved no-account-exists");
+    expect(
+      container.querySelector('[data-testid="cancel-connect"]'),
+    ).toBeTruthy();
+    expect(pendingReads).toHaveLength(1);
+
+    await act(async () => {
+      pendingReads[0]?.(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          connectError: {
+            message:
+              "A Builder account already exists for this email. Log in to connect it.",
+            code: "account_exists",
+            at: Date.now(),
+          },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured connecting resolved account-exists");
+  });
+
+  it("keeps the existing-account path available when a login popup is blocked", async () => {
     vi.mocked(fetch).mockImplementation(async () =>
       jsonResponse({
         configured: false,
@@ -1668,14 +1768,251 @@ describe("useBuilderConnectFlow", () => {
     });
     await flushAfterPaint();
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
 
     await act(async () => {
       container.querySelector("button")?.click();
     });
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
     expect(container.textContent).toContain("Allow popups and try again.");
+  });
+
+  it("restores existing-account state when desktop status refresh fails", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const accountExistsStatus: BuilderStatus = {
+      configured: false,
+      builderEnabled: true,
+      agentNativeProvisioningEnabled: true,
+      agentNativeProvisioningToken: provisioningToken,
+      envManaged: false,
+      connectUrl: signedConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+    };
+    const readStatus: BuilderConnectTransport["readStatus"] = async ({
+      connectAttemptId,
+    }) => (connectAttemptId ? null : accountExistsStatus);
+    const openConnectUrl = vi.fn(async () => ({ ok: true as const }));
+    const transport: BuilderConnectTransport = {
+      readStatus,
+      activateAccount: async () => ({ ok: true }),
+      openConnectUrl,
+    };
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe
+          startProvisionAccount={false}
+          transport={transport}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+    expect(
+      container.querySelector('[data-testid="status-unavailable"]')
+        ?.textContent,
+    ).toBe("unavailable");
+    expect(openConnectUrl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "keeps a fresh existing-account state",
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+      expectedAccountState: "account-exists",
+    },
+    {
+      name: "clears a stale existing-account state",
+      connectError: undefined,
+      expectedAccountState: "no-account-exists",
+    },
+  ])(
+    "uses fresh account state when the desktop connect URL is invalid: $name",
+    async ({ connectError, expectedAccountState }) => {
+      setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+      const accountExistsStatus: BuilderStatus = {
+        configured: false,
+        builderEnabled: true,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        connectUrl: signedConnectUrl,
+        appHost: "https://builder.io",
+        apiHost: "https://api.builder.io",
+        publicKeyConfigured: false,
+        privateKeyConfigured: false,
+        connectError: {
+          message:
+            "A Builder account already exists for this email. Log in to connect it.",
+          code: "account_exists",
+          at: Date.now(),
+        },
+      };
+      const invalidConnectUrlStatus: BuilderStatus = {
+        ...accountExistsStatus,
+        connectUrl: "https://builder.io/connect",
+        connectError,
+      };
+      const readStatus: BuilderConnectTransport["readStatus"] = async ({
+        connectAttemptId,
+      }) => (connectAttemptId ? invalidConnectUrlStatus : accountExistsStatus);
+      const openConnectUrl = vi.fn(async () => ({ ok: true as const }));
+      const transport: BuilderConnectTransport = {
+        readStatus,
+        activateAccount: async () => ({ ok: true }),
+        openConnectUrl,
+      };
+
+      await act(async () => {
+        root.render(
+          <BuilderConnectProbe
+            startProvisionAccount={false}
+            transport={transport}
+          />,
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await flushAfterPaint();
+
+      expect(
+        container
+          .querySelector('[data-testid="status"]')
+          ?.textContent?.replace(/\s+/g, " ")
+          .trim(),
+      ).toBe("not-configured idle resolved account-exists");
+
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>("button")?.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(
+        container
+          .querySelector('[data-testid="status"]')
+          ?.textContent?.replace(/\s+/g, " ")
+          .trim(),
+      ).toBe(`not-configured idle resolved ${expectedAccountState}`);
+      expect(openConnectUrl).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps refreshed account state when desktop popup launch fails", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const desktopConnectUrl = "https://builder.io/connect?_an_connect=signed";
+    const accountExistsStatus: BuilderStatus = {
+      configured: false,
+      builderEnabled: true,
+      agentNativeProvisioningEnabled: true,
+      agentNativeProvisioningToken: provisioningToken,
+      envManaged: false,
+      connectUrl: desktopConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+    };
+    const refreshedStatus: BuilderStatus = {
+      ...accountExistsStatus,
+      connectError: undefined,
+    };
+    const readStatus: BuilderConnectTransport["readStatus"] = async ({
+      connectAttemptId,
+    }) => (connectAttemptId ? refreshedStatus : accountExistsStatus);
+    const transport: BuilderConnectTransport = {
+      readStatus,
+      activateAccount: async () => ({ ok: true }),
+      openConnectUrl: async () => ({
+        ok: false,
+        error: "Desktop launch failed",
+      }),
+    };
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe
+          startProvisionAccount={false}
+          transport={transport}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved no-account-exists");
+    expect(container.textContent).toContain("Desktop launch failed");
   });
 
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {
@@ -3337,6 +3674,64 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");
+  });
+
+  it("keeps refreshed account state when the embedded host launch fails", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    vi.mocked(openMcpAppHostLink).mockReturnValueOnce(false);
+    const accountExistsStatus = {
+      configured: false,
+      envManaged: false,
+      builderEnabled: true,
+      orgName: null,
+      connectUrl: signedConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+    };
+    const refreshedStatus = {
+      ...accountExistsStatus,
+      connectError: undefined,
+    };
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(accountExistsStatus))
+      .mockResolvedValueOnce(jsonResponse(refreshedStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openMcpAppHostLink).toHaveBeenCalledOnce();
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved no-account-exists");
   });
 
   it("does not open the MCP host after cancelling a pending embedded startup", async () => {
