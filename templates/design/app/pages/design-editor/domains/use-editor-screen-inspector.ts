@@ -401,7 +401,8 @@ export function useEditorScreenInspector({
       meta?: StyleChangeMeta,
     ) => {
       if (!screenId || !canEditDesignRef.current) return;
-      const previewOnly = meta?.phase === "preview";
+      const isCancel = meta?.phase === "cancel";
+      const previewOnly = meta?.phase === "preview" || isCancel;
       const content = getScreenContent(screenId);
       if (!content || externalPreviewUrlForContent(content) !== null) return;
       const preview = screenStylePreviewRef.current.get(screenId);
@@ -437,12 +438,13 @@ export function useEditorScreenInspector({
       );
       const historyBeforeContent =
         screenStylePreviewRef.current.get(screenId)?.before;
+      if (isCancel) screenStylePreviewRef.current.delete(screenId);
       if (
         next === content &&
         (previewOnly || historyBeforeContent === undefined)
       )
         return;
-      if (previewOnly) {
+      if (previewOnly && !isCancel) {
         screenStylePreviewRef.current.set(screenId, {
           before: historyBeforeContent ?? content,
           after: next,
@@ -453,6 +455,7 @@ export function useEditorScreenInspector({
       applyFileContentUpdate(screenId, next, {
         immediateSave: !previewOnly,
         persist: !previewOnly,
+        previewOnly,
         recordHistory: !previewOnly,
         historyBeforeContent: previewOnly ? undefined : historyBeforeContent,
       });

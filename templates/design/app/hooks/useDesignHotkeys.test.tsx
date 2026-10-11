@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { VisualScrubInput } from "@agent-native/toolkit/design-tweaks";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
@@ -144,6 +145,51 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — drawing tool bindings", () => {
+  it("cancels an active scrub before routing Undo and ignores its stale pointerup", async () => {
+    const events: string[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <>
+          <Probe onUndo={() => events.push("undo")} />
+          <VisualScrubInput
+            label="Width"
+            value={10}
+            onChange={(_value, meta) => events.push(meta.phase)}
+          />
+        </>,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    const dragContainer = input.parentElement as HTMLDivElement;
+    dragContainer.setPointerCapture = vi.fn();
+    dragContainer.hasPointerCapture = vi.fn(() => true);
+    dragContainer.releasePointerCapture = vi.fn();
+    const pointer = (type: string) =>
+      Object.assign(new Event(type, { bubbles: true }), {
+        pointerId: 4,
+        clientX: type === "pointerdown" ? 0 : 10,
+        button: 0,
+        altKey: true,
+      }) as unknown as PointerEvent;
+
+    try {
+      act(() => input.dispatchEvent(pointer("pointerdown")));
+      act(() => dragContainer.dispatchEvent(pointer("pointermove")));
+      const undoEvent = dispatchKey("z", { metaKey: true });
+      expect(undoEvent.defaultPrevented).toBe(true);
+      expect(events).toEqual(["preview", "preview", "cancel", "undo"]);
+      act(() => dragContainer.dispatchEvent(pointer("pointerup")));
+      expect(events).toEqual(["preview", "preview", "cancel", "undo"]);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("routes history chords from marked design controls only", async () => {
     const onUndo = vi.fn();
     await withHotkeys({ onUndo }, () => {

@@ -807,6 +807,7 @@ export function useEditorContentAndComponents({
         immediateSave?: boolean;
         awaitSave?: boolean;
         persist?: boolean;
+        previewOnly?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
         sourceBaseContent?: string;
@@ -901,6 +902,7 @@ export function useEditorContentAndComponents({
         immediateSave?: boolean;
         awaitSave?: boolean;
         persist?: boolean;
+        previewOnly?: boolean;
         recordHistory?: boolean;
         historyBeforeContent?: string;
         sourceBaseContent?: string;

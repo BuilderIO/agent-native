@@ -1,3 +1,4 @@
+import { cancelActiveScrubInputs } from "@agent-native/toolkit/design-tweaks";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { createDesignCanvasInteractionAdapter } from "@/components/design/canvas-interactions/design-canvas-interactions";
@@ -559,12 +560,21 @@ export function handleDesignHotkey(
   }
 
   if (primary && key === "z") {
+    const historyHandler = event.shiftKey ? props.onRedo : props.onUndo;
+    if (historyHandler || props.canClaimBoundChords !== false) {
+      cancelActiveScrubInputs();
+    }
     return (
       runSharedCanvasCommand() ||
       (event.shiftKey ? claim(props.onRedo) : claim(props.onUndo))
     );
   }
-  if (primary && key === "y") return claim(props.onRedo);
+  if (primary && key === "y") {
+    if (props.onRedo || props.canClaimBoundChords !== false) {
+      cancelActiveScrubInputs();
+    }
+    return claim(props.onRedo);
+  }
   if (
     isPlatformPrimaryModifier(event) &&
     !event.altKey &&

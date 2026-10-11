@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
 } from "@playwright/test";
 
@@ -160,6 +161,123 @@ async function designFileIds(
   return result.files.map((file: { id: string }) => file.id);
 }
 
+async function panTargetIntoUnobscuredCanvas(
+  page: Page,
+  target: Locator,
+  targetName: string,
+) {
+  const edgeInset = 24;
+  const maxPanStep = 200;
+
+  for (let step = 0; step < 16; step += 1) {
+    const box = await target.boundingBox();
+    expect(box, `${targetName} should have rendered bounds`).not.toBeNull();
+    const geometry = await page.evaluate(
+      ({ target, inset, panStep }) => {
+        const surface = document.querySelector<HTMLElement>(
+          "[data-multi-screen-canvas-surface]",
+        );
+        if (!surface) return null;
+        const bounds = (selector: string) => {
+          const element = document.querySelector<HTMLElement>(selector);
+          if (!element || getComputedStyle(element).display === "none") {
+            return null;
+          }
+          const rect = element.getBoundingClientRect();
+          return rect.width && rect.height
+            ? {
+                left: rect.left,
+                top: rect.top,
+                right: rect.right,
+                bottom: rect.bottom,
+              }
+            : null;
+        };
+        const surfaceRect = surface.getBoundingClientRect();
+        const leftShell = bounds('[data-design-chrome-region="left-shell"]');
+        const rightPanel = bounds('[data-design-chrome-region="right-panel"]');
+        const topBar = bounds('[data-design-chrome-region="top-bar"]');
+        const visible = {
+          left: Math.max(0, surfaceRect.left, leftShell?.right ?? 0) + inset,
+          top: Math.max(0, surfaceRect.top, topBar?.bottom ?? 0) + inset,
+          right:
+            Math.min(
+              innerWidth,
+              surfaceRect.right,
+              rightPanel?.left ?? innerWidth,
+            ) - inset,
+          bottom: Math.min(innerHeight, surfaceRect.bottom) - inset,
+        };
+        const inside =
+          target.x >= visible.left &&
+          target.x + target.width <= visible.right &&
+          target.y >= visible.top &&
+          target.y + target.height <= visible.bottom;
+        const delta = {
+          x:
+            target.x + target.width > visible.right
+              ? panStep
+              : target.x < visible.left
+                ? -panStep
+                : 0,
+          y:
+            target.y + target.height > visible.bottom
+              ? panStep
+              : target.y < visible.top
+                ? -panStep
+                : 0,
+        };
+        const wheelPoint = [
+          { x: visible.left + 16, y: visible.top + 64 },
+          { x: visible.left + 32, y: visible.top + 112 },
+          { x: visible.left + 64, y: visible.top + 64 },
+          { x: visible.left + 16, y: (visible.top + visible.bottom) / 2 },
+          { x: (visible.left + visible.right) / 2, y: visible.top + 64 },
+        ].find((point) => {
+          const hit = document.elementFromPoint(point.x, point.y);
+          return Boolean(
+            hit && surface.contains(hit) && !hit.closest("iframe"),
+          );
+        });
+        return { visible, inside, delta, wheelPoint: wheelPoint ?? null };
+      },
+      { target: box!, inset: edgeInset, panStep: maxPanStep },
+    );
+    expect(
+      geometry,
+      "the overview canvas surface should be mounted",
+    ).not.toBeNull();
+    expect(
+      geometry!.visible.right - geometry!.visible.left,
+    ).toBeGreaterThanOrEqual(box!.width);
+    expect(
+      geometry!.visible.bottom - geometry!.visible.top,
+    ).toBeGreaterThanOrEqual(box!.height);
+    if (geometry!.inside) return;
+    expect(
+      Math.abs(geometry!.delta.x) + Math.abs(geometry!.delta.y),
+      `${targetName} should be reachable by panning inside the canvas`,
+    ).toBeGreaterThan(0);
+    expect(
+      geometry!.wheelPoint,
+      "a clear point on the overview canvas should be available for panning",
+    ).not.toBeNull();
+
+    await page.mouse.move(geometry!.wheelPoint!.x, geometry!.wheelPoint!.y);
+    await page.mouse.wheel(geometry!.delta.x, geometry!.delta.y);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
+
+  throw new Error(
+    `${targetName} did not move inside the unobscured canvas after 16 wheel pans`,
+  );
+}
+
 test.use({ viewport: { width: 1500, height: 1000 } });
 
 test("responsive frame previews preserve content fit and scope selection", async ({
@@ -176,9 +294,8 @@ test("responsive frame previews preserve content fit and scope selection", async
 
     // Content-fit height: the 390px mobile frame must render at its own
     // content height (the fixture is 900px tall), NOT the desktop primary's
-    // aspect ratio (which produced a ~274px landscape sliver that clipped the
-    // content — the reported mobile-vs-tablet screenshot). A correctly-sized
-    // mobile frame is portrait (taller than wide).
+    // aspect ratio, which would clip the content. A correctly-sized mobile
+    // frame is portrait (taller than wide).
     const mobileIframe = page.locator(
       `iframe[data-screen-iframe-id="${fileId}::bp-390"]`,
     );
@@ -245,13 +362,14 @@ test("responsive frame previews preserve content fit and scope selection", async
       .locator(`iframe[data-screen-iframe-id="${fileId}::bp-768"]`)
       .contentFrame()
       .locator('[data-agent-native-node-id="hero"]');
-    await page
+    const tabletTitle = page
       .locator("[data-breakpoint-frame]")
       .filter({
         has: page.locator(`[data-screen-iframe-id="${fileId}::bp-768"]`),
       })
-      .locator("[data-frame-title]")
-      .click();
+      .locator("[data-frame-title]");
+    await panTargetIntoUnobscuredCanvas(page, tabletTitle, "tablet title");
+    await tabletTitle.click();
     await expect
       .poll(
         async () =>
@@ -263,6 +381,7 @@ test("responsive frame previews preserve content fit and scope selection", async
     await scope.click();
     await page.getByRole("option", { name: "This breakpoint only" }).click();
     await expect(scope).toHaveText("This breakpoint only");
+    await panTargetIntoUnobscuredCanvas(page, tabletHero, "tablet hero");
     const tabletHeroBox = await tabletHero.boundingBox();
     expect(tabletHeroBox).not.toBeNull();
     await page.mouse.click(
