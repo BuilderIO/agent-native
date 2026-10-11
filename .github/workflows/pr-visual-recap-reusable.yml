@@ -483,7 +483,6 @@ jobs:
         id: prompt
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         env:
-          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
@@ -491,7 +490,6 @@ jobs:
           ARGS=(--diff recap.diff --stat recap.stat --block-reference recap-blocks.md --pr "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" --app-url "$PLAN_RECAP_APP_URL" --skill-source "$VISUAL_RECAP_SKILL_SOURCE" --out recap-prompt.md)
           if [ "${DIFF_HUGE:-}" = "true" ]; then ARGS+=(--huge); fi
           if [ "${IS_FORK:-}" = "true" ]; then ARGS+=(--fork-pr true); fi
-          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
           $RECAP_CLI recap build-prompt "${ARGS[@]}"
 
       - name: Run agent (Claude Code)
@@ -639,12 +637,12 @@ jobs:
         id: publish
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true' && steps.source_status.outputs.ready == 'true'
         continue-on-error: true
-        env:
-          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
-          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          # Earlier recap snapshots are viewer-only for this workflow identity.
+          # Give each GitHub run its own key so publishing never tries to replace them.
+          ARGS+=(--idempotency-key "pr-recap:$GITHUB_REPOSITORY:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
           ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
           if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
             ARGS+=(--source-pr-state merged)
@@ -758,12 +756,10 @@ jobs:
         id: publish_repair
         if: steps.repaired_source.outputs.ok == 'true'
         continue-on-error: true
-        env:
-          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
-          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          ARGS+=(--idempotency-key "pr-recap:$GITHUB_REPOSITORY:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
           ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
           if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
             ARGS+=(--source-pr-state merged)
