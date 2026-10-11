@@ -1532,7 +1532,10 @@ describe("createAgentNativeChatRuntime", () => {
           ],
         },
         currentMessage,
-        { ...currentMessage },
+        {
+          ...currentMessage,
+          content: currentMessage.content.map((part) => ({ ...part })),
+        },
       ],
     });
     await drain(turn.events);
@@ -1547,6 +1550,93 @@ describe("createAgentNativeChatRuntime", () => {
         .flatMap((message) => message.content)
         .filter((part) => part.type === "text" && part.text === prompt),
     ).toHaveLength(1);
+  });
+
+  it("preserves distinct user content sharing the current message ID", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-colliding-user-ids",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Current question",
+      messages: [
+        {
+          id: "shared-id",
+          role: "user",
+          content: [{ type: "text", text: "Prior question" }],
+        },
+        {
+          id: "assistant-prior",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "prior-call",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+          ],
+        },
+        {
+          id: "shared-id",
+          role: "user",
+          content: [{ type: "text", text: "Current question" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).toEqual([{ role: "user", content: "Prior question" }]);
+    expect(body.structuredHistory).toContainEqual({
+      role: "user",
+      content: [{ type: "text", text: "Prior question" }],
+    });
+  });
+
+  it("preserves different attachments under a shared user message ID", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-colliding-attachment-ids",
+      fetch: fetchMock as typeof fetch,
+    });
+    const priorUrl = "https://files.example.test/prior.png";
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Review this image",
+      messages: [
+        {
+          id: "shared-id",
+          role: "user",
+          content: [
+            { type: "text", text: "Review this image" },
+            { type: "image", url: priorUrl },
+          ],
+        },
+        {
+          id: "shared-id",
+          role: "user",
+          content: [
+            { type: "text", text: "Review this image" },
+            { type: "image", url: "https://files.example.test/current.png" },
+          ],
+        },
+      ],
+    });
+    await drain(turn.events);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.history).toHaveLength(1);
+    expect(body.history[0].content).toContain(priorUrl);
+    expect(JSON.stringify(body.structuredHistory)).toContain(priorUrl);
   });
 
   it.each([undefined, "", " "])(

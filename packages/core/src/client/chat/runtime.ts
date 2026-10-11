@@ -4475,6 +4475,24 @@ export function createAgentNativeChatRuntime(
               (message, index) =>
                 message.role !== "user" ||
                 message.id !== latestUserMessage.id ||
+                message.content.length !== latestUserMessage.content.length ||
+                !message.content.every((part, partIndex) => {
+                  const currentPart = latestUserMessage.content[partIndex]!;
+                  const entries = Object.entries(part);
+                  return (
+                    entries.length === Object.keys(currentPart).length &&
+                    entries.every(
+                      ([key, value]) =>
+                        Object.hasOwn(currentPart, key) &&
+                        Object.is(
+                          value,
+                          (currentPart as unknown as Record<string, unknown>)[
+                            key
+                          ],
+                        ),
+                    )
+                  );
+                }) ||
                 index === latestUserMessageIndex,
             )
           : turn.messages;
