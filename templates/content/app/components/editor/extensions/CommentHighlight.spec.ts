@@ -145,6 +145,10 @@ describe("CommentHighlight", () => {
     expect(highlighted(swap("Intro.", "Shipping happens!"))).toEqual([
       "Shipping happens!",
     ]);
+    // Separate edits on either side of the quote leave its text alone.
+    expect(
+      highlighted(swap("Intro.", "Team ships Friday pm, always.")),
+    ).toEqual(["Friday pm"]);
     expect(highlighted(swap("Intro.", "ships on Friday pm."))).toEqual([
       "Friday pm",
     ]);

@@ -63,9 +63,11 @@ function positionUnits(node: ProseMirrorNode, units: string[] = []): string[] {
 }
 
 interface DocumentSwap {
+  before: string[];
+  after: string[];
   map: StepMap;
   // The old document's changed span, when the swap only rewrites text there.
-  rewrite: { from: number; to: number } | null;
+  rewrite: PendingRange | null;
 }
 
 // A collaborative update, a reconcile, or a decision readback swaps in the
@@ -88,7 +90,7 @@ function documentSwap(
   )
     start += 1;
   if (start === left.length && start === right.length)
-    return { map: StepMap.empty, rewrite: null };
+    return { before: left, after: right, map: StepMap.empty, rewrite: null };
   const swapsDocument = tr.steps.some(
     (step, index) =>
       step instanceof ReplaceStep &&
@@ -111,11 +113,48 @@ function documentSwap(
     ...right.slice(start, endRight),
   ];
   return {
+    before: left,
+    after: right,
     map: new StepMap([start, endLeft - start, endRight - start]),
     rewrite: changed.some((unit) => unit.length > 1)
       ? null
       : { from: start, to: endLeft },
   };
+}
+
+function indexOfUnits(
+  units: string[],
+  part: string[],
+  from: number,
+  to: number,
+) {
+  for (let at = from; at + part.length <= to; at += 1)
+    if (part.every((unit, index) => units[at + index] === unit)) return at;
+  return -1;
+}
+
+// A rewrite that cuts into a highlight takes in all of its new text, as an
+// accepted edit re-anchors the thread's quote (shared/comment-reanchor.ts),
+// unless the highlighted text survives there: one swap can carry separate
+// edits on either side of it. Typing at its edge does not cut it, and a
+// change to blocks drops it to be found again by its quote.
+function swappedRange(
+  swap: DocumentSwap,
+  from: number,
+  to: number,
+): PendingRange | null {
+  const { map, rewrite } = swap;
+  if (!rewrite || from >= rewrite.to || to <= rewrite.from) {
+    const mappedFrom = map.map(from, 1);
+    const mappedTo = map.map(to, -1);
+    return mappedTo > mappedFrom ? { from: mappedFrom, to: mappedTo } : null;
+  }
+  const start = map.map(Math.min(from, rewrite.from), -1);
+  const end = map.map(Math.max(to, rewrite.to), 1);
+  const text = swap.before.slice(from, to);
+  const at = indexOfUnits(swap.after, text, start, end);
+  if (at >= 0) return { from: at, to: at + text.length };
+  return end > start ? { from: start, to: end } : null;
 }
 
 function buildDecorations(
@@ -190,19 +229,8 @@ export function createCommentHighlightPlugin() {
             if (to > from) return [{ threadId: s.threadId, from, to }];
             if (swap === undefined)
               swap = documentSwap(tr, oldState.doc, newState.doc);
-            if (!swap) return [];
-            // A rewrite that cuts into a highlight takes in all of its new
-            // text, as an accepted edit re-anchors the thread's quote
-            // (shared/comment-reanchor.ts). Typing at its edge does not, and
-            // a change to blocks drops it to be found again by its quote.
-            const { rewrite } = swap;
-            const cuts =
-              !!rewrite && s.from < rewrite.to && s.to > rewrite.from;
-            const swappedFrom = swap.map.map(s.from, cuts ? -1 : 1);
-            const swappedTo = swap.map.map(s.to, cuts ? 1 : -1);
-            return swappedTo > swappedFrom
-              ? [{ threadId: s.threadId, from: swappedFrom, to: swappedTo }]
-              : [];
+            const range = swap && swappedRange(swap, s.from, s.to);
+            return range ? [{ threadId: s.threadId, ...range }] : [];
           });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);
