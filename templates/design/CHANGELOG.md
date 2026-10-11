@@ -13,7 +13,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Replay screenshots can be handed off to Design boards.
-  
+
   Agent reads of Design boards require authentication, including WebMCP reads. Anonymous WebMCP no longer offers `get-design`; public shared-design links and HTTP reads remain available under their existing access checks.
 
 ## 2026-10-10
