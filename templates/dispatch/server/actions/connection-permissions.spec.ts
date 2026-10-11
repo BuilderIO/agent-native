@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   roles: [] as string[],
   orgRole: "member",
   member: true,
+  pendingRemoval: false,
   execute: vi.fn(),
 }));
 
@@ -62,9 +63,15 @@ beforeEach(() => {
   state.roles = [];
   state.orgRole = "member";
   state.member = true;
+  state.pendingRemoval = false;
   state.execute.mockReset();
   state.execute.mockImplementation(async ({ sql }: { sql: string }) => {
-    if (!state.member || sql.includes("app_permission_overrides")) {
+    if (
+      !state.member ||
+      (state.pendingRemoval &&
+        sql.includes("federation_removal_pending_at IS NULL")) ||
+      sql.includes("app_permission_overrides")
+    ) {
       return { rows: [] };
     }
     return {
@@ -164,6 +171,15 @@ describe("Dispatch connection administration", () => {
     await expect(
       assertWorkspaceConnectionManager(ctx, ["dispatch"]),
     ).rejects.toThrow("Only workspace admins");
+  });
+
+  it("denies an organization admin whose removal is pending", async () => {
+    state.orgRole = "admin";
+    state.pendingRemoval = true;
+    await expect(
+      assertWorkspaceConnectionManager(ctx, ["dispatch"]),
+    ).rejects.toThrow("Only workspace admins");
+    expect(state.execute).toHaveBeenCalledTimes(2);
   });
 
   it("propagates a failed policy lookup", async () => {

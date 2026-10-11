@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   roles: [] as string[],
   orgRole: "member",
   member: true,
+  federated: false,
   overrides: [] as { permission: string; roles_json: string }[],
   execute: vi.fn(),
   getRequestOrgId: vi.fn(),
@@ -14,6 +15,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../../core/src/db/client.js", () => ({
   getDbExec: () => ({ execute: mocks.execute }),
+}));
+vi.mock("../../../../core/src/org/federation.js", () => ({
+  validateFederatedOrganizationMembershipForCurrentRequest:
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest,
 }));
 vi.mock("@agent-native/core/org", async () => ({
   ...(await import("../../../../core/src/org/app-roles.js")),
@@ -44,12 +49,22 @@ describe("authorizeDispatchAdmin", () => {
     mocks.roles = [];
     mocks.orgRole = "member";
     mocks.member = true;
+    mocks.federated = false;
     mocks.overrides = [];
     mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => ({
       rows: sql.includes("app_permission_overrides")
         ? mocks.overrides
         : mocks.member
-          ? [{ roles: mocks.roles, orgRole: mocks.orgRole }]
+          ? [
+              {
+                roles: mocks.roles,
+                orgRole: mocks.orgRole,
+                identityAuthority: mocks.federated
+                  ? "https://hub.example.test"
+                  : null,
+                identityId: mocks.federated ? "org_hub" : null,
+              },
+            ]
           : [],
     }));
     mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
@@ -83,6 +98,25 @@ describe("authorizeDispatchAdmin", () => {
       );
     },
   );
+
+  it("uses the identity hub role over a stale local organization admin role", async () => {
+    mocks.federated = true;
+    mocks.orgRole = "admin";
+    await expect(authorizeDispatchAdmin({}, context)).rejects.toThrow(
+      "Requires dispatch permission administer",
+    );
+  });
+
+  it("allows an organization admin granted by the identity hub", async () => {
+    mocks.federated = true;
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: true, role: "admin" },
+    );
+    await expect(authorizeDispatchAdmin({}, context)).resolves.toBeUndefined();
+    expect(
+      mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+    ).toHaveBeenCalledTimes(2);
+  });
 
   it("denies a stale linked organization admin", async () => {
     mocks.orgRole = "admin";
