@@ -1433,6 +1433,163 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("excludes the current prompt after trailing assistant messages", async () => {
+    const prompt = "Summarize the uploaded reference.";
+    const imageUrl = "https://files.example.test/current-reference.png";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-current-prompt-after-assistant-tail",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: "Review the project brief." }],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image",
+              alt: "current-reference.png",
+              mediaType: "image/png",
+              data: "data:image/png;base64,CURRENT_IMAGE_BYTES",
+              url: imageUrl,
+            },
+          ],
+        },
+        {
+          id: "assistant-continuation-1",
+          role: "assistant",
+          content: [{ type: "text", text: "I am checking the reference." }],
+        },
+        {
+          id: "assistant-continuation-2",
+          role: "assistant",
+          content: [{ type: "text", text: "The review is ready." }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const history = JSON.stringify({
+      history: body.history,
+      structuredHistory: body.structuredHistory,
+    });
+    expect(history).toContain("Review the project brief.");
+    expect(history).toContain("I am checking the reference.");
+    expect(history).not.toContain(prompt);
+    expect(history).not.toContain(imageUrl);
+    expect(history).not.toContain("CURRENT_IMAGE_BYTES");
+  });
+
+  it("keeps structured history after an assistant tail longer than its scan limit", async () => {
+    const prompt = "Use the final review summary.";
+    const assistantTail = Array.from({ length: 1_025 }, (_, index) => ({
+      id: `assistant-tail-${index}`,
+      role: "assistant" as const,
+      content: [
+        { type: "text" as const, text: `Assistant tail note ${index}.` },
+      ],
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-assistant-tail-structured-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-prior",
+          role: "user",
+          content: [{ type: "text", text: "Review the project brief." }],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        ...assistantTail,
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain("Assistant tail note 1024.");
+    expect(historyText).not.toContain(prompt);
+  });
+
+  it("does not pin the current prompt when a system tail hides its position", async () => {
+    const prompt = "Use the final review summary.";
+    const systemTail = Array.from({ length: 1_025 }, (_, index) => ({
+      id: `system-tail-${index}`,
+      role: "system" as const,
+      content: [
+        { type: "text" as const, text: `System context note ${index}.` },
+      ],
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-system-tail-structured-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt,
+      messages: [
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: prompt }],
+        },
+        ...systemTail,
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).not.toContain(prompt);
+  });
+
   it("keeps assistant conclusion text after its tool result", async () => {
     const fetchMock = vi
       .fn()
