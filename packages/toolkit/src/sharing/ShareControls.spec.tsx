@@ -40,6 +40,11 @@ describe("JoinedShareControl", () => {
       );
     });
 
+    expect(
+      container.querySelector('[data-slot="button-group"]')?.className,
+    ).toContain(
+      "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9",
+    );
     const copy = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Copy link"]',
     );
