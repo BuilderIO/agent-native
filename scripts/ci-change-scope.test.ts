@@ -852,9 +852,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ["screen-history-1", "screen-history-2", "screen-history-3"],
     "Screen-history regressions must stay split across three shards",
   );
-  assert.deepEqual(
-    screenHistoryShardSelectors.map(({ selectors }) => selectors.length),
-    [5, 5, 5],
+  const screenHistoryCounts = screenHistoryShardSelectors.map(
+    ({ selectors }) => selectors.length,
+  );
+  assert.ok(
+    Math.max(...screenHistoryCounts) - Math.min(...screenHistoryCounts) <= 1,
     "Screen-history regressions must stay balanced across the three shards",
   );
   const screenHistoryCases = [
@@ -866,6 +868,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "failed Screen deletion keeps the explicit Screen target for retry",
     "a newer layer selection survives failed Screen deletion settlement",
     "Shift-picking a Screen extends the Delete selection in All screens",
+    "Shift-marquee adds a hit Screen to the existing Delete selection",
     "a newer Screen pick survives failed Screen deletion settlement",
     "a newer sidebar Screen selection survives failed Screen deletion settlement",
     "Select All Screens survives failed Screen deletion settlement",
