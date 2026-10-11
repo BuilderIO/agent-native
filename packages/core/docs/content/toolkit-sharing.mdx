@@ -99,11 +99,12 @@ The most common low-level import is:
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 ```
 
-`<ShareButton>` and `<ShareDialog>` are Toolkit UI exported from `@agent-native/toolkit/app/sharing`; the Core client package owns the sharing data hooks and runtime.
-they call sharing actions directly, so keep importing them from
-`@agent-native/core/client` as shown above. Those imports stay compatible:
-core wrappers keep doing the runtime work and pass data and callbacks into
-Toolkit-owned UI.
+`<ShareButton>` and `<ShareDialog>` are Toolkit UI exported from
+`@agent-native/toolkit/app/sharing`. They use Core client hooks and the shared
+sharing actions. Import the hooks from
+`@agent-native/core/client/sharing/useShareButtonController` or
+`@agent-native/core/client/sharing/useShareDialogController` only when building
+custom sharing UI.
 
 ### Toolkit vs Core {#toolkit-vs-core}
 
