@@ -128,6 +128,10 @@
       "types": "./dist/action.d.ts",
       "default": "./dist/action.js"
     },
+    "./action-receipt": {
+      "types": "./dist/action-receipt.d.ts",
+      "default": "./dist/action-receipt.js"
+    },
     "./action-ui": {
       "types": "./dist/action-ui.d.ts",
       "default": "./dist/action-ui.js"
