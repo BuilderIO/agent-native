@@ -338,16 +338,38 @@ async function boundedImageBlob(response: Response): Promise<Blob> {
   });
 }
 
-function renderedChildren(node: Node): Node[] {
+function* renderedChildren(
+  node: Node,
+  maxChildren = Number.POSITIVE_INFINITY,
+  signal?: AbortSignal,
+  deadline?: number,
+): Generator<Node> {
   const source =
     node.nodeType === 1 ? ((node as Element).shadowRoot ?? node) : node;
-  return Array.from(source.childNodes).flatMap((child) => {
+  let yielded = 0;
+  for (let index = 0; index < source.childNodes.length; index += 1) {
+    assertReplayFontScanNotCancelled(signal, deadline);
+    const child = source.childNodes[index]!;
     if (child.nodeType === 1 && (child as Element).localName === "slot") {
       const assigned = (child as HTMLSlotElement).assignedNodes();
-      if (assigned.length > 0) return assigned;
+      if (assigned.length > 0) {
+        if (assigned.length > maxChildren - yielded) {
+          throw new ReplayScreenshotAssetError("fontReadiness");
+        }
+        for (const assignedChild of assigned) {
+          assertReplayFontScanNotCancelled(signal, deadline);
+          yield assignedChild;
+          yielded += 1;
+        }
+        continue;
+      }
     }
-    return [child];
-  });
+    if (yielded >= maxChildren) {
+      throw new ReplayScreenshotAssetError("fontReadiness");
+    }
+    yield child;
+    yielded += 1;
+  }
 }
 
 function renderedElements(document: Document): Element[] {
@@ -413,6 +435,28 @@ function isElementRendered(element: Element, document: Document): boolean {
   }
 
   return true;
+}
+
+function isReplayFontElementInViewport(
+  element: Element,
+  document: Document,
+): boolean {
+  const view = document.defaultView;
+  if (!view || typeof element.getBoundingClientRect !== "function") return true;
+  const bounds = element.getBoundingClientRect();
+  const viewportWidth = view.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight =
+    view.innerHeight || document.documentElement.clientHeight;
+  return !(
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    viewportWidth > 0 &&
+    viewportHeight > 0 &&
+    (bounds.right <= 0 ||
+      bounds.bottom <= 0 ||
+      bounds.left >= viewportWidth ||
+      bounds.top >= viewportHeight)
+  );
 }
 
 function replayDocuments(document: Document): Document[] {
@@ -1190,6 +1234,7 @@ export function inlineReplayAssets(
 function replayPseudoText(
   content: string,
   signal?: AbortSignal,
+  deadline?: number,
 ): string | null {
   if (content.length > MAX_REPLAY_FONT_CODE_POINTS) {
     throw new ReplayScreenshotAssetError("fontReadiness");
@@ -1200,12 +1245,10 @@ function replayPseudoText(
   let text = "";
   let urlIndex = 0;
   for (let index = 0; index < content.length; index += 1) {
-    assertReplayFontScanNotCancelled(signal);
+    assertReplayFontScanNotCancelled(signal, deadline);
     const url = urls[urlIndex];
-    if (url) {
-      urlIndex += 1;
-    }
     if (url?.start === index) {
+      urlIndex += 1;
       index = url.end - 1;
       continue;
     }
@@ -1265,11 +1308,15 @@ function replayFontDescriptor(
     : core;
 }
 
-function replayFontFamilies(value: string, signal?: AbortSignal): string[] {
+function replayFontFamilies(
+  value: string,
+  signal?: AbortSignal,
+  deadline?: number,
+): string[] {
   if (value.length > MAX_REPLAY_FONT_CODE_POINTS) {
     throw new ReplayScreenshotAssetError("fontReadiness");
   }
-  assertReplayFontScanNotCancelled(signal);
+  assertReplayFontScanNotCancelled(signal, deadline);
   const parts = value.match(
     /(?:\\[\s\S]|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^,])+/g,
   );
@@ -1309,6 +1356,7 @@ function replayQuotedFontFamily(family: string): string {
 function replayFontFaceSample(
   face: FontFace,
   signal?: AbortSignal,
+  deadline?: number,
 ): string | null {
   const unicodeRange = face.unicodeRange.trim() || "U+0-10FFFF";
   if (unicodeRange.length > MAX_REPLAY_FONT_CODE_POINTS) {
@@ -1319,7 +1367,7 @@ function replayFontFaceSample(
     throw new ReplayScreenshotAssetError("fontReadiness");
   }
   for (const token of tokens) {
-    assertReplayFontScanNotCancelled(signal);
+    assertReplayFontScanNotCancelled(signal, deadline);
     const match = /^U\+([\da-f?]{1,6})(?:-([\da-f]{1,6}))?$/i.exec(
       token.trim(),
     );
@@ -1355,7 +1403,10 @@ function transformReplayFontText(
   value: string,
   transform: string,
   language?: string,
+  signal?: AbortSignal,
+  deadline?: number,
 ): string | null {
+  assertReplayFontScanNotCancelled(signal, deadline);
   if (value.length > MAX_REPLAY_FONT_CODE_POINTS) {
     throw new ReplayScreenshotAssetError("fontReadiness");
   }
@@ -1386,17 +1437,25 @@ function transformReplayFontText(
   if (transformed.length > MAX_REPLAY_FONT_CODE_POINTS) {
     throw new ReplayScreenshotAssetError("fontReadiness");
   }
+  assertReplayFontScanNotCancelled(signal, deadline);
   return transformed;
 }
 
-function assertReplayFontScanNotCancelled(signal?: AbortSignal): void {
+function assertReplayFontScanNotCancelled(
+  signal?: AbortSignal,
+  deadline?: number,
+): void {
   if (signal?.aborted) throw new Error("Replay screenshot was cancelled");
+  if (deadline !== undefined && performance.now() >= deadline) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
 }
 
 function collectReplayFontLoads(
   document: Document,
   fontSet: FontFaceSet,
   signal?: AbortSignal,
+  deadline?: number,
 ): Promise<void>[] {
   const view = document.defaultView;
   const root = document.documentElement;
@@ -1411,7 +1470,7 @@ function collectReplayFontLoads(
     }
   >();
   const startedLoads = new Set<string>();
-  let scannedElements = 0;
+  let scannedNodes = 1;
   let scannedCodePoints = 0;
 
   const addText = (
@@ -1438,9 +1497,13 @@ function collectReplayFontLoads(
     const transformed =
       value === null
         ? null
-        : transformReplayFontText(value, transform, language);
+        : transformReplayFontText(value, transform, language, signal, deadline);
     if (transformed === null) {
-      for (const family of replayFontFamilies(styles.fontFamily, signal)) {
+      for (const family of replayFontFamilies(
+        styles.fontFamily,
+        signal,
+        deadline,
+      )) {
         const familyKey = replayFontFamilyKey(family);
         if (!request.familyDescriptors.has(familyKey)) {
           request.familyDescriptors.set(
@@ -1453,7 +1516,7 @@ function collectReplayFontLoads(
 
     const sampledText = transformed ?? value ?? "";
     for (const _codePoint of sampledText) {
-      assertReplayFontScanNotCancelled(signal);
+      assertReplayFontScanNotCancelled(signal, deadline);
       scannedCodePoints += 1;
       if (scannedCodePoints > MAX_REPLAY_FONT_CODE_POINTS) {
         throw new ReplayScreenshotAssetError("fontReadiness");
@@ -1484,25 +1547,37 @@ function collectReplayFontLoads(
   };
 
   try {
-    const stack: Array<{ element: Element; language?: string }> = [
-      { element: root },
-    ];
+    const stack: Array<{
+      element: Element;
+      language?: string;
+      blockedByAncestor: boolean;
+    }> = [{ element: root, blockedByAncestor: false }];
     while (stack.length > 0) {
-      assertReplayFontScanNotCancelled(signal);
-      const { element, language: inheritedLanguage } = stack.pop()!;
-      scannedElements += 1;
-      if (scannedElements > MAX_REPLAY_FONT_ELEMENTS) {
-        throw new ReplayScreenshotAssetError("fontReadiness");
-      }
-      if (!isElementRendered(element, document)) continue;
-
+      assertReplayFontScanNotCancelled(signal, deadline);
+      const {
+        element,
+        language: inheritedLanguage,
+        blockedByAncestor,
+      } = stack.pop()!;
       const styles = view.getComputedStyle(element);
-      const font = replayFontDescriptor(styles);
+      const blocksDescendants =
+        blockedByAncestor ||
+        styles.display === "none" ||
+        styles.contentVisibility === "hidden" ||
+        (styles.opacity !== "" && Number(styles.opacity) === 0);
+      if (blocksDescendants) continue;
+
+      const withinViewport = isReplayFontElementInViewport(element, document);
+      const paintsElementText =
+        withinViewport &&
+        styles.visibility !== "hidden" &&
+        styles.visibility !== "collapse";
+      const font = paintsElementText ? replayFontDescriptor(styles) : "";
       const language =
         element.getAttribute("lang")?.trim() || inheritedLanguage;
       const elementTextTransform = styles.textTransform;
 
-      if (element instanceof view.HTMLInputElement) {
+      if (paintsElementText && element instanceof view.HTMLInputElement) {
         if (REPLAY_TEXT_INPUT_TYPES.has(element.type)) {
           if (element.value) {
             addText(
@@ -1528,7 +1603,10 @@ function collectReplayFontLoads(
         } else if (["button", "reset", "submit"].includes(element.type)) {
           addText(font, styles, element.value, elementTextTransform, language);
         }
-      } else if (element instanceof view.HTMLTextAreaElement) {
+      } else if (
+        paintsElementText &&
+        element instanceof view.HTMLTextAreaElement
+      ) {
         if (element.value) {
           addText(font, styles, element.value, elementTextTransform, language);
         } else if (element.placeholder) {
@@ -1544,7 +1622,10 @@ function collectReplayFontLoads(
             language,
           );
         }
-      } else if (element instanceof view.HTMLSelectElement) {
+      } else if (
+        paintsElementText &&
+        element instanceof view.HTMLSelectElement
+      ) {
         for (const option of element.selectedOptions) {
           addText(font, styles, option.label, elementTextTransform, language);
         }
@@ -1553,19 +1634,30 @@ function collectReplayFontLoads(
       for (const pseudo of ["::before", "::after", "::marker"]) {
         const pseudoStyles = view.getComputedStyle(element, pseudo);
         if (
+          !withinViewport ||
           pseudoStyles.display === "none" ||
           pseudoStyles.visibility === "hidden" ||
           pseudoStyles.visibility === "collapse" ||
           (pseudoStyles.opacity !== "" && Number(pseudoStyles.opacity) === 0) ||
-          pseudoStyles.content === "none" ||
-          pseudoStyles.content === "normal"
+          pseudoStyles.content === "none"
         ) {
           continue;
+        }
+        let pseudoText: string | null;
+        if (pseudo === "::marker" && pseudoStyles.content === "normal") {
+          const listStyleType = styles.listStyleType.trim();
+          if (listStyleType === "none") continue;
+          pseudoText = /^(['"])[\s\S]*\1$/.test(listStyleType)
+            ? replayPseudoText(listStyleType, signal, deadline)
+            : null;
+        } else {
+          if (pseudoStyles.content === "normal") continue;
+          pseudoText = replayPseudoText(pseudoStyles.content, signal, deadline);
         }
         addText(
           replayFontDescriptor(pseudoStyles),
           pseudoStyles,
-          replayPseudoText(pseudoStyles.content, signal),
+          pseudoText,
           pseudoStyles.textTransform,
           language,
         );
@@ -1576,17 +1668,33 @@ function collectReplayFontLoads(
         element instanceof view.HTMLTextAreaElement ||
         element instanceof view.HTMLSelectElement;
       if (!isControl) {
-        for (const child of renderedChildren(element)) {
+        const remainingNodes = MAX_REPLAY_FONT_ELEMENTS - scannedNodes;
+        for (const child of renderedChildren(
+          element,
+          remainingNodes,
+          signal,
+          deadline,
+        )) {
+          scannedNodes += 1;
+          if (scannedNodes > MAX_REPLAY_FONT_ELEMENTS) {
+            throw new ReplayScreenshotAssetError("fontReadiness");
+          }
           if (child.nodeType === Node.TEXT_NODE) {
-            addText(
-              font,
-              styles,
-              child.nodeValue ?? "",
-              elementTextTransform,
-              language,
-            );
+            if (paintsElementText) {
+              addText(
+                font,
+                styles,
+                child.nodeValue ?? "",
+                elementTextTransform,
+                language,
+              );
+            }
           } else if (child.nodeType === Node.ELEMENT_NODE) {
-            stack.push({ element: child as Element, language });
+            stack.push({
+              element: child as Element,
+              language,
+              blockedByAncestor: blocksDescendants,
+            });
           }
         }
       }
@@ -1599,12 +1707,12 @@ function collectReplayFontLoads(
     if (requiresFamilyFallback) {
       let scannedFaces = 0;
       for (const face of fontSet) {
-        assertReplayFontScanNotCancelled(signal);
+        assertReplayFontScanNotCancelled(signal, deadline);
         scannedFaces += 1;
         if (scannedFaces > MAX_REPLAY_FONT_FACES) {
           throw new ReplayScreenshotAssetError("fontReadiness");
         }
-        const faceFamilies = replayFontFamilies(face.family, signal);
+        const faceFamilies = replayFontFamilies(face.family, signal, deadline);
         if (faceFamilies.length !== 1) {
           throw new ReplayScreenshotAssetError("fontReadiness");
         }
@@ -1620,8 +1728,8 @@ function collectReplayFontLoads(
       if (request.text) startLoad(font, request.text);
       for (const [familyKey, familyFont] of request.familyDescriptors) {
         for (const face of facesByFamily.get(familyKey) ?? []) {
-          assertReplayFontScanNotCancelled(signal);
-          const sample = replayFontFaceSample(face, signal);
+          assertReplayFontScanNotCancelled(signal, deadline);
+          const sample = replayFontFaceSample(face, signal, deadline);
           if (sample) startLoad(familyFont, sample);
         }
       }
@@ -1636,13 +1744,17 @@ function collectReplayFontLoads(
 async function waitForReplayFontWork(
   work: Promise<unknown>,
   signal?: AbortSignal,
+  deadline?: number,
 ): Promise<void> {
+  assertReplayFontScanNotCancelled(signal, deadline);
   let timeoutId: number | undefined;
   let abortListener: (() => void) | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timeoutId = window.setTimeout(
       () => reject(new ReplayScreenshotAssetError("fontReadiness")),
-      REPLAY_FONT_TIMEOUT_MS,
+      deadline === undefined
+        ? REPLAY_FONT_TIMEOUT_MS
+        : Math.max(0, deadline - performance.now()),
     );
   });
   const abort = new Promise<never>((_resolve, reject) => {
@@ -1676,15 +1788,16 @@ async function assertDocumentFontsReady(
   }
   const fontSet = document.fonts;
   if (!fontSet) return;
+  const deadline = performance.now() + REPLAY_FONT_TIMEOUT_MS;
 
   if (typeof fontSet.load === "function" && document.defaultView) {
-    const loads = collectReplayFontLoads(document, fontSet, signal);
-    await waitForReplayFontWork(Promise.all(loads), signal);
+    const loads = collectReplayFontLoads(document, fontSet, signal, deadline);
+    await waitForReplayFontWork(Promise.all(loads), signal, deadline);
     return;
   }
 
   if (fontSet.ready) {
-    await waitForReplayFontWork(fontSet.ready, signal);
+    await waitForReplayFontWork(fontSet.ready, signal, deadline);
   }
 }
 
