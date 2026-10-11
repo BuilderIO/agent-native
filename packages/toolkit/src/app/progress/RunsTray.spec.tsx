@@ -442,6 +442,26 @@ describe("RunsTrayMenuItem", () => {
 
       expect(openedThreads).toHaveLength(0);
       expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+      const menuContent = document.querySelector(
+        '[role="menu"]',
+      ) as HTMLElement | null;
+      expect(menuContent).toBeTruthy();
+
+      await act(async () => {
+        menuContent?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        otherRunTitle?.dispatchEvent(new Event("pointerup", { bubbles: true }));
+        otherRunTitle?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 0,
+          }),
+        );
+      });
+
+      expect(openedThreads).toHaveLength(0);
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
     } finally {
       window.removeEventListener("agent-chat:open-thread", onOpen);
     }

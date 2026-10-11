@@ -795,13 +795,12 @@ function RunRow({
       pointerReleasedOnSuppressedTitleRef.current = false;
     };
     const recordPointerUp = (event: PointerEvent) => {
-      const startedOnAnotherRun =
-        pointerStartedOnRunRef.current !== null &&
+      const pointerStartedOutsideThisRun =
         pointerStartedOnRunRef.current !== run.id;
       pointerReleasedOnActionRef.current = isActionTarget(event.target);
       pointerReleasedOnSuppressedTitleRef.current =
         isTitleTarget(event.target) &&
-        (startedOnAnotherRun || pointerStartedOnAnyActionRef.current);
+        (pointerStartedOutsideThisRun || pointerStartedOnAnyActionRef.current);
       window.setTimeout(() => {
         pointerStartedOnRunRef.current = null;
         pointerStartedOnActionRef.current = false;
