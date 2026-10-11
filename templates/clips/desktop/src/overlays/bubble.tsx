@@ -1,7 +1,6 @@
 import { IconCameraOff } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -527,49 +526,6 @@ export function Bubble() {
         }
         slot.busy = false;
       }
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let lastSaved: { x: number; y: number } | null = null;
-
-    const scheduleSave = (x: number, y: number) => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        if (cancelled) return;
-        if (lastSaved && lastSaved.x === x && lastSaved.y === y) return;
-        lastSaved = { x, y };
-        void invoke("save_bubble_position", { x, y }).catch((err) => {
-          console.warn("[bubble] save_bubble_position failed", err);
-        });
-      }, 400);
-    };
-
-    const win = getCurrentWindow();
-    win
-      .onMoved((e) => {
-        const { x, y } = e.payload;
-        scheduleSave(x, y);
-      })
-      .then((u) => {
-        if (cancelled) {
-          u();
-        } else {
-          unlisten = u;
-        }
-      })
-      .catch((err) => {
-        console.warn("[bubble] onMoved listener failed", err);
-      });
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      if (unlisten) unlisten();
     };
   }, []);
 
