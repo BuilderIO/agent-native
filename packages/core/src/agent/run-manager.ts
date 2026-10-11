@@ -4,6 +4,7 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
@@ -1114,20 +1115,22 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string },
     disposition: "recovered" | "terminal",
   ) => {
-    void recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.runBoundaryReached,
-      JSON.stringify({
-        reason,
-        disposition,
-        silentForMs: diagnostic.silentForMs,
-        lastEventType: diagnostic.lastEventType,
-        inFlightWorkCount,
-        eventCount: run.events.length,
-        elapsedMs: Date.now() - run.startedAt,
-      }),
-      // coercion-ok: recordRunDiagnostic already swallows its own failures;
-      // this guards only against an unhandled rejection.
+    void retainRequestDbPoolScope(
+      recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.runBoundaryReached,
+        JSON.stringify({
+          reason,
+          disposition,
+          silentForMs: diagnostic.silentForMs,
+          lastEventType: diagnostic.lastEventType,
+          inFlightWorkCount,
+          eventCount: run.events.length,
+          elapsedMs: Date.now() - run.startedAt,
+        }),
+        // coercion-ok: recordRunDiagnostic already swallows its own failures;
+        // this guards only against an unhandled rejection.
+      ).catch(() => {}),
     ).catch(() => {});
   };
 

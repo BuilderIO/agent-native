@@ -1828,14 +1828,12 @@ function priorNativeHistoryMessages(
   for (let index = source.length - 1; index >= 0; index--) {
     const message = source[index]!;
     if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-    if (message.role !== "user" && message.role !== "assistant") continue;
-    if (message.role === "user") {
-      if (!currentPrompt.trim()) {
-        currentPromptMessageIndex = index;
-      } else {
-        const match = runtimeMessageTextMatches(message, currentPrompt);
-        if (match.matches || !match.complete) currentPromptMessageIndex = index;
-      }
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches || !match.complete) currentPromptMessageIndex = index;
     }
     break;
   }
@@ -2636,18 +2634,16 @@ function boundedStructuredHistorySources(
     visitedMessages++;
     const message = historyMessages[index]!;
     if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-    if (message.role !== "user" && message.role !== "assistant") continue;
-    if (message.role === "user") {
-      if (!currentPrompt.trim()) {
+    if (message.role !== "user") continue;
+    if (!currentPrompt.trim()) {
+      currentPromptMessageIndex = index;
+    } else {
+      const match = runtimeMessageTextMatches(message, currentPrompt);
+      if (match.matches) currentPromptMessageIndex = index;
+      if (!match.complete) {
+        omitted = true;
+        toolHistoryOmitted = true;
         currentPromptMessageIndex = index;
-      } else {
-        const match = runtimeMessageTextMatches(message, currentPrompt);
-        if (match.matches) currentPromptMessageIndex = index;
-        if (!match.complete) {
-          omitted = true;
-          toolHistoryOmitted = true;
-          currentPromptMessageIndex = index;
-        }
       }
     }
     break;
