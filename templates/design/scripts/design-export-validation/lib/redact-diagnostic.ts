@@ -2,9 +2,7 @@ const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const URL_USERINFO_PATTERN =
   /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^\s,;)}\]"'<>]*@)/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
-  /(?<![\w$])((?:\\+["']|["']))(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._ -]+[A-Za-z0-9$]+)*))\2\1(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?((?:authorization[ ]+(?:header|value)|auth[ ]+(?:header|value)|api[ ]+key[ ]+(?:used|provided|value)|access[ ]+key[ ]+id|(?:api|private|access|secret|signing|encryption)[ ]+key|[A-Za-z_$][A-Za-z0-9$]*[ ]+(?:token|secret|signature|password|passwd|pwd|pw|pass|passphrase|credential|credentials|cookie|authorization)))(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._-]+[A-Za-z0-9$]+)*))\6(\s*(?:=>|[:=])\s*)/gi;
-const ASSIGNMENT_BARE_VALUE_PATTERN =
-  /^(?:((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
+  /(?<![\w$])((?:\\+["']|["']))(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._ -]+[A-Za-z0-9$]+)*))\2\1(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?((?:authorization[ ]+(?:header|value)|auth[ ]+(?:header|value)|api[ ]+key[ ]+(?:used|provided|value)|access[ ]+key[ ]+id|(?:api|private|access|secret|signing|encryption)[ ]+key|[A-Za-z_$][A-Za-z0-9$]*[ ]+(?:token|secret|signature|password|passwd|pwd|pw|pass|passphrase|credential|credentials|cookie|authorization)))(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(?:-+)?(?=([A-Za-z_$][A-Za-z0-9$]*(?:[._-]+[A-Za-z0-9$]+)*))\6(\s*(?:=>|[:=])\s*)|(?<![\w$._-])(-{1,2})([A-Za-z][A-Za-z0-9_-]*)([ \t]+)(?![=])/gi;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
 const MAX_STRUCTURED_JSON_DEPTH = 128;
 
@@ -29,6 +27,8 @@ function isSensitiveAssignmentKey(key: string): boolean {
     "secret",
     "cookie",
     "apikey",
+    "jwt",
+    "sid",
   ].some(
     (suffix) =>
       compactKey.length > suffix.length && compactKey.endsWith(suffix),
@@ -62,6 +62,9 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "credentials" ||
     lastWord === "cookie" ||
     lastWord === "authorization" ||
+    lastWord === "jwt" ||
+    lastWord === "sid" ||
+    (lastWord === "id" && words[words.length - 2] === "session") ||
     words.slice(-3).join(" ") === "access key id" ||
     (lastWord === "key" &&
       ["api", "private", "access", "secret", "signing", "encryption"].includes(
@@ -112,24 +115,36 @@ function parseAssignmentValue(
     return null;
   }
 
-  const match = ASSIGNMENT_BARE_VALUE_PATTERN.exec(value.slice(start));
-  if (!match) return null;
-  return { kind: "bare", end: start + match[0].length };
+  let end = start;
+  while (end < value.length && !/[&\s"'<>),;}\]]/.test(value[end])) {
+    end += 1;
+  }
+  if (end === start) return null;
+
+  const firstWord = value.slice(start, end);
+  if (/^(?:Bearer|Basic)$/i.test(firstWord) && /\s/.test(value[end] ?? "")) {
+    while (/\s/.test(value[end] ?? "")) end += 1;
+    const credentialStart = end;
+    while (end < value.length && !/[&\s"'<>),;}\]]/.test(value[end])) {
+      end += 1;
+    }
+    if (end > credentialStart) return { kind: "bare", end };
+  }
+  return { kind: "bare", end };
 }
 
 function findNextAssignment(
   value: string,
   start: number,
 ): { index: number; end: number; key: string; prefix: string } | null {
-  const pattern = new RegExp(ASSIGNMENT_PREFIX_PATTERN.source, "gi");
-  pattern.lastIndex = start;
-  const match = pattern.exec(value);
+  ASSIGNMENT_PREFIX_PATTERN.lastIndex = start;
+  const match = ASSIGNMENT_PREFIX_PATTERN.exec(value);
   if (!match) return null;
-  const key = match[2] ?? match[4] ?? match[6];
+  const key = match[2] ?? match[4] ?? match[6] ?? match[9];
   if (!key) return null;
   return {
     index: match.index,
-    end: pattern.lastIndex,
+    end: ASSIGNMENT_PREFIX_PATTERN.lastIndex,
     key,
     prefix: match[0],
   };
@@ -152,8 +167,35 @@ function hasStructuredValueContinuation(value: string, start: number): boolean {
 }
 
 function findLineEnd(value: string, start: number): number {
-  const offset = value.slice(start).search(/[\r\n]/);
-  return offset < 0 ? value.length : start + offset;
+  let cursor = start;
+  while (
+    cursor < value.length &&
+    value[cursor] !== "\r" &&
+    value[cursor] !== "\n"
+  ) {
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function isQuotedValueStart(value: string, start: number): boolean {
+  let cursor = start;
+  while (value[cursor] === "\\") cursor += 1;
+  return value[cursor] === '"' || value[cursor] === "'";
+}
+
+function isStructuredValueStart(value: string, start: number): boolean {
+  let cursor = start;
+  while (/\s/.test(value[cursor] ?? "")) cursor += 1;
+  if (value.startsWith("[redacted]", cursor)) return false;
+  return value[cursor] === "{" || value[cursor] === "[";
+}
+
+function hasNonWhitespace(value: string, start: number): boolean {
+  for (let cursor = start; cursor < value.length; cursor += 1) {
+    if (!/\s/.test(value[cursor])) return true;
+  }
+  return false;
 }
 
 function findPemBlockEnd(value: string, start: number): number | null {
@@ -178,6 +220,28 @@ function findPemBlockEnd(value: string, start: number): number | null {
   // Without a matching footer, hide the rest of the diagnostic rather than
   // risk exposing an incomplete key block.
   return value.length;
+}
+
+function redactStandalonePemBlocks(value: string): string {
+  const privateKeyStart =
+    /-----BEGIN ((?:[A-Z0-9][A-Z0-9 -]* )?PRIVATE KEY)-----/g;
+  let result = "";
+  let cursor = 0;
+  let searchFrom = 0;
+  while (searchFrom < value.length) {
+    privateKeyStart.lastIndex = searchFrom;
+    const match = privateKeyStart.exec(value);
+    if (!match) break;
+    const blockEnd = findPemBlockEnd(value, match.index);
+    if (blockEnd === null) {
+      searchFrom = match.index + match[0].length;
+      continue;
+    }
+    result += value.slice(cursor, match.index) + "[redacted]";
+    cursor = blockEnd;
+    searchFrom = blockEnd;
+  }
+  return result + value.slice(cursor);
 }
 
 function findStructuredJsonValueEnd(
@@ -220,6 +284,217 @@ function findStructuredJsonValueEnd(
   return null;
 }
 
+type JsonNode =
+  | { kind: "string"; start: number; end: number; value: string }
+  | { kind: "array"; start: number; end: number; items: JsonNode[] }
+  | {
+      kind: "object";
+      start: number;
+      end: number;
+      entries: Array<{ key: string; value: JsonNode }>;
+    }
+  | { kind: "other"; start: number; end: number };
+
+function skipJsonWhitespace(value: string, start: number): number {
+  let cursor = start;
+  while (/[\t\n\r ]/.test(value[cursor] ?? "")) cursor += 1;
+  return cursor;
+}
+
+function parseJsonNode(
+  value: string,
+  start: number,
+  depth = 0,
+): JsonNode | null {
+  if (depth > MAX_STRUCTURED_JSON_DEPTH) return null;
+  const valueStart = skipJsonWhitespace(value, start);
+  const first = value[valueStart];
+  if (first === '"') {
+    let cursor = valueStart + 1;
+    while (cursor < value.length) {
+      if (value[cursor] === "\\") cursor += 2;
+      else if (value[cursor] === '"') {
+        const end = cursor + 1;
+        try {
+          return {
+            kind: "string",
+            start: valueStart,
+            end,
+            value: JSON.parse(value.slice(valueStart, end)) as string,
+          };
+        } catch {
+          return null;
+        }
+      } else cursor += 1;
+    }
+    return null;
+  }
+
+  if (first === "{") {
+    const entries: Array<{ key: string; value: JsonNode }> = [];
+    let cursor = skipJsonWhitespace(value, valueStart + 1);
+    if (value[cursor] === "}") {
+      return { kind: "object", start: valueStart, end: cursor + 1, entries };
+    }
+    while (cursor < value.length) {
+      const key = parseJsonNode(value, cursor, depth + 1);
+      if (!key || key.kind !== "string") return null;
+      cursor = skipJsonWhitespace(value, key.end);
+      if (value[cursor] !== ":") return null;
+      const child = parseJsonNode(value, cursor + 1, depth + 1);
+      if (!child) return null;
+      entries.push({ key: key.value, value: child });
+      cursor = skipJsonWhitespace(value, child.end);
+      if (value[cursor] === "}") {
+        return { kind: "object", start: valueStart, end: cursor + 1, entries };
+      }
+      if (value[cursor] !== ",") return null;
+      cursor = skipJsonWhitespace(value, cursor + 1);
+    }
+    return null;
+  }
+
+  if (first === "[") {
+    const items: JsonNode[] = [];
+    let cursor = skipJsonWhitespace(value, valueStart + 1);
+    if (value[cursor] === "]") {
+      return { kind: "array", start: valueStart, end: cursor + 1, items };
+    }
+    while (cursor < value.length) {
+      const child = parseJsonNode(value, cursor, depth + 1);
+      if (!child) return null;
+      items.push(child);
+      cursor = skipJsonWhitespace(value, child.end);
+      if (value[cursor] === "]") {
+        return { kind: "array", start: valueStart, end: cursor + 1, items };
+      }
+      if (value[cursor] !== ",") return null;
+      cursor = skipJsonWhitespace(value, cursor + 1);
+    }
+    return null;
+  }
+
+  let end = valueStart;
+  while (end < value.length && !/[\s,}\]]/.test(value[end])) end += 1;
+  if (end === valueStart) return null;
+  try {
+    JSON.parse(value.slice(valueStart, end));
+    return { kind: "other", start: valueStart, end };
+  } catch {
+    return null;
+  }
+}
+
+type JsonReplacement = { start: number; end: number; value: string };
+
+function collectHarCredentialReplacements(
+  node: JsonNode,
+  replacements: JsonReplacement[],
+): void {
+  if (node.kind === "object") {
+    const label = node.entries.find(
+      ({ key, value }) =>
+        (key === "name" || key === "key") &&
+        value.kind === "string" &&
+        isSensitiveAssignmentKey(value.value),
+    );
+    const pairedValue = node.entries.find(({ key }) => key === "value")?.value;
+    if (label && pairedValue) {
+      replacements.push({
+        start: pairedValue.start,
+        end: pairedValue.end,
+        value: JSON.stringify("[redacted]"),
+      });
+    }
+    for (const { value } of node.entries) {
+      if (value !== pairedValue || !label) {
+        collectHarCredentialReplacements(value, replacements);
+      }
+    }
+    return;
+  }
+
+  if (node.kind === "array") {
+    const [label, pairedValue] = node.items;
+    const isHeaderPair =
+      node.items.length === 2 &&
+      label?.kind === "string" &&
+      isSensitiveAssignmentKey(label.value);
+    if (isHeaderPair && pairedValue) {
+      replacements.push({
+        start: pairedValue.start,
+        end: pairedValue.end,
+        value: JSON.stringify("[redacted]"),
+      });
+    }
+    for (const item of node.items) {
+      if (item !== pairedValue || !isHeaderPair) {
+        collectHarCredentialReplacements(item, replacements);
+      }
+    }
+  }
+}
+
+function hasHarCredentialPairIndicator(value: string): boolean {
+  if (!/"value"\s*:/i.test(value)) return false;
+  const labelPattern = /"(?:name|key)"\s*:\s*"([^"]+)"/gi;
+  let match: RegExpExecArray | null;
+  while ((match = labelPattern.exec(value)) !== null) {
+    if (isSensitiveAssignmentKey(match[1])) return true;
+  }
+  return false;
+}
+
+function redactHarCredentialPairs(value: string): string {
+  let result = "";
+  let cursor = 0;
+  let searchFrom = 0;
+  while (searchFrom < value.length) {
+    const character = value[searchFrom];
+    if (character === '"' || character === "'") {
+      const quote = character;
+      searchFrom += 1;
+      while (searchFrom < value.length) {
+        if (value[searchFrom] === "\\") searchFrom += 2;
+        else if (value[searchFrom++] === quote) break;
+      }
+      continue;
+    }
+    if (character !== "{" && character !== "[") {
+      searchFrom += 1;
+      continue;
+    }
+
+    const node = parseJsonNode(value, searchFrom);
+    if (!node) {
+      // Malformed containers have no trustworthy boundary; consume the suffix
+      // once when it identifies a credential header, including multiline values.
+      if (hasHarCredentialPairIndicator(value.slice(searchFrom))) {
+        result += value.slice(cursor, searchFrom) + "[redacted]";
+        cursor = value.length;
+      }
+      break;
+    }
+
+    const replacements: JsonReplacement[] = [];
+    collectHarCredentialReplacements(node, replacements);
+    if (replacements.length > 0) {
+      replacements.sort((left, right) => left.start - right.start);
+      result += value.slice(cursor, searchFrom);
+      let replacementCursor = searchFrom;
+      for (const replacement of replacements) {
+        result +=
+          value.slice(replacementCursor, replacement.start) + replacement.value;
+        replacementCursor = replacement.end;
+      }
+      result += value.slice(replacementCursor, node.end);
+      cursor = node.end;
+    }
+    searchFrom = node.end;
+  }
+  return result + value.slice(cursor);
+}
+
 function findJsonValueEnd(value: string, start: number): number | null {
   let valueStart = start;
   while (/\s/.test(value[valueStart] ?? "")) valueStart += 1;
@@ -253,19 +528,22 @@ function findJsonValueEnd(value: string, start: number): number | null {
 }
 
 function redactAssignments(value: string, depth = 0): string {
+  value = redactHarCredentialPairs(value);
   let result = "";
   let cursor = 0;
   let searchFrom = 0;
   while (searchFrom < value.length) {
     const assignment = findNextAssignment(value, searchFrom);
     if (!assignment) break;
-    const parsedValue = parseAssignmentValue(value, assignment.end);
     const isSensitive = isSensitiveAssignmentKey(assignment.key);
+    const startsQuotedValue = isQuotedValueStart(value, assignment.end);
+    const parsedValue =
+      isSensitive || startsQuotedValue
+        ? parseAssignmentValue(value, assignment.end)
+        : null;
     result += value.slice(cursor, assignment.index) + assignment.prefix;
 
-    const rawValue = value.slice(assignment.end);
-    const startsQuotedValue = /^(?:\\+["']|["'])/.test(rawValue);
-    const startsStructuredValue = /^\s*[{[]/.test(rawValue);
+    const startsStructuredValue = isStructuredValueStart(value, assignment.end);
     const isCookieCredential =
       isSensitive && /^(?:set-)?cookie$/i.test(assignment.key);
     const isCookieHeader =
@@ -331,8 +609,7 @@ function redactAssignments(value: string, depth = 0): string {
     }
 
     if (isSensitive && !parsedValue) {
-      const remainder = value.slice(assignment.end);
-      if (remainder.trim().length > 0) {
+      if (hasNonWhitespace(value, assignment.end)) {
         result += "[redacted]";
         cursor = findLineEnd(value, assignment.end);
         searchFrom = cursor;
@@ -361,8 +638,10 @@ function redactAssignments(value: string, depth = 0): string {
 
 export function redactExportDiagnostic(value: string): string {
   return redactAssignments(
-    value
-      .replace(URL_USERINFO_PATTERN, "$1[redacted]@")
-      .replace(URL_PATTERN, "[URL]"),
+    redactStandalonePemBlocks(
+      value
+        .replace(URL_USERINFO_PATTERN, "$1[redacted]@")
+        .replace(URL_PATTERN, "[URL]"),
+    ),
   );
 }

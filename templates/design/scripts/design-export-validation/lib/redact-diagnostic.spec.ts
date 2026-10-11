@@ -583,3 +583,131 @@ describe("redactExportDiagnostic review labels and prose performance", () => {
     expect(child.status).toBe(0);
   });
 });
+
+describe("redactExportDiagnostic additional review formats", () => {
+  it("redacts session identifiers and JWT aliases in assignments and JSON", () => {
+    const input = [
+      "sessionId=FAKE_SESSION_ID",
+      "sid=FAKE_SID",
+      "jwt=FAKE_JWT",
+      '{"sessionId":"FAKE_JSON_SESSION_ID","sid":"FAKE_JSON_SID","jwt":"FAKE_JSON_JWT","keyboard":"music"}',
+    ].join("\n");
+
+    expect(redactExportDiagnostic(input)).toBe(
+      [
+        "sessionId=[redacted]",
+        "sid=[redacted]",
+        "jwt=[redacted]",
+        '{"sessionId":"[redacted]","sid":"[redacted]","jwt":"[redacted]","keyboard":"music"}',
+      ].join("\n"),
+    );
+  });
+
+  it("redacts standalone private-key blocks and fails closed without a footer", () => {
+    expect(
+      redactExportDiagnostic(
+        [
+          "-----BEGIN RSA PRIVATE KEY-----",
+          "FAKE_PRIVATE_KEY_MATERIAL",
+          "-----END RSA PRIVATE KEY-----",
+          "keyboard=music",
+        ].join("\n"),
+      ),
+    ).toBe("[redacted]\nkeyboard=music");
+
+    expect(
+      redactExportDiagnostic(
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----\nFAKE_ENCRYPTED_KEY\n-----END ENCRYPTED PRIVATE KEY-----",
+      ),
+    ).toBe("[redacted]");
+
+    expect(
+      redactExportDiagnostic(
+        // guard:allow-secret-literal — Dummy marker with fake material tests an unterminated key block.
+        "-----BEGIN PRIVATE KEY-----\nFAKE_PRIVATE_KEY_MATERIAL\nkeyboard=music",
+      ),
+    ).toBe("[redacted]");
+  });
+
+  it("redacts space-separated credential flags while preserving following fields", () => {
+    expect(
+      redactExportDiagnostic(
+        "--password hunter2\n--api-key FAKE_API_KEY\n--session-id FAKE_SESSION\nkeyboard=music",
+      ),
+    ).toBe(
+      "--password [redacted]\n--api-key [redacted]\n--session-id [redacted]\nkeyboard=music",
+    );
+  });
+
+  it("redacts HAR header pairs in objects and arrays without changing safe headers", () => {
+    const input = JSON.stringify({
+      entries: [
+        {
+          request: {
+            headers: [
+              { name: "Authorization", value: "Bearer FAKE_AUTH" },
+              { value: "FAKE_COOKIE", key: "Cookie" },
+              ["X-API-Key", "FAKE_API_KEY"],
+              ["Content-Type", "application/json"],
+            ],
+          },
+        },
+      ],
+    });
+    const expected = JSON.stringify({
+      entries: [
+        {
+          request: {
+            headers: [
+              { name: "Authorization", value: "[redacted]" },
+              { value: "[redacted]", key: "Cookie" },
+              ["X-API-Key", "[redacted]"],
+              ["Content-Type", "application/json"],
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(redactExportDiagnostic(input)).toBe(expected);
+  });
+
+  it("fails closed on malformed or over-nested HAR credential records", () => {
+    const malformed = '{"name":"Authorization","value":"FAKE_AUTH",}';
+    const overNested =
+      "[".repeat(130) +
+      '{"name":"Authorization","value":"FAKE_NESTED_AUTH"}' +
+      "]".repeat(130);
+    const safeMalformed = '{"name":"Content-Type","value":"application/json",}';
+
+    expect(
+      redactExportDiagnostic(
+        `${malformed}\nkeyboard=music\n${overNested}\nkeyboard=music`,
+      ),
+    ).toBe("[redacted]");
+    expect(redactExportDiagnostic(safeMalformed)).toBe(safeMalformed);
+  });
+
+  it("fails closed when a malformed header record spans multiple lines", () => {
+    const input =
+      '{\n  "name": "Authorization",\n  "value": "FAKE_MULTILINE_AUTH",\n}';
+    expect(redactExportDiagnostic(input)).not.toContain("FAKE_MULTILINE_AUTH");
+  });
+
+  it("scans many ordinary assignments without rescanning each remaining suffix", () => {
+    const moduleUrl = new URL("./redact-diagnostic.ts", import.meta.url).href;
+    const childSource = `
+      const { redactExportDiagnostic } = await import(${JSON.stringify(moduleUrl)});
+      const input = "a=".repeat(80_000);
+      if (redactExportDiagnostic(input) !== input) process.exitCode = 1;
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "-e", childSource],
+      { encoding: "utf8", timeout: 10_000 },
+    );
+
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
+  });
+});
