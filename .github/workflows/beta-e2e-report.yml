@@ -120,17 +120,27 @@ jobs:
           history_failed=false
           if [ ! -f "$REPORT_DIR/previous/state.json" ]; then
             : > "$runs_file"
-            for workflow_file in beta-e2e-scheduled.yml beta-e2e.yml; do
+            for workflow_file in beta-e2e-scheduled.yml beta-e2e.yml deploy-production-sites-prebuilt.yml; do
+              workflow_runs_file="$REPORT_DIR/previous/runs-$workflow_file.tsv"
               if ! gh api --paginate \
                 -f "branch=$GITHUB_REF_NAME" \
                 -f status=completed \
                 -f per_page=100 \
                 "repos/$REPO/actions/workflows/$workflow_file/runs" \
-                --jq '.workflow_runs[] | [.created_at, .id] | @tsv' >> "$runs_file"; then
+                --jq '.workflow_runs[] | [.created_at, .id] | @tsv' > "$workflow_runs_file"; then
                 note "Could not list prior beta E2E runs for $workflow_file; state comparison starts without a restored artifact."
                 history_failed=true
                 break
               fi
+              if [ "$workflow_file" = "deploy-production-sites-prebuilt.yml" ]; then
+                workflow_source=production
+              else
+                workflow_source=beta
+              fi
+              while IFS=$'\t' read -r created_at previous_run; do
+                [ -n "$previous_run" ] || continue
+                printf '%s\t%s\t%s\n' "$created_at" "$previous_run" "$workflow_source" >> "$runs_file"
+              done < "$workflow_runs_file"
             done
             if [ "$history_failed" = "true" ]; then
               metadata_incomplete=true
@@ -138,14 +148,30 @@ jobs:
             else
               awk -F '\t' -v current="$RUN_ID" '$2 != current && $1 != ""' "$runs_file" \
                 | sort -r \
-                | cut -f 2 > "$REPORT_DIR/previous/runs-ordered.txt"
+                | cut -f 2,3 > "$REPORT_DIR/previous/runs-ordered.txt"
               mv "$REPORT_DIR/previous/runs-ordered.txt" "$runs_file"
             fi
           fi
           if [ ! -f "$REPORT_DIR/previous/state.json" ] && [ "$history_failed" != "true" ]; then
-            while IFS= read -r previous_run; do
+            while IFS=$'\t' read -r previous_run workflow_source; do
               [ -n "$previous_run" ] || continue
               [ "$previous_run" != "$RUN_ID" ] || continue
+              if [ "$workflow_source" = "production" ]; then
+                production_jobs_file="$REPORT_DIR/previous/jobs-$previous_run.ndjson"
+                if ! gh api --paginate \
+                  "repos/$REPO/actions/runs/$previous_run/jobs?per_page=100" \
+                  --jq '.jobs[]' > "$production_jobs_file" 2> "$production_jobs_file.err"; then
+                  detail="$(tr '\r\n' ' ' < "$production_jobs_file.err" | cut -c 1-300)"
+                  note "Could not inspect the jobs for production run $previous_run; state comparison starts without a restored artifact. ${detail:-GitHub returned unreadable job data.}"
+                  metadata_incomplete=true
+                  previous_state_artifact_missing=true
+                  break
+                fi
+                report_job_result="$(jq -sr '[.[] | select((.name // "") | startswith("Report production Beta E2E pre-flight status")) | .conclusion][0] // empty' "$production_jobs_file")"
+                if [ -z "$report_job_result" ] || [ "$report_job_result" = "skipped" ]; then
+                  continue
+                fi
+              fi
               artifact_list="$REPORT_DIR/previous/artifacts-$previous_run.json"
               if ! gh api "repos/$REPO/actions/runs/$previous_run/artifacts?per_page=100" > "$artifact_list"; then
                 note "Could not inspect artifacts for the latest prior run $previous_run; state comparison starts without restored state."
@@ -162,7 +188,7 @@ jobs:
               state_artifact_prefix="beta-e2e-digest-$previous_run-"
               state_artifact="$(jq -r --arg prefix "$state_artifact_prefix" '[.artifacts[] | select(.name | startswith($prefix)) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty' "$artifact_list")"
               if [ -z "$state_artifact" ]; then
-                note "The latest prior completed run $previous_run has no unexpired state artifact; state comparison starts without restored state."
+                note "The latest prior beta E2E report run $previous_run has no unexpired state artifact; state comparison starts without restored state."
                 metadata_incomplete=true
                 previous_state_artifact_missing=true
                 break
