@@ -14,11 +14,10 @@ import {
   IconHexagon,
   IconRosette,
   IconRefresh,
-  IconSparkles,
-  type TablerIcon,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
 
+import { AgentMark } from "../../shared/AgentMark.js";
 import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
@@ -43,8 +42,15 @@ const STATUS_KEYS: Record<ChatFirstAgentActivityStatus, string> = {
   unknown: "agentActivityStatusUnknown",
 };
 
-const AGENT_GLYPHS: Array<{ icon: TablerIcon; color: string }> = [
-  { icon: IconSparkles, color: "text-primary" },
+type ActivityIcon = ComponentType<{
+  "aria-hidden"?: boolean | "true" | "false";
+  className?: string;
+  size?: number | string;
+  strokeWidth?: number;
+}>;
+
+const AGENT_GLYPHS: Array<{ icon: ActivityIcon; color: string }> = [
+  { icon: AgentMark, color: "text-primary" },
   { icon: IconFlower, color: "text-destructive" },
   { icon: IconRosette, color: "text-accent-foreground" },
   { icon: IconHexagon, color: "text-ring" },

@@ -4,11 +4,11 @@ import {
 } from "@agent-native/core/client/api-path";
 import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconCheck,
   IconLink,
-  IconSparkles,
   IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -315,7 +315,7 @@ export default function ImportRoute() {
               <div className="p-6">
                 {phase === "importing" ? (
                   <div className="flex flex-col items-center gap-2 py-8 text-center">
-                    <IconSparkles className="h-6 w-6 animate-pulse text-primary" />
+                    <AgentMark className="h-6 w-6 animate-pulse text-primary" />
                     <p
                       key={stageIndex}
                       className="text-base font-semibold text-foreground"
@@ -330,7 +330,7 @@ export default function ImportRoute() {
                 ) : phase === "done" || phase === "leaving" ? (
                   <div className="flex flex-col items-center gap-4 py-6 text-center">
                     <div className="flex items-center gap-2 text-primary">
-                      <IconSparkles className="h-6 w-6" />
+                      <AgentMark className="h-6 w-6" />
                       <p className="text-base font-semibold text-foreground">
                         {t("importRoute.doneHeading")}
                       </p>

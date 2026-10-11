@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCheck, IconChevronDown, IconSparkles } from "@tabler/icons-react";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
+import { IconCheck, IconChevronDown } from "@tabler/icons-react";
 
 import {
   DropdownMenu,
@@ -129,7 +130,7 @@ export function CommentAiSendControl({
         aria-label={t("comments.aiSend")}
         data-comment-send
       >
-        <IconSparkles size={14} aria-hidden />
+        <AgentMark size={14} />
         {t("comments.aiSendShort")}
       </button>
       <DropdownMenu>
