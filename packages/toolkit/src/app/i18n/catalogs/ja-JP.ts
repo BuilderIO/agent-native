@@ -157,8 +157,17 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io アカウントをすでにお持ちです",
   "onboarding.builderAccountExistsDescription":
     "ログインしてアカウントを使用してください。",
+  "onboarding.builderActivationChecking":
+    "新しいアカウントを作成できるか確認しています。",
+  "onboarding.builderActivationUnavailable":
+    "このアプリでは新しいアカウントの作成が有効になっていません。既存のアカウントは接続できます。",
+  "onboarding.builderActivationUnavailableInMode":
+    "このモードでは新しいアカウントを有効化できません。既存のアカウントは引き続き接続できます。",
+  "onboarding.builderActivationCheckFailed":
+    "このアプリで新しいアカウントを作成できるか確認できませんでした。",
+
   "onboarding.builderActivationDescription":
-    "ワンクリックで Builder.io アカウントを作成または接続して、無料クレジットを獲得します。",
+    "新しいアカウントを作成して無料クレジットを有効にするか、既存のアカウントで続行します。",
   "onboarding.builderOrgActivationDescription":
     "ワンクリックで Builder.io アカウントを作成し、組織で使えるようにします。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
@@ -167,7 +176,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "利用規約",
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
-  "onboarding.builderExistingAccount": "Builder.io を使う",
+  "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
   "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
@@ -1253,6 +1262,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.clear": "選択範囲のコンテキストを消去",
+  "setup.addKeyInSettings": "設定でキーを追加",
+  "setup.addKeyInSettingsDescription": "個人または組織のアカウント用です。",
+  "setup.setEnvironmentVariable": "環境変数を設定",
+  "setup.setEnvironmentVariableDescription":
+    "このアプリの全ユーザーで1つのプロバイダーキーを共有します。",
+
   "setup.addOwnKeys": "独自のキーを追加",
   "setup.builderCredits":
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",

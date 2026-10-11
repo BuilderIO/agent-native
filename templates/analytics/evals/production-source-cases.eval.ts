@@ -15,6 +15,11 @@ type RelationMeaningClaim = {
   meanings: string[];
 };
 
+type RelationFieldsClaim = {
+  relation: string;
+  fields: string[];
+};
+
 type FieldMeaningClaim = {
   relation: string;
   field: string;
@@ -23,6 +28,7 @@ type FieldMeaningClaim = {
 
 type SourceContract = {
   relationGrains: RelationGrainClaim[];
+  relationFields?: RelationFieldsClaim[];
   relationMeanings?: RelationMeaningClaim[];
   fieldMeanings?: FieldMeaningClaim[];
   relationGrainAlternatives: Array<{
@@ -162,6 +168,50 @@ export const sourceContracts = {
     ],
     relationGrainAlternatives: [],
     concepts: ["connect", "event"],
+  },
+  builderUserOrganizationIdMapping: {
+    relationGrains: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        grains: ["one row per user-organization membership"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        grains: ["one row per user-organization membership"],
+      },
+    ],
+    relationMeanings: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        meanings: [
+          "does not carry organization_role",
+          "does not include organization_role",
+          "lacks organization_role",
+        ],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        meanings: ["includes organization_role"],
+      },
+    ],
+    relationFields: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        fields: ["user_id", "organization_id", "is_root_org"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        fields: ["organization_role"],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: [
+      "user_id",
+      "organization_id",
+      "organization_role",
+      "is_root_org",
+      "maps user_id to organization_id",
+    ],
   },
 } satisfies Record<string, SourceContract>;
 
@@ -323,6 +373,36 @@ function hasRelationMeaningClaim(
   );
 }
 
+function hasRelationFieldsClaim(
+  lines: string[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    const relationsOnLine = allRelations.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
+    );
+    return relationsOnLine.length === 1;
+  });
+  if (matchingLines.length === 0) return false;
+
+  return claim.fields.every((field) =>
+    matchingLines.some((line) => {
+      const relationIndex = findCompletePhraseIndexes(line, relation)[0];
+      return (
+        relationIndex !== undefined &&
+        findCompletePhraseIndexes(line, field.toLowerCase()).some(
+          (fieldIndex) => fieldIndex > relationIndex,
+        )
+      );
+    }),
+  );
+}
+
 function hasFieldMeaningClaim(
   lines: string[],
   claim: FieldMeaningClaim,
@@ -399,6 +479,14 @@ function sourceContractScorer(
         if (!hasRelationGrainClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not declare its expected ${claim.grains[0]}`,
+          );
+        }
+      }
+
+      for (const claim of contract.relationFields ?? []) {
+        if (!hasRelationFieldsClaim(lines, claim, allClaims)) {
+          reasons.push(
+            `${claim.relation} did not attribute its expected fields: ${claim.fields.join(", ")}`,
           );
         }
       }
@@ -508,5 +596,10 @@ export default [
     "Connect product events are Analytics telemetry, not Builder.io user counts",
     "SYNTHETIC source selection only: Connect usage here means Analytics first-party Connect setup events, not Builder.io product account membership. Identify the dbt staging model and its upstream Connect dashboard event source, then state the event row grain. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query events or return counts.",
     sourceContracts.connectEvents,
+  ),
+  sourceEval(
+    "Builder.io's existing user-organization map is narrower than the roles bridge",
+    "SYNTHETIC source selection only: a teammate says `dbt_mapping.user_id_to_org_id` does not exist. Verify that claim from dbt model metadata. For a Builder.io roster with each user's organization and role, compare that mapping with `dbt_intermediate.user_organization_role`: state the grain of each, which fields the mapping contains, and which relation carries `organization_role`. Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>; <fields or meaning>`. Do not query production rows, list users or organizations, or return counts.",
+    sourceContracts.builderUserOrganizationIdMapping,
   ),
 ];

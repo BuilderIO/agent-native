@@ -64,7 +64,7 @@ const messages = {
       "Modifiez {{file}}, enregistrez, puis redemandez pour voir le nouveau message.",
     lead: "L’interface de votre app et son agent partagent les mêmes actions.",
     leadTry: "Demandez à l’agent d’appeler l’action hello.",
-    llmSetupLink: "Configurer une clé LLM pour toute l’app",
+    llmSetupLink: "Configuration du fournisseur LLM",
     title: "Commencer",
   },
   navigation: {

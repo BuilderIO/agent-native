@@ -168,6 +168,9 @@ interface ModelDoc {
   name: string;
   sourcePath?: string;
   description?: string;
+  explicitGrain?: string;
+  inferredGrain?: string;
+  passThroughModel?: string;
   semanticModelEnabled?: boolean;
   semanticModelName?: string;
   group?: string;
@@ -1146,11 +1149,7 @@ function parseSchemaYaml(
         indent > modelMetaIndent &&
         !context.column
       ) {
-        const columns = value
-          .split(/[,+\s]+/)
-          .map(safeIdentifier)
-          .filter((name): name is string => Boolean(name));
-        addGrainHint(context.model, columns);
+        context.model.explicitGrain = safeDescription(value, scanSummary);
         continue;
       }
       if (
@@ -1701,15 +1700,11 @@ function semanticModelEntries(
     const modelDoc = modelName
       ? models.find((model) => model.name === modelName)
       : undefined;
-    const uniqueGrain = modelDoc?.grainHints[0];
     const explicitGrain = safeDescription(item.values.grain ?? "", scanSummary);
     const grain =
       explicitGrain ??
-      (uniqueGrain?.length
-        ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntityKey
-          ? `Primary entity: ${primaryEntityKey}`
-          : undefined);
+      modelDeclaredGrain(modelDoc) ??
+      (primaryEntityKey ? `Primary entity: ${primaryEntityKey}` : undefined);
     const group = safeIdentifier(item.values.group ?? "");
     const owner =
       safeOwnerName(item.ownerName ?? item.values.owner, scanSummary) ??
@@ -1778,12 +1773,9 @@ function semanticModelEntries(
           .filter((column) => column.dimensionType?.toLowerCase() === "time")
           .map((column) => safeIdentifier(column.name ?? ""))
           .find((value): value is string => Boolean(value));
-      const uniqueGrain = modelDoc.grainHints[0];
-      const grain = uniqueGrain?.length
-        ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntity
-          ? `Primary entity: ${primaryEntity}`
-          : undefined;
+      const grain =
+        modelDeclaredGrain(modelDoc) ??
+        (primaryEntity ? `Primary entity: ${primaryEntity}` : undefined);
       const group = safeIdentifier(modelDoc.group ?? "");
       const owner = group ? groups.get(group) : undefined;
       const description = safeDescription(
@@ -2006,6 +1998,9 @@ function semanticModelEntries(
 function mergeModel(target: ModelDoc, source: ModelDoc): void {
   target.sourcePath ??= source.sourcePath;
   target.description ??= source.description;
+  target.explicitGrain ??= source.explicitGrain;
+  target.inferredGrain ??= source.inferredGrain;
+  target.passThroughModel ??= source.passThroughModel;
   target.semanticModelEnabled ??= source.semanticModelEnabled;
   target.semanticModelName ??= source.semanticModelName;
   target.group ??= source.group;
@@ -2056,6 +2051,14 @@ function sqlWithoutComments(sql: string): string {
       if (char === "\\" && quote !== "`") escaped = true;
       else if (char === quote) quote = null;
       continue;
+    }
+    if (char === "{" && next === "#") {
+      const end = sql.indexOf("#}", index + 2);
+      if (end >= 0) {
+        result += sql.slice(index, end + 2).replace(/[^\r\n]/g, " ");
+        index = end + 1;
+        continue;
+      }
     }
     if (char === "{" && next === "{") {
       const end = sql.indexOf("}}", index + 2);
@@ -2128,6 +2131,47 @@ function extractUniqueKey(sql: string): string[][] {
     if (columns.length) hints.push([...new Set(columns)]);
   }
   return hints;
+}
+
+function inferUnnestedMembershipGrain(
+  sql: string,
+  modelName: string,
+): string | undefined {
+  if (
+    !/(?:user|member)/i.test(modelName) ||
+    !/(?:org|organization)/i.test(modelName)
+  ) {
+    return undefined;
+  }
+  const source = sqlWithoutComments(sql);
+  if (!/\buser_id\b/i.test(source)) return undefined;
+  const arrayName = source.match(
+    /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)/i,
+  )?.[1];
+  const safeArrayName = arrayName ? safeIdentifier(arrayName) : null;
+  if (!safeArrayName || !/(?:org|organization)/i.test(safeArrayName)) {
+    return undefined;
+  }
+  return `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`;
+}
+
+function extractPassThroughModel(
+  sql: string,
+  dependencies: string[],
+): string | undefined {
+  if (dependencies.length !== 1 || !dependencies[0]?.startsWith("ref:")) {
+    return undefined;
+  }
+  const source = sqlWithoutComments(sql);
+  if (
+    (source.match(/\bselect\b/gi) ?? []).length !== 1 ||
+    /\b(?:join|unnest|group\s+by|distinct|union|intersect|except|having|qualify|pivot|unpivot|over)\b/i.test(
+      source,
+    )
+  ) {
+    return undefined;
+  }
+  return safeIdentifier(dependencies[0].slice("ref:".length)) ?? undefined;
 }
 
 function isTestSql(relativePath: string): boolean {
@@ -2591,6 +2635,54 @@ function mergeModels(
   return [...models.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function modelDeclaredGrain(model: ModelDoc | undefined): string | undefined {
+  if (!model) return undefined;
+  const uniqueGrain = model.grainHints[0];
+  const uniqueColumnKey = [...model.columns.values()].find(
+    (column) => column.tests.has("unique") && column.tests.has("not_null"),
+  )?.name;
+  const descriptionGrain = model.description?.match(
+    /\b(one\s+row\s+per\s+[^.;\n]{1,240}?)(?=(?:,\s+(?:which|with|and|where|but)\b)|[.;\n]|$)/i,
+  )?.[1];
+  return (
+    model.explicitGrain ??
+    (uniqueGrain?.length
+      ? `Unique key: ${uniqueGrain.join(", ")}`
+      : undefined) ??
+    (uniqueColumnKey ? `Unique key: ${uniqueColumnKey}` : undefined) ??
+    descriptionGrain?.replace(/\s+/g, " ").trim() ??
+    model.inferredGrain
+  );
+}
+
+function inheritPassThroughGrains(models: ModelDoc[]): void {
+  const byName = new Map(models.map((model) => [model.name, model]));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const model of models) {
+      if (
+        model.inferredGrain ||
+        model.explicitGrain ||
+        model.grainHints.length ||
+        [...model.columns.values()].some(
+          (column) =>
+            column.tests.has("unique") && column.tests.has("not_null"),
+        )
+      ) {
+        continue;
+      }
+      const upstream = model.passThroughModel
+        ? byName.get(model.passThroughModel)
+        : undefined;
+      const upstreamGrain = modelDeclaredGrain(upstream);
+      if (!upstream || !upstreamGrain) continue;
+      model.inferredGrain = `Same row grain as ${upstream.name}: ${upstreamGrain}`;
+      changed = true;
+    }
+  }
+}
+
 function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
   const columns = [...model.columns.values()].sort((a, b) =>
     a.name.localeCompare(b.name),
@@ -2606,6 +2698,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         "; ",
       )
     : undefined;
+  const declaredGrain = modelDeclaredGrain(model);
   const columnDefinitions = columns.map((column) => {
     const type = column.dataType ? ` (${column.dataType})` : "";
     const description = column.description ? `: ${column.description}` : "";
@@ -2639,6 +2732,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         `${model.name} ${model.description ?? ""}`,
       ),
       table: model.name,
+      ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
       ...(dependencies.length
         ? { dependencies: boundedList(dependencies, 4_000, "; ") }
@@ -2772,6 +2866,8 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary.unsafeEntriesOmitted += 1;
       continue;
     }
+    const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
+    const passThroughModel = extractPassThroughModel(sql, dependencies);
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -2779,10 +2875,13 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       tests: new Set(),
       dependencies: new Set(dependencies),
       grainHints: extractUniqueKey(sql),
+      ...(inferredGrain ? { inferredGrain } : {}),
+      ...(passThroughModel ? { passThroughModel } : {}),
     };
     sqlModels.push(model);
   }
   const mergedModels = mergeModels(root, docs, sqlModels);
+  inheritPassThroughGrains(mergedModels);
   return {
     entries: [
       ...mergedModels.flatMap((model) => modelEntries(root, model)),

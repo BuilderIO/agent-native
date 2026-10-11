@@ -69,6 +69,12 @@ function sourceEntryType(
     : undefined;
 }
 
+function sourceEntryStatus(
+  value: unknown,
+): "active" | "deprecated" | undefined {
+  return value === "active" || value === "deprecated" ? value : undefined;
+}
+
 function isRetiredCatalogReference(value: Record<string, unknown>): boolean {
   if (value.deprecated === true) return true;
   return [value.status, value.lifecycle, value.state].some(
@@ -125,6 +131,7 @@ export type AnalyticsQueryCatalogCandidate =
       aiGenerated?: boolean;
       sourceKind?: "dbt" | "code" | "sigma";
       entryType?: "model" | "event" | "semantic_model" | "metric";
+      status?: "active" | "deprecated";
       grain?: string;
       primaryEntity?: string;
       timeDimension?: string;
@@ -155,6 +162,19 @@ export type AnalyticsQueryCatalogSearchResult = {
   searchedDictionaryEntryCount: number;
   dictionarySearchTruncated: boolean;
   dictionarySearchStatus: "available" | "partial" | "unavailable";
+  sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
+};
+
+export type AnalyticsDictionarySearchResult = {
+  candidates: AnalyticsQueryCatalogCandidate[];
+  searched: number;
+  of: number;
+  truncated: boolean;
+  nextPage: string | null;
+  searchedDictionaryEntryCount: number;
+  dictionarySearchTruncated: boolean;
+  dictionarySearchStatus: "available" | "partial" | "unavailable";
+  sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
 };
 
 function text(value: unknown): string {
@@ -479,6 +499,7 @@ function dictionaryCandidates(
           );
     const entrySourceKind = sourceKind(entry.sourceKind);
     const entryType = sourceEntryType(entry.entryType);
+    const status = sourceEntryStatus(entry.status);
     const id = text(entry.id);
     const metric = text(entry.metric);
     if (!id || !metric) return [];
@@ -534,6 +555,7 @@ function dictionaryCandidates(
           : {}),
         ...(entrySourceKind ? { sourceKind: entrySourceKind } : {}),
         ...(entryType ? { entryType } : {}),
+        ...(status ? { status } : {}),
         ...(text(entry.grain) ? { grain: text(entry.grain) } : {}),
         ...(text(entry.primaryEntity)
           ? { primaryEntity: text(entry.primaryEntity) }
@@ -775,6 +797,7 @@ async function listDictionaryEntries(args: {
   searchedEntryCount: number;
   truncated: boolean;
   status: "available" | "partial" | "unavailable";
+  sourceIndexStatus: "not-configured" | "unavailable" | "invalid" | "available";
 }> {
   const entries: DictionaryEntry[] = [];
   const seen = new Map<string, number>();
@@ -834,7 +857,13 @@ async function listDictionaryEntries(args: {
     );
   }
   let sourceIndexUnavailable = false;
+  let sourceIndexStatus:
+    | "not-configured"
+    | "unavailable"
+    | "invalid"
+    | "available" = "unavailable";
   if (sourceIndexResult.status === "fulfilled") {
+    sourceIndexStatus = sourceIndexResult.value.status;
     if (sourceIndexResult.value.status === "available") {
       for (const entry of sourceIndexDictionaryEntries(
         sourceIndexResult.value.bundle,
@@ -852,6 +881,7 @@ async function listDictionaryEntries(args: {
     }
   } else {
     sourceIndexUnavailable = true;
+    sourceIndexStatus = "unavailable";
     console.warn(
       "[analytics-query-catalog] Organization source index lookup failed.",
     );
@@ -881,6 +911,45 @@ async function listDictionaryEntries(args: {
         : availableScopes > 0
           ? "partial"
           : "unavailable",
+    sourceIndexStatus,
+  };
+}
+
+export async function searchAnalyticsDictionaryCatalog(args: {
+  search: string;
+  email: string;
+  orgId: string | null;
+  limit: number;
+  nextPage?: string;
+  offset?: number;
+  signal?: AbortSignal;
+}): Promise<AnalyticsDictionarySearchResult> {
+  args.signal?.throwIfAborted();
+  const dictionary = await listDictionaryEntries({
+    email: args.email,
+    orgId: args.orgId,
+  });
+  args.signal?.throwIfAborted();
+  const page = rankAnalyticsQueryCatalogPage({
+    search: args.search,
+    dashboards: [],
+    dictionaryEntries: dictionary.entries,
+    limit: args.limit,
+    offset: args.nextPage
+      ? decodeSearchCursor(args.search, args.nextPage)
+      : args.offset,
+  });
+  return {
+    ...page,
+    searched: dictionary.searchedEntryCount,
+    truncated:
+      page.truncated ||
+      dictionary.truncated ||
+      dictionary.status !== "available",
+    searchedDictionaryEntryCount: dictionary.searchedEntryCount,
+    dictionarySearchTruncated: dictionary.truncated,
+    dictionarySearchStatus: dictionary.status,
+    sourceIndexStatus: dictionary.sourceIndexStatus,
   };
 }
 
@@ -1181,5 +1250,9 @@ export async function searchAnalyticsQueryCatalog(args: {
     searchedDictionaryEntryCount,
     dictionarySearchTruncated,
     dictionarySearchStatus,
+    sourceIndexStatus:
+      dictionaryResult.status === "fulfilled"
+        ? dictionaryResult.value.sourceIndexStatus
+        : "unavailable",
   };
 }

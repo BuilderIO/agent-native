@@ -106,6 +106,9 @@ function BuilderConnectProbeContent({
         {flow.statusResolved ? "resolved" : "unresolved"}{" "}
         {flow.accountExists ? "account-exists" : "no-account-exists"}
       </output>
+      <output data-testid="status-check-enabled">
+        {flow.statusCheckEnabled ? "enabled" : "disabled"}
+      </output>
       <output data-testid="credential-source">
         {flow.credentialSource ?? "none"}
       </output>
@@ -322,6 +325,21 @@ describe("useBuilderStatus", () => {
         },
       }),
     );
+  });
+
+  it("distinguishes a disabled status check from one still loading", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe enabled={false} />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="status-check-enabled"]')
+        ?.textContent,
+    ).toBe("disabled");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps the last good Builder status when a refresh fails", async () => {
@@ -2580,7 +2598,9 @@ describe("useBuilderConnectFlow", () => {
       document.querySelectorAll<HTMLButtonElement>(
         "[data-radix-popper-content-wrapper] button",
       ),
-    ).find((button) => button.textContent?.includes("Use Builder.io"));
+    ).find((button) =>
+      button.textContent?.includes("I have a Builder.io account"),
+    );
     expect(existingAccountAction).toBeDefined();
 
     await act(async () => existingAccountAction?.click());

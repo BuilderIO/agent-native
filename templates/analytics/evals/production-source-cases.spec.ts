@@ -33,6 +33,9 @@ function outputFor(
       )?.meanings[0];
       return `${claim.relation}: ${[meaning, claim.grains[0]].filter(Boolean).join("; ")}`;
     }),
+    ...(contract.relationFields ?? []).map(
+      (claim) => `${claim.relation}: fields ${claim.fields.join(", ")}`,
+    ),
     ...(contract.fieldMeanings ?? []).map(
       (claim) => `${claim.relation}.${claim.field}: ${claim.meanings[0]}`,
     ),
@@ -67,7 +70,7 @@ describe("Analytics synthetic production source evals", () => {
     expect(files.map((file) => file.split("/").at(-1))).toContain(
       "production-source-cases.eval.ts",
     );
-    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(6);
+    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(7);
     expect(
       cases.every((evalCase) => evalCase.name.startsWith("SYNTHETIC:")),
     ).toBe(true);
@@ -101,7 +104,7 @@ describe("Analytics synthetic production source evals", () => {
       { persist: false },
     );
 
-    expect(report).toMatchObject({ total: 6, passed: 6, failed: 0 });
+    expect(report).toMatchObject({ total: 7, passed: 7, failed: 0 });
   });
 
   it("rejects current and historical count relations assigned to the opposite time scopes", async () => {
@@ -316,19 +319,103 @@ describe("Analytics synthetic production source evals", () => {
     expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
   });
 
-  it("does not accept a mapping relation absent from the dbt project", async () => {
+  it("does not substitute the existing ID map for the roles bridge", async () => {
     const report = await runEvals(
       [cases[0]!],
       runnerFor({
         text: [
           "dbt_mart.dim_users_core: one row per user",
           "dbt_mart.dim_organizations: one row per organization",
-          "dbt_mapping.user_id_to_org_id: one row per user-organization membership",
+          "dbt_mapping.user_id_to_org_id: one row per user-organization membership; maps user_id to organization_id",
           "user organization membership",
         ].join("\n"),
         toolCalls: ["search-bigquery-schema"],
         ok: true,
-        runId: "eval:unknown-membership-relation-fixture",
+        runId: "eval:narrower-user-org-map-not-role-bridge-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
+  it("recognizes the real ID map and the separate relation that carries roles", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    const report = await runEvals(
+      [cases[6]!],
+      runnerFor({
+        text: [
+          "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; fields user_id, organization_id, is_root_org; lacks organization_role",
+          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership; field organization_role",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:real-user-org-map-and-role-bridge-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
+  it("rejects the false claim that the ID map does not exist", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    const report = await runEvals(
+      [cases[6]!],
+      runnerFor({
+        text: [
+          "dbt_mapping.user_id_to_org_id: does not exist",
+          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:false-user-org-map-absence-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
+  it("requires ID map fields to be attributed to that relation", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    const report = await runEvals(
+      [cases[6]!],
+      runnerFor({
+        text: [
+          "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; lacks organization_role",
+          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership; fields user_id, organization_id, is_root_org, organization_role",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:user-org-map-fields-misattributed-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
+  it("rejects assigning the role field to the narrower ID map", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    const report = await runEvals(
+      [cases[6]!],
+      runnerFor({
+        text: [
+          "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; includes organization_role",
+          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:id-map-falsely-claims-role-fixture",
         durationMs: 0,
       }),
       { persist: false },

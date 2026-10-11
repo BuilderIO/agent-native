@@ -145,8 +145,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "激活免费额度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 账户",
   "onboarding.builderAccountExistsDescription": "登录以使用你的账户。",
+  "onboarding.builderActivationChecking": "正在检查是否可以创建新账户。",
+  "onboarding.builderActivationUnavailable":
+    "此应用未启用新账户创建功能。你仍可连接现有账户。",
+  "onboarding.builderActivationUnavailableInMode":
+    "此模式下无法激活新账户。你仍然可以连接现有账户。",
+  "onboarding.builderActivationCheckFailed":
+    "无法确认此应用是否可以创建新账户。",
+
   "onboarding.builderActivationDescription":
-    "一键创建或连接 Builder.io 账户，即可获得免费额度。",
+    "创建新账户以激活免费额度，或使用现有账户继续。",
   "onboarding.builderOrgActivationDescription":
     "我们会一键创建你的 Builder.io 账户，让你的组织可以使用它。",
   "onboarding.builderCreateAndActivate": "创建并激活",
@@ -154,7 +162,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服务条款",
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "使用 Builder.io",
+  "onboarding.builderExistingAccount": "我有 Builder.io 账户",
   "onboarding.builderActivating": "正在激活 Builder.io 免费额度",
   "onboarding.builderConnecting": "正在设置 Builder.io 免费额度",
   "onboarding.builderProvisioningDescription":
@@ -1157,6 +1165,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.attached_other": "已附加选中内容的 {{formattedCount}} 个字符",
   "selection.clear": "清除选中内容上下文",
+  "setup.addKeyInSettings": "在设置中添加密钥",
+  "setup.addKeyInSettingsDescription": "用于你的个人账户或组织。",
+  "setup.setEnvironmentVariable": "设置环境变量",
+  "setup.setEnvironmentVariableDescription":
+    "此应用的所有用户共用一个提供商密钥。",
+
   "setup.addOwnKeys": "添加您自己的密钥",
   "setup.builderCredits":
     "Builder.io 提供免费额度，您也可以使用自己的 API 密钥。",

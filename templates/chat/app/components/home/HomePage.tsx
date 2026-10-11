@@ -284,7 +284,7 @@ export default function HomePage() {
         </p>
         <Button asChild variant="link" size="sm" className="h-auto px-0">
           <a
-            href={`${DOCS_URL}/getting-started#connect-an-llm`}
+            href={`${DOCS_URL}/environment-variables#llm-provider-keys`}
             target="_blank"
             rel="noreferrer"
           >

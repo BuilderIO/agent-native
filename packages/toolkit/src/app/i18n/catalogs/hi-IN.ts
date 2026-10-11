@@ -149,8 +149,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "आपके पास पहले से Builder.io खाता है",
   "onboarding.builderAccountExistsDescription":
     "अपने खाते का उपयोग करने के लिए लॉग इन करें।",
+  "onboarding.builderActivationChecking":
+    "जाँचा जा रहा है कि नया खाता बनाना उपलब्ध है या नहीं।",
+  "onboarding.builderActivationUnavailable":
+    "इस ऐप में नया खाता बनाना सक्षम नहीं है। आप मौजूदा खाता कनेक्ट कर सकते हैं।",
+  "onboarding.builderActivationUnavailableInMode":
+    "इस मोड में नया खाता सक्रिय करना उपलब्ध नहीं है। आप फिर भी मौजूदा खाता कनेक्ट कर सकते हैं।",
+  "onboarding.builderActivationCheckFailed":
+    "यह जाँचा नहीं जा सका कि यह ऐप नए खाते बना सकता है या नहीं।",
+
   "onboarding.builderActivationDescription":
-    "मुफ़्त क्रेडिट पाने के लिए एक क्लिक में Builder.io खाता बनाएँ या कनेक्ट करें।",
+    "मुफ़्त क्रेडिट सक्रिय करने के लिए नया खाता बनाएँ, या मौजूदा खाते से आगे बढ़ें।",
   "onboarding.builderOrgActivationDescription":
     "हम एक क्लिक में आपका Builder.io खाता बनाएँगे, ताकि आपका संगठन इसका उपयोग कर सके।",
   "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
@@ -158,7 +167,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "सेवा की शर्तों",
   "onboarding.builderPrivacy": "गोपनीयता नीति",
   "onboarding.builderConsentAnd": "और",
-  "onboarding.builderExistingAccount": "Builder.io इस्तेमाल करें",
+  "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
   "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
   "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट सेट अप हो रहे हैं",
   "onboarding.builderProvisioningDescription":
@@ -1218,6 +1227,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.clear": "चयन संदर्भ हटाएँ",
+  "setup.addKeyInSettings": "सेटिंग में कुंजी जोड़ें",
+  "setup.addKeyInSettingsDescription": "आपके खाते या संगठन के लिए।",
+  "setup.setEnvironmentVariable": "एनवायरनमेंट वेरिएबल सेट करें",
+  "setup.setEnvironmentVariableDescription":
+    "इस ऐप के सभी उपयोगकर्ताओं के लिए एक प्रदाता कुंजी।",
+
   "setup.addOwnKeys": "अपनी कुंजियाँ जोड़ें",
   "setup.builderCredits":
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
