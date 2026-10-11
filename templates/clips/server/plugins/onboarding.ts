@@ -22,7 +22,7 @@ export default async (nitroApp: any): Promise<void> => {
   registerOnboardingStep({
     id: "file-storage",
     order: 15,
-    required: true,
+    required: false,
     title: "Connect storage",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage.",
