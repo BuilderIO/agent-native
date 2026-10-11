@@ -1355,40 +1355,36 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  try {
-    const { getBuiltinAgentsForSeeding } =
-      await import("../server/agent-discovery.js");
-    const builtins = getBuiltinAgentsForSeeding();
-    for (const agent of builtins) {
-      const agentJson = JSON.stringify(
-        {
-          id: agent.id,
-          name: agent.name,
-          description: agent.description,
-          url: agent.url, // always prod
-          color: agent.color,
-        },
-        null,
-        2,
-      );
-      assertResourcePayloadIsSqlSafe(agentJson, "application/json");
-      const agentSize = Buffer.byteLength(agentJson, "utf8");
-      await client.execute({
-        sql: seedSql,
-        args: [
-          crypto.randomUUID(),
-          `remote-agents/${agent.id}.json`,
-          SHARED_OWNER,
-          agentJson,
-          "application/json",
-          agentSize,
-          now,
-          now,
-        ],
-      });
-    }
-  } catch {
-    // Agent discovery not available — skip seeding
+  const { getBuiltinAgentsForSeeding } =
+    await import("../server/agent-discovery.js");
+  const builtins = getBuiltinAgentsForSeeding();
+  for (const agent of builtins) {
+    const agentJson = JSON.stringify(
+      {
+        id: agent.id,
+        name: agent.name,
+        description: agent.description,
+        url: agent.url, // always prod
+        color: agent.color,
+      },
+      null,
+      2,
+    );
+    assertResourcePayloadIsSqlSafe(agentJson, "application/json");
+    const agentSize = Buffer.byteLength(agentJson, "utf8");
+    await client.execute({
+      sql: seedSql,
+      args: [
+        crypto.randomUUID(),
+        `remote-agents/${agent.id}.json`,
+        SHARED_OWNER,
+        agentJson,
+        "application/json",
+        agentSize,
+        now,
+        now,
+      ],
+    });
   }
 
   try {
