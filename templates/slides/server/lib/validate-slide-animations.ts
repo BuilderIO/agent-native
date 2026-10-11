@@ -138,35 +138,13 @@ function tagAndClass(element: Element): string {
   ]);
 }
 
-function wordSet(element: Element): Set<string> {
-  return new Set(
-    (element.textContent ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [],
-  );
-}
-
-// The candidate that shares the most words with the element, when that is unique
-// and shares at least one.
-function bestWordMatch(
-  element: Element,
-  candidates: Element[],
-): Element | undefined {
-  const words = wordSet(element);
-  const [best, next] = candidates
-    .map((candidate) => ({
-      candidate,
-      shared: [...wordSet(candidate)].filter((word) => words.has(word)).length,
-    }))
-    .sort((a, b) => b.shared - a.shared);
-  if (!best || best.shared === 0 || best.shared === next?.shared) return;
-  return best.candidate;
-}
-
 /**
- * Pairs an unequal run by tag and class: each baseline element takes the one
- * unclaimed element of its tag and class. When several share it, text decides, and
- * only a unique best match pairs. An appended sibling and an inserted one can both
- * share the target's tag and class, and position alone cannot tell which one the
- * target became.
+ * Pairs an unequal run only where the pairing is certain: a baseline element takes
+ * the one unclaimed element of its tag and class, and only when that element is
+ * unique. Text is not used. An inserted sibling can keep the target's text, and a
+ * revised target can share its tag and class with an appended sibling, so text cannot
+ * tell which element the target became. Anything ambiguous stays unpaired, and an
+ * unpaired reveal is refused as a retarget instead of silently rebinding.
  */
 function pairUnequalRun(
   before: Element[],
@@ -179,13 +157,9 @@ function pairUnequalRun(
     const candidates = after.filter(
       (candidate) => !claimed.has(candidate) && tagAndClass(candidate) === key,
     );
-    const match =
-      candidates.length === 1
-        ? candidates[0]
-        : bestWordMatch(element, candidates);
-    if (!match) continue;
-    identities.set(element, match);
-    claimed.add(match);
+    if (candidates.length !== 1) continue;
+    identities.set(element, candidates[0]!);
+    claimed.add(candidates[0]!);
   }
 }
 
@@ -193,10 +167,11 @@ function pairUnequalRun(
  * Pairs each element of the baseline with the element it became after an edit,
  * or leaves it unpaired. Exact matches anchor a longest common subsequence in
  * document order. Between two anchors, elements pair up in order when both runs
- * hold the same number of elements; otherwise pairUnequalRun pairs them by tag and
- * class. A text edit keeps its identity either way, while an inserted, removed, or
- * reordered sibling breaks the pairing. Identical siblings are interchangeable by
- * content, so an insertion among them can still pick the wrong match.
+ * hold the same number of elements; otherwise pairUnequalRun pairs only the
+ * unambiguous tag-and-class matches. A text edit keeps its identity when the runs
+ * are equal, while an inserted, removed, or reordered sibling breaks the pairing.
+ * Identical siblings are interchangeable by content, so an insertion among them can
+ * still pick the wrong match.
  */
 function elementIdentities(
   baseline: Element,
@@ -284,7 +259,20 @@ function retargetedRevealIndex(
     const prior = priorTargets.get(revealIdentity(animations[index]!));
     if (prior === undefined) return false;
     if (prior === null) return true;
-    return identities.get(prior) !== outcome.element;
+    if (identities.get(prior) !== outcome.element) return true;
+    // Identical siblings are interchangeable by content. Once the sibling count
+    // changed, a copy of the target's text can be the element the pairing picked, so
+    // the save is refused rather than guessed.
+    const parent = outcome.element.parentElement;
+    if (!parent) return false;
+    const signature = elementSignature(outcome.element);
+    const identical = Array.from(parent.children).filter(
+      (child) => elementSignature(child) === signature,
+    ).length;
+    return (
+      identical > 1 &&
+      prior.parentElement?.children.length !== parent.children.length
+    );
   });
 }
 

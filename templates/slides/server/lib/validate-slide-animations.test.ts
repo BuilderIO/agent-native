@@ -303,10 +303,24 @@ describe("save-time reveal identity across a content edit", () => {
     ).not.toThrow();
   });
 
-  it("accepts a text edit to the target that also appends a sibling after it", () => {
-    expect(() =>
+  it("refuses a text edit to the target that also appends a sibling after it, since text cannot prove the pairing", () => {
+    const error = refusalOf(() =>
       saveWith(box("<p>One</p><p>Two, revised</p><p>Three</p>")),
-    ).not.toThrow();
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
+  });
+
+  it("refuses an inserted copy of the target's text, since identical siblings cannot be told apart", () => {
+    const error = refusalOf(() =>
+      saveWith(box("<p>One</p><p>Two</p><p>Two</p><p>Three</p>")),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
   });
 
   it("refuses a text edit to the target that also inserts a sibling before it", () => {
