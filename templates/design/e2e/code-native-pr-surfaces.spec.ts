@@ -6,7 +6,7 @@ import {
   type Response,
 } from "@playwright/test";
 
-import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
+import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
@@ -14,6 +14,7 @@ import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
 let designId: string;
 let fileId: string;
 let baseURLForActions: string;
+let restoreMotionLabAfterTest: (() => Promise<void>) | null = null;
 
 async function postAction(
   request: APIRequestContext,
@@ -33,6 +34,47 @@ async function postAction(
     );
   }
   return response.json();
+}
+
+async function setLabEnabled(
+  page: Page,
+  key: string,
+  enabled: boolean,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${baseURLForActions}/_agent-native/actions/get-lab-states`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-lab-states failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const states = await response.json();
+  const previousEnabled = states[key]?.enabled;
+  if (typeof previousEnabled !== "boolean") {
+    throw new Error(`get-lab-states did not return a state for ${key}`);
+  }
+  const updated = await postAction(page.request, "set-lab", { key, enabled });
+  expect(updated.enabled).toBe(enabled);
+  return async () => {
+    const restored = await postAction(page.request, "set-lab", {
+      key,
+      enabled: previousEnabled,
+    });
+    expect(restored.enabled).toBe(previousEnabled);
+  };
+}
+
+async function openMotionDockFromMenu(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
+}
+
+async function enterDesignEditMode(page: Page): Promise<void> {
+  const modeButton = page.locator('[data-design-mode="edit"]');
+  await expect(modeButton).toBeVisible();
+  await modeButton.click();
+  await expect(modeButton).toHaveAttribute("aria-pressed", "true");
 }
 
 test.beforeAll(async ({ request }, workerInfo) => {
@@ -68,6 +110,12 @@ test.afterAll(async ({ request }) => {
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
+});
+
+test.afterEach(async () => {
+  if (!restoreMotionLabAfterTest) return;
+  await restoreMotionLabAfterTest();
+  restoreMotionLabAfterTest = null;
 });
 
 async function selectedElementBackgroundImage(page: Page): Promise<string> {
@@ -251,30 +299,49 @@ async function runReviewPanelAudit(page: Page): Promise<void> {
 test("Motion dock autosaves track edits to CSS and reopens them", async ({
   page,
 }) => {
+  restoreMotionLabAfterTest = await setLabEnabled(
+    page,
+    DESIGN_MOTION_LAB.key,
+    false,
+  );
+  await gotoEditor(page, designId);
+  await enterDesignEditMode(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "Motion", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("menuitem", { name: "Back to designs", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  const workspaceRail = page.locator('nav[aria-label="Design workspace"]');
+  await expect(
+    workspaceRail.getByRole("button", { name: /^(Layers|File)$/ }),
+  ).toBeVisible();
+  await expect(
+    workspaceRail.getByRole("button", { name: "Agents" }),
+  ).toBeVisible();
+  await expect(
+    workspaceRail.getByRole("button", { name: "Tokens" }),
+  ).toBeVisible();
+
+  const enabled = await postAction(page.request, "set-lab", {
+    key: DESIGN_MOTION_LAB.key,
+    enabled: true,
+  });
+  expect(enabled.enabled).toBe(true);
+  await gotoEditor(page, designId);
+  await enterDesignEditMode(page);
   await selectByText(page, "Alpha Button", { screenId: fileId });
 
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  const motionRailButton = page.getByRole("button", {
-    name: "Motion",
+  await openMotionDockFromMenu(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
+  const motionMenuButton = page.getByRole("button", {
+    name: "More",
     exact: true,
   });
-  await expect(motionRailButton).toBeVisible();
-  await expect
-    .poll(async () => {
-      const [triggerBox, railBox] = await Promise.all([
-        motionRailButton.boundingBox(),
-        page.locator('nav[aria-label="Design workspace"]').boundingBox(),
-      ]);
-      if (!triggerBox || !railBox) return false;
-      return (
-        triggerBox.x >= railBox.x &&
-        triggerBox.x + triggerBox.width <= railBox.x + railBox.width &&
-        railBox.y + railBox.height - (triggerBox.y + triggerBox.height) <= 16
-      );
-    })
-    .toBe(true);
-  await motionRailButton.click();
-  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await page
     .getByRole("button", { name: "Collapse motion dock", exact: true })
     .click();
@@ -283,7 +350,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
       async () => {
         const [dockCount, launcherVisible, dockState] = await Promise.all([
           page.locator('[aria-label="Motion dock"]').count(),
-          motionRailButton.isVisible(),
+          motionMenuButton.isVisible(),
           page
             .locator('[aria-label="Motion dock"]')
             .first()
@@ -316,10 +383,12 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
       position: "absolute",
     });
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await motionRailButton.click();
+  await openMotionDockFromMenu(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await expect(
-    page.getByText("Pick a property to add the first track.", { exact: false }),
+    page.getByText("Pick a property to add the first track.", {
+      exact: false,
+    }),
   ).toBeVisible();
 
   const motionDock = page.locator('[aria-label="Motion dock"]').first();
@@ -367,12 +436,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     )
     .toContain("e2e-alpha-button");
 
-  const overviewMotionButton = page.getByRole("button", {
-    name: "Motion",
-    exact: true,
-  });
-  await expect(overviewMotionButton).toBeVisible();
-  await overviewMotionButton.click();
+  await openMotionDockFromMenu(page);
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
@@ -400,12 +464,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     .click();
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
 
-  const reopenMotionDockButton = page.getByRole("button", {
-    name: "Motion",
-    exact: true,
-  });
-  await expect(reopenMotionDockButton).toBeVisible();
-  await reopenMotionDockButton.click();
+  await openMotionDockFromMenu(page);
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
@@ -421,6 +480,21 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
         .count(),
     )
     .toBe(1);
+
+  await openMotionDockFromMenu(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
+  const disabledAfterSave = await postAction(page.request, "set-lab", {
+    key: DESIGN_MOTION_LAB.key,
+    enabled: false,
+  });
+  expect(disabledAfterSave.enabled).toBe(false);
+  await gotoEditor(page, designId);
+  await enterDesignEditMode(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "Motion", exact: true }),
+  ).toHaveCount(0);
 });
 
 // Not label drift, not missing WebGL, and not a crash: the transient preview

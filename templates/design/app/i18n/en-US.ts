@@ -177,6 +177,9 @@ export default {
     labDesignReviewTools: "Design review tools",
     labDesignReviewToolsDescription:
       "Check your designs for accessibility issues and compare visual changes.",
+    labMotion: "Motion",
+    labMotionDescription:
+      "Create and edit keyframe animations in your designs.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -748,6 +751,7 @@ export default {
       exit: "Exit responsive preview",
     },
     motion: {
+      openDock: "Motion",
       dockLabel: "Motion dock",
       collapseDock: "Collapse motion dock",
       play: "Play",

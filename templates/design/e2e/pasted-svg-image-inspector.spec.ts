@@ -470,15 +470,18 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
       .filter({ hasText: "Pasted SVG" })
       .first();
     await pastedSvgRow.getByRole("button", { name: "Expand layer" }).click();
-    const groupRow = page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem", { level: 3 })
+    const tree = page.getByRole("tree", { name: "Layers" });
+    const svgLevel = Number(await pastedSvgRow.getAttribute("aria-level"));
+    const groupRow = tree
+      .getByRole("treeitem", { level: svgLevel + 1 })
       .first();
     await expect(groupRow).toBeVisible();
-    await groupRow.getByRole("button", { name: "Expand layer" }).click();
-    const pathRow = page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem", { level: 4 })
+    if ((await groupRow.getAttribute("aria-expanded")) !== "true") {
+      await groupRow.getByRole("button", { name: "Expand layer" }).click();
+    }
+    await expect(groupRow).toHaveAttribute("aria-expanded", "true");
+    const pathRow = tree
+      .getByRole("treeitem", { level: svgLevel + 2 })
       .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) });
     await expect(pathRow).toBeVisible();
     await clickLayerRowAndAssertSelected(pathRow);

@@ -251,6 +251,9 @@ export default {
     labDesignReviewTools: "Ferramentas de revisão de design",
     labDesignReviewToolsDescription:
       "Verifique problemas de acessibilidade nos seus designs e compare alterações visuais.",
+    labMotion: "Movimento",
+    labMotionDescription:
+      "Crie e edite animações com quadros-chave nos seus designs.",
     mcpAbout:
       "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
@@ -822,6 +825,7 @@ export default {
       exit: "Sair da visualização responsiva",
     },
     motion: {
+      openDock: "Movimento",
       dockLabel: "Painel de movimento",
       collapseDock: "Recolher painel de movimento",
       play: "Reproduzir",

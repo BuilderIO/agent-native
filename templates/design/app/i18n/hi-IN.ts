@@ -245,6 +245,8 @@ export default {
     labDesignReviewTools: "डिज़ाइन समीक्षा टूल",
     labDesignReviewToolsDescription:
       "अपने डिज़ाइन में सुगम्यता संबंधी समस्याएँ जाँचें और दृश्य बदलावों की तुलना करें।",
+    labMotion: "मोशन",
+    labMotionDescription: "अपने डिज़ाइन में कीफ़्रेम ऐनिमेशन बनाएँ और संपादित करें।",
     mcpAbout:
       "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
@@ -812,6 +814,7 @@ export default {
       exit: "रिस्पॉन्सिव पूर्वावलोकन से बाहर निकलें",
     },
     motion: {
+      openDock: "मोशन",
       dockLabel: "मोशन डॉक",
       collapseDock: "मोशन डॉक संक्षिप्त करें",
       play: "चलाएं",

@@ -250,6 +250,9 @@ export default {
     labDesignReviewTools: "Tools zur Designprüfung",
     labDesignReviewToolsDescription:
       "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
+    labMotion: "Motion-Design",
+    labMotionDescription:
+      "Erstelle und bearbeite Keyframe-Animationen in deinen Designs.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -828,6 +831,7 @@ export default {
       exit: "Responsive-Vorschau verlassen",
     },
     motion: {
+      openDock: "Motion",
       dockLabel: "Bewegungsleiste",
       collapseDock: "Bewegungsleiste einklappen",
       play: "Abspielen",

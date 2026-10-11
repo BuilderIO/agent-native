@@ -417,6 +417,9 @@ export function renderLeftSidebar({
                   {canEditDesign && !shellMode ? (
                     <DesignExtensionsPanel
                       context={designExtensionContext}
+                      motionLabEnabled={
+                        editorLiveEditsAndPresence.motionLabEnabled
+                      }
                       hideAssetLibrary
                       title={t("designEditor.leftRail.tools")}
                     />

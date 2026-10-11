@@ -235,6 +235,8 @@ export default {
       "试用 Builder，根据你的设计构建可运行的应用。",
     labDesignReviewTools: "设计审查工具",
     labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
+    labMotion: "动效",
+    labMotionDescription: "创建和编辑设计元素的关键帧动画。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -797,6 +799,7 @@ export default {
       exit: "退出响应式预览",
     },
     motion: {
+      openDock: "动效",
       dockLabel: "运动面板",
       collapseDock: "收起运动面板",
       play: "播放",

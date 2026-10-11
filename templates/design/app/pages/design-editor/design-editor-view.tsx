@@ -84,7 +84,7 @@ import { hasMinimalInspectorSelection } from "./minimal-inspector";
 import { mergePresenceUsers } from "./presence-users";
 import { getDesignBottomToolbarMode } from "./tool-state";
 import { TOP_BAR_HEIGHT_PX, isTopBarVisible } from "./top-bar";
-import { type EditorMode, SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "./types";
+import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
 import { renderLeftSidebar } from "./view/left-sidebar";
@@ -1293,11 +1293,11 @@ export function renderDesignEditorView({
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
     onStylesChange: handleStylesChange,
-    motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
+    motionKeyframeState: editorLiveEditsAndPresence.motionLabEnabled
       ? motionKeyframeState
       : undefined,
     onToggleMotionKeyframe:
-      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign
+      editorLiveEditsAndPresence.motionLabEnabled && canEditDesign
         ? handleToggleMotionKeyframe
         : undefined,
     breakpointContext,

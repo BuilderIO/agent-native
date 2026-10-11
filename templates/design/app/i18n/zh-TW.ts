@@ -234,6 +234,8 @@ export default {
       "試用 Builder，根據你的設計建構可運作的應用程式。",
     labDesignReviewTools: "設計審查工具",
     labDesignReviewToolsDescription: "檢查設計中的無障礙問題並比較視覺變更。",
+    labMotion: "動態",
+    labMotionDescription: "建立和編輯設計元素的關鍵影格動畫。",
     mcpAbout:
       "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },
@@ -934,6 +936,7 @@ export default {
       },
     },
     motion: {
+      openDock: "動態",
       dockLabel: "動態面板",
       collapseDock: "收起動態面板",
       play: "播放",

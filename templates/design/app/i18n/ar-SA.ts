@@ -244,6 +244,9 @@ export default {
     labDesignReviewTools: "أدوات مراجعة التصميم",
     labDesignReviewToolsDescription:
       "افحص تصاميمك بحثًا عن مشكلات إمكانية الوصول وقارن التغييرات المرئية.",
+    labMotion: "الحركة",
+    labMotionDescription:
+      "أنشئ الرسوم المتحركة القائمة على الإطارات المفتاحية في تصميماتك وعدّلها.",
     mcpAbout:
       "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
@@ -809,6 +812,7 @@ export default {
       exit: "الخروج من المعاينة المتجاوبة",
     },
     motion: {
+      openDock: "الحركة",
       dockLabel: "لوحة الحركة",
       collapseDock: "طي لوحة الحركة",
       play: "تشغيل",

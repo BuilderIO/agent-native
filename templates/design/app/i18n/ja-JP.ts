@@ -252,6 +252,9 @@ export default {
     labDesignReviewTools: "デザインレビュー ツール",
     labDesignReviewToolsDescription:
       "デザインのアクセシビリティ上の問題を確認し、視覚的な変更を比較します。",
+    labMotion: "モーション",
+    labMotionDescription:
+      "デザイン要素のキーフレームアニメーションを作成・編集します。",
     mcpAbout:
       "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
@@ -823,6 +826,7 @@ export default {
       exit: "レスポンシブプレビューを終了",
     },
     motion: {
+      openDock: "モーション",
       dockLabel: "モーションドック",
       collapseDock: "モーションドックを閉じる",
       play: "再生",

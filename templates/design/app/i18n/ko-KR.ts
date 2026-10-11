@@ -245,6 +245,9 @@ export default {
     labDesignReviewTools: "디자인 검토 도구",
     labDesignReviewToolsDescription:
       "디자인의 접근성 문제를 확인하고 시각적 변경 사항을 비교하세요.",
+    labMotion: "모션",
+    labMotionDescription:
+      "디자인 요소의 키프레임 애니메이션을 만들고 편집합니다.",
     mcpAbout:
       "Design을 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Design에서 디자인을 만들고 편집할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   },
@@ -811,6 +814,7 @@ export default {
       exit: "반응형 미리보기 종료",
     },
     motion: {
+      openDock: "모션",
       dockLabel: "모션 독",
       collapseDock: "모션 독 접기",
       play: "재생",

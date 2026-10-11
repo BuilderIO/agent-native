@@ -148,6 +148,40 @@ describe("DesignExtensionsPanel source — extension discovery capability", () =
   });
 });
 
+describe("DesignExtensionsPanel source — Motion Lab gate", () => {
+  const source = readFileSync(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "DesignExtensionsPanel.tsx",
+    ),
+    "utf8",
+  );
+
+  it("omits Motion Presets and the Motion category when the Lab is off", () => {
+    expect(source).toContain("motionLabEnabled: boolean");
+    expect(source).toMatch(
+      /\.\.\.\(motionLabEnabled\s*\?\s*\[\s*\{\s*id: "design\.motion-presets"/,
+    );
+    expect(source).toMatch(
+      /\.\.\.\(motionLabEnabled\s*\?\s*\[\s*\{ value: "motion" as const/,
+    );
+    expect(source).toContain(
+      '!motionLabEnabled && categoryFilter === "motion" ? "all" : categoryFilter',
+    );
+
+    const sidebarSource = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../pages/design-editor/view/left-sidebar.tsx",
+      ),
+      "utf8",
+    );
+    expect(sidebarSource).toMatch(
+      /motionLabEnabled=\{\s*editorLiveEditsAndPresence\.motionLabEnabled\s*\}/,
+    );
+  });
+});
+
 describe("Design extension creation — LLM readiness gate", () => {
   const source = readFileSync(
     path.join(
