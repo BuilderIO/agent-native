@@ -11,7 +11,7 @@ import {
 } from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
-const basePlugin = createOnboardingPlugin();
+const basePlugin = createOnboardingPlugin({ appId: "clips" });
 
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);

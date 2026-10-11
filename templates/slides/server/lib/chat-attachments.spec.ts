@@ -148,7 +148,7 @@ describe("prepareSlidesChatAttachments", () => {
           type: "image",
           name: "editor-ai.jpeg",
           contentType: "image/jpeg",
-          data: "data:image/jpeg;base64,/9j/AA==",
+          data: "data:image/jpeg;charset=binary;base64,/9j/AA==",
         },
       ],
     });
@@ -167,7 +167,7 @@ describe("prepareSlidesChatAttachments", () => {
     );
     expect(result?.message).toContain("PDF/PPTX/DOCX/FIG/image");
     expect(result?.attachments?.[0]?.data).toBe(
-      "data:image/jpeg;base64,/9j/AA==",
+      "data:image/jpeg;charset=binary;base64,/9j/AA==",
     );
     expect((result?.attachments?.[0] as any)?.url).toBe(
       "https://cdn.example.com/editor-ai.jpeg",

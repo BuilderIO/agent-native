@@ -19,10 +19,10 @@
 
 ## 0. Goal & thesis
 
-Turn the Design template into a Figma-class editor where the canvas and the
+Turn the Design template into a full-featured editor where the canvas and the
 codebase are two views of the same product. The thesis: **when a source can
 safely support it, a visual edit writes real code, and a source edit shows up on
-the canvas.** Keep the editor minimal and Figma-esque — left pages/layers,
+the canvas.** Keep the editor minimal — left pages/layers,
 central canvas, right inspector, and a bottom dock only when motion or review
 needs it — and add code-backed components, tokens, motion, states/captures,
 accessibility review, visual diffs, assets/shaders/plugins, and a real-app path.
@@ -78,7 +78,7 @@ matrix is defined in §5.
 | Tokens — live CSS-var editing (friendly swatches for the design's own `:root` vars)                                                                                       | ✅                               | ✅                            | Design owns its CSS vars                         |
 | **Tokens-as-code** — parse `globals.css` / `tailwind.config` and **write back to source**                                                                                 | **Real app** → CTA               | ✅                            | Auto-parse + source write-back needs real files  |
 | **Motion** — multi-layer keyframe timeline → managed `<style data-agent-native-motion>` block                                                                             | ✅                               | ✅                            | CSS is the runtime truth; works on any HTML      |
-| Motion source export — write to real CSS modules / `motion`-react two-way / Dev Mode export                                                                               | **Real app** → CTA               | ✅                            | Two-way code round-trip needs real files         |
+| Motion source export — write to real CSS modules / `motion`-react two-way / developer handoff export                                                                      | **Real app** → CTA               | ✅                            | Two-way code round-trip needs real files         |
 | Responsive / breakpoints                                                                                                                                                  | ✅                               | ✅                            | CSS media queries                                |
 | Simple design states (logged out, empty, loading, error) as alternate `x-data` / DOM                                                                                      | ✅                               | ✅                            | Markup snapshots                                 |
 | **Data fixtures & live captures** (real running-app data, route, props, API)                                                                                              | **Real app** → CTA               | ✅                            | No live data on a static design                  |
@@ -291,7 +291,7 @@ behavior. UI binds through `useActionQuery` / `useActionMutation`; never raw fet
 
 ### 6.1 Editor workbench & components
 
-**UI (matches the workbench artboard):** quiet top toolbar (title, segmented
+**UI:** quiet top toolbar (title, segmented
 `Edit / Interact / Annotate`, device dropdown, zoom dropdown, avatar, Share); left
 rail (search → Screens → Layers, component rows marked with an accent diamond,
 selected instance in a soft accent row); canvas (central frame, selected-instance
@@ -322,7 +322,7 @@ region hints + the real-app CTA; the agent sees selected-component context via
 
 ### 6.2 Tokens / design systems
 
-**UI (matches the tokens artboard):** friendly token names + swatches, CSS-var
+**UI:** friendly token names + swatches, CSS-var
 name on the right, type-scale section, radius input, a source chip (e.g.
 `globals.css`), a **New token** action; grouped by color / type / spacing-radius /
 shadows-effects.
@@ -345,7 +345,7 @@ only through a capability-gated action.
 data-agent-native-motion>` block targeting layers by `data-agent-native-node-id`.
 The CSS is the runtime truth; the JSON `tracks` only aid editing.
 
-- **UI (matches the motion artboard):** a full-width, collapsible **Motion dock**
+- **UI:** a full-width, collapsible **Motion dock**
   at the bottom of `DesignEditor.tsx` (animated layer rows, property tracks, time
   ruler, diamond keyframes, play/scrub, auto-keyframe toggle, autosave status),
   with the canvas still visible above; a compact **Motion section** in the
@@ -358,34 +358,27 @@ The CSS is the runtime truth; the JSON `tracks` only aid editing.
   reduced-motion strategy in both preview and output.
 
 **Real-app superset:** write keyframes into real CSS modules, optional
-`motion`-react round-trip, Dev Mode export.
+`motion`-react round-trip, developer handoff export.
 
 **Acceptance:** scrubbing never writes; timeline edits autosave through one atomic
 action with diff/rollback proof; multiple layers and tracks animate.
 
 ### 6.4 States, responsive & captures
 
-#### Responsive — multi-breakpoint editing (Framer / Figma-Sites style)
+#### Responsive — multi-breakpoint editing
 
 Show one screen at several breakpoints **side by side** in the overview and edit
-each independently. Researched models we borrow from:
+each independently.
 
 - **Framer** — Desktop (the parent) + Tablet **810** + Phone **390** as
   side-by-side frames; added via a **Breakpoint button** on the page selection
   (infinite, resizable). Desktop-first: a frame drawn on Desktop propagates down to
   smaller breakpoints; a smaller-breakpoint edit overrides only that frame.
-- **Figma Sites** — Desktop **1280** / Tablet **800** / Mobile **375**; a **`+` in
-  the webpage header on the canvas** adds a predefined or custom width; primary →
-  secondary cascade (default primary = Desktop ⇒ desktop-first); **"Set as primary
-  breakpoint"** flips to mobile-first; per-property, per-breakpoint overrides;
-  **"Reset all changes"** reverts a layer to the inherited (primary) value;
-  responsive components auto-match variants by breakpoint name.
-
-**Our model — mobile-first by default, because the output is Tailwind.** Unlike
-Framer/Figma (desktop-first), we make the **base = mobile** and let larger
-breakpoints layer overrides upward — which is exactly Tailwind's min-width cascade
-(`base` → `md:` → `lg:`). This matches the requested preference and makes "edit on
-screen → responsive class" deterministic.
+  **Our model — mobile-first by default, because the output is Tailwind.** We make
+  the **base = mobile** and let larger
+  breakpoints layer overrides upward — which is exactly Tailwind's min-width cascade
+  (`base` → `md:` → `lg:`). This matches the requested preference and makes "edit on
+  screen → responsive class" deterministic.
 
 - **Overview:** a screen carries a **breakpoint set**; `MultiScreenCanvas` renders
   one iframe **per breakpoint at its width**, laid left→right (Mobile → Tablet →
@@ -408,7 +401,7 @@ screen → responsive class" deterministic.
   breakpoint_, and add an `EditCapability` of `kind: "responsive-class"` whose
   add/replace targets the active breakpoint's prefix. Surface **override indicators**
   (which properties differ from base at this breakpoint) with a **Reset to base**
-  affordance (cf. Figma's "Reset all changes").
+  affordance.
 - **Tiering:** the multi-frame overview + base/Tailwind-prefix editing works in
   **Alpine today** — inline designs already load Tailwind CDN + use `sm:/md:/lg:`,
   the device frame already sets the iframe width, and class edits already flow
@@ -564,7 +557,7 @@ Update `templates/design/AGENTS.md`:
   Builder/branch/deploy.
 - **Motion rule** — preview-only scrubbing; atomic `apply-motion-edit` to commit.
 - **Shader rule** — keep writes gated until runtime/write seams are real.
-- **Visual rule** — preserve the minimal Figma-esque shell and the screenshot
+- **Visual rule** — preserve the minimal shell and the screenshot
   acceptance criteria.
 
 Add `.agents/skills/design-studio/SKILL.md`: how to inspect capabilities, index a
@@ -647,7 +640,7 @@ and add a keyframe animation that autosaves to managed CSS with a visible diff �
 - **UI (screenshot-driven Playwright):** component-selected workbench, motion dock
   open, tokens panel, states panel, review panel, extensions panel, the Alpine
   real-app CTA.
-- **Agent parity:** agent can inspect the selected component via `view-screen`,
+- **Agent inspection:** agent can inspect the selected component via `view-screen`,
   refresh the index, preview+apply a token edit where supported, add motion
   keyframes via the action path, create/select a state, run review, and navigate to
   an affected surface.
@@ -708,7 +701,7 @@ and add a keyframe animation that autosaves to managed CSS with a visible diff �
    before cutover. Affects how aggressive the Connect-Builder CTA can be.
 5. **Breakpoint defaults & cascade** — mobile-first base + Tailwind min-width prefixes
    **[recommended; deterministic with our output]** vs. also offering a per-design
-   desktop-first / "set as primary breakpoint" flip like Figma Sites. Default frame
+   desktop-first / "set as primary breakpoint" flip. Default frame
    widths (390 / 768 / 1280, snapped to Tailwind `md` / `lg` / `xl`) and whether to
    allow fully custom widths.
 

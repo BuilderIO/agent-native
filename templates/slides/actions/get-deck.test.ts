@@ -5,6 +5,8 @@ const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
 let currentOrgId = "org-a";
 let currentSuperOrgId: string | undefined;
+let currentAccessRole: "owner" | "viewer" | "commenter" | "editor" | "admin" =
+  "owner";
 let currentFilter: unknown;
 let updatedFields: { data?: string; updatedAt?: string } | undefined;
 let currentResource:
@@ -126,6 +128,7 @@ beforeEach(() => {
   updatedFields = undefined;
   currentOrgId = "org-a";
   currentSuperOrgId = undefined;
+  currentAccessRole = "owner";
   currentFilter = undefined;
   mockSelectChain.where.mockClear();
   mockSelectChain.limit.mockClear();
@@ -162,6 +165,7 @@ beforeEach(() => {
     }),
   };
   mockResolveAccess.mockImplementation(async () => ({
+    role: currentAccessRole,
     resource: currentResource,
   }));
 });
@@ -170,6 +174,79 @@ describe("get-deck", () => {
   it("classifies its duplicate-ID repair as a write", () => {
     expect(action.readOnly).toBe(false);
     expect(action.mcpAnnotations?.readOnlyHint).toBe(false);
+  });
+
+  it("does not persist duplicate-ID repair in a directory widget read", async () => {
+    currentResource!.designSystemId = "ds-1";
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "mcp-widget" },
+    )) as any;
+
+    expect(result.slides[0].id).not.toBe(result.slides[1].id);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockGetDesignSystemRun).toHaveBeenCalledWith(
+      { id: "ds-1", compact: "true" },
+      expect.objectContaining({ caller: "mcp-widget" }),
+    );
+  });
+
+  it.each([
+    ["mcp-widget", "owner", true],
+    ["mcp-widget", "editor", true],
+    ["mcp-widget", "viewer", false],
+    ["mcp-widget-write", "owner", true],
+    ["mcp-widget-write", "editor", true],
+    ["mcp-widget-write", "admin", true],
+    ["mcp-widget-write", "viewer", false],
+  ] as const)(
+    "returns only the current deck's %s-scoped %s role",
+    async (caller, role, canEdit) => {
+      currentAccessRole = role;
+
+      const result = (await action.run({ id: "deck-1" }, { caller })) as any;
+
+      expect(result.widgetAccessRole).toBe(role);
+      expect(
+        result.widgetAccessRole === "owner" ||
+          result.widgetAccessRole === "editor" ||
+          result.widgetAccessRole === "admin",
+      ).toBe(canEdit);
+      expect(mockResolveAccess).toHaveBeenCalledTimes(1);
+      expect(mockResolveAccess).toHaveBeenCalledWith("deck", "deck-1");
+      expect(result).not.toHaveProperty("shares");
+    },
+  );
+
+  it("includes the scoped role in compact widget reads", async () => {
+    currentAccessRole = "editor";
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "mcp-widget-write" },
+    )) as any;
+
+    expect(result.widgetAccessRole).toBe("editor");
+  });
+
+  it("does not expose widget access role to ordinary tool calls", async () => {
+    currentAccessRole = "editor";
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result).not.toHaveProperty("widgetAccessRole");
   });
 
   it("accepts the deck id under either `id` or `deckId`", () => {

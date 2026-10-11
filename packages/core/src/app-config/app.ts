@@ -69,6 +69,15 @@ export const appConfig = z.object({
       ],
       doc: "Identity assigned by a workspace deploy. Credential grants are scoped to this.",
     }),
+  basePath: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["VITE_APP_BASE_PATH", "APP_BASE_PATH"],
+      doc: "URL path prefix where this app is mounted, such as /mail.",
+    }),
   name: z
     .string()
     .min(1)

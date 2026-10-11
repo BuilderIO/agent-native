@@ -1,8 +1,10 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { serializeIconValue } from "@agent-native/core/icons";
 import type {
@@ -38,11 +40,18 @@ import {
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
+
 import type {
   DocumentUpdateConflictResponse,
   DocumentUpdateSupersededResponse,
 } from "../../actions/update-document";
 import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
+import type {
+  ImportContentArgs,
+  ImportContentResult,
+  UndoContentImportResult,
+} from "../../shared/import/api";
 import {
   documentQueryFilter,
   documentQueryKey,
@@ -52,7 +61,10 @@ import {
   documentScopedReadRetryOptions,
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
-import { isDocumentCreationPending } from "../lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "../lib/optimistic-document";
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
@@ -784,13 +796,13 @@ function documentReadParams(id: string, context: DocumentQueryContext) {
 export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
-  options: { refetchOnMount?: false } = {},
+  options: { enabled?: boolean; refetchOnMount?: false } = {},
 ) {
   return useActionQuery<Document>(
     "get-document",
     id ? documentReadParams(id, context) : undefined,
     {
-      enabled: !!id,
+      enabled: !!id && options.enabled !== false,
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
       ...options,
     },
@@ -822,11 +834,13 @@ export function usePageOpenDocument(
   }
   const claim = claimRef.current;
   const { adoption } = claim;
-  const query = useDocument(
-    documentId,
-    context,
-    adoption === "fresh" ? { refetchOnMount: false } : {},
-  );
+  const cachedDocument = queryClient.getQueryData<Document>(queryKey);
+  const query = useDocument(documentId, context, {
+    enabled: !(
+      cachedDocument && isDocumentCreationPending(queryClient, cachedDocument)
+    ),
+    ...(adoption === "fresh" ? { refetchOnMount: false } : {}),
+  });
   // Runs after the query's own subscription, so from here on sync reaches
   // this read as a mounted query.
   useEffect(() => {
@@ -846,22 +860,79 @@ export function startPageOpenDocumentReads(
   queryClient: QueryClient,
   documentId: string,
   context: DocumentQueryContext = {},
+  { beforeSession = false }: { beforeSession?: boolean } = {},
 ) {
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
-  if (cached && isDocumentCreationPending(cached)) return;
-  startPageOpenRead(queryClient, documentId, {
-    queryKey,
-    queryFn: ({ signal }) =>
-      callAction<Document>(
-        "get-document",
-        documentReadParams(documentId, context),
-        { method: "GET", signal },
-      ),
-    retry: false,
-  });
-  startPreviewDocumentDraftRead(queryClient, documentId, cached);
-  if (cached?.source?.mode !== "local-files") {
+  if (cached && isDocumentCreationPending(queryClient, cached)) return;
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const readsDraft =
+    !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
+  // One request answers the page and its draft, so the draft read cannot hold
+  // the page back on its own. Each read takes that answer once: a refetch
+  // through either key sends its own request rather than replaying this one.
+  let pageRead: Promise<PageOpenDocumentRead> | null = null;
+  const readPage = () =>
+    (pageRead ??= callAction<PageOpenDocumentRead>(
+      "get-document",
+      {
+        ...documentReadParams(documentId, context),
+        ...(readsDraft ? { includePreviewDraft: true } : {}),
+      },
+      { method: "GET" },
+    ));
+  let documentTaken = false;
+  const documentReadStarted = startPageOpenRead(
+    queryClient,
+    documentId,
+    {
+      queryKey,
+      queryFn: ({ signal }) => {
+        if (documentTaken) {
+          return callAction<Document>(
+            "get-document",
+            documentReadParams(documentId, context),
+            { method: "GET", signal },
+          );
+        }
+        documentTaken = true;
+        return readPage().then(
+          ({ previewDraft: _previewDraft, ...document }) => document,
+        );
+      },
+      retry: false,
+    },
+    { beforeSession },
+  );
+  if (widgetBridgeActive) return;
+  if (readsDraft) {
+    const draftRead = previewDocumentDraftReadOptions(
+      documentId,
+      cached?.createdAt,
+    );
+    let draftTaken = !documentReadStarted;
+    startPageOpenRead(
+      queryClient,
+      documentId,
+      {
+        ...draftRead,
+        queryFn: (context) => {
+          if (draftTaken) return draftRead.queryFn(context);
+          draftTaken = true;
+          // A server without the combined answer, or a page read that failed,
+          // leaves the draft to its own request.
+          return readPage().then(
+            (read) => read.previewDraft ?? draftRead.queryFn(context),
+            () => draftRead.queryFn(context),
+          );
+        },
+      },
+      { beforeSession },
+    );
+  }
+  // The review reads are not tracked as this open's reads, so one sent before
+  // the session could not be dropped if another account answers it.
+  if (!beforeSession && cached?.source?.mode !== "local-files") {
     startPageOpenReviewReads(queryClient, documentId);
   }
 }
@@ -890,6 +961,20 @@ export function startPageOpenReviewReads(
   }
 }
 
+export function startPageOpenCompanionReads(
+  queryClient: QueryClient,
+  documentId: string,
+  knownDocument: Document | undefined,
+  readsStartedEarly: boolean,
+) {
+  if (readsStartedEarly) return;
+  if (isEmbedMcpChatBridgeActive()) return;
+  startPreviewDocumentDraftRead(queryClient, documentId, knownDocument);
+  if (knownDocument?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
+  }
+}
+
 export interface PreviewDocumentDraftRecord {
   documentId: string;
   title: string;
@@ -909,6 +994,10 @@ export interface PreviewDocumentDraftResponse {
   draft: PreviewDocumentDraftRecord | null;
   editable: boolean;
 }
+
+type PageOpenDocumentRead = Document & {
+  previewDraft?: PreviewDocumentDraftResponse;
+};
 
 function previewDocumentDraftReadOptions(
   documentId: string,
@@ -940,22 +1029,30 @@ export function usePreviewDocumentDraft(
   });
 }
 
+// A page that is known not to need recovery skips the draft read, as does the
+// ChatGPT widget, which never recovers drafts.
+function previewDocumentDraftIsRead(
+  queryClient: QueryClient,
+  known?: Document,
+) {
+  if (isOpenAiMcpAppHost()) return false;
+  return !(
+    known &&
+    (isDocumentCreationPending(queryClient, known) ||
+      isDocumentCreationConfirmed(queryClient, known) ||
+      known.canEdit === false ||
+      known.source?.mode === "local-files")
+  );
+}
+
 // Starts the draft read that page recovery verifies, alongside the document
-// read instead of after it. A page that is known not to need recovery skips
-// it.
+// read instead of after it.
 export function startPreviewDocumentDraftRead(
   queryClient: QueryClient,
   documentId: string,
   known?: Document,
 ) {
-  if (
-    known &&
-    (isDocumentCreationPending(known) ||
-      known.canEdit === false ||
-      known.source?.mode === "local-files")
-  ) {
-    return;
-  }
+  if (!previewDocumentDraftIsRead(queryClient, known)) return;
   startPageOpenRead(
     queryClient,
     documentId,
@@ -1132,7 +1229,7 @@ function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
   reconcile();
 }
 
-export function useUpdateDocument() {
+export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
   const queryClient = useQueryClient();
   const t = useT();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -1143,10 +1240,14 @@ export function useUpdateDocument() {
     "update-document",
     {
       mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      headers: (payload) =>
+        contentSaveTelemetryHeaders(payload, options?.saveOrigin),
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
         // This tab's own saves never come back through sync.
         spoilPageOpenReads(queryClient, variables.id);
+        const documentFilter = documentQueryFilter(variables.id);
+        await queryClient.cancelQueries(documentFilter);
         const optimisticPatch: Partial<Document> = {
           ...(variables.title !== undefined ? { title: variables.title } : {}),
           ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
@@ -1156,7 +1257,6 @@ export function useUpdateDocument() {
         };
         if (Object.keys(optimisticPatch).length === 0) return undefined;
 
-        const documentFilter = documentQueryFilter(variables.id);
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
@@ -1179,7 +1279,6 @@ export function useUpdateDocument() {
         const sidebarStateKey = sidebarStateEntry?.[0];
         const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
-          queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
           queryClient.cancelQueries(databasePageFilter),
@@ -1628,6 +1727,44 @@ export function useRollbackCreatedSlashDocument() {
       documentQueryFilter(id),
       ["action", "list-documents"],
       ["action", "get-content-database"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
+  });
+}
+
+export function useImportContent() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<ImportContentResult, ImportContentArgs>(
+    "import-content",
+    {
+      invalidates: (result, { parentId }) =>
+        result.dryRun
+          ? []
+          : [
+              ...contentPlacementTargets(queryClient, {
+                documentIds: result.pages.flatMap((page) =>
+                  page.id ? [page.id] : [],
+                ),
+                parentIds: [parentId ?? null],
+              }),
+              ["action", "list-documents"],
+              ["action", "search-documents"],
+            ],
+    },
+  );
+}
+
+export function useUndoContentImport() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<
+    UndoContentImportResult,
+    { importId: string }
+  >("undo-content-import", {
+    invalidates: ({ trashedIds }) => [
+      ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
+      ...trashedIds.map((id) => documentQueryFilter(id)),
+      ["action", "list-documents"],
+      ["action", "search-documents"],
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });

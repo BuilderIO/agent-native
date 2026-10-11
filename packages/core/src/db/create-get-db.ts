@@ -22,10 +22,12 @@ import {
   hasRetryBudgetFor,
   dbOpTimeoutMs,
   sharedDbPool,
+  resolveSharedDbPool,
   toPostgresParams,
   withDbExec,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
   postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
@@ -660,6 +662,7 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
   db: T,
   queryQueue?: DrizzleTransactionQueryQueue,
   pool?: object,
+  getActivePool?: () => object,
 ): T {
   return new Proxy(db, {
     get(target, prop, receiver) {
@@ -682,7 +685,7 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
                   return await withTransactionStatementTimeout(
                     transaction,
                     () =>
-                      runHoldingPoolConnection(pool, () =>
+                      runHoldingPoolConnection(getActivePool?.() ?? pool, () =>
                         withDbExec(
                           drizzleTransactionExec(transaction, transactionQueue),
                           () =>
@@ -754,8 +757,9 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
 export function scopeDbToPoolTransactions<T extends object>(
   db: T,
   pool: object,
+  getActivePool?: () => object,
 ): T {
-  return scopeDbExecToDrizzleTransactions(db, undefined, pool);
+  return scopeDbExecToDrizzleTransactions(db, undefined, pool, getActivePool);
 }
 
 /**
@@ -815,7 +819,7 @@ export function buildResilientNeonPool<
     end(): Promise<void>;
     on(event: string, listener: (...args: any[]) => void): unknown;
   },
->(pool: T): T {
+>(pool: T, getActivePool: () => object = () => pool): T {
   const resilientQuery = async (
     sql: string | { text?: unknown },
     args?: any[],
@@ -833,7 +837,7 @@ export function buildResilientNeonPool<
       rows: unknown[];
       rowCount?: number;
     }> => {
-      assertPoolConnectionAvailable(pool, "A database query");
+      assertPoolConnectionAvailable(getActivePool(), "A database query");
       let acquireTimedOut = false;
       const client = await withDbTimeout(
         "connect",
@@ -901,7 +905,10 @@ export function buildResilientNeonPool<
       if (prop === "connect") {
         return (...args: any[]) =>
           retryOnConnectionError(async () => {
-            assertPoolConnectionAvailable(target, "A database connection");
+            assertPoolConnectionAvailable(
+              getActivePool(),
+              "A database connection",
+            );
             let acquireTimedOut = false;
             const client = await withDbTimeout<any>(
               "connect",
@@ -928,12 +935,12 @@ export function buildResilientPostgresJsClient<
   T extends {
     unsafe(query: string, params?: any[], options?: any): any;
   },
->(client: T): T {
+>(client: T, getActivePool: () => object = () => client): T {
   const wrapUnsafe = (query: string, params?: any[], options?: any) => {
     const isRead = isSqlRead(query);
 
     const runAttempt = (mode: "rows" | "values") => async (): Promise<any> => {
-      assertPoolConnectionAvailable(client, "A database query");
+      assertPoolConnectionAvailable(getActivePool(), "A database query");
       const pending = client.unsafe(query, params, options);
       return withDbTimeout(
         "query",
@@ -992,6 +999,7 @@ export function isNeonUrl(url: string): boolean {
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
+  let _dbGeneration = 0;
 
   // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
   // teardown, script cleanup) must invalidate it rather than leave this store
@@ -999,19 +1007,52 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   // branches only — `createGetDb` is called at module scope by every store, and
   // core's specs widely mock `db/client.js`.
   let _closeHookRegistered = false;
+  let _dbExecCloseHookRegistered = false;
+  const resetDbHandle = () => {
+    _dbGeneration += 1;
+    _db = undefined;
+    _dbReady = undefined;
+  };
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
     _closeHookRegistered = true;
-    onSharedDbPoolsClosed(() => {
-      _db = undefined;
-      _dbReady = undefined;
-    });
+    onSharedDbPoolsClosed(resetDbHandle);
     if (driver && url) {
-      onSharedDbPoolReplaced(driver, url, () => {
-        _db = undefined;
-        _dbReady = undefined;
-      });
+      onSharedDbPoolReplaced(driver, url, resetDbHandle);
     }
+  }
+  function resetOnDbExecClose(): void {
+    if (_dbExecCloseHookRegistered) return;
+    _dbExecCloseHookRegistered = true;
+    // Nitro can close this worker's PGlite client before the process exits.
+    onDbClientsClosing(() => {
+      resetDbHandle();
+      _dbExecCloseHookRegistered = false;
+    });
+  }
+
+  function trackInit(
+    initialize: (isCurrent: () => boolean) => Promise<any>,
+  ): Promise<any> {
+    const generation = _dbGeneration;
+    let ready!: Promise<any>;
+    const isCurrent = () => generation === _dbGeneration && _dbReady === ready;
+    ready = Promise.resolve()
+      .then(() => initialize(isCurrent))
+      .then((db) => {
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
+        _db = db;
+        return db;
+      })
+      .catch((err) => {
+        if (isCurrent()) _dbReady = undefined;
+        throw err;
+      });
+    _dbReady = ready;
+    ready.catch(() => {});
+    return ready;
   }
 
   function startInit(): Promise<any> {
@@ -1020,49 +1061,68 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     try {
       assertHostedRuntimeDatabase();
     } catch (err) {
-      _dbReady = Promise.reject(err);
-      _dbReady.catch(() => {});
-      return _dbReady;
+      return trackInit(() => Promise.reject(err));
     }
 
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
 
     if (isPgliteUrl(url)) {
-      _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
+      resetOnDbExecClose();
+      return trackInit(async (isCurrent) => {
+        const { drizzle } = await loadPgliteDrizzle();
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
         const client = await getPgliteClient(url);
-        _db = drizzle({ client: pgliteDrizzleClient(url, client), schema });
-        return _db;
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
+        return drizzle({ client: pgliteDrizzleClient(url, client), schema });
       });
-      return _dbReady;
     }
 
     if (isNeonUrl(url)) {
-      _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
-        resetOnPoolClose("neon", url);
+      resetOnPoolClose("neon", url);
+      return trackInit(async (isCurrent) => {
+        const { drizzle, Pool } = await getNeonServerlessDrizzle();
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
         const rawPool = sharedDbPool(
           "neon",
           url,
           () => new Pool({ connectionString: url, ...neonPoolOptions() }),
         );
+        const getActivePool = () => resolveSharedDbPool("neon", url, rawPool);
         guardNeonPool(rawPool, url);
-        const pool = buildResilientNeonPool(rawPool);
-        _db = scopeDbToPoolTransactions(drizzle(pool, { schema }), rawPool);
-        return _db;
-      });
-    } else {
-      _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-        resetOnPoolClose("postgres-js", url);
-        const client = sharedDbPool("postgres-js", url, () =>
-          postgres(url, pgPoolOptions(url)),
+        const pool = buildResilientNeonPool(rawPool, getActivePool);
+        return scopeDbToPoolTransactions(
+          drizzle(pool, { schema }),
+          rawPool,
+          getActivePool,
         );
-        _db = scopeDbToPoolTransactions(
-          drizzle(buildResilientPostgresJsClient(client), { schema }),
-          client,
-        );
-        return _db;
       });
     }
-    return _dbReady;
+
+    resetOnPoolClose("postgres-js", url);
+    return trackInit(async (isCurrent) => {
+      const { drizzle, postgres } = await getPgDrizzle();
+      if (!isCurrent()) {
+        throw new Error("Database initialization was invalidated by reset");
+      }
+      const client = sharedDbPool("postgres-js", url, () =>
+        postgres(url, pgPoolOptions(url)),
+      );
+      const getActivePool = () =>
+        resolveSharedDbPool("postgres-js", url, client);
+      return scopeDbToPoolTransactions(
+        drizzle(buildResilientPostgresJsClient(client, getActivePool), {
+          schema,
+        }),
+        client,
+        getActivePool,
+      );
+    });
   }
 
   function createLazyProxy(

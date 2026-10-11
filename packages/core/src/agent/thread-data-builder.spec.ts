@@ -2,17 +2,21 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  containsInlineAttachmentPayload,
   applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
@@ -68,6 +72,52 @@ describe("foldUnstartedTurnFailure", () => {
       }),
     ]);
     expect(extractThreadMeta(repo).preview).toBeTruthy();
+  });
+});
+
+describe("foldThreadRunSuggestions for a turn that yielded to a connection request", () => {
+  const yielded: RunEvent[] = [
+    {
+      seq: 0,
+      event: {
+        type: "tool_done",
+        id: "call-1",
+        tool: "provider-api-request",
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+    },
+    {
+      seq: 1,
+      event: {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    },
+  ];
+  const fold = (status: "completed" | "truncated", tail: RunEvent["event"]) =>
+    foldThreadRunSuggestions(
+      {},
+      {
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+        status,
+        events: [...yielded, { seq: yielded.length, event: tail }],
+      },
+    ).agentKit.runs[0].status;
+
+  it("reads a completed run as waiting on the user", () => {
+    expect(fold("completed", { type: "done" })).toBe("awaiting_input");
+  });
+
+  it("reads a run the manager cut off as failed, whatever it asked for", () => {
+    expect(
+      fold("truncated", { type: "auto_continue", reason: "stream_ended" }),
+    ).toBe("failed");
   });
 });
 
@@ -173,6 +223,125 @@ describe("a client thread save after a refused turn", () => {
 });
 
 describe("extractThreadMeta", () => {
+  it.each([
+    [
+      "<context>Private instructions</context>\nPlan   next week",
+      "Plan next week",
+    ],
+    [
+      '<context source="legacy">Private instructions</context>\nPlan next week',
+      "Plan next week",
+    ],
+    [
+      "Question <context>private</context> still visible",
+      "Question still visible",
+    ],
+    [
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+    ],
+    [
+      "<context>hidden </context>\nsecret tail\n</context>\nVisible prompt",
+      "Visible prompt",
+    ],
+    ["<context>Only private instructions", ""],
+    ["Ask @[Steve|private-id]   next week", "Ask @Steve next week"],
+    ["<context>Only private instructions</context>", ""],
+  ])(
+    "strips hidden prompt context from titles and previews: %s",
+    (prompt, visible) => {
+      expect(
+        extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+      ).toEqual({ title: visible.slice(0, 80), preview: visible });
+    },
+  );
+
+  it("chooses the first visible prompt after a context-only user message", () => {
+    expect(
+      extractThreadMeta({
+        messages: [
+          {
+            role: "user",
+            content: "<context>Private instructions only</context>",
+          },
+          {
+            role: "user",
+            content: "Find flights to <context>private note</context>Tokyo",
+          },
+          { role: "user", content: "Book a return flight" },
+        ],
+      }),
+    ).toEqual({
+      title: "Find flights to Tokyo",
+      preview: "Book a return flight",
+    });
+  });
+
+  it("hides nested legacy blocks and ambiguous text between them", () => {
+    const prompt =
+      "Before\n<context>Outer private </context>\nCopied private between blocks\n<context>Inner private</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("treats multiple unencoded legacy blocks as one private span", () => {
+    // Legacy blocks have no trustworthy inner boundary; text between them may be private.
+    const prompt =
+      "Before\n<context>First private block</context>\nBetween\n<context>Second private block</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("fails closed on an unclosed line-start legacy marker", () => {
+    // Unencoded text is ambiguous here; the current producer escapes authored markup.
+    const prompt = "Plan next week\n<context>Private trailing instructions";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Plan next week", preview: "Plan next week" });
+  });
+
+  it("fails closed when a later legacy opener is unclosed", () => {
+    const prompt =
+      "Before\n<context>hidden</context>\n<context>second private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before", preview: "Before" });
+  });
+
+  it("uses the encoded producer boundary and restores authored markup", () => {
+    const prompt = "<context>";
+    const content = appendAgentChatContextToMessage(
+      prompt,
+      "private prefix </context> private suffix",
+    );
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
+  it("fails closed on an inline unclosed exact context opener", () => {
+    const prompt = "Question <context>private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Question", preview: "Question" });
+  });
+
+  it("preserves a literal closing tag when there is no hidden context block", () => {
+    const prompt = "How should I write the literal </context> tag?";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({
       _titleOverride: "  Renamed   chat ",
@@ -194,6 +363,126 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it.each([
+    { input: ["first", "second"] },
+    { input: null },
+    { input: true },
+    { input: 17 },
+    { input: "truncated input" },
+  ])(
+    "preserves recorded non-object input $input in unknown-outcome replay",
+    ({ input }) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "unknown-input",
+              tool: "send-email",
+              input,
+            },
+          },
+        ],
+        "raw-input-run",
+      );
+      const replay = threadDataToEngineMessages(
+        JSON.stringify(upsertAssistantMessage({}, message!)),
+        { includeToolCalls: true },
+      );
+      expect(replay.flatMap(({ content }) => content)).toContainEqual({
+        type: "tool-call",
+        id: "unknown-input",
+        name: "send-email",
+        input: { rawInput: input },
+      });
+    },
+  );
+
+  it("keeps an explicitly unknown write outcome when the user stops", () => {
+    const result = "Interrupted before this tool returned a result.";
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "email",
+            tool: "send-email",
+            input: {},
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "email",
+            tool: "send-email",
+            result,
+            isError: true,
+            outcomeUnknown: true,
+          },
+        },
+        { seq: 2, event: { type: "done", reason: "user" } },
+      ],
+      "stopped-write",
+    );
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        result,
+        outcome: "unknown",
+      }),
+    );
+  });
+
+  it("keeps an unknown side-effect outcome through persistence and model replay", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "email-uncertain",
+            tool: "send-email",
+            input: { to: "customer@example.com" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "email-uncertain",
+            tool: "send-email",
+            result: "Error running send-email: connection reset",
+            isError: true,
+            outcomeUnknown: true,
+          },
+        },
+      ],
+      "uncertain-run",
+    );
+    const stored = JSON.stringify(upsertAssistantMessage({}, message!));
+    expect(JSON.parse(stored).messages[0].message.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        outcome: "unknown",
+        isError: true,
+      }),
+    );
+    const replay = threadDataToEngineMessages(stored, {
+      includeToolCalls: true,
+    });
+    const result = replay
+      .flatMap(({ content }) => content)
+      .find((part) => part.type === "tool-result");
+    expect(
+      result?.type === "tool-result" ? JSON.parse(result.content) : null,
+    ).toEqual({
+      outcome: "unknown",
+      result: "Error running send-email: connection reset",
+    });
+  });
   it("persists the resource scope used by the chat turn", () => {
     const message = buildAssistantMessage(
       [{ seq: 0, event: { type: "text", text: "Saved." } }],
@@ -929,6 +1218,37 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("keeps an invalid request with timeout wording visible at continuation boundaries", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "Invalid request timed out",
+            errorCode: "invalid_request",
+            providerRetryable: false,
+          },
+        },
+      ],
+      "run-invalid-request",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-invalid-request",
+      },
+    );
+
+    expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata?.custom?.continued).toBeUndefined();
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "partial answer\n\nError: The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+      },
+    ]);
+  });
+
   it("ignores the engine's retry verdict when deciding continuation boundaries", () => {
     const message = buildAssistantMessage(
       [
@@ -1008,8 +1328,7 @@ describe("buildAssistantMessage", () => {
         seq: 1,
         event: {
           type: "error",
-          error:
-            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          error: "Gateway error (no detail)",
           errorCode: "builder_gateway_error",
           recoverable: true,
         },
@@ -1033,9 +1352,7 @@ describe("buildAssistantMessage", () => {
     expect(
       (message?.metadata.custom as { runError?: { details?: string } })
         ?.runError?.details,
-    ).toBe(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
+    ).toBe("Gateway error (no detail)");
   });
 
   it("never persists a raw provider connection dump as user-visible text", () => {
@@ -1091,7 +1408,7 @@ describe("buildAssistantMessage", () => {
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });
 
-  it("still persists non-recoverable errors", () => {
+  it("keeps missing-provider setup metadata without adding a generic error body", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -1106,14 +1423,20 @@ describe("buildAssistantMessage", () => {
 
     const message = buildAssistantMessage(events, "run-missing-key");
 
-    // Persisted from the typed code, so the stored row reads as actionable copy.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: `checking...\n\nError: ${LLM_MISSING_CREDENTIALS_MESSAGE}`,
+        text: "checking...",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata.custom).toMatchObject({
+      runError: {
+        errorCode: "missing_api_key",
+        message:
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+      },
+    });
   });
 
   it("replaces a non-terminal partial assistant message for the same run", () => {
@@ -1655,6 +1978,1188 @@ describe("buildUserMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("merges widgets by globally unique ID across message changes", () => {
+    const existingWidget = {
+      messageId: "assistant-before-continuation",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "release.summary",
+        state: "active",
+      },
+    };
+    const incomingWidget = {
+      messageId: "assistant-after-continuation",
+      widget: { id: "tool-1:chat-ui", kind: "release.summary", state: "ready" },
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      { agentKit: { widgets: [existingWidget] } },
+      { agentKit: { widgets: [incomingWidget] } },
+    );
+
+    expect(merged.agentKit.widgets).toEqual([incomingWidget]);
+  });
+
+  it("keeps run status from the highest sequence across stale snapshots", () => {
+    const run = (status: string, lastSequence: number) => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status,
+      lastSequence,
+    });
+    const merge = (
+      existingRun: ReturnType<typeof run>,
+      incomingRun: ReturnType<typeof run>,
+    ) =>
+      mergeThreadDataForClientSave(
+        {
+          agentKit: { runs: [existingRun], activeRunIds: ["run-1"] },
+        },
+        {
+          agentKit: { runs: [incomingRun], activeRunIds: ["run-1"] },
+        },
+      ).agentKit;
+
+    expect(merge(run("running", 5), run("completed", 4))).toMatchObject({
+      runs: [{ status: "running", lastSequence: 5 }],
+      activeRunIds: ["run-1"],
+    });
+    expect(merge(run("completed", 4), run("running", 5))).toMatchObject({
+      runs: [{ status: "running", lastSequence: 5 }],
+      activeRunIds: ["run-1"],
+    });
+    expect(merge(run("running", 5), run("completed", 5))).toMatchObject({
+      runs: [{ status: "completed", lastSequence: 5 }],
+      activeRunIds: [],
+    });
+  });
+
+  it("accepts suggestions only from a newer completed-run snapshot", () => {
+    const run = (lastSequence: number) => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: "2026-10-01T00:00:00.000Z",
+      lastSequence,
+    });
+    const previousSuggestions = [
+      { id: "suggestion-old", runId: "run-1", label: "Old" },
+    ];
+    const existing = {
+      messages: [],
+      agentKit: {
+        runs: [run(6)],
+        suggestions: previousSuggestions,
+      },
+    };
+    const save = (lastSequence: number, suggestions: unknown[]) =>
+      mergeThreadDataForClientSave(existing, {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [run(lastSequence)],
+          suggestions,
+        },
+      }).agentKit.suggestions;
+
+    expect(
+      save(7, [{ id: "suggestion-new", runId: "run-1", label: "New" }]),
+    ).toEqual([{ id: "suggestion-new", runId: "run-1", label: "New" }]);
+    expect(
+      save(5, [{ id: "suggestion-stale", runId: "run-1", label: "Stale" }]),
+    ).toEqual(previousSuggestions);
+    expect(
+      save(6, [{ id: "suggestion-retry", runId: "run-1", label: "Retry" }]),
+    ).toEqual(previousSuggestions);
+
+    const absentSuggestions = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { runs: [run(6)] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          runs: [run(5)],
+          suggestions: [
+            { id: "suggestion-stale", runId: "run-1", label: "Stale" },
+          ],
+        },
+      },
+    ).agentKit;
+    expect(absentSuggestions).not.toHaveProperty("suggestions");
+  });
+
+  it("upserts event deltas, restores contiguous run sequences, and keeps annotations", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        events: [
+          {
+            id: "event-1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:01.000Z",
+            type: "run.status",
+            status: "running",
+          },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-1",
+              kind: "source",
+              label: "First source",
+            },
+          },
+        ],
+      },
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotationMessageIdsToReplace: [
+          {
+            messageId: "assistant-1",
+            annotationsToRemove: [],
+          },
+        ],
+        events: [
+          {
+            id: "event-1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-10-01T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-10-01T00:00:01.000Z",
+            type: "run.status",
+            status: "running",
+          },
+          {
+            id: "event-3",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 3,
+            occurredAt: "2025-10-01T00:00:02.000Z",
+            type: "run.completed",
+          },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-1",
+              kind: "source",
+              label: "First source",
+            },
+          },
+          {
+            messageId: "assistant-1",
+            annotation: {
+              id: "source-2",
+              kind: "source",
+              label: "Second source",
+            },
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, delta);
+    const retried = mergeThreadDataForClientSave(merged, delta);
+    const initialized = mergeThreadDataForClientSave({}, delta);
+
+    expect(retried.agentKit.events).toMatchObject([
+      { id: "event-1", sequence: 1 },
+      { id: "event-2", sequence: 2 },
+      { id: "event-3", sequence: 3 },
+    ]);
+    expect(retried.agentKit.annotations).toHaveLength(2);
+    expect(initialized.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(initialized.agentKit).not.toHaveProperty(
+      "annotationMessageIdsToReplace",
+    );
+  });
+
+  it("replaces compacted events for represented runs and retains absent runs", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 3, "run-2": 2 },
+        events: [
+          {
+            id: "run-1-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-1-compacted-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 3,
+            type: "run.completed",
+          },
+          {
+            id: "run-2-start",
+            runId: "run-2",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-2-completed",
+            runId: "run-2",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "run-1-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "run-1-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(
+      merged.agentKit.events
+        .filter((event: any) => event.runId === "run-1")
+        .map((event: any) => event.id),
+    ).toEqual(["run-1-start", "run-1-completed"]);
+    expect(
+      merged.agentKit.events
+        .filter((event: any) => event.runId === "run-2")
+        .map((event: any) => event.id),
+    ).toEqual(["run-2-start", "run-2-completed"]);
+  });
+
+  it("keeps later event chunks after replacing a compacted run", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "old-run-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+        ],
+      },
+    };
+    const firstChunk = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 2 }],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const secondChunk = mergeThreadDataForClientSave(firstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 2 }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(secondChunk.agentKit.events.map((event: any) => event.id)).toEqual([
+      "new-run-start",
+      "new-run-completed",
+    ]);
+    expect(secondChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(secondChunk.agentKit).not.toHaveProperty(
+      "eventRunSnapshotWatermarks",
+    );
+  });
+
+  it("keeps a run's prior events until all staged snapshot chunks arrive", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "old-run-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.updated",
+          },
+        ],
+      },
+    };
+    const batch = {
+      runId: "run-1",
+      snapshotId: "snapshot-1",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const firstChunk = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    expect(firstChunk.agentKit.events.map((event: any) => event.id)).toEqual([
+      "old-run-start",
+      "old-run-event",
+    ]);
+    expect(firstChunk.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(
+      firstChunk.agentKit._pendingEventRunSnapshots["run-1"]["snapshot-1"]
+        .events,
+    ).toHaveLength(1);
+
+    const retriedFirstChunk = mergeThreadDataForClientSave(firstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "new-run-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    expect(
+      retriedFirstChunk.agentKit._pendingEventRunSnapshots["run-1"][
+        "snapshot-1"
+      ].events,
+    ).toHaveLength(1);
+    expect(() =>
+      mergeThreadDataForClientSave(retriedFirstChunk, {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [{ ...batch, complete: true }],
+          events: [
+            {
+              id: "new-run-start",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      }),
+    ).toThrow("Agent chat event snapshot ended before all events arrived.");
+
+    const completed = mergeThreadDataForClientSave(retriedFirstChunk, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
+      "new-run-start",
+      "new-run-completed",
+    ]);
+    expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 3 });
+    expect(completed.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    expect(completed.agentKit).not.toHaveProperty("eventRunSnapshotBatches");
+
+    const retriedFinalChunk = mergeThreadDataForClientSave(completed, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "new-run-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+    expect(retriedFinalChunk.agentKit.events).toEqual(
+      completed.agentKit.events,
+    );
+    expect(retriedFinalChunk.agentKit._eventRunSnapshotCommits).toEqual(
+      completed.agentKit._eventRunSnapshotCommits,
+    );
+  });
+
+  it("repairs a legacy event snapshot at the same sequence", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "partial-old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const batch = {
+      runId: "run-1",
+      snapshotId: "repair-snapshot",
+      lastSequence: 2,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const partial = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batch],
+        events: [
+          {
+            id: "repaired-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const completed = mergeThreadDataForClientSave(partial, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batch, complete: true }],
+        events: [
+          {
+            id: "repaired-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(completed.agentKit.events.map((event: any) => event.id)).toEqual([
+      "repaired-event-1",
+      "repaired-event-2",
+    ]);
+    expect(completed.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+  });
+
+  it("drops incomplete older event batches after a newer snapshot commits", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        events: [
+          {
+            id: "old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const staleBatch = {
+      runId: "run-1",
+      snapshotId: "stale-snapshot",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const staged = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [staleBatch],
+        events: [
+          {
+            id: "stale-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const newer = mergeThreadDataForClientSave(staged, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 4 }],
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 4 }],
+        events: [
+          {
+            id: "newer-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "newer-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "completed",
+            lastSequence: 4,
+          },
+        ],
+      },
+    });
+    expect(newer.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+    const retriedOldBatch = mergeThreadDataForClientSave(newer, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...staleBatch, complete: true }],
+        events: [
+          {
+            id: "stale-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    });
+
+    expect(
+      retriedOldBatch.agentKit.events.map((event: any) => event.id),
+    ).toEqual(["newer-event-1", "newer-event-4"]);
+    expect(retriedOldBatch.agentKit._eventRunWatermarks).toEqual({
+      "run-1": 4,
+    });
+    expect(retriedOldBatch.agentKit).not.toHaveProperty(
+      "_pendingEventRunSnapshots",
+    );
+  });
+
+  it("replaces an abandoned partial event batch without mixing its events", () => {
+    const partial = mergeThreadDataForClientSave(
+      { messages: [], agentKit: { events: [] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [
+            {
+              runId: "run-1",
+              snapshotId: "abandoned",
+              lastSequence: 2,
+              expectedEventCount: 2,
+              complete: false,
+            },
+          ],
+          events: [
+            {
+              id: "abandoned-event",
+              runId: "run-1",
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      },
+    );
+    const retried = mergeThreadDataForClientSave(partial, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "complete-retry",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "retry-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "retry-event-2",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(retried.agentKit.events.map((event: any) => event.id)).toEqual([
+      "retry-event-1",
+      "retry-event-2",
+    ]);
+    expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 2 });
+    expect(retried.agentKit).not.toHaveProperty("_pendingEventRunSnapshots");
+  });
+
+  it("does not let equal-sequence event batches replace one another", () => {
+    const existing = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 2 },
+        events: [
+          {
+            id: "old-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    };
+    const batchA = {
+      runId: "run-1",
+      snapshotId: "snapshot-a",
+      lastSequence: 3,
+      expectedEventCount: 2,
+      complete: false,
+    };
+    const batchB = {
+      ...batchA,
+      snapshotId: "snapshot-b",
+    };
+    const partialA = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batchA],
+        events: [
+          {
+            id: "snapshot-a-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const partialB = mergeThreadDataForClientSave(partialA, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [batchB],
+        events: [
+          {
+            id: "snapshot-b-start",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    const completeB = mergeThreadDataForClientSave(partialB, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batchB, complete: true }],
+        events: [
+          {
+            id: "snapshot-b-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+    const lateLegacyReplacement = mergeThreadDataForClientSave(completeB, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "legacy-equal-sequence-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+    expect(
+      lateLegacyReplacement.agentKit.events.map((event: any) => event.id),
+    ).toEqual(["snapshot-b-start", "snapshot-b-completed"]);
+
+    const lateCompleteA = mergeThreadDataForClientSave(lateLegacyReplacement, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [{ ...batchA, complete: true }],
+        events: [
+          {
+            id: "snapshot-a-completed",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.completed",
+          },
+        ],
+      },
+    });
+
+    expect(lateCompleteA.agentKit.events.map((event: any) => event.id)).toEqual(
+      ["snapshot-b-start", "snapshot-b-completed"],
+    );
+    expect(lateCompleteA.agentKit._eventRunWatermarks).toEqual({
+      "run-1": 3,
+    });
+    expect(lateCompleteA.agentKit).not.toHaveProperty(
+      "_pendingEventRunSnapshots",
+    );
+  });
+
+  it("protects a committed event snapshot from a stale full thread save", () => {
+    const runId = "run-committed-full-save";
+    const committed = mergeThreadDataForClientSave(
+      {
+        messages: [],
+        agentKit: {
+          _eventRunWatermarks: { [runId]: 1 },
+          events: [
+            {
+              id: "previous-event",
+              runId,
+              sequence: 1,
+              type: "run.started",
+            },
+          ],
+        },
+      },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          eventRunSnapshotBatches: [
+            {
+              runId,
+              snapshotId: "committed-snapshot",
+              lastSequence: 3,
+              expectedEventCount: 2,
+              complete: true,
+            },
+          ],
+          events: [
+            {
+              id: "committed-event-1",
+              runId,
+              sequence: 1,
+              type: "run.started",
+            },
+            {
+              id: "committed-event-3",
+              runId,
+              sequence: 2,
+              type: "run.completed",
+            },
+          ],
+        },
+      },
+    );
+    const staleFullSave = mergeThreadDataForClientSave(committed, {
+      messages: [],
+      agentKit: {
+        runs: [
+          {
+            id: runId,
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          },
+        ],
+        events: [
+          {
+            id: "stale-full-save-event",
+            runId,
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    expect(staleFullSave.agentKit.events.map((event: any) => event.id)).toEqual(
+      ["committed-event-1", "committed-event-3"],
+    );
+    expect(staleFullSave.agentKit._eventRunSnapshotCommits[runId]).toEqual(
+      committed.agentKit._eventRunSnapshotCommits[runId],
+    );
+  });
+
+  it("keeps newer same-run events when a stale snapshot retries after a write", () => {
+    const latest = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 4 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 4,
+          },
+        ],
+        events: [
+          {
+            id: "latest-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "latest-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    };
+
+    const retried = mergeThreadDataForClientSave(latest, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunReplacements: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "stale-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+          {
+            id: "stale-event-3",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    });
+
+    expect(retried.agentKit.events.map((event: any) => event.id)).toEqual([
+      "latest-event-1",
+      "latest-event-4",
+    ]);
+    expect(retried.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
+    expect(retried.agentKit).not.toHaveProperty("eventRunReplacements");
+  });
+
+  it("drops stale continuation events after a newer run snapshot is saved", () => {
+    const latest = {
+      messages: [],
+      agentKit: {
+        _eventRunWatermarks: { "run-1": 4 },
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 4,
+          },
+        ],
+        events: [
+          {
+            id: "run-1-event-2",
+            runId: "run-1",
+            sequence: 1,
+            type: "activity.updated",
+            label: "newer payload",
+          },
+          {
+            id: "run-1-event-4",
+            runId: "run-1",
+            sequence: 2,
+            type: "run.status",
+          },
+        ],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(latest, {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotWatermarks: [{ runId: "run-1", lastSequence: 3 }],
+        events: [
+          {
+            id: "run-1-event-2",
+            runId: "run-1",
+            sequence: 1,
+            type: "activity.updated",
+            label: "stale payload",
+          },
+          {
+            id: "stale-only-event",
+            runId: "run-1",
+            sequence: 2,
+            type: "activity.started",
+          },
+        ],
+      },
+    });
+
+    expect(merged.agentKit.events).toEqual(latest.agentKit.events);
+    expect(merged.agentKit._eventRunWatermarks).toEqual({ "run-1": 4 });
+    expect(merged.agentKit).not.toHaveProperty("_snapshotDelta");
+    expect(merged.agentKit).not.toHaveProperty("eventRunReplacements");
+    expect(merged.agentKit).not.toHaveProperty("eventRunSnapshotWatermarks");
+  });
+
+  it("does not remove annotations changed or added during a snapshot retry", () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const removal = {
+      key: JSON.stringify(["id", "source-1"]),
+      baseline,
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotationMessageIdsToReplace: [
+          {
+            messageId: "assistant-1",
+            annotationsToRemove: [removal],
+          },
+        ],
+        annotations: [],
+      },
+    };
+    const concurrentAddition = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-2",
+        kind: "source",
+        label: "Concurrent source",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Updated source",
+      },
+    };
+
+    const added = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [baseline, concurrentAddition] } },
+      delta,
+    );
+    const edited = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          annotations: [concurrentEdit, concurrentAddition],
+        },
+      },
+      delta,
+    );
+
+    expect(added.agentKit.annotations).toEqual([concurrentAddition]);
+    expect(edited.agentKit.annotations).toEqual([
+      concurrentEdit,
+      concurrentAddition,
+    ]);
+  });
+
+  it("does not overwrite an annotation changed or added after its snapshot", () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const desired = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    const delta = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        annotations: [],
+        annotationUpserts: [{ entry: desired, baseline }],
+      },
+    };
+    const added = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [concurrentEdit] } },
+      {
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: desired, baseline: null }],
+        },
+      },
+    );
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+    const edited = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [concurrentEdit] } },
+      delta,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+    const applied = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [baseline] } },
+      delta,
+    );
+    const retried = mergeThreadDataForClientSave(applied, delta);
+    const concurrentlyDeleted = mergeThreadDataForClientSave(
+      { agentKit: { annotations: [] } },
+      delta,
+    );
+
+    expect(added.agentKit.annotations).toEqual([concurrentEdit]);
+    expect(edited.agentKit.annotations).toEqual([concurrentEdit]);
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
+    expect(applied.agentKit.annotations).toEqual([desired]);
+    expect(retried.agentKit.annotations).toEqual([desired]);
+    expect(concurrentlyDeleted.agentKit.annotations).toEqual([]);
+    expect(applied.agentKit).not.toHaveProperty("annotationUpserts");
+  });
+
   it("preserves a saved run duration when a later client copy omits it", () => {
     const existing = {
       messages: [
@@ -2321,6 +3826,18 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toEqual([]);
   });
 
+  it("does not allow a client save to create the server-owned queue", () => {
+    const merged = mergeThreadDataForClientSave(
+      { messages: [] },
+      {
+        messages: [],
+        queuedMessages: [{ id: "forged", text: "Bypass readiness" }],
+      },
+    );
+
+    expect(merged.queuedMessages).toBeUndefined();
+  });
+
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
     const existing = {
       messages: [
@@ -2946,6 +4463,189 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("flags inline image data in attachments but allows plain chat examples", () => {
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "A short example: data:image/png;base64,AA==",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Full image payload: data:image/png;base64,${"A".repeat(128)}`,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        data: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "tiny.gif",
+        contentType: "image/gif",
+        data: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        url: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        dataURL: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        dataURL: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        url: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "tiny.gif",
+        contentType: "image/gif",
+        url: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { preview: `data:image/png;base64,${"A".repeat(128)}` },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { base64: "A".repeat(128) },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { bytes: [0, 1, 2, 255] },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "file",
+        data: "hello",
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [
+          {
+            data: `data:image/png;base64,${"A".repeat(128)}`,
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        metadata: {
+          attachments: [
+            {
+              nested: {
+                payload: {
+                  data: `data:image/png;base64,${"A".repeat(128)}`,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ data: "A".repeat(128) }],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ data: "hello" }],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ metadata: { preview: "A".repeat(128) } }],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ bytes: new Uint8Array([0, 1, 2, 255]) }],
+      }),
+    ).toBe(true);
+  });
+
+  it("allows inline-like content in assistant text and tool inputs", () => {
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "text",
+                  text: `Generated example: data:image/png;base64,${"A".repeat(128)}`,
+                },
+                {
+                  type: "tool-call",
+                  argsText: `data:image/png;base64,${"A".repeat(128)}`,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it("reconciles an already persisted queue submission without duplicating it", () => {
     const user = buildUserMessage({
       text: "Run once",
@@ -3200,6 +4900,125 @@ describe("upsertUserMessage", () => {
     });
   });
 
+  it.each([
+    {
+      name: "data and a data URL",
+      attachment: {
+        type: "image",
+        name: "image.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+    {
+      name: "a reference-only data URL",
+      attachment: {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        referenceOnly: true,
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+    {
+      name: "an untyped data URL",
+      attachment: {
+        name: "unknown.png",
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+  ])("never persists an inline URL for $name", ({ attachment }) => {
+    const message = buildUserMessage({
+      text: "Keep the attachment visible without storing its bytes",
+      runId: "run-inline-image-url",
+      attachments: [attachment as any],
+    });
+
+    const storedAttachment = message.attachments?.[0];
+    expect(storedAttachment).toBeDefined();
+    expect(storedAttachment.content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("inline data URLs cannot be stored"),
+    });
+    expect(JSON.stringify(message)).not.toContain("data:image/");
+    expect(JSON.stringify(message)).not.toContain(
+      "INLINE_THREAD_SQL_IMAGE_BYTES",
+    );
+  });
+
+  it("does not persist nested unknown attachment payload fields", () => {
+    const message = buildUserMessage({
+      text: "Keep the visible text without storing nested bytes",
+      runId: "run-nested-inline-image",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          text: "Visible notes",
+          metadata: {
+            attachments: [
+              {
+                url: "data:image/png;base64,NESTED_THREAD_SQL_IMAGE_BYTES",
+              },
+            ],
+          },
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("Visible notes"),
+    });
+    expect(JSON.stringify(message)).not.toContain("data:image/");
+    expect(JSON.stringify(message)).not.toContain(
+      "NESTED_THREAD_SQL_IMAGE_BYTES",
+    );
+  });
+
+  it("keeps short legacy text data without requiring binary storage", () => {
+    const message = buildUserMessage({
+      text: "Use these legacy notes",
+      runId: "run-legacy-text-data",
+      attachments: [
+        {
+          type: "file",
+          name: "legacy.txt",
+          contentType: "text/plain",
+          data: "hello",
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("\nhello\n"),
+    });
+    expect(JSON.stringify(message)).not.toContain("connect object storage");
+  });
+
+  it("does not persist raw base64 attachment data without storage", () => {
+    const base64 = "A".repeat(128);
+    const message = buildUserMessage({
+      text: "Keep the attachment visible without storing its bytes",
+      runId: "run-raw-base64-attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "encoded.bin",
+          data: base64,
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("connect object storage"),
+    });
+    expect(JSON.stringify(message)).not.toContain(base64);
+  });
+
   it("stores file attachments as URL references when a hosted URL exists", () => {
     const attWithUrl = {
       type: "file",
@@ -3364,14 +5183,6 @@ describe("live-client twins", () => {
     throw new Error(`unterminated body for ${name}`);
   };
 
-  const stringConst = (source: string, name: string): string => {
-    const match = new RegExp(`\\b${name}\\s*=\\s*\n?\\s*"([^"]*)"`).exec(
-      source,
-    );
-    expect(match, `${name} not found`).not.toBeNull();
-    return match![1]!;
-  };
-
   it("keeps clearAssistantDraftContent identical to the live client copy", () => {
     expect(
       functionBody(
@@ -3386,23 +5197,13 @@ describe("live-client twins", () => {
     );
   });
 
-  it("keeps the interrupted-tool-result marker identical across all three copies", () => {
-    const client = stringConst(
-      sourceOf("../client/sse-event-processor.ts"),
-      "INTERRUPTED_TOOL_RESULT",
-    );
+  it("keeps the interrupted-tool-result marker identical to the live client copy", async () => {
+    const [{ INTERRUPTED_TOOL_RESULT }, { INTERRUPTED_TOOL_RESULT_MARKER }] =
+      await Promise.all([
+        import("../client/sse-event-processor.js"),
+        import("./engine/translate-anthropic.js"),
+      ]);
 
-    expect(
-      stringConst(
-        sourceOf("./thread-data-builder.ts"),
-        "INTERRUPTED_TOOL_RESULT",
-      ),
-    ).toBe(client);
-    expect(
-      stringConst(
-        sourceOf("./production-agent.ts"),
-        "INTERRUPTED_TOOL_RESULT_MARKER",
-      ),
-    ).toBe(client);
+    expect(INTERRUPTED_TOOL_RESULT_MARKER).toBe(INTERRUPTED_TOOL_RESULT);
   });
 });

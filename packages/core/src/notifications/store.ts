@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
@@ -20,7 +21,7 @@ function normalizeLimit(value: number | undefined, fallback = 50): number {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
@@ -59,6 +60,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -352,6 +354,44 @@ export interface ListNotificationsOptions {
   unreadOnly?: boolean;
   limit?: number;
   before?: string;
+}
+
+export async function hasNotificationWithMetadata(
+  owner: string,
+  expected: Record<string, string | number | boolean>,
+): Promise<boolean> {
+  const entries = Object.entries(expected);
+  if (entries.length === 0) return false;
+  await ensureTable();
+  const client = getDbExec();
+  const predicates = entries
+    .map(() => "metadata LIKE ? ESCAPE '\\'")
+    .join(" AND ");
+  const args = [
+    owner,
+    ...entries.map(([key, value]) => {
+      const fragment = `${JSON.stringify(key)}:${JSON.stringify(value)}`;
+      const escaped = fragment.replace(/[\\%_]/g, "\\$&");
+      return `%${escaped}%`;
+    }),
+    25,
+  ];
+  const { rows } = await client.execute({
+    sql: `SELECT metadata FROM notifications
+      WHERE owner = ? AND ${predicates}
+      ORDER BY created_at DESC LIMIT ?`,
+    args,
+  });
+  return rows.some((row) => {
+    const metadata = safeJsonParse<Record<string, unknown> | undefined>(
+      row.metadata,
+      undefined,
+    );
+    return (
+      metadata !== undefined &&
+      entries.every(([key, value]) => metadata[key] === value)
+    );
+  });
 }
 
 export async function listNotifications(

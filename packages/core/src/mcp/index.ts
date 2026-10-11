@@ -7,6 +7,7 @@ export {
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  getMcpDirectoryWidgetResourceUri,
 } from "./build-server.js";
 export type { MCPCallerIdentity, MCPRequestMeta } from "./build-server.js";
 export type { ExternalAgentPolicy } from "./external-agent-policy.js";

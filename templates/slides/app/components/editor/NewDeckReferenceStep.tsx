@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { AgentChatContextItem } from "@agent-native/toolkit/composer";
 import {
   IconArrowLeft,
   IconBrandFigma,
@@ -41,30 +40,19 @@ import {
 import type { Deck } from "@/context/DeckContext";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
-import type { SlidesComposerContext } from "@/lib/composer-context";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import type {
+  NewDeckReferenceSelection,
+  NewDeckReferenceSource,
+} from "@/lib/new-deck-reference-selection";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
-export interface NewDeckReferenceSelection {
-  composerContext?: SlidesComposerContext;
-  contextItems?: readonly AgentChatContextItem[];
-  designSystemId?: string | null;
-  automaticReferenceDeckId?: string | null;
-  referenceDeckId?: string | null;
-  referenceDeckIdSource?: "prompt" | "selection" | "automatic";
-  referenceFilePaths?: string[];
-  importedReferenceFilePath?: string;
-  referenceSource?: {
-    kind: "google-docs" | "website" | "figma";
-    value: string;
-  } | null;
-}
-
-export type NewDeckReferenceSource = NonNullable<
-  NewDeckReferenceSelection["referenceSource"]
->;
+export type {
+  NewDeckReferenceSelection,
+  NewDeckReferenceSource,
+} from "@/lib/new-deck-reference-selection";
 
 export interface ImportedReference {
   id: string;
@@ -131,7 +119,6 @@ interface NewDeckReferenceStepProps {
   decks: Deck[];
   referenceOptionsLoaded: boolean;
   defaultDesignSystemId: string | null;
-  defaultReferenceDeckId: string | null;
   onSelect: (selection: NewDeckReferenceSelection) => void | Promise<void>;
   onImport: (files: File[]) => Promise<ImportedReference | null>;
   onImportSource: (
@@ -157,7 +144,6 @@ export function NewDeckReferenceStep({
   decks,
   referenceOptionsLoaded,
   defaultDesignSystemId,
-  defaultReferenceDeckId,
   onSelect,
   onImport,
   onImportSource,
@@ -185,10 +171,8 @@ export function NewDeckReferenceStep({
   const selectedDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
     string | null
-  >(defaultReferenceDeckId);
-  const [referenceDeckTouched, setReferenceDeckTouched] = useState(
-    defaultReferenceDeckId !== null,
-  );
+  >(null);
+  const [referenceDeckTouched, setReferenceDeckTouched] = useState(false);
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
   const [storagePromptOpen, setStoragePromptOpen] = useState(false);
@@ -202,7 +186,6 @@ export function NewDeckReferenceStep({
   const busy = importing || continuing;
 
   const designSystemAutoRef = useRef(true);
-  const referenceDeckAutoRef = useRef(true);
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
@@ -216,6 +199,7 @@ export function NewDeckReferenceStep({
   const hasSelection = Boolean(
     selectedDesignSystemId ||
     selectedReferenceDeckId ||
+    referenceDeckTouched ||
     selectedSourceValid ||
     (referenceOptionsLoaded &&
       !selectedSource &&
@@ -227,12 +211,11 @@ export function NewDeckReferenceStep({
   useEffect(() => {
     if (!open) return;
     designSystemAutoRef.current = true;
-    referenceDeckAutoRef.current = true;
     setSelectedDesignSystemId(
       resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
     );
-    setSelectedReferenceDeckId(defaultReferenceDeckId);
-    setReferenceDeckTouched(defaultReferenceDeckId !== null);
+    setSelectedReferenceDeckId(null);
+    setReferenceDeckTouched(false);
     setImportedReference(null);
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
@@ -244,12 +227,6 @@ export function NewDeckReferenceStep({
       resolveSelectableDesignSystemId(designSystems, defaultDesignSystemId),
     );
   }, [open, designSystems, defaultDesignSystemId]);
-
-  useEffect(() => {
-    if (!open || !referenceDeckAutoRef.current) return;
-    setSelectedReferenceDeckId(defaultReferenceDeckId);
-    setReferenceDeckTouched(defaultReferenceDeckId !== null);
-  }, [open, decks, defaultReferenceDeckId]);
 
   useEffect(() => {
     if (open) setContinuing(false);
@@ -277,7 +254,6 @@ export function NewDeckReferenceStep({
 
   const applyImportedReference = (imported: ImportedReference) => {
     designSystemAutoRef.current = false;
-    referenceDeckAutoRef.current = false;
     setSelectedDesignSystemId(null);
     setSelectedReferenceDeckId(imported.id);
     setReferenceDeckTouched(true);
@@ -303,9 +279,7 @@ export function NewDeckReferenceStep({
       await onSelect({
         designSystemId: selectedDesignSystemId,
         referenceDeckId: selectedReferenceDeckId,
-        referenceDeckIdSource: referenceDeckAutoRef.current
-          ? "automatic"
-          : "selection",
+        referenceDeckIdSource: "selection",
         referenceSource: trimmedSource,
         ...(importedReference?.referenceFilePaths?.length
           ? { referenceFilePaths: importedReference.referenceFilePaths }
@@ -342,6 +316,7 @@ export function NewDeckReferenceStep({
           current === importedReference.id ? null : current,
         );
         setImportedReference(null);
+        setReferenceDeckTouched(false);
       }
       return;
     }
@@ -350,9 +325,7 @@ export function NewDeckReferenceStep({
       designSystemAutoRef.current = false;
       setSelectedDesignSystemId(null);
     } else {
-      referenceDeckAutoRef.current = false;
       setSelectedReferenceDeckId(null);
-      setReferenceDeckTouched(true);
       setImportedReference(null);
     }
   };
@@ -489,7 +462,6 @@ export function NewDeckReferenceStep({
                           value={`none ${t("home.none")}`}
                           disabled={busy}
                           onSelect={() => {
-                            referenceDeckAutoRef.current = false;
                             setSelectedReferenceDeckId(null);
                             setReferenceDeckTouched(true);
                             setImportedReference(null);
@@ -513,7 +485,6 @@ export function NewDeckReferenceStep({
                             value={`${deck.title} ${deck.id}`}
                             disabled={busy}
                             onSelect={() => {
-                              referenceDeckAutoRef.current = false;
                               setSelectedReferenceDeckId(deck.id);
                               setReferenceDeckTouched(true);
                               setImportedReference(null);

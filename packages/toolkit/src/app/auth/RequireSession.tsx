@@ -1,11 +1,18 @@
 import { resolveSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import {
+  hasSessionHint,
   isSessionNavigationPending,
   navigateForSession,
+  SessionPreloadContext,
   useSession,
 } from "@agent-native/core/client/use-session";
 import { subscribeSessionNavigation } from "@agent-native/core/shared/ssr-session-bootstrap";
-import React, { useEffect, useRef, useSyncExternalStore } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { AppShellSkeleton } from "../shared/AppShellSkeleton.js";
 
@@ -63,6 +70,8 @@ function ResolvedSessionGate({
     () => false,
   );
   const appShownRef = useRef(false);
+  // The hint says a session is likely; the session read below still decides.
+  const [sessionHinted] = useState(hasSessionHint);
 
   // A navigation this load started before the app rendered (sign-in here, or
   // the inline beta lane switch) keeps the shell down, so the app never
@@ -70,8 +79,23 @@ function ResolvedSessionGate({
   // unmounted for one: a lane switch cancelled by a beforeunload "Stay" would
   // take its unsaved state with it. A claim the page never leaves on is
   // released after a stall window, which brings the app back.
-  if (status === "loading" || (navigationPending && !appShownRef.current)) {
-    return <>{fallback ?? <AppShellSkeleton />}</>;
+  const holdingForNavigation = navigationPending && !appShownRef.current;
+  if (status === "loading" || holdingForNavigation) {
+    // With a hint, the app mounts hidden while the session reads, so its action
+    // reads start now instead of one round trip later. The server still enforces
+    // auth: a refused read re-checks the session, and a signed-out answer
+    // redirects through the same path as before.
+    const preloadApp =
+      status === "loading" && sessionHinted && !holdingForNavigation;
+    if (!preloadApp) return <>{fallback ?? <AppShellSkeleton />}</>;
+    return (
+      <>
+        {fallback ?? <AppShellSkeleton />}
+        <SessionPreloadContext.Provider value={true}>
+          <SessionShell hidden>{children}</SessionShell>
+        </SessionPreloadContext.Provider>
+      </>
+    );
   }
   if (status === "unavailable") {
     return <SessionUnavailableNotice retry={retry} />;
@@ -81,7 +105,28 @@ function ResolvedSessionGate({
     return <>{signedOut ?? null}</>;
   }
   appShownRef.current = true;
-  return <>{children}</>;
+  // Same slots as the hidden preload above, so the tree that mounted while the
+  // session loaded is the tree that shows, not a second mount.
+  return (
+    <>
+      {null}
+      <SessionPreloadContext.Provider value={false}>
+        <SessionShell>{children}</SessionShell>
+      </SessionPreloadContext.Provider>
+    </>
+  );
+}
+
+function SessionShell({
+  hidden = false,
+  children,
+}: {
+  hidden?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: hidden ? "none" : "contents" }}>{children}</div>
+  );
 }
 
 function SessionUnavailableNotice({ retry }: { retry: () => void }) {

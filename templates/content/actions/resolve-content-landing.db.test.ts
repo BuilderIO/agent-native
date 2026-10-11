@@ -279,7 +279,22 @@ describe("resolve-content-landing", () => {
       return resolveContentLandingAction.run({});
     });
 
-    expect(result).toEqual({ documentId, resolution: "restored" });
+    expect(result).toEqual({
+      documentId,
+      resolution: "restored",
+      account: { email: userEmail, orgId: null },
+    });
+  });
+
+  it("names the account and organization it resolved the landing for", async () => {
+    const userEmail = "landing-account@example.com";
+    const orgId = "landing-account-org";
+
+    const result = await runWithRequestContext({ userEmail, orgId }, () =>
+      resolveContentLandingAction.run({}),
+    );
+
+    expect(result.account).toEqual({ email: userEmail, orgId });
   });
 
   it("falls back without exposing an inaccessible saved document", async () => {
@@ -308,6 +323,7 @@ describe("resolve-content-landing", () => {
       "resolution",
       "fallbackReason",
       "welcomeCreated",
+      "account",
     ]);
   });
 
@@ -395,6 +411,7 @@ describe("resolve-content-landing", () => {
     expect(second).toEqual({
       documentId: first.documentId,
       resolution: "welcome-reused",
+      account: { email: userEmail, orgId: null },
     });
   });
 
@@ -415,6 +432,7 @@ describe("resolve-content-landing", () => {
     expect(second).toEqual({
       documentId: first.documentId,
       resolution: "welcome-reused",
+      account: { email: userEmail, orgId: null },
     });
   });
 

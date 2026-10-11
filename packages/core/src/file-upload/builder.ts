@@ -26,12 +26,27 @@ function makeBody(bytes: Uint8Array, mimeType: string): BodyInit {
     : (bytes as unknown as BodyInit);
 }
 
+// Builder's `/api/v1/upload` endpoint sniffs these two Content-Types as a
+// JSON-bodied request (its legacy `{ image: "data:..." }` upload shape)
+// instead of raw file bytes, so it responds 400 "No image specified" for any
+// real `application/json` or `text/plain` file — even though every other
+// mimetype in `UPLOAD_ALLOWED_MIME_PREFIXES` (csv, pdf, zip, docs, video,
+// octet-stream, other text/* subtypes) uploads through it without issue. The
+// signed-URL flow PUTs raw bytes straight to GCS, so it never hits that
+// body-sniffing path.
+function builderMisparsesContentTypeAsJsonBody(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase();
+  return normalized === "application/json" || normalized === "text/plain";
+}
+
 function shouldUseSignedUrlUpload(
   bytes: Uint8Array,
   mimeType: string,
 ): boolean {
   return (
-    bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES || /^video\//i.test(mimeType)
+    bytes.byteLength > LARGE_FILE_THRESHOLD_BYTES ||
+    /^video\//i.test(mimeType) ||
+    builderMisparsesContentTypeAsJsonBody(mimeType)
   );
 }
 
@@ -110,7 +125,7 @@ async function withAssetAuthorization<T>(
   }
 }
 
-async function uploadLargeFileViaSignedUrl(
+async function uploadViaSignedUrl(
   input: FileUploadInput,
   held: { auth?: AssetAuthorization },
   bareMimeType: string,
@@ -120,7 +135,7 @@ async function uploadLargeFileViaSignedUrl(
   const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
   console.log(
-    `[builder-upload] large-file path: ${name} ${mb}MB ${bareMimeType}`,
+    `[builder-upload] signed-url path: ${name} ${mb}MB ${bareMimeType}`,
   );
 
   console.log(`[builder-upload] step 1: requesting signed URL`);
@@ -341,7 +356,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
     if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
-      return uploadLargeFileViaSignedUrl(input, held, bareMimeType, bytes);
+      return uploadViaSignedUrl(input, held, bareMimeType, bytes);
     }
 
     console.log(
@@ -412,7 +427,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
       headers: { Authorization: authorization.authorization },
     });
     if (response.ok) return true;
-    if (response.status === 404) return false;
+    if (response.status === 404) return true;
     await assertOk(response, "Builder.io asset delete failed");
     return false;
   },

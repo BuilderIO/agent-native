@@ -298,6 +298,36 @@ describe("uploadLocalRecording", () => {
     );
   });
 
+  it("reports an exhausted storage-status 503 retry as an upload interruption", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({}, UPLOAD_SLICE_BYTES + 1),
+    );
+    mocks.uploadChunkRequest.mockImplementation(async () =>
+      json(
+        {
+          errorCode: "video_storage_status_unavailable",
+          retryable: true,
+          storageSetupRequired: false,
+        },
+        503,
+      ),
+    );
+
+    const error = await uploadLocalRecording("local-1", {
+      ...ME,
+      retryDelaysMs: [0],
+    }).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ code: "server_unavailable", status: 503 });
+    expect(mocks.uploadChunkRequest).toHaveBeenCalledTimes(2);
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    const abort = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/abort"),
+    );
+    expect(abort).toBeDefined();
+    expect(JSON.parse(abort![1].body).failureCode).toBe("upload_interrupted");
+  });
+
   it("surfaces an expired session after the chunk token refresh still gets 401", async () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
     mocks.uploadChunkRequest.mockResolvedValue(json({ error: "nope" }, 401));

@@ -54,7 +54,7 @@ void main() {
 </script>
 ```
 
-Element references (both can coexist on one element, like Figma):
+Element references can coexist on the same element:
 
 ```html
 <!-- Fill: canvas rendered BEHIND the element's content. Keep a static

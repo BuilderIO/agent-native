@@ -19,7 +19,7 @@ import {
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const EVIDENCE_DIR = path.resolve(
   import.meta.dirname,
-  "../../../.tmp/interaction-parity/closeout-20260916/performance",
+  "../../../.tmp/design-repro/closeout-20260916/performance",
 );
 
 type MarqueeProfilerReceipt = {

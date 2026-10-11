@@ -322,7 +322,7 @@ describe("a freshly drawn frame is visible", () => {
     );
   });
 
-  it("is white on the dark board too, as in Figma", () => {
+  it("keeps its default white fill on a dark board", () => {
     expect(frameStyle(drawFrame(true))).toMatch(/background(-color)?:\s*#fff/i);
   });
 
@@ -613,7 +613,7 @@ describe("pen path paint defaults", () => {
     return path;
   };
 
-  it("commits a closed pen path stroke-only, as Figma does on close", () => {
+  it("commits a closed pen path as stroke-only", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
@@ -915,7 +915,7 @@ describe("reopening and reclosing a pen path", () => {
     expect(closedEl.getAttribute("fill-opacity")).toBeNull();
   });
 
-  it("keeps a stroke-only pen path unfilled when it closes, like Figma", () => {
+  it("keeps a stroke-only pen path unfilled when it closes", () => {
     const content = svgHtml("none", "#000000").replace(
       'd="M 0 0 L 10 0 L 5 10 Z"',
       'd="M 0 0 L 10 0 L 5 10"',

@@ -124,7 +124,7 @@ describe("resolveLocalhostConnectionScope", () => {
     expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
   });
 
-  it("uses a visual-edit capability before ambient signed-in account scope", async () => {
+  it("keeps a signed-in caller in their own scope when a capability is present", async () => {
     mockUserEmail.mockReturnValue("ambient@example.com");
     mockRequestAuthCapability.mockReturnValue(
       "capability:visual-edit:design:design_1",
@@ -137,10 +137,10 @@ describe("resolveLocalhostConnectionScope", () => {
     await expect(
       resolveLocalhostConnectionScope({ designId: "design_1" }),
     ).resolves.toEqual({
-      ownerEmail: "owner@example.com",
-      orgId: "org_1",
+      ownerEmail: "ambient@example.com",
+      orgId: null,
     });
-    expect(mockResolveAccess).toHaveBeenCalledWith("design", "design_1");
+    expect(mockResolveAccess).not.toHaveBeenCalled();
   });
 
   it("requires the design-scoped visual-edit capability for anonymous refreshes", async () => {

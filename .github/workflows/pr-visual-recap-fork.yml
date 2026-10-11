@@ -363,8 +363,13 @@ jobs:
           if [ "$VERSION" = "latest" ]; then
             VERSION="$(npm view @agent-native/recap-cli@latest version)"
           fi
+          # playwright is an optional peer dependency of recap-cli: npm install
+          # omits optional peers by default, so install it alongside recap-cli
+          # into the same prefix, pinned to the range recap-cli declares.
+          PLAYWRIGHT_RANGE="$(npm view "@agent-native/recap-cli@$VERSION" peerDependencies.playwright 2>/dev/null || true)"
+          if [ -z "$PLAYWRIGHT_RANGE" ]; then PLAYWRIGHT_RANGE="latest"; fi
           for attempt in 1 2 3; do
-            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION"; then
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION" "playwright@$PLAYWRIGHT_RANGE"; then
               break
             fi
             if [ "$attempt" = "3" ]; then exit 1; fi
@@ -819,12 +824,13 @@ jobs:
           fi
           if [ -z "$URL_REASON" ]; then
             URL_RESULT=$(PLAN_URL="$PLAN_URL" node <<'NODE'
+          void (() => {
           const emit = (value) => process.stdout.write(JSON.stringify(value));
           try {
             const raw = process.env.PLAN_URL || "";
             if (!raw) {
               emit({ url: "", reason: "recap-url.txt was empty" });
-              process.exit(0);
+              return;
             }
             const trusted = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
             const parsed = /^https?:\/\//i.test(raw)
@@ -832,7 +838,7 @@ jobs:
               : new URL(raw, trusted);
             if (parsed.origin !== trusted.origin) {
               emit({ url: "", reason: `recap-url.txt points at ${parsed.origin}, expected ${trusted.origin}` });
-              process.exit(0);
+              return;
             }
 
             const base = trusted.pathname.replace(/\/$/, "");
@@ -845,13 +851,14 @@ jobs:
               const match = path.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
               if (match) {
                 emit({ url: `${trusted.origin}${base}/recaps/${match[1]}`, reason: "" });
-                process.exit(0);
+                return;
               }
             }
             emit({ url: "", reason: "recap-url.txt did not contain a valid /plans/<id> or /recaps/<id> URL for the configured plan app" });
           } catch {
             emit({ url: "", reason: "recap-url.txt was not a valid URL or recap path" });
           }
+          })();
           NODE
             )
             CANONICAL_URL=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).url||"")}catch{process.stdout.write("")}' "$URL_RESULT")
@@ -955,14 +962,130 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-1-${{ runner.os }}
 
-      - name: Screenshot + upload
-        id: shot
-        if: steps.url.outputs.ok == 'true'
-        continue-on-error: true
+      - name: Verify published recap readback
+        id: readback
+        if: always() && !cancelled() && steps.url.outputs.ok == 'true'
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
         run: |
           set -uo pipefail
+          READBACK_JSON=$(node <<'NODE'
+          void (async () => {
+            const emit = (value) => process.stdout.write(JSON.stringify(value));
+            let requestAttempts = 0;
+            try {
+              const base = new URL(process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
+              const recap = new URL(process.env.PLAN_URL || "");
+              if (recap.origin !== base.origin) {
+                emit({ ok: false, reason: "published recap URL origin does not match the configured Plan app" });
+                return;
+              }
+              const basePath = base.pathname.replace(/\/+$/, "");
+              let recapPath = recap.pathname;
+              if (basePath && recapPath.startsWith(`${basePath}/`)) recapPath = recapPath.slice(basePath.length);
+              const match = recapPath.match(/^\/(?:plans|recaps)\/([A-Za-z0-9_-]+)\/?$/);
+              if (!match) {
+                emit({ ok: false, reason: "published recap URL does not contain a valid Plan ID" });
+                return;
+              }
+              const actionUrl = new URL(base.href);
+              actionUrl.pathname = `${basePath}/_agent-native/actions/get-visual-plan`;
+              actionUrl.search = "";
+              actionUrl.hash = "";
+              if (actionUrl.origin !== base.origin) {
+                emit({ ok: false, reason: "get-visual-plan URL origin does not match the configured Plan app" });
+                return;
+              }
+              actionUrl.searchParams.set("id", match[1]);
+              actionUrl.searchParams.set("includeHtml", "false");
+              actionUrl.searchParams.set("includeMdx", "false");
+              let response;
+              let payload;
+              for (requestAttempts = 1; requestAttempts <= 3; requestAttempts++) {
+                try {
+                  response = await fetch(actionUrl, {
+                    headers: { authorization: `Bearer ${process.env.PLAN_RECAP_TOKEN || ""}` },
+                    signal: AbortSignal.timeout(15000),
+                  });
+                  const retryableStatus = response.status === 408 || response.status === 429 || response.status >= 500;
+                  if (retryableStatus && requestAttempts < 3) {
+                    await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
+                    continue;
+                  }
+                  if (!response.ok) break;
+                  payload = await response.json();
+                  break;
+                } catch (error) {
+                  const retryable = error?.name === "TimeoutError" || error instanceof TypeError;
+                  if (!retryable || requestAttempts === 3) throw error;
+                  await new Promise((resolve) => setTimeout(resolve, requestAttempts * 250));
+                }
+              }
+              if (!response.ok) {
+                const hint = response.status === 401 || response.status === 403
+                  ? "the configured token cannot read this published recap"
+                  : response.status === 404
+                    ? "the Plan read action or published recap is not available"
+                    : "the Plan read action returned an error";
+                const attempts = requestAttempts > 1 ? ` after ${requestAttempts} attempts` : "";
+                emit({ ok: false, reason: `get-visual-plan returned HTTP ${response.status}${attempts}; ${hint}` });
+                return;
+              }
+              const returnedId = payload?.plan?.id ?? payload?.planId ?? payload?.data?.plan?.id;
+              if (returnedId !== match[1]) {
+                emit({ ok: false, reason: "get-visual-plan returned a response without the published Plan ID" });
+                return;
+              }
+              emit({ ok: true, reason: "" });
+            } catch (error) {
+              const attempts = requestAttempts > 1 ? ` after ${requestAttempts} attempts` : "";
+              const reason = error?.name === "TimeoutError"
+                ? `get-visual-plan readback timed out${attempts}`
+                : `get-visual-plan readback request failed${attempts}`;
+              emit({ ok: false, reason });
+            }
+          })();
+          NODE
+          )
+          READBACK_OK=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$READBACK_JSON")
+          READBACK_REASON=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).reason||"")}catch{process.stdout.write("invalid readback result")}' "$READBACK_JSON")
+          if [ "$READBACK_OK" = "true" ]; then
+            echo "[recap readback] published plan is readable"
+          else
+            echo "::warning::Published recap readback failed: $READBACK_REASON"
+          fi
+          echo "ok=$READBACK_OK" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reason<<__RECAP_READBACK_REASON_EOF__'
+            echo "$READBACK_REASON"
+            echo '__RECAP_READBACK_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Screenshot + upload
+        id: shot
+        if: always() && !cancelled() && steps.url.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          PLAN_READBACK_OK: ${{ steps.readback.outputs.ok }}
+          PLAN_READBACK_REASON: ${{ steps.readback.outputs.reason }}
+        run: |
+          set -uo pipefail
+          if [ "${PLAN_READBACK_OK:-false}" != "true" ]; then
+            SHOT_REASON="Published recap readback failed: ${PLAN_READBACK_REASON:-the readback step did not complete.}"
+            echo "::warning::$SHOT_REASON"
+            echo "shot_ok=false" >> "$GITHUB_OUTPUT"
+            echo "captured=false" >> "$GITHUB_OUTPUT"
+            echo "image_url=" >> "$GITHUB_OUTPUT"
+            echo "light_image_url=" >> "$GITHUB_OUTPUT"
+            echo "dark_image_url=" >> "$GITHUB_OUTPUT"
+            {
+              echo 'shot_reason<<__RECAP_SHOT_REASON_EOF__'
+              echo "$SHOT_REASON"
+              echo '__RECAP_SHOT_REASON_EOF__'
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -n "${RECAP_PLAYWRIGHT:-}" ] && [ -x "$RECAP_PLAYWRIGHT" ]; then
             "$RECAP_PLAYWRIGHT" install --with-deps chromium || true
           elif command -v pnpm >/dev/null 2>&1; then
@@ -1056,6 +1179,8 @@ jobs:
           RECAP_IMAGE_URL: ${{ steps.shot.outputs.image_url }}
           RECAP_LIGHT_IMAGE_URL: ${{ steps.shot.outputs.light_image_url }}
           RECAP_DARK_IMAGE_URL: ${{ steps.shot.outputs.dark_image_url }}
+          RECAP_READBACK_OK: ${{ steps.readback.outputs.ok }}
+          RECAP_READBACK_REASON: ${{ steps.readback.outputs.reason }}
           RECAP_SHOT_OK: ${{ steps.shot.outputs.shot_ok }}
           RECAP_SHOT_REASON: ${{ steps.shot.outputs.shot_reason }}
           SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
@@ -1075,8 +1200,13 @@ jobs:
         continue-on-error: true
         env:
           CHECK_RUN_ID: ${{ steps.recap_check.outputs.check_run_id }}
-          PLAN_OK: ${{ steps.url.outputs.ok }}
+          PLAN_OK: ${{ steps.url.outputs.ok == 'true' && steps.shot.outputs.shot_ok == 'true' }}
+          URL_OK: ${{ steps.url.outputs.ok }}
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
+          READBACK_OK: ${{ steps.readback.outputs.ok }}
+          READBACK_REASON: ${{ steps.readback.outputs.reason }}
+          SHOT_OK: ${{ steps.shot.outputs.shot_ok }}
+          SHOT_REASON: ${{ steps.shot.outputs.shot_reason }}
           SUPPRESSED: ${{ steps.scan.outputs.suppressed }}
           SUPPRESSED_JSON: ${{ steps.scan.outputs.json }}
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
@@ -1085,14 +1215,153 @@ jobs:
           RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
+          CLI_SHOT_REASON=""
+          CLI_SHOT_OK="$SHOT_OK"
+          CLI_READBACK_REASON=""
+          CLI_FAILURE_SUMMARY="$RECAP_AGENT_SUMMARY"
+          FAILURE_STAGE=""
+          FAILURE_REASON=""
+          if [ "$URL_OK" = "true" ] && [ "$READBACK_OK" != "true" ]; then
+            FAILURE_STAGE="readback"
+            FAILURE_REASON="$READBACK_REASON"
+          elif [ "$URL_OK" = "true" ] && [ "$SHOT_OK" != "true" ]; then
+            FAILURE_STAGE="screenshot"
+            FAILURE_REASON="$SHOT_REASON"
+          fi
+          if [ -n "$FAILURE_STAGE" ]; then
+            FAILURE_DIAGNOSTIC=$(FAILURE_REASON="$FAILURE_REASON" node <<'NODE'
+          const patterns = [
+            /\bsk-(?:proj-)?[A-Za-z0-9_-]{24,}\b/,
+            /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/,
+            /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/,
+            /\bGOCSPX-[A-Za-z0-9_-]{20,}\b/,
+            /\bbpk-[A-Za-z0-9_-]{16,}\b/,
+            /\bghp_[A-Za-z0-9]{20,}\b/,
+            /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+            /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
+            /\bAKIA[0-9A-Z]{16}\b/,
+            /\bAIza[0-9A-Za-z_-]{20,}\b/,
+            /authorization\s*[:=]\s*['"]?bearer\s+[A-Za-z0-9._-]{20,}/i,
+            /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
+          ];
+          const redact = (line) => line
+            .replace(/Authorization\s*[:=]\s*Bearer\s+\S+/gi, "Authorization: Bearer [redacted]")
+            .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+            .replace(/Authorization\s*[:=]\s*(?!Bearer\s+\[redacted\])(?:\S+\s+)?\S+/gi, "Authorization: [redacted]")
+            .replace(/\b[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*\s*=\s*[^\s]+/gi, "[redacted credential]");
+          const text = (process.env.FAILURE_REASON || "")
+            .replace(/\u001b\[[0-9;]*m/g, "")
+            .split("\n")
+            .map(redact)
+            .map((line) => patterns.some((pattern) => pattern.test(line)) ? "[redacted sensitive line]" : line)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+          const summary = text.length <= 400 ? text : `${text.slice(0, 399).trimEnd()}…`;
+          process.stdout.write(summary);
+          NODE
+            )
+            FAILURE_DIAGNOSTIC=${FAILURE_DIAGNOSTIC:-$FAILURE_STAGE verification failed}
+            if [ "$FAILURE_STAGE" = "readback" ]; then
+              CLI_READBACK_REASON="$FAILURE_DIAGNOSTIC"
+              FAILURE_TITLE="Visual recap readback failed"
+              FAILURE_SUMMARY="The recap was published, but the workflow could not verify it. Screenshot capture was skipped. This informational check does not block the PR."
+              FAILURE_TEXT="[Open visual recap]($PLAN_URL) — readback failed: $FAILURE_DIAGNOSTIC. Screenshot capture was skipped. See this workflow run for details."
+            else
+              CLI_SHOT_REASON="$FAILURE_DIAGNOSTIC"
+              FAILURE_TITLE="Visual recap screenshot failed"
+              FAILURE_SUMMARY="The recap was published, but its screenshot failed: $FAILURE_DIAGNOSTIC. This informational check does not block the PR."
+              FAILURE_TEXT="[Open visual recap]($PLAN_URL) — screenshot failed: $FAILURE_DIAGNOSTIC. See this workflow run for details."
+            fi
+            if gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID" \
+              -f status=completed \
+              -f conclusion=failure \
+              -f completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -f details_url="$PLAN_URL" \
+              -f "output[title]=$FAILURE_TITLE" \
+              -f "output[summary]=$FAILURE_SUMMARY" \
+              -f "output[text]=$FAILURE_TEXT" \
+              > /dev/null; then
+              exit 0
+            fi
+            echo "::warning::Could not set $FAILURE_STAGE failure on the Visual Recap check with gh; retrying through the workflow-owned API fallback."
+            if node --input-type=module - "$FAILURE_STAGE" "$FAILURE_TITLE" "$FAILURE_SUMMARY" "$FAILURE_TEXT" <<'NODE'
+          const [failureStage, failureTitle, failureSummary, failureText] = process.argv.slice(2);
+          const token = process.env.GH_TOKEN;
+          const repository = process.env.GITHUB_REPOSITORY;
+          const [owner, name, ...extra] = (repository || '').split('/');
+          const checkRunId = process.env.CHECK_RUN_ID;
+          if (!token || !owner || !name || extra.length || !/^\d+$/.test(checkRunId || '')) {
+            process.stderr.write('Visual Recap check fallback is missing required GitHub API context.\n');
+            process.exit(1);
+          }
+
+          const apiBase = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
+          const endpoint = `${apiBase}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/check-runs/${checkRunId}`;
+          const payload = {
+            status: 'completed',
+            conclusion: 'failure',
+            completed_at: new Date().toISOString(),
+            details_url: process.env.PLAN_URL,
+            output: {
+              title: failureTitle,
+              summary: failureSummary,
+              text: failureText,
+            },
+          };
+          async function updateCheckRun() {
+            const delays = [0, 500, 1500];
+            let lastStatus;
+
+            for (let attempt = 0; attempt < delays.length; attempt += 1) {
+              if (delays[attempt]) await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+              try {
+                const response = await fetch(endpoint, {
+                  method: 'PATCH',
+                  headers: {
+                    Accept: 'application/vnd.github+json',
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(payload),
+                });
+                if (response.ok) {
+                  process.stdout.write('Visual Recap failure detail was written through the workflow-owned API fallback.\n');
+                  return true;
+                }
+                lastStatus = response.status;
+                if (response.status !== 408 && response.status !== 429 && response.status < 500) break;
+              } catch {
+                lastStatus = 'network error';
+              }
+            }
+
+            process.stderr.write(`Visual Recap API fallback could not record the ${failureStage} failure (${lastStatus || 'unknown error'}).\n`);
+            return false;
+          }
+
+          if (await updateCheckRun()) process.exit(0);
+          process.exit(1);
+          NODE
+            then
+              exit 0
+            fi
+            echo "::error::Visual Recap failure details could not be written; leaving the informational check unresolved rather than replacing the stage-specific failure with a generic legacy CLI result."
+            exit 1
+          fi
           $RECAP_CLI recap check complete \
             --check-run-id "$CHECK_RUN_ID" \
             --plan-ok "$PLAN_OK" \
             --plan-url "$PLAN_URL" \
+            --readback-ok "$READBACK_OK" \
+            --readback-reason "$CLI_READBACK_REASON" \
+            --shot-ok "$CLI_SHOT_OK" \
+            --shot-reason "$CLI_SHOT_REASON" \
             --suppressed "$SUPPRESSED" \
             --suppressed-json "$SUPPRESSED_JSON" \
             --huge "$DIFF_HUGE" \
             --tiny "$DIFF_TINY" \
-            --failure-summary "$RECAP_AGENT_SUMMARY" \
+            --failure-summary "$CLI_FAILURE_SUMMARY" \
             --url-reason "$RECAP_URL_REASON" \
             --workflow-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

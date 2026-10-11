@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -104,7 +104,7 @@ function connectionChange(
       ...(connection.accountLabel
         ? { detail: connection.accountLabel.slice(0, 500) }
         : {}),
-      url: "/integrations",
+      url: "/settings/integrations",
     },
   };
 }
@@ -176,9 +176,9 @@ export default defineAction({
       .describe("Provider scopes granted to this connection."),
     config: z
       .record(z.string(), z.unknown())
-      .default({})
+      .optional()
       .describe(
-        "Non-secret provider metadata. Secret-looking fields are redacted.",
+        "Non-secret provider configuration and metadata. Secret-looking fields are redacted. Follow configurationFields from the provider catalog.",
       ),
     allowedApps: z
       .array(z.string())
@@ -225,8 +225,52 @@ export default defineAction({
     const before = args.id?.trim()
       ? await getWorkspaceConnection(args.id.trim())
       : null;
+    const configurationFields = provider.configurationFields ?? [];
+    const allowedConfigurationKeys = new Set(
+      configurationFields.map(({ key }) => key),
+    );
+    const suppliedConfig = args.config ?? {};
+    if (
+      configurationFields.length > 0 &&
+      Object.keys(suppliedConfig).some(
+        (key) => !allowedConfigurationKeys.has(key),
+      )
+    ) {
+      fail(
+        `Configuration fields for ${provider.label} must match its provider catalog.`,
+        {
+          errorCode: "workspace_connection_config_unknown_field",
+          statusCode: 400,
+        },
+      );
+    }
+    const config = {
+      ...Object.fromEntries(
+        configurationFields
+          .filter((field) => field.defaultValue !== undefined)
+          .map((field) => [field.key, field.defaultValue]),
+      ),
+      ...(before?.provider === provider.id ? before.config : {}),
+      ...suppliedConfig,
+    };
+    for (const field of configurationFields) {
+      const value = config[field.key];
+      if (value !== undefined && typeof value !== "string") {
+        fail(`Configuration field ${field.key} must be text.`, {
+          errorCode: "workspace_connection_config_invalid",
+          statusCode: 400,
+        });
+      }
+      if (field.required && (typeof value !== "string" || !value.trim())) {
+        fail(`Required configuration field is missing: ${field.key}.`, {
+          errorCode: "workspace_connection_config_missing",
+          statusCode: 400,
+        });
+      }
+    }
     const result = await upsertWorkspaceConnection({
       ...args,
+      config,
       status: args.status as WorkspaceConnectionStatus,
       allowedUsers,
       allowedUserGroups,

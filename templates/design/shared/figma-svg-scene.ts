@@ -1407,11 +1407,11 @@ export function createEmptyFigmaSvgReport(): FigmaSvgExportReport {
       "Figma imports SVG <text> as live, editable type, but its SVG importer " +
       "reads only font family, size and a coarse bold weight. Letter spacing " +
       "is dropped, and weights above 700 resolve to Bold, so tracked or " +
-      "extra-bold text arrives at a different width than the design. Measured " +
-      "against Figma directly: textLength/lengthAdjust, multi-value and " +
-      "sibling tspan x, word-spacing and family-encoded weights are all " +
-      "ignored too. This is a Figma import limitation, not a defect in this " +
-      "export; everything else in the document is geometry-exact.",
+      "extra-bold text arrives at a different width than the design. The " +
+      "importer also ignores textLength/lengthAdjust, multi-value and " +
+      "sibling tspan x, word-spacing and family-encoded weights. This is a " +
+      "Figma import limitation, not a defect in this export; everything " +
+      "else in the document is geometry-exact.",
   };
 }
 

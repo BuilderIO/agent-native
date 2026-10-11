@@ -132,7 +132,7 @@ describe("MotionDock layout", () => {
   });
 });
 
-describe("MotionDock — Figma Motion toolbar anatomy", () => {
+describe("MotionDock toolbar layout", () => {
   it("renders play, add-keyframe ◆, current time, duration, playback mode, and Add motion", () => {
     const markup = render({ tracks: sampleTracks });
     expect(markup).toContain('aria-label="Play"');

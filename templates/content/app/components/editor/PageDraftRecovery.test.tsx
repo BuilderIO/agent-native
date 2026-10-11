@@ -94,6 +94,7 @@ describe("Page draft recovery", () => {
     id: "page",
     title: "Saved",
     content: "Saved body",
+    canEdit: true,
     updatedAt: "v2",
     revision: "saved-body-revision",
   } as Document;

@@ -124,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "Google Drive की फ़ाइल ब्राउज़िंग कॉन्फ़िगर नहीं है। आप लिंक चिपकाकर दस्तावेज़ इंपोर्ट कर सकते हैं।",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
@@ -238,6 +238,7 @@ const messages = {
     importCompleteFile: "{{fileName}} से फ़ाइल आयात हुई।",
     backToDecks: "डेक पर वापस जाएं",
     toggleSlideList: "स्लाइड सूची टॉगल करें",
+    openInAgentNative: "Agent-Native में खोलें",
     designSystem: "डिज़ाइन सिस्टम",
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
@@ -252,6 +253,16 @@ const messages = {
     generateImage: "इमेज बनाएं",
     assetLibrary: "एसेट लाइब्रेरी",
     imageOptions: "छवि विकल्प",
+    videoPlayback: "वीडियो प्लेबैक",
+    autoplayVideo: "अपने आप चलाएँ",
+    loopVideo: "वीडियो दोहराएँ",
+    videoUploading: "वीडियो अपलोड हो रहा है…",
+    videoAdded: "वीडियो जोड़ा गया",
+    videoUploadFailed: "वीडियो अपलोड विफल",
+    videoUploadError: "यह वीडियो अपलोड नहीं हो सका।",
+    videoFormatUnsupported: "केवल MP4 और WebM वीडियो समर्थित हैं।",
+    videoTooLarge: "वीडियो का आकार 50 MB या उससे कम होना चाहिए।",
+    videoUploadNeedsBuilder: "वीडियो स्टोरेज कॉन्फ़िगर नहीं है।",
     cropImage: "छवि क्रॉप करें",
     cropHandle: "छवि {{position}} क्रॉप करें",
     diagrams: "डायग्राम",
@@ -304,6 +315,9 @@ const messages = {
     conflictStatus: "टेक्स्ट में विरोध",
     conflictStatusDescription:
       "अन्य बदलाव सहेजने से पहले विरोध वाले टेक्स्ट की समीक्षा करें।",
+    accessLost: "एक्सेस खो गया",
+    accessLostDescription:
+      "इस डेक पर आपका एक्सेस बदल गया है। आपके बदलाव स्क्रीन पर बने रहेंगे; एक्सेस बहाल होने पर दोबारा कोशिश करें या बैकअप डाउनलोड करें।",
     reviewConflict: "विरोध की समीक्षा करें",
     conflictTitle: "स्लाइड {{number}} में टेक्स्ट का विरोध है",
     conflictDescription:
@@ -350,6 +364,7 @@ const messages = {
       "Google Slides एक्सपोर्ट अभी अनुपलब्ध है क्योंकि Google कनेक्शन सेट अप नहीं है. इसके बजाय PPTX के रूप में एक्सपोर्ट करें और उसे Google Slides में इंपोर्ट करें.",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
+    googleSlidesGoTo: "Google Slides पर जाएँ",
     duplicateDeck: "डेक डुप्लिकेट करें",
   },
   share: {
@@ -758,6 +773,9 @@ const messages = {
     exportFailed: "निर्यात विफल",
     agentRunFailed:
       "स्लाइड बनाने से पहले एजेंट रन विफल हो गया। चैट में विवरण देखें और फिर कोशिश करें।",
+    generationFailed: "स्लाइड नहीं बन पाईं। चैट में विवरण देखें और फिर से कोशिश करें।",
+    generationOutcomeUnresolved:
+      "हम पुष्टि नहीं कर पाए कि स्लाइड बनी हैं या नहीं। डेक या चैट देखें, फिर दोबारा कोशिश करें।",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",

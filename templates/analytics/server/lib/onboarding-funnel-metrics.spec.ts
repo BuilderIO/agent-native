@@ -383,6 +383,7 @@ describe("onboarding funnel metrics", () => {
       (row) => row.method_id === "builder_create_account",
     );
     expect(createAccount).toMatchObject({
+      method_label: "Use Builder.io",
       choice_screen_viewers: 5,
       first_choice_users: 2,
       first_choice_rate: 0.4,

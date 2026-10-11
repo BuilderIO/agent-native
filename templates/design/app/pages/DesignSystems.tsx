@@ -76,12 +76,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
+import {
+  useDesignSystemWorkflows,
+  useDesignSystemWorkflowsState,
+} from "@/hooks/use-design-system-workflows";
 import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
 
+import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
 import {
   builderRefreshKey,
@@ -122,8 +126,33 @@ function isSettledBuilderRefresh(result: BuilderRefreshResult): boolean {
   );
 }
 
+function getDesignSystemsPageMode({
+  designSystems,
+  systemsEnabled,
+  systemsFlagStatus,
+  isLoading,
+  isError,
+}: {
+  designSystems: DesignSystem[];
+  systemsEnabled: boolean;
+  systemsFlagStatus: "loading" | "ready" | "unavailable";
+  isLoading: boolean;
+  isError: boolean;
+}): "loading" | "error" | "comingSoon" | "empty" | "systems" {
+  if (designSystems.length > 0) return "systems";
+  if (isError || systemsFlagStatus === "unavailable") return "error";
+  if (systemsFlagStatus === "loading") return "loading";
+  if (!systemsEnabled) return "comingSoon";
+  if (isLoading) return "loading";
+  return "empty";
+}
+
 export default function DesignSystems() {
-  const systemsEnabled = useDesignSystemWorkflows();
+  const workflowsState = useDesignSystemWorkflowsState();
+  const systemsEnabled =
+    workflowsState.status === "ready" && workflowsState.enabled;
+  const showWaitlist =
+    workflowsState.status === "ready" && !workflowsState.enabled;
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -148,7 +177,6 @@ export default function DesignSystems() {
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
-
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
   }>("list-design-systems");
@@ -171,7 +199,13 @@ export default function DesignSystems() {
   const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
-  const isEmpty = !isLoading && !isError && designSystems.length === 0;
+  const pageMode = getDesignSystemsPageMode({
+    designSystems,
+    systemsEnabled,
+    systemsFlagStatus: workflowsState.status,
+    isLoading,
+    isError,
+  });
   const selectedDesignSystemId = searchParams.get("designSystemId");
   const selectedDesignSystem = useMemo(
     () =>
@@ -518,7 +552,7 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      {!isEmpty ? (
+      {designSystems.length > 0 ? (
         systemsEnabled ? (
           <Button asChild size="sm" className="cursor-pointer">
             <Link to="/design-systems/setup" onClick={handleCreateClick}>
@@ -526,6 +560,8 @@ export default function DesignSystems() {
               {t("designSystems.actions.new")}
             </Link>
           </Button>
+        ) : showWaitlist ? (
+          <JoinDesignSystemWaitlistButton compact />
         ) : null
       ) : null}
     </div>,
@@ -535,14 +571,24 @@ export default function DesignSystems() {
     <>
       <div className="flex-1 overflow-y-auto">
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : isError ? (
+          {pageMode === "error" ? (
             <QueryErrorState
-              onRetry={() => void refetch()}
-              retrying={isFetching}
+              onRetry={() => {
+                if (workflowsState.status === "unavailable") {
+                  window.location.reload();
+                  return;
+                }
+                void refetch();
+              }}
+              retrying={
+                workflowsState.status === "unavailable" ? false : isFetching
+              }
             />
-          ) : isEmpty ? (
+          ) : pageMode === "comingSoon" ? (
+            <ComingSoonState />
+          ) : pageMode === "loading" ? (
+            <LoadingSkeleton />
+          ) : pageMode === "empty" ? (
             <EmptyState onCreateClick={handleCreateClick} />
           ) : (
             <>
@@ -1473,7 +1519,7 @@ function EmptyState({
   const systemsEnabled = useDesignSystemWorkflows();
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
+      <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
         <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
@@ -1492,6 +1538,21 @@ function EmptyState({
           </Link>
         </Button>
       )}
+    </div>
+  );
+}
+
+function ComingSoonState() {
+  const t = useT();
+  return (
+    <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
+      <div className="mb-6 flex size-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+        <IconComponents className="w-7 h-7 text-primary" />
+      </div>
+      <h2 className="text-xl font-semibold text-foreground mb-2">
+        {t("designSystems.comingSoonTitle")}
+      </h2>
+      <JoinDesignSystemWaitlistButton />
     </div>
   );
 }

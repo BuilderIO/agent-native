@@ -465,7 +465,6 @@ const editor = {
     "Le contenu de cette page est encore en cours de synchronisation",
   pageBodySyncingDescription:
     "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
-  createCollection: "Créer une collection",
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
@@ -825,6 +824,7 @@ const editor = {
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
     openInNotion: "Ouvrir dans Notion",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     orgCanFindAndView:
       "Tout le monde dans votre organisation peut trouver et consulter",
     orgLinkCanView:
@@ -1089,6 +1089,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "En attente de {{stage}}. Requête : {{action}}.",
+    widgetDocumentLoadStage: "le contenu de la page enregistrée",
+    widgetDraftCheckStage: "la récupération du brouillon de page",
+    widgetEditorInitStage: "l’initialisation de l’éditeur de texte enrichi",
     iconPickerIcons: "Icônes",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Récents",
@@ -1136,6 +1140,8 @@ const exactEnglish = {
       openInClaude: "Ouvrir dans Claude",
       openInClaudeCode: "Ouvrir dans Claude Code",
       openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
       agentCopyAccessNote:
         "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
       temporaryAgentLink: "Lien temporaire pour agent",
@@ -1481,6 +1487,9 @@ const overrides = {
     aiUndo: "Annuler",
     aiDone: "Terminé",
     aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
     aiUndoUnavailable:
       "Le texte supprimé ne peut pas être rétabli automatiquement",
     aiUndoFailed: "Impossible d’annuler la modification",
@@ -1523,6 +1532,11 @@ const overrides = {
     resize: "Redimensionner la barre latérale",
     expand: "Développer la barre latérale",
     failedCreatePage: "Échec de la création de la page",
+    failedCreatePageDraftDescription:
+      "Votre brouillon est enregistré dans ce navigateur. Vous pouvez réessayer de créer la page ou supprimer le brouillon.",
+    discardFailedCreatePageQuestion: "Annuler la création en attente ?",
+    discardFailedCreatePageDescription:
+      "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",

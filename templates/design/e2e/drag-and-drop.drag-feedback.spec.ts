@@ -1,3 +1,6 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
 import { expect, test } from "@playwright/test";
 
 import {
@@ -32,15 +35,25 @@ test.describe("drag feedback", () => {
     await page.mouse.move(a.x + a.width / 2, b.y - a.height, { steps: 18 });
     await page.waitForTimeout(900);
     const guides = (await activeOverlays(page)).filter((k) =>
-      /snap-guide|measurement|transform-badge/.test(k),
+      /snap-guide|measurement/.test(k),
     ).length;
+    await test.info().attach("snap-guides-during-drag.png", {
+      body: await page.screenshot({ animations: "disabled" }),
+      contentType: "image/png",
+    });
+    const screenshotDir = process.env.DESIGN_REGRESSION_SCREENSHOT_DIR;
+    if (screenshotDir) {
+      await mkdir(screenshotDir, { recursive: true });
+      await page.screenshot({
+        path: path.join(screenshotDir, "snap-guides-during-drag.png"),
+        animations: "disabled",
+      });
+    }
     await page.mouse.up();
     await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     expect(
       guides,
-      `Figma: "when using snap to settings ... a red guide appears on the canvas as a visual ` +
-        `indicator", and snap-to-objects "aligns the centers and outermost points of ` +
-        `different objects". No guide appeared.`,
+      `Snap-aligned objects should display a visible guide while dragging. No guide appeared.`,
     ).toBeGreaterThan(0);
   });
 
@@ -68,9 +81,8 @@ test.describe("drag feedback", () => {
     await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     expect(
       highlights,
-      `UNVERIFIED for a plain frame: Figma documents a blue indicator only for auto layout ` +
-        `containers, and says nothing about highlighting a plain frame. Treat as a usability ` +
-        `claim. No feedback of any kind appeared.`,
+      `Dragging over a plain frame should provide visible drop-target feedback. ` +
+        `No feedback of any kind appeared.`,
     ).toBeGreaterThan(0);
   });
 
@@ -97,7 +109,7 @@ test.describe("drag feedback", () => {
     await page.waitForTimeout(500);
     expect(
       indicators,
-      "Figma shows an insertion line while reordering layers",
+      "The layer list should show an insertion line while reordering",
     ).toBeGreaterThan(0);
   });
 

@@ -1,10 +1,12 @@
 ---
 name: design-editor-architecture
 description: >-
-  Where design editor behavior lives and how to navigate DesignEditor.tsx. Use
-  before changing any editor behavior — undo/redo, paste, delete, duplicate,
-  style commit, layer move/rename, export, structure change — or before opening
-  `app/pages/DesignEditor.tsx`.
+  Where design editor behavior lives and how the editor component is split
+  across `DesignEditor.tsx`, the `use-editor-*` hooks, and the view render
+  functions.
+  Use before changing any editor behavior — undo/redo, paste, delete,
+  duplicate, style commit, layer move/rename, export, structure change — or
+  before editing `app/pages/DesignEditor.tsx` or a `use-editor-*` hook.
 scope: dev
 metadata:
   internal: true
@@ -14,23 +16,28 @@ metadata:
 
 ## The routing rule
 
-Editor **behavior** lives in `app/pages/design-editor/`, not in
-`app/pages/DesignEditor.tsx`.
+Editor **behavior** lives in `app/pages/design-editor/`, not in the editor
+component.
 
-`DesignEditor.tsx` is ~20,900 lines and holds only three things: state
-declarations, the `useCallback` wrappers that gather arguments, and the JSX.
-Every wrapper delegates to a `run<Name>()` command module.
+The component is split three ways. `app/pages/DesignEditor.tsx` is a short
+shell that calls 21 `useEditor*` hooks in a fixed order and returns
+`renderDesignEditorView(...)`. The hooks (`design-editor/domains/use-editor-*.ts`)
+hold the state declarations, effects, and the `useCallback` wrappers that
+gather arguments. `design-editor/design-editor-view.tsx` lays out the page and
+calls the render functions in `design-editor/view/` (menus, sidebars, canvas
+area, inspector, dialogs). Every wrapper delegates to a `run<Name>()` command
+module.
 
 **To change what an editor action does, edit the command module.** Opening
-`DesignEditor.tsx` to change behavior is almost always the wrong move — it will
-exhaust your context before you find the code.
+the hooks to change behavior is almost always the wrong move — they only
+gather arguments.
 
 | Directory | Holds |
 | --- | --- |
 | `design-editor/commands/` | 86 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md` |
 | `design-editor/effects/` | Subscription and autosave loops (collab text, motion autosave, agent selection mirroring) |
 | `design-editor/derive/` | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`) |
-| `design-editor/domains/` | Whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
+| `design-editor/domains/` | The editor component's hooks (`use-editor-*.ts`) and whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
 | `design-editor/*.ts` | Shared helpers: `history.ts`, `selection-state.ts`, `pending-edits.ts`, `editor-state.ts`, `editor-helpers.ts`, … |
 
 ## Common task → file
@@ -55,26 +62,50 @@ exhaust your context before you find the code.
 A `screen-` prefix means the command is addressed by an explicit `screenId`
 (overview canvas or board). The unprefixed twin acts on the focused screen.
 
-Before adding a `domains/` hook, count what it would expose. Past roughly 16
-returned values the hook stops hiding anything and just relocates the wiring —
-measured surfaces for share/export (20), generation (18), and motion (48) are
-all why those still live inline. Also check no input it needs is declared after
-the point where its own outputs are first consumed; responsive-interact fails
-that test and cannot be extracted without changing when values are read.
+## Working in the `use-editor-*` hooks
 
-## Navigating DesignEditor.tsx when you must
+They are one component's body split in dependency order, not encapsulated
+domains: most return 20–130 values, and each name says what the hook mostly
+holds. Each hook takes earlier hooks' results, destructures what it reads, and
+returns what later hooks or the view read. Values only flow forward:
 
-The file carries ~82 section banners. This prints a table of contents:
+- To read a value declared in an earlier hook, return it there and destructure
+  it here.
+- A value declared in a later hook is not available. Put the code in that hook
+  or a later one instead of threading the value backwards.
+- Keep every `useEffect`, `useLayoutEffect`, and effectful custom hook in its
+  current order relative to the others. Effects that share refs, timers, or
+  listeners depend on that order, and moving one into an earlier hook runs it
+  sooner.
+
+A new whole-domain hook like `use-tweaks.ts` is worth it only while its surface
+stays small, roughly 16 returned values or fewer; past that it just relocates
+the wiring.
+
+Find where a value or handler lives:
 
 ```bash
-grep -n "──" app/pages/DesignEditor.tsx
+rg -n "const \[?handleDownloadPng\b" app/pages/design-editor/domains
 ```
 
-Read one region with an offset and a limit instead of opening the file. Every
-section is under ~800 lines. Banners use `// ── Name ──` in the component body
-and `{/* ── Render: name ── */}` inside the JSX.
+`design-editor-view.tsx` and the `view/` modules keep the
+`{/* ── Render: name ── */}` banners; `grep -rn "── Render" app/pages/design-editor/`
+prints a table of contents. Each `render<Name>()` receives the hooks' result
+objects plus a few values the view narrows (`id`, `design` after the loading
+and access early returns) or computes.
 
-When you add or move a region, add a banner for it.
+**View pieces are render functions, never components, and never call hooks.**
+They run inline in the editor's render, so the React tree matches a single
+component's. A component boundary would let React's dev build deep-diff the
+hook objects, which reads every React Query result field and re-renders the
+editor on each poll.
+
+`MultiScreenCanvas` takes grouped props (`review`, `board`, `breakpoints`,
+`camera`, `creation`, `geometry`, `selection`; see
+`multi-screen/types.ts`). Its memo comparator compares group members one by
+one, so passing a fresh group object literal each render is fine; passing a
+flat member through a `{...spread}` is not, because the canvas only reads
+members from their group.
 
 ## Hard constraints
 
@@ -83,9 +114,10 @@ zero runtime named exports.** Type-only exports are fine. Both routes
 (`app/routes/design.$id.tsx`, `app/routes/visual-edit.$id.tsx`) import that
 default. A named export breaks React Fast Refresh for the whole editor.
 
-**The render-callback trio's dependency arrays are load-bearing.**
-`DesignEditor.routeRefreshBoundary.test.ts` parses the file with the TypeScript
-compiler and enforces:
+**The render-callback trio's dependency arrays are load-bearing.** The trio
+lives in `domains/use-editor-screen-rendering.tsx`;
+`DesignEditor.routeRefreshBoundary.test.ts` parses the editor source with the
+TypeScript compiler and enforces:
 
 - `renderScreenContent` deps are exactly `[renderEditableScreenContent]`
 - `renderBreakpointContent` deps are exactly `[renderEditableScreenContent]`
@@ -96,12 +128,13 @@ compiler and enforces:
 That last one exists because cached overview canvases must invalidate on
 preview-only state changes. Dropping a name from it renders a stale canvas.
 
-**Many specs read source as text.** ~20 specs `readFileSync` either
-`DesignEditor.tsx` or a command module and slice it with `indexOf` markers, then
-assert on the source string. Moving code breaks them with a confusing failure.
-Re-point the path and the marker in the same commit that moves the code. Prefer
-asserting against the command module (`commandSource("undo.ts")`) over the
-editor file.
+**Many specs read source as text.** Specs about the editor component read it
+through `readDesignEditorSource()` (`design-editor/read-design-editor-source.ts`),
+which returns the shell, the hooks in call order, and the view as one string;
+others read a command module. Many slice with `indexOf` markers, so moving code
+between files can break them with a confusing failure. Re-point the marker in
+the same commit that moves the code. Prefer asserting against the command
+module (`commandSource("undo.ts")`) over the editor source.
 
 ## Prove the gesture, not just the outcome
 

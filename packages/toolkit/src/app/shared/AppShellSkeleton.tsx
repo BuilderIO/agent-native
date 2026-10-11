@@ -1,3 +1,4 @@
+import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "@agent-native/core/shared/mcp-app-widget-embed";
 import type { CSSProperties, ReactNode } from "react";
 
 const MUTED = "hsl(var(--muted, 240 5% 96.1%))";
@@ -1048,6 +1049,9 @@ export function AppShellSkeleton({
       }}
     >
       <style>{`
+        html[${MCP_APP_WIDGET_EMBED_ATTRIBUTE}] [data-agent-native-app-skeleton] > :not(style) {
+          display: none !important;
+        }
         [data-agent-native-skeleton-block] {
           animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;
         }

@@ -147,6 +147,7 @@ import {
   normalizeAnalyticsTimestamp,
   parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
+  FirstPartyAnalyticsQueryTimeoutError,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
@@ -154,6 +155,13 @@ import {
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+import {
+  buildOnboardingJourneyEventsSql,
+  buildOnboardingJourneyFollowupSql,
+  buildOnboardingJourneyPersonFollowupSql,
+  onboardingJourneyEventDateRange,
+  onboardingJourneyPersonFollowupDateRange,
+} from "./first-party-metric-catalog";
 import {
   MAX_APP_LENGTH,
   MAX_EVENT_NAME_LENGTH,
@@ -1144,6 +1152,21 @@ describe("normalizeAnalyticsTimestamp", () => {
 });
 
 describe("scopedAnalyticsSql", () => {
+  it("preserves source aliases after replacing the raw events table", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT e.id FROM analytics_events e WHERE e.event_name = 'signup'",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM agent_native_scoped_analytics_events e WHERE e.event_name = 'signup'",
+    );
+    expect(scoped.sql).not.toContain(
+      "FROM agent_native_scoped_analytics_events AS analytics_events e",
+    );
+  });
+
   it("adds tenant and freshness guards around analytics event reads", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT event_date, COUNT(*) AS count FROM analytics_events GROUP BY event_date",
@@ -1152,7 +1175,10 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_events WHERE org_id = $1",
+      "WITH agent_native_scoped_analytics_events AS (SELECT * FROM analytics_events WHERE org_id = $1",
+    );
+    expect(scoped.sql).toContain(
+      "FROM agent_native_scoped_analytics_events AS analytics_events",
     );
     expect(scoped.sql).toContain(
       "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = $3",
@@ -1171,6 +1197,277 @@ describe("scopedAnalyticsSql", () => {
     ]);
   });
 
+  it("keeps org and legacy owner access in one opt-in raw event scan", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT id, org_id, event_name FROM analytics_events WHERE event_name = 'signup'",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+      { scopedEventsSingleScan: true },
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM analytics_events WHERE (org_id = $1 OR (org_id IS NULL AND owner_email = $3)) AND (COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $2)",
+    );
+    expect(scoped.sql).not.toContain(
+      "UNION ALL SELECT * FROM analytics_events",
+    );
+    expect(scoped.args).toEqual(["org_123", "2026-07-01", "alice@example.com"]);
+  });
+
+  it("returns the same scoped event rows for the legacy union and single scan", async () => {
+    const client = await PGlite.create("memory://");
+    try {
+      await client.query(
+        "CREATE TABLE analytics_events (id text, org_id text, owner_email text, event_date text, timestamp text, user_id text, event_name text, received_at text)",
+      );
+      await client.query(
+        "INSERT INTO analytics_events VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16), ($17, $18, $19, $20, $21, $22, $23, $24), ($25, $26, $27, $28, $29, $30, $31, $32), ($33, $34, $35, $36, $37, $38, $39, $40), ($41, $42, $43, $44, $45, $46, $47, $48)",
+        [
+          "same-id",
+          "org_123",
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-06-30T12:00:01Z",
+          "same-id",
+          null,
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-06-30T12:00:02Z",
+          "org-event",
+          "org_123",
+          "bob@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "onboarding_step_viewed",
+          "2026-07-01T12:00:01Z",
+          "owner-event",
+          null,
+          "alice@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "onboarding_step_viewed",
+          "2026-07-01T12:00:01Z",
+          "other-org-event",
+          "org_other",
+          "alice@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-07-01T12:00:01Z",
+          "other-owner-event",
+          null,
+          "bob@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-07-01T12:00:01Z",
+        ],
+      );
+      await client.query(
+        "INSERT INTO analytics_events VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)",
+        [
+          "same-id",
+          "org_123",
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T11:59:00Z",
+          "real@example.com",
+          "stale-org-version",
+          "2026-06-30T12:00:00Z",
+          "same-id",
+          null,
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T11:59:00Z",
+          "real@example.com",
+          "stale-owner-version",
+          "2026-06-30T12:00:00Z",
+        ],
+      );
+
+      const query =
+        "SELECT id, org_id, event_name, received_at FROM analytics_events";
+      const legacy = scopedAnalyticsSql(
+        query,
+        { userEmail: "alice@example.com", orgId: "org_123" },
+        "2026-07-01",
+      );
+      const singleScan = scopedAnalyticsSql(
+        query,
+        { userEmail: "alice@example.com", orgId: "org_123" },
+        "2026-07-01",
+        { scopedEventsSingleScan: true },
+      );
+      const legacyRows = await client.query(legacy.sql, legacy.args);
+      const singleScanRows = await client.query(
+        singleScan.sql,
+        singleScan.args,
+      );
+      const sortRows = (rows: Array<Record<string, unknown>>) =>
+        [...rows].sort((left, right) =>
+          `${left.id}:${left.org_id ?? ""}:${left.received_at}`.localeCompare(
+            `${right.id}:${right.org_id ?? ""}:${right.received_at}`,
+          ),
+        );
+
+      expect(sortRows(singleScanRows.rows)).toEqual(sortRows(legacyRows.rows));
+      expect(sortRows(singleScanRows.rows)).toEqual([
+        {
+          id: "org-event",
+          org_id: "org_123",
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "owner-event",
+          org_id: null,
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "same-id",
+          org_id: null,
+          event_name: "stale-owner-version",
+          received_at: "2026-06-30T12:00:00Z",
+        },
+        {
+          id: "same-id",
+          org_id: null,
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:02Z",
+        },
+        {
+          id: "same-id",
+          org_id: "org_123",
+          event_name: "stale-org-version",
+          received_at: "2026-06-30T12:00:00Z",
+        },
+        {
+          id: "same-id",
+          org_id: "org_123",
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:01Z",
+        },
+      ]);
+
+      const legacyLatestRows = await client.query(
+        `SELECT id, org_id, event_name, received_at FROM (
+          SELECT id, org_id, event_name, received_at,
+            ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) AS receipt_rank
+          FROM analytics_events
+          WHERE org_id = $1 AND COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $2
+        ) AS org_receipts WHERE receipt_rank = 1
+        UNION ALL
+        SELECT id, org_id, event_name, received_at FROM (
+          SELECT id, org_id, event_name, received_at,
+            ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) AS receipt_rank
+          FROM analytics_events
+          WHERE org_id IS NULL AND owner_email = $3
+            AND COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $4
+        ) AS owner_receipts WHERE receipt_rank = 1`,
+        legacy.args,
+      );
+      const singleScanLatestRows = await client.query(
+        `SELECT id, org_id, event_name, received_at FROM (
+          SELECT id, org_id, event_name, received_at,
+            ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) AS receipt_rank
+          FROM analytics_events
+          WHERE (org_id = $1 OR (org_id IS NULL AND owner_email = $3))
+            AND COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $2
+        ) AS scoped_receipts WHERE receipt_rank = 1`,
+        singleScan.args,
+      );
+      expect(sortRows(singleScanLatestRows.rows)).toEqual(
+        sortRows(legacyLatestRows.rows),
+      );
+      expect(sortRows(singleScanLatestRows.rows)).toEqual([
+        {
+          id: "org-event",
+          org_id: "org_123",
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "owner-event",
+          org_id: null,
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "same-id",
+          org_id: null,
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:02Z",
+        },
+        {
+          id: "same-id",
+          org_id: "org_123",
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:01Z",
+        },
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("pushes each immutable event source predicate before BigQuery deduplication", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const scoped = scopedAnalyticsSql(
+      "SELECT e.id FROM analytics_events e WHERE e.event_name = 'signup' UNION ALL SELECT e.id FROM analytics_events e WHERE e.event_name = 'onboarding_step_viewed'",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql.match(/event_name = '/g)).toHaveLength(6);
+    expect(scoped.sql.split("AND (((")).toHaveLength(3);
+
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+    const sources = [
+      ...rendered.matchAll(
+        /FROM `builder-3b0a2\.analytics\.first_party_analytics_events_raw` WHERE ([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+    expect(sources).toHaveLength(2);
+    for (const source of sources) {
+      expect(source[1]).toContain("event_name = 'signup'");
+      expect(source[1]).toContain("event_name = 'onboarding_step_viewed'");
+    }
+  });
+
+  it("does not push predicates when any event source is unfiltered", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT a.id FROM analytics_events a WHERE a.event_name = 'signup' UNION ALL SELECT b.id FROM analytics_events b",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql.match(/event_name = '/g)).toHaveLength(1);
+    expect(scoped.sql).not.toContain("AND (((event_name =");
+  });
+
   it("keeps org-scoped reads off personal and legacy owner rows", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT event_date, COUNT(*) AS count FROM analytics_events GROUP BY event_date",
@@ -1183,7 +1480,10 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_events WHERE org_id = $1",
+      "WITH agent_native_scoped_analytics_events AS (SELECT * FROM analytics_events WHERE org_id = $1",
+    );
+    expect(scoped.sql).toContain(
+      "FROM agent_native_scoped_analytics_events AS analytics_events",
     );
     expect(scoped.sql).not.toContain("org_id IS NULL");
     expect(scoped.sql).not.toContain("owner_email");
@@ -1430,16 +1730,231 @@ describe("queryFirstPartyAnalytics", () => {
 
     expect(backendMocks.table).toHaveBeenCalledWith(
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      expect.any(AbortSignal),
     );
     expect(backendMocks.query).toHaveBeenCalledWith(
-      expect.stringContaining("FROM analytics_events"),
+      expect.stringContaining("analytics_events"),
       expect.any(Array),
       expect.objectContaining({
         fullyQualified:
           "builder-3b0a2.analytics.first_party_analytics_events_raw",
       }),
+      expect.objectContaining({ maxBytesBilled: undefined }),
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("forwards the frozen onboarding range and records BigQuery read failures", async () => {
+    const scope = { userEmail: "alice@example.com", orgId: "org_123" };
+    healthMocks.classify.mockReturnValue("raw-events");
+    const options = {
+      timeoutMs: 20_000,
+      maxBytesBilled: 25_000_000_000,
+      eventDateRange: {
+        startDate: "2026-10-08",
+        endDate: "2026-10-08",
+      },
+    };
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+
+    await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      scope,
+      options,
+    );
+
+    expect(backendMocks.query).toHaveBeenLastCalledWith(
+      expect.stringContaining("analytics_events"),
+      expect.any(Array),
+      expect.objectContaining({ tableId: "first_party_analytics_events_raw" }),
+      expect.objectContaining({
+        maxBytesBilled: options.maxBytesBilled,
+        timeoutMs: expect.any(Number),
+        eventDateRange: options.eventDateRange,
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    const lastQueryCall =
+      backendMocks.query.mock.calls[backendMocks.query.mock.calls.length - 1];
+    expect(lastQueryCall?.[3].timeoutMs).toBeGreaterThan(0);
+    expect(lastQueryCall?.[3].timeoutMs).toBeLessThanOrEqual(options.timeoutMs);
+
+    const backendFailure = new Error("private SQL and provider details");
+    healthMocks.record.mockClear();
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+    backendMocks.query.mockRejectedValueOnce(backendFailure);
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        scope,
+        options,
+      ),
+    ).rejects.toBe(backendFailure);
+
+    expect(healthMocks.outcome).toHaveBeenCalledWith(backendFailure);
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      scope,
+      expect.objectContaining({ outcome: "error", queryClass: "raw-events" }),
+    );
+  });
+
+  it("renders a 2,000-session follow-up under scope and query-size budgets", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const filters = {
+      dateFrom: "2026-10-08",
+      dateTo: "2026-10-11",
+      app: "all" as const,
+      emailFilter: "exclude_builder" as const,
+    };
+    const observation = {
+      observationCutoff: "2026-10-09T12:00:00.000Z",
+      observationDate: "2026-10-09",
+      observationWatermark: "2026-10-09T11:55:00.000Z",
+    };
+    const dateRange = onboardingJourneyEventDateRange(filters, observation);
+    const scopedQuery = (sql: string) => {
+      const scoped = scopedAnalyticsSql(
+        sql,
+        { userEmail: "owner@example.test", orgId: "org_123" },
+        observation.observationDate,
+      );
+      return renderFirstPartyAnalyticsBigQuerySql(
+        scoped.sql,
+        scoped.args,
+        {
+          projectId: "builder-3b0a2",
+          datasetId: "analytics",
+          tableId: "first_party_analytics_events_raw",
+          fullyQualified:
+            "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        },
+        { eventDateRange: dateRange },
+      );
+    };
+    const eventsSql = buildOnboardingJourneyEventsSql(
+      filters,
+      { limit: 2_001, offset: 0 },
+      observation,
+      { freezeReceivedAt: true },
+    );
+    const renderedEvents = scopedQuery(eventsSql);
+    const terminals = Array.from({ length: 2_000 }, (_, index) => ({
+      sessionId: `session-${String(index).padStart(4, "0")}-${"a".repeat(16)}`,
+      stepKey: "signup",
+      tsMs: Date.parse("2026-10-08T12:00:00.000Z"),
+    }));
+    const followupSql = buildOnboardingJourneyFollowupSql(
+      filters,
+      terminals,
+      observation,
+    );
+    const scopedFollowup = scopedAnalyticsSql(
+      followupSql,
+      { userEmail: "owner@example.test", orgId: "org_123" },
+      observation.observationDate,
+    );
+    expect(
+      lexAgentSql(scopedFollowup.sql, { dialect: "postgres" }).length,
+    ).toBeLessThan(50_000);
+    const rendered = scopedQuery(followupSql);
+    const rawSources = [
+      ...rendered.matchAll(
+        /SELECT \* FROM `builder-3b0a2\.analytics\.first_party_analytics_events_raw` WHERE([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+
+    expect(
+      lexAgentSql(followupSql, { dialect: "postgres" }).length,
+    ).toBeLessThan(50_000);
+    expect(lexAgentSql(eventsSql, { dialect: "postgres" }).length).toBeLessThan(
+      50_000,
+    );
+    expect(rendered.length).toBeLessThan(1_000_000);
+    expect(rawSources).toHaveLength(2);
+    for (const rawSource of rawSources) {
+      expect(rawSource[1]).toContain("event_date >= DATE '2026-10-08'");
+      expect(rawSource[1]).toContain("event_date <= DATE '2026-10-09'");
+    }
+    const renderedEventSources = [
+      ...renderedEvents.matchAll(
+        /SELECT \* FROM `builder-3b0a2\.analytics\.first_party_analytics_events_raw` WHERE([\s\S]*?) QUALIFY ROW_NUMBER\(\)/g,
+      ),
+    ];
+    expect(renderedEvents.length).toBeLessThan(1_000_000);
+    expect(renderedEventSources).toHaveLength(2);
+    for (const rawSource of renderedEventSources) {
+      expect(rawSource[1]).toContain("event_date >= DATE '2026-10-08'");
+      expect(rawSource[1]).toContain("event_date <= DATE '2026-10-09'");
+    }
+  });
+
+  it("renders a bounded 1,000-member person follow-up through the scoped BigQuery path", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const filters = {
+      dateFrom: "2026-10-08",
+      dateTo: "2026-10-08",
+      app: "all" as const,
+      emailFilter: "exclude_builder" as const,
+    };
+    const observation = {
+      observationCutoff: "2026-10-09T12:00:00.000Z",
+      observationDate: "2026-10-09",
+      observationWatermark: "2026-10-09T11:55:00.000Z",
+    };
+    const members = Array.from({ length: 1_000 }, (_, index) => ({
+      sessionId: `session-${String(index).padStart(4, "0")}-${"a".repeat(16)}`,
+      stepKey: "signup",
+      tsMs: Date.parse("2026-10-08T12:00:00.000Z"),
+      app: "clips",
+      authUserId: `person-${String(index).padStart(4, "0")}`,
+    }));
+    const sql = buildOnboardingJourneyPersonFollowupSql(
+      filters,
+      members,
+      observation,
+    );
+    const scoped = scopedAnalyticsSql(
+      sql,
+      { userEmail: "owner@example.test", orgId: "org_123" },
+      observation.observationDate,
+    );
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+      {
+        eventDateRange: onboardingJourneyPersonFollowupDateRange(
+          filters,
+          members,
+          observation,
+        ),
+      },
+    );
+
+    expect(lexAgentSql(sql, { dialect: "postgres" }).length).toBeLessThan(
+      50_000,
+    );
+    expect(
+      lexAgentSql(scoped.sql, { dialect: "postgres" }).length,
+    ).toBeLessThan(50_000);
+    expect(rendered.length).toBeLessThan(1_000_000);
+    expect(rendered).toContain("JSON_VALUE(terminal_row.member_payload");
   });
 
   it("rejects event and session replay joins after the cutover", async () => {
@@ -1505,6 +2020,94 @@ describe("queryFirstPartyAnalytics", () => {
       expect(backendMocks.query).not.toHaveBeenCalled();
     },
   );
+
+  it("bounds backend and BigQuery table lookup by the read deadline", async () => {
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    healthMocks.classify.mockReturnValue("raw-events");
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+    backendMocks.table.mockImplementationOnce(() => new Promise(() => {}));
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+        { timeoutMs: 10 },
+      ),
+    ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
+
+    expect(backendMocks.query).not.toHaveBeenCalled();
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_123" }),
+      expect.objectContaining({ outcome: "timeout", queryClass: "raw-events" }),
+    );
+  });
+
+  it("cancels backend resolution when its caller is cancelled", async () => {
+    let resolveBackend!: (value: { sink: string; table: null }) => void;
+    backendMocks.get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveBackend = resolve;
+      }),
+    );
+    const controller = new AbortController();
+    const query = queryFirstPartyAnalytics(
+      "SELECT COUNT(*) FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      { signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(query).rejects.toMatchObject({ name: "AbortError" });
+    resolveBackend({ sink: "postgres", table: null });
+    expect(backendMocks.table).not.toHaveBeenCalled();
+  });
+
+  it("normalizes Postgres query deadline errors for journey timeout handling", async () => {
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
+    execute.mockRejectedValueOnce(
+      Object.assign(
+        new Error("DB query timed out after 20ms (connection terminated)"),
+        { name: "DbTimeoutError", code: "CONNECT_TIMEOUT" },
+      ),
+    );
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: null },
+        { cache: false, timeoutMs: 20_000 },
+      ),
+    ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
+  });
+
+  it("does not materialize the scoped raw event CTE on Postgres execution", async () => {
+    execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
+
+    await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+      { cache: false },
+    );
+
+    const executedSql = execute.mock.calls.flatMap(([input]) =>
+      typeof input === "string"
+        ? [input]
+        : input && typeof input.sql === "string"
+          ? [input.sql]
+          : [],
+    );
+    expect(
+      executedSql.some((sql) =>
+        sql.includes(
+          "agent_native_scoped_analytics_events AS NOT MATERIALIZED",
+        ),
+      ),
+    ).toBe(true);
+  });
 
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
@@ -1633,7 +2236,7 @@ describe("queryFirstPartyAnalytics", () => {
           { userEmail: "expired-deadline@example.com", orgId: null },
           { cache: true, timeoutMs: 500 },
         ),
-      ).rejects.toThrow("First-party analytics query timed out after 500ms");
+      ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
     } finally {
       dateNow.mockRestore();
     }

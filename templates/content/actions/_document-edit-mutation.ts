@@ -31,6 +31,10 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import {
+  boundedContentSaveReason,
+  recordContentSaveOutcome,
+} from "./_content-save-outcomes.js";
 
 type Db = ReturnType<typeof getDb>;
 
@@ -215,6 +219,63 @@ type DocumentBodyMutation =
   | { edits?: never; initializeContent: string };
 
 export async function mutateDocumentBody(
+  args: Parameters<typeof performDocumentBodyMutation>[0],
+): Promise<DocumentEditMutationResult> {
+  const observation: { staleBase: "true" | "false" | "unknown" } = {
+    staleBase: "unknown",
+  };
+  try {
+    const result = await performDocumentBodyMutation(args, observation);
+    const replay = result.receipt.idempotency.result === "replayed";
+    const changed =
+      result.receipt.bodyRevision.after !== result.receipt.bodyRevision.before;
+    const preserved =
+      result.receipt.outcome === "displaced-preserved" ||
+      result.receipt.outcome === "preservation-required";
+    const base = parseDocumentRevisionToken(args.baseRevision);
+    recordContentSaveOutcome("edit_document", {
+      outcome: replay
+        ? "replay"
+        : result.receipt.outcome === "displaced-preserved"
+          ? "displaced_preserved"
+          : result.receipt.outcome === "preservation-required"
+            ? "preservation_required"
+            : result.receipt.outcome,
+      origin: "agent",
+      stale_base:
+        replay || base === null
+          ? "unknown"
+          : base.revision !== result.receipt.bodyRevision.before ||
+              base.contentHash !== result.receipt.hashes.before
+            ? "true"
+            : "false",
+      history_effect: replay
+        ? "none"
+        : changed && preserved
+          ? "transition_and_preservation"
+          : preserved
+            ? "preservation"
+            : changed
+              ? "transition"
+              : "none",
+      reason_code: replay ? undefined : result.preservationRequired?.reason,
+    });
+    return result;
+  } catch (error) {
+    const reason = boundedContentSaveReason(error);
+    recordContentSaveOutcome("edit_document", {
+      outcome: "refusal",
+      origin: "agent",
+      stale_base:
+        reason === "STALE_BASE_REVISION" ? "true" : observation.staleBase,
+      history_effect: "none",
+      reason_code: reason,
+    });
+    throw error;
+  }
+}
+
+async function performDocumentBodyMutation(
   args: {
     documentId: string;
     baseRevision: string;
@@ -227,6 +288,7 @@ export async function mutateDocumentBody(
     ctx: ActionRunContext;
     db?: Db;
   } & DocumentBodyMutation,
+  observation: { staleBase: "true" | "false" | "unknown" },
 ): Promise<DocumentEditMutationResult> {
   const db = args.db ?? getDb();
   const scope = callerScope(args.ctx);
@@ -318,19 +380,22 @@ export async function mutateDocumentBody(
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, args.documentId));
-    const preflightBaseContent =
+    const preflightHasCurrentBase =
       preflightDocument?.bodyRevision === base.revision &&
-      documentContentHash(preflightDocument.content ?? "") === base.contentHash
-        ? (preflightDocument.content ?? "")
-        : preflightDocument
-          ? await findDocumentBodyBase({
-              db,
-              ownerEmail: preflightDocument.ownerEmail,
-              documentId: args.documentId,
-              contentHash: base.contentHash,
-              revision: base.revision,
-            })
-          : null;
+      documentContentHash(preflightDocument.content ?? "") === base.contentHash;
+    if (preflightDocument)
+      observation.staleBase = preflightHasCurrentBase ? "false" : "true";
+    const preflightBaseContent = preflightHasCurrentBase
+      ? (preflightDocument.content ?? "")
+      : preflightDocument
+        ? await findDocumentBodyBase({
+            db,
+            ownerEmail: preflightDocument.ownerEmail,
+            documentId: args.documentId,
+            contentHash: base.contentHash,
+            revision: base.revision,
+          })
+        : null;
     if (preflightBaseContent === null) {
       conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
         expectedRevision: args.baseRevision,
@@ -368,19 +433,21 @@ export async function mutateDocumentBody(
         .select()
         .from(schema.documents)
         .where(eq(schema.documents.id, args.documentId));
-      const baseContent =
+      const hasCurrentBase =
         document?.bodyRevision === base.revision &&
-        documentContentHash(document.content ?? "") === base.contentHash
-          ? (document.content ?? "")
-          : document
-            ? await findDocumentBodyBase({
-                db: tx,
-                ownerEmail: document.ownerEmail,
-                documentId: args.documentId,
-                contentHash: base.contentHash,
-                revision: base.revision,
-              })
-            : null;
+        documentContentHash(document.content ?? "") === base.contentHash;
+      if (document) observation.staleBase = hasCurrentBase ? "false" : "true";
+      const baseContent = hasCurrentBase
+        ? (document.content ?? "")
+        : document
+          ? await findDocumentBodyBase({
+              db: tx,
+              ownerEmail: document.ownerEmail,
+              documentId: args.documentId,
+              contentHash: base.contentHash,
+              revision: base.revision,
+            })
+          : null;
       if (baseContent === null) {
         conflict("STALE_BASE_REVISION", "The exact edit base is unavailable.", {
           expectedRevision: args.baseRevision,

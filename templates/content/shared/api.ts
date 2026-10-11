@@ -43,6 +43,9 @@ export interface Document {
   canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
+  mcpDirectoryWidgetReadOnly?: true;
+  mcpDirectoryWidgetCanEditDocument?: true;
+  mcpDirectoryWidgetCanEditDatabaseRows?: true;
   source?: DocumentSourceInfo;
   properties?: DocumentProperty[];
   database?: ContentDatabase;
@@ -122,6 +125,7 @@ export interface ResolveDocumentSyncConflictRequest {
 
 export interface DocumentCreateResult extends Document {
   spaceId: string;
+  creativeContextProjectionStatus?: "pending";
 }
 
 export interface DocumentCreateRequest {

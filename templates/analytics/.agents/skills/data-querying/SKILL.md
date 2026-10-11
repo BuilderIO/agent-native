@@ -11,13 +11,15 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 ## Approach
 
-0. **Use retrieved references first** — data questions may start with a small set of relevant data-dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. Treat them as definitions and query examples, never live results. If they do not fit, call `search-analytics-query-catalog` before querying; use data-source status when provider availability matters.
+0. **Use retrieved references first** — data questions may start with a small set of relevant data-dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. Treat them as definitions and query examples, never live results. If they do not fit, call `find-data` before querying; use data-source status when provider availability matters.
 1. **Route named account health deliberately** — for a customer/org health, QBR, renewal, contract-utilization, risk, or adoption request, read `account-health` before writing SQL. It adds identity-lock and metric-definition checks that an ordinary lookup does not need.
 2. **Read the relevant provider skill first** — check `.agents/skills/<provider>/SKILL.md` for table names, column mappings, auth, and gotchas. For BigQuery, read `.agents/skills/bigquery/SKILL.md` and use `search-bigquery-schema` before guessing table or column names.
 3. **Clarify if ambiguous** — if the metric definition, date range, or grain is unclear and a wrong guess would change the numbers, use the `ask-question` clarifying tool (multiple-choice) before querying. Ask at most once per turn; skip it when the dictionary or the user already answered.
 4. **Use existing actions or connected provider MCP tools** — call the provider action/tool with structured arguments, then filter or aggregate the returned records in your answer
 5. **Write ad-hoc scripts** — if no existing script covers the question, create one in `actions/`
 6. **Present data in chat** — don't just say "check the dashboard" — actually query, get the data, and present it. Only present numbers you actually retrieved; never report a value you did not query.
+
+For a question naming a dbt metric, call `query-dbt-semantic-metric` with its exact dbt name. Use dbt as the metric-definition and grain source; Sigma and Amplitude are examples or cross-checks. If the metric is not defined or its deployment is not ready, report that state and use a verified warehouse path only when it answers the same definition.
 
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
@@ -73,6 +75,19 @@ WHERE event_name = 'pageview'
 Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
+
+### LLM observability events
+
+Agent runs are `analytics_events` rows with `event_name = '$ai_generation'`.
+Useful `properties`:
+
+- Identity: `$ai_trace_id`/`run_id`, `$ai_session_id`/`thread_id`, `$ai_model`/`model`, `$ai_provider`/`provider`.
+- Usage: `$ai_input_tokens`/`input_tokens`, `$ai_output_tokens`/`output_tokens`, `cache_read_tokens`, `cache_write_tokens`.
+- Cost: `$ai_total_cost_usd`/`cost_usd`, `cost_cents_x100`.
+- Time: `duration_ms` is the full run in milliseconds; `$ai_latency` is model time in seconds (run minus tool time).
+- Tools: `tool_calls`, `successful_tools`, `failed_tools`, `tools`, `tools_truncated`. The bounded `tools` array holds names, relative start times, durations, statuses, and coarse error classes, never args or results; failed runs and interrupted tools stay queryable.
+- Delegation: `delegated`, `delegation_protocol`, `caller_app`, `delegation_task_id`, `a2a_task_id`, `parent_run_id`, `parent_turn_id`. Agent Teams child runs use `delegation_protocol = 'agent-team'`, keep their own `run_id`, and link to the launching run through `parent_run_id`.
+- Errors: `status`, `$ai_error` (terminal code, cause, retryable, and a fixed code-derived message), `$ai_error_type`. Run failure messages are omitted from telemetry.
 
 ## Inline Charts In Chat
 
@@ -202,9 +217,11 @@ definitions the user confirms after the thread has been idle. State corrections
 plainly. Before asking for confirmation, restate the complete proposed metric
 definition in plain language, including its key conditions and time window or
 grain when applicable; a bare “yes” to a metric-name-only question is not
-confirmation. Captures stay private to the user and, when learned in an
-organization, are retrieved only in that same organization. Do not call
-`save-memory` again for those same items.
+confirmation. These automatic captures stay private to the user. Do not call
+`save-memory` again for those same items. Before writing anything to shared
+`LEARNINGS.md` or organization memory, check its audience and ask the user for
+approval of that shared write. Keep setup-specific findings in personal memory
+or the current analysis.
 
 Use `save-memory` for other verified, durable personal Analytics knowledge,
 with a short actionable description; read the existing entry first when
@@ -215,7 +232,8 @@ finding is uncertain or only applies to the current analysis, leave it in the
 answer instead of creating a memory.
 
 For entries not suitable for personal memory, use the project `LEARNINGS.md`
-only when it contains genuinely reusable, non-sensitive guidance:
+only after the user approves that shared write and when it contains genuinely
+reusable, non-sensitive guidance:
 
 ```
 resources(action: "read", path: "LEARNINGS.md")  -- read first to merge

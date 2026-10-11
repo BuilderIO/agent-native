@@ -15,6 +15,7 @@ import {
   mergeListedAutomationDraft,
   omitNullDestination,
   persistAuthorFilter,
+  requiresSlackFindingsDestination,
   type AutomationEditorSnapshot,
 } from "./factory-automation-form";
 
@@ -94,6 +95,55 @@ describe("factory-automation-form destination gating", () => {
     ).toBe(false);
   });
 
+  it("routes grouped GitHub and Sentry findings to the fixed QA channel", () => {
+    expect(requiresSlackFindingsDestination("github", "github-issues")).toBe(
+      true,
+    );
+    expect(requiresSlackFindingsDestination("sentry", "sentry-errors")).toBe(
+      true,
+    );
+    expect(requiresSlackFindingsDestination("github", "pr-governance")).toBe(
+      false,
+    );
+    expect(requiresSlackFindingsDestination("github", "pr-babysit")).toBe(
+      false,
+    );
+
+    const github = {
+      ...emptyAutomationForm("github"),
+      template: "github-issues" as const,
+      displayName: "Issue triage",
+      repository: "BuilderIO/agent-native",
+    };
+    expect(isDestinationFilled(github)).toBe(true);
+    expect(canCreateFactoryAutomation({ ...github, enabled: false })).toBe(
+      true,
+    );
+    expect(
+      canCreateFactoryAutomation({ ...github, enabled: true }, connected),
+    ).toBe(true);
+    expect(
+      canCreateFactoryAutomation(
+        { ...github, enabled: true },
+        { ...connected, slack: false },
+      ),
+    ).toBe(false);
+    expect(
+      isDestinationReady("github", connected, "primary", "github-issues"),
+    ).toBe(true);
+    expect(
+      isDestinationReady(
+        "github",
+        { ...connected, slack: false },
+        "primary",
+        "github-issues",
+      ),
+    ).toBe(false);
+    expect(
+      isDestinationReady("github", connected, "secondary", "github-issues"),
+    ).toBe(true);
+  });
+
   it("treats an unknown connections payload as not explicitly missing", () => {
     expect(isConnectorExplicitlyMissing("slack")).toBe(false);
     expect(isConnectorExplicitlyMissing("slack", disconnected)).toBe(true);
@@ -165,7 +215,7 @@ describe("factory-automation-form destination gating", () => {
     expect(omitNullDestination("")).toBe("");
   });
 
-  it("points workspace connect at Dispatch admin integrations", () => {
+  it("points workspace connect at Dispatch Settings integrations", () => {
     expect(
       dispatchIntegrationsHref([
         {
@@ -174,7 +224,7 @@ describe("factory-automation-form destination gating", () => {
           href: "https://beta.dispatch.agent-native.com/overview",
         },
       ]),
-    ).toBe("https://beta.dispatch.agent-native.com/admin/integrations");
+    ).toBe("https://beta.dispatch.agent-native.com/settings/integrations");
     expect(
       dispatchIntegrationsHref([
         {
@@ -183,13 +233,15 @@ describe("factory-automation-form destination gating", () => {
           url: "https://beta.dispatch.agent-native.com/overview",
         },
       ]),
-    ).toBe("https://beta.dispatch.agent-native.com/admin/integrations");
-    expect(dispatchIntegrationsHref([])).toBe("/dispatch/admin/integrations");
+    ).toBe("https://beta.dispatch.agent-native.com/settings/integrations");
+    expect(dispatchIntegrationsHref([])).toBe(
+      "/dispatch/settings/integrations",
+    );
     expect(
       dispatchIntegrationsHref([
         { id: "dispatch", isDispatch: true, path: "/dispatch" },
       ]),
-    ).toBe("/dispatch/admin/integrations");
+    ).toBe("/dispatch/settings/integrations");
   });
 });
 

@@ -209,6 +209,34 @@ describe("EditorSidebar thumbnail scroll cue", () => {
   });
 });
 
+describe("full-width filmstrip", () => {
+  it("numbers each slide beside its thumbnail, not on it", () => {
+    const slides: Slide[] = [
+      { id: "slide-1", content: "<div />", notes: "", layout: "content" },
+      { id: "slide-2", content: "<div />", notes: "", layout: "content" },
+    ];
+    const { container } = render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-1"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+      />,
+    );
+
+    expect(container.firstElementChild?.className).toContain("w-48");
+    expect(
+      container.querySelector(
+        '[data-slide-thumbnail-id="slide-2"] [data-slide-thumbnail-frame]',
+      )?.textContent,
+    ).not.toContain("2");
+  });
+});
+
 describe("slide thumbnail selection", () => {
   const slideIds = ["slide-1", "slide-2", "slide-3", "slide-4"];
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,15 +12,20 @@ async function resetAppConfig(): Promise<void> {
 describe("PGlite dev reloads", () => {
   const processState = process as NodeJS.Process & {
     __agentNativePgliteClients?: Map<string, Promise<unknown>>;
+    __agentNativePgliteClientsPendingClose?: Map<string, { client: unknown }>;
     __agentNativePgliteProcessLocks?: Map<string, unknown>;
     __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   };
   let dataDir = "";
 
   afterEach(async () => {
-    const { closePgliteClients } = await import("./client.js");
+    const { closePgliteClients, resumePgliteClientAccess } =
+      await import("./client.js");
     await closePgliteClients();
+    resumePgliteClientAccess();
+    vi.unstubAllEnvs();
     delete processState.__agentNativePgliteClients;
+    delete processState.__agentNativePgliteClientsPendingClose;
     delete processState.__agentNativePgliteProcessLocks;
     delete processState.__agentNativePgliteProcessExitCleanupRegistered;
     vi.doUnmock("@electric-sql/pglite");
@@ -72,6 +77,124 @@ describe("PGlite dev reloads", () => {
     expect(reloaded).toBe(first);
     expect(create).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the process lock until an interrupted PGlite client closes", async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-stale-client-"));
+    let resolveCreate: ((client: unknown) => void) | undefined;
+    const create = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const client = {
+      close: vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("close still draining"))
+        .mockResolvedValue(undefined),
+    };
+    vi.doMock("@electric-sql/pglite", () => ({ PGlite: { create } }));
+
+    const {
+      beginPgliteClientShutdown,
+      closePgliteClients,
+      getPgliteClient,
+      resumePgliteClientAccess,
+    } = await import("./client.js");
+    const lockPath = `${dataDir}.agent-native-pglite.lock`;
+    const opening = getPgliteClient(`pglite:${dataDir}`);
+    try {
+      await vi.waitFor(() => expect(create).toHaveBeenCalledOnce());
+      expect(existsSync(lockPath)).toBe(true);
+
+      beginPgliteClientShutdown();
+      resolveCreate?.(client);
+      await expect(opening).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "could not close after its initialization was interrupted",
+        ),
+        statusCode: 503,
+        statusMessage: "Service Unavailable",
+      });
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(existsSync(lockPath)).toBe(true);
+
+      resumePgliteClientAccess();
+      await expect(getPgliteClient(`pglite:${dataDir}`)).rejects.toMatchObject({
+        message: expect.stringContaining(
+          "could not close during the previous database lifecycle",
+        ),
+        statusCode: 503,
+        statusMessage: "Service Unavailable",
+      });
+      await closePgliteClients();
+
+      expect(client.close).toHaveBeenCalledTimes(2);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      resolveCreate?.(client);
+      await Promise.allSettled([opening]);
+      resumePgliteClientAccess();
+      await closePgliteClients();
+    }
+  });
+
+  it.each(["execute", "transaction", "atomicBatch"] as const)(
+    "rejects a retained database proxy during %s when shutdown wins its initialization continuation",
+    async (method) => {
+      vi.stubEnv("DATABASE_URL", "pglite:memory");
+      vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL", "");
+      vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+
+      const client = {
+        query: vi.fn(async () => ({ rows: [] })),
+        close: vi.fn(async () => {}),
+      };
+      vi.doMock("@electric-sql/pglite", () => ({
+        PGlite: { create: vi.fn(async () => client) },
+      }));
+
+      const {
+        beginPgliteClientShutdown,
+        closeDbExec,
+        getDbExec,
+        resumePgliteClientAccess,
+        waitForPgliteClientOperations,
+      } = await import("./client.js");
+      const retainedProxy = getDbExec();
+
+      try {
+        await getDbExec().execute("SELECT 1");
+
+        const closing = Promise.resolve().then(async () => {
+          beginPgliteClientShutdown();
+          await waitForPgliteClientOperations();
+          await closeDbExec();
+        });
+        const staleOperation = Promise.resolve().then(() => {
+          if (method === "execute") return retainedProxy.execute("SELECT 2");
+          if (method === "transaction") {
+            return retainedProxy.transaction!(async () => undefined);
+          }
+          return retainedProxy.atomicBatch!(["SELECT 2"]);
+        });
+
+        await expect(staleOperation).rejects.toMatchObject({
+          message:
+            "PGlite access is paused while the development server restarts.",
+          statusCode: 503,
+          statusMessage: "Service Unavailable",
+        });
+        await expect(closing).resolves.toBeUndefined();
+        expect(client.query).toHaveBeenCalledTimes(1);
+        expect(client.close).toHaveBeenCalledOnce();
+      } finally {
+        resumePgliteClientAccess();
+        await closeDbExec();
+      }
+    },
+  );
 });
 
 describe("db/client Postgres URL handling", () => {
@@ -602,6 +725,8 @@ describe("pgliteDataDirFromUrl", () => {
     expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
     expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
     expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:memory:")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:/memory:")).toBe("memory://");
     expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
   });
 
@@ -1799,6 +1924,7 @@ describe("Neon foreground statement budgets", () => {
   });
 
   it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.stubEnv("NETLIFY", "true");
     const query = vi.fn(async (sql: string, args?: unknown[]) => {
       if (sql.includes(";") && args !== undefined) {
@@ -2213,6 +2339,76 @@ describe("db/client shared connection pools", () => {
       end: async () => {},
     });
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+  });
+});
+
+describe("db/client postgres-js request pool recovery", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.doUnmock("postgres");
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+    vi.resetModules();
+  });
+
+  it("keeps the shared facade stable after a request pool times out", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+    vi.stubGlobal("__env__", {});
+
+    const pools: any[] = [];
+    const postgres = vi.fn(() => {
+      const pool: any = Object.assign(() => undefined, { closed: false });
+      pool.unsafe = vi.fn((query: string) => {
+        if (pools.length === 1 && query === "SELECT 1") {
+          return new Promise(() => {});
+        }
+        if (pool.closed) {
+          return Promise.reject(
+            Object.assign(new Error("pool is closed"), {
+              code: "CONNECTION_CLOSED",
+            }),
+          );
+        }
+        return Promise.resolve(Object.assign([{ query }], { count: 1 }));
+      });
+      pool.end = vi.fn(async () => {
+        pool.closed = true;
+      });
+      pools.push(pool);
+      return pool;
+    });
+    vi.doMock("postgres", () => ({ default: postgres }));
+
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    await expect(
+      runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().execute({ sql: "SELECT 1", timeoutMs: 25, maxAttempts: 1 }),
+      ),
+    ).rejects.toMatchObject({ code: "CONNECT_TIMEOUT" });
+
+    expect(pools).toHaveLength(2);
+    expect(pools[0].end).toHaveBeenCalledOnce();
+    expect(pools[1].end).toHaveBeenCalledOnce();
+
+    await expect(
+      runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().execute({ sql: "SELECT 2", maxAttempts: 1 }),
+      ),
+    ).resolves.toMatchObject({ rows: [{ query: "SELECT 2" }] });
+
+    expect(pools).toHaveLength(3);
+    expect(pools[1].unsafe).not.toHaveBeenCalled();
+    expect(pools[2].unsafe).toHaveBeenCalledOnce();
   });
 });
 

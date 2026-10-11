@@ -127,6 +127,7 @@ export function isTrustedBuilderMessage(event: MessageEvent): boolean {
 export interface BuilderChatMessage {
   message: string;
   context?: string;
+  contextLabel?: string;
   submit?: boolean;
   mode?: "act" | "plan";
   requestMode?: "act" | "plan";
@@ -142,6 +143,7 @@ export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
     data: {
       message: opts.message,
       context: opts.context,
+      ...(opts.contextLabel ? { contextLabel: opts.contextLabel } : {}),
       submit: opts.submit,
       ...(opts.mode ? { mode: opts.mode } : {}),
       ...(opts.requestMode ? { requestMode: opts.requestMode } : {}),

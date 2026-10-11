@@ -1132,8 +1132,8 @@ export function ComponentSection({
           <InspectorGridCell span={8}>
             <InspectorActionRail>
               {/* Instance operations: Go to main component / Swap instance /
-            Detach instance (Figma's instance-only affordances). Inline/Alpine
-            designs only — the underlying actions fail closed for real-app
+            Detach instance. These operations apply to inline/Alpine designs
+            only — the underlying actions fail closed for real-app
             sources, so hide them entirely there rather than show a
             perpetually-disabled button. */}
               {isInline && !data.isMain && (

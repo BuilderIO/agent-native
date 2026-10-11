@@ -132,9 +132,10 @@ export async function enableFeatureFlag(
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
-const E2E_BASE_URL = process.env.E2E_BASE_URL;
+const E2E_BASE_URL =
+  process.env.E2E_BASE_URL ??
+  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
 const E2E_BASE_PATH = (() => {
-  if (!E2E_BASE_URL) return "";
   try {
     return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
   } catch {
@@ -144,14 +145,11 @@ const E2E_BASE_PATH = (() => {
 
 export function appPath(path: string): string {
   const route = new URL(path, "http://agent-native.local");
-  if (E2E_BASE_URL && E2E_BASE_PATH) {
-    const url = new URL(E2E_BASE_URL);
-    url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
-    url.search = route.search;
-    url.hash = route.hash;
-    return url.toString();
-  }
-  return `${route.pathname}${route.search}${route.hash}`;
+  const url = new URL(E2E_BASE_URL);
+  url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
+  url.search = route.search;
+  url.hash = route.hash;
+  return url.toString();
 }
 
 function activeScreenTargetFromUrl(page: Page): string | undefined {
@@ -397,7 +395,7 @@ async function waitForDesignBridgeReady(page: Page): Promise<void> {
 
 export async function enterDirectMode(
   page: Page,
-  _options?: { screenId?: string },
+  _options?: { screenId?: string; waitForBridgeReady?: boolean },
 ): Promise<void> {
   const screenId = _options?.screenId ?? activeScreenTargetFromUrl(page);
   const allScreens = page
@@ -417,6 +415,50 @@ export async function enterDirectMode(
       .locator('[data-agent-native-edit-overlay="shield"]')
       .first(),
   ).toBeAttached({ timeout: 15_000 });
+  if (_options?.waitForBridgeReady) {
+    await page.evaluate(
+      (selector) =>
+        new Promise<void>((resolve, reject) => {
+          const frame = document.querySelector<HTMLIFrameElement>(selector);
+          const source = frame?.contentWindow;
+          if (!source) {
+            reject(
+              new Error(
+                `Screen iframe not available for bridge probe: ${selector}`,
+              ),
+            );
+            return;
+          }
+          let timeoutId: number | undefined;
+          const onMessage = (event: MessageEvent) => {
+            if (
+              event.source !== source ||
+              (event.data as { type?: string } | null)?.type !==
+                "agent-native:editor-chrome-ready"
+            ) {
+              return;
+            }
+            if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+            window.removeEventListener("message", onMessage);
+            resolve();
+          };
+          window.addEventListener("message", onMessage);
+          timeoutId = window.setTimeout(() => {
+            window.removeEventListener("message", onMessage);
+            reject(
+              new Error(
+                `Screen editor bridge did not respond to probe: ${selector}`,
+              ),
+            );
+          }, 15_000);
+          source.postMessage(
+            { type: "agent-native:editor-chrome-ready-probe" },
+            "*",
+          );
+        }),
+      screenFrameSelector(screenId),
+    );
+  }
 }
 
 export async function enterInteractView(
@@ -505,13 +547,15 @@ export async function waitForBridge(
   page: Page,
   type: string,
   timeout = 15_000,
+  options?: { phase?: string },
 ): Promise<any> {
   const handle = await page.waitForFunction(
-    (t) =>
+    ({ t, phase }) =>
       [...((window as any).__bridge ?? [])]
         .reverse()
-        .find((m: any) => m.type === t) ?? null,
-    type,
+        .find((m: any) => m.type === t && (!phase || m.phase === phase)) ??
+      null,
+    { t: type, phase: options?.phase },
     { timeout },
   );
   return handle.jsonValue();
@@ -520,11 +564,29 @@ export async function waitForBridge(
 export async function selectByText(
   page: Page,
   text: string,
-  options?: { screenId?: string },
+  options?: {
+    screenId?: string;
+    clearPreviousSelection?: boolean;
+  },
 ): Promise<any> {
   const screenId = options?.screenId ?? activeScreenTargetFromUrl(page);
-  await enterDirectMode(page, { screenId });
+  await enterDirectMode(page, {
+    screenId,
+    waitForBridgeReady: true,
+  });
   await installBridge(page);
+  if (options?.clearPreviousSelection) {
+    await page
+      .locator(screenFrameSelector(screenId))
+      .evaluate((frame: HTMLIFrameElement) => {
+        frame.contentWindow?.postMessage({ type: "clear-selection" }, "*");
+      });
+    await expect(
+      designFrame(page, screenId)
+        .locator('[data-agent-native-edit-overlay="selection"]')
+        .first(),
+    ).toHaveCSS("display", "none");
+  }
   const target = await selectableNodeByText(page, text, screenId);
   await target.waitFor({ state: "visible", timeout: 8_000 });
   const box = await target.boundingBox();

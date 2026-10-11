@@ -207,6 +207,8 @@ const {
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
+const { createProviderApiRequestAction } =
+  await import("./actions/provider-api.js");
 import type { ProviderApiRequestArgs } from "./index.js";
 
 beforeEach(() => {
@@ -373,6 +375,97 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     _rowStore.clear();
     _resetInitPromiseForTests();
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    { status: 200, laterPage: false, code: "provider_api_rejected" },
+    { status: 503, laterPage: false, code: "http_503" },
+    { status: 200, laterPage: true, code: "provider_api_rejected" },
+    { status: 503, laterPage: true, code: "http_503" },
+  ])(
+    "rejects failed staged provider pages: %j",
+    async ({ status, laterPage, code }) => {
+      const executeRequest = vi.fn();
+      if (laterPage) {
+        executeRequest.mockResolvedValueOnce({
+          response: {
+            ok: true,
+            status: 200,
+            json: { data: [{ id: "first" }], next_cursor: "second" },
+          },
+        });
+      }
+      executeRequest.mockResolvedValue({
+        response: { ok: false, status, json: { error: "provider_rejected" } },
+      });
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+      );
+      await expect(
+        action.run({
+          provider: "example",
+          path: "/records",
+          stageAs: "failed_pages",
+          pagination: { nextCursorPath: "next_cursor", cursorParam: "cursor" },
+        }),
+      ).rejects.toMatchObject({
+        errorCode: code,
+        statusCode: status >= 400 ? status : 400,
+      });
+      expect(executeRequest).toHaveBeenCalledTimes(laterPage ? 2 : 1);
+      expect(_metaStore.size).toBe(0);
+      expect(_rowStore.size).toBe(0);
+    },
+  );
+
+  it("preserves a quota cooldown code without retrying or staging", async () => {
+    const executeRequest = vi.fn(async () => ({
+      response: {
+        ok: false,
+        status: 429,
+        json: { error: "provider_quota_exhausted" },
+      },
+    }));
+    const action = createProviderApiRequestAction(
+      { executeRequest },
+      { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+    );
+    await expect(
+      action.run({ provider: "example", path: "/records", stageAs: "quota" }),
+    ).rejects.toMatchObject({ errorCode: "http_429", statusCode: 429 });
+    expect(executeRequest).toHaveBeenCalledTimes(1);
+    expect(_metaStore.size).toBe(0);
+  });
+
+  it("preserves the exhausted retry code after six rate-limited attempts", async () => {
+    vi.useFakeTimers();
+    try {
+      const executeRequest = vi.fn(async () => ({
+        response: {
+          ok: false,
+          status: 429,
+          headers: { "retry-after": "0.01" },
+        },
+      }));
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+      );
+      const rejected = expect(
+        action.run({
+          provider: "example",
+          path: "/records",
+          stageAs: "rate_limited",
+        }),
+      ).rejects.toMatchObject({ errorCode: "http_429", statusCode: 429 });
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(executeRequest).toHaveBeenCalledTimes(6);
+      expect(_metaStore.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fetches two pages via cursor and stages combined rows", async () => {
@@ -545,6 +638,10 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
 
     expect(caughtError).not.toBeNull();
     expect(caughtError!.message).toMatch(/429/);
+    expect(caughtError).toMatchObject({
+      errorCode: "http_429",
+      statusCode: 429,
+    });
 
     vi.useRealTimers();
   });

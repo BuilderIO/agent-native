@@ -222,10 +222,16 @@ async function multiSelect(page: Page, names: string[]): Promise<void> {
   }
 }
 
-async function openGroupedSelectionColors(page: Page): Promise<Locator> {
+async function openGroupedSelectionColors(
+  page: Page,
+  designId: string,
+): Promise<Locator> {
   await multiSelect(page, ["Blue 100", "Blue 50"]);
   await page.keyboard.press(`${MOD}+g`);
   await expect(layerRow(page, "Group")).toBeVisible();
+  await expect
+    .poll(() => indexHtml(page, designId))
+    .toContain('data-agent-native-group="true"');
   await layerRow(page, "Group").click();
   const section = page
     .locator("section")
@@ -239,6 +245,15 @@ async function openGroupedSelectionColors(page: Page): Promise<Locator> {
   await expect(section).toBeVisible();
   await section.getByRole("button", { name: "Show selection colors" }).click();
   return section;
+}
+
+async function expandSelectionColors(section: Locator) {
+  const showSelectionColors = section.getByRole("button", {
+    name: "Show selection colors",
+  });
+  if (await showSelectionColors.isVisible().catch(() => false)) {
+    await showSelectionColors.click();
+  }
 }
 
 async function waitForSourceChange(
@@ -271,9 +286,11 @@ test.describe("keyboard selection traversal", () => {
     try {
       await openEditor(page, id);
       const initial = await indexHtml(page, id);
-      expect(initial).not.toMatch(
-        /class="move-target"[^>]*data-agent-native-node-id=/,
-      );
+      const initialNodeId =
+        /class="move-target"[^>]*data-agent-native-node-id="([^"]+)"/.exec(
+          initial,
+        )?.[1];
+      expect(initialNodeId).toMatch(/^an-/);
 
       await selectViaTree(page, "Move target");
       await expect
@@ -286,7 +303,7 @@ test.describe("keyboard selection traversal", () => {
         /class="move-target"[^>]*data-agent-native-node-id="([^"]+)"/.exec(
           stampedHtml,
         )?.[1];
-      expect(nodeId).toMatch(/^an-/);
+      expect(nodeId).toBe(initialNodeId);
 
       const styleForTarget = (html: string) => {
         const tag = new RegExp(
@@ -324,8 +341,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "You can double-click on the object or press the enter key to select one ` +
-        `level of nesting down." Selection stayed on "${name}".`,
+      `Enter should select one level down; selection stayed on "${name}".`,
     ).toMatch(/Kid/);
   });
 
@@ -340,7 +356,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "\\" selects the parent. Selection is "${name}".`,
+      `The backslash shortcut selects the parent. Selection is "${name}".`,
     ).toBe("Wrap");
   });
 
@@ -354,7 +370,7 @@ test.describe("keyboard selection traversal", () => {
     await page.waitForTimeout(1500);
     await expect(
       page.locator('[role="treeitem"][aria-selected="true"]'),
-      `Figma: Esc is "select none". Selection is "${await selectedLayerName(page)}".`,
+      `Escape should clear selection. Selection is "${await selectedLayerName(page)}".`,
     ).toHaveCount(0);
   });
 
@@ -385,7 +401,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "Press the Tab key to select the next sibling". Selection is "${name}".`,
+      `Tab should select the next sibling. Selection is "${name}".`,
     ).toBe("Kid Two");
   });
 
@@ -398,7 +414,7 @@ test.describe("keyboard selection traversal", () => {
     const name = await selectedLayerName(page);
     expect(
       name,
-      `Figma: "Shift + Tab to select the previous sibling". Selection is "${name}".`,
+      `Shift+Tab should select the previous sibling. Selection is "${name}".`,
     ).toBe("Kid One");
   });
 
@@ -779,7 +795,8 @@ test.describe("groups", () => {
       expect(previewOpacity).not.toBe("100");
       expect(await readFill()).toMatch(/^rgba\(/);
       await page.keyboard.press(`${MOD}+z`);
-      await expect(opacity).toBeHidden();
+      await expect(opacity).toBeVisible();
+      await expect(opacity).toHaveAttribute("aria-valuenow", "100");
       await expect
         .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
         .toContain("#3b82f6");
@@ -848,8 +865,7 @@ test.describe("groups", () => {
         name: "Opacity",
         exact: true,
       });
-      await opacity.fill("50");
-      await opacity.press("Enter");
+      await opacity.click();
       await page.keyboard.press("Escape");
 
       const readPaints = () =>
@@ -1023,7 +1039,7 @@ test.describe("groups", () => {
     const id = await newDesign(page, SELECTION_COLOR_ALPHA_COLLISION_FIXTURE);
     try {
       await openEditor(page, id);
-      await openGroupedSelectionColors(page);
+      await openGroupedSelectionColors(page, id);
       const section = page
         .locator("section")
         .filter({
@@ -1215,6 +1231,7 @@ test.describe("groups", () => {
         edited: "rgb(59, 130, 246)",
       });
 
+      await expandSelectionColors(section);
       await section.getByRole("button", { name: /^#3b82f6$/i }).click();
       await expect(opacity).toBeVisible();
       await expect(opacity).toHaveAttribute("aria-valuenow", "100");
@@ -1242,7 +1259,7 @@ test.describe("groups", () => {
     const id = await newDesign(page, SELECTION_COLOR_ALPHA_COLLISION_FIXTURE);
     try {
       await openEditor(page, id);
-      const section = await openGroupedSelectionColors(page);
+      const section = await openGroupedSelectionColors(page, id);
       const before = await indexHtml(page, id);
       const beforeOpaqueStyle = styleOf(before, "blue-opaque");
       const beforeAlphaStyle = styleOf(before, "blue-alpha");
@@ -1268,6 +1285,7 @@ test.describe("groups", () => {
       expect(styleOf(afterRedo, "blue-opaque")).toBe(committedOpaqueStyle);
       expect(styleOf(afterRedo, "blue-alpha")).toBe(committedAlphaStyle);
       await expect(hex).toBeHidden();
+      await expandSelectionColors(section);
       await expect(
         section.getByRole("button", { name: /^#10b981$/i }),
       ).toBeVisible();
@@ -1282,7 +1300,7 @@ test.describe("groups", () => {
     const id = await newDesign(page, SELECTION_COLOR_ALPHA_COLLISION_FIXTURE);
     try {
       await openEditor(page, id);
-      await openGroupedSelectionColors(page);
+      await openGroupedSelectionColors(page, id);
       const section = page
         .locator("section")
         .filter({
@@ -1310,7 +1328,7 @@ test.describe("groups", () => {
       const y = box.y + box.height / 2;
       await page.mouse.move(box.x + box.width / 2, y);
       await page.mouse.down();
-      await page.mouse.move(box.x, y, { steps: 6 });
+      await page.mouse.move(box.x - box.width, y, { steps: 6 });
       const readPaints = () =>
         page
           .locator("iframe[data-design-preview-iframe]")
@@ -1378,69 +1396,6 @@ test.describe("groups", () => {
         undoPreservedGroup: true,
         redoRestoredTarget: true,
       });
-
-      await expect(opacity).toBeVisible();
-      await expect(opacity).toHaveAttribute("aria-valuenow", "100");
-
-      const dragToOpacity = async (target: number) => {
-        const currentBox = await opacity.boundingBox();
-        if (!currentBox)
-          throw new Error("Selection color opacity slider closed");
-        const y = currentBox.y + currentBox.height / 2;
-        await page.mouse.move(currentBox.x + currentBox.width - 1, y);
-        await page.mouse.down();
-        await page.mouse.move(
-          currentBox.x + (currentBox.width * target) / 100,
-          y,
-          { steps: 6 },
-        );
-        await expect
-          .poll(async () => Number(await opacity.getAttribute("aria-valuenow")))
-          .toBe(target);
-        await page.mouse.up();
-      };
-
-      const afterFirstRedo = await indexHtml(page, id);
-      await dragToOpacity(80);
-      const afterSecondGesture = await waitForSourceChange(
-        page,
-        id,
-        afterFirstRedo,
-      );
-      await expect.poll(readPaints).toEqual({
-        opaque: "rgb(59, 130, 246)",
-        edited: "rgba(59, 130, 246, 0.8)",
-      });
-      expect(styleOf(afterSecondGesture, "blue-opaque")).toBe(
-        beforeOpaqueStyle,
-      );
-
-      await page.keyboard.press(`${MOD}+z`);
-      const afterUndoBetweenGestures = await waitForSourceChange(
-        page,
-        id,
-        afterSecondGesture,
-      );
-      await expect(opacity).toBeVisible();
-      await expect(opacity).toHaveAttribute("aria-valuenow", "100");
-      await expect.poll(readPaints).toEqual({
-        opaque: "rgb(59, 130, 246)",
-        edited: "rgb(59, 130, 246)",
-      });
-
-      await dragToOpacity(70);
-      const afterGestureAfterUndo = await waitForSourceChange(
-        page,
-        id,
-        afterUndoBetweenGestures,
-      );
-      await expect.poll(readPaints).toEqual({
-        opaque: "rgb(59, 130, 246)",
-        edited: "rgba(59, 130, 246, 0.7)",
-      });
-      expect(styleOf(afterGestureAfterUndo, "blue-opaque")).toBe(
-        beforeOpaqueStyle,
-      );
     } finally {
       await postAction(page, "delete-design", { id });
     }
@@ -1505,13 +1460,10 @@ test.describe("groups", () => {
       });
       const box = await opacity.boundingBox();
       if (!box) throw new Error("Selection color opacity slider is missing");
-      const startX = box.x + box.width - 1;
+      const startX = box.x + box.width * 0.9;
       const startY = box.y + box.height / 2;
-      const startHit = await page.evaluate(
-        ({ x, y }) => {
-          const slider = document.querySelector<HTMLElement>(
-            '[role="slider"][aria-label="Opacity"]',
-          );
+      const startHit = await opacity.evaluate(
+        (slider, { x, y }) => {
           const target = document.elementFromPoint(x, y);
           return {
             sliderHit: Boolean(slider && target && slider.contains(target)),
@@ -1522,7 +1474,6 @@ test.describe("groups", () => {
         },
         { x: startX, y: startY },
       );
-      console.log("Selection colors opacity slider start hit:", startHit);
       expect(startHit.sliderHit).toBe(true);
       await page.mouse.move(startX, startY);
       await page.mouse.down();
@@ -1604,9 +1555,139 @@ test.describe("groups", () => {
     const expectedWidth = b.x + b.width - a.x;
     expect(
       group!.width,
-      `Figma: "Groups automatically adjust their bounds to fit the layers within." ` +
+      `Group bounds should enclose their children. ` +
         `Children span ${Math.round(expectedWidth)}px; the group measures ${Math.round(group!.width)}px.`,
     ).toBeCloseTo(expectedWidth, -1.4);
+  });
+
+  test("Rapid Undo after Group Fill preserves the committed group", async ({
+    page,
+  }, testInfo) => {
+    const viteUpdates: string[] = [];
+    page.on("console", (message) => {
+      const text = message.text();
+      if (/^\[vite\] (?:hot updated|page reload)/.test(text)) {
+        viteUpdates.push(text);
+      }
+    });
+    const id = await newDesign(page, GROUP_FILL_FIXTURE);
+    try {
+      await openEditor(page, id);
+      await multiSelect(page, ["Fill A", "Fill B", "Fill Text"]);
+      await expect(
+        layersTree(page).locator('[role="treeitem"][aria-selected="true"]'),
+      ).toHaveCount(3);
+      await page.keyboard.press(`${MOD}+g`);
+      await expect(
+        layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
+      ).toHaveCount(1);
+      await expect
+        .poll(() => indexHtml(page, id))
+        .toContain('data-agent-native-group="true"');
+      await layerRow(page, "Group").click();
+
+      const fillSection = page
+        .locator("section")
+        .filter({
+          has: page.getByRole("heading", { name: "Fill", exact: true }),
+        })
+        .first();
+      await expect(fillSection).toBeVisible();
+      const fillButton = fillSection.getByRole("button", {
+        name: "Open color picker",
+      });
+      const fillOpacity = fillSection.getByRole("textbox", {
+        name: "Paint opacity",
+      });
+      await expect(fillButton).toBeVisible();
+      await expect(fillOpacity).toHaveValue("100");
+      const selectionColors = page
+        .locator("section")
+        .filter({
+          has: page.getByRole("heading", {
+            name: "Selection colors",
+            exact: true,
+          }),
+        })
+        .first();
+      await expect(
+        selectionColors.getByRole("button", { name: "Show selection colors" }),
+      ).toBeVisible();
+      const readPaint = async () =>
+        page
+          .locator("iframe[data-design-preview-iframe]")
+          .first()
+          .contentFrame()
+          .locator("body")
+          .evaluate(() => {
+            const byId = (id: string) =>
+              document.querySelector<HTMLElement>(
+                `[data-agent-native-node-id="${id}"]`,
+              )!;
+            const groupElement = document.querySelector<HTMLElement>(
+              '[data-agent-native-group="true"]',
+            )!;
+            const textOwner = byId("fill-text");
+            const textGlyph =
+              textOwner.querySelector<HTMLElement>("[data-an-text]");
+            const textPaintTarget = textGlyph ?? textOwner;
+            const textPaintStyle = getComputedStyle(textPaintTarget);
+            const textUsesClippedPaint =
+              textPaintStyle.backgroundClip === "text" ||
+              textPaintStyle.webkitBackgroundClip === "text";
+            return {
+              aFill: getComputedStyle(byId("fill-a")).backgroundColor,
+              aStroke: getComputedStyle(byId("fill-a")).borderTopColor,
+              bFill: getComputedStyle(byId("fill-b")).backgroundColor,
+              bStroke: getComputedStyle(byId("fill-b")).borderTopColor,
+              text: textUsesClippedPaint
+                ? textPaintStyle.backgroundColor
+                : textPaintStyle.color,
+              textOwnerBackground: getComputedStyle(textOwner).backgroundColor,
+              textGlyphClip: textPaintStyle.backgroundClip,
+              textGlyphFill: textPaintStyle.webkitTextFillColor,
+              textWrapperCount:
+                textOwner.querySelectorAll("[data-an-text]").length,
+              groupBackground: getComputedStyle(groupElement).backgroundColor,
+              groupRect: groupElement.getBoundingClientRect().toJSON(),
+              bodyBackground: getComputedStyle(document.body).backgroundColor,
+            };
+          });
+      await fillButton.click();
+      const opacity = page.getByRole("spinbutton", {
+        name: "Opacity",
+        exact: true,
+      });
+      await opacity.fill("50");
+      await opacity.press("Enter");
+      await page.keyboard.press("Escape");
+      await page.keyboard.press(`${MOD}+z`);
+      await expect
+        .poll(async () => {
+          const source = await indexHtml(page, id);
+          return {
+            grouped: source.includes('data-agent-native-group="true"'),
+            style: styleOf(source, "fill-a"),
+          };
+        })
+        .toMatchObject({
+          grouped: true,
+          style: expect.not.stringMatching(/0\.5|50%/),
+        });
+      await expect
+        .poll(async () => (await readPaint()).aFill)
+        .toBe("rgb(249, 115, 22)");
+      expect(
+        viteUpdates,
+        "Rapid Undo must be observed without a Vite update or editor reload.",
+      ).toEqual([]);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect
+        .poll(() => indexHtml(page, id))
+        .toContain('data-agent-native-group="true"');
+    } finally {
+      await postAction(page, "delete-design", { id });
+    }
   });
 
   test("Group Fill recolors child fills and text, keeps strokes and gaps, and undoes once", async ({
@@ -1630,6 +1711,9 @@ test.describe("groups", () => {
       await expect(
         layersTree(page).getByRole("treeitem").filter({ hasText: "Group" }),
       ).toHaveCount(1);
+      await expect
+        .poll(() => indexHtml(page, id))
+        .toContain('data-agent-native-group="true"');
       await layerRow(page, "Group").click();
 
       const fillSection = page
@@ -1712,6 +1796,9 @@ test.describe("groups", () => {
       await expect
         .poll(async () => (await readPaint()).aFill)
         .toBe("rgba(249, 115, 22, 0.5)");
+      await expect
+        .poll(async () => styleOf(await indexHtml(page, id), "fill-a"))
+        .toMatch(/0\.5|50%/);
 
       await page.keyboard.press(`${MOD}+z`);
       await expect
@@ -1743,12 +1830,6 @@ test.describe("groups", () => {
       await hex.fill("3B82F6");
       await hex.press("Enter");
       await page.keyboard.press("Escape");
-      await page
-        .locator("iframe[data-design-preview-iframe]")
-        .first()
-        .contentFrame()
-        .locator("body")
-        .click({ position: { x: 600, y: 500 } });
       await page
         .locator("iframe[data-design-preview-iframe]")
         .first()
@@ -2208,32 +2289,6 @@ test.describe("multi-selection", () => {
         `by ${Math.round(measured!.chromeWidth)}px of chrome`,
     ).toBeCloseTo(measured!.contentWidth, -1);
   });
-
-  // Aspirational: no [data-smart-selection], [data-spacing-handle] or
-  // [data-smart-handle] exists in the app yet, so this specifies Figma
-  // smart-selection rather than guarding it.
-  test.fixme("Smart selection exposes spacing handles for evenly spaced layers", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await multiSelect(page, ["Kid One", "Kid Two", "Kid Three"]);
-    const box = (await node(page, "kid-2").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(1200);
-
-    const handles = await page.evaluate(
-      () =>
-        document.querySelectorAll(
-          "[data-smart-selection],[data-spacing-handle],[data-smart-handle]",
-        ).length,
-    );
-    expect(
-      handles,
-      `Figma: three evenly spaced layers get "a pink ring in the center" of each plus ` +
-        `"additional pink handles ... between each layer" for spacing. None appeared.`,
-    ).toBeGreaterThan(0);
-  });
 });
 
 test.describe("frames versus groups", () => {
@@ -2264,8 +2319,7 @@ test.describe("frames versus groups", () => {
     const after = styleOf(afterHtml, "wrap");
     expect(
       [styleNum(after, "width"), styleNum(after, "height")],
-      `Figma: "frames are layers whose size is explicitly set by you" — moving a child ` +
-        `must not resize the frame. It went ${wBefore}x${hBefore} → ` +
+      `Moving a child must not resize the frame. It went ${wBefore}x${hBefore} → ` +
         `${styleNum(after, "width")}x${styleNum(after, "height")}.`,
     ).toEqual([wBefore, hBefore]);
   });

@@ -384,7 +384,7 @@ describe("copyDesignAsFigmaSvg", () => {
     }
   });
 
-  it("writes BOTH text/plain (the proven Figma-paste MIME) and image/svg+xml representations", async () => {
+  it("writes text/plain and image/svg+xml representations", async () => {
     const { constructed, environment, write } = clipboardEnvironment();
 
     const result = await copyDesignAsFigmaSvg(

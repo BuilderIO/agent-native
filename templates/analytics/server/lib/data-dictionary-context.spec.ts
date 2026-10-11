@@ -107,8 +107,8 @@ describe("renderDataDictionary", () => {
     expect(context).toContain(
       "5 additional data-dictionary entries were omitted",
     );
-    expect(context).toContain("list-data-dictionary");
-    expect(context).toContain("search");
+    expect(context).toContain("find-data");
+    expect(context).toContain("search-bigquery-schema");
   });
 
   it("caps the total rendered block at a total char budget even under the 40-entry count cap", () => {
@@ -138,7 +138,7 @@ describe("renderDataDictionary", () => {
     expect(context).toContain(
       "additional data-dictionary entries were omitted",
     );
-    expect(context).toContain("list-data-dictionary");
+    expect(context).toContain("find-data");
     const definitionLines = context
       .split("\n")
       .filter((line) => line.startsWith("- **Metric"));

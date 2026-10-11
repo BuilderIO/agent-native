@@ -29,17 +29,36 @@ Agent-Native apps use Drizzle ORM over PostgreSQL. Local development uses PGlite
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
 
-### Migration ownership
+### Schema and migration ownership
 
-When the project contains `drizzle.config.ts` and `drizzle/START_HERE.md`, that managed Drizzle scaffold is the only app migration path. Define app tables in `drizzle/schema.ts`, run `pnpm db:generate`, and apply them with `pnpm db:migrate`. `scripts/migrate-production.ts` is framework-only: do not create a parallel `runMigrations([...])` list in `server/plugins/db.ts` or import an app migration runner into the release script.
+Define PostgreSQL tables with Drizzle's `drizzle-orm/pg-core` exports and use
+`drizzle-orm` for query operators. Import only framework-owned sharing helpers,
+such as `ownableColumns()` and `createSharesTable()`, from
+`@agent-native/core/db/schema`. Do not import table builders through the core
+helper module.
 
-In projects without that managed scaffold, every entry added to a framework `runMigrations([...])` list (`@agent-native/core/db`) needs a unique `name:` slug (for example, `name: "analytics-alert-rules-table"`) alongside its `version`. Never renumber or reuse version numbers on existing entries.
+If the scaffold already has `drizzle.config.ts`, `drizzle/schema.ts`, and a
+`db:generate` script, generate reviewed SQL with Drizzle Kit and load it through
+`runDrizzleMigrations`. Do not assume every starter has that setup or add a
+second migration owner beside it. The Chat and default starters do not ship that
+Drizzle Kit setup; follow their local instructions and the Database docs for
+the migration path. In Chat, add `server/db/schema.ts`, `server/db/index.ts`
+with `createGetDb(schema)`, and `server/plugins/db.ts` with
+`runMigrations([...], { table })`. `scripts/migrate-production.ts` is framework-only;
+do not create a parallel `runMigrations([...])` list beside a generated Drizzle
+migration owner. Give each handwritten migration a unique, stable `name`
+alongside its `version`; append changes instead of renumbering, reusing, or
+editing an applied entry.
 
 Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
 
 Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
 
-Every migration must also be backward compatible, not just additive. Beta and production now migrate independently against the same shared database, so one lane's migration can run before the other lane's matching code deploy. A new `ADD COLUMN ... NOT NULL` with no `DEFAULT` breaks on the first existing row, and breaks any already-deployed `INSERT` that doesn't know the column exists yet — make the column nullable, give it a `DEFAULT`, or use a self-filling type (`SERIAL`, `GENERATED ... AS IDENTITY`), and backfill separately if it needs a real value. `guard:additive-migrations` enforces this.
+Every migration must be additive and backward compatible with code that may
+still be running. A new `ADD COLUMN ... NOT NULL` with no `DEFAULT` breaks on
+existing rows and inserts from older code. Make it nullable, give it a safe
+`DEFAULT`, or use a self-filling type (`SERIAL`, `GENERATED ... AS IDENTITY`);
+backfill separately when it needs a real value.
 
 ### Core SQL Stores (auto-created, available in all templates)
 
@@ -52,7 +71,10 @@ Every migration must also be backward compatible, not just additive. Beta and pr
 
 ### Domain Data (per-template)
 
-In a managed Drizzle scaffold, define the PostgreSQL schema in `drizzle/schema.ts`. Otherwise, define schema with Drizzle's PostgreSQL exports in `server/db/schema.ts`. Get a database instance with `const db = getDb()` from `server/db/index.ts`. All queries are async.
+For Chat and templates using the framework migration plugin, define the
+PostgreSQL schema in `server/db/schema.ts`; `getDb()` comes from the local
+`server/db/index.ts`. Some templates have their own Drizzle Kit layout and
+local instructions. All queries are async.
 
 ```ts
 import { eq, sql } from "drizzle-orm";
@@ -68,8 +90,7 @@ export const tasks = pgTable("tasks", {
 const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 ```
 
-Outside a managed Drizzle scaffold, use `drizzle-orm/pg-core` so app schemas
-state their PostgreSQL types directly.
+Use `drizzle-orm/pg-core` so app schemas state their PostgreSQL types directly.
 
 #### Identity-shaped columns need a policy
 
@@ -103,12 +124,12 @@ offboarding hands them to the successor. A table without `org_id` needs
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |
-| **Mail**     | emails, labels (+ Gmail API when connected)   |
-| **Calendar** | events, bookings                              |
+| **Mail**     | emails, labels                                 |
+| **Calendar** | booking links and bookings; events stay in Google Calendar |
 | **Forms**    | forms, responses                              |
-| **Content**  | documents                                     |
+| **Content**  | documents in SQL; connected local-folder sources sync separately |
 | **Slides**   | decks (JSON stored in SQL)                    |
-| **Videos**   | compositions in registry + localStorage       |
+| **Clips**    | recording metadata in SQL; video and image files use blob storage |
 
 ### Agent Access
 
@@ -168,7 +189,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 
 - Use Drizzle ORM for structured domain data (forms, bookings, documents)
 - Use Drizzle query builder methods (`select`, `insert`, `update`, `delete`) and standard operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads/writes
-- Use framework schema helpers from `@agent-native/core/db/schema` instead of direct Drizzle schema-driver imports
+- Use `drizzle-orm/pg-core` for PostgreSQL table and column builders; use `@agent-native/core/db/schema` for framework-owned sharing helpers only
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
@@ -197,8 +218,8 @@ Polling streams database changes to the UI. When the agent writes to the databas
 
 When storing app-state, include **navigation state** — the agent needs to know what the user is looking at. The `application_state` table holds ephemeral UI state that both the agent and UI share. Key patterns:
 
-- **`navigation` key** — the UI writes current view and selection on every route change. The agent reads this before acting.
-- **`navigate` key** — the agent writes one-shot commands to navigate the UI. The UI processes and deletes them.
+- **`navigation` key** — the UI writes current view and selection on route changes; state may be scoped to the current browser tab.
+- **`navigate` command** — write it with `writeAppStateForCurrentTab("navigate", value)` so the command reaches the current tab; the UI processes and deletes it.
 - **Domain-specific keys** (e.g., `compose-{id}`) — bidirectional state for features like email drafts.
 
 When adding a new data model or feature, also consider what navigation and selection state needs to be exposed via application-state. See the **context-awareness** skill for the full pattern.
@@ -208,5 +229,4 @@ When adding a new data model or feature, also consider what navigation and selec
 - **context-awareness** — How to expose navigation and selection state via application-state
 - **real-time-sync** — Set up polling so the UI updates when the database changes
 - **actions** — Create actions with `defineAction` to query the database
-- **client-methods** — Keep route details behind named client helpers/hooks
-- **self-modifying-code** — The agent can also modify the app's source code
+- **build-an-app** — Apply the data model to a complete app feature

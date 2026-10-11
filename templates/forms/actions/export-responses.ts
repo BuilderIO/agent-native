@@ -7,9 +7,11 @@ import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { publicSubmitterEmail } from "../shared/submitter-email.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.review", "formId"),
   description: "Export form responses to CSV or JSON file.",
   schema: z.object({
     form: z.string().describe("Form ID (required)"),

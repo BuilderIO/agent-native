@@ -5,8 +5,8 @@
  */
 
 export type UsageScope = "me" | "workspace";
-export type UsageBillingUnit = "usd" | "builder-credits" | "mixed";
-export type UsageDisplayUnit = "usd" | "credits";
+export type UsageBillingUnit = "usd" | "builder-credits" | "mixed" | "unknown";
+export type UsageDisplayUnit = "usd" | "credits" | "unknown";
 export type UsageHistoryDimension = "feature" | "app" | "model";
 export type UsageCallsDimension = "model" | "surface";
 
@@ -118,7 +118,9 @@ export interface UsageMetricsData {
 const DAY_MS = 86_400_000;
 
 export function displayUnit(billing: UsageBilling): UsageDisplayUnit {
-  return billing.unit === "usd" ? "usd" : "credits";
+  if (billing.unit === "usd") return "usd";
+  if (billing.unit === "unknown") return "unknown";
+  return "credits";
 }
 
 /**
@@ -127,6 +129,7 @@ export function displayUnit(billing: UsageBilling): UsageDisplayUnit {
  * `otherCostCents`, which the page shows on its own.
  */
 export function usageAmount(entry: UsageAmounts, billing: UsageBilling) {
+  if (billing.unit === "unknown") return 0;
   if (billing.unit === "usd") return entry.costCents / 100;
   if (
     typeof entry.builderCredits === "number" ||

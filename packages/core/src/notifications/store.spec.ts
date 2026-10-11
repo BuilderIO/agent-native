@@ -42,6 +42,7 @@ vi.mock("../server/poll.js", () => ({
 
 const {
   insertNotification,
+  hasNotificationWithMetadata,
   listNotifications,
   countUnread,
   markNotificationRead,
@@ -173,6 +174,36 @@ describe("insertNotification", () => {
     expect(listed.body).toBeUndefined();
     expect(listed.metadata).toBeUndefined();
     expect(listed.deliveredChannels).toEqual([]);
+  });
+});
+
+describe("hasNotificationWithMetadata", () => {
+  it("finds a legacy notification by exact owner-scoped metadata", async () => {
+    await insertNotification({
+      owner: ALICE,
+      severity: "info",
+      title: "Sub-agent finished",
+      metadata: { kind: "agent-team-complete", taskId: "task-1" },
+    });
+
+    await expect(
+      hasNotificationWithMetadata(ALICE, {
+        kind: "agent-team-complete",
+        taskId: "task-1",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      hasNotificationWithMetadata(BOB, {
+        kind: "agent-team-complete",
+        taskId: "task-1",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      hasNotificationWithMetadata(ALICE, {
+        kind: "agent-team-complete",
+        taskId: "task-10",
+      }),
+    ).resolves.toBe(false);
   });
 });
 

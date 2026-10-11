@@ -1,6 +1,6 @@
 ---
 title: "Design"
-description: "Um estúdio de prototipagem nativo do agente que substitui ferramentas de mockup estático como o Figma. Descreva uma tela, compare variantes, ajuste o resultado e exporte código real em Alpine e Tailwind com o agente."
+description: "Estúdio de prototipagem nativo de agentes para criar experiências web interativas com Alpine e Tailwind."
 ---
 
 # Design
@@ -8,9 +8,7 @@ description: "Um estúdio de prototipagem nativo do agente que substitui ferrame
 O Design é um estúdio de prototipagem nativo do agente. Em vez de uma tela de
 desenho em camadas, o agente gera protótipos completos e independentes em
 HTML com Alpine e Tailwind, mostra-os em uma pré-visualização ao vivo e
-refina o resultado por meio de prompts e controles de ajuste. Ele substitui
-uma ferramenta de mockup estático e o handoff que vem depois dela, já que o
-que você vê na pré-visualização já é código real e funcional.
+refina o resultado por meio de prompts e controles de ajuste. A pré-visualização ao vivo mostra código real e funcional.
 
 <Cards columns={1}>
 
@@ -31,26 +29,6 @@ Veja o Design em funcionamento e gere um protótipo real.
 Toda geração, ajuste e exportação lê e grava o mesmo arquivo HTML, então nada
 se perde na tradução entre a pré-visualização e o que você baixa.
 
-## O que ele substitui
-
-<Comparison>
-
-### Antes
-
-- Figma ou uma ferramenta semelhante para mockups estáticos, e depois um desenvolvedor separado para transformá-los em markup real
-- Adivinhar como um design responde redimensionando um artboard, em vez de uma renderização real no navegador
-- Um handoff lento entre specs exportadas e alguém reproduzindo-as manualmente
-- O arquivo de design e o código publicado se distanciando com o tempo
-
-### Depois
-
-- Um único protótipo HTML que o agente gera, pré-visualiza e refina, sem uma etapa de build separada
-- Markup real em Alpine e Tailwind que você pode pré-visualizar ao vivo em qualquer breakpoint
-- Peça ao agente uma mudança de layout, texto ou interação e veja o mesmo arquivo se atualizar
-- Exporte diretamente para HTML, ZIP, PDF ou um pacote de handoff de código, para que design e código continuem sendo um único artefato
-
-</Comparison>
-
 ## Design em um workspace com múltiplos apps
 
 Se você executa o Design junto com outros aplicativos no
@@ -66,7 +44,7 @@ realmente funciona e quais são os mecanismos reais por trás dela.
 
 - **Gere protótipos completos.** Descreva a tela ou página que você precisa e o agente escreve um documento HTML funcional com estilo Tailwind e interações Alpine.
 - **Compare variantes.** Gere algumas direções diferentes, escolha a mais forte e continue refinando em vez de começar do zero.
-- **Aplique uma marca.** Vincule um sistema de design, importe a marca de um site ou codebase, ou traga um frame do Figma como ponto de partida com precisão de pixel. Veja [Funcionalidades](/docs/template-design-features).
+- **Aplique uma marca.** Vincule um sistema de design, importe a marca de um site ou codebase, ou traga um frame do Figma como ponto de partida editável. Veja [Funcionalidades](/docs/template-design-features).
 - **Mantenha a qualidade consistente.** O agente executa uma verificação de acessibilidade e visual antes de considerar um protótipo pronto, e padrões repetidos podem virar componentes reutilizáveis. Veja [Funcionalidades](/docs/template-design-features).
 - **Exporte arquivos reais.** Exporte HTML, ZIP, PDF ou um SVG genuinamente vetorial para o Figma, ou entregue o protótipo a um agente de código com um pacote de handoff pronto. Veja [Funcionalidades](/docs/template-design-features).
 

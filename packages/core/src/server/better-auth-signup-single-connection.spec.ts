@@ -36,6 +36,22 @@ async function bootSignUp(env: Record<string, string>) {
   return { auth: await getBetterAuth(), pglite, stats };
 }
 
+async function bootWorkerAuthDatabase() {
+  vi.stubEnv("DATABASE_URL", SINGLE_CONNECTION_NEON_URL);
+  vi.stubEnv("DB_OP_TIMEOUT_MS", "250");
+  vi.stubGlobal("__cf_env", {});
+
+  const { pool, stats } = await createSingleConnectionNeonPool();
+  const { getRuntimeDatabaseUrl, sharedDbPool } =
+    await import("../db/client.js");
+  const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
+  const poolFacade = sharedDbPool("neon", url, () => pool);
+
+  const { buildDatabaseConfig } = await import("./better-auth-instance.js");
+
+  return { buildDatabaseConfig, pool, poolFacade, stats, url };
+}
+
 async function mountEmailAuthLandingHandler() {
   const app = { use: vi.fn() };
   const { autoMountAuth } = await import("./auth.js");
@@ -94,6 +110,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
   afterEach(async () => {
     const { closeDbExec } = await import("../db/client.js");
     await closeDbExec();
+    vi.doUnmock("drizzle-orm/neon-serverless");
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -121,6 +138,54 @@ describe("password sign-up on a one-connection Neon pool", () => {
       1,
     );
     expect(stats.maxWaiting).toBe(0);
+  });
+
+  it("detects sibling Drizzle queries inside a Better Auth Worker transaction", async () => {
+    const { buildDatabaseConfig, pool, poolFacade, stats, url } =
+      await bootWorkerAuthDatabase();
+    const { runWithRequestDbPoolScope } =
+      await import("../db/request-pool-context.js");
+    const { resolveSharedDbPool } = await import("../db/client.js");
+    const { buildResilientNeonPool } = await import("../db/create-get-db.js");
+    const { DbPoolSelfDeadlockError } =
+      await import("../db/pool-self-deadlock.js");
+    const db = {
+      transaction: async (run: (transaction: any) => unknown) => {
+        const client = await pool.connect();
+        try {
+          return await run({
+            execute: async () => ({ rows: [], rowCount: 0 }),
+            session: {},
+          });
+        } finally {
+          client.release();
+        }
+      },
+    };
+    vi.doMock("drizzle-orm/neon-serverless", () => ({
+      drizzle: () => db,
+    }));
+
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      const adapterFactory = (await buildDatabaseConfig()) as any;
+      const adapter = adapterFactory({});
+      const siblingPool = buildResilientNeonPool(poolFacade, () =>
+        resolveSharedDbPool("neon", url, poolFacade),
+      );
+
+      const startedAt = Date.now();
+      const failure = await adapter.options.adapterConfig
+        .transaction(async () => siblingPool.query("SELECT 2"))
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+
+      expect(failure).toBeInstanceOf(DbPoolSelfDeadlockError);
+      expect(Date.now() - startedAt).toBeLessThan(200);
+      expect(stats.maxWaiting).toBe(0);
+      expect(pool.options.max).toBe(1);
+    });
   });
 
   // With verification required, signUpEmail creates no session and awaits
@@ -331,5 +396,155 @@ describe("password sign-up on a one-connection Neon pool", () => {
     expect(
       (await pglite.query(`SELECT id FROM "session"`)).rows.length,
     ).toBeGreaterThan(0);
+  });
+
+  it("keeps email-change confirmations scanner-safe with custom app paths", async () => {
+    const fetchMock = vi.fn(
+      async (_input: unknown, _init?: RequestInit) =>
+        new Response(JSON.stringify({ id: "email_change" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { auth, pglite } = await bootSignUp({
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "0",
+      NODE_ENV: "production",
+      RESEND_API_KEY: "re_test_not_a_real_key",
+      EMAIL_FROM: "Test <test@example.test>",
+      APP_URL: "https://design.example.test",
+      VITE_APP_BASE_PATH: "/workspace",
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://workspace.example.test",
+    });
+    const email = "current-email@example.test";
+    const newEmail = "new-email@example.test";
+    const password = "correct-horse-battery";
+    const callbackURL = "https://workspace.example.test/account";
+
+    await auth.api.signUpEmail({
+      body: { email, password, name: "email-change" },
+      headers: new Headers({ "user-agent": "vitest" }),
+    });
+    await pglite.exec(
+      `UPDATE "user" SET email_verified = TRUE WHERE email = '${email}'`,
+    );
+
+    const signInResponse = await auth.handler(
+      new Request(
+        "https://design.example.test/workspace/_platform/auth/ba/sign-in/email",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "https://design.example.test",
+          },
+          body: JSON.stringify({ email, password }),
+        },
+      ),
+    );
+    expect(signInResponse.status).toBe(200);
+    const cookieHeader = signInResponse.headers
+      .getSetCookie()
+      .map((cookie) => cookie.split(";")[0])
+      .join("; ");
+    expect(cookieHeader).toContain("session_token=");
+
+    const changeEmailResponse = await auth.handler(
+      new Request(
+        "https://design.example.test/workspace/_platform/auth/ba/change-email",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: cookieHeader,
+            origin: "https://design.example.test",
+          },
+          body: JSON.stringify({ newEmail, callbackURL }),
+        },
+      ),
+    );
+    expect(changeEmailResponse.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const firstEmail = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as { to: string; html: string };
+    expect(firstEmail.to).toBe(email);
+    const firstHref = firstEmail.html.match(
+      /href="([^"]*email-link\/landing[^"]*)"/,
+    )?.[1];
+    expect(firstHref).toBeTruthy();
+    const firstLandingURL = new URL(firstHref!.replaceAll("&amp;", "&"));
+    expect(firstLandingURL.pathname).toBe(
+      "/workspace/_platform/auth/email-link/landing",
+    );
+    expect(firstLandingURL.searchParams.get("callbackURL")).toBe(callbackURL);
+
+    const landingHandler = await mountEmailAuthLandingHandler();
+    const firstFields = emailAuthLinkFields(
+      Object.fromEntries(firstLandingURL.searchParams.entries()),
+    );
+    expect(firstFields).toBeTruthy();
+    for (let scannerRequest = 0; scannerRequest < 2; scannerRequest++) {
+      const landingResponse = (await landingHandler(
+        createEmailAuthEvent(new Request(firstLandingURL)),
+      )) as Response;
+      expect(landingResponse.status).toBe(200);
+      await landingResponse.text();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await pglite.query(`SELECT email FROM "user"`)).rows).toEqual([
+      { email },
+    ]);
+
+    const firstContinue = (await landingHandler(
+      createEmailAuthEvent(
+        createEmailAuthPostRequest(firstLandingURL, firstFields!),
+      ),
+    )) as Response;
+    expect(firstContinue.status).toBe(303);
+    const firstVerification = await auth.handler(
+      new Request(firstContinue.headers.get("location")!),
+    );
+    expect(firstVerification.status).toBe(302);
+    expect(firstVerification.headers.get("location")).toBe(callbackURL);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const secondEmail = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    ) as { to: string; html: string };
+    expect(secondEmail.to).toBe(newEmail);
+    const secondHref = secondEmail.html.match(
+      /href="([^"]*email-link\/landing[^"]*)"/,
+    )?.[1];
+    expect(secondHref).toBeTruthy();
+    const secondLandingURL = new URL(secondHref!.replaceAll("&amp;", "&"));
+    expect(secondLandingURL.pathname).toBe(firstLandingURL.pathname);
+
+    const secondFields = emailAuthLinkFields(
+      Object.fromEntries(secondLandingURL.searchParams.entries()),
+    );
+    expect(secondFields).toBeTruthy();
+    const scannerLandingResponse = (await landingHandler(
+      createEmailAuthEvent(new Request(secondLandingURL)),
+    )) as Response;
+    expect(scannerLandingResponse.status).toBe(200);
+    await scannerLandingResponse.text();
+    expect((await pglite.query(`SELECT email FROM "user"`)).rows).toEqual([
+      { email },
+    ]);
+
+    const secondContinue = (await landingHandler(
+      createEmailAuthEvent(
+        createEmailAuthPostRequest(secondLandingURL, secondFields!),
+      ),
+    )) as Response;
+    expect(secondContinue.status).toBe(303);
+    const secondVerification = await auth.handler(
+      new Request(secondContinue.headers.get("location")!),
+    );
+    expect(secondVerification.status).toBe(302);
+    expect(secondVerification.headers.get("location")).toBe(callbackURL);
+    expect(
+      (await pglite.query(`SELECT email, email_verified FROM "user"`)).rows,
+    ).toEqual([{ email: newEmail, email_verified: true }]);
   });
 });

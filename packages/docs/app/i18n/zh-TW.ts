@@ -654,7 +654,7 @@ const messages = {
         "把視覺化計畫作為 app-backed skill 安裝。你的編碼代理可以開啟包含圖表、線框、原型、註解、評論和可共用評審連結的結構化計畫。",
     },
     design: {
-      replaces: "替代或增強設計原型工具",
+      replaces: "Agent-Native 設計工作室",
       description:
         "將提示轉化為符合你的設計系統的互動式設計，同時由代理根據回饋完善每個畫面。",
     },
@@ -1323,7 +1323,7 @@ const messages = {
       s003: "生成",
       s004: "精煉",
       s005: "所有範本",
-      s006: "開放原始碼 AI HTML 原型工作室",
+      s006: "開放原始碼設計工作區",
       s007: "建立互動式設計與原型。使用熟悉的工具進行調整，或進行對話編輯。可匯出至任何地方。",
       s008: "設計點什麼",
       s009: "它是如何運作的",
@@ -1773,7 +1773,6 @@ const messages = {
       heroDescription:
         "Plans 是一款免費開源的視覺規劃工具，讓你透過圖表、線框圖和帶註解的程式碼，審閱編碼代理的做法、提供意見回饋，並理解程式碼變更。",
       heroCta: "視覺化規劃",
-      heroSecondaryCta: "開啟 Plans",
       useCasesHeading: "用 Plans 能做什麼？",
       useCasesBody:
         "與你的 AI 編碼代理一起審閱實作方式、討論介面設計，或理解已完成的變更。",
@@ -2117,6 +2116,8 @@ const messages = {
     downloadStarted: "已開始下載",
     downloadAgain: "沒有成功？再試一次下載",
     loadError: "無法載入最新桌面安裝程式。",
+    mountError:
+      "桌面下載頁無法找到其在此工作區中的路徑。請聯絡工作區管理員檢查應用程式掛載設定。",
     checkingRelease: "正在檢查最新桌面版...",
     retry: "重試",
     unavailable: "此平台沒有可用的安裝程式",
@@ -2529,11 +2530,12 @@ const messages = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 快取",
     deploymentEnvironmentVariables: "部署：環境變數",
@@ -2623,6 +2625,7 @@ const messages = {
     planAutomations: "事件與自動化",
     planLocalAndDesktop: "本機檔案與桌面",
     planDevelopers: "開發者指南",
+    turnIntoApp: "轉換為應用程式",
     prVisualRecap: "PR 視覺化回顧",
     planPluginMarketplace: "Plan 外掛與市場",
     slides: "幻燈片",

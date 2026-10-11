@@ -146,6 +146,10 @@ describe("agent chat startup", () => {
     );
 
     expect(sweepRoute).toContain("reapAllStaleRuns()");
+    expect(sweepRoute).toMatch(
+      /reconcileStaleAgentTeamRuns\(\s*event\s*,?\s*\)/,
+    );
+    expect(sweepRoute).toContain("staleAgentTeamRuns.failed > 0");
     expect(sweepRoute).toContain("sweepUnclaimedBackgroundRuns");
     expect(sweepRoute).toContain("reapExpired: true");
     expect(sweepRoute).toContain("jobsSkippedReason");

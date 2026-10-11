@@ -340,7 +340,7 @@ with the command's output, then rerun the authenticated lane. A targeted
 dispatch; it must not replace the fleet token map used by scheduled runs. Do
 not weaken the `+autoz` validation.
 
-**The model is read back off the wire.** Seeding `gpt-5.6-luna` into
+**The model is read back off the wire.** Seeding `gpt-6-luna` into
 localStorage is a wish until something checks it. Every agent-chat POST is
 inspected and the run fails if anything other than luna was billed, including
 a request that carried no model field at all and therefore fell back to the
@@ -351,17 +351,13 @@ app's default.
 user-scoped key is billed. A request that names no engine leaves the server to
 choose one from the account, which may be the Builder gateway's shared credits,
 and nothing readable from outside says which it chose, so it fails like a turn
-that names the wrong engine or a non-luna model. The Chat app host's composer
-puts the engine in the request's `metadata`, which the server ignores, so turns
-from `beta.chat` carry the luna model but no engine and cannot be proven to
-bill the dedicated key. The `chat` host's specs that bill a model turn (the two
-in `chat.spec.ts` and the five `[chat-reliability]` tests) are therefore
-quarantined for that host with a `test.fixme` whose description starts
-`QUARANTINED steve until 2026-10-15`, and the report lists them under
-**QUARANTINED** with that text. They stay quarantined until the Chat app sends
-the engine on the wire; then delete `e2e/beta/lib/quarantine.ts` and its calls.
-The other chat hosts run unchanged, and while the `chat` host is quarantined it
-bills no turns, so the per-run spend in the lanes table is lower by its share.
+that names the wrong engine or a non-luna model. The Chat app host keeps the selected engine in per-turn metadata; the
+chat runtime promotes that selection to the top-level `engine` field before
+the request reaches the server. The spend guard reads the top-level field, so
+Beta Chat turns prove the dedicated key just like turns from other hosts. Chat
+host specs that bill a model turn (the two in `chat.spec.ts` and the five
+`[chat-reliability]` tests) run with the other Chat hosts, and their spend is
+included in the per-run lanes table.
 
 **Certificate errors stay visible.** `ignoreHTTPSErrors` is never set, because
 "the connection isn't private" was a real report and only a browser that still

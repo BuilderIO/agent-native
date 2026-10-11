@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown, IconUpload } from "@tabler/icons-react";
+import { IconChevronDown, IconLoader2, IconUpload } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
@@ -88,7 +88,7 @@ export function ImportDeckButton({
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <div className="inline-flex shrink-0">
+        <div className="inline-flex shrink-0 items-center gap-2">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -101,13 +101,17 @@ export function ImportDeckButton({
                   busy ? "editorToolbar.importing" : "home.importMenu.import",
                 )}
               >
-                <IconUpload />
+                {busy ? (
+                  <IconLoader2 className="motion-safe:animate-spin" />
+                ) : (
+                  <IconUpload />
+                )}
                 <span className="slides-home-import-label">
                   {t(
                     busy ? "editorToolbar.importing" : "home.importMenu.import",
                   )}
                 </span>
-                <IconChevronDown />
+                {!busy && <IconChevronDown />}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -137,6 +141,14 @@ export function ImportDeckButton({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          <span
+            className="slides-home-import-status sr-only text-xs text-muted-foreground"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {busy ? t("editorToolbar.importing") : ""}
+          </span>
         </div>
       </PopoverAnchor>
       <input

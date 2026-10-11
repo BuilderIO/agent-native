@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
 import {
@@ -117,6 +118,7 @@ export default function PresenterView({
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (isMediaKeyboardEvent(e)) return;
       switch (e.key) {
         case "ArrowRight":
         case "ArrowDown":
@@ -231,6 +233,7 @@ export default function PresenterView({
             {current && (
               <SlideRenderer
                 slide={current}
+                slidePosition={{ number: index + 1, count: safeSlides.length }}
                 thumbnail
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
@@ -245,6 +248,10 @@ export default function PresenterView({
               <div className="overflow-hidden rounded-lg bg-black">
                 <SlideRenderer
                   slide={next}
+                  slidePosition={{
+                    number: index + 2,
+                    count: safeSlides.length,
+                  }}
                   thumbnail
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}

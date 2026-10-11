@@ -8,11 +8,22 @@ import {
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from "@playwright/test";
 import { build } from "esbuild";
 
 import { e2eBaseURL } from "./base-url";
-import { appPath, cdpScreenshot, selectByText } from "./helpers";
+import {
+  appPath,
+  cdpScreenshot,
+  createFixtureDesign,
+  designFrame,
+  selectByText,
+} from "./helpers";
 
 let baseURL = e2eBaseURL();
 let designId = "";
@@ -22,6 +33,7 @@ let reactBundlePath = "";
 let reactAppUrl = "";
 let devServer: Server | null = null;
 let bridge: DesignConnectBridge | null = null;
+const snapshotFailurePaths = new Set<string>();
 
 function reactFixtureSource(): string {
   const source = `import React from "react";
@@ -65,7 +77,7 @@ function App() {
       <PrimaryButton
         data-agent-native-node-id="react-button-1"
         data-agent-native-layer-name="React Primary Button"
-        style={{ minWidth: "160px", minHeight: "48px" }}
+        style={{ minWidth: "160px", minHeight: "48px", margin: "96px" }}
         variant="primary"
       />
     </main>
@@ -147,6 +159,40 @@ async function postAction(
   return response.json();
 }
 
+async function openDesignWithLocalNetworkPermission(page: Page): Promise<void> {
+  await page.context().grantPermissions(["local-network-access"], {
+    origin: new URL(baseURL).origin,
+  });
+  await page.goto(appPath(`/visual-edit/${designId}?editorView=overview`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async () =>
+          (
+            await navigator.permissions.query({
+              name: "local-network-access" as PermissionName,
+            })
+          ).state,
+      ),
+    )
+    .toBe("granted");
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+  await expect(
+    page
+      .getByRole("tree", { name: "Layers" })
+      .locator("[data-layer-row-button]")
+      .first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Connect your local screens" }),
+  ).toHaveCount(0);
+}
+
 test.beforeAll(async ({ request }, workerInfo) => {
   baseURL =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
@@ -179,11 +225,12 @@ test.beforeAll(async ({ request }, workerInfo) => {
   await bundleReactFixture();
 
   devServer = http.createServer((req, res) => {
-    if (req.url?.startsWith("/visual-edit-dead")) {
-      req.socket.destroy();
+    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    if (snapshotFailurePaths.has(pathname)) {
+      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Snapshot fixture unavailable.");
       return;
     }
-    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     if (pathname === "/react") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
@@ -197,7 +244,9 @@ test.beforeAll(async ({ request }, workerInfo) => {
       return;
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end("<!doctype html><main><h1>Local workbench fixture</h1></main>");
+    res.end(
+      '<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body><main><h1>Local workbench fixture</h1></main></body></html>',
+    );
   });
   const devPort = await listen(devServer);
   const devAddress = devServer.address();
@@ -461,12 +510,7 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   };
   const initial = await readDesign();
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
   await expect
     .poll(async () => {
       const current = await readDesign();
@@ -482,20 +526,24 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     .locator("[data-layer-row-button]")
     .first();
   await expect(screenRow).toBeVisible();
-  await screenRow.click();
   const screenId = await screenRow.getAttribute("data-layer-node-id");
   if (!screenId) throw new Error("Selected screen row has no file id");
+  await screenRow.click();
   const screen = initial.files.find(
     (file: { id?: string; content?: string; fileType?: string }) =>
       file.id === screenId &&
       file.fileType === "html" &&
-      /^https?:\/\//.test(file.content ?? ""),
+      (file.content?.startsWith("http://") ||
+        file.content?.startsWith("https://")),
   );
   expect(screen?.id).toBe(screenId);
   await expect(
     page.locator("h3.design-sidebar-section-title", { hasText: "Screen" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Add screen")).toBeVisible();
+  const screenInspectorSection = page
+    .locator("h3[aria-label='Screen']")
+    .locator("xpath=ancestor::section[@data-design-inspector-section]");
+  await expect(screenInspectorSection.getByLabel("Add screen")).toBeVisible();
   await expect(
     page.getByRole("button", { name: /remove screen/i }),
   ).toBeVisible();
@@ -534,35 +582,51 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     sourceType: "localhost",
     path: nextPath,
   });
-
-  const iframe = page.locator(
+  await expect(urlInput).toHaveValue(expectedScreenUrl);
+  const screenPreviewIframe = page.locator(
     `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
   );
   await expect
     .poll(() =>
-      iframe.getAttribute("src").then((src) => {
+      screenPreviewIframe.getAttribute("src").then((src) => {
         if (!src) return null;
-        return new URL(src).searchParams.get("url");
+        return new URL(src, baseURL).searchParams.get("url");
       }),
     )
     .toBe(expectedScreenUrl);
-  await expect(page.getByLabel("Screen URL")).toHaveValue(
-    /visual-edit-e2e=updated/,
-  );
   await expect(
-    iframe.contentFrame().getByText("Local workbench fixture"),
+    screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
   ).toBeVisible();
   await cdpScreenshot(page, testInfo.outputPath("screen-source-settings.png"));
 
-  await page.getByRole("button", { name: "Static", exact: true }).click();
-  await expect.poll(readDesign).toMatchObject({
-    files: expect.arrayContaining([
-      expect.objectContaining({
-        id: screenId,
-        content: expect.stringContaining("Local workbench fixture"),
-      }),
-    ]),
-  });
+  const staticSourceResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/update-screen-source") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("tab", { name: "Static", exact: true }).click();
+  const staticSourceResponse = await staticSourceResponsePromise;
+  expect(staticSourceResponse.ok(), await staticSourceResponse.text()).toBe(
+    true,
+  );
+  await expect
+    .poll(async () => {
+      const current = await readDesign();
+      const file = current.files.find(
+        (candidate: { id?: string }) => candidate.id === screenId,
+      );
+      const data = JSON.parse(current.data ?? "{}") as Record<string, any>;
+      return {
+        content: file?.content,
+        screenMetadata: data.screenMetadata?.[screenId],
+        localhostScreens: data.localhostScreens?.[screenId],
+      };
+    })
+    .toMatchObject({
+      content: expect.stringContaining("Local workbench fixture"),
+      screenMetadata: { sourceType: "inline", previewState: "static" },
+      localhostScreens: { sourceType: "inline", previewState: "static" },
+    });
   const staticDesign = await readDesign();
   const staticData = JSON.parse(staticDesign.data ?? "{}") as Record<
     string,
@@ -574,14 +638,11 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   });
   await expect(page.getByLabel("Screen URL")).toHaveCount(0);
   await expect(
-    iframe.contentFrame().getByText("Local workbench fixture"),
-  ).toBeVisible();
-  await expect(
     page.getByText("Preparing live editor...", { exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByText("Screen source updated", { exact: true }),
-  ).toHaveCount(0);
+    screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
+  ).toBeVisible();
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
 
@@ -611,12 +672,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   const hostLine = source.slice(0, hostAnchor).split("\n").length;
   const hostColumn = hostAnchor - source.lastIndexOf("\n", hostAnchor - 1);
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
 
   const screenRow = page
     .getByRole("tree", { name: "Layers" })
@@ -720,13 +776,6 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     .getByRole("tree", { name: "Layers" })
     .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
     .click();
-  await page.evaluate((id) => {
-    document
-      .querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
-      )
-      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
-  }, screenId);
   await expect(
     page
       .locator(
@@ -743,14 +792,10 @@ test("promotes and edits a URL-backed React component through the live iframe", 
     .contentFrame()
     .locator('[data-agent-native-node-id="react-button-1"]');
   await expect(reloadedButton).toHaveText("primary");
-  await page.evaluate((id) => {
-    document
-      .querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${id}"]`,
-      )
-      ?.contentWindow?.postMessage({ type: "clear-selection" }, "*");
-  }, screenId);
-  await selectByText(page, "primary", { screenId });
+  await selectByText(page, "primary", {
+    screenId,
+    clearPreviousSelection: true,
+  });
   const componentSection = page.getByTestId("component-section");
   await expect(componentSection).toContainText("PrimaryButton");
   await expect(componentSection).toContainText("src/Component.jsx");
@@ -866,12 +911,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
     throw new Error(`Missing React screen metadata: ${JSON.stringify(opened)}`);
   }
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  await openDesignWithLocalNetworkPermission(page);
   const screenRow = page
     .getByRole("tree", { name: "Layers" })
     .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
@@ -946,52 +986,281 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
 }) => {
-  const opened = await postAction(request, "add-localhost-screens", {
-    designId,
-    paths: ["/visual-edit-dead"],
-  });
-  const screenId = opened.screens?.[0]?.id;
-  if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+  const unavailablePath = "/visual-edit-dead";
+  const expectedUrl = new URL(unavailablePath, reactAppUrl).toString();
+  snapshotFailurePaths.add(unavailablePath);
+  let unavailablePreviewMatcher: ((url: URL) => boolean) | undefined;
+  let blockedPreviewRequests = 0;
+  try {
+    await openDesignWithLocalNetworkPermission(page);
 
-  const readDesign = async () => {
-    const response = await page.request.get(
-      `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-    );
-    if (!response.ok()) {
-      throw new Error(
-        `get-design failed: ${response.status()} ${await response.text()}`,
+    unavailablePreviewMatcher = (url) =>
+      url.pathname === "/live-edit" &&
+      url.searchParams.get("url") === expectedUrl;
+    await page.route(unavailablePreviewMatcher, (route) => {
+      blockedPreviewRequests += 1;
+      return route.abort();
+    });
+
+    const opened = await postAction(request, "add-localhost-screens", {
+      designId,
+      paths: [unavailablePath],
+    });
+    const screenId = opened.screens?.[0]?.id;
+    if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+
+    const readDesign = async () => {
+      const response = await page.request.get(
+        `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
       );
+      if (!response.ok()) {
+        throw new Error(
+          `get-design failed: ${response.status()} ${await response.text()}`,
+        );
+      }
+      return response.json();
+    };
+
+    const beforeDesign = await readDesign();
+    const beforeData = JSON.parse(beforeDesign.data ?? "{}") as Record<
+      string,
+      any
+    >;
+    const beforeFile = beforeDesign.files.find(
+      (file: { id?: string }) => file.id === screenId,
+    );
+    if (typeof beforeFile?.content !== "string") {
+      throw new Error(`URL screen ${screenId} has no readable source file`);
     }
-    return response.json();
-  };
+    expect(beforeData.screenMetadata?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
 
-  await page.goto(appPath(`/design/${designId}?editorView=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect(
-    page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+    await page.reload({ waitUntil: "commit" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+    await expect.poll(() => blockedPreviewRequests).toBeGreaterThan(0);
 
-  const screenRow = page
-    .getByRole("tree", { name: "Layers" })
-    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
-  await expect(screenRow).toBeVisible();
-  await screenRow.click();
-  await expect(page.getByLabel("Screen URL")).toHaveValue(/visual-edit-dead/);
+    const screenRow = page
+      .getByRole("tree", { name: "Layers" })
+      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+    await expect(screenRow).toBeVisible();
+    await screenRow.click();
+    const screenUrlInput = page.getByLabel("Screen URL");
+    await expect(screenUrlInput).toHaveValue(expectedUrl);
 
-  await page.getByRole("button", { name: "Static", exact: true }).click();
+    const updateRequestPromise = page.waitForRequest(
+      (nextRequest) =>
+        nextRequest
+          .url()
+          .includes("/_agent-native/actions/update-screen-source") &&
+        nextRequest.method() === "POST",
+    );
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .includes("/_agent-native/actions/update-screen-source") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("tab", { name: "Static", exact: true }).click();
 
-  await expect(page.getByLabel("Screen URL")).toBeVisible();
-  await expect
-    .poll(async () => {
-      const design = await readDesign();
-      const data = JSON.parse(design.data ?? "{}") as Record<string, any>;
-      return data.screenMetadata?.[screenId]?.sourceType;
-    })
-    .toBe("localhost");
-  await expect(
-    page
-      .locator("[data-sonner-toast], [role='alert']")
-      .filter({ hasText: /snapshot|bridge|failed|could not/i }),
-  ).toBeVisible({ timeout: 10_000 });
+    const updateRequest = await updateRequestPromise;
+    const updateInput = updateRequest.postDataJSON() as Record<string, unknown>;
+    expect(updateInput).toMatchObject({
+      designId,
+      fileId: screenId,
+      sourceType: "static",
+    });
+    expect(updateInput).not.toHaveProperty("snapshotHtml");
+
+    const updateResponse = await updateResponsePromise;
+    expect(updateResponse.status()).toBe(424);
+    const updateError = await updateResponse.json();
+    expect(updateError.error).toMatch(/snapshot failed \(503\)/i);
+
+    await expect(screenUrlInput).toBeVisible();
+    await expect(screenUrlInput).toHaveValue(expectedUrl);
+    await expect(
+      page
+        .locator("[data-sonner-toast], [role='alert']")
+        .filter({ hasText: /snapshot|bridge|failed|could not/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const afterDesign = await readDesign();
+    const afterData = JSON.parse(afterDesign.data ?? "{}") as Record<
+      string,
+      any
+    >;
+    const afterFile = afterDesign.files.find(
+      (file: { id?: string }) => file.id === screenId,
+    );
+    expect(afterFile?.content).toBe(beforeFile.content);
+    expect(afterData.screenMetadata?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
+    expect(afterData.localhostScreens?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
+  } finally {
+    if (unavailablePreviewMatcher) {
+      await page.unroute(unavailablePreviewMatcher);
+    }
+    snapshotFailurePaths.delete(unavailablePath);
+  }
+});
+
+test("registers an inactive local Screen at its current bridge endpoint", async ({
+  page,
+  request,
+}) => {
+  const isolatedDesignId = await createFixtureDesign(
+    page,
+    `Inactive local preview ${Date.now()}`,
+  );
+  try {
+    const staticFile = await postAction(request, "create-file", {
+      designId: isolatedDesignId,
+      filename: "active-static.html",
+      content:
+        "<!doctype html><html><body><main>Editable static screen</main></body></html>",
+      fileType: "html",
+    });
+    const staticScreenId = String(staticFile.id ?? "");
+    if (!staticScreenId) throw new Error("create-file returned no screen id");
+
+    const opened = await postAction(request, "add-localhost-screens", {
+      designId: isolatedDesignId,
+      connectionId,
+      paths: ["/inactive-preview"],
+    });
+    const localScreenId = opened.screens?.[0]?.id;
+    if (!localScreenId) {
+      throw new Error("add-localhost-screens returned no local Screen");
+    }
+    const expectedBridgeUrl = String(opened.bridgeUrl ?? "");
+    if (!expectedBridgeUrl) {
+      throw new Error("add-localhost-screens returned no bridge URL");
+    }
+    const expectedBridgeOrigin = new URL(expectedBridgeUrl).origin;
+    const staleBridgeOrigin = new URL(baseURL).origin;
+    await postAction(request, "update-design", {
+      id: isolatedDesignId,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["screenMetadata", localScreenId, "bridgeUrl"],
+          value: staleBridgeOrigin,
+        },
+        {
+          op: "set",
+          path: ["screenMetadata", localScreenId, "previewToken"],
+          value: "stale-preview-token",
+        },
+      ],
+    });
+
+    const successfulRegistrations: string[] = [];
+    const registrationAttempts: Array<{
+      origin: string;
+      hasPreviewToken: boolean;
+      usedStaleMetadataToken: boolean;
+    }> = [];
+    const failedRegistrations: Array<{ origin: string; status: number }> = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname !== "/live-edit-bridge" || request.method() !== "POST") {
+        return;
+      }
+      const payload = request.postDataJSON() as { designId?: string };
+      if (payload.designId !== isolatedDesignId) return;
+      const previewToken = request.headers()["x-design-preview-token"];
+      registrationAttempts.push({
+        origin: url.origin,
+        hasPreviewToken: Boolean(previewToken),
+        usedStaleMetadataToken: previewToken === "stale-preview-token",
+      });
+    });
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (
+        url.pathname !== "/live-edit-bridge" ||
+        response.request().method() !== "POST"
+      ) {
+        return;
+      }
+      const payload = response.request().postDataJSON() as {
+        designId?: string;
+      };
+      if (payload.designId === isolatedDesignId) {
+        if (response.ok()) {
+          successfulRegistrations.push(payload.designId);
+        } else {
+          failedRegistrations.push({
+            origin: url.origin,
+            status: response.status(),
+          });
+        }
+      }
+    });
+
+    await page.context().grantPermissions(["local-network-access"], {
+      origin: new URL(baseURL).origin,
+    });
+    await page.goto(
+      appPath(
+        `/design/${isolatedDesignId}?editorView=overview&screen=${encodeURIComponent(staticScreenId)}`,
+      ),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("screen"))
+      .toBe(staticScreenId);
+    await expect(
+      page.getByRole("button", { name: "All screens", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    const staticScreenRow = page.locator(
+      '[data-screen-row][title="active-static.html"]',
+    );
+    await expect(staticScreenRow).toBeVisible();
+    await expect(staticScreenRow).not.toHaveAttribute("aria-current", "page");
+    await expect(
+      page.locator(
+        `[data-screen-shell][data-frame-id="${localScreenId}"] iframe[data-design-preview-iframe]`,
+      ),
+    ).toBeAttached();
+    await expect
+      .poll(() => successfulRegistrations.length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    expect(registrationAttempts.length).toBeGreaterThan(0);
+    expect(
+      registrationAttempts.every(
+        (attempt) =>
+          attempt.origin === expectedBridgeOrigin &&
+          attempt.hasPreviewToken &&
+          !attempt.usedStaleMetadataToken,
+      ),
+    ).toBe(true);
+    expect(failedRegistrations).toEqual([]);
+    await expect(
+      designFrame(page, localScreenId).getByText("Local workbench fixture"),
+    ).toBeVisible();
+  } finally {
+    await postAction(request, "delete-design", { id: isolatedDesignId });
+  }
 });

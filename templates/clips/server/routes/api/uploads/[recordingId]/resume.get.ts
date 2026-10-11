@@ -36,6 +36,7 @@ import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   listRecordingChunkKeys,
   recordingChunkIndexFromKey,
+  recordingUploadStateMatchesAttempt,
   sumRecordingChunkBytes,
 } from "../../../../lib/recording-upload-state.js";
 import {
@@ -311,21 +312,30 @@ export default defineEventHandler(async (event: H3Event) => {
     }
     generationId = claimedGenerationId;
 
+    const claimedAttempt = {
+      recordingId,
+      uploadAttemptId: attemptId,
+      uploadGenerationId: generationId,
+    };
+    const claimedUploadState: Record<string, unknown> = {
+      ...uploadState,
+      recordingId,
+      status: "uploading",
+      failureReason: null,
+      retryableInterruption: false,
+      progress: recording.uploadProgress,
+      uploadAttemptId: attemptId,
+      uploadGenerationId: generationId,
+      ...(session ? { bytesReceived: session.bytesUploaded } : {}),
+      updatedAt: now,
+    };
+    if (!recordingUploadStateMatchesAttempt(uploadState, claimedAttempt)) {
+      delete claimedUploadState.browserSessionId;
+    }
     const uploadStateUpdated = await compareAndSetAppState(
       uploadStateKey,
       uploadStateRaw,
-      {
-        ...uploadState,
-        recordingId,
-        status: "uploading",
-        failureReason: null,
-        retryableInterruption: false,
-        progress: recording.uploadProgress,
-        uploadAttemptId: attemptId,
-        uploadGenerationId: generationId,
-        ...(session ? { bytesReceived: session.bytesUploaded } : {}),
-        updatedAt: now,
-      },
+      claimedUploadState,
     );
     if (!uploadStateUpdated) {
       const [current] = await getDb()

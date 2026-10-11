@@ -12,6 +12,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  useActionQuery: vi.fn(),
   query: {
     data: undefined as ShareButtonSharesResponse | undefined,
     refetch: vi.fn(async () => undefined),
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionQuery: vi.fn(() => mocks.query),
+  useActionQuery: mocks.useActionQuery,
   useActionMutation: vi.fn((name: string) => {
     if (name === "set-resource-visibility") return mocks.setVisibility;
     if (name === "share-resource") return mocks.share;
@@ -84,6 +85,7 @@ describe("useShareButtonController", () => {
       ],
     };
     mocks.query.refetch.mockClear();
+    mocks.useActionQuery.mockReset().mockReturnValue(mocks.query);
     mocks.setVisibility.mutate.mockReset();
     mocks.share.mutate.mockReset();
     mocks.unshare.mutate.mockReset();
@@ -104,6 +106,28 @@ describe("useShareButtonController", () => {
     container.remove();
     vi.unstubAllGlobals();
     controller = undefined;
+  });
+
+  it("loads share state only while the popover is open", async () => {
+    const result = await render();
+    const latestShareQueryOptions = () =>
+      mocks.useActionQuery.mock.calls
+        .filter(([name]) => name === "list-resource-shares")
+        .at(-1)?.[2];
+
+    expect(latestShareQueryOptions()).toEqual({
+      enabled: false,
+      staleTime: 0,
+    });
+    expect(mocks.query.refetch).not.toHaveBeenCalled();
+
+    act(() => result.handleOpenChange(true));
+
+    expect(latestShareQueryOptions()).toEqual({
+      enabled: true,
+      staleTime: 0,
+    });
+    expect(mocks.query.refetch).not.toHaveBeenCalled();
   });
 
   it("guards rapid duplicate invites for the same principal", async () => {

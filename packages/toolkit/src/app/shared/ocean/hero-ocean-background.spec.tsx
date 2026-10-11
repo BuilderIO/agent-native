@@ -21,7 +21,7 @@ const { createRenderer, renderer, importSpy } = vi.hoisted(() => {
   return { createRenderer: vi.fn(() => renderer), renderer, importSpy };
 });
 
-vi.mock("./renderer", async () => {
+vi.mock("./renderer.js", async () => {
   importSpy();
   const actual =
     await vi.importActual<typeof import("./renderer.js")>("./renderer.js");

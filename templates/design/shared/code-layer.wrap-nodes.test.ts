@@ -173,7 +173,7 @@ describe("applyWrapNodes (Cmd+G group)", () => {
 describe("applyWrapNodes (Shift+A selection background promotion)", () => {
   const OVERLAPPING_TEXT = `<body>
   <div data-agent-native-node-id="rectangle" data-agent-native-layer-name="Rectangle" data-an-primitive="rectangle" style="position:absolute;left:80px;top:80px;width:240px;height:140px;background-color:#D9D9D9"></div>
-  <div data-agent-native-node-id="text" data-agent-native-layer-name="Oracle Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Oracle Text</div>
+  <div data-agent-native-node-id="text" data-agent-native-layer-name="Layer Text" data-an-primitive="text" style="position:absolute;left:104px;top:132px;width:187px;height:38px">Layer Text</div>
 </body>`;
 
   it("promotes a containing painted rectangle in place and preserves exact geometry", () => {

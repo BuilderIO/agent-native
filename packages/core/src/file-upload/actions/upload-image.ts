@@ -18,6 +18,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../../server/request-context.js";
+import { parseDataUrl as parseSharedDataUrl } from "../../shared/data-url.js";
 import { deleteUploadedFile, uploadFile } from "../registry.js";
 
 const MAX_REMOTE_FETCH_BYTES = 25 * 1024 * 1024;
@@ -474,17 +475,14 @@ function parseDataUrl(dataUrl: string): {
   bytes: Uint8Array;
   mimeType: string;
 } {
-  const match = dataUrl.match(/^data:([^;,]+)(;base64)?,(.+)$/);
-  if (!match) {
+  const parsed = parseSharedDataUrl(dataUrl);
+  if (!parsed) {
     throw new Error("data must be a data URL (data:image/...;base64,...)");
   }
-  const mimeType = match[1].trim().toLowerCase();
-  const isBase64 = !!match[2];
-  const payload = match[3];
-  const bytes = isBase64
-    ? new Uint8Array(Buffer.from(payload, "base64"))
-    : new TextEncoder().encode(decodeURIComponent(payload));
-  return { bytes, mimeType };
+  const bytes = parsed.isBase64
+    ? new Uint8Array(Buffer.from(parsed.data, "base64"))
+    : new TextEncoder().encode(decodeURIComponent(parsed.data));
+  return { bytes, mimeType: parsed.mediaType };
 }
 
 async function fetchRemote(url: string): Promise<{

@@ -4,6 +4,7 @@ import { parseJobFrontmatter } from "./scheduler.js";
 import { createJobTools } from "./tools.js";
 
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfAbsentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
@@ -16,6 +17,7 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
+  resourcePutIfAbsent: resourcePutIfAbsentMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
   resourceDelete: resourceDeleteMock,
@@ -96,6 +98,7 @@ describe("manage-jobs tool", () => {
     getRequestOrgIdMock.mockReturnValue("org-1");
     getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfAbsentMock.mockResolvedValue({ id: "created" });
     resourceDeleteMock.mockResolvedValue(true);
   });
 
@@ -115,7 +118,7 @@ describe("manage-jobs tool", () => {
     it("validates required fields", async () => {
       const out = JSON.parse(await run({ action: "create", name: "x" }));
       expect(out.error).toMatch(/name and instructions are required/);
-      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
     });
 
     it("rejects an invalid cron schedule", async () => {
@@ -128,7 +131,7 @@ describe("manage-jobs tool", () => {
         }),
       );
       expect(out.error).toMatch(/Invalid cron expression/);
-      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
     });
 
     it("creates a shared job in the active org partition", async () => {
@@ -146,7 +149,7 @@ describe("manage-jobs tool", () => {
       expect(out.scope).toBe("shared");
       expect(typeof out.nextRun).toBe("string");
 
-      const [owner, path, content] = resourcePutMock.mock.calls[0];
+      const [owner, path, content] = resourcePutIfAbsentMock.mock.calls[0];
       expect(owner).toBe(SHARED_OWNER);
       expect(path).toBe("jobs/daily-report.md");
       const { meta } = parseJobFrontmatter(content);
@@ -166,7 +169,9 @@ describe("manage-jobs tool", () => {
       );
 
       expect(out.schedule).toBe("0 * * * *");
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.schedule).toBe("0 * * * *");
     });
 
@@ -178,7 +183,9 @@ describe("manage-jobs tool", () => {
         instructions: "Summarize the calendar.",
       });
 
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.appId).toBe("calendar");
     });
 
@@ -190,7 +197,9 @@ describe("manage-jobs tool", () => {
         instructions: "do it",
         scope: "personal",
       });
-      expect(resourcePutMock.mock.calls[0][0]).toBe("alice@example.com");
+      expect(resourcePutIfAbsentMock.mock.calls[0][0]).toBe(
+        "alice@example.com",
+      );
     });
 
     it("persists only explicit MCP tool capabilities with a job", async () => {
@@ -212,7 +221,9 @@ describe("manage-jobs tool", () => {
         "mcp__meeting-notes__list_meetings",
         "mcp__meeting-notes__get_transcript",
       ]);
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.mcpTools).toEqual(out.mcpTools);
     });
 
@@ -228,7 +239,7 @@ describe("manage-jobs tool", () => {
       );
 
       expect(out.error).toMatch(/mcpTools must contain only framework MCP/);
-      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
     });
 
     it("partitions shared jobs by the active request org", async () => {
@@ -240,7 +251,9 @@ describe("manage-jobs tool", () => {
         instructions: "do it",
       });
 
-      expect(resourcePutMock.mock.calls[0][0]).toBe("__organization__:org-2");
+      expect(resourcePutIfAbsentMock.mock.calls[0][0]).toBe(
+        "__organization__:org-2",
+      );
     });
 
     it("honors runAs: shared when requested", async () => {
@@ -251,7 +264,9 @@ describe("manage-jobs tool", () => {
         instructions: "do it",
         runAs: "shared",
       });
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta.runAs).toBe("shared");
     });
 
@@ -275,7 +290,9 @@ describe("manage-jobs tool", () => {
         reasoningEffort: "high",
       });
 
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfAbsentMock.mock.calls[0][2],
+      );
       expect(meta).toMatchObject({
         originScopeId: "scope:slack:T1:C1",
         deliveryPlatform: "slack",
@@ -298,7 +315,67 @@ describe("manage-jobs tool", () => {
         }),
       );
       expect(out.error).toMatch(/Invalid reasoningEffort/);
+      expect(resourcePutIfAbsentMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses to replace a job that already exists", async () => {
+      resourcePutIfAbsentMock.mockResolvedValueOnce(null);
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/daily-report.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+      });
+
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "daily-report",
+          schedule: "0 9 * * *",
+          instructions: "Overwrite the saved instructions.",
+        }),
+      );
+
+      expect(out.created).toBeUndefined();
+      expect(out.error).toMatch(/already exists.*action 'update'/);
       expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("sends the model to manage-automations when the existing file is an automation", async () => {
+      resourcePutIfAbsentMock.mockResolvedValueOnce(null);
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/factories/f1/factory-slack-feedback.md",
+        content: `---\nschedule: "*/5 * * * *"\nenabled: true\ntriggerType: schedule\nfactoryId: f1\n---\n\nBody`,
+      });
+
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "factories/f1/factory-slack-feedback",
+          instructions: "Replace the body.",
+        }),
+      );
+
+      expect(out.error).toMatch(/is an automation.*manage-automations/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("does not report an existing job when the write was refused for another reason", async () => {
+      resourcePutIfAbsentMock.mockResolvedValueOnce(null);
+      resourceGetByPathMock.mockResolvedValueOnce(null);
+
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "never-written",
+          instructions: "do it",
+        }),
+      );
+
+      expect(out.error).toMatch(/was not created/);
+      expect(out.error).not.toMatch(/already exists/);
     });
   });
 

@@ -108,6 +108,15 @@ export interface UseCollabReconcileOptions {
   editable: boolean;
   isEditorFocused?: (editor: Editor) => boolean;
   getMarkdown?: (editor: Editor) => string;
+  /**
+   * The host's half of "this client holds no unsaved text": no save queued or
+   * in flight and no recovery draft pending. The hook adds the other half, that
+   * the live doc still equals the last authoritative snapshot it adopted. Only
+   * when both hold may an idle lead adopt a newer snapshot without the peer
+   * settle wait. Leave it unset and the wait always applies.
+   * `lastAppliedSerialized` cannot stand in, because local emits update it.
+   */
+  isEditorClean?: (liveMarkdown: string) => boolean;
   setContent?: (
     editor: Editor,
     value: string,
@@ -196,6 +205,7 @@ export function useCollabReconcile({
   editable,
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
+  isEditorClean,
   setContent = defaultSetContent,
   parseValue,
   normalizeValue = (v) => v,
@@ -229,6 +239,7 @@ export function useCollabReconcile({
     parseValue,
     normalizeValue,
     isEditorFocused,
+    isEditorClean,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
   });
@@ -238,6 +249,7 @@ export function useCollabReconcile({
     parseValue,
     normalizeValue,
     isEditorFocused,
+    isEditorClean,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
   };
@@ -897,7 +909,18 @@ export function useCollabReconcile({
         return;
       }
 
-      if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
+      if (
+        collab &&
+        externalNewer &&
+        !deferred &&
+        peerCountRef.current > 0 &&
+        !(
+          authoritativeBaseRef.current !== null &&
+          callbacks.normalizeValue(authoritativeBaseRef.current.value) ===
+            currentMarkdown &&
+          callbacks.isEditorClean?.(currentMarkdown)
+        )
+      ) {
         peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
         const remaining = peerWait.deadline - Date.now();
         if (remaining > 0) {

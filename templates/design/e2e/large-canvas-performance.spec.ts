@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+
 import {
   expect,
   test,
@@ -8,17 +11,27 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
 
-const SCREEN_COUNT = 120;
+const screenCountInput = process.env.DESIGN_CANVAS_SCREEN_COUNT ?? "120";
+const SCREEN_COUNT = Number(screenCountInput);
+if (!Number.isInteger(SCREEN_COUNT) || SCREEN_COUNT < 1) {
+  throw new Error(
+    `DESIGN_CANVAS_SCREEN_COUNT must be positive, got ${screenCountInput}`,
+  );
+}
 const CARDS_PER_SCREEN = 25;
 const EXPECTED_AUTHORED_LAYERS = SCREEN_COUNT * (1 + CARDS_PER_SCREEN * 3);
 const LIVE_IFRAME_BUDGET = 32;
+const MINIMUM_PAN_FRAME_SAMPLES = 10;
 
 interface BrowserPerfState {
+  frameIntervalsMs: number[];
+  panFrameIntervalEnd: number | null;
   longTasks: number[];
   maxEventLoopDelayMs: number;
   iframeAdded: number;
   iframeRemoved: number;
   iframeLoads: number;
+  lastIframeActivityAt: number;
 }
 
 function screenHtml(screenIndex: number): string {
@@ -95,13 +108,24 @@ async function createLargeDesign(
 async function installPerfObservers(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const state = {
+      frameIntervalsMs: [] as number[],
+      panFrameIntervalEnd: null as number | null,
       longTasks: [] as number[],
       maxEventLoopDelayMs: 0,
       iframeAdded: 0,
       iframeRemoved: 0,
       iframeLoads: 0,
+      lastIframeActivityAt: performance.now(),
     };
     (window as any).__largeCanvasPerf = state;
+
+    let previousFrame = performance.now();
+    const observeFrame = (frameTime: number) => {
+      state.frameIntervalsMs.push(frameTime - previousFrame);
+      previousFrame = frameTime;
+      window.requestAnimationFrame(observeFrame);
+    };
+    window.requestAnimationFrame(observeFrame);
 
     let expectedTick = performance.now() + 16;
     window.setInterval(() => {
@@ -135,10 +159,14 @@ async function installPerfObservers(page: Page): Promise<void> {
     const mutationObserver = new MutationObserver((records) => {
       records.forEach((record) => {
         record.addedNodes.forEach((node) => {
-          state.iframeAdded += iframeCountInNode(node);
+          const added = iframeCountInNode(node);
+          state.iframeAdded += added;
+          if (added > 0) state.lastIframeActivityAt = performance.now();
         });
         record.removedNodes.forEach((node) => {
-          state.iframeRemoved += iframeCountInNode(node);
+          const removed = iframeCountInNode(node);
+          state.iframeRemoved += removed;
+          if (removed > 0) state.lastIframeActivityAt = performance.now();
         });
       });
     });
@@ -151,6 +179,7 @@ async function installPerfObservers(page: Page): Promise<void> {
           event.target.matches("iframe[data-design-preview-iframe]")
         ) {
           state.iframeLoads += 1;
+          state.lastIframeActivityAt = performance.now();
         }
       },
       true,
@@ -172,35 +201,78 @@ async function resetIframeChurn(page: Page): Promise<void> {
 }
 
 async function screenSelectionLatency(page: Page, screenId: string) {
-  return page.evaluate(async (id) => {
-    const shell = document.querySelector<HTMLElement>(
-      `[data-screen-shell][data-frame-id="${CSS.escape(id)}"]`,
-    );
-    const clickTarget = shell?.querySelector<HTMLElement>("[data-frame-label]");
-    const rowButton = document.querySelector<HTMLElement>(
+  const rowButton = page.locator(
+    `[data-layer-row-button][data-layer-node-id="${screenId}"]`,
+  );
+  const row = rowButton.locator('xpath=ancestor::*[@role="treeitem"][1]');
+  if ((await row.getAttribute("aria-selected")) === "true") {
+    const alternateRow = page
+      .locator(
+        `[data-layer-row-button][data-layer-node-id]:not([data-layer-node-id="${screenId}"])`,
+      )
+      .first();
+    await alternateRow.click();
+    await expect(row).toHaveAttribute("aria-selected", "false");
+  }
+  await page.evaluate((id) => {
+    const button = document.querySelector<HTMLElement>(
       `[data-layer-row-button][data-layer-node-id="${CSS.escape(id)}"]`,
     );
-    const row = rowButton?.closest<HTMLElement>('[role="treeitem"]');
-    if (!clickTarget || !row)
-      throw new Error(`missing screen selection DOM for ${id}`);
-    const startedAt = performance.now();
-    clickTarget.dispatchEvent(
-      new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      }),
-    );
-    while (performance.now() - startedAt < 2_000) {
-      if (row.getAttribute("aria-selected") === "true") {
-        return performance.now() - startedAt;
-      }
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve()),
-      );
+    const selectedRow = button?.closest<HTMLElement>('[role="treeitem"]');
+    if (!button || !selectedRow) {
+      throw new Error("could not find the layer row for selection timing");
     }
-    throw new Error(`screen selection did not settle for ${id}`);
+    if (selectedRow.getAttribute("aria-selected") === "true") {
+      throw new Error("selection timing requires an unselected row");
+    }
+    const state = window as typeof window & {
+      __screenSelectionLatencyMs?: number | null;
+    };
+    state.__screenSelectionLatencyMs = null;
+    let pointerDownAt: number | null = null;
+    const observer = new MutationObserver(() => {
+      if (
+        pointerDownAt === null ||
+        selectedRow.getAttribute("aria-selected") !== "true"
+      ) {
+        return;
+      }
+      state.__screenSelectionLatencyMs = performance.now() - pointerDownAt;
+      observer.disconnect();
+      button.removeEventListener("pointerdown", onPointerDown);
+    });
+    const onPointerDown = () => {
+      pointerDownAt = performance.now();
+    };
+    observer.observe(selectedRow, {
+      attributes: true,
+      attributeFilter: ["aria-selected"],
+    });
+    button.addEventListener("pointerdown", onPointerDown, { once: true });
   }, screenId);
+  await rowButton.click();
+  await expect(row).toHaveAttribute("aria-selected", "true", {
+    timeout: 2_000,
+  });
+  await page.waitForFunction(
+    () => typeof (window as any).__screenSelectionLatencyMs === "number",
+    undefined,
+    { timeout: 2_000 },
+  );
+  return page.evaluate(
+    () => (window as any).__screenSelectionLatencyMs as number,
+  );
+}
+
+async function readWorldCamera(page: Page) {
+  return page
+    .locator("[data-multi-screen-canvas-world]")
+    .evaluate((element) => {
+      const transform = getComputedStyle(element).transform;
+      if (transform === "none") return { x: 0, y: 0, scale: 1 };
+      const matrix = new DOMMatrixReadOnly(transform);
+      return { x: matrix.e, y: matrix.f, scale: matrix.a };
+    });
 }
 
 async function performPanZoomGesture(page: Page): Promise<{
@@ -234,13 +306,13 @@ async function performPanZoomGesture(page: Page): Promise<{
   };
 }
 
-test("120-screen canvas preserves live iframes during pan and zoom", async ({
+test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`, async ({
   page,
 }, workerInfo) => {
   test.setTimeout(240_000);
   const baseURL =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
-  const { designId } = await createLargeDesign(page, baseURL);
+  const { designId, screenIds } = await createLargeDesign(page, baseURL);
 
   try {
     await installPerfObservers(page);
@@ -256,6 +328,177 @@ test("120-screen canvas preserves live iframes during pan and zoom", async ({
         timeout: 30_000,
       })
       .toBeGreaterThan(0);
+    await page.waitForFunction(
+      () => {
+        const state = (window as any).__largeCanvasPerf as BrowserPerfState;
+        return (
+          state.iframeAdded > 0 &&
+          state.iframeLoads > 0 &&
+          performance.now() - state.lastIframeActivityAt >= 1_500
+        );
+      },
+      undefined,
+      { timeout: 30_000 },
+    );
+
+    const surface = page.locator("[data-multi-screen-canvas-surface]");
+    const surfaceBox = await surface.boundingBox();
+    if (!surfaceBox) throw new Error("missing overview canvas surface");
+    const panStart = {
+      x: surfaceBox.x + surfaceBox.width / 2,
+      y: surfaceBox.y + surfaceBox.height / 2,
+    };
+    const world = page.locator("[data-multi-screen-canvas-world]");
+    const beforePan = await world.evaluate((element) => {
+      const transform = getComputedStyle(element).transform;
+      return transform === "none"
+        ? { x: 0, y: 0 }
+        : {
+            x: new DOMMatrixReadOnly(transform).e,
+            y: new DOMMatrixReadOnly(transform).f,
+          };
+    });
+    const profileOutputPath = process.env.DESIGN_CANVAS_TRACE_OUTPUT?.trim();
+    const profileSession = profileOutputPath
+      ? await page.context().newCDPSession(page)
+      : null;
+    if (profileSession) {
+      await profileSession.send("Tracing.start", {
+        categories:
+          "devtools.timeline,blink,cc,disabled-by-default-devtools.timeline",
+        transferMode: "ReturnAsStream",
+      });
+    }
+    const frameIntervalStart = (await perfState(page)).frameIntervalsMs.length;
+    await page.evaluate(() => {
+      const state = (window as any).__largeCanvasPerf as BrowserPerfState;
+      state.panFrameIntervalEnd = null;
+      const capturePanEnd = (event: MouseEvent) => {
+        if (event.button !== 1) return;
+        state.panFrameIntervalEnd = state.frameIntervalsMs.length;
+        document.removeEventListener("mouseup", capturePanEnd, true);
+      };
+      document.addEventListener("mouseup", capturePanEnd, true);
+    });
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(1);
+    await page.mouse.move(panStart.x + 80, panStart.y + 50, { steps: 24 });
+    await page.mouse.up({ button: "middle" });
+    const frameIntervalEnd = await page.evaluate(
+      () =>
+        ((window as any).__largeCanvasPerf as BrowserPerfState)
+          .panFrameIntervalEnd,
+    );
+    if (frameIntervalEnd === null) {
+      throw new Error("Chrome did not capture the pan mouse-up frame boundary");
+    }
+    if (profileSession && profileOutputPath) {
+      await page.waitForTimeout(200);
+      const tracingComplete = new Promise<{ stream?: string }>((resolveTrace) =>
+        profileSession.once("Tracing.tracingComplete", resolveTrace),
+      );
+      await profileSession.send("Tracing.end");
+      const { stream } = await tracingComplete;
+      if (!stream)
+        throw new Error("Chrome did not return the performance trace");
+      const traceChunks: Buffer[] = [];
+      let traceComplete = false;
+      while (!traceComplete) {
+        const chunk = await profileSession.send("IO.read", {
+          handle: stream,
+          size: 1_048_576,
+        });
+        traceChunks.push(
+          Buffer.from(chunk.data, chunk.base64Encoded ? "base64" : "utf8"),
+        );
+        traceComplete = chunk.eof;
+      }
+      await profileSession.send("IO.close", { handle: stream });
+      const outputPath = resolve(profileOutputPath);
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, Buffer.concat(traceChunks));
+      await profileSession.detach();
+    }
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        world.evaluate((element) => {
+          const transform = getComputedStyle(element).transform;
+          return transform === "none"
+            ? { x: 0, y: 0 }
+            : {
+                x: new DOMMatrixReadOnly(transform).e,
+                y: new DOMMatrixReadOnly(transform).f,
+              };
+        }),
+      )
+      .not.toEqual(beforePan);
+    const panIntervals = (await perfState(page)).frameIntervalsMs.slice(
+      frameIntervalStart,
+      frameIntervalEnd,
+    );
+    const sortedPanIntervals = [...panIntervals].sort(
+      (left, right) => left - right,
+    );
+    expect(
+      sortedPanIntervals.length,
+      "pan gesture should capture enough real animation frames to profile",
+    ).toBeGreaterThanOrEqual(MINIMUM_PAN_FRAME_SAMPLES);
+    const percentile = (value: number) =>
+      sortedPanIntervals[
+        Math.max(0, Math.ceil(sortedPanIntervals.length * value) - 1)
+      ]!;
+    console.info(
+      `[large-canvas-pan-profile] ${JSON.stringify({
+        frames: sortedPanIntervals.length,
+        p50FrameMs: +percentile(0.5).toFixed(1),
+        p95FrameMs: +percentile(0.95).toFixed(1),
+        maxFrameMs: +Math.max(...sortedPanIntervals).toFixed(1),
+      })}`,
+    );
+    const selectionLatencyMs = await screenSelectionLatency(
+      page,
+      screenIds[0]!,
+    );
+    console.info(
+      `[large-canvas-selection-profile] ${JSON.stringify({
+        latencyMs: +selectionLatencyMs.toFixed(1),
+      })}`,
+    );
+
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(1);
+    await page.mouse.move(panStart.x + 20, panStart.y + 12);
+    const panDuringPause = await world.evaluate(
+      (element) => getComputedStyle(element).transform,
+    );
+    const pauseFrameStart = (await perfState(page)).frameIntervalsMs.length;
+    await expect
+      .poll(async () => (await perfState(page)).frameIntervalsMs.length, {
+        intervals: [20],
+      })
+      .toBeGreaterThanOrEqual(pauseFrameStart + 9);
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(1);
+    await expect
+      .poll(() =>
+        world.evaluate((element) => getComputedStyle(element).transform),
+      )
+      .toBe(panDuringPause);
+    await page.mouse.move(panStart.x + 80, panStart.y + 50, { steps: 4 });
+    await page.mouse.up({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
 
     const { gesturePerf, iframeCountAfterGesture } =
       await performPanZoomGesture(page);
@@ -264,6 +507,71 @@ test("120-screen canvas preserves live iframes during pan and zoom", async ({
       gesturePerf.iframeAdded + gesturePerf.iframeRemoved,
     ).toBeLessThanOrEqual(12);
     expect(gesturePerf.iframeLoads).toBeLessThanOrEqual(6);
+
+    const cameraBeforeConcurrentZoom = await readWorldCamera(page);
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(panStart.x + 80, panStart.y + 50);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -28);
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(180);
+    const cameraAfterConcurrentZoom = await readWorldCamera(page);
+    expect(cameraAfterConcurrentZoom.scale).not.toBeCloseTo(
+      cameraBeforeConcurrentZoom.scale,
+      3,
+    );
+    expect(
+      Math.abs(cameraAfterConcurrentZoom.x - cameraBeforeConcurrentZoom.x),
+    ).toBeGreaterThan(30);
+    await page.mouse.up({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
+    await expect
+      .poll(() => readWorldCamera(page))
+      .toEqual(cameraAfterConcurrentZoom);
+
+    const cameraBeforeEscape = await readWorldCamera(page);
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(panStart.x + 80, panStart.y + 50);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -28);
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(180);
+    const cameraAfterEscapeZoom = await readWorldCamera(page);
+    expect(cameraAfterEscapeZoom.scale).not.toBeCloseTo(
+      cameraBeforeEscape.scale,
+      3,
+    );
+    await page.keyboard.press("Escape");
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
+    await page.mouse.up({ button: "middle" });
+    await expect.poll(() => readWorldCamera(page)).toEqual(cameraBeforeEscape);
+
+    const cameraBeforeSequentialPans = await readWorldCamera(page);
+    for (const delta of [
+      { x: 45, y: 25 },
+      { x: -20, y: 10 },
+    ]) {
+      await page.mouse.move(panStart.x, panStart.y);
+      await page.mouse.down({ button: "middle" });
+      await page.mouse.move(panStart.x + delta.x, panStart.y + delta.y);
+      await page.mouse.up({ button: "middle" });
+    }
+    await expect
+      .poll(async () => {
+        const camera = await readWorldCamera(page);
+        return (
+          Math.abs(camera.x - (cameraBeforeSequentialPans.x + 25)) < 0.1 &&
+          Math.abs(camera.y - (cameraBeforeSequentialPans.y + 35)) < 0.1 &&
+          Math.abs(camera.scale - cameraBeforeSequentialPans.scale) < 0.001
+        );
+      })
+      .toBe(true);
   } finally {
     await postAction(page.request, baseURL, "delete-design", {
       id: designId,

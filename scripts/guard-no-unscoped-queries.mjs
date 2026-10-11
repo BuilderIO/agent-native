@@ -130,7 +130,9 @@ async function* walk(dir) {
 function extractTableCalls(contents) {
   const out = [];
   const headerRegex =
-    /export\s+const\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:[a-zA-Z_$][\w$]*Table|table)\s*\(\s*"([^"]+)"\s*,\s*\{/gm;
+    // Anchored to the line start so a commented-out example table in a
+    // template does not register its name as ownable repo-wide.
+    /^[ \t]*export\s+const\s+([a-zA-Z_$][\w$]*)\s*=\s*(?:[a-zA-Z_$][\w$]*Table|table)\s*\(\s*"([^"]+)"\s*,\s*\{/gm;
   let m;
   while ((m = headerRegex.exec(contents)) !== null) {
     const exportName = m[1];

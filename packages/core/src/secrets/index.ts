@@ -17,6 +17,7 @@ export {
 export {
   writeAppSecret,
   readAppSecret,
+  hasAppSecret,
   readAppSecretMeta,
   deleteAppSecret,
   getAppSecretMeta,

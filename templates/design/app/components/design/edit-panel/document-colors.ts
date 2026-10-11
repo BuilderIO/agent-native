@@ -9,7 +9,12 @@ import {
   type CodeLayerNode,
   wrapBareTextLeavesInHtml,
 } from "@shared/code-layer";
-import { parseCssColor, rgbaToCss, rgbaToHex } from "@shared/color-utils";
+import {
+  parseCssColor,
+  parseCssColorExtended,
+  rgbaToCss,
+  rgbaToHex,
+} from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   readGradientFillOpacity,
@@ -984,7 +989,7 @@ function cssColorTokens(value: string): string[] {
 }
 
 function colorKey(value: string): string {
-  const parsed = parseCssColor(value);
+  const parsed = parseCssColorExtended(value);
   return parsed
     ? rgbaToHex(parsed, true).toUpperCase()
     : value.trim().toLowerCase();
@@ -1494,7 +1499,8 @@ export function rewriteSelectionFillStyles(
       };
     }
 
-    const projection = buildCodeLayerProjection(content);
+    const source = fileScopes[0]?.source;
+    const projection = buildCodeLayerProjection(content, { source });
     const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
     const textNodeIds = new Set<string>();
     for (const target of currentModel.targets) {
@@ -1529,6 +1535,7 @@ export function rewriteSelectionFillStyles(
     let nextContent = content;
     if (textNodeIds.size > 0) {
       const wrapped = wrapBareTextLeavesInHtml(nextContent, {
+        source,
         targetNodeIds: [...textNodeIds],
       });
       if (!wrapped.changed) {
@@ -1543,9 +1550,13 @@ export function rewriteSelectionFillStyles(
     }
 
     const editableModel = selectionFillModel(
-      fileScopes.map((scope) => ({ ...scope, content: nextContent })),
+      fileScopes.map((scope) =>
+        scope.content === nextContent
+          ? scope
+          : { ...scope, content: nextContent, projection: undefined },
+      ),
     );
-    const nextProjection = buildCodeLayerProjection(nextContent);
+    const nextProjection = buildCodeLayerProjection(nextContent, { source });
     const editableNodes = new Map(
       nextProjection.nodes.map((node) => [node.id, node]),
     );

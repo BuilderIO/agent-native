@@ -1,6 +1,69 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+import { e2eBaseURL } from "./base-url";
+import { appPath } from "./helpers.js";
+
+let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
+
+async function setFeatureFlagRules(
+  page: Page,
+  key: string,
+  rules: Record<string, unknown>,
+) {
+  const response = await page.request.post(
+    `${e2eBaseURL()}/_agent-native/actions/set-feature-flag`,
+    { data: { operation: "replace-rules", key, rules } },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `set-feature-flag failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return response.json();
+}
+
+async function enableDesignSystemWorkflowsAndRestore(
+  page: Page,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${e2eBaseURL()}/_agent-native/actions/list-feature-flags`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `list-feature-flags failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const listed = await response.json();
+  const key = "design-system-workflows";
+  const currentRules = listed.flags?.find(
+    (flag: { key: string }) => flag.key === key,
+  )?.rules;
+  if (!currentRules || !["off", "on", "rules"].includes(currentRules.mode)) {
+    throw new Error(`list-feature-flags did not return rules for ${key}`);
+  }
+  const previousRules = {
+    mode: currentRules.mode,
+    ...(currentRules.emails !== undefined && {
+      emails: currentRules.emails,
+    }),
+    ...(currentRules.orgIds !== undefined && {
+      orgIds: currentRules.orgIds,
+    }),
+    ...(currentRules.percentage !== undefined && {
+      percentage: currentRules.percentage,
+    }),
+  };
+
+  await setFeatureFlagRules(page, key, { mode: "on" });
+  return async () => {
+    const restored = await setFeatureFlagRules(page, key, previousRules);
+    expect(restored.rules).toMatchObject(previousRules);
+  };
+}
 
 test.beforeEach(async ({ page }) => {
+  restoreDesignSystemWorkflows =
+    await enableDesignSystemWorkflowsAndRestore(page);
   await page.route("**/_agent-native/actions/list-designs**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -16,6 +79,11 @@ test.beforeEach(async ({ page }) => {
       });
     },
   );
+});
+
+test.afterEach(async () => {
+  await restoreDesignSystemWorkflows?.();
+  restoreDesignSystemWorkflows = undefined;
 });
 
 test("imports design.md guidance through Builder DSI", async ({ page }) => {
@@ -44,7 +112,7 @@ test("imports design.md guidance through Builder DSI", async ({ page }) => {
     },
   );
 
-  await page.goto("/design-systems/setup");
+  await page.goto("/design-systems/setup", { waitUntil: "domcontentloaded" });
   await page
     .getByRole("button", { name: "Import design.md", exact: true })
     .click();

@@ -18,6 +18,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Zoom transcripts now import. Zoom's account-wide recording list leaves out download links, so Brain now looks up each matching meeting to get its transcript. Each Zoom sync also lists which meetings matched or were skipped, and which files Zoom returned, to make problems easier to spot.
 - Zoom transcript imports work with the standard admin recording scope again instead of failing with a master-account scope error. Brain chat can now change a source's settings, such as a Zoom meeting filter; before, its updates were silently saved as empty.
 
 ## 2026-10-05

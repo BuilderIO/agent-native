@@ -675,6 +675,8 @@ const messages = {
       "Texte facultatif à rechercher dans la réponse…",
     promoteMustContainLabel:
       "Texte à vérifier dans la réponse de l’évaluation promue",
+    promoteReviewedPromptLabel:
+      "Prompt vérifié manuellement (jamais copié depuis la production)",
     promoteNeedsContains:
       "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de la promouvoir en évaluation.",
     spans: "Spans",

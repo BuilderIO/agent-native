@@ -1,3 +1,4 @@
+import type { WriteReceipt } from "@agent-native/core/action";
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,6 +17,12 @@ vi.mock("../../.generated/actions-registry.js", () => ({
 }));
 
 import { realDataFinalGuard } from "./agent-chat";
+
+const SAVED_RECEIPT: WriteReceipt = {
+  changed: true,
+  verified: true,
+  summary: 'Saved 1 op(s) to "growth"; 1 panel(s) verified rendering.',
+};
 
 function userMessage(
   text: string,
@@ -639,7 +646,12 @@ describe("realDataFinalGuard dashboard edits", () => {
           "Updated both panels to use only DUAL_TRACK and IMPLEMENTATION classifications as requested.",
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
-          { name: "mutate-dashboard", isError: false, content: "ok" },
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "ok",
+            receipt: SAVED_RECEIPT,
+          },
         ],
       }),
     );
@@ -656,12 +668,57 @@ describe("realDataFinalGuard dashboard edits", () => {
           "Done. DUAL_TRACK deals now have a 62 percent win rate versus 41 percent for IMPLEMENTATION.",
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
-          { name: "mutate-dashboard", isError: false, content: "ok" },
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: "ok",
+            receipt: SAVED_RECEIPT,
+          },
         ],
       }),
     );
 
     expect(result).not.toBeNull();
+  });
+
+  describe("a mutate-dashboard write counts as a completed save only through its receipt", () => {
+    const editRequest = {
+      userText: "Edit the Growth dashboard to change the time range default",
+      draftText: "I changed the default time range.",
+    };
+    const guardAfter = (receipt?: WriteReceipt) =>
+      realDataFinalGuard(
+        guardContext({
+          ...editRequest,
+          toolResults: [
+            {
+              name: "mutate-dashboard",
+              isError: false,
+              content: "{}",
+              ...(receipt ? { receipt } : {}),
+            },
+          ],
+        }),
+      );
+
+    it("accepts a saved write, verified or not (the receipt guard owns the honesty retry)", () => {
+      expect(guardAfter(SAVED_RECEIPT)).toBeNull();
+      expect(
+        guardAfter({
+          ...SAVED_RECEIPT,
+          verified: false,
+          summary: "Unchecked.",
+        }),
+      ).toBeNull();
+    });
+
+    it("does not accept a write the receipt says changed nothing", () => {
+      expect(guardAfter({ ...SAVED_RECEIPT, changed: false })).not.toBeNull();
+    });
+
+    it("does not accept a result with no receipt, such as a dry run", () => {
+      expect(guardAfter()).not.toBeNull();
+    });
   });
 
   it("does not treat a skipped compose as a completed dashboard edit", () => {

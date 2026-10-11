@@ -48,6 +48,32 @@ describe("SaveStatusIndicator conflict review", () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
+  it.each([403, 404])(
+    "labels a %i save failure as lost access and offers retry and reload",
+    (status) => {
+      const retry = vi.fn().mockResolvedValue(undefined);
+      render(
+        <SaveStatusIndicator
+          saving={false}
+          saveFailed
+          saveError={{ status, retryable: true }}
+          onRetrySave={retry}
+          onReload={vi.fn()}
+        />,
+      );
+
+      const alert = screen.getByRole("alert");
+      expect(alert.getAttribute("data-save-status")).toBe("access-lost");
+      expect(screen.getByText("editorToolbar.accessLost")).toBeTruthy();
+      expect(screen.queryByText("settings.saveFailed")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "settings.retry" }));
+      expect(retry).toHaveBeenCalledOnce();
+      expect(
+        screen.getByRole("button", { name: "settings.reload" }),
+      ).toBeTruthy();
+    },
+  );
+
   it("does not offer retry without retained operations", () => {
     render(
       <SaveStatusIndicator

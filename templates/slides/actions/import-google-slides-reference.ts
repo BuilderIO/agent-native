@@ -10,6 +10,7 @@ import {
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
 import { getAvailableGoogleDocsAccessToken } from "../server/lib/google-docs-access.js";
+import { trackDeckCreated } from "./_deck-tracking.js";
 import {
   importPptxBufferToDeck,
   type ImportedImageFallback,
@@ -341,6 +342,10 @@ export default defineAction({
         .string()
         .optional()
         .describe("Optional title for the imported reference deck"),
+      purpose: z
+        .enum(["direct", "reference"])
+        .optional()
+        .describe("Why the deck is being imported; used only for analytics"),
     })
     .refine(
       ({ fileId, presentationUrl }) => Boolean(fileId || presentationUrl),
@@ -348,7 +353,7 @@ export default defineAction({
         message: "Provide either fileId or presentationUrl.",
       },
     ),
-  run: async ({ fileId, presentationUrl, title }) => {
+  run: async ({ fileId, presentationUrl, title, purpose }, ctx) => {
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
 
@@ -381,13 +386,23 @@ export default defineAction({
       connection.accessToken,
       parsedPresentation,
     );
-    return importPptxBufferToDeck({
+    const result = await importPptxBufferToDeck({
       fileBuffer,
       parsedPresentation,
       title,
       source: "import-google-slides-reference",
       imageFallbacks,
     });
+    trackDeckCreated(
+      result.id,
+      {
+        creationMethod: "import_gslides",
+        purpose: purpose ?? "unknown",
+        slideCount: result.slideCount,
+      },
+      ctx,
+    );
+    return result;
   },
   link: ({ result }) => {
     const id =

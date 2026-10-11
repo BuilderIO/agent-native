@@ -84,6 +84,7 @@ export function SessionDevToolsPanel({
   maxHeight = DEVTOOLS_MAX_HEIGHT,
   onHeightChange,
   onSeek,
+  jumpDisabled = false,
   issueMatches,
   issueMatching = false,
   friction,
@@ -94,6 +95,7 @@ export function SessionDevToolsPanel({
   maxHeight?: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
+  jumpDisabled?: boolean;
   issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
   issueMatching?: boolean;
   /** The Lab's friction tab; there is no tab without it. */
@@ -278,6 +280,7 @@ export function SessionDevToolsPanel({
                 selected={expanded}
                 issueMatch={issueMatches?.get(entry.id) ?? null}
                 issueMatching={issueMatching}
+                jumpDisabled={jumpDisabled}
                 onSelect={() =>
                   setSelectedConsoleId((current) =>
                     current === entry.id ? null : entry.id,
@@ -343,6 +346,7 @@ export function SessionDevToolsPanel({
                 entry={entry}
                 active={entry.id === activeNetworkId}
                 selected={expanded}
+                jumpDisabled={jumpDisabled}
                 onSelect={() =>
                   setSelectedNetworkId((current) =>
                     current === entry.id ? null : entry.id,
@@ -638,14 +642,17 @@ function DevToolsEmptyState({ message }: { message: string }) {
 function JumpToButton({
   offsetMs,
   onSeek,
+  disabled = false,
 }: {
   offsetMs: number;
   onSeek: (ms: number) => void;
+  disabled?: boolean;
 }) {
   const t = useT();
   return (
     <button
       type="button"
+      disabled={disabled}
       className="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
       onClick={(event) => {
         event.stopPropagation();
@@ -705,12 +712,14 @@ function ConsoleRow({
   issueMatching,
   onSelect,
   onSeek,
+  jumpDisabled,
 }: {
   entry: ReplayConsoleEntry;
   active: boolean;
   selected: boolean;
   issueMatch: SessionIssueMatch | null;
   issueMatching: boolean;
+  jumpDisabled: boolean;
   onSelect: () => void;
   onSeek: (ms: number) => void;
 }) {
@@ -778,7 +787,11 @@ function ConsoleRow({
         {!issueMatch && !issueMatching && bucket === "error" ? (
           <SearchIssuesLink message={entry.message} />
         ) : null}
-        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+        <JumpToButton
+          offsetMs={entry.offsetMs}
+          onSeek={onSeek}
+          disabled={jumpDisabled}
+        />
       </div>
       {selected ? (
         <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">
@@ -829,12 +842,14 @@ function NetworkRow({
   selected,
   onSelect,
   onSeek,
+  jumpDisabled,
 }: {
   entry: ReplayNetworkEntry;
   active: boolean;
   selected: boolean;
   onSelect: () => void;
   onSeek: (ms: number) => void;
+  jumpDisabled: boolean;
 }) {
   const t = useT();
   const displayUrl = middleTruncate(networkDisplayUrl(entry.url), 72);
@@ -902,7 +917,11 @@ function NetworkRow({
             )}
           />
         </button>
-        <JumpToButton offsetMs={entry.offsetMs} onSeek={onSeek} />
+        <JumpToButton
+          offsetMs={entry.offsetMs}
+          onSeek={onSeek}
+          disabled={jumpDisabled}
+        />
       </div>
       {selected ? (
         <div className="space-y-2 border-t border-border/60 bg-muted/20 px-3 py-2 ps-[3.25rem]">

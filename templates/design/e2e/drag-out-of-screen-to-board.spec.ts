@@ -128,12 +128,22 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
       await page.waitForTimeout(25);
     }
     await page.waitForTimeout(700);
-    await page.mouse.move(end.x + 1, end.y);
-    await page.waitForTimeout(300);
     await page.mouse.up();
 
+    const dropTrace = await page.evaluate(() => {
+      const entries = (window as any).__designTrace?.entries?.() ?? [];
+      return entries
+        .filter(
+          (entry: any) =>
+            entry.area === "drop" || entry.area === "cross-screen",
+        )
+        .slice(-20);
+    });
     await expect
-      .poll(() => filesContaining(page, designId), { timeout: 20_000 })
+      .poll(() => filesContaining(page, designId), {
+        timeout: 20_000,
+        message: `cross-screen drop persistence; trace: ${JSON.stringify(dropTrace)}`,
+      })
       .toEqual(["__board__.html"]);
 
     const commitPoint = await page.evaluate(() => {
@@ -146,7 +156,7 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
         .at(-1)?.data;
     });
     expect(commitPoint.hasAnchor).toBe(false);
-    expect(commitPoint.targetOutsideBoardRenderGeometry).toBe(false);
+    expect(commitPoint.targetOutsideBoardContentBounds).toBe(true);
     expect(commitPoint.boardSurfaceRenderOrigin).toMatchObject({
       x: expect.any(Number),
       y: expect.any(Number),
@@ -163,11 +173,11 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
     const persistedPosition = await boardLayerPosition(page, designId);
     expect(persistedPosition.position).toBe("absolute");
     expect(persistedPosition.left).toBeCloseTo(
-      commitPoint.targetLocalPoint.x - commitPoint.sourcePointerOffset.x,
+      commitPoint.targetCanvasPoint.x - commitPoint.sourcePointerOffset.x,
       0,
     );
     expect(persistedPosition.top).toBeCloseTo(
-      commitPoint.targetLocalPoint.y - commitPoint.sourcePointerOffset.y,
+      commitPoint.targetCanvasPoint.y - commitPoint.sourcePointerOffset.y,
       0,
     );
   } finally {

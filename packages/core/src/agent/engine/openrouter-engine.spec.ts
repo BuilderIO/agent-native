@@ -18,7 +18,11 @@ describe("OpenRouter builtin engine", () => {
     expect(entry?.requiredEnvVars).toEqual(["OPENROUTER_API_KEY"]);
     expect(entry?.defaultModel).toBe("openai/gpt-6-luna");
     expect(entry?.supportedModels).toEqual(
-      expect.arrayContaining(["openai/gpt-6-luna", "z-ai/glm-5.2"]),
+      expect.arrayContaining([
+        "openai/gpt-6-luna",
+        "x-ai/grok-build-0.1",
+        "z-ai/glm-5.2",
+      ]),
     );
     expect(entry?.installPackage).toContain("@openrouter/ai-sdk-provider");
   });
@@ -73,6 +77,7 @@ describe("OpenRouter builtin engine", () => {
       apiKey: "or-test-key",
       appName: "My App",
       appUrl: "https://myapp.example",
+      fetch: expect.any(Function),
     });
     expect(providerCallable).toHaveBeenCalledWith(
       "anthropic/claude-sonnet-4.5",

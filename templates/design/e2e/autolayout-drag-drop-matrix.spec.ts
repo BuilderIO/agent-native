@@ -645,7 +645,7 @@ function childMoved(
   });
 }
 
-async function dragHeldWithOracle(
+async function dragHeldAndSampleState(
   page: Page,
   request: APIRequestContext,
   designId: string,
@@ -967,7 +967,7 @@ function serializedOrder(html: string, ids: string[]): string[] {
 
 test.use({ viewport: { width: 1600, height: 1100 } });
 
-test.describe("physical Figma auto-layout drag/drop matrix", () => {
+test.describe("auto-layout drag/drop matrix", () => {
   test("held drag previews multiple targets without committing until mouseup", async ({
     page,
     request,
@@ -1152,7 +1152,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         const design = await createDesign(request);
         try {
           await gotoEditor(page, design.id);
-          const evidence = await dragHeldWithOracle(
+          const evidence = await dragHeldAndSampleState(
             page,
             request,
             design.id,
@@ -1966,7 +1966,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         }),
       ]);
 
-      const result = await dragHeldWithOracle(
+      const result = await dragHeldAndSampleState(
         page,
         request,
         design.id,
@@ -2167,7 +2167,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("SCREEN-ROOT horizontal, vertical, wrap, and grid cells keep held oracle evidence", async ({
+  test("SCREEN-ROOT horizontal, vertical, wrap, and grid cells keep sampled held state", async ({
     page,
     request,
   }) => {
@@ -2229,7 +2229,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         });
         try {
           await gotoEditor(page, design.id);
-          const evidence = await dragHeldWithOracle(
+          const evidence = await dragHeldAndSampleState(
             page,
             request,
             design.id,
@@ -2479,7 +2479,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     });
     try {
       await gotoEditor(page, design.id);
-      await dragHeldWithOracle(
+      await dragHeldAndSampleState(
         page,
         request,
         design.id,

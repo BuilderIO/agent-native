@@ -175,7 +175,7 @@ test.describe("detaching an instance", () => {
     });
     expect(
       openTag(await indexHtml(page, id), "btn-a-instance"),
-      `Figma's Detach instance severs the linkage — the annotation must go.`,
+      `detaching removes the component linkage`,
     ).not.toContain("data-agent-native-component");
   });
 
@@ -188,8 +188,8 @@ test.describe("detaching an instance", () => {
     const html = await indexHtml(page, id);
     expect(
       html,
-      `Figma: detaching keeps the visual result identical, it only breaks the ` +
-        `link. The node's markup already IS the expanded content here.`,
+      `detaching preserves the rendered content while breaking the component link. ` +
+        `The node markup already contains the expanded content here.`,
     ).toContain("Buy now");
     expect(openTag(html, "btn-a-instance")).toContain("background:#3b82f6");
   });
@@ -208,7 +208,7 @@ test.describe("swapping an instance", () => {
     const tag = openTag(await indexHtml(page, id), "btn-a-instance");
     expect(
       tag,
-      `Figma's Swap instance repoints the instance at the other component.`,
+      `swapping updates the instance to reference the target component`,
     ).toContain('data-agent-native-component="SecondaryButton"');
     expect(tag).toContain('data-agent-native-component-ref="cmp-secondary"');
   });

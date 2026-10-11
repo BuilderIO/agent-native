@@ -1,8 +1,9 @@
 import {
-  BUILDER_CLAUDE_SONNET_MODEL_ID,
-  BUILDER_CLAUDE_SONNET_MODEL_LABEL,
-} from "@agent-native/core/agent/model-config";
+  getModelOptionLabel,
+  type ModelEngineConfig,
+} from "@agent-native/core/agent/model-version";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
 import {
   type ParsedFrontmatter,
@@ -24,6 +25,11 @@ import React, {
   useMemo,
 } from "react";
 
+import {
+  getCustomAgentModelOptions,
+  useCustomAgentModelEngine,
+} from "./custom-agent-model-options.js";
+
 export interface ResourceEditorProps {
   resource: Resource;
   onSave: (content: string) => void;
@@ -31,6 +37,8 @@ export interface ResourceEditorProps {
   onViewChange?: (v: "visual" | "code") => void;
   hideToolbar?: boolean;
   readOnly?: boolean;
+  modelEngine?: ModelEngineConfig | null;
+  builderFallbackLabel?: string;
 }
 
 const CONTROL_STYLE = { fontSize: 12, lineHeight: 1 } as const;
@@ -67,11 +75,15 @@ function FrontmatterBar({
   frontmatter,
   onChange,
   readOnly,
+  modelEngine,
+  builderFallbackLabel,
 }: {
   resourcePath: string;
   frontmatter: ParsedFrontmatter;
   onChange: (updated: ParsedFrontmatter) => void;
   readOnly?: boolean;
+  modelEngine?: ModelEngineConfig | null;
+  builderFallbackLabel?: string;
 }) {
   const getField = (key: string) => getFrontmatterValue(frontmatter, key) ?? "";
 
@@ -96,6 +108,18 @@ function FrontmatterBar({
   const tools = getField("tools") || "inherit";
   const isCustomAgent = isCustomAgentPath(resourcePath);
   const isSkill = isSkillPath(resourcePath);
+  const t = useT();
+  const modelEngineLoad = useCustomAgentModelEngine(
+    modelEngine,
+    !readOnly && isCustomAgent,
+  );
+  const effectiveModelEngine = modelEngineLoad.engine;
+  const effectiveBuilderFallbackLabel =
+    builderFallbackLabel ?? t("agentResources.builderModelFallback");
+  const modelOptions = getCustomAgentModelOptions(effectiveModelEngine, {
+    defaultModel: t("agentResources.defaultModel"),
+    builderFallback: effectiveBuilderFallbackLabel,
+  });
 
   return (
     <div
@@ -177,13 +201,26 @@ function FrontmatterBar({
               padding: "2px 6px",
             }}
           >
-            <option value="inherit">Default model</option>
-            <option value="claude-fable-5">Claude Fable 5</option>
-            <option value="claude-opus-5-5">Claude Opus 5.5</option>
-            <option value={BUILDER_CLAUDE_SONNET_MODEL_ID}>
-              {BUILDER_CLAUDE_SONNET_MODEL_LABEL}
-            </option>
-            <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+            {modelOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+            {modelEngineLoad.state === "unavailable" && (
+              <option value="__model-options-unavailable" disabled>
+                {t("agentResources.modelOptionsUnavailable")}
+              </option>
+            )}
+            {model !== "inherit" &&
+              !modelOptions.some((option) => option.value === model) && (
+                <option value={model}>
+                  {getModelOptionLabel(
+                    model,
+                    effectiveModelEngine ?? undefined,
+                    effectiveBuilderFallbackLabel,
+                  )}
+                </option>
+              )}
           </select>
         ) : null}
       </div>
@@ -367,11 +404,15 @@ function VisualMarkdownEditor({
   onChange,
   resourcePath,
   readOnly,
+  modelEngine,
+  builderFallbackLabel,
 }: {
   content: string;
   onChange: (md: string) => void;
   resourcePath: string;
   readOnly?: boolean;
+  modelEngine?: ModelEngineConfig | null;
+  builderFallbackLabel?: string;
 }) {
   const parsed = useMemo(() => parseFrontmatter(content), [content]);
   const frontmatterRef = useRef(parsed);
@@ -393,6 +434,8 @@ function VisualMarkdownEditor({
           resourcePath={resourcePath}
           frontmatter={parsed}
           readOnly={readOnly}
+          modelEngine={modelEngine}
+          builderFallbackLabel={builderFallbackLabel}
           onChange={(updated) => {
             if (readOnly) return;
             frontmatterRef.current = updated;
@@ -569,6 +612,8 @@ export function ResourceEditor({
   onViewChange,
   hideToolbar,
   readOnly,
+  modelEngine,
+  builderFallbackLabel,
 }: ResourceEditorProps) {
   const [content, setContent] = useState(resource.content);
   const [internalView, setInternalView] = useState<"visual" | "code">(
@@ -687,6 +732,8 @@ export function ResourceEditor({
               onChange={handleChange}
               resourcePath={resource.path}
               readOnly={readOnly}
+              modelEngine={modelEngine}
+              builderFallbackLabel={builderFallbackLabel}
             />
           </div>
         ) : (

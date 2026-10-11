@@ -135,6 +135,29 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
     expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
   });
 
+  it("uses adaptive thinking for Claude Haiku 5.5 with an Anthropic key", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-haiku-5-5",
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "adaptive",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toEqual({
+      effort: "high",
+    });
+  });
+
   it("does not add an implicit effort beside explicit Anthropic thinking", async () => {
     const { streamText } = mockAiSdk();
     mockAnthropicProvider();

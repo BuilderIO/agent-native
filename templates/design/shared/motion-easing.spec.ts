@@ -14,7 +14,7 @@ import {
 } from "./motion-easing";
 
 describe("MOTION_CURVE_PRESETS", () => {
-  it("lists Figma Motion's Curve tab presets verbatim, in order", () => {
+  it("lists the supported curve presets in order", () => {
     expect(MOTION_CURVE_PRESETS.map((p) => p.label)).toEqual([
       "Hold",
       "Linear",
@@ -27,7 +27,7 @@ describe("MOTION_CURVE_PRESETS", () => {
     ]);
   });
 
-  it("uses the live-verified Ease in and out bezier (.42, 0, .58, 1)", () => {
+  it("uses the configured Ease in and out bezier (.42, 0, .58, 1)", () => {
     const preset = MOTION_CURVE_PRESETS.find(
       (p) => p.label === "Ease in and out",
     );
@@ -93,7 +93,7 @@ describe("spring token", () => {
 });
 
 describe("MOTION_SPRING_PRESETS", () => {
-  it("lists Figma Motion's Spring tab presets verbatim, in order", () => {
+  it("lists spring presets in order", () => {
     expect(MOTION_SPRING_PRESETS.map((p) => p.label)).toEqual([
       "Gentle",
       "Quick",
@@ -102,12 +102,12 @@ describe("MOTION_SPRING_PRESETS", () => {
     ]);
   });
 
-  it("uses the live-verified Bouncy bounce of 0.69", () => {
+  it("uses the configured Bouncy bounce of 0.69", () => {
     const bouncy = MOTION_SPRING_PRESETS.find((p) => p.label === "Bouncy");
     expect(bouncy?.spring.bounce).toBe(0.69);
   });
 
-  it("defaults Custom spring bounce to 0.25 (Figma default)", () => {
+  it("defaults Custom spring bounce to 0.25", () => {
     expect(MOTION_SPRING_DEFAULT_BOUNCE).toBe(0.25);
   });
 

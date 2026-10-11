@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetDocumentContextPath = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
-const mockGetRequestURL = vi.hoisted(() => vi.fn());
+const mockGetForwardedRequestOrigin = vi.hoisted(() => vi.fn());
 const { document } = vi.hoisted(() => ({
   document: {
     id: "child-page",
@@ -20,6 +20,8 @@ const { document } = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => "/content",
+  getForwardedRequestOrigin: (...args: unknown[]) =>
+    mockGetForwardedRequestOrigin(...args),
   verifyScopedAgentAccessToken: () => ({ ok: false }),
 }));
 
@@ -32,7 +34,6 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
-  getRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
 }));
@@ -98,8 +99,8 @@ describe("GET /api/document-agent-context.json", () => {
     vi.resetAllMocks();
     document.visibility = "public";
     mockGetQuery.mockReturnValue({ id: document.id });
-    mockGetRequestURL.mockReturnValue(
-      new URL("https://content.example.test/api/document-agent-context.json"),
+    mockGetForwardedRequestOrigin.mockReturnValue(
+      "https://content.example.test",
     );
     mockGetDocumentContextPath.mockResolvedValue([
       {

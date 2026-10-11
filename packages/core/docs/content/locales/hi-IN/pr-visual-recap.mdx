@@ -321,8 +321,10 @@ DeepSeek के लिए, `VISUAL_RECAP_AGENT=openai-compatible`,
 सकता है। एक टोकन मिंट करें (सिर्फ़ org ओनर/एडमिन):
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+इससे CI टोकन 10 साल तक मान्य रहेगा और इसे कभी भी रद्द किया जा सकता है।
 
 यह कमांड आपको ब्राउज़र में प्रमाणित करता है, फिर सर्विस टोकन को बिल्कुल एक
 बार प्रिंट करता है — इसे `PLAN_RECAP_TOKEN` सीक्रेट के रूप में स्टोर करें।

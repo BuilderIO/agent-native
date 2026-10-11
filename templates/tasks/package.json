@@ -32,7 +32,7 @@
     "@tabler/icons-react": "catalog:",
     "@tanstack/react-query": "^5.99.2",
     "drizzle-orm": "^0.45.2",
-    "h3": "^2.0.1-rc.20",
+    "h3": "^2.0.1",
     "isbot": "^5",
     "node-pty": "^1.1.0",
     "postgres": "^3.4.9",

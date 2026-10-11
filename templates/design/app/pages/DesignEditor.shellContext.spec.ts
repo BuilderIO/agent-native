@@ -2,11 +2,15 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor shell context changes", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const handler = source.slice(
     source.indexOf('if (data.type === "design:init")'),
-    source.indexOf("const focusDesignInspectorForSelection"),
+    source.indexOf(
+      "useEffect(() => {\n    if (hasSelectedElement) focusDesignInspectorForSelection();",
+    ),
   );
 
   it("discards pending edits when the host repoints the shell", () => {

@@ -389,7 +389,10 @@ export const MentionPopover = forwardRef<
                                   {item.label}
                                 </span>
                                 {item.description && (
-                                  <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
+                                  <span
+                                    data-mention-description
+                                    className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground"
+                                  >
                                     {item.description}
                                   </span>
                                 )}
@@ -431,7 +434,10 @@ export const MentionPopover = forwardRef<
                                   /{cmd.name}
                                 </span>
                                 {cmd.description && (
-                                  <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                  <span
+                                    data-mention-description
+                                    className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                  >
                                     {cmd.description}
                                   </span>
                                 )}
@@ -472,7 +478,10 @@ export const MentionPopover = forwardRef<
                                       {skill.name}
                                     </span>
                                     {skill.description && (
-                                      <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                      <span
+                                        data-mention-description
+                                        className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                      >
                                         {skill.description}
                                       </span>
                                     )}

@@ -1,3 +1,4 @@
+import { getAnalyticsSessionId } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -16,11 +17,15 @@ export async function uploadChunkRequest({
   contentType,
   signal,
 }: UploadChunkRequestOptions): Promise<Response> {
+  const browserSessionId = getAnalyticsSessionId();
   const request = (authorization?: string) =>
     fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": contentType,
+        ...(browserSessionId
+          ? { "X-Agent-Native-Session-Id": browserSessionId }
+          : {}),
         ...(authorization ? { Authorization: `Bearer ${authorization}` } : {}),
       },
       credentials: "include",

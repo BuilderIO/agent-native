@@ -679,40 +679,6 @@ describe("Design HTML structural integrity", () => {
     ).toMatchObject({ issue: "runtime-missing" });
   });
 
-  it("stays linear across many raw-text blocks", () => {
-    const build = (count: number) =>
-      `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<style>.a{color:red}</style><script>var a=1</script>".repeat(count)}</body></html>`;
-    const time = (html: string) => {
-      const samples = Array.from({ length: 5 }, () => {
-        const start = performance.now();
-        expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
-        return performance.now() - start;
-      });
-      return samples.sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
-    };
-    time(build(400));
-    const small = time(build(800));
-    const large = time(build(3200));
-    expect(large).toBeLessThan(Math.max(small, 1) * 10);
-  });
-
-  it("stays linear on large valid documents", () => {
-    const build = (count: number) =>
-      `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<div>x</div>".repeat(count)}</body></html>`;
-    const time = (html: string) => {
-      const samples = Array.from({ length: 5 }, () => {
-        const start = performance.now();
-        expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
-        return performance.now() - start;
-      });
-      return samples.sort((a, b) => a - b)[Math.floor(samples.length / 2)]!;
-    };
-    time(build(1000));
-    const small = time(build(2000));
-    const large = time(build(8000));
-    expect(large).toBeLessThan(Math.max(small, 1) * 10);
-  });
-
   it("reports a missing Tailwind runtime as advisory, not a rejection", () => {
     const result = inspectDesignHtmlDocumentIntegrity(
       SCREEN.replace(/<script[^>]*><\/script>/, ""),

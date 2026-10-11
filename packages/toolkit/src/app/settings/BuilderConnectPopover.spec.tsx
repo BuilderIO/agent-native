@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { WORKSPACE_SERVICES } from "@agent-native/core/onboarding/workspace-services";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
@@ -15,48 +16,21 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       ),
 }));
 
-vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
-  useOnboarding: () => ({
-    loading: false,
-    error: null,
-    profile: {
-      capabilities: [
-        {
-          id: "llm",
-          label: "AI model",
-          required: true,
-          builderIncluded: true,
-          service: "model",
-          keySummary: "Connect your own AI model",
-          why: "The agent uses a language model.",
-        },
-        {
-          id: "design-system-intelligence",
-          label: "Design system intelligence",
-          required: false,
-          builderIncluded: true,
-          service: "design-system-intelligence",
-        },
-        {
-          id: "background-agents",
-          label: "Background agents",
-          required: false,
-          builderIncluded: true,
-          service: "background-agents",
-        },
-      ],
-    },
-  }),
-}));
-
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { getBuilderIncludedBenefitCapabilities } from "./BuilderIncludedBenefitsDisclosure.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
+
+const appIdentity = vi.hoisted(() => ({ templateId: null as string | null }));
+
+vi.mock("./shell/app-identity.js", () => ({
+  currentTemplateId: () => appIdentity.templateId,
+}));
 
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  appIdentity.templateId = null;
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -69,6 +43,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 it("shows all eight included services when an app profile omits design intelligence", () => {
@@ -218,9 +193,11 @@ describe("BuilderConnectPopover", () => {
       connecting: false,
       start: vi.fn(),
       retry,
-      statusResolved: false,
-      statusReadSettledCount: 1,
+      statusResolved: true,
+      statusReadSettledCount: 2,
+      errorKind: "status-read",
       agentNativeProvisioningEnabled: false,
+      error: "Couldn't reach Builder to check your account. Retrying.",
     };
 
     render(
@@ -241,6 +218,7 @@ describe("BuilderConnectPopover", () => {
     expect(consent?.textContent).toContain(
       "Couldn't read the Builder.io connections.",
     );
+    expect(consent?.textContent).not.toContain("Retrying.");
     expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
     click(
       [...(consent?.querySelectorAll("button") ?? [])].find(
@@ -252,6 +230,46 @@ describe("BuilderConnectPopover", () => {
       consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
         ?.disabled,
     ).toBe(true);
+  });
+
+  it("shows a connection error after an earlier status read failure", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      retry: vi.fn(() => true),
+      statusResolved: false,
+      statusReadSettledCount: 1,
+      errorKind: "connection" as const,
+      agentNativeProvisioningEnabled: true,
+      error: "Couldn't create your Builder account. Try again.",
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "Couldn't create your Builder account. Try again.",
+    );
+    expect(consent?.textContent).not.toContain(
+      "Couldn't read the Builder.io connections.",
+    );
+    expect(
+      [...(consent?.querySelectorAll("button") ?? [])].some(
+        (button) => button.textContent === "Retry",
+      ),
+    ).toBe(false);
   });
 
   it("allows an explicit one-click handler for a custom flow", () => {
@@ -322,29 +340,33 @@ describe("BuilderConnectPopover", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it("keeps both choices and one-click creation when an account already exists", () => {
+  it("keeps the chooser busy during activation and available after it finishes", () => {
     const onConnect = vi.fn();
     const flow = {
       connecting: false,
+      configured: false,
+      error: null,
       start: vi.fn(),
       statusResolved: true,
       agentNativeProvisioningEnabled: true,
       accountExists: true,
     };
+    const renderPopover = () =>
+      render(
+        React.createElement(
+          BuilderConnectPopover,
+          {
+            flow,
+            onConnect,
+            contentTestId: "consent",
+            primaryTestId: "create",
+            secondaryTestId: "sign-in",
+          },
+          trigger(),
+        ),
+      );
 
-    render(
-      React.createElement(
-        BuilderConnectPopover,
-        {
-          flow,
-          onConnect,
-          contentTestId: "consent",
-          primaryTestId: "create",
-          secondaryTestId: "sign-in",
-        },
-        trigger(),
-      ),
-    );
+    renderPopover();
     click(connectButton());
 
     const consent = document.querySelector("[data-testid='consent']");
@@ -366,7 +388,17 @@ describe("BuilderConnectPopover", () => {
 
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(onConnect).toHaveBeenLastCalledWith(true);
-    click(connectButton());
+    flow.connecting = true;
+    renderPopover();
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    expect(
+      document.querySelector<HTMLButtonElement>("[data-testid='sign-in']")
+        ?.disabled,
+    ).toBe(true);
+
+    flow.connecting = false;
+    flow.configured = true;
+    renderPopover();
     click(
       document.querySelector(
         "[data-testid='consent'] [data-testid='sign-in']",
@@ -424,6 +456,7 @@ describe("BuilderConnectPopover", () => {
     const props = {
       flow,
       onConnect: vi.fn(),
+      appId: "calendar",
       contentTestId: "consent",
       primaryTestId: "create",
       secondaryTestId: "sign-in",
@@ -464,10 +497,36 @@ describe("BuilderConnectPopover", () => {
     ).toEqual([
       "Included free",
       "60 monthly Agent Credits",
-      "+ 2 more services",
+      "LLM credits + 8 more services",
     ]);
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("prefers the assigned workspace profile over the template profile", () => {
+    appIdentity.templateId = "calendar";
+    vi.stubGlobal("__AGENT_NATIVE_APP_ID__", "assets");
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+    };
+
+    render(React.createElement(BuilderConnectPopover, { flow }, trigger()));
+    click(connectButton());
+
+    const expectedMoreCount = getBuilderIncludedBenefitCapabilities(
+      getOnboardingAppProfileForId("assets").capabilities,
+    ).filter(
+      (capability) => capability.id !== "llm" && capability.service !== "model",
+    ).length;
+    const servicesToggle = document.querySelector<HTMLButtonElement>(
+      "[data-testid='builder-included-services'] button[aria-expanded]",
+    );
+    expect(servicesToggle?.textContent?.replace(/\s+/g, " ").trim()).toContain(
+      `+ ${expectedMoreCount} more services`,
+    );
   });
 });
 

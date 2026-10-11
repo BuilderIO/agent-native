@@ -5,6 +5,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
@@ -25,7 +26,7 @@ interface ModelPricing {
 export const BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER = 1.25;
 export const BUILDER_AGENT_CREDITS_PER_USD = 20;
 
-export type UsageBillingUnit = "usd" | "builder-credits" | "mixed";
+export type UsageBillingUnit = "usd" | "builder-credits" | "mixed" | "unknown";
 
 export interface UsageBillingMode {
   unit: UsageBillingUnit;
@@ -34,7 +35,8 @@ export interface UsageBillingMode {
   source:
     | "estimated-provider-cost"
     | "builder-agent-credits"
-    | "mixed-provider-usage";
+    | "mixed-provider-usage"
+    | "unknown";
   hardCostMarginMultiplier?: number;
   creditsPerUsd?: number;
 }
@@ -60,6 +62,13 @@ export const MIXED_USAGE_BILLING: UsageBillingMode = {
   label: "Builder credits and provider cost",
   shortLabel: "Mixed",
   source: "mixed-provider-usage",
+};
+
+export const UNKNOWN_USAGE_BILLING: UsageBillingMode = {
+  unit: "unknown",
+  label: "Unknown billing unit",
+  shortLabel: "Unknown",
+  source: "unknown",
 };
 
 export function usageBillingForEngine(
@@ -193,7 +202,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureUsageTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS token_usage (
           id BIGINT PRIMARY KEY,
@@ -272,12 +281,17 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_org_app_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
         );
+        await ensureIndexExists(
+          "idx_token_usage_run_id",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_run_id ON token_usage (run_id) WHERE run_id IS NOT NULL`,
+        );
         return;
       }
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
