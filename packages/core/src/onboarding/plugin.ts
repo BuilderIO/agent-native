@@ -14,7 +14,6 @@ import { getAppConfig } from "../app-config/index.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
-import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -78,12 +77,8 @@ async function hasOverride(
   sessionId: string,
   stepId: string,
 ): Promise<boolean> {
-  try {
-    const val = await appStateGet(sessionId, `${OVERRIDE_KEY_PREFIX}${stepId}`);
-    return !!(val && (val as { complete?: boolean }).complete);
-  } catch {
-    return false;
-  }
+  const val = await appStateGet(sessionId, `${OVERRIDE_KEY_PREFIX}${stepId}`);
+  return !!(val && (val as { complete?: boolean }).complete);
 }
 
 async function serializeSteps(
@@ -137,17 +132,8 @@ function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
 }
 
 async function readDismissedFlag(sessionId: string): Promise<boolean> {
-  // The dismissed flag is optional UX state; a transient DB failure reading it
-  // must not take down a read whose steps and profile are still usable (the
-  // pre-summary client already assumed "not dismissed" when this read
-  // failed). A credential-store outage is not transient, so it still throws.
-  try {
-    const value = await appStateGet(sessionId, DISMISSED_KEY);
-    return !!(value && (value as { dismissed?: boolean }).dismissed);
-  } catch (error) {
-    if (error instanceof CredentialStoreUnavailableError) throw error;
-    return false;
-  }
+  const value = await appStateGet(sessionId, DISMISSED_KEY);
+  return !!(value && (value as { dismissed?: boolean }).dismissed);
 }
 
 async function resolveSharedCompletionEnabled(): Promise<boolean> {
@@ -266,10 +252,7 @@ export function createOnboardingPlugin(
         return withOnboardingRequestContext(context, async () => {
           const [statuses, value] = await Promise.all([
             serializeSteps(context),
-            appStateGet(context.sessionId, DISMISSED_KEY).catch((error) => {
-              if (error instanceof CredentialStoreUnavailableError) throw error;
-              return null;
-            }),
+            appStateGet(context.sessionId, DISMISSED_KEY),
           ]);
           return {
             dismissed: !!(

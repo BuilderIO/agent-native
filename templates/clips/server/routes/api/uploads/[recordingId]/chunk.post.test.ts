@@ -488,6 +488,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     });
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockRenewUploadLease).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
     expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
     expect(mockTrack).not.toHaveBeenCalledWith(
