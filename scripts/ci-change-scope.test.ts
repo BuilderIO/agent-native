@@ -968,8 +968,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const jobTimeout = 9;
   assert.match(
     designJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
-    "the longer music-app and AI sidebar caps must not lengthen ordinary Design shards",
+    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| \(matrix\.shard == 'screen-history-1' \|\| matrix\.shard == 'screen-history-2' \|\| matrix\.shard == 'screen-history-3'\) && 13 \|\| 9 \}\}$/m,
+    "only Screen-history shards get the thirteen-minute job cap",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -983,6 +983,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const diagnosticJobTimeout = Number(
     diagnosticJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
   );
+  const screenHistoryJobTimeout = 13;
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout === 9,
     `regular Design acceptance shards must keep the exact nine-minute cap (got ${jobTimeout})`,
@@ -1000,9 +1001,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&
-      screenHistoryStepTimeout === 4 &&
-      jobTimeout >= screenHistoryStepTimeout + 5,
-    `Screen-history tests need the exact four-minute cap and five minutes for setup (job ${jobTimeout}, step ${screenHistoryStepTimeout})`,
+      screenHistoryStepTimeout === 8 &&
+      screenHistoryJobTimeout >= screenHistoryStepTimeout + 5,
+    `Screen-history tests need the exact eight-minute cap and five minutes for setup (job ${screenHistoryJobTimeout}, step ${screenHistoryStepTimeout})`,
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&

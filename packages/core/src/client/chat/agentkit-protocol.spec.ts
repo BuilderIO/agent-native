@@ -3764,14 +3764,13 @@ describe("createAgentKitProtocolAdapter", () => {
     );
 
     expect(result.at(-1)?.type).toBe("run.completed");
-    const promptWithAttachment = `${originalPrompt}\n[attached: instagram-reference.png image/png ${referenceUrl}]`;
     expect(continuationRequest).toMatchObject({
       model: "continuation-context-model",
       effort: "high",
       autoContinueOfRunId: "run-1",
       history: expect.arrayContaining([
         { role: "user", content: "Earlier project context" },
-        { role: "user", content: promptWithAttachment },
+        { role: "user", content: originalPrompt },
       ]),
       attachments: [
         {
@@ -3791,7 +3790,7 @@ describe("createAgentKitProtocolAdapter", () => {
       structuredHistory: expect.arrayContaining([
         {
           role: "user",
-          content: [{ type: "text", text: promptWithAttachment }],
+          content: [{ type: "text", text: originalPrompt }],
         },
       ]),
       metadata: { turnContextMarker: "preserved" },
@@ -3801,6 +3800,12 @@ describe("createAgentKitProtocolAdapter", () => {
         continuationRequest?.attachments as Array<{ type?: string }> | undefined
       )?.filter((attachment) => attachment.type === "image"),
     ).toHaveLength(1);
+    expect(JSON.stringify(continuationRequest?.history ?? [])).not.toContain(
+      referenceUrl,
+    );
+    expect(
+      JSON.stringify(continuationRequest?.structuredHistory ?? []),
+    ).not.toContain(referenceUrl);
     await transport.dispose();
   });
 

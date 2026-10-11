@@ -99,6 +99,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -322,9 +323,32 @@ function requestWithSignupAttribution(
   request: Request,
   signupAttribution: SignupAttributionContext | undefined,
 ): Request {
-  return new Request(request, {
-    headers: addSignupAttributionHeader(request.headers, signupAttribution),
+  const init = new Proxy(request, {
+    get(target, key) {
+      if (key === "headers") {
+        return addSignupAttributionHeader(target.headers, signupAttribution);
+      }
+      if (key === "duplex") return "half";
+      return Reflect.get(target, key, target);
+    },
   });
+  const copy = new Request(request.url, init as RequestInit);
+  // Worker-added properties are not part of a Request copy, so carry them over.
+  const { cf, waitUntil } = request as Request & {
+    cf?: unknown;
+    waitUntil?: unknown;
+  };
+  if (cf !== undefined) {
+    Object.defineProperty(copy, "cf", { configurable: true, value: cf });
+  }
+  if (typeof waitUntil === "function") {
+    Object.defineProperty(copy, "waitUntil", {
+      configurable: true,
+      value: waitUntil,
+      writable: true,
+    });
+  }
+  return copy;
 }
 
 function headersWithSignupAttribution(
@@ -1893,7 +1917,7 @@ let sessionMaxAge = DEFAULT_MAX_AGE;
 
 export async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
-    _sessionInitPromise = (async () => {
+    const _sessionInitPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -1916,6 +1940,9 @@ export async function ensureSessionTable(): Promise<void> {
       _sessionInitPromise = undefined;
       throw err;
     });
+    _sessionInitPromise = retainRequestDbPoolScope(
+      _sessionInitPromiseWithRequestDbPoolScope,
+    );
   }
   return _sessionInitPromise;
 }

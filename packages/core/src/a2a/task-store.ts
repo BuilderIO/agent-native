@@ -6,6 +6,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { assertA2APersistablePayload } from "./persistence-safety.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
@@ -25,7 +26,7 @@ export interface A2ATaskListCursor {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS a2a_tasks (
           id TEXT PRIMARY KEY,
@@ -99,6 +100,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

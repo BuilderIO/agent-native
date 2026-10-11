@@ -8,6 +8,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 const TABLE = "automation_trigger_event_queue";
 const SWEEP_STATE_TABLE = "automation_trigger_event_queue_sweep_state";
@@ -113,7 +114,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureAutomationTriggerEventQueue(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       await ensureTableExists(TABLE, CREATE_TABLE_SQL);
       await ensureTableExists(SWEEP_STATE_TABLE, CREATE_SWEEP_STATE_TABLE_SQL);
       await ensureColumnExists(
@@ -163,6 +164,7 @@ export async function ensureAutomationTriggerEventQueue(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

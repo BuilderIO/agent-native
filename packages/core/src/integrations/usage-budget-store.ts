@@ -1,5 +1,6 @@
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   getIntegrationScope,
   integrationScopeSubjectKey,
@@ -86,7 +87,7 @@ interface ReservationRow {
 
 export async function ensureTables(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const db = getDbExec();
       const budgetsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budgets (
         id TEXT PRIMARY KEY,
@@ -174,6 +175,7 @@ export async function ensureTables(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

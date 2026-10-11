@@ -20,6 +20,7 @@
  */
 import { getDbExec, type DbExec, withDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { parseServiceIdentityEmail } from "./service-identity.js";
 
 export const SERVICE_PRINCIPAL_LIFECYCLES = [
@@ -79,7 +80,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = ensureTableExists(
+    const _initPromiseWithRequestDbPoolScope = ensureTableExists(
       "service_principal_policies",
       `CREATE TABLE IF NOT EXISTS service_principal_policies (
         org_id TEXT NOT NULL,
@@ -103,6 +104,7 @@ export async function ensureTable(): Promise<void> {
         _initPromise = undefined;
         throw error;
       });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

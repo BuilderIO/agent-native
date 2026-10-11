@@ -10,6 +10,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordChange } from "../server/poll.js";
 import {
   getRequestUserEmail,
@@ -74,7 +75,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureExtensionsTables(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       {
         await ensureTableExists("tools", EXTENSIONS_CREATE_SQL);
@@ -137,6 +138,7 @@ export async function ensureExtensionsTables(): Promise<void> {
         return;
       }
     })();
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
 
   try {

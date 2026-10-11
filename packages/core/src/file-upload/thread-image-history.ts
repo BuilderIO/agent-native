@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 
 import type { AgentChatAttachment } from "../agent/types.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import {
+  claimOwnedAttachmentHydrationCandidate,
   createOwnedAttachmentHydrationBudget,
   hydrateOwnedImageUrl,
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+  type OwnedAttachmentHydrationBudget,
 } from "./owned-attachment.js";
 
 interface PriorImageCandidate {
@@ -16,6 +19,20 @@ interface PriorImageCandidate {
 interface PriorImageCandidates {
   retained: PriorImageCandidate[];
   neverRetainedCount: number;
+}
+
+export function canonicalImageReferenceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password) {
+      url.hash = "";
+      const canonical = url.toString();
+      if (canonical.length <= 2_048) return canonical;
+    }
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+  }
+  return value;
 }
 
 export class PriorThreadImageHistoryReadError extends Error {
@@ -235,6 +252,7 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
   if (!Array.isArray(messages)) throw new PriorThreadImageHistoryReadError();
 
   const candidates: PriorImageCandidate[] = [];
+  const seenCanonicalUrls = new Set<string>();
   let neverRetainedCount = 0;
   for (
     let messageIndex = messages.length - 1;
@@ -300,12 +318,15 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
         neverRetainedCount++;
         continue;
       }
+      const canonicalUrl = canonicalImageReferenceUrl(url);
+      if (seenCanonicalUrls.has(canonicalUrl)) continue;
+      seenCanonicalUrls.add(canonicalUrl);
       candidates.push({
         name: typeof stored.name === "string" ? stored.name : "image",
         ...(typeof stored.contentType === "string"
           ? { contentType: stored.contentType }
           : {}),
-        url,
+        url: canonicalUrl,
       });
     }
   }
@@ -322,33 +343,61 @@ export async function hydratePriorThreadImages(
   options: {
     cacheScope?: PriorThreadImageHistoryCacheScope;
     excludeUrls?: ReadonlySet<string>;
+    budget?: OwnedAttachmentHydrationBudget;
   } = {},
 ): Promise<PriorThreadImageHistory> {
   const { retained: candidates, neverRetainedCount } =
     candidatesFromThreadData(threadData);
   const remainingCandidates = candidates.filter((candidate) => {
-    const url = durableHistoryImageUrl(candidate.url);
-    return !url || !options.excludeUrls?.has(url);
+    // Candidates are canonical, so exclusion sets must use the same form.
+    return !options.excludeUrls?.has(candidate.url);
   });
-  const selected = remainingCandidates.slice(
-    -MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+  const budget = options.budget ?? createOwnedAttachmentHydrationBudget();
+  const candidateLimit = Math.max(
+    0,
+    Math.min(
+      MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+      budget.remainingCandidates,
+    ),
   );
+  const selected =
+    candidateLimit > 0 ? remainingCandidates.slice(-candidateLimit) : [];
   const omittedCount = remainingCandidates.length - selected.length;
   const now = Date.now();
   const cacheKey = priorThreadImageCacheKey(options.cacheScope, selected);
   const cached = cacheKey
     ? getCachedPriorThreadImages(cacheKey, now)
     : undefined;
-  const budget = createOwnedAttachmentHydrationBudget();
   const attachments: AgentChatAttachment[] = [];
   const newlyHydrated = new Map<string, AgentChatAttachment>();
   let unreadableCount = 0;
+  let budgetOmittedCount = 0;
+  let requestDeadlineExpired = false;
 
-  for (const candidate of selected) {
+  const hydrationOrder = [...selected].reverse();
+  for (let index = 0; index < hydrationOrder.length; index++) {
+    const candidate = hydrationOrder[index]!;
+    if (!claimOwnedAttachmentHydrationCandidate(budget)) break;
     const identity = candidateIdentity(candidate);
     const cachedAttachment = cached?.byCandidate.get(identity);
     if (cachedAttachment) {
+      const parsed =
+        typeof cachedAttachment.data === "string"
+          ? parseBase64DataUrl(cachedAttachment.data)
+          : null;
+      const cachedBytes = parsed
+        ? Buffer.byteLength(parsed.data, "base64")
+        : Number.POSITIVE_INFINITY;
+      if (cachedBytes > budget.remainingBytes) {
+        budgetOmittedCount++;
+        continue;
+      }
+      budget.remainingBytes -= cachedBytes;
       attachments.push({ ...cachedAttachment });
+      continue;
+    }
+    if (requestDeadlineExpired) {
+      budgetOmittedCount++;
       continue;
     }
     const result = await hydrateOwnedImageUrl(
@@ -357,6 +406,15 @@ export async function hydratePriorThreadImages(
       budget,
     );
     if (result.kind !== "hydrated") {
+      if (result.code === "request-time-limit") {
+        requestDeadlineExpired = true;
+        budgetOmittedCount++;
+        continue;
+      }
+      if (result.code === "request-byte-limit") {
+        budgetOmittedCount++;
+        continue;
+      }
       unreadableCount++;
       continue;
     }
@@ -385,14 +443,21 @@ export async function hydratePriorThreadImages(
       `${unreadableCount} retained image attachment${unreadableCount === 1 ? " was" : "s were"} not readable from configured upload storage. Do not describe or infer their contents.`,
     );
   }
+  if (budgetOmittedCount > 0) {
+    notes.push(
+      `${budgetOmittedCount} retained image attachment${budgetOmittedCount === 1 ? " was" : "s were"} omitted to stay within the request-wide image hydration budget.`,
+    );
+  }
   if (omittedCount > 0) {
     notes.push(
-      `Only the ${selected.length} most recent earlier images with retained upload URLs fit the bounded vision history; ${omittedCount} older retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted.`,
+      candidateLimit > 0
+        ? `Only the ${selected.length} most recent earlier images with retained upload URLs fit the bounded vision history; ${omittedCount} older retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted.`
+        : `${omittedCount} retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted because the request-wide image hydration budget is exhausted.`,
     );
   }
 
   return {
-    attachments,
+    attachments: attachments.reverse(),
     ...(notes.length > 0
       ? {
           contextNote: `<prior-chat-image-context>${notes.join(" ")}</prior-chat-image-context>`,

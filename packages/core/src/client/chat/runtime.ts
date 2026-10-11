@@ -6,7 +6,10 @@ import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
-import type { AgentChatStructuredMessage } from "../../agent/types.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+} from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
@@ -1681,9 +1684,12 @@ export function createHttpAgentChatRuntime<
 function historyAttachmentStub(
   message: AgentChatRuntimeMessage,
   part: AgentChatRuntimeMessage["content"][number],
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
 ): string | undefined {
   if (message.role !== "user") return undefined;
   if (part.type !== "file" && part.type !== "image") return undefined;
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (url && currentAttachmentUrls.has(url)) return undefined;
   const kind = part.type === "image" ? "image" : "file";
   const rawName = part.type === "image" ? part.alt : part.filename;
   const name = rawName
@@ -1696,7 +1702,6 @@ function historyAttachmentStub(
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 100);
-  const url = durableHistoryAttachmentUrl(part.url);
   return `[attached: ${name || kind} ${mediaType || "unknown"} ${url || "no durable URL available"}]`;
 }
 
@@ -1714,32 +1719,93 @@ function durableHistoryAttachmentUrl(
   return sanitized.length <= 2_048 ? sanitized : undefined;
 }
 
+function historyImageReference(
+  message: AgentChatRuntimeMessage,
+  part: AgentChatRuntimeMessage["content"][number],
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+):
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>
+  | undefined {
+  if (message.role !== "user" || part.type !== "image" || !part.url) {
+    return undefined;
+  }
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (url && currentAttachmentUrls.has(url)) return undefined;
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(part.url);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (parsedUrl.search || parsedUrl.hash) return undefined;
+  if (!url) return undefined;
+
+  const name = part.alt
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const mediaType = part.mediaType
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return {
+    type: "image-reference",
+    url,
+    ...(name ? { name } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
 /** Reasoning is the model's scratch work and is never replayed as history. */
-function runtimeMessageText(message: AgentChatRuntimeMessage): string {
+function runtimeMessageText(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): string {
   return message.content
     .map((part) =>
       part.type === "text"
         ? part.text
-        : (historyAttachmentStub(message, part) ?? ""),
+        : (historyAttachmentStub(message, part, currentAttachmentUrls) ?? ""),
     )
     .filter(Boolean)
     .join("\n");
 }
 
-function isUserAsk(message: AgentChatRuntimeMessage): boolean {
+function isUserAsk(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): boolean {
   return (
     message.role === "user" &&
     message.content.some(
       (part) =>
         (part.type === "text" && part.text.trim()) ||
-        historyAttachmentStub(message, part) !== undefined,
+        historyAttachmentStub(message, part, currentAttachmentUrls) !==
+          undefined,
     )
   );
 }
 
-function hasHistoryAttachment(message: AgentChatRuntimeMessage): boolean {
+function hasHistoryAttachment(
+  message: AgentChatRuntimeMessage,
+  currentAttachmentUrls: ReadonlySet<string> = new Set<string>(),
+): boolean {
   return message.content.some(
-    (part) => historyAttachmentStub(message, part) !== undefined,
+    (part) =>
+      historyAttachmentStub(message, part, currentAttachmentUrls) !== undefined,
+  );
+}
+
+function currentTurnAttachmentUrls(
+  attachments: readonly AgentChatRuntimeAttachment[] | undefined,
+): Set<string> {
+  return new Set(
+    (attachments ?? [])
+      .map((attachment) => durableHistoryAttachmentUrl(attachment.url))
+      .filter((url): url is string => url !== undefined),
   );
 }
 
@@ -1759,17 +1825,19 @@ function priorNativeHistoryMessages(
 ) {
   const source = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
-  if (currentPrompt.trim()) {
-    for (let index = source.length - 1; index >= 0; index--) {
-      const message = source[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (message.role === "user") {
+      if (!currentPrompt.trim()) {
+        currentPromptMessageIndex = index;
+      } else {
         const match = runtimeMessageTextMatches(message, currentPrompt);
         if (match.matches || !match.complete) currentPromptMessageIndex = index;
       }
-      break;
     }
+    break;
   }
   return source.filter(
     (message, index) =>
@@ -1781,6 +1849,7 @@ function priorNativeHistoryMessages(
 function nativeHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
+  currentAttachmentUrls: ReadonlySet<string>,
 ) {
   return priorNativeHistoryMessages(messages, currentPrompt)
     .filter(
@@ -1788,7 +1857,7 @@ function nativeHistoryFromMessages(
     )
     .map((message) => ({
       role: message.role as "user" | "assistant",
-      content: runtimeMessageText(message),
+      content: runtimeMessageText(message, currentAttachmentUrls),
     }))
     .filter((message) => message.content.trim());
 }
@@ -1835,12 +1904,14 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
 const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES = 6;
 const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
 const MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS =
   MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES;
 const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
   MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES +
   MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS;
 const MAX_PINNED_PRIOR_USER_PROMPT_CHARS = 16 * 1024;
 /** Above every other candidate, so the byte budget drops pinned asks last. */
@@ -2490,7 +2561,9 @@ function boundStructuredToolHistory(
   );
 }
 
-type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
+type StructuredHistorySourcePart =
+  | AgentChatRuntimeMessage["content"][number]
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>;
 
 interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
@@ -2545,26 +2618,29 @@ function boundedStructuredHistorySources(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
   supplementalMessages: readonly AgentChatRuntimeMessage[],
+  currentAttachmentUrls: ReadonlySet<string>,
 ): BoundedStructuredHistorySources {
   const historyMessages = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
   let currentPromptScanLimited = false;
   let omitted = false;
   let toolHistoryOmitted = false;
-  if (currentPrompt.trim()) {
-    let visitedMessages = 0;
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
-      if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
-        currentPromptScanLimited = true;
-        omitted = true;
-        toolHistoryOmitted = true;
-        break;
-      }
-      visitedMessages++;
-      const message = historyMessages[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
+  let visitedMessages = 0;
+  for (let index = historyMessages.length - 1; index >= 0; index--) {
+    if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      currentPromptScanLimited = true;
+      omitted = true;
+      toolHistoryOmitted = true;
+      break;
+    }
+    visitedMessages++;
+    const message = historyMessages[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (message.role === "user") {
+      if (!currentPrompt.trim()) {
+        currentPromptMessageIndex = index;
+      } else {
         const match = runtimeMessageTextMatches(message, currentPrompt);
         if (match.matches) currentPromptMessageIndex = index;
         if (!match.complete) {
@@ -2573,8 +2649,8 @@ function boundedStructuredHistorySources(
           currentPromptMessageIndex = index;
         }
       }
-      break;
     }
+    break;
   }
 
   let firstUserPromptMessageIndex: number | undefined;
@@ -2585,7 +2661,7 @@ function boundedStructuredHistorySources(
   );
   for (let index = 0; index < firstPromptScanEnd; index++) {
     if (index === currentPromptMessageIndex) continue;
-    if (isUserAsk(historyMessages[index]!)) {
+    if (isUserAsk(historyMessages[index]!, currentAttachmentUrls)) {
       firstUserPromptMessageIndex = index;
       break;
     }
@@ -2600,7 +2676,7 @@ function boundedStructuredHistorySources(
     index++
   ) {
     if (index === currentPromptMessageIndex) continue;
-    if (hasHistoryAttachment(historyMessages[index]!)) {
+    if (hasHistoryAttachment(historyMessages[index]!, currentAttachmentUrls)) {
       attachmentPromptMessageIndices.push(index);
     }
   }
@@ -2616,7 +2692,7 @@ function boundedStructuredHistorySources(
     index--
   ) {
     if (index === currentPromptMessageIndex) continue;
-    if (isUserAsk(historyMessages[index]!)) {
+    if (isUserAsk(historyMessages[index]!, currentAttachmentUrls)) {
       previousUserPromptMessageIndex = index;
       break;
     }
@@ -2648,9 +2724,14 @@ function boundedStructuredHistorySources(
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   const pinnedPromptsAdded = new Set<number>();
+  const selectedImageParts = new Set<
+    AgentChatRuntimeMessage["content"][number]
+  >();
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
   let selectedRegularTextPartCount = 0;
+  let selectedImagePartCount = 0;
+  const selectedImageUrls = new Set<string>();
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
@@ -2661,11 +2742,11 @@ function boundedStructuredHistorySources(
   ): void => {
     pinnedPromptsAdded.add(messageIndex);
     const message = historyMessages[messageIndex]!;
-    let text = runtimeMessageText(message);
+    let text = runtimeMessageText(message, currentAttachmentUrls);
     if (
       messageIndex === previousUserPromptMessageIndex &&
       messageIndex !== firstUserPromptMessageIndex &&
-      !hasHistoryAttachment(message) &&
+      !hasHistoryAttachment(message, currentAttachmentUrls) &&
       text.length > MAX_PINNED_PRIOR_USER_PROMPT_CHARS
     ) {
       omitted = true;
@@ -2678,6 +2759,28 @@ function boundedStructuredHistorySources(
     }
     selectedTextPartCount++;
     parts.push({ type: "text", text });
+  };
+  const addImageReference = (
+    parts: StructuredHistorySourcePart[],
+    message: AgentChatRuntimeMessage,
+    part: AgentChatRuntimeMessage["content"][number],
+  ): void => {
+    const reference = historyImageReference(
+      message,
+      part,
+      currentAttachmentUrls,
+    );
+    if (!reference || selectedImageParts.has(part)) return;
+    // History is walked newest-first, so the first reference to a URL keeps the newest metadata.
+    if (selectedImageUrls.has(reference.url)) return;
+    if (selectedImagePartCount >= MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES) {
+      omitted = true;
+      return;
+    }
+    selectedImageParts.add(part);
+    selectedImageUrls.add(reference.url);
+    selectedImagePartCount++;
+    parts.push(reference);
   };
   const visitMessage = (
     message: AgentChatRuntimeMessage,
@@ -2715,7 +2818,17 @@ function boundedStructuredHistorySources(
         break;
       }
       scannedPartCount++;
-      const attachmentStub = historyAttachmentStub(message, part);
+      const attachmentStub = historyAttachmentStub(
+        message,
+        part,
+        currentAttachmentUrls,
+      );
+      const imageReference = historyImageReference(
+        message,
+        part,
+        currentAttachmentUrls,
+      );
+      if (imageReference) addImageReference(partsReversed, message, part);
       const isToolPart =
         (part.type === "tool-call" && message.role === "assistant") ||
         part.type === "tool-result";
@@ -2725,6 +2838,7 @@ function boundedStructuredHistorySources(
         if (!pinnedPromptsAdded.has(messageIndex)) {
           addPinnedPromptText(partsReversed, messageIndex);
         }
+        addImageReference(partsReversed, message, part);
         continue;
       }
       if (
@@ -2793,6 +2907,16 @@ function boundedStructuredHistorySources(
     if (pinnedPromptsAdded.has(index)) continue;
     const parts: StructuredHistorySourcePart[] = [];
     addPinnedPromptText(parts, index);
+    const message = historyMessages[index]!;
+    for (const part of message.content) {
+      if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        break;
+      }
+      scannedPartCount++;
+      addImageReference(parts, message, part);
+    }
     if (parts.length) {
       selectedReversed.push({
         message: historyMessages[index]!,
@@ -2975,6 +3099,7 @@ function boundaryToolResultPartsToOmit(
 function nativeStructuredHistoryFromMessages(
   messages: readonly AgentChatRuntimeMessage[] | undefined,
   currentPrompt: string,
+  currentAttachmentUrls: ReadonlySet<string>,
   supplementalMessages: readonly AgentChatRuntimeMessage[] = [],
   supplementalHistoryOmitted = false,
   supplementalToolHistoryOmitted = false,
@@ -2991,6 +3116,7 @@ function nativeStructuredHistoryFromMessages(
     messages,
     currentPrompt,
     supplementalMessages,
+    currentAttachmentUrls,
   );
   const boundaryResultsToOmit = boundaryToolResultPartsToOmit(
     messages,
@@ -3044,6 +3170,10 @@ function nativeStructuredHistoryFromMessages(
           textHistoryParts.add(textPart);
           pendingTextParts.push(textPart);
         }
+      } else if (part.type === "image-reference" && message.role === "user") {
+        flushTextCandidate();
+        flushResults();
+        content.push(part);
       } else if (part.type === "tool-call" && message.role === "assistant") {
         hasToolHistory = true;
         flushTextCandidate();
@@ -4362,7 +4492,14 @@ export function createAgentNativeChatRuntime(
         typeof turnEngine === "string" && turnEngine.trim()
           ? turnEngine
           : options.engine;
-      const history = nativeHistoryFromMessages(turn.messages, prompt);
+      const currentAttachmentUrlSet = currentTurnAttachmentUrls(
+        turn.attachments,
+      );
+      const history = nativeHistoryFromMessages(
+        turn.messages,
+        prompt,
+        currentAttachmentUrlSet,
+      );
       const loadedSkillSlugs = loadedSkillSlugsFromMessages(turn.messages);
       const pendingApprovalHistory =
         approvedToolCalls && continuationMessageState
@@ -4371,6 +4508,7 @@ export function createAgentNativeChatRuntime(
       const structuredHistory = nativeStructuredHistoryFromMessages(
         turn.messages,
         prompt,
+        currentAttachmentUrlSet,
         pendingApprovalHistory.messages,
         pendingApprovalHistory.omitted,
         pendingApprovalHistory.toolHistoryOmitted,

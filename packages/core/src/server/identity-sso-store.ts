@@ -6,6 +6,7 @@ import {
   isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -349,7 +350,7 @@ export async function ensureTable(): Promise<void> {
   // request must not turn a missing migration into request-time DDL.
   if (isProductionServerlessFunctionRuntime()) return;
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();
       const jtiSql = buildIdentitySsoJtiCreateSql();
       {
@@ -365,6 +366,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

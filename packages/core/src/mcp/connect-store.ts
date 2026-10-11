@@ -21,6 +21,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -40,7 +41,7 @@ export const DEVICE_START_WINDOW_MS = 60_000;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createTokensSql = `
         CREATE TABLE IF NOT EXISTS mcp_connect_tokens (
           id TEXT PRIMARY KEY,
@@ -97,6 +98,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

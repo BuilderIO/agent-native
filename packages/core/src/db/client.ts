@@ -17,6 +17,11 @@ import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import {
+  getOrCreateRequestDbPool,
+  getRequestDbPool,
+  replaceRequestDbPool,
+} from "./request-pool-context.js";
 export {
   isHostedFunctionInvocationRuntime,
   isProductionServerlessFunctionRuntime,
@@ -1471,15 +1476,18 @@ export function guardNeonPool(
   url: string,
   label = "db/neon",
 ): void {
-  if (!pool || typeof pool !== "object") return;
-  if (loggedNeonPools.has(pool)) return;
-  const withEvents = pool as {
+  if (!pool || typeof pool !== "object" || isRequestScopedPoolFacade(pool)) {
+    return;
+  }
+  const targetPool = pool;
+  if (loggedNeonPools.has(targetPool)) return;
+  const withEvents = targetPool as {
     on?: (event: string, listener: (...args: unknown[]) => void) => unknown;
   };
   if (typeof withEvents.on !== "function") return;
 
-  loggedNeonPools.add(pool);
-  gateNeonConnect(pool as Record<string, any>, url, label);
+  loggedNeonPools.add(targetPool);
+  gateNeonConnect(targetPool as Record<string, any>, url, label);
   withEvents.on("error", (err: unknown) => {
     console.warn(
       `[${label}] pool error (will reconnect on next query):`,
@@ -1509,9 +1517,98 @@ interface ClosablePool {
 const _sharedDbPools = new Map<string, ClosablePool>();
 const _sharedDbPoolCloseHooks = new Set<() => void>();
 const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
+interface RequestScopedPoolFacade {
+  key: string;
+  create: () => ClosablePool;
+}
+const requestScopedPoolFacades = new WeakMap<object, RequestScopedPoolFacade>();
+
+function requestScopedPoolKey(driver: string, url: string): string {
+  return `${driver}\u0000${url}`;
+}
+
+function createRequestScopedPoolFacade<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  create: () => T,
+): T {
+  const key = requestScopedPoolKey(driver, url);
+  const createForRequest = () => {
+    const pool = create();
+    if (driver === "neon") guardNeonPool(pool, url);
+    return pool;
+  };
+  const getPool = () => getOrCreateRequestDbPool(key, createForRequest);
+  const target =
+    driver === "postgres-js" ? function requestScopedPostgresClient() {} : {};
+  const facade = new Proxy(target, {
+    get(_target, prop) {
+      const pool = getPool();
+      const value = Reflect.get(pool, prop, pool);
+      return typeof value === "function" ? value.bind(pool) : value;
+    },
+    set(_target, prop, value) {
+      const pool = getPool();
+      return Reflect.set(pool, prop, value, pool);
+    },
+    has(_target, prop) {
+      return prop in getPool();
+    },
+    getPrototypeOf() {
+      return Object.getPrototypeOf(getPool());
+    },
+    apply(_target, thisArg, args) {
+      const pool = getPool();
+      if (typeof pool !== "function") {
+        throw new TypeError("This request database pool is not callable.");
+      }
+      return Reflect.apply(
+        pool as unknown as (...values: unknown[]) => unknown,
+        thisArg,
+        args,
+      );
+    },
+    construct(_target, args) {
+      const pool = getPool();
+      if (typeof pool !== "function") {
+        throw new TypeError("This request database pool is not constructable.");
+      }
+      return Reflect.construct(
+        pool as unknown as new (...values: unknown[]) => object,
+        args,
+      );
+    },
+  });
+  requestScopedPoolFacades.set(facade, { key, create: createForRequest });
+  return facade as T;
+}
+
+function isRequestScopedPoolFacade(value: unknown): boolean {
+  return Boolean(
+    value &&
+    (typeof value === "object" || typeof value === "function") &&
+    requestScopedPoolFacades.has(value as object),
+  );
+}
+
+export function resolveSharedDbPool<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  pool: T,
+): T {
+  const facade = requestScopedPoolFacades.get(pool);
+  if (!facade) return pool;
+  if (facade.key !== requestScopedPoolKey(driver, url)) {
+    throw new Error(
+      "A shared database pool facade was resolved for the wrong key.",
+    );
+  }
+  return getOrCreateRequestDbPool(facade.key, facade.create) as T;
+}
 
 /**
- * One connection pool per (driver, URL) for the whole process.
+ * One connection pool per (driver, URL) on long-lived runtimes. Cloudflare
+ * gets a stable facade that routes operations to a pool owned by each request.
  *
  * Opening a connection to a remote database costs a full TCP + TLS + auth
  * round-trip chain (~300-800ms measured against Neon in-region), and it used
@@ -1521,19 +1618,24 @@ const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
  * cap, which forced each pool down to a size too small to run a request's reads
  * concurrently.
  *
- * TRAP: only consumers that live as long as the process may share. Anything
- * handed a `close()` — `createDbExec()`, the migration exec on the direct
- * endpoint — must keep a private pool, or closing it takes the whole process's
- * database access down with it.
+ * TRAP: only consumers that live as long as the process may share on
+ * long-lived runtimes. Anything handed a `close()` — `createDbExec()`, the
+ * migration exec on the direct endpoint — must keep a private pool, or closing
+ * it takes the whole process's database access down with it.
  */
 export function sharedDbPool<T extends ClosablePool>(
   driver: string,
   url: string,
   create: () => T,
 ): T {
-  const key = `${driver}\u0000${url}`;
+  const key = requestScopedPoolKey(driver, url);
   const existing = _sharedDbPools.get(key);
   if (existing) return existing as T;
+  if (hasCloudflareRuntime()) {
+    const facade = createRequestScopedPoolFacade(driver, url, create);
+    _sharedDbPools.set(key, facade);
+    return facade;
+  }
   const created = create();
   _sharedDbPools.set(key, created);
   return created;
@@ -1545,7 +1647,16 @@ export function replaceSharedDbPool<T extends ClosablePool>(
   previous: T,
   next: T,
 ): void {
-  const key = `${driver}\u0000${url}`;
+  const key = requestScopedPoolKey(driver, url);
+  const facade = _sharedDbPools.get(key);
+  if (isRequestScopedPoolFacade(facade)) {
+    const currentPool = getRequestDbPool(key);
+    if (!currentPool) return;
+    const expected = previous === facade ? currentPool : previous;
+    if (currentPool !== expected) return;
+    replaceRequestDbPool(key, currentPool, next);
+    return;
+  }
   if (_sharedDbPools.get(key) !== previous) return;
   _sharedDbPools.set(key, next);
   for (const hook of _sharedDbPoolReplacementHooks.get(key) ?? []) {
@@ -1573,7 +1684,9 @@ export function onSharedDbPoolsClosed(hook: () => void): void {
 }
 
 export async function closeSharedDbPools(): Promise<void> {
-  const pools = [..._sharedDbPools.values()];
+  const pools = [..._sharedDbPools.values()].filter(
+    (pool) => !isRequestScopedPoolFacade(pool),
+  );
   _sharedDbPools.clear();
   for (const hook of _sharedDbPoolCloseHooks) {
     try {
@@ -1595,7 +1708,9 @@ function disposePostgresPoolEventually(
   pool: { end: () => Promise<unknown> },
   label: string,
 ): void {
-  if (!pool || typeof pool !== "object") return;
+  if (!pool || (typeof pool !== "object" && typeof pool !== "function")) {
+    return;
+  }
   if (recyclingPostgresPools.has(pool)) return;
   recyclingPostgresPools.add(pool);
   void pool.end().catch((err: unknown) => {
@@ -1710,6 +1825,7 @@ async function createDbExecInternal(
     const pool = trackSingletonResources
       ? sharedDbPool("neon", url, makePool)
       : makePool();
+    const getPool = () => resolveSharedDbPool("neon", url, pool);
     guardNeonPool(pool, url);
     const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
     async function queryNeonClient(
@@ -1830,12 +1946,13 @@ async function createDbExecInternal(
           const attemptStartedAt = Date.now();
           const remainingAttemptMs = () =>
             Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
-          assertPoolConnectionAvailable(pool, "getDbExec().execute()");
+          const activePool = getPool();
+          assertPoolConnectionAvailable(activePool, "getDbExec().execute()");
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
             () =>
-              pool.connect().then((c) => {
+              activePool.connect().then((c) => {
                 if (acquireTimedOut) c.release();
                 return c;
               }),
@@ -1879,12 +1996,16 @@ async function createDbExecInternal(
       },
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
         return retryOnConnectionError(async () => {
-          assertPoolConnectionAvailable(pool, "getDbExec().transaction()");
+          const activePool = getPool();
+          assertPoolConnectionAvailable(
+            activePool,
+            "getDbExec().transaction()",
+          );
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
             () =>
-              pool.connect().then((c) => {
+              activePool.connect().then((c) => {
                 if (acquireTimedOut) c.release();
                 return c;
               }),
@@ -1923,7 +2044,9 @@ async function createDbExecInternal(
               client,
               "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
             );
-            const result = await runHoldingPoolConnection(pool, () => fn(tx));
+            const result = await runHoldingPoolConnection(activePool, () =>
+              fn(tx),
+            );
             await queryNeonClient(client, "COMMIT");
             releaseClient();
             return result;
@@ -2048,11 +2171,17 @@ async function createDbExecInternal(
     let pool = trackSingletonResources
       ? sharedDbPool("postgres-js", url, createPool)
       : createPool();
+    const getPool = () => resolveSharedDbPool("postgres-js", url, pool);
     const recyclePool = (timedOutPool: PostgresPool) => {
-      if (pool === timedOutPool) {
-        pool = createPool();
-        if (trackSingletonResources) {
-          replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
+      if (getPool() === timedOutPool) {
+        const replacement = createPool();
+        if (isRequestScopedPoolFacade(pool)) {
+          replaceSharedDbPool("postgres-js", url, timedOutPool, replacement);
+        } else {
+          pool = replacement;
+          if (trackSingletonResources) {
+            replaceSharedDbPool("postgres-js", url, timedOutPool, replacement);
+          }
         }
       }
       disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
@@ -2066,7 +2195,7 @@ async function createDbExecInternal(
         const result = await retryOnConnectionError<
           ArrayLike<unknown> & { count?: number }
         >(() => {
-          const queryPool = pool;
+          const queryPool = getPool();
           assertPoolConnectionAvailable(queryPool, "getDbExec().execute()");
           const query = queryPool.unsafe(pgSql, args as any[]);
           return withDbTimeout(
@@ -2083,7 +2212,8 @@ async function createDbExecInternal(
         };
       },
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        const result = await pool.begin(async (txSql: any) => {
+        const activePool = getPool();
+        const result = await activePool.begin(async (txSql: any) => {
           const tx: DbExec = {
             async execute(sql) {
               const { rawSql, args } = sqlAndArgs(sql);
@@ -2107,13 +2237,13 @@ async function createDbExecInternal(
               };
             },
           };
-          return runHoldingPoolConnection(pool, () => fn(tx));
+          return runHoldingPoolConnection(activePool, () => fn(tx));
         });
         return result as T;
       },
       async close() {
         if (trackSingletonResources) return closeSharedDbPools();
-        await pool.end();
+        await getPool().end();
       },
     };
   }

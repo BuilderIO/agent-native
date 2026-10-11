@@ -6,6 +6,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
 import {
@@ -1148,10 +1149,12 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
+    _initPromise = retainRequestDbPoolScope(
+      _doEnsureTable().catch((err) => {
+        _initPromise = undefined;
+        throw err;
+      }),
+    );
   }
   return _initPromise;
 }

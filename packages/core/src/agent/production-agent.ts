@@ -71,7 +71,16 @@ import {
   MAX_INLINE_FILE_BASE64_CHARS,
   MAX_INLINE_IMAGE_BASE64_CHARS,
 } from "../file-upload/inline-attachment-limits.js";
+import {
+  claimOwnedAttachmentHydrationCandidate,
+  createOwnedAttachmentHydrationBudget,
+  describeOwnedImageReadFailure,
+  hydrateOwnedImageUrl,
+  type OwnedAttachmentHydrationBudget,
+  type OwnedImageReadFailureCode,
+} from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
@@ -255,6 +264,7 @@ import type {
   EngineTool,
   EngineMessage,
   EngineContentPart,
+  EngineImagePart,
   EngineEvent,
   EngineToolResultPart,
 } from "./engine/types.js";
@@ -391,6 +401,7 @@ import {
   AgentChatEvent,
   AgentFileMutationProof,
   AgentChatReference,
+  AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
@@ -1701,6 +1712,14 @@ export interface PreparedAgentRequest {
   prepareAfterModel?: (details: {
     model: string;
     vision: boolean;
+    /** Shared across every image/file hydration performed during this request. */
+    hydrationBudget: OwnedAttachmentHydrationBudget;
+    /**
+     * Durable URLs of earlier-turn images this request already sends as
+     * structured-history image parts. Prepared context must skip them so each
+     * image reaches the model once.
+     */
+    historyImageUrls: readonly string[];
   }) =>
     | void
     | Pick<PreparedAgentRequest, "contextAttachments" | "contextNote">
@@ -2911,8 +2930,364 @@ function coerceStructuredToolResultWire(part: {
   return { toolCallId, content };
 }
 
+type StructuredHistoryImageReference = Extract<
+  AgentChatStructuredContentPart,
+  { type: "image-reference" }
+>;
+type StructuredHistoryImageResolution =
+  | EngineImagePart
+  | Extract<EngineContentPart, { type: "text" }>;
+
+function isStructuredHistoryImageReference(
+  part: unknown,
+): part is StructuredHistoryImageReference {
+  if (!part || typeof part !== "object") return false;
+  const reference = part as Record<string, unknown>;
+  return (
+    reference.type === "image-reference" &&
+    typeof reference.url === "string" &&
+    reference.url.length <= 2_048 &&
+    (reference.name === undefined ||
+      (typeof reference.name === "string" && reference.name.length <= 200)) &&
+    (reference.mediaType === undefined ||
+      (typeof reference.mediaType === "string" &&
+        reference.mediaType.length <= 100))
+  );
+}
+
+function structuredHistoryImageReferenceKey(
+  reference: StructuredHistoryImageReference,
+): string {
+  return JSON.stringify([
+    reference.url,
+    reference.name ?? "",
+    reference.mediaType ?? "",
+  ]);
+}
+
+function durableStructuredHistoryImageUrl(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    return undefined;
+  }
+  const durableUrl = url.toString();
+  return durableUrl.length <= 2_048 ? durableUrl : undefined;
+}
+
+function attemptedStructuredHistoryImageUrls(
+  history: AgentChatStructuredMessage[] | undefined,
+  resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>,
+  vision: boolean,
+): string[] {
+  const urls = new Set<string>();
+  // Only a vision turn attempts hydration. A failed attempt still counts, so the
+  // prior-thread fallback must not retry the same URL and consume another slot.
+  if (!vision || !Array.isArray(history)) return [];
+  for (const message of history) {
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!isStructuredHistoryImageReference(part)) continue;
+      const resolution = resolutions.get(
+        structuredHistoryImageReferenceKey(part),
+      );
+      if (!resolution) continue;
+      urls.add(canonicalImageReferenceUrl(part.url));
+    }
+  }
+  return [...urls];
+}
+
+function safeHistoryImageName(name: string | undefined): string {
+  return (
+    name
+      ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 200) || "image"
+  );
+}
+
+function unavailableHistoryImageText(
+  reference: StructuredHistoryImageReference,
+  reason: string,
+): string {
+  const name = safeHistoryImageName(reference.name);
+  return `[Earlier uploaded image "${name}" is unavailable for visual analysis because ${reason}. Its image contents were not sent; do not infer them. Ask the user to upload the image again if visual analysis is needed.]`;
+}
+
+interface StructuredHistoryResolutionIdentities {
+  imagesByMediaType: Map<string, Set<string>>;
+  texts: Set<string>;
+}
+
+function structuredHistoryResolutionIdentities(
+  messages: EngineMessage[],
+): StructuredHistoryResolutionIdentities {
+  const identities: StructuredHistoryResolutionIdentities = {
+    imagesByMediaType: new Map(),
+    texts: new Set(),
+  };
+  for (const message of messages) {
+    for (const part of message.content) {
+      addStructuredHistoryResolutionIdentity(identities, part);
+    }
+  }
+  return identities;
+}
+
+function addStructuredHistoryResolutionIdentity(
+  identities: StructuredHistoryResolutionIdentities,
+  part: EngineContentPart,
+): void {
+  if (part.type === "image") {
+    let data = identities.imagesByMediaType.get(part.mediaType);
+    if (!data) {
+      data = new Set();
+      identities.imagesByMediaType.set(part.mediaType, data);
+    }
+    data.add(part.data);
+  } else if (part.type === "text") {
+    identities.texts.add(part.text);
+  }
+}
+
+function hasStructuredHistoryResolutionIdentity(
+  identities: StructuredHistoryResolutionIdentities,
+  part: EngineContentPart,
+): boolean {
+  if (part.type === "image") {
+    return (
+      identities.imagesByMediaType.get(part.mediaType)?.has(part.data) === true
+    );
+  }
+  return part.type === "text" && identities.texts.has(part.text);
+}
+
+function structuredHistoryResolutionPartsMissingFromWindow(
+  beforeMemoryWindow: EngineMessage[],
+  afterMemoryWindow: EngineMessage[],
+  history: AgentChatStructuredMessage[] | undefined,
+  resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>,
+): EngineContentPart[] {
+  const identitiesInWindow =
+    structuredHistoryResolutionIdentities(afterMemoryWindow);
+  const identitiesBeforeWindow =
+    structuredHistoryResolutionIdentities(beforeMemoryWindow);
+  const missing: EngineContentPart[] = [];
+  const missingIdentities: StructuredHistoryResolutionIdentities = {
+    imagesByMediaType: new Map(),
+    texts: new Set(),
+  };
+
+  if (!Array.isArray(history)) return missing;
+  for (const message of history) {
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!isStructuredHistoryImageReference(part)) continue;
+      const resolution = resolutions.get(
+        structuredHistoryImageReferenceKey(part),
+      );
+      if (!resolution) continue;
+      if (
+        !hasStructuredHistoryResolutionIdentity(
+          identitiesBeforeWindow,
+          resolution,
+        ) ||
+        hasStructuredHistoryResolutionIdentity(
+          identitiesInWindow,
+          resolution,
+        ) ||
+        hasStructuredHistoryResolutionIdentity(missingIdentities, resolution)
+      ) {
+        continue;
+      }
+      addStructuredHistoryResolutionIdentity(missingIdentities, resolution);
+      missing.push(resolution);
+    }
+  }
+  return missing;
+}
+
+function appendUniqueContentPartsToLastUserMessage(
+  messages: EngineMessage[],
+  parts: EngineContentPart[],
+): void {
+  if (parts.length === 0) return;
+  let message: EngineMessage | undefined;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index]?.role === "user") {
+      message = messages[index];
+      break;
+    }
+  }
+  if (!message) {
+    message = { role: "user", content: [] };
+    messages.push(message);
+  }
+  const existing = structuredHistoryResolutionIdentities([message]);
+  for (const part of parts) {
+    if (hasStructuredHistoryResolutionIdentity(existing, part)) continue;
+    addStructuredHistoryResolutionIdentity(existing, part);
+    message.content.push(part);
+  }
+}
+
+export async function hydrateStructuredHistoryImageReferences(
+  history: AgentChatStructuredMessage[] | undefined,
+  options: {
+    vision: boolean;
+    budget: OwnedAttachmentHydrationBudget;
+  },
+): Promise<Map<string, StructuredHistoryImageResolution>> {
+  const resolutions = new Map<string, StructuredHistoryImageResolution>();
+  const urlResolutions = new Map<
+    string,
+    | { kind: "image"; resolution: EngineImagePart }
+    | { kind: "failed"; code: OwnedImageReadFailureCode }
+  >();
+  if (!Array.isArray(history)) return resolutions;
+
+  // Spend the shared request budget on recent prior images first. Engine
+  // conversion still walks history forward, preserving message chronology.
+  for (
+    let messageIndex = history.length - 1;
+    messageIndex >= 0;
+    messageIndex--
+  ) {
+    const message = history[messageIndex];
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    for (
+      let partIndex = message.content.length - 1;
+      partIndex >= 0;
+      partIndex--
+    ) {
+      const part = message.content[partIndex];
+      if (!isStructuredHistoryImageReference(part)) continue;
+      const key = structuredHistoryImageReferenceKey(part);
+      if (resolutions.has(key)) continue;
+
+      if (!options.vision) {
+        resolutions.set(key, {
+          type: "text",
+          text: `[Earlier uploaded image "${safeHistoryImageName(part.name)}" was not sent because the selected model does not support vision. Do not infer its contents. Ask the user to choose a vision-capable model if visual analysis is needed.]`,
+        });
+        continue;
+      }
+
+      const url = durableStructuredHistoryImageUrl(part.url);
+      const hydrationKey = url ?? part.url;
+      const cached = urlResolutions.get(hydrationKey);
+      if (cached) {
+        resolutions.set(
+          key,
+          cached.kind === "image"
+            ? cached.resolution
+            : {
+                type: "text",
+                text: unavailableHistoryImageText(
+                  part,
+                  describeOwnedImageReadFailure(cached.code),
+                ),
+              },
+        );
+        continue;
+      }
+
+      if (!url) {
+        urlResolutions.set(hydrationKey, {
+          kind: "failed",
+          code: "invalid-url",
+        });
+        resolutions.set(key, {
+          type: "text",
+          text: unavailableHistoryImageText(
+            part,
+            describeOwnedImageReadFailure("invalid-url"),
+          ),
+        });
+        continue;
+      }
+
+      if (!claimOwnedAttachmentHydrationCandidate(options.budget)) {
+        urlResolutions.set(hydrationKey, {
+          kind: "failed",
+          code: "request-candidate-limit",
+        });
+        resolutions.set(key, {
+          type: "text",
+          text: unavailableHistoryImageText(
+            part,
+            describeOwnedImageReadFailure("request-candidate-limit"),
+          ),
+        });
+        continue;
+      }
+
+      const result = await hydrateOwnedImageUrl(
+        url,
+        normalizeImageMediaType(part.mediaType) ?? undefined,
+        options.budget,
+      );
+      if (result.kind === "hydrated") {
+        const parsed = parseBase64DataUrl(result.dataUrl);
+        const mediaType = normalizeImageMediaType(result.mediaType);
+        if (parsed && mediaType) {
+          const resolution = {
+            type: "image" as const,
+            data: parsed.data,
+            mediaType,
+          };
+          urlResolutions.set(hydrationKey, { kind: "image", resolution });
+          resolutions.set(key, resolution);
+          continue;
+        }
+        urlResolutions.set(hydrationKey, {
+          kind: "failed",
+          code: "invalid-image",
+        });
+        resolutions.set(key, {
+          type: "text",
+          text: unavailableHistoryImageText(
+            part,
+            describeOwnedImageReadFailure("invalid-image"),
+          ),
+        });
+        continue;
+      }
+
+      const failureCode: OwnedImageReadFailureCode =
+        result.kind === "unowned" ? "unowned-url" : result.code;
+      urlResolutions.set(hydrationKey, {
+        kind: "failed",
+        code: failureCode,
+      });
+      resolutions.set(key, {
+        type: "text",
+        text: unavailableHistoryImageText(
+          part,
+          describeOwnedImageReadFailure(failureCode),
+        ),
+      });
+    }
+  }
+  return resolutions;
+}
+
 export function structuredHistoryToEngineMessages(
   history: AgentChatStructuredMessage[] | undefined,
+  imageResolutions?: ReadonlyMap<string, StructuredHistoryImageResolution>,
 ): EngineMessage[] | null {
   if (!Array.isArray(history)) return null;
 
@@ -2934,6 +3309,30 @@ export function structuredHistoryToEngineMessages(
       if (part.type === "text" && typeof part.text === "string") {
         if (part.text.length > 0) {
           content.push({ type: "text", text: part.text });
+        }
+        continue;
+      }
+
+      if (part.type === "image-reference" && message.role === "user") {
+        if (!isStructuredHistoryImageReference(part)) {
+          content.push({
+            type: "text",
+            text: "An earlier uploaded image reference could not be loaded for visual analysis. Its image contents were not sent; do not infer them.",
+          });
+          continue;
+        }
+        const resolution = imageResolutions?.get(
+          structuredHistoryImageReferenceKey(part),
+        );
+        if (resolution) content.push(resolution);
+        else {
+          content.push({
+            type: "text",
+            text: unavailableHistoryImageText(
+              part,
+              "it was not loaded for this turn",
+            ),
+          });
         }
         continue;
       }
@@ -5453,6 +5852,10 @@ export async function runAgentLoop(opts: {
   tools: EngineTool[];
   availableTools?: EngineTool[];
   messages: EngineMessage[];
+  structuredHistoryImages?: {
+    history: AgentChatStructuredMessage[];
+    resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>;
+  };
   systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
@@ -6018,6 +6421,7 @@ export async function runAgentLoop(opts: {
       });
 
       if (opts.ownerEmail) {
+        const beforeMemoryWindow = contextMessages;
         contextMessages = await applyObservationalMemoryToContext(
           contextMessages,
           {
@@ -6026,6 +6430,20 @@ export async function runAgentLoop(opts: {
             orgId: opts.orgId ?? null,
           },
         );
+        if (opts.structuredHistoryImages) {
+          const omittedParts =
+            structuredHistoryResolutionPartsMissingFromWindow(
+              beforeMemoryWindow,
+              contextMessages,
+              opts.structuredHistoryImages.history,
+              opts.structuredHistoryImages.resolutions,
+            );
+          appendUniqueContentPartsToLastUserMessage(
+            contextMessages,
+            omittedParts,
+          );
+          appendUniqueContentPartsToLastUserMessage(messages, omittedParts);
+        }
       }
     }
     if (signal.aborted) break;
@@ -10303,6 +10721,7 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
+    let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
       request: requestMessage,
@@ -10737,10 +11156,12 @@ export function createProductionAgentHandler(
         if (activeRunId) return runSlotBusy(event, activeRunId);
       }
       try {
+        attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
         const preUpload = await preUploadAttachments({
           attachments: requestAttachments,
           ownerEmail,
           includeFiles: true,
+          hydrationBudget: attachmentHydrationBudget,
         });
         if (preUpload.injectedText) {
           requestMessage = requestMessage
@@ -10944,9 +11365,20 @@ export function createProductionAgentHandler(
       });
     }
 
+    attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+    const resolvedHistoryImages = await hydrateStructuredHistoryImageReferences(
+      requestStructuredHistory,
+      { vision: modelSupportsVision, budget: attachmentHydrationBudget },
+    );
     const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
       model: effectiveModel,
       vision: modelSupportsVision,
+      hydrationBudget: attachmentHydrationBudget,
+      historyImageUrls: attemptedStructuredHistoryImageUrls(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+        modelSupportsVision,
+      ),
     });
     if (modelPreparedContext) {
       if (Array.isArray(modelPreparedContext.contextAttachments)) {
@@ -11568,7 +12000,10 @@ export function createProductionAgentHandler(
     });
 
     const historyMessages =
-      structuredHistoryToEngineMessages(requestStructuredHistory) ??
+      structuredHistoryToEngineMessages(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+      ) ??
       requestHistory
         .filter((m) => m.content.trim())
         .map(
@@ -12668,6 +13103,14 @@ export function createProductionAgentHandler(
           tools: requestTools,
           availableTools: availableRequestTools,
           messages,
+          ...(Array.isArray(requestStructuredHistory)
+            ? {
+                structuredHistoryImages: {
+                  history: requestStructuredHistory,
+                  resolutions: resolvedHistoryImages,
+                },
+              }
+            : {}),
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeWrite: control.flushEvents,
