@@ -323,6 +323,7 @@ function parseJsonNode(
             value: JSON.parse(value.slice(valueStart, end)) as string,
           };
         } catch {
+          // coercion-ok: Invalid JSON strings must trigger the caller's sensitive-tail redaction.
           return null;
         }
       } else cursor += 1;
@@ -381,6 +382,7 @@ function parseJsonNode(
     JSON.parse(value.slice(valueStart, end));
     return { kind: "other", start: valueStart, end };
   } catch {
+    // coercion-ok: Invalid JSON primitives must trigger the caller's sensitive-tail redaction.
     return null;
   }
 }
