@@ -802,6 +802,7 @@ describe("Slides prompt-led home", () => {
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    const onLocalSubmit = vi.fn();
 
     await act(async () => {
       expect(
@@ -812,11 +813,13 @@ describe("Slides prompt-led home", () => {
           {
             slidesContext: { designSystemId: null, references: [] },
             contextItems: [],
+            onLocalSubmit,
           },
         ),
       ).toBe("retain");
     });
 
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(updateDeck).toHaveBeenCalledWith(

@@ -2114,11 +2114,8 @@ export function foldThreadRunSuggestions(
     oldRun.lastSequence >= 0
       ? oldRun.lastSequence
       : 0;
-  const lastSequence = run.events.reduce(
-    (maximum, { seq }) =>
-      Number.isSafeInteger(seq) && seq >= 0 ? Math.max(maximum, seq) : maximum,
-    previousSequence,
-  );
+  // Runtime event sequence numbers and AgentKit protocol cursors are separate.
+  const lastSequence = previousSequence;
   const snapshot: AgentRunSnapshot = {
     ...oldRun,
     id: run.runId,

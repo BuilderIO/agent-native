@@ -31,6 +31,8 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CONTENT_PARITY_OWNER_EMAIL: ${{ secrets.CONTENT_PARITY_OWNER_EMAIL }}
+      CONTENT_PARITY_ORG_ID: ${{ secrets.CONTENT_PARITY_ORG_ID }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -58,10 +60,12 @@ jobs:
           set -euo pipefail
 
           suite="${{ inputs.suite || 'all' }}"
-          echo "## Gated evals" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Requested suite: \`$suite\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Gated evals"
+            echo ""
+            echo "Requested suite: \`$suite\`"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
           wants() {
             [[ "$suite" == "all" || "$suite" == "$1" ]]
@@ -100,18 +104,38 @@ jobs:
           }
 
           if wants content-parity; then
-            echo "Running Content parity eval suite"
-            if [[ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${OPENROUTER_API_KEY:-}" ]]; then
-              export CONTENT_PARITY_EVALS=1
+            echo "Checking Content parity eval prerequisites"
+            if [[ -z "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${OPENROUTER_API_KEY:-}" ]]; then
+              skip_reason="no model provider secret is configured"
+            elif [[ -z "${CONTENT_PARITY_OWNER_EMAIL:-}" || -z "${CONTENT_PARITY_ORG_ID:-}" ]]; then
+              skip_reason="explicit production eval owner and organization secrets are not configured"
+            elif [[ ! -f templates/content/evals/production-context.ts ]]; then
+              skip_reason="Content does not provide evals/production-context.ts"
             else
-              unset CONTENT_PARITY_EVALS || true
-              echo "Content parity provider secrets are not configured; suite should report skipped rows."
+              skip_reason=""
             fi
-            (
-              cd templates/content
-              ./node_modules/.bin/agent-native eval parity --json
-            ) | tee content-parity-evals.json
-            append_eval_summary "Content parity" content-parity-evals.json
+
+            if [[ -n "$skip_reason" ]]; then
+              unset CONTENT_PARITY_EVALS || true
+              {
+                echo "### Content parity"
+                echo ""
+                echo "Status: SKIPPED"
+                echo ""
+                echo "Reason: $skip_reason."
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              export CONTENT_PARITY_EVALS=1
+              (
+                cd templates/content
+                ./node_modules/.bin/agent-native eval parity \
+                  --owner-email "$CONTENT_PARITY_OWNER_EMAIL" \
+                  --org-id "$CONTENT_PARITY_ORG_ID" \
+                  --json
+              ) | tee content-parity-evals.json
+              append_eval_summary "Content parity" content-parity-evals.json
+            fi
           fi
 
           if wants brain; then

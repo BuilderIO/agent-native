@@ -121,6 +121,29 @@ describe("foldThreadRunSuggestions for a turn that yielded to a connection reque
   });
 });
 
+describe("foldThreadRunSuggestions protocol sequence", () => {
+  it("preserves the AgentKit cursor instead of advancing from runtime events", () => {
+    const repo = foldThreadRunSuggestions(
+      { agentKit: { runs: [{ id: "run-1", lastSequence: 4 }] } },
+      {
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+        status: "completed",
+        events: [
+          {
+            seq: 67,
+            event: { type: "done" },
+          },
+        ],
+      },
+    );
+
+    expect(repo.agentKit.runs[0].lastSequence).toBe(4);
+  });
+});
+
 describe("buildUserMessage for a refused turn", () => {
   it("stores what a retry resends and marks the prompt as refused", () => {
     const message = buildUserMessage({
