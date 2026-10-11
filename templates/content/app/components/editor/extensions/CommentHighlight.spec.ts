@@ -153,6 +153,11 @@ describe("CommentHighlight", () => {
     // Nothing is left of a quote rewritten from end to end, and a
     // collaborator's rewrite does not re-anchor it.
     expect(highlighted(swap("Intro.", "X."))).toEqual([]);
+    expect(highlighted(swap("Intro.", "ships XYZ."))).toEqual([]);
+    // Typing over the whole quote leaves nothing of it either.
+    expect(
+      highlighted(state.apply(state.tr.insertText("XYZ", 15, 24))),
+    ).toEqual([]);
     // A copy of the quote added ahead of it does not take its highlight.
     expect(
       commentHighlightKey.getState(

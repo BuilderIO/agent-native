@@ -82,10 +82,7 @@ function positionText(doc: ProseMirrorNode, codes: Map<string, string>) {
 // whole document, so its own mapping collapses every range inside it. Such a
 // swap maps through a diff of the two documents' node types and text. A
 // narrower change keeps its own mapping: deleting one of two identical words
-// reads, by text alone, as deleting the other. Either way a highlight keeps
-// only what is left of its text. It never takes in text that replaced all of
-// it: only an accepted edit re-anchors the thread's quote, not a
-// collaborator's rewrite.
+// reads, by text alone, as deleting the other.
 function swapMapping(
   tr: Transaction,
   before: ProseMirrorNode,
@@ -125,6 +122,32 @@ function swapMapping(
   }
   if (changed) ranges.push(...changed);
   return new StepMap(ranges);
+}
+
+function keepsText(map: StepMap, from: number, to: number) {
+  let at = from;
+  let kept = false;
+  map.forEach((oldStart, oldEnd) => {
+    if (oldStart > at && at < to) kept = true;
+    at = Math.max(at, oldEnd);
+  });
+  return kept || at < to;
+}
+
+// A highlight keeps only what is left of its text. Once a change replaces all
+// of it, even with text in the same place, it is gone: only an accepted edit
+// re-anchors the thread's quote, not a collaborator's rewrite.
+function mapHighlight(
+  maps: readonly StepMap[],
+  from: number,
+  to: number,
+): PendingRange | null {
+  for (const map of maps) {
+    if (!keepsText(map, from, to)) return null;
+    from = map.map(from, 1);
+    to = map.map(to, -1);
+  }
+  return to > from ? { from, to } : null;
 }
 
 function buildDecorations(
@@ -194,17 +217,13 @@ export function createCommentHighlightPlugin() {
         } else if (tr.docChanged) {
           let swap: StepMap | null | undefined;
           specs = specs.flatMap((s) => {
-            const from = tr.mapping.map(s.from, 1);
-            const to = tr.mapping.map(s.to, -1);
-            if (to > from) return [{ threadId: s.threadId, from, to }];
-            if (swap === undefined)
-              swap = swapMapping(tr, oldState.doc, newState.doc);
-            if (!swap) return [];
-            const swappedFrom = swap.map(s.from, 1);
-            const swappedTo = swap.map(s.to, -1);
-            return swappedTo > swappedFrom
-              ? [{ threadId: s.threadId, from: swappedFrom, to: swappedTo }]
-              : [];
+            let range = mapHighlight(tr.mapping.maps, s.from, s.to);
+            if (!range) {
+              if (swap === undefined)
+                swap = swapMapping(tr, oldState.doc, newState.doc);
+              if (swap) range = mapHighlight([swap], s.from, s.to);
+            }
+            return range ? [{ threadId: s.threadId, ...range }] : [];
           });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);
