@@ -170,7 +170,9 @@ interface ModelDoc {
   description?: string;
   explicitGrain?: string;
   inferredGrain?: string;
+  inferredGrainKeyCandidates?: string[][];
   passThroughModel?: string;
+  passThroughColumns?: string[] | "*";
   semanticModelEnabled?: boolean;
   semanticModelName?: string;
   group?: string;
@@ -2133,6 +2135,200 @@ function extractUniqueKey(sql: string): string[][] {
   return hints;
 }
 
+const SQL_IDENTIFIER = String.raw`[A-Za-z_][A-Za-z0-9_$]*`;
+const SQL_COLUMN_REFERENCE = new RegExp(
+  String.raw`^(?:${SQL_IDENTIFIER}\s*\.\s*){0,2}(?:${SQL_IDENTIFIER}|\*)$`,
+  "i",
+);
+
+function finalSelectList(source: string): string | undefined {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | undefined;
+  let selectStart: number | undefined;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== "`") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0 || !/[A-Za-z]/.test(character)) continue;
+
+    const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+    if (!match) continue;
+    const keyword = match[0].toLowerCase();
+    if (keyword === "select") selectStart = index + match[0].length;
+    else if (keyword === "from" && selectStart !== undefined) {
+      return source.slice(selectStart, index).trim();
+    }
+    index += match[0].length - 1;
+  }
+  return undefined;
+}
+
+function splitTopLevelSqlList(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | "`" | undefined;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (value[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== "`") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (character === "," && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function directProjection(projection: string):
+  | {
+      inputColumn: string;
+      outputColumn: string;
+    }
+  | undefined {
+  const value = projection.trim();
+  if (value === "*") return { inputColumn: "*", outputColumn: "*" };
+
+  let expression = value;
+  let outputColumn: string | undefined;
+  const explicitAlias = value.match(
+    new RegExp(String.raw`^(.+?)\s+as\s+(${SQL_IDENTIFIER})$`, "i"),
+  );
+  const implicitAlias = explicitAlias
+    ? undefined
+    : value.match(new RegExp(String.raw`^(.+?)\s+(${SQL_IDENTIFIER})$`, "i"));
+  const alias = explicitAlias ?? implicitAlias;
+  if (alias) {
+    expression = alias[1]!.trim();
+    outputColumn = alias[2]!.toLowerCase();
+  }
+  if (!SQL_COLUMN_REFERENCE.test(expression)) return undefined;
+  const inputColumn = expression
+    .split(".")
+    .pop()!
+    .trim()
+    .replace(/`/g, "")
+    .toLowerCase();
+  return {
+    inputColumn,
+    outputColumn: outputColumn ?? inputColumn,
+  };
+}
+
+function hasRowReducingSql(source: string): boolean {
+  return (
+    /\b(?:distinct|group\s+by|having|qualify|union|intersect|except|pivot|unpivot|over|limit|offset|fetch\s+first|tablesample)\b/i.test(
+      source,
+    ) ||
+    /\b(?:count|countif|sum|avg|min|max|array_agg|array_concat_agg|string_agg|any_value|approx_count_distinct|approx_quantiles|approx_top_count|approx_top_sum|logical_and|logical_or|bit_and|bit_or|bit_xor|stddev(?:_pop|_samp)?|variance(?:_pop|_samp)?|corr|covar_(?:pop|samp)|percentile_(?:cont|disc))\s*\(/i.test(
+      source,
+    )
+  );
+}
+
+function hasCommaSeparatedFromSource(source: string): boolean {
+  const inFromByDepth = new Map<number, boolean>();
+  let depth = 0;
+  let quote: string | undefined;
+  const backtick = String.fromCharCode(96);
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== backtick) {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === backtick) {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      inFromByDepth.delete(depth);
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (character === "," && inFromByDepth.get(depth)) return true;
+    if (!/[A-Za-z_]/.test(character)) continue;
+
+    const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+    if (!match) continue;
+    const keyword = match[0].toLowerCase();
+    if (keyword === "from") inFromByDepth.set(depth, true);
+    else if (
+      keyword === "select" ||
+      /^(?:where|group|having|qualify|order|limit|offset|fetch|union|intersect|except)$/.test(
+        keyword,
+      )
+    ) {
+      inFromByDepth.delete(depth);
+    }
+    index += match[0].length - 1;
+  }
+  return false;
+}
+
+function hasOnlyMembershipJoins(
+  source: string,
+  unnestedAlias: string,
+): boolean {
+  const joinCount = (source.match(/\bjoin\b/gi) ?? []).length;
+  if (joinCount === 1) return true;
+  if (joinCount !== 2) return false;
+
+  const organizationJoin = source.match(
+    /\bleft(?:\s+outer)?\s+join\s+\{\{\s*ref\(\s*["']organizations["']\s*\)\s*\}\}\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*org_id\b/i,
+  );
+  return Boolean(
+    organizationJoin &&
+    organizationJoin[2]!.toLowerCase() === unnestedAlias.toLowerCase() &&
+    organizationJoin[3]!.toLowerCase() === organizationJoin[1]!.toLowerCase(),
+  );
+}
+
 function inferUnnestedMembershipGrain(
   sql: string,
   modelName: string,
@@ -2144,34 +2340,77 @@ function inferUnnestedMembershipGrain(
     return undefined;
   }
   const source = sqlWithoutComments(sql);
-  if (!/\buser_id\b/i.test(source)) return undefined;
+  if (hasRowReducingSql(source) || hasCommaSeparatedFromSource(source)) {
+    return undefined;
+  }
   const arrayName = source.match(
     /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)/i,
   )?.[1];
+  const unnestedAlias = source.match(
+    /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*\s*\)\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)/i,
+  )?.[1];
   const safeArrayName = arrayName ? safeIdentifier(arrayName) : null;
-  if (!safeArrayName || !/(?:org|organization)/i.test(safeArrayName)) {
+  if (
+    !safeArrayName ||
+    !/(?:org|organization)/i.test(safeArrayName) ||
+    !unnestedAlias ||
+    !hasOnlyMembershipJoins(source, unnestedAlias)
+  ) {
     return undefined;
   }
+  const selectList = finalSelectList(source);
+  if (!selectList) return undefined;
+  const projections = splitTopLevelSqlList(selectList)
+    .map(directProjection)
+    .filter((projection): projection is NonNullable<typeof projection> =>
+      Boolean(projection),
+    );
+  const hasUserId = projections.some(
+    (projection) =>
+      projection.outputColumn === "user_id" &&
+      projection.inputColumn === "user_id",
+  );
+  const hasOrganizationId = projections.some(
+    (projection) =>
+      projection.outputColumn === "organization_id" &&
+      projection.inputColumn === unnestedAlias.toLowerCase(),
+  );
+  if (!hasUserId || !hasOrganizationId) return undefined;
   return `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`;
+}
+
+interface PassThroughModel {
+  modelName: string;
+  columns: string[] | "*";
 }
 
 function extractPassThroughModel(
   sql: string,
   dependencies: string[],
-): string | undefined {
+): PassThroughModel | undefined {
   if (dependencies.length !== 1 || !dependencies[0]?.startsWith("ref:")) {
     return undefined;
   }
   const source = sqlWithoutComments(sql);
   if (
     (source.match(/\bselect\b/gi) ?? []).length !== 1 ||
+    hasRowReducingSql(source) ||
     /\b(?:join|unnest|group\s+by|distinct|union|intersect|except|having|qualify|pivot|unpivot|over)\b/i.test(
       source,
     )
   ) {
     return undefined;
   }
-  return safeIdentifier(dependencies[0].slice("ref:".length)) ?? undefined;
+  const selectList = finalSelectList(source);
+  if (!selectList) return undefined;
+  const projections = splitTopLevelSqlList(selectList).map(directProjection);
+  if (projections.some((projection) => !projection)) return undefined;
+  const columns = projections.map((projection) => projection!.inputColumn);
+  const modelName = safeIdentifier(dependencies[0].slice("ref:".length));
+  if (!modelName) return undefined;
+  if (columns.includes("*"))
+    return columns.length === 1 ? { modelName, columns: "*" } : undefined;
+  return { modelName, columns };
 }
 
 function isTestSql(relativePath: string): boolean {
@@ -2655,6 +2894,42 @@ function modelDeclaredGrain(model: ModelDoc | undefined): string | undefined {
   );
 }
 
+function grainKeyCandidates(model: ModelDoc): string[][] {
+  if (model.explicitGrain) {
+    return model.columns.size ? [[...model.columns.keys()]] : [];
+  }
+  if (model.grainHints.length) return model.grainHints;
+  if (model.inferredGrainKeyCandidates?.length)
+    return model.inferredGrainKeyCandidates;
+
+  const uniqueColumn = [...model.columns.values()].find(
+    (column) => column.tests.has("unique") && column.tests.has("not_null"),
+  )?.name;
+  if (uniqueColumn) return [[uniqueColumn]];
+
+  const hasDescriptionGrain = Boolean(
+    model.description?.match(
+      /\b(one\s+row\s+per\s+[^.;\n]{1,240}?)(?=(?:,\s+(?:which|with|and|where|but)\b)|[.;\n]|$)/i,
+    ),
+  );
+  return (model.inferredGrain || hasDescriptionGrain) && model.columns.size
+    ? [[...model.columns.keys()]]
+    : [];
+}
+
+function preservesUpstreamGrain(
+  upstream: ModelDoc,
+  projectedColumns: string[] | "*",
+): boolean {
+  if (projectedColumns === "*") return true;
+  const projected = new Set(
+    projectedColumns.map((column) => column.toLowerCase()),
+  );
+  return grainKeyCandidates(upstream).some((candidate) =>
+    candidate.every((column) => projected.has(column.toLowerCase())),
+  );
+}
+
 function inheritPassThroughGrains(models: ModelDoc[]): void {
   const byName = new Map(models.map((model) => [model.name, model]));
   let changed = true;
@@ -2676,8 +2951,16 @@ function inheritPassThroughGrains(models: ModelDoc[]): void {
         ? byName.get(model.passThroughModel)
         : undefined;
       const upstreamGrain = modelDeclaredGrain(upstream);
-      if (!upstream || !upstreamGrain) continue;
+      if (
+        !upstream ||
+        !upstreamGrain ||
+        !model.passThroughColumns ||
+        !preservesUpstreamGrain(upstream, model.passThroughColumns)
+      ) {
+        continue;
+      }
       model.inferredGrain = `Same row grain as ${upstream.name}: ${upstreamGrain}`;
+      model.inferredGrainKeyCandidates = grainKeyCandidates(upstream);
       changed = true;
     }
   }
@@ -2867,7 +3150,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       continue;
     }
     const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
-    const passThroughModel = extractPassThroughModel(sql, dependencies);
+    const passThrough = extractPassThroughModel(sql, dependencies);
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
@@ -2876,7 +3159,15 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       dependencies: new Set(dependencies),
       grainHints: extractUniqueKey(sql),
       ...(inferredGrain ? { inferredGrain } : {}),
-      ...(passThroughModel ? { passThroughModel } : {}),
+      ...(inferredGrain
+        ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
+        : {}),
+      ...(passThrough
+        ? {
+            passThroughModel: passThrough.modelName,
+            passThroughColumns: passThrough.columns,
+          }
+        : {}),
     };
     sqlModels.push(model);
   }

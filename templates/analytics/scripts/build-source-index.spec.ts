@@ -228,7 +228,11 @@ describe("compileSourceIndex", () => {
         "  cross join unnest(users.organizations) as organization",
         ")",
         "select exploded_users.user_id,",
-        "  exploded_users.organization as organization_id",
+        "  exploded_users.name,",
+        "  exploded_users.organization as organization_id,",
+        "  case when orgs.type = 'root' then true else false end as organization_is_root,",
+        '  coalesce(lookup_user_role(exploded_users.organization_roles, orgs.org_id), "missing") as organization_role,',
+        "  orgs.subscription",
         "from exploded_users",
         'left join {{ ref("organizations") }} orgs',
         "  on exploded_users.organization = orgs.org_id",
@@ -246,8 +250,24 @@ describe("compileSourceIndex", () => {
       ].join("\n"),
     );
     await writeFile(
+      path.join(mapping, "user_organization_user_only.sql"),
+      'select user_id from {{ ref("user_organization_role") }}',
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_count.sql"),
+      'select count(*) as membership_count from {{ ref("user_organization_role") }}',
+    );
+    await writeFile(
       path.join(dbtRoot, "models", "customer_items.sql"),
       "select customer_id, item from source cross join unnest(items) as item",
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_duplicate_source.sql"),
+      [
+        "select users.user_id, organization as organization_id",
+        "from users, duplicate_source",
+        "cross join unnest(users.organizations) as organization",
+      ].join("\n"),
     );
 
     const bundle = await compileSourceIndex({
@@ -268,6 +288,76 @@ describe("compileSourceIndex", () => {
       dependencies: "ref:user_organization_role",
     });
     expect(byMetric.get("model:customer_items")).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_user_only"),
+    ).not.toHaveProperty("grain");
+    expect(byMetric.get("model:user_organization_count")).not.toHaveProperty(
+      "grain",
+    );
+  });
+
+  it("does not infer membership grain through aggregates or grouped projections", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_grouped.sql"),
+      [
+        "with expanded as (",
+        "  select users.user_id, organization",
+        "  from users cross join unnest(users.organizations) as organization",
+        ")",
+        "select user_id from expanded group by user_id",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_aggregate.sql"),
+      [
+        "with expanded as (",
+        "  select users.user_id, organization",
+        "  from users cross join unnest(users.organizations) as organization",
+        ")",
+        "select count(*) as membership_count from expanded",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_computed_key.sql"),
+      [
+        "with expanded as (",
+        "  select users.user_id, organization",
+        "  from users cross join unnest(users.organizations) as organization",
+        ")",
+        "select user_id, case when organization is null then null else organization end as organization_id from expanded",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_count_passthrough.sql"),
+      'select count(*) as membership_count from {{ ref("user_organization_role") }}',
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-11T00:00:00.000Z",
+    });
+    const byMetric = new Map(
+      bundle.entries.map((entry) => [entry.metric, entry]),
+    );
+
+    expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
+      "grain",
+    );
+    expect(
+      byMetric.get("model:user_organization_aggregate"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_computed_key"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_count_passthrough"),
+    ).not.toHaveProperty("grain");
   });
 
   it("resolves dbt doc references and fingerprints their source text", async () => {

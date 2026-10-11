@@ -217,9 +217,19 @@ export const sourceContracts = {
 
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const COUNT_VALUE_PATTERN =
+  /\b(?:\d[\d,]*|zero|one|two|three|four|five|six|seven|eight|nine|ten|dozens?|hundreds?|thousands?)\s+(?:builder\.io\s+)?(?:users?|organizations?|orgs?|members?|accounts?|people)\b|\b(?:users?|organizations?|orgs?|members?|accounts?|people)\s*[:=]\s*\d[\d,]*\b|\b(?:count|total|population)\s*(?:is|was|equals|[:=])\s*\d[\d,]*\b/i;
+const ROW_IDENTIFIER_VALUE_PATTERN =
+  /\b(?:user_id|organization_id|org_id)\s*[:=]\s*["'`]?[_\p{L}\p{N}-]{4,}/iu;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
 const CLAIM_NEGATION_PREFIX =
-  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|without|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|without|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:include|includes|contain|contains|carry|carries|have|has|exist|exists|expose|exposes|provide|provides|appear|appears|available|present|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+const FIELD_ABSENCE_PREFIX =
+  /\b(?:lack|lacks|missing|omit|omits|omitted|absent)\s+(?:(?:the|a|an|field)\s+)*$/i;
+const FIELD_ABSENCE_SUFFIX =
+  /^\s*(?:[,;:.]\s*(?:(?:but|and|however)\s+)?)?(?:(?:(?:is|are|was|were)\s+)?(?:absent|missing|omitted|excluded|unavailable|not\s+present|not\s+included|not\s+carried|not\s+contained|not\s+exposed|not\s+available)|(?:do|does|did)\s+not\s+(?:exist|appear|expose|include|carry|contain|provide|make\s+available)|(?:don|doesn|didn)['’]t\s+(?:exist|appear|expose|include|carry|contain|provide|make\s+available)|(?:isn|aren|wasn|weren)['’]t\s+(?:present|included|carried|contained|exposed|available|real))\b/i;
+const ANAPHORIC_FIELD_NEGATION =
+  /\b(?:(?:but|and)\s+)?(?:do(?:es)?|did)\s+not\s+(?:include|contain|carry|have)\s+it\b|\b(?:(?:but|and)\s+)?(?:don['’]t|doesn['’]t|didn['’]t)\s+(?:include|contain|carry|have)\s+it\b|\b(?:(?:but|and)\s+)?(?:lack|lacks|omit|omits|omitted)\s+it\b/i;
 const MEANING_NEGATION_MARKER =
   /\b(?:not|never|no|without|cannot|can['’]t|(?:do|does|did)(?:\s+not|n['’]t)|(?:is|are|was|were)(?:\s+not|n['’]t))\b/gi;
 const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:(?:don|doesn|didn|isn|aren|wasn|weren)['’]t)|cannot|can['’]t)`;
@@ -390,16 +400,34 @@ function hasRelationFieldsClaim(
   });
   if (matchingLines.length === 0) return false;
 
-  return claim.fields.every((field) =>
-    matchingLines.some((line) => {
+  return claim.fields.every((field) => {
+    const mentions = matchingLines.flatMap((line) => {
       const relationIndex = findCompletePhraseIndexes(line, relation)[0];
-      return (
-        relationIndex !== undefined &&
-        findCompletePhraseIndexes(line, field.toLowerCase()).some(
-          (fieldIndex) => fieldIndex > relationIndex,
-        )
-      );
-    }),
+      if (relationIndex === undefined) return [];
+      return findCompletePhraseIndexes(line, field.toLowerCase())
+        .filter((fieldIndex) => fieldIndex > relationIndex)
+        .map((fieldIndex) => ({
+          line,
+          fieldIndex,
+          negated: isNegatedFieldClaim(line, fieldIndex, field),
+        }));
+    });
+    return (
+      mentions.some((mention) => !mention.negated) &&
+      !mentions.some((mention) => mention.negated)
+    );
+  });
+}
+
+function isNegatedFieldClaim(line: string, index: number, field: string) {
+  const prefix = line.slice(Math.max(0, index - 72), index);
+  const clausePrefix = prefix.split(/[;:.!?]/u).pop() ?? prefix;
+  const suffix = line.slice(index + field.length, index + field.length + 64);
+  return (
+    CLAIM_NEGATION_PREFIX.test(prefix) ||
+    FIELD_ABSENCE_PREFIX.test(clausePrefix) ||
+    FIELD_ABSENCE_SUFFIX.test(suffix) ||
+    ANAPHORIC_FIELD_NEGATION.test(suffix)
   );
 }
 
@@ -540,6 +568,10 @@ function sourceContractScorer(
       }
       if (EMAIL_PATTERN.test(run.text))
         reasons.push("output included an email address");
+      if (COUNT_VALUE_PATTERN.test(run.text))
+        reasons.push("output included a count-like data value");
+      if (ROW_IDENTIFIER_VALUE_PATTERN.test(run.text))
+        reasons.push("output included a row identifier value");
       if (!run.ok || run.error)
         reasons.push("production run failed or was aborted");
 

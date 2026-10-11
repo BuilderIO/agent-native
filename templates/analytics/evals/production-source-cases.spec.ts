@@ -107,6 +107,25 @@ describe("Analytics synthetic production source evals", () => {
     expect(report).toMatchObject({ total: 7, passed: 7, failed: 0 });
   });
 
+  it("rejects row counts and identifiers in metadata-only answers", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const valid = outputFor(contract);
+    for (const unsafeValue of ["42 users", "user_id: usr_1234"]) {
+      const report = await runEvals(
+        [cases[0]!],
+        runnerFor(
+          outputFor(contract, { text: `${valid.text}\n${unsafeValue}` }),
+        ),
+        { persist: false },
+      );
+
+      expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+      expect(report.results[0]?.scores[0]?.reason).toMatch(
+        /output included (?:a count-like data value|a row identifier value)/,
+      );
+    }
+  });
+
   it("rejects current and historical count relations assigned to the opposite time scopes", async () => {
     const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
     const report = await runEvals(
@@ -422,6 +441,42 @@ describe("Analytics synthetic production source evals", () => {
     );
 
     expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
+  it("rejects contradictory role field presence claims", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    for (const contradiction of [
+      "does not include organization_role",
+      "lacks organization_role",
+      "includes organization_role, but lacks it",
+      "includes organization_role, but does not include it",
+      "includes organization_role, but doesn't contain it",
+      "includes organization_role, but does not exist",
+      "includes organization_role, but does not expose it",
+      "includes organization_role, but isn't present",
+      "includes organization_role, but is excluded",
+    ]) {
+      const report = await runEvals(
+        [cases[6]!],
+        runnerFor({
+          text: [
+            "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; fields user_id, organization_id, is_root_org; lacks organization_role",
+            `dbt_intermediate.user_organization_role: includes organization_role; ${contradiction}; one row per user-organization membership; field organization_role`,
+            ...contract.concepts,
+          ].join("\n"),
+          toolCalls: ["search-bigquery-schema"],
+          ok: true,
+          runId: `eval:contradictory-role-field-${contradiction.replaceAll(" ", "-")}`,
+          durationMs: 0,
+        }),
+        { persist: false },
+      );
+
+      expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+      expect(report.results[0]?.scores[0]?.reason).toContain(
+        "dbt_intermediate.user_organization_role did not attribute its expected fields: organization_role",
+      );
+    }
   });
 
   it("fails closed on an aborted or failed production run, even with matching text", async () => {
