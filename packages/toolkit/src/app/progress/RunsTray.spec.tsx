@@ -328,6 +328,101 @@ describe("RunsTrayMenuItem", () => {
       document.querySelector('[aria-label="Stop Manage the active run"]'),
     ).toBeTruthy();
   });
+
+  it("does not open another run when a pointer gesture starts on an action", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "menu-run-5",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Manage the active run",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-menu-5" },
+              metadata: { parentThreadId: "thread-parent-5" },
+            },
+            {
+              id: "menu-run-6",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Another active run",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-menu-6" },
+              metadata: { parentThreadId: "thread-parent-6" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DropdownMenu open>
+          <DropdownMenuContent forceMount>
+            <RunsTrayMenuItem pollMs={0} />
+          </DropdownMenuContent>
+        </DropdownMenu>,
+      );
+    });
+    const runsTrigger = document.querySelector(
+      '[aria-label^="Agent runs"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      runsTrigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Another active run"),
+      );
+    });
+
+    const openedThreads: unknown[] = [];
+    const onOpen = (event: Event) =>
+      openedThreads.push((event as CustomEvent).detail);
+    window.addEventListener("agent-chat:open-thread", onOpen);
+    try {
+      const stopButton = document.querySelector(
+        '[aria-label="Stop Manage the active run"]',
+      ) as HTMLButtonElement | null;
+      const otherRunTitle = Array.from(
+        document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'),
+      ).find((button) => button.textContent?.includes("Another active run"));
+      expect(stopButton).toBeTruthy();
+      expect(otherRunTitle).toBeTruthy();
+
+      await act(async () => {
+        stopButton?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+        otherRunTitle?.dispatchEvent(new Event("pointerup", { bubbles: true }));
+        otherRunTitle?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 0,
+          }),
+        );
+      });
+
+      expect(openedThreads).toHaveLength(0);
+    } finally {
+      window.removeEventListener("agent-chat:open-thread", onOpen);
+    }
+  });
 });
 
 describe("RunsTray polling", () => {

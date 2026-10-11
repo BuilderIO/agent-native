@@ -761,23 +761,38 @@ function RunRow({
   const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
   const backgroundStatus = getBackgroundStatus(run);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
   const pointerStartedOnActionRef = useRef(false);
   const pointerReleasedOnActionRef = useRef(false);
+  const pointerStartedOnAnyActionRef = useRef(false);
+  const pointerReleasedOnTitleFromActionRef = useRef(false);
 
   useEffect(() => {
     if (!insideDropdownMenu) return;
     const isActionTarget = (target: EventTarget | null) =>
       target instanceof Node &&
       actionButtonRef.current?.contains(target) === true;
+    const isAnyActionTarget = (target: EventTarget | null) =>
+      target instanceof Element &&
+      target.closest("[data-runs-tray-action]") !== null;
+    const isTitleTarget = (target: EventTarget | null) =>
+      target instanceof Node &&
+      titleButtonRef.current?.contains(target) === true;
     const recordPointerDown = (event: PointerEvent) => {
       pointerStartedOnActionRef.current = isActionTarget(event.target);
       pointerReleasedOnActionRef.current = false;
+      pointerStartedOnAnyActionRef.current = isAnyActionTarget(event.target);
+      pointerReleasedOnTitleFromActionRef.current = false;
     };
     const recordPointerUp = (event: PointerEvent) => {
       pointerReleasedOnActionRef.current = isActionTarget(event.target);
+      pointerReleasedOnTitleFromActionRef.current =
+        pointerStartedOnAnyActionRef.current && isTitleTarget(event.target);
       window.setTimeout(() => {
         pointerStartedOnActionRef.current = false;
         pointerReleasedOnActionRef.current = false;
+        pointerStartedOnAnyActionRef.current = false;
+        pointerReleasedOnTitleFromActionRef.current = false;
       }, 0);
     };
     document.addEventListener("pointerdown", recordPointerDown, true);
@@ -793,7 +808,11 @@ function RunRow({
       <button
         type="button"
         className="group flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => onOpenThread(threadId, run)}
+        ref={insideDropdownMenu ? titleButtonRef : undefined}
+        onClick={() => {
+          if (pointerReleasedOnTitleFromActionRef.current) return;
+          onOpenThread(threadId, run);
+        }}
       >
         <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
           <span className="truncate font-medium text-foreground group-hover:underline">
@@ -814,6 +833,7 @@ function RunRow({
       <button
         type="button"
         ref={insideDropdownMenu ? actionButtonRef : undefined}
+        data-runs-tray-action={insideDropdownMenu ? "" : undefined}
         aria-label={
           canStop
             ? t("runsTray.stopRun", { title: run.title })
