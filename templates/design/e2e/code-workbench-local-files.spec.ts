@@ -437,7 +437,7 @@ test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local
     return uri;
   });
 
-  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("button", { name: "Layers", exact: true }).click();
   await expect(page.getByTestId("design-code-workbench")).toBeHidden();
   await page.getByRole("button", { name: "Code", exact: true }).click();
   await expect
