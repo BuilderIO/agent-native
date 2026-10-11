@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Editor } from "@tiptap/core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -14,6 +15,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
+import { commentHighlightKey } from "./extensions/CommentHighlight";
 import { VisualEditor } from "./VisualEditor";
 
 const BEFORE = "Intro.\nThe team ships every Friday afternoon, so it lands.";
@@ -127,5 +129,40 @@ describe("VisualEditor comment highlights", () => {
     await settle();
 
     expect(highlighted("t1")).toBe("every Friday at 2 pm");
+  });
+
+  it("keeps a thread's highlight on its copy when another thread changes", async () => {
+    const quoteOnly = (threadId: string, quotedText: string) => ({
+      ...thread(threadId, quotedText),
+      prefix: null,
+      suffix: null,
+      startOffset: null,
+    });
+    await act(async () => render("Alpha beta.", [quoteOnly("t1", "beta")]));
+    await settle();
+    const editor = (
+      container.querySelector(".ProseMirror") as HTMLElement & {
+        editor: Editor;
+      }
+    ).editor;
+    // A copy typed ahead of the quoted word does not take its highlight.
+    await act(async () => {
+      editor.commands.insertContentAt(1, "beta ");
+    });
+    const start = () =>
+      commentHighlightKey
+        .getState(editor.state)!
+        .specs.find((spec) => spec.threadId === "t1")?.from;
+    expect(start()).toBe(12);
+
+    await act(async () =>
+      render("Alpha beta.", [
+        quoteOnly("t1", "beta"),
+        quoteOnly("t2", "Alpha"),
+      ]),
+    );
+    await settle();
+
+    expect(start()).toBe(12);
   });
 });

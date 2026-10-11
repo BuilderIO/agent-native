@@ -4289,6 +4289,7 @@ export function VisualEditor({
   const pendingKey = pendingHighlight
     ? `${pendingHighlight.from}-${pendingHighlight.to}`
     : "";
+  const resolvedQuotesRef = useRef(new Map<string, string>());
 
   const applyHighlights = useCallback(
     (force: boolean) => {
@@ -4311,10 +4312,25 @@ export function VisualEditor({
       for (const thread of threadsRef.current ?? []) {
         if (thread.resolved) continue;
         const existing = mapped.get(thread.threadId);
-        if (existing && !force) {
+        // A highlight stands for the quote it was resolved from, so only a
+        // thread's own new quote, such as the one an accepted edit re-anchors
+        // to, replaces it. Re-resolving an unchanged quote can pick another
+        // copy of its text.
+        const quote = JSON.stringify([
+          thread.quotedText,
+          thread.prefix ?? null,
+          thread.suffix ?? null,
+          thread.startOffset ?? null,
+        ]);
+        if (
+          existing &&
+          !force &&
+          resolvedQuotesRef.current.get(thread.threadId) === quote
+        ) {
           specs.push(existing);
           continue;
         }
+        resolvedQuotesRef.current.set(thread.threadId, quote);
         const range = resolveAnchor(view.state.doc, {
           quotedText: thread.quotedText,
           prefix: thread.prefix ?? undefined,
@@ -4368,9 +4384,7 @@ export function VisualEditor({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (stopped || editor.isDestroyed) return;
-      // A thread's new quote, such as the one an accepted edit re-anchors to,
-      // replaces the range mapped while it was on its way.
-      applyRef.current(attempts === 0);
+      applyRef.current(false);
       attempts += 1;
       const present = new Set(
         (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(
