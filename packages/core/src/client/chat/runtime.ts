@@ -2625,6 +2625,8 @@ function boundedStructuredHistorySources(
   let toolHistoryOmitted = false;
   let visitedMessages = 0;
   for (let index = historyMessages.length - 1; index >= 0; index--) {
+    const message = historyMessages[index]!;
+    if (message.role === "assistant") continue;
     if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
       currentPromptScanLimited = true;
       omitted = true;
@@ -2632,8 +2634,6 @@ function boundedStructuredHistorySources(
       break;
     }
     visitedMessages++;
-    const message = historyMessages[index]!;
-    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
     if (message.role !== "user") continue;
     if (!currentPrompt.trim()) {
       currentPromptMessageIndex = index;
@@ -2657,7 +2657,16 @@ function boundedStructuredHistorySources(
   );
   for (let index = 0; index < firstPromptScanEnd; index++) {
     if (index === currentPromptMessageIndex) continue;
-    if (isUserAsk(historyMessages[index]!, currentAttachmentUrls)) {
+    const message = historyMessages[index]!;
+    if (
+      currentPromptScanLimited &&
+      currentPrompt.trim() &&
+      message.role === "user" &&
+      runtimeMessageTextMatches(message, currentPrompt).matches
+    ) {
+      continue;
+    }
+    if (isUserAsk(message, currentAttachmentUrls)) {
       firstUserPromptMessageIndex = index;
       break;
     }
@@ -2890,7 +2899,6 @@ function boundedStructuredHistorySources(
   ) {
     visitMessage(supplementalMessages[index]!, "supplemental", index);
   }
-  if (currentPromptScanLimited) stop = true;
   for (let index = historyMessages.length - 1; index >= 0 && !stop; index--) {
     if (index === currentPromptMessageIndex) continue;
     visitMessage(historyMessages[index]!, "messages", index);
