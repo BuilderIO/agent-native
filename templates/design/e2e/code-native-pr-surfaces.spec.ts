@@ -57,15 +57,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fileId = file.id;
   if (!fileId) throw new Error("create-file did not return an id");
   await postAction(request, "index-components", { designId });
-  const metadataResponse = await request.post(
-    `${baseURLForActions}/api/e2e/component-variant-metadata`,
-    { data: { designId } },
-  );
-  if (!metadataResponse.ok()) {
-    throw new Error(
-      `component metadata fixture failed: ${metadataResponse.status()} ${await metadataResponse.text()}`,
-    );
-  }
+  await postAction(request, "seed-e2e-component-variants", { designId });
 });
 
 test.afterAll(async ({ request }) => {

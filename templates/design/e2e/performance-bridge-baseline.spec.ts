@@ -16,6 +16,8 @@ import {
   inspectorInputCount,
 } from "./helpers";
 
+test.use({ trace: { mode: "on", screenshots: false, snapshots: false } });
+
 const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const EVIDENCE_DIR = path.resolve(
   import.meta.dirname,
@@ -798,7 +800,6 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     return { elementCount, maxDepth };
   });
 
-  await page.context().tracing.start({ screenshots: false, snapshots: false });
   const bridgeSamples: RectsSample[] = [];
   await collectRects(page, 0, true);
   for (const deep of [false, true]) {
@@ -1010,9 +1011,6 @@ test("collect selectable rects baseline on nested responsive screens", async ({
     .toEqual(marqueeSelectionBeforeRows);
 
   const longTasks = await readLongTasks(page);
-  await page.context().tracing.stop({
-    path: path.join(EVIDENCE_DIR, "bridge-baseline-trace.zip"),
-  });
   await writeFile(
     path.join(EVIDENCE_DIR, "bridge-after.json"),
     JSON.stringify(

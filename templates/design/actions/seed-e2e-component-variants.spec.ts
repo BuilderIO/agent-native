@@ -9,20 +9,17 @@ const mocks = vi.hoisted(() => ({
     value,
   })),
   getDb: vi.fn(),
-  getSession: vi.fn(),
+  getRequestUserEmail: vi.fn(),
   indexedRows: [] as Array<{ id: string }>,
-  runWithRequestContext: vi.fn(),
   selectLimit: undefined as unknown,
   selectWhere: undefined as unknown,
-  setResponseStatus: vi.fn(),
   updateRows: [] as Array<{ id: string }>,
   updateSet: undefined as unknown,
   updateWhere: undefined as unknown,
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  getSession: mocks.getSession,
-  runWithRequestContext: mocks.runWithRequestContext,
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -34,20 +31,7 @@ vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
 }));
 
-vi.mock("h3", () => ({
-  createError: ({ statusCode, statusMessage }: Record<string, unknown>) =>
-    Object.assign(new Error(String(statusMessage)), {
-      statusCode,
-      statusMessage,
-    }),
-  defineEventHandler: (handler: unknown) => handler,
-  readBody: async (event: { body?: unknown }) => event.body,
-  setResponseStatus: (event: { status?: number }, status: number) => {
-    event.status = status;
-  },
-}));
-
-vi.mock("../../db/index.js", () => ({
+vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
     componentIndex: {
@@ -63,101 +47,105 @@ vi.mock("../../db/index.js", () => ({
   },
 }));
 
-import handler from "./e2e/component-variant-metadata.post.js";
+import action from "./seed-e2e-component-variants.js";
 
 const designId = "design-123";
 const componentId = "component-index-123";
 
-function makeEvent(body: unknown = { designId }) {
-  return { body, status: 200 };
-}
-
-describe("POST /api/e2e/component-variant-metadata", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.selectLimit = undefined;
-    mocks.selectWhere = undefined;
-    mocks.updateSet = undefined;
-    mocks.updateWhere = undefined;
-    vi.stubEnv("E2E_RUN_ROOT", "/tmp/design-e2e-run");
-    vi.stubEnv("NODE_ENV", "test");
-    mocks.indexedRows = [{ id: componentId }];
-    mocks.updateRows = [{ id: componentId }];
-    mocks.getSession.mockResolvedValue({
-      email: "e2e+autoz@local.test",
-      orgId: "e2e-org",
-    });
-    mocks.assertAccess.mockResolvedValue({ role: "editor" });
-    mocks.runWithRequestContext.mockImplementation(
-      (_context: unknown, callback: () => unknown) => callback(),
-    );
-    mocks.getDb.mockReturnValue({
-      select: () => ({
-        from: () => ({
-          where: (condition: unknown) => {
-            mocks.selectWhere = condition;
-            return {
-              limit: async (limit: number) => {
-                mocks.selectLimit = limit;
-                return mocks.indexedRows;
-              },
-            };
-          },
-        }),
-      }),
-      update: () => ({
-        set: (values: unknown) => {
-          mocks.updateSet = values;
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubEnv("E2E_RUN_ROOT", "/tmp/design-e2e-run");
+  vi.stubEnv("NODE_ENV", "test");
+  mocks.indexedRows = [{ id: componentId }];
+  mocks.selectLimit = undefined;
+  mocks.selectWhere = undefined;
+  mocks.updateRows = [{ id: componentId }];
+  mocks.updateSet = undefined;
+  mocks.updateWhere = undefined;
+  mocks.getRequestUserEmail.mockReturnValue("e2e+autoz@local.test");
+  mocks.assertAccess.mockResolvedValue({ role: "editor" });
+  mocks.getDb.mockReturnValue({
+    select: () => ({
+      from: () => ({
+        where: (condition: unknown) => {
+          mocks.selectWhere = condition;
           return {
-            where: (condition: unknown) => {
-              mocks.updateWhere = condition;
-              return { returning: async () => mocks.updateRows };
+            limit: async (limit: number) => {
+              mocks.selectLimit = limit;
+              return mocks.indexedRows;
             },
           };
         },
       }),
+    }),
+    update: () => ({
+      set: (values: unknown) => {
+        mocks.updateSet = values;
+        return {
+          where: (condition: unknown) => {
+            mocks.updateWhere = condition;
+            return { returning: async () => mocks.updateRows };
+          },
+        };
+      },
+    }),
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("seed-e2e-component-variants action", () => {
+  it("is a POST-only UI fixture action with a strict described designId", () => {
+    expect(action).toMatchObject({
+      agentTool: false,
+      http: { method: "POST" },
+      readOnly: false,
     });
+    expect(action.schema.safeParse({ designId }).success).toBe(true);
+    expect(action.schema.safeParse({}).success).toBe(false);
+    expect(action.schema.safeParse({ designId: "" }).success).toBe(false);
+    expect(action.schema.safeParse({ designId, extra: true }).success).toBe(
+      false,
+    );
+    expect(
+      (
+        action.tool.parameters as {
+          properties?: Record<string, { description?: string }>;
+        }
+      ).properties?.designId?.description,
+    ).toMatch(/design project ID/i);
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("returns 404 when the E2E run root is unset", async () => {
+  it("fails closed when E2E_RUN_ROOT is unset", async () => {
     vi.stubEnv("E2E_RUN_ROOT", undefined);
-    const event = makeEvent();
 
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Not found",
+    await expect(action.run({ designId })).rejects.toMatchObject({
+      statusCode: 404,
     });
-
-    expect(event.status).toBe(404);
-    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getRequestUserEmail).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
-  it("returns 404 in production even when the E2E run root is set", async () => {
+  it("fails closed in production even when E2E_RUN_ROOT is set", async () => {
     vi.stubEnv("NODE_ENV", "production");
-    const event = makeEvent();
 
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Not found",
+    await expect(action.run({ designId })).rejects.toMatchObject({
+      statusCode: 404,
     });
-
-    expect(event.status).toBe(404);
-    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.getRequestUserEmail).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
   it("requires an authenticated request", async () => {
-    mocks.getSession.mockResolvedValue(null);
-    const event = makeEvent();
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
 
-    await expect(handler(event as never)).resolves.toEqual({
-      error: "Unauthorized",
+    await expect(action.run({ designId })).rejects.toMatchObject({
+      statusCode: 401,
     });
-
-    expect(event.status).toBe(401);
     expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
@@ -166,8 +154,7 @@ describe("POST /api/e2e/component-variant-metadata", () => {
     const accessError = new Error("editor access denied");
     mocks.assertAccess.mockRejectedValue(accessError);
 
-    await expect(handler(makeEvent() as never)).rejects.toBe(accessError);
-
+    await expect(action.run({ designId })).rejects.toBe(accessError);
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       designId,
@@ -177,13 +164,11 @@ describe("POST /api/e2e/component-variant-metadata", () => {
   });
 
   it("updates only the unique indexed E2EButton row after editor authorization", async () => {
-    const result = await handler(makeEvent() as never);
+    await expect(action.run({ designId })).resolves.toEqual({
+      designId,
+      componentName: "E2EButton",
+    });
 
-    expect(result).toEqual({ designId, componentName: "E2EButton" });
-    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
-      { userEmail: "e2e+autoz@local.test", orgId: "e2e-org" },
-      expect.any(Function),
-    );
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       designId,
@@ -228,15 +213,10 @@ describe("POST /api/e2e/component-variant-metadata", () => {
     ["duplicate indexed rows", [{ id: componentId }, { id: "duplicate-id" }]],
   ])("returns 409 when there is %s", async (_description, rows) => {
     mocks.indexedRows = rows;
-    const event = makeEvent();
 
-    const error = await handler(event as never).catch(
-      (caught: unknown) => caught,
-    );
-
-    expect(error).toMatchObject({
+    await expect(action.run({ designId })).rejects.toMatchObject({
       statusCode: 409,
-      statusMessage: "Expected one indexed E2EButton component",
+      message: "Expected one indexed E2EButton component",
     });
     expect(mocks.getDb).toHaveBeenCalledTimes(1);
     expect(mocks.updateSet).toBeUndefined();
@@ -245,13 +225,9 @@ describe("POST /api/e2e/component-variant-metadata", () => {
   it("returns 409 if the indexed row disappears before the update completes", async () => {
     mocks.updateRows = [];
 
-    const error = await handler(makeEvent() as never).catch(
-      (caught: unknown) => caught,
-    );
-
-    expect(error).toMatchObject({
+    await expect(action.run({ designId })).rejects.toMatchObject({
       statusCode: 409,
-      statusMessage: "Component metadata fixture was not updated",
+      message: "Component metadata fixture was not updated",
     });
   });
 });
