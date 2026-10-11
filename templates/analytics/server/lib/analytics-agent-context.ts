@@ -11,7 +11,7 @@ import {
   candidateScopeCompatibility,
   candidateTrustTier,
   relevanceTerms,
-  searchAnalyticsQueryCatalog,
+  searchAnalyticsDictionaryCatalog,
   searchTerms,
   type AnalyticsQueryCatalogCandidate,
 } from "./analytics-query-catalog";
@@ -193,6 +193,9 @@ function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
           dependencies: candidate.dependencies,
           validDateRange: candidate.validDateRange,
           owner: candidate.owner,
+          grain: candidate.grain,
+          entryType: candidate.entryType,
+          status: candidate.status,
           approved: candidate.approved,
           aiGenerated: candidate.aiGenerated,
         },
@@ -238,6 +241,19 @@ function candidateEmbeddingSummary(
           candidate.definition,
           candidate.source ? `Source: ${candidate.source}` : "",
           candidate.table ? `Table: ${candidate.table}` : "",
+          candidate.entryType ? `Entry type: ${candidate.entryType}` : "",
+          candidate.grain ? `Grain: ${candidate.grain}` : "",
+          candidate.primaryEntity
+            ? `Primary entity: ${candidate.primaryEntity}`
+            : "",
+          candidate.timeDimension
+            ? `Time dimension: ${candidate.timeDimension}`
+            : "",
+          candidate.semanticModel
+            ? `Semantic model: ${candidate.semanticModel}`
+            : "",
+          candidate.columnsUsed ? `Columns: ${candidate.columnsUsed}` : "",
+          candidate.owner ? `Owner: ${candidate.owner}` : "",
           candidate.semanticScope
             ? `Subject scope: ${candidate.semanticScope}`
             : "",
@@ -548,7 +564,7 @@ export async function retrieveAnalyticsPromptReferences(input: {
   try {
     const search = await beforeDeadline(
       (signal) =>
-        searchAnalyticsQueryCatalog({
+        searchAnalyticsDictionaryCatalog({
           search: request,
           email: input.email,
           orgId: input.orgId,
@@ -565,10 +581,8 @@ export async function retrieveAnalyticsPromptReferences(input: {
     }
     searchResults = search.value.candidates;
     catalogComplete =
-      search.value.dashboardSearchStatus === "available" &&
       search.value.dictionarySearchStatus === "available" &&
-      !search.value.dashboardSearchTruncated &&
-      !search.value.dashboardDetailHydrationTruncated &&
+      !search.value.truncated &&
       !search.value.dictionarySearchTruncated;
   } catch (error) {
     console.warn(

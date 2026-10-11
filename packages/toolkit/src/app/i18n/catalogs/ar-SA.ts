@@ -150,8 +150,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
   "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
   "onboarding.builderAccountExistsDescription": "سجّل الدخول لاستخدام حسابك.",
+  "onboarding.builderActivationChecking":
+    "جارٍ التحقق مما إذا كان إنشاء حساب جديد متاحًا.",
+  "onboarding.builderActivationUnavailable":
+    "إنشاء حساب جديد غير مفعّل لهذا التطبيق. يمكنك ربط حساب موجود.",
+  "onboarding.builderActivationUnavailableInMode":
+    "تفعيل حساب جديد غير متاح في هذا الوضع. لا يزال بإمكانك ربط حساب موجود.",
+  "onboarding.builderActivationCheckFailed":
+    "تعذّر التحقق مما إذا كان هذا التطبيق يتيح إنشاء حسابات جديدة.",
+
   "onboarding.builderActivationDescription":
-    "أنشئ حساب Builder.io أو اربطه بنقرة واحدة للحصول على أرصدة مجانية.",
+    "أنشئ حسابًا جديدًا لتفعيل الأرصدة المجانية، أو تابع باستخدام حساب موجود.",
   "onboarding.builderOrgActivationDescription":
     "سننشئ حساب Builder.io الخاص بك بنقرة واحدة ليتمكن مؤسستك من استخدامه.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
@@ -159,7 +168,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "شروط الخدمة",
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
-  "onboarding.builderExistingAccount": "استخدم Builder.io",
+  "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
   "onboarding.builderProvisioningDescription":
@@ -1246,6 +1255,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_many": "تم إرفاق {{formattedCount}} حرفًا من التحديد",
   "selection.attached_other": "تم إرفاق {{formattedCount}} حرف من التحديد",
   "selection.clear": "مسح سياق التحديد",
+  "setup.addKeyInSettings": "أضف مفتاحًا من الإعدادات",
+  "setup.addKeyInSettingsDescription": "لحسابك أو مؤسستك.",
+  "setup.setEnvironmentVariable": "عيّن متغير بيئة",
+  "setup.setEnvironmentVariableDescription":
+    "مفتاح موفّر واحد لجميع مستخدمي هذا التطبيق.",
+
   "setup.addOwnKeys": "إضافة مفاتيحك الخاصة",
   "setup.builderCredits":
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",

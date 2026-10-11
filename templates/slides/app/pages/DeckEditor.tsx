@@ -90,6 +90,10 @@ import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import {
+  SlideTransitionPreview,
+  transitionPreviewPair,
+} from "@/components/presentation/SlideTransitionStage";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -768,6 +772,7 @@ export default function DeckEditor() {
   const [animationTarget, setAnimationTarget] =
     useState<SelectedAnimationTarget | null>(null);
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [transitionPreviewOpen, setTransitionPreviewOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
@@ -4139,6 +4144,8 @@ export default function DeckEditor() {
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  const canPreviewTransition =
+    transitionPreviewPair(deck.slides, currentIndex) !== null;
   currentSlideRef.current = currentSlide;
   syncSlideContentSnapshots(
     deck.slides,
@@ -4347,7 +4354,24 @@ export default function DeckEditor() {
         onSelectShape={selectShape}
         onChangeSlideTransition={
           canEdit && currentSlide
-            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            ? (patch) => updateSlide(id, currentSlide.id, patch)
+            : undefined
+        }
+        onPlaySlideTransition={
+          canPreviewTransition
+            ? () => setTransitionPreviewOpen(true)
+            : undefined
+        }
+        onApplySlideTransitionToAll={
+          canEdit && deck.slides.length > 0
+            ? (patch) =>
+                updateSlides(
+                  id,
+                  deck.slides.map((slide) => ({
+                    slideId: slide.id,
+                    updates: patch,
+                  })),
+                )
             : undefined
         }
         onDuplicateDeck={async () => {
@@ -4551,6 +4575,16 @@ export default function DeckEditor() {
               />
             </div>
           </div>
+        )}
+
+        {transitionPreviewOpen && canPreviewTransition && (
+          <SlideTransitionPreview
+            slides={deck.slides}
+            index={currentIndex}
+            aspectRatio={deck.aspectRatio}
+            designSystem={designSystem}
+            onClose={() => setTransitionPreviewOpen(false)}
+          />
         )}
 
         {showQuestionFlow && (

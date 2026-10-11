@@ -168,6 +168,11 @@ interface ModelDoc {
   name: string;
   sourcePath?: string;
   description?: string;
+  explicitGrain?: string;
+  inferredGrain?: string;
+  inferredGrainKeyCandidates?: string[][];
+  passThroughModel?: string;
+  passThroughColumns?: string[] | "*";
   semanticModelEnabled?: boolean;
   semanticModelName?: string;
   group?: string;
@@ -176,6 +181,7 @@ interface ModelDoc {
   columns: Map<string, ColumnDoc>;
   tests: Set<string>;
   dependencies: Set<string>;
+  // A dbt `unique_key` is not proof that model SQL is unique on those columns.
   grainHints: string[][];
 }
 
@@ -1146,11 +1152,7 @@ function parseSchemaYaml(
         indent > modelMetaIndent &&
         !context.column
       ) {
-        const columns = value
-          .split(/[,+\s]+/)
-          .map(safeIdentifier)
-          .filter((name): name is string => Boolean(name));
-        addGrainHint(context.model, columns);
+        context.model.explicitGrain = safeDescription(value, scanSummary);
         continue;
       }
       if (
@@ -1701,15 +1703,11 @@ function semanticModelEntries(
     const modelDoc = modelName
       ? models.find((model) => model.name === modelName)
       : undefined;
-    const uniqueGrain = modelDoc?.grainHints[0];
     const explicitGrain = safeDescription(item.values.grain ?? "", scanSummary);
     const grain =
       explicitGrain ??
-      (uniqueGrain?.length
-        ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntityKey
-          ? `Primary entity: ${primaryEntityKey}`
-          : undefined);
+      modelDeclaredGrain(modelDoc) ??
+      (primaryEntityKey ? `Primary entity: ${primaryEntityKey}` : undefined);
     const group = safeIdentifier(item.values.group ?? "");
     const owner =
       safeOwnerName(item.ownerName ?? item.values.owner, scanSummary) ??
@@ -1778,12 +1776,9 @@ function semanticModelEntries(
           .filter((column) => column.dimensionType?.toLowerCase() === "time")
           .map((column) => safeIdentifier(column.name ?? ""))
           .find((value): value is string => Boolean(value));
-      const uniqueGrain = modelDoc.grainHints[0];
-      const grain = uniqueGrain?.length
-        ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntity
-          ? `Primary entity: ${primaryEntity}`
-          : undefined;
+      const grain =
+        modelDeclaredGrain(modelDoc) ??
+        (primaryEntity ? `Primary entity: ${primaryEntity}` : undefined);
       const group = safeIdentifier(modelDoc.group ?? "");
       const owner = group ? groups.get(group) : undefined;
       const description = safeDescription(
@@ -2006,6 +2001,9 @@ function semanticModelEntries(
 function mergeModel(target: ModelDoc, source: ModelDoc): void {
   target.sourcePath ??= source.sourcePath;
   target.description ??= source.description;
+  target.explicitGrain ??= source.explicitGrain;
+  target.inferredGrain ??= source.inferredGrain;
+  target.passThroughModel ??= source.passThroughModel;
   target.semanticModelEnabled ??= source.semanticModelEnabled;
   target.semanticModelName ??= source.semanticModelName;
   target.group ??= source.group;
@@ -2056,6 +2054,14 @@ function sqlWithoutComments(sql: string): string {
       if (char === "\\" && quote !== "`") escaped = true;
       else if (char === quote) quote = null;
       continue;
+    }
+    if (char === "{" && next === "#") {
+      const end = sql.indexOf("#}", index + 2);
+      if (end >= 0) {
+        result += sql.slice(index, end + 2).replace(/[^\r\n]/g, " ");
+        index = end + 1;
+        continue;
+      }
     }
     if (char === "{" && next === "{") {
       const end = sql.indexOf("}}", index + 2);
@@ -2111,23 +2117,282 @@ function extractSqlDependencies(sql: string): string[] {
   return [...dependencies].sort();
 }
 
-function extractUniqueKey(sql: string): string[][] {
-  const source = sqlWithoutComments(sql);
-  const hints: string[][] = [];
-  for (const match of source.matchAll(
-    /\bunique_key\s*[:=]\s*(\[[^\]]{0,1000}\]|['"]([A-Za-z_][A-Za-z0-9_-]{0,99})['"])/g,
-  )) {
-    const value = match[1]!;
-    const columns = value.startsWith("[")
-      ? value
-          .slice(1, -1)
-          .split(",")
-          .map((part) => safeIdentifier(part.replace(/['"\s]/g, "")))
-          .filter((part): part is string => part !== null)
-      : [match[2]!];
-    if (columns.length) hints.push([...new Set(columns)]);
+const SQL_IDENTIFIER = String.raw`[A-Za-z_][A-Za-z0-9_$]*`;
+const SQL_COLUMN_REFERENCE = new RegExp(
+  String.raw`^(?:${SQL_IDENTIFIER}\s*\.\s*){0,2}(?:${SQL_IDENTIFIER}|\*)$`,
+  "i",
+);
+
+function finalSelectList(source: string): string | undefined {
+  let depth = 0;
+  let quote: "'" | '"' | "`" | undefined;
+  let selectStart: number | undefined;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== "`") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0 || !/[A-Za-z]/.test(character)) continue;
+
+    const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+    if (!match) continue;
+    const keyword = match[0].toLowerCase();
+    if (keyword === "select") selectStart = index + match[0].length;
+    else if (keyword === "from" && selectStart !== undefined) {
+      return source.slice(selectStart, index).trim();
+    }
+    index += match[0].length - 1;
   }
-  return hints;
+  return undefined;
+}
+
+function splitTopLevelSqlList(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: "'" | '"' | "`" | undefined;
+  let start = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (value[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== "`") {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === "`") {
+      quote = character;
+    } else if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (character === "," && depth === 0) {
+      parts.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  parts.push(value.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
+function directProjection(projection: string):
+  | {
+      inputColumn: string;
+      outputColumn: string;
+    }
+  | undefined {
+  const value = projection.trim();
+  if (value === "*") return { inputColumn: "*", outputColumn: "*" };
+
+  let expression = value;
+  let outputColumn: string | undefined;
+  const explicitAlias = value.match(
+    new RegExp(String.raw`^(.+?)\s+as\s+(${SQL_IDENTIFIER})$`, "i"),
+  );
+  const implicitAlias = explicitAlias
+    ? undefined
+    : value.match(new RegExp(String.raw`^(.+?)\s+(${SQL_IDENTIFIER})$`, "i"));
+  const alias = explicitAlias ?? implicitAlias;
+  if (alias) {
+    expression = alias[1]!.trim();
+    outputColumn = alias[2]!.toLowerCase();
+  }
+  if (!SQL_COLUMN_REFERENCE.test(expression)) return undefined;
+  const inputColumn = expression
+    .split(".")
+    .pop()!
+    .trim()
+    .replace(/`/g, "")
+    .toLowerCase();
+  return {
+    inputColumn,
+    outputColumn: outputColumn ?? inputColumn,
+  };
+}
+
+function hasRowReducingSql(source: string): boolean {
+  return (
+    /\b(?:distinct|group\s+by|having|qualify|union|intersect|except|pivot|unpivot|over|limit|offset|fetch\s+first|tablesample)\b/i.test(
+      source,
+    ) ||
+    /\b(?:count|countif|sum|avg|min|max|array_agg|array_concat_agg|string_agg|any_value|approx_count_distinct|approx_quantiles|approx_top_count|approx_top_sum|logical_and|logical_or|bit_and|bit_or|bit_xor|stddev(?:_pop|_samp)?|variance(?:_pop|_samp)?|corr|covar_(?:pop|samp)|percentile_(?:cont|disc))\s*\(/i.test(
+      source,
+    )
+  );
+}
+
+function hasCommaSeparatedFromSource(source: string): boolean {
+  const inFromByDepth = new Map<number, boolean>();
+  let depth = 0;
+  let quote: string | undefined;
+  const backtick = String.fromCharCode(96);
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (quote) {
+      if (character === quote) {
+        if (source[index + 1] === quote) index += 1;
+        else quote = undefined;
+      } else if (character === "\\" && quote !== backtick) {
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "'" || character === '"' || character === backtick) {
+      quote = character;
+      continue;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      inFromByDepth.delete(depth);
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (character === "," && inFromByDepth.get(depth)) return true;
+    if (!/[A-Za-z_]/.test(character)) continue;
+
+    const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/);
+    if (!match) continue;
+    const keyword = match[0].toLowerCase();
+    if (keyword === "from") inFromByDepth.set(depth, true);
+    else if (
+      keyword === "select" ||
+      /^(?:where|group|having|qualify|order|limit|offset|fetch|union|intersect|except)$/.test(
+        keyword,
+      )
+    ) {
+      inFromByDepth.delete(depth);
+    }
+    index += match[0].length - 1;
+  }
+  return false;
+}
+
+function hasOnlyMembershipJoins(
+  source: string,
+  unnestedAlias: string,
+): boolean {
+  const joinCount = (source.match(/\bjoin\b/gi) ?? []).length;
+  if (joinCount === 1) return true;
+  if (joinCount !== 2) return false;
+
+  const organizationJoin = source.match(
+    /\bleft(?:\s+outer)?\s+join\s+\{\{\s*ref\(\s*["']organizations["']\s*\)\s*\}\}\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*org_id\b/i,
+  );
+  return Boolean(
+    organizationJoin &&
+    organizationJoin[2]!.toLowerCase() === unnestedAlias.toLowerCase() &&
+    organizationJoin[3]!.toLowerCase() === organizationJoin[1]!.toLowerCase(),
+  );
+}
+
+function inferUnnestedMembershipGrain(
+  sql: string,
+  modelName: string,
+): string | undefined {
+  if (
+    !/(?:user|member)/i.test(modelName) ||
+    !/(?:org|organization)/i.test(modelName)
+  ) {
+    return undefined;
+  }
+  const source = sqlWithoutComments(sql);
+  if (hasRowReducingSql(source) || hasCommaSeparatedFromSource(source)) {
+    return undefined;
+  }
+  const arrayName = source.match(
+    /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\)/i,
+  )?.[1];
+  const unnestedAlias = source.match(
+    /\b(?:cross\s+)?join\s+unnest\s*\(\s*(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*\s*\)\s+(?:as\s+)?([A-Za-z_][A-Za-z0-9_]*)/i,
+  )?.[1];
+  const safeArrayName = arrayName ? safeIdentifier(arrayName) : null;
+  if (
+    !safeArrayName ||
+    !/(?:org|organization)/i.test(safeArrayName) ||
+    !unnestedAlias ||
+    !hasOnlyMembershipJoins(source, unnestedAlias)
+  ) {
+    return undefined;
+  }
+  const selectList = finalSelectList(source);
+  if (!selectList) return undefined;
+  const projections = splitTopLevelSqlList(selectList)
+    .map(directProjection)
+    .filter((projection): projection is NonNullable<typeof projection> =>
+      Boolean(projection),
+    );
+  const hasUserId = projections.some(
+    (projection) =>
+      projection.outputColumn === "user_id" &&
+      projection.inputColumn === "user_id",
+  );
+  const hasOrganizationId = projections.some(
+    (projection) =>
+      projection.outputColumn === "organization_id" &&
+      projection.inputColumn === unnestedAlias.toLowerCase(),
+  );
+  if (!hasUserId || !hasOrganizationId) return undefined;
+  return `Expanded grain: one row per user-organization array entry from UNNEST(${safeArrayName})`;
+}
+
+interface PassThroughModel {
+  modelName: string;
+  columns: string[] | "*";
+}
+
+function extractPassThroughModel(
+  sql: string,
+  dependencies: string[],
+): PassThroughModel | undefined {
+  if (dependencies.length !== 1 || !dependencies[0]?.startsWith("ref:")) {
+    return undefined;
+  }
+  const source = sqlWithoutComments(sql);
+  if (
+    (source.match(/\bselect\b/gi) ?? []).length !== 1 ||
+    hasRowReducingSql(source) ||
+    /\b(?:join|unnest|group\s+by|distinct|union|intersect|except|having|qualify|pivot|unpivot|over)\b/i.test(
+      source,
+    )
+  ) {
+    return undefined;
+  }
+  const selectList = finalSelectList(source);
+  if (!selectList) return undefined;
+  const projections = splitTopLevelSqlList(selectList).map(directProjection);
+  if (projections.some((projection) => !projection)) return undefined;
+  const columns = projections.map((projection) => projection!.inputColumn);
+  const modelName = safeIdentifier(dependencies[0].slice("ref:".length));
+  if (!modelName) return undefined;
+  if (columns.includes("*"))
+    return columns.length === 1 ? { modelName, columns: "*" } : undefined;
+  return { modelName, columns };
 }
 
 function isTestSql(relativePath: string): boolean {
@@ -2591,6 +2856,98 @@ function mergeModels(
   return [...models.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function modelDeclaredGrain(model: ModelDoc | undefined): string | undefined {
+  if (!model) return undefined;
+  const uniqueGrain = model.grainHints[0];
+  const uniqueColumnKey = [...model.columns.values()].find(
+    (column) => column.tests.has("unique") && column.tests.has("not_null"),
+  )?.name;
+  const descriptionGrain = model.description?.match(
+    /\b(one\s+row\s+per\s+[^.;\n]{1,240}?)(?=(?:,\s+(?:which|with|and|where|but)\b)|[.;\n]|$)/i,
+  )?.[1];
+  return (
+    model.explicitGrain ??
+    (uniqueGrain?.length
+      ? `Unique key: ${uniqueGrain.join(", ")}`
+      : undefined) ??
+    (uniqueColumnKey ? `Unique key: ${uniqueColumnKey}` : undefined) ??
+    descriptionGrain?.replace(/\s+/g, " ").trim() ??
+    model.inferredGrain
+  );
+}
+
+function grainKeyCandidates(model: ModelDoc): string[][] {
+  if (model.explicitGrain) {
+    return model.columns.size ? [[...model.columns.keys()]] : [];
+  }
+  if (model.grainHints.length) return model.grainHints;
+  if (model.inferredGrainKeyCandidates?.length)
+    return model.inferredGrainKeyCandidates;
+
+  const uniqueColumn = [...model.columns.values()].find(
+    (column) => column.tests.has("unique") && column.tests.has("not_null"),
+  )?.name;
+  if (uniqueColumn) return [[uniqueColumn]];
+
+  const hasDescriptionGrain = Boolean(
+    model.description?.match(
+      /\b(one\s+row\s+per\s+[^.;\n]{1,240}?)(?=(?:,\s+(?:which|with|and|where|but)\b)|[.;\n]|$)/i,
+    ),
+  );
+  return (model.inferredGrain || hasDescriptionGrain) && model.columns.size
+    ? [[...model.columns.keys()]]
+    : [];
+}
+
+function preservesUpstreamGrain(
+  upstream: ModelDoc,
+  projectedColumns: string[] | "*",
+): boolean {
+  if (projectedColumns === "*") return true;
+  const projected = new Set(
+    projectedColumns.map((column) => column.toLowerCase()),
+  );
+  return grainKeyCandidates(upstream).some((candidate) =>
+    candidate.every((column) => projected.has(column.toLowerCase())),
+  );
+}
+
+function inheritPassThroughGrains(models: ModelDoc[]): void {
+  const byName = new Map(models.map((model) => [model.name, model]));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const model of models) {
+      if (
+        model.inferredGrain ||
+        model.explicitGrain ||
+        model.grainHints.length ||
+        [...model.columns.values()].some(
+          (column) =>
+            column.tests.has("unique") && column.tests.has("not_null"),
+        )
+      ) {
+        continue;
+      }
+      const upstream = model.passThroughModel
+        ? byName.get(model.passThroughModel)
+        : undefined;
+      const upstreamGrain = modelDeclaredGrain(upstream);
+      if (
+        !upstream ||
+        !upstreamGrain ||
+        !model.passThroughColumns ||
+        !preservesUpstreamGrain(upstream, model.passThroughColumns)
+      ) {
+        continue;
+      }
+      model.inferredGrain = `Same row grain as ${upstream.name}: ${upstreamGrain}`;
+      model.inferredGrainKeyCandidates = grainKeyCandidates(upstream);
+      changed = true;
+    }
+  }
+}
+
 function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
   const columns = [...model.columns.values()].sort((a, b) =>
     a.name.localeCompare(b.name),
@@ -2606,6 +2963,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         "; ",
       )
     : undefined;
+  const declaredGrain = modelDeclaredGrain(model);
   const columnDefinitions = columns.map((column) => {
     const type = column.dataType ? ` (${column.dataType})` : "";
     const description = column.description ? `: ${column.description}` : "";
@@ -2639,6 +2997,7 @@ function modelEntries(root: RootContext, model: ModelDoc): SourceIndexEntry[] {
         `${model.name} ${model.description ?? ""}`,
       ),
       table: model.name,
+      ...(declaredGrain ? { grain: declaredGrain } : {}),
       ...(columnsUsed ? { columnsUsed } : {}),
       ...(dependencies.length
         ? { dependencies: boundedList(dependencies, 4_000, "; ") }
@@ -2772,17 +3131,30 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary.unsafeEntriesOmitted += 1;
       continue;
     }
+    const inferredGrain = inferUnnestedMembershipGrain(sql, modelName);
+    const passThrough = extractPassThroughModel(sql, dependencies);
     const model: ModelDoc = {
       name: modelName,
       ...(relativePath ? { sourcePath: relativePath } : {}),
       columns: new Map(),
       tests: new Set(),
       dependencies: new Set(dependencies),
-      grainHints: extractUniqueKey(sql),
+      grainHints: [],
+      ...(inferredGrain ? { inferredGrain } : {}),
+      ...(inferredGrain
+        ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
+        : {}),
+      ...(passThrough
+        ? {
+            passThroughModel: passThrough.modelName,
+            passThroughColumns: passThrough.columns,
+          }
+        : {}),
     };
     sqlModels.push(model);
   }
   const mergedModels = mergeModels(root, docs, sqlModels);
+  inheritPassThroughGrains(mergedModels);
   return {
     entries: [
       ...mergedModels.flatMap((model) => modelEntries(root, model)),

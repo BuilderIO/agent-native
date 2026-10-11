@@ -50,6 +50,7 @@ import {
   isMergeSafeDeckPatchOperations,
   type SlideFieldBaseline,
 } from "../../shared/deck-write";
+import type { SlideTransitionType } from "../../shared/slide-transitions";
 import { isDeckAccessLostStatus } from "../lib/deck-access-lost";
 import {
   applyRemoteSlideUnderInlineEdit,
@@ -101,6 +102,7 @@ type PatchSlideFields = Partial<
     | "imagePrompt"
     | "excalidrawData"
     | "transition"
+    | "transitionSpeed"
     | "animations"
     | "splitByParagraph"
     | "skipped"
@@ -113,6 +115,7 @@ type PatchSlideFields = Partial<
   imagePrompt?: string | null;
   excalidrawData?: string | null;
   transition?: Slide["transition"] | null;
+  transitionSpeed?: Slide["transitionSpeed"] | null;
   animations?: SlideAnimation[] | null;
   splitByParagraph?: boolean | null;
   skipped?: boolean | null;
@@ -392,7 +395,9 @@ export interface Slide {
   imageLoading?: boolean;
   imagePrompt?: string;
   excalidrawData?: string;
-  transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+  transition?: SlideTransitionType;
+  /** Integer 0..49; absent means the default speed (45). */
+  transitionSpeed?: number;
   animations?: SlideAnimation[];
   /** @deprecated Use animations instead */
   splitByParagraph?: boolean;
@@ -3452,6 +3457,7 @@ export function deriveDeckDiffOps(before: Deck, after: Deck): PatchDeckOp[] {
       "imagePrompt",
       "excalidrawData",
       "transition",
+      "transitionSpeed",
       "animations",
       "splitByParagraph",
       "skipped",

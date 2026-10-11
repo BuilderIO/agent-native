@@ -160,3 +160,9 @@ before finishing; a missing field means the lint found nothing.
 A `patch-deck` `patch-slide` with `skipped: true` hides a slide from
 Present/Presenter without deleting it; `skipped: false` restores it. The rail's
 right-click Skip slide does the same.
+
+## Transitions
+
+Slide transitions (type and speed, Google Slides catalog) are set with the
+`patch-slide` op of `patch-deck`, or with its `add-slide` op on creation. Read
+`references/transitions.md` before changing them.

@@ -1020,6 +1020,9 @@ export async function runAuthoringFuzz(
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
   const reloadNavigationRequests = new Map<any, number>();
   let reloadNavigationStartedAt: number | null = null;
+  // Diagnostic only: reloadNavigationStartedAt resets after each reload, but a
+  // late failure can still be logged after that. This keeps the latest start.
+  let lastReloadStartedAt: number | null = null;
   const pendingSaveConflicts: Promise<void>[] = [];
   const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
@@ -1058,6 +1061,28 @@ export async function runAuthoringFuzz(
       ageMs: Date.now() - startedAt,
       requestWasPendingAtNavigation: true,
     }));
+    // Captured now, not when the log runs: Firefox normalization finishes
+    // asynchronously, after reload state may have been reset. Offsets use the
+    // latest reload start, which is never reset (negative = started before it).
+    const startOffsetMs = (startedAt: number) =>
+      lastReloadStartedAt === null ? null : startedAt - lastReloadStartedAt;
+    const consoleTiming = {
+      sinceReloadMs:
+        lastReloadStartedAt === null ? null : Date.now() - lastReloadStartedAt,
+      reloadMap: [...reloadNavigationRequests.entries()].map(
+        ([request, startedAt]) => ({
+          pathname: new URL(request.url()).pathname,
+          ageMs: Date.now() - startedAt,
+          startOffsetMs: startOffsetMs(startedAt),
+        }),
+      ),
+      watched: [...watchedRequests.entries()].map(([request, startedAt]) => ({
+        pathname: new URL(request.url()).pathname,
+        method: request.method(),
+        ageMs: Date.now() - startedAt,
+        startOffsetMs: startOffsetMs(startedAt),
+      })),
+    };
     const recordUnlessExpected = (text: string) => {
       if (
         isExpectedSaveReloadBrowserSessionConsoleError(
@@ -1073,6 +1098,11 @@ export async function runAuthoringFuzz(
       ) {
         return;
       }
+      // Diagnostic only: CI runs without tracing. consoleTiming was captured when
+      // the console event arrived, so deferred Firefox messages report the same state.
+      console.log(
+        `[edit-fidelity] unexpected console error phase=${consolePhase} sinceReloadMs=${consoleTiming.sinceReloadMs ?? "n/a"} text=${JSON.stringify(text.slice(0, 240))} reloadMap=${JSON.stringify(consoleTiming.reloadMap)} watched=${JSON.stringify(consoleTiming.watched)}`,
+      );
       pageErrors.push(text);
     };
     if (!isFirefoxBrowserSessionConsoleError(consoleText)) {
@@ -1102,9 +1132,9 @@ export async function runAuthoringFuzz(
     const url = request.url();
     const pathname = new URL(url).pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
-    if (traceEnabled) {
+    if (traceEnabled || isBrowserSessionPath(pathname)) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation}`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} startOffsetMsFromLastReload=${requestStartedAt === undefined || lastReloadStartedAt === null ? "n/a" : requestStartedAt - lastReloadStartedAt}`,
       );
     }
     if (
@@ -3497,7 +3527,7 @@ export async function runAuthoringFuzz(
           await listbox
             .locator('[role="option"]')
             .first()
-            .waitFor({ state: "visible", timeout: 1500 });
+            .waitFor({ state: "visible", timeout: 5000 });
           await page.keyboard.press("Escape");
           await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
@@ -4883,6 +4913,7 @@ export async function runAuthoringFuzz(
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
       reloadNavigationStartedAt = Date.now();
+      lastReloadStartedAt = reloadNavigationStartedAt;
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
         if (traceEnabled) {

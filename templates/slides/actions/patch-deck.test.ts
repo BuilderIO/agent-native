@@ -12,11 +12,11 @@ import {
   applyOperation,
   assertPatchedSlideAnimationsResolve,
   assertSourceImportSlidesCovered,
-  clearOmittedAnimationsForAgentContentPatches,
   isMcpWidgetPatchAllowed,
   isAgentPatchCaller,
   OperationSchema,
   resolveDeckColumnUpdates,
+  slideAnimationBaselines,
   withDeckLock,
   type Operation,
 } from "./patch-deck";
@@ -235,6 +235,38 @@ describe("applyOperation — patch-slide", () => {
       baseFields: { background: { present: true, value: null } },
     });
     expect(deck.slides[0].background).toBeUndefined();
+  });
+
+  it.each([
+    ["instant", "none"],
+    ["slide", "slide-from-right"],
+    ["zoom", "dissolve"],
+    ["flip", "flip"],
+  ])("stores the canonical transition for input %s", (input, canonical) => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transition: input },
+    });
+    expect(deck.slides[0].transition).toBe(canonical);
+  });
+
+  it("stores transitionSpeed and clears it on an explicit null", () => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transitionSpeed: 30 },
+    });
+    expect(deck.slides[0].transitionSpeed).toBe(30);
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { transitionSpeed: null },
+    });
+    expect(deck.slides[0]).not.toHaveProperty("transitionSpeed");
   });
 
   it("treats omitted speaker notes as the blank UI baseline", () => {
@@ -973,6 +1005,34 @@ describe("applyOperation — add-slide", () => {
     expect(copy.imageLoading).toBeUndefined();
   });
 
+  it("stores the canonical transition and speed on an added slide", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      fields: {
+        content: "<p>Copy</p>",
+        transition: "zoom",
+        transitionSpeed: 20,
+      },
+    });
+    expect(deck.slides[1]).toMatchObject({
+      transition: "dissolve",
+      transitionSpeed: 20,
+    });
+  });
+
+  it("stores null transition and animations on an added slide as none", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      fields: { content: "<p>Copy</p>", transition: null, animations: null },
+    });
+    expect(deck.slides[1]).not.toHaveProperty("transition");
+    expect(deck.slides[1]).not.toHaveProperty("animations");
+  });
+
   it("is idempotent — duplicate delivery is silently ignored", () => {
     const deck = {
       slides: [
@@ -1295,6 +1355,15 @@ describe("animation target validation", () => {
     assertPatchedSlideAnimationsResolve(deck, operations);
   };
 
+  const refusalOf = (run: () => void) => {
+    try {
+      run();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("expected the reveal list to be refused");
+  };
+
   it("accepts paths that resolve in the final slide HTML", () => {
     expect(() =>
       applyAndValidate(
@@ -1439,7 +1508,51 @@ describe("animation target validation", () => {
     ).not.toThrow();
   });
 
-  it("clears omitted animations when an agent revises slide content", () => {
+  it("keeps omitted reveals through a content patch that they still resolve in", () => {
+    const retitled =
+      '<div class="fmd-slide"><div><h2>New title</h2></div><div><p>Body</p></div></div>';
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const baselines = slideAnimationBaselines(deck);
+    const operations: Operation[] = [
+      { op: "patch-slide", slideId: "s1", fields: { content: retitled } },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    assertPatchedSlideAnimationsResolve(deck, operations, { baselines });
+
+    expect(deck.slides[0].animations).toEqual([animation()]);
+  });
+
+  it("refuses a content patch that strands an omitted reveal, with a typed error", () => {
+    const stranded = '<div class="fmd-slide"><div>New</div></div>';
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const baselines = slideAnimationBaselines(deck);
+    const operations: Operation[] = [
+      { op: "patch-slide", slideId: "s1", fields: { content: stranded } },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+
+    expect(
+      refusalOf(() =>
+        assertPatchedSlideAnimationsResolve(deck, operations, { baselines }),
+      ),
+    ).toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "s1",
+        animationId: "reveal-title",
+      },
+    });
+  });
+
+  it("clears every reveal only when the patch sends an empty list", () => {
     const deck = {
       slides: [{ id: "s1", content, animations: [animation()] }],
     };
@@ -1447,14 +1560,16 @@ describe("animation target validation", () => {
       {
         op: "patch-slide",
         slideId: "s1",
-        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+        fields: {
+          content: '<div class="fmd-slide"><div>New</div></div>',
+          animations: [],
+        },
       },
     ];
 
-    for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+    applyAndValidate(deck, operations);
 
-    expect(deck.slides[0].animations).toBeUndefined();
+    expect(deck.slides[0].animations).toEqual([]);
   });
 
   it("preserves imported animations for source-preserving content patches", () => {
@@ -1483,34 +1598,9 @@ describe("animation target validation", () => {
       },
     ];
 
+    const baselines = slideAnimationBaselines(deck);
     for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations, {
-      sourceImport,
-    });
-
-    expect(deck.slides[0].animations).toEqual(animations);
-  });
-
-  it("does not clear a separate explicit animation patch", () => {
-    const animations = [animation()];
-    const deck = {
-      slides: [{ id: "s1", content, animations }],
-    };
-    const operations: Operation[] = [
-      {
-        op: "patch-slide",
-        slideId: "s1",
-        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
-      },
-      {
-        op: "patch-slide",
-        slideId: "s1",
-        fields: { animations },
-      },
-    ];
-
-    for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+    assertPatchedSlideAnimationsResolve(deck, operations, { baselines });
 
     expect(deck.slides[0].animations).toEqual(animations);
   });
@@ -1530,8 +1620,7 @@ describe("animation target validation", () => {
       },
     ];
 
-    for (const operation of operations) applyOperation(deck, operation);
-    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+    applyAndValidate(deck, operations);
 
     expect(deck.slides[0].animations).toEqual(nextAnimations);
   });
@@ -1602,6 +1691,31 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  it("accepts null transition and reveals on add-slide and patch-slide alike", () => {
+    const nullable = { transition: null, animations: null };
+    expect(
+      OperationSchema.safeParse({
+        op: "add-slide",
+        slideId: "slide-2",
+        fields: { content: "<p>New</p>", ...nullable },
+      }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: nullable,
+      }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        op: "add-slide",
+        slideId: "slide-2",
+        fields: { content: "<p>New</p>", transition: "wipe" },
+      }).success,
+    ).toBe(false);
   });
 
   it("requires a content hash and content-only fields for styleOnly patches", () => {
@@ -3954,7 +4068,7 @@ describe("run() — no-op content patches leave the slide alone", () => {
     expect(persisted.slides[0].content).toBe("<div>One</div>");
   });
 
-  it("drops reveals on a slide whose content really changed", async () => {
+  it("keeps a reveal that still resolves after the slide's content really changed", async () => {
     await runPatchDeckAction(
       {
         deckId: "deck-1",
@@ -3971,7 +4085,260 @@ describe("run() — no-op content patches leave the slide alone", () => {
     );
 
     const persisted = JSON.parse(lastUpdatedDeckData!);
-    expect(persisted.slides[0].animations).toBeUndefined();
+    expect(persisted.slides[0].content).toBe("<div>One restyled</div>");
+    expect(persisted.slides[0].animations).toHaveLength(1);
+  });
+});
+
+describe("run() — reveals through an agent content patch", () => {
+  const revealedContent =
+    '<div class="fmd-slide"><div><h2>Title</h2></div><div><p>Body</p></div></div>';
+  const reveal = {
+    id: "reveal-title",
+    elementIndex: 0,
+    elementPath: [0, 0],
+    type: "fade",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: revealedContent, animations: [reveal] },
+        ],
+      }),
+    };
+  });
+
+  it("keeps the stored reveals when a content patch omits animations", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content:
+                '<div class="fmd-slide"><div><h2>New title</h2></div><div><p>Body</p></div></div>',
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].animations).toEqual([
+      reveal,
+    ]);
+  });
+
+  it("refuses a content patch that strands a stored reveal, with a typed error and no write", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                content: '<div class="fmd-slide"><div>New</div></div>',
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationId: "reveal-title",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("refuses a content patch that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+          animations: [
+            {
+              id: "reveal-two",
+              elementIndex: 1,
+              elementPath: [1, 1],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                content:
+                  '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      statusCode: 400,
+      details: {
+        reason: "retargeted",
+        slideId: "slide-1",
+        animationIndex: 0,
+        animationId: "reveal-two",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("clears the stored reveals when the patch sends animations: []", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: '<div class="fmd-slide"><div>New</div></div>',
+              animations: [],
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].animations).toEqual([]);
+  });
+});
+
+describe("run() — partial repair of a stored reveal list", () => {
+  const twoStale = '<div class="fmd-slide"><div><p>Body</p></div></div>';
+  const ok = {
+    id: "ok",
+    elementIndex: 0,
+    elementPath: [0, 0],
+    type: "fade",
+  };
+  const staleA = {
+    id: "gone-a",
+    elementIndex: 0,
+    elementPath: [9],
+    type: "fade",
+  };
+  const staleB = {
+    id: "gone-b",
+    elementIndex: 0,
+    elementPath: [8],
+    type: "fade",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: twoStale,
+            animations: [ok, staleA, staleB],
+          },
+        ],
+      }),
+    };
+  });
+
+  it("saves removing one stored unresolved reveal while another stays unresolved", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { animations: [ok, staleB] },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides[0].animations.map(
+        (animation: { id: string }) => animation.id,
+      ),
+    ).toEqual(["ok", "gone-b"]);
+  });
+
+  it("refuses a new unresolved reveal even while stored unresolved reveals remain", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: {
+                animations: [
+                  ok,
+                  staleA,
+                  staleB,
+                  {
+                    id: "new",
+                    elementIndex: 0,
+                    elementPath: [7],
+                    type: "fade",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      details: { animationId: "new" },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
   });
 });
 
@@ -4136,6 +4503,169 @@ describe("run() — reveals survive a non-content field change", () => {
     const persisted = JSON.parse(lastUpdatedDeckData!);
     expect(persisted.slides[0].animations).toHaveLength(1);
     expect(persisted.slides[0].notes).toBe("new");
+  });
+});
+
+describe("run() — refused reveal writes return typed 400s", () => {
+  const content = '<div class="fmd-slide"><h1>One</h1><p>Two</p></div>';
+  const reveal = (overrides: Record<string, unknown> = {}) => ({
+    id: "reveal-one",
+    elementIndex: 0,
+    elementPath: [0],
+    type: "fade",
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content, animations: [reveal()] }],
+      }),
+    };
+  });
+
+  const refusedAnimations = (animations: unknown[], caller = "tool") =>
+    runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { animations },
+          },
+        ],
+      },
+      { caller },
+    );
+
+  it("returns slide_animation_stale_path with the reveal id and no write", async () => {
+    await expect(
+      refusedAnimations([reveal({ id: "gone", elementPath: [9, 9] })]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: {
+        reason: "stale-path",
+        slideId: "slide-1",
+        animationIndex: 0,
+        animationId: "gone",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("returns slide_animation_missing_element when the slide has no .fmd-slide root", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [{ id: "slide-1", content: "<div>Loose</div>" }],
+    });
+    await expect(refusedAnimations([reveal()])).rejects.toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      statusCode: 400,
+      details: { reason: "missing-element", slideId: "slide-1" },
+    });
+  });
+
+  it("returns slide_animation_element_path_required for an agent's elementIndex-only reveal", async () => {
+    await expect(
+      refusedAnimations([{ id: "legacy", elementIndex: 0, type: "fade" }]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_element_path_required",
+      statusCode: 400,
+      details: { reason: "element-path-required", animationId: "legacy" },
+    });
+  });
+
+  it("returns slide_animation_duplicate_after_expansion when a paragraph step hides an earlier reveal's box", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><div class="text"><p>A</p><p>B</p></div></div>',
+          animations: [],
+        },
+      ],
+    });
+    await expect(
+      refusedAnimations([
+        reveal({ id: "box", elementPath: [0] }),
+        reveal({ id: "paras", elementPath: [0], byParagraph: true }),
+      ]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_duplicate_after_expansion",
+      statusCode: 400,
+      details: { reason: "duplicate-after-expansion", animationId: "paras" },
+    });
+  });
+
+  it("rejects a repeated reveal id with slide_animation_duplicate_id", async () => {
+    await expect(
+      refusedAnimations([
+        reveal({ id: "same", elementPath: [0] }),
+        reveal({ id: "same", elementPath: [1] }),
+      ]),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_duplicate_id",
+      statusCode: 400,
+      details: {
+        reason: "duplicate-id",
+        animationIndex: 1,
+        animationId: "same",
+      },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("validates add-slide reveals with the same resolver", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: {
+                content: '<div class="fmd-slide"><h1>New</h1></div>',
+                animations: [reveal({ id: "new-reveal", elementPath: [7] })],
+              },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: { slideId: "slide-2", animationId: "new-reveal" },
+    });
+  });
+
+  it("rejects an unknown reveal type on add-slide at schema parse, like patch-slide", () => {
+    const operation = (animations: unknown[]) => ({
+      op: "add-slide",
+      slideId: "slide-2",
+      fields: { content, animations },
+    });
+    expect(
+      OperationSchema.safeParse(operation([reveal({ type: "wipe" })])).success,
+    ).toBe(false);
+    expect(
+      OperationSchema.safeParse(operation([reveal({ type: "zoom" })])).success,
+    ).toBe(true);
   });
 });
 
@@ -5296,5 +5826,177 @@ describe("run() — tracking", () => {
       generation_attempt_id: "attempt-2",
       is_retry: true,
     });
+  });
+});
+
+describe("run() — slide transition writes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: '<div class="fmd-slide"><h1>One</h1></div>',
+          },
+          {
+            id: "slide-2",
+            content: '<div class="fmd-slide"><h1>Two</h1></div>',
+          },
+        ],
+      }),
+    };
+  });
+
+  it("stores the canonical transition and the speed for a legacy input", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { transition: "slide", transitionSpeed: 30 },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[1]).toMatchObject({
+      transition: "slide-from-right",
+      transitionSpeed: 30,
+    });
+  });
+
+  it.each([50, -1, 2.5])(
+    "rejects transitionSpeed %s before anything is written",
+    async (transitionSpeed) => {
+      await expect(
+        runPatchDeckAction(
+          {
+            deckId: "deck-1",
+            operations: [
+              {
+                op: "patch-slide",
+                slideId: "slide-2",
+                fields: { transitionSpeed },
+              },
+            ],
+          },
+          { caller: "tool" },
+        ),
+      ).rejects.toThrow(/transitionSpeed/);
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
+  // The editor snapshots null for a field get-deck reads as absent, so these
+  // writes send {present:true,value:null} rather than {present:false}.
+  function storeSlideOneFields(fields: Record<string, unknown>) {
+    const deck = JSON.parse(String(mockDeckRow!.data));
+    deck.slides[0] = { ...deck.slides[0], ...fields };
+    mockDeckRow = { ...mockDeckRow, data: JSON.stringify(deck) };
+  }
+
+  function writeSlideOneFields(
+    fields: Record<string, unknown>,
+    baseFields: Record<string, unknown>,
+  ) {
+    return runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          { op: "patch-slide", slideId: "slide-1", fields, baseFields },
+        ],
+      },
+      {},
+    );
+  }
+
+  it("saves a transition on a slide with no stored transition", async () => {
+    await writeSlideOneFields(
+      { transition: "dissolve" },
+      { transition: { present: true, value: null } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].transition).toBe(
+      "dissolve",
+    );
+  });
+
+  it("saves a speed on a slide with no stored speed", async () => {
+    await writeSlideOneFields(
+      { transitionSpeed: 30 },
+      { transitionSpeed: { present: true, value: null } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].transitionSpeed).toBe(30);
+  });
+
+  it("clears a stored speed with null", async () => {
+    storeSlideOneFields({ transitionSpeed: 30 });
+    await writeSlideOneFields(
+      { transitionSpeed: null },
+      { transitionSpeed: { present: true, value: 30 } },
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0]).not.toHaveProperty(
+      "transitionSpeed",
+    );
+  });
+
+  it.each([
+    {
+      field: "transition",
+      stored: { transition: "fade" },
+      fields: { transition: "dissolve" },
+      baseFields: { transition: { present: true, value: null } },
+    },
+    {
+      field: "transitionSpeed",
+      stored: { transitionSpeed: 20 },
+      fields: { transitionSpeed: 30 },
+      baseFields: { transitionSpeed: { present: true, value: null } },
+    },
+  ])(
+    "still rejects a stale $field snapshot",
+    async ({ field, stored, fields, baseFields }) => {
+      storeSlideOneFields(stored);
+      await expect(
+        writeSlideOneFields(fields, baseFields),
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        errorCode: "slide_field_stale",
+        details: { slideId: "slide-1", field },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    },
+  );
+
+  it("lets a widget write the transition together with its speed", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { transition: "fade", transitionSpeed: 30 },
+          baseFields: {
+            transition: { present: false },
+            transitionSpeed: { present: false },
+          },
+        },
+      ]),
+    ).toBe(true);
   });
 });

@@ -1575,114 +1575,6 @@ button[title="Open agent sidebar"] {
   background: var(--slide-chrome-color);
 }
 
-@keyframes slide-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes slide-fade-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-@keyframes slide-enter-from-right {
-  from {
-    transform: translateX(100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-@keyframes slide-exit-to-left {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-100%);
-  }
-}
-@keyframes slide-enter-from-left {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-@keyframes slide-exit-to-right {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-@keyframes slide-zoom-in {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-@keyframes slide-zoom-out {
-  from {
-    opacity: 1;
-    transform: scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: scale(1.06);
-  }
-}
-@keyframes step-reveal {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.slide-anim-fade-enter {
-  animation: slide-fade-in 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-}
-.slide-anim-slide-enter-right {
-  animation: slide-enter-from-right 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94)
-    both;
-}
-.slide-anim-slide-enter-left {
-  animation: slide-enter-from-left 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94)
-    both;
-}
-.slide-anim-zoom-enter {
-  animation: slide-zoom-in 350ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-}
-.slide-anim-fade-exit {
-  animation: slide-fade-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
-}
-.slide-anim-slide-exit-left {
-  animation: slide-exit-to-left 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19)
-    both;
-}
-.slide-anim-slide-exit-right {
-  animation: slide-exit-to-right 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19)
-    both;
-}
-.slide-anim-zoom-exit {
-  animation: slide-zoom-out 250ms cubic-bezier(0.55, 0.055, 0.675, 0.19) both;
-}
-
 .slide-reference-preview-frame {
   aspect-ratio: var(--reference-ratio);
   width: var(--reference-width);
@@ -1696,23 +1588,35 @@ button[title="Open agent sidebar"] {
     opacity: 1;
   }
 }
+/* Individual `translate` and `scale`, not `transform`: objects keep their
+   rotate() and centering transforms through a reveal. */
 @keyframes elem-slide-up {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    translate: 0 14px;
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    translate: 0 0;
   }
 }
 @keyframes elem-zoom {
   from {
     opacity: 0;
-    transform: scale(0.9);
+    scale: 0.9;
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    scale: 1;
   }
+}
+
+/* Build state is set by attribute (slide-build-steps.ts setBuildState). The
+   hidden rule is !important so an author's inline opacity cannot show an
+   unbuilt object. Shown and entering carry no opacity rule, so an inline
+   opacity still applies once the object is built. */
+[data-pstep][data-pstep-state="hidden"] {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }

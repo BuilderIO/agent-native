@@ -143,6 +143,9 @@ describe("BuilderConnectPopover", () => {
       consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
         ?.disabled,
     ).toBe(true);
+    expect(consent?.textContent).toContain(
+      "New account creation isn't enabled for this app.",
+    );
 
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(onConnect).not.toHaveBeenCalled();
@@ -185,6 +188,41 @@ describe("BuilderConnectPopover", () => {
     ).toBe(true);
     expect(retry).not.toHaveBeenCalled();
     expect(flow.start).not.toHaveBeenCalled();
+  });
+
+  it("shows a resolved state when status checks are disabled", async () => {
+    const flow = {
+      connecting: false,
+      statusCheckEnabled: false,
+      statusResolved: false,
+      agentNativeProvisioningEnabled: false,
+      start: vi.fn(),
+    };
+
+    render(
+      React.createElement(
+        DeferredBuilderConnectPopover,
+        {
+          flow,
+          contentTestId: "consent",
+          primaryTestId: "create",
+          secondaryTestId: "sign-in",
+        },
+        trigger(),
+      ),
+    );
+    click(connectButton());
+    await finishLazyLoad();
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.textContent).toContain(
+      "New account activation isn't available in this mode.",
+    );
+    expect(consent?.textContent).not.toContain("Checking whether");
+    expect(
+      consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
+        ?.disabled,
+    ).toBe(true);
   });
 
   it("offers a retry after a Builder status read fails", () => {
@@ -371,7 +409,7 @@ describe("BuilderConnectPopover", () => {
 
     const consent = document.querySelector("[data-testid='consent']");
     expect(consent?.textContent).toContain(
-      "Create or connect a Builder.io account in one click to get free credits.",
+      "Create a new account to activate free credits, or continue with an existing account.",
     );
     expect(consent?.textContent).toContain(
       "You already have a Builder.io account",

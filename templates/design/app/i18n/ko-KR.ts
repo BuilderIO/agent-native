@@ -222,7 +222,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "디자인",
+    home: "홈",
     templates: "템플릿",
     designSystems: "디자인 시스템",
     setupDesignSystem: "디자인 시스템 설정",
@@ -766,7 +766,7 @@ export default {
       needsConnectedApp: "소스로 이동하려면 연결된 앱이 필요합니다",
     },
     leftRail: {
-      file: "파일",
+      layers: "레이어",
       agent: "에이전트",
       assets: "에셋",
       import: "가져오기",
@@ -1071,7 +1071,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
-      designs: "디자인",
+      allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
       duplicate: "복제",
       versionHistory: "버전 기록",
@@ -1861,7 +1861,7 @@ export default {
     browseAllTemplates: "모두 둘러보기",
     connectBuilderIo: "Builder.io 사용",
     connectingBuilder: "Builder.io 설정 중…",
-    pageTitle: "Design",
+    pageTitle: "홈",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
     newDesignLower: "새로운 디자인",

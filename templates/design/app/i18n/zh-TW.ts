@@ -213,7 +213,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "設計",
+    home: "首頁",
     templates: "範本",
     designSystems: "設計系統",
     setupDesignSystem: "設定設計系統",
@@ -989,7 +989,7 @@ export default {
       "{{path}} 自開啟後已在磁碟上變更。請重新載入畫面後再試一次。",
     applyToSourceError: "無法儲存至來源：{{message}}",
     leftRail: {
-      file: "檔案",
+      layers: "圖層",
       agent: "代理",
       assets: "資源",
       import: "匯入",
@@ -1169,7 +1169,7 @@ export default {
     backToDesigns: "返回設計",
     fileMenu: {
       pendingEditsBlocked: "複製前，請先套用或捨棄待處理的視覺編輯。",
-      designs: "設計",
+      allDesigns: "所有設計",
       rename: "重新命名",
       duplicate: "複製",
       versionHistory: "版本記錄",
@@ -1903,7 +1903,7 @@ export default {
     browseAllTemplates: "瀏覽全部",
     connectBuilderIo: "使用 Builder.io",
     connectingBuilder: "正在設定 Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "首頁",
     searchPlaceholder: "搜尋設計...",
     newDesign: "新Design",
     newDesignLower: "新設計",

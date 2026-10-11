@@ -151,8 +151,17 @@ const messages = {
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
   "onboarding.builderAccountExistsDescription": "Log in to use your account.",
+  "onboarding.builderActivationChecking":
+    "Checking whether new account activation is available.",
+  "onboarding.builderActivationUnavailable":
+    "New account creation isn't enabled for this app. You can still connect an existing account.",
+  "onboarding.builderActivationUnavailableInMode":
+    "New account activation isn't available in this mode. You can still connect an existing account.",
+  "onboarding.builderActivationCheckFailed":
+    "Couldn't check whether this app can create new accounts.",
+
   "onboarding.builderActivationDescription":
-    "Create or connect a Builder.io account in one click to get free credits.",
+    "Create a new account to activate free credits, or continue with an existing account.",
   "onboarding.builderOrgActivationDescription":
     "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
@@ -161,7 +170,7 @@ const messages = {
   "onboarding.builderTerms": "Terms of Service",
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
-  "onboarding.builderExistingAccount": "Use Builder.io",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
   "onboarding.builderActivating": "Activating Builder.io free credits",
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
@@ -1240,6 +1249,12 @@ const messages = {
   "selection.attached_other":
     "{{formattedCount}} characters of selection attached",
   "selection.clear": "Clear selection context",
+  "setup.addKeyInSettings": "Add a key in Settings",
+  "setup.addKeyInSettingsDescription": "For your account or organization.",
+  "setup.setEnvironmentVariable": "Set an environment variable",
+  "setup.setEnvironmentVariableDescription":
+    "One provider key for everyone in this app.",
+
   "setup.addOwnKeys": "Add your own keys",
   "setup.builderCredits":
     "Builder.io includes free credits, or use your own API key.",

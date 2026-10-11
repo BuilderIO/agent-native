@@ -84,7 +84,7 @@ test("the Builder shell canvas makes no agent-native requests", async ({
       "Tools",
       "Tokens",
       "Code",
-      "File",
+      "Layers",
     ]) {
       await shell
         .getByText(label, { exact: true })
