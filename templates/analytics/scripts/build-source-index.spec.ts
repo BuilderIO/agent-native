@@ -133,7 +133,7 @@ describe("compileSourceIndex", () => {
     expect(semanticModel).toMatchObject({
       metric: "semantic_model:workspaces",
       owner: "Product Analytics",
-      grain: "Unique key: workspace_id",
+      grain: "Primary entity: workspace_id",
       primaryEntity: "workspace",
       timeDimension: "created_at",
       table: "dim_workspaces",
@@ -144,7 +144,7 @@ describe("compileSourceIndex", () => {
     expect(metric).toMatchObject({
       metric: "metric:active_workspaces",
       owner: "Product Analytics",
-      grain: "Unique key: workspace_id",
+      grain: "Primary entity: workspace_id",
       primaryEntity: "workspace",
       timeDimension: "created_at",
       semanticModel: "workspaces",
@@ -178,6 +178,8 @@ describe("compileSourceIndex", () => {
         "    columns:",
         "      - name: candidate_id",
         "        tests: [unique]",
+        "  - name: login_activity_t2w",
+        '    description: "Login activity grouped by user and subscription activity."',
       ].join("\n"),
     );
     for (const model of [
@@ -185,8 +187,19 @@ describe("compileSourceIndex", () => {
       "dim_organizations",
       "user_organization_role",
       "dim_only_unique",
+      "login_activity_t2w",
     ]) {
-      await writeFile(path.join(dbtRoot, "models", `${model}.sql`), "select 1");
+      await writeFile(
+        path.join(dbtRoot, "models", `${model}.sql`),
+        model === "login_activity_t2w"
+          ? [
+              "{{ config(materialized='table', unique_key='user_id') }}",
+              "select user_id, subscription_activity",
+              "from login_events",
+              "group by user_id, subscription_activity",
+            ].join("\n")
+          : "select 1",
+      );
     }
 
     const bundle = await compileSourceIndex({
@@ -210,6 +223,12 @@ describe("compileSourceIndex", () => {
       "owner",
     );
     expect(byMetric.get("model:dim_only_unique")).not.toHaveProperty("grain");
+    expect(byMetric.get("model:login_activity_t2w")).not.toHaveProperty(
+      "grain",
+    );
+    expect(byMetric.get("model:login_activity_t2w")).not.toHaveProperty(
+      "joinPattern",
+    );
   });
 
   it("derives membership grain from UNNEST and inherits it through a pass-through", async () => {
@@ -1049,6 +1068,7 @@ describe("compileSourceIndex", () => {
       sourceKind: "dbt",
       semanticScope: "unknown",
       dependencies: "ref:stg_orders; source:app.organizations",
+      grain: "Unique key: order_id, organization_id",
       joinPattern: "Unique grain: order_id, organization_id",
       sourcePath: "models/orders.sql",
     });

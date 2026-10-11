@@ -181,6 +181,7 @@ interface ModelDoc {
   columns: Map<string, ColumnDoc>;
   tests: Set<string>;
   dependencies: Set<string>;
+  // A dbt `unique_key` is not proof that model SQL is unique on those columns.
   grainHints: string[][];
 }
 
@@ -2116,25 +2117,6 @@ function extractSqlDependencies(sql: string): string[] {
   return [...dependencies].sort();
 }
 
-function extractUniqueKey(sql: string): string[][] {
-  const source = sqlWithoutComments(sql);
-  const hints: string[][] = [];
-  for (const match of source.matchAll(
-    /\bunique_key\s*[:=]\s*(\[[^\]]{0,1000}\]|['"]([A-Za-z_][A-Za-z0-9_-]{0,99})['"])/g,
-  )) {
-    const value = match[1]!;
-    const columns = value.startsWith("[")
-      ? value
-          .slice(1, -1)
-          .split(",")
-          .map((part) => safeIdentifier(part.replace(/['"\s]/g, "")))
-          .filter((part): part is string => part !== null)
-      : [match[2]!];
-    if (columns.length) hints.push([...new Set(columns)]);
-  }
-  return hints;
-}
-
 const SQL_IDENTIFIER = String.raw`[A-Za-z_][A-Za-z0-9_$]*`;
 const SQL_COLUMN_REFERENCE = new RegExp(
   String.raw`^(?:${SQL_IDENTIFIER}\s*\.\s*){0,2}(?:${SQL_IDENTIFIER}|\*)$`,
@@ -3157,7 +3139,7 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       columns: new Map(),
       tests: new Set(),
       dependencies: new Set(dependencies),
-      grainHints: extractUniqueKey(sql),
+      grainHints: [],
       ...(inferredGrain ? { inferredGrain } : {}),
       ...(inferredGrain
         ? { inferredGrainKeyCandidates: [["user_id", "organization_id"]] }
