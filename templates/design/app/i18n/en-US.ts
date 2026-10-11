@@ -154,7 +154,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Home",
     templates: "Templates",
     designSystems: "Design Systems",
     setupDesignSystem: "Set up design system",
@@ -703,7 +703,7 @@ export default {
       needsConnectedApp: "Source jump needs a connected app",
     },
     leftRail: {
-      file: "File",
+      layers: "Layers",
       agent: "Agents",
       assets: "Assets",
       import: "Import",
@@ -1008,7 +1008,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Apply or discard your pending visual edits before duplicating.",
-      designs: "Designs",
+      allDesigns: "All designs",
       rename: "Rename",
       duplicate: "Duplicate",
       versionHistory: "Version history",
@@ -1797,7 +1797,7 @@ export default {
     browseAllTemplates: "Browse all",
     connectBuilderIo: "Use Builder.io",
     connectingBuilder: "Setting up Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "Home",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
     newDesignLower: "New design",
