@@ -1021,6 +1021,22 @@ describe("PromptPopover skip affordance", () => {
     expect(skipButton).toBeTruthy();
   });
 
+  it("does not duplicate the blank start as a corner action", async () => {
+    await renderPopover({
+      offerStartChoice: true,
+      onSkip: vi.fn(),
+      skipLabel: "Start from scratch",
+    });
+
+    expect(container!.querySelector("[data-start-with-ai]")).toBeTruthy();
+    expect(container!.querySelector("[data-start-blank-canvas]")).toBeTruthy();
+    expect(
+      Array.from(container!.querySelectorAll("button")).some(
+        (button) => button.textContent === "Start from scratch",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps the inline skip hidden unless the caller opts in", async () => {
     await renderPopover({
       inline: true,

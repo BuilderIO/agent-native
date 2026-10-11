@@ -327,6 +327,32 @@ describe("bridge oversized-drop receiver guards", () => {
       sourceSize,
       expected,
     }) => {
+      const container = {
+        style: {
+          width: `${containerSize.width}px`,
+          height: `${containerSize.height}px`,
+        },
+        getBoundingClientRect: () => ({
+          left: 0,
+          top: 0,
+          width: containerSize.width,
+          height: containerSize.height,
+        }),
+      } as unknown as Element;
+      const dropContentSize = () => containerSize;
+      const window = { getComputedStyle: () => style };
+      const dropCanGrowContentSizedAutoLayout = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropCanGrowContentSizedAutoLayout",
+        "dropFitsAutoLayoutFallback",
+        { dropContentSize, window },
+        bridgeFilename,
+      );
       const dropFitsAutoLayoutFallback = compileBridgeFunction<
         (
           container: Element,
@@ -338,15 +364,16 @@ describe("bridge oversized-drop receiver guards", () => {
         nextFunction,
         {
           dropFitsContainer: () => false,
-          dropContentSize: () => containerSize,
-          window: { getComputedStyle: () => style },
+          dropCanGrowContentSizedAutoLayout,
+          dropContentSize,
+          window,
         },
         bridgeFilename,
       );
 
       expect(
         dropFitsAutoLayoutFallback(
-          {} as Element,
+          container,
           sourceSize.width,
           sourceSize.height,
         ),
@@ -404,6 +431,17 @@ describe("bridge oversized-drop receiver guards", () => {
       placement: "after",
       dropMode: "flow-insert",
     }));
+    const dropCanGrowContentSizedAutoLayout = compileBridgeFunction<
+      (container: Element, sourceWidth: number, sourceHeight: number) => boolean
+    >(
+      "dropCanGrowContentSizedAutoLayout",
+      "dropFitsAutoLayoutFallback",
+      {
+        dropContentSize: () => ({ width: 100, height: 80 }),
+        window: { getComputedStyle: () => ({ display: "block" }) },
+      },
+      "editor-chrome.bridge.ts",
+    );
     const applyFreeDropSizeGuard = compileBridgeFunction<
       (
         dropTarget: typeof target,
@@ -423,6 +461,7 @@ describe("bridge oversized-drop receiver guards", () => {
       isAbsolutePrimitiveContainer: () => false,
       isFreeformRelativeContainer: () => false,
       dropFitsContainer: (element: Element) => element === body,
+      dropCanGrowContentSizedAutoLayout,
       dropFitsAutoLayoutFallback: () => false,
       parentFlowAxis: () => "y",
       nearestChildInsertionTarget,
