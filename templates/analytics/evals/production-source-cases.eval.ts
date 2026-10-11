@@ -169,11 +169,9 @@ const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
 const CLAIM_NEGATION_PREFIX =
-  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|without|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
 const MEANING_NEGATION_MARKER =
-  /\b(?:not|never|no|cannot|can['’]t|(?:do|does|did)(?:\s+not|n['’]t)|(?:is|are|was|were)(?:\s+not|n['’]t))\b/gi;
-const MEANING_NEGATION_SUFFIX =
-  /^\s*(?:[,;:]\s*)?(?:(?:but|which|however|this|it|that)\s+)*(?:(?:is|are|was|were|do|does|did|can|should|would)\s+)?(?:(?:a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*(?:not|never|cannot|can['’]t)\b/i;
+  /\b(?:not|never|no|without|cannot|can['’]t|(?:do|does|did)(?:\s+not|n['’]t)|(?:is|are|was|were)(?:\s+not|n['’]t))\b/gi;
 const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:(?:don|doesn|didn|isn|aren|wasn|weren)['’]t)|cannot|can['’]t)`;
 const GRAIN_NEGATION_ADVERBS = String.raw`(?:(?:actually|clearly|definitely|explicitly|likely|necessarily|perhaps|probably|really|truly)\s+)*`;
 const GRAIN_NEGATION_TARGET = String.raw`(?:(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)(?:\s+grain)?\b|(?:match(?:es)?|equal(?:s)?|represent(?:s)?|define(?:s)?|describe(?:s)?|reflect(?:s)?|correspond(?:s)?(?:\s+to)?)\s+(?:(?:a|an|the)\s+)?(?:(?:declared|expected|actual|correct|true|valid)\s+)?(?:grain|row unit)\b)`;
@@ -228,8 +226,10 @@ function isNegatedMeaningClaim(line: string, index: number, phrase: string) {
     }
   }
 
-  const suffix = line.slice(index + phrase.length, index + phrase.length + 96);
-  return MEANING_NEGATION_SUFFIX.test(suffix);
+  // A negation after this phrase usually targets the following claim, as in
+  // "current, not historical". Treat only negation before the phrase as
+  // negating the phrase itself.
+  return false;
 }
 
 function getMeaningClaimState(text: string, meanings: string[]) {
@@ -291,23 +291,36 @@ function hasRelationMeaningClaim(
   allClaims: RelationMeaningClaim[],
 ): boolean {
   const relation = claim.relation.toLowerCase();
-  return lines.some((line) => {
+  const matchingLines = lines.filter((line) => {
     if (findCompletePhraseIndexes(line, relation).length === 0) return false;
     const relationsOnLine = allClaims.filter(
       (candidate) =>
         findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
           .length > 0,
     );
-    if (relationsOnLine.length !== 1) return false;
-
-    const expected = getMeaningClaimState(line, claim.meanings);
-    if (!expected.affirmative || expected.negated) return false;
-    return !allClaims.some(
-      (candidate) =>
-        candidate.relation !== claim.relation &&
-        getMeaningClaimState(line, candidate.meanings).affirmative,
-    );
+    return relationsOnLine.length === 1;
   });
+  if (matchingLines.length === 0) return false;
+
+  const expected = matchingLines.reduce(
+    (state, line) => {
+      const lineState = getMeaningClaimState(line, claim.meanings);
+      return {
+        affirmative: state.affirmative || lineState.affirmative,
+        negated: state.negated || lineState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  if (!expected.affirmative || expected.negated) return false;
+
+  return !allClaims.some(
+    (candidate) =>
+      candidate.relation !== claim.relation &&
+      matchingLines.some(
+        (line) => getMeaningClaimState(line, candidate.meanings).affirmative,
+      ),
+  );
 }
 
 function hasFieldMeaningClaim(
@@ -317,41 +330,54 @@ function hasFieldMeaningClaim(
 ): boolean {
   const relation = claim.relation.toLowerCase();
   const field = claim.field.toLowerCase();
-  const otherFields = allClaims
+  const fields = Array.from(
+    new Set(
+      allClaims
+        .filter((candidate) => candidate.relation === claim.relation)
+        .map((candidate) => candidate.field.toLowerCase()),
+    ),
+  );
+  const assignments = lines.flatMap((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return [];
+    return findCompletePhraseIndexes(line, field).map((index) => {
+      const nextFieldIndex = Math.min(
+        line.length,
+        ...fields.flatMap((candidateField) =>
+          findCompletePhraseIndexes(
+            line.slice(index + field.length),
+            candidateField,
+          ).map((offset) => index + field.length + offset),
+        ),
+      );
+      return line.slice(index + field.length, nextFieldIndex);
+    });
+  });
+  if (assignments.length === 0) return false;
+
+  const expected = assignments.reduce(
+    (state, assignment) => {
+      const assignmentState = getMeaningClaimState(assignment, claim.meanings);
+      return {
+        affirmative: state.affirmative || assignmentState.affirmative,
+        negated: state.negated || assignmentState.negated,
+      };
+    },
+    { affirmative: false, negated: false },
+  );
+  if (!expected.affirmative || expected.negated) return false;
+
+  return !allClaims
     .filter(
       (candidate) =>
         candidate.relation === claim.relation &&
         candidate.field !== claim.field,
     )
-    .map((candidate) => candidate.field.toLowerCase());
-  return lines.some((line) => {
-    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
-    return findCompletePhraseIndexes(line, field).some((index) => {
-      const nextFieldIndex = Math.min(
-        line.length,
-        ...otherFields.flatMap((otherField) =>
-          findCompletePhraseIndexes(
-            line.slice(index + field.length),
-            otherField,
-          ).map((offset) => index + field.length + offset),
-        ),
-      );
-      const assignment = line.slice(index + field.length, nextFieldIndex);
-      const expected = getMeaningClaimState(assignment, claim.meanings);
-      if (!expected.affirmative || expected.negated) return false;
-      const competing = allClaims
-        .filter(
-          (candidate) =>
-            candidate.relation === claim.relation &&
-            candidate.field !== claim.field,
-        )
-        .some(
-          (candidate) =>
-            getMeaningClaimState(assignment, candidate.meanings).affirmative,
-        );
-      return !competing;
-    });
-  });
+    .some((candidate) =>
+      assignments.some(
+        (assignment) =>
+          getMeaningClaimState(assignment, candidate.meanings).affirmative,
+      ),
+    );
 }
 
 function sourceContractScorer(

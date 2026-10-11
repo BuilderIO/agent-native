@@ -1267,6 +1267,55 @@ describe("session friction on Postgres", () => {
     });
   });
 
+  it("reconciles rage clicks against the persisted count after concurrent ingest", async () => {
+    await migrateFriction(client);
+    await addRecording("r-rage-race", "s-rage-race", at(0), 1);
+    await replayBatch("r-rage-race", "s-rage-race", 0, [], false);
+
+    const click = (timestamp: number) => ({
+      type: 3,
+      timestamp,
+      data: { source: 2, type: 2, id: 7, x: 20, y: 20 },
+    });
+    const lateChunk = {
+      seq: 1,
+      inlineData: JSON.stringify({
+        events: [click(5_000), click(5_200), click(5_400)],
+      }),
+    };
+    let uploaded = false;
+    const readWithUpload: ReadStoredReplayChunks = async function* () {
+      if (!uploaded) {
+        uploaded = true;
+        storeChunks("r-rage-race", [lateChunk]);
+        await client.query(
+          "UPDATE session_recordings SET chunk_count = 2, rage_click_count = 1 WHERE id = 'r-rage-race'",
+        );
+      }
+      yield* readStored("r-rage-race")();
+    };
+
+    await finalizeReplayFriction(
+      {
+        ...recordingInput("r-rage-race", "s-rage-race", 2),
+        rageClickCount: 0,
+      },
+      at(60),
+      readWithUpload,
+    );
+
+    const recording = await client.query(
+      "SELECT rage_click_count FROM session_recordings WHERE id = 'r-rage-race'",
+    );
+    const friction = await client.query(
+      "SELECT score FROM session_recording_friction WHERE recording_id = 'r-rage-race'",
+    );
+    expect(Number(recording.rows[0].rage_click_count)).toBe(1);
+    expect(Number(friction.rows[0].score)).toBe(
+      sessionFrictionScore({ rage_clicks: 1 }, REPLAY_FRICTION_SCORE_INPUTS),
+    );
+  });
+
   it("fails finalizing while uploads keep advancing the row, so retention tries again", async () => {
     await migrateFriction(client);
     await addRecording("r1", "s1", at(0), 2);

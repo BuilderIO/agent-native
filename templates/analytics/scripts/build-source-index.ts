@@ -632,6 +632,7 @@ async function listFiles(root: string): Promise<FileRecord[]> {
 async function readSourceFile(
   file: FileRecord,
   budget: ReadBudget,
+  preaccountedSize?: number,
 ): Promise<string> {
   let fileStat;
   try {
@@ -645,9 +646,24 @@ async function readSourceFile(
       "A source file exceeds the safe index size limit.",
     );
   }
-  accountSourceBytes(fileStat.size, budget);
+  if (preaccountedSize === undefined) {
+    accountSourceBytes(fileStat.size, budget);
+  } else if (fileStat.size !== preaccountedSize) {
+    codedError(
+      "source_changed_during_scan",
+      "A source file changed while the index was being built.",
+    );
+  }
   try {
     return await readFile(file.absolutePath, "utf8");
+  } catch {
+    codedError("file_unreadable", "A source file could not be read.");
+  }
+}
+
+async function sourceFileSize(file: FileRecord): Promise<number> {
+  try {
+    return (await stat(file.absolutePath)).size;
   } catch {
     codedError("file_unreadable", "A source file could not be read.");
   }
@@ -701,7 +717,7 @@ function yamlScalar(raw: string): string {
   if (value.startsWith("'") && value.endsWith("'")) {
     return value.slice(1, -1).replace(/''/g, "'");
   }
-  if ([">", ">-", ">+", "|", "|-", "|+"].includes(value)) return "";
+  if (/^[>|](?:[1-9])?[+-]?$|^[>|][+-]?[1-9]?$/.test(value)) return "";
   return value.replace(/\s+#(?!\d).*$/, "").trim();
 }
 
@@ -726,14 +742,60 @@ function dbtDocReferenceName(raw: string): string | null {
   return reference?.[2] ?? null;
 }
 
+interface DbtDescriptionReference {
+  name: string | null;
+  nextLineIndex: number;
+  prefix: string;
+}
+
+function dbtDescriptionReferenceAt(
+  lines: string[],
+  lineIndex: number,
+): DbtDescriptionReference | null {
+  const line = lines[lineIndex]!;
+  const commentFree = yamlCommentFree(line);
+  const description = commentFree.match(/^([ \t]*description\s*:\s*)(.*)$/);
+  if (!description) return null;
+
+  const raw = description[2]!;
+  if (!/^[>|](?:[1-9])?[+-]?$|^[>|][+-]?[1-9]?$/.test(raw.trim())) {
+    return {
+      name: dbtDocReferenceName(raw),
+      nextLineIndex: lineIndex + 1,
+      prefix: description[1]!,
+    };
+  }
+
+  const keyIndent = description[1]!.match(/^[ \t]*/)?.[0].length ?? 0;
+  const valueLines: string[] = [];
+  let nextLineIndex = lineIndex + 1;
+  while (nextLineIndex < lines.length) {
+    const valueLine = lines[nextLineIndex]!;
+    if (!valueLine.trim()) {
+      valueLines.push("");
+      nextLineIndex += 1;
+      continue;
+    }
+    const indent = valueLine.match(/^[ \t]*/)?.[0].length ?? 0;
+    if (indent <= keyIndent) break;
+    valueLines.push(valueLine.trim());
+    nextLineIndex += 1;
+  }
+
+  return {
+    name: dbtDocReferenceName(valueLines.join(" ")),
+    nextLineIndex,
+    prefix: description[1]!,
+  };
+}
+
 function referencedDbtDocNames(yaml: string): Set<string> {
   const names = new Set<string>();
-  for (const line of yaml.split(/\r?\n/)) {
-    const commentFree = yamlCommentFree(line);
-    const description = commentFree.match(/^\s*description\s*:\s*(.*)$/);
-    if (!description) continue;
-    const name = dbtDocReferenceName(description[1]!);
-    if (name) names.add(name);
+  const lines = yaml.split(/\r?\n/);
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const reference = dbtDescriptionReferenceAt(lines, lineIndex);
+    if (reference?.name) names.add(reference.name);
+    if (reference) lineIndex = reference.nextLineIndex - 1;
   }
   return names;
 }
@@ -837,19 +899,24 @@ function resolveDbtDocReferences(
   yaml: string,
   docs: Map<string, string | null>,
 ): string {
-  return yaml
-    .split(/\r?\n/)
-    .map((line) => {
-      const commentFree = yamlCommentFree(line);
-      const description = commentFree.match(/^(\s*description\s*:\s*)(.*)$/);
-      if (!description) return line;
-      const name = dbtDocReferenceName(description[2]!);
-      if (!name) return line;
-      const resolved = docs.get(name);
-      if (!resolved) return line;
-      return `${description[1]}${JSON.stringify(resolved)}`;
-    })
-    .join("\n");
+  const lines = yaml.split(/\r?\n/);
+  const resolvedLines: string[] = [];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex]!;
+    const reference = dbtDescriptionReferenceAt(lines, lineIndex);
+    if (!reference?.name) {
+      resolvedLines.push(line);
+      continue;
+    }
+    const resolved = docs.get(reference.name);
+    if (!resolved) {
+      resolvedLines.push(line);
+      continue;
+    }
+    resolvedLines.push(`${reference.prefix}${JSON.stringify(resolved)}`);
+    lineIndex = reference.nextLineIndex - 1;
+  }
+  return resolvedLines.join("\n");
 }
 
 function yamlList(raw: string): string[] {
@@ -2595,28 +2662,34 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   const scanSummary = emptyScanSummary();
   const dbtDocBlocks = new Map<string, string | null>();
   const docReferences = new Set<string>();
-  const discoveryBudget = { bytes: 0 };
+  const yamlByPath = new Map<string, string>();
   for (const file of files) {
     const extension = path.extname(file.absolutePath).toLowerCase();
     if (extension !== ".yml" && extension !== ".yaml") continue;
-    const yaml = await readSourceFile(file, discoveryBudget);
+    const yaml = await readSourceFile(file, budget);
+    yamlByPath.set(file.absolutePath, yaml);
     for (const name of referencedDbtDocNames(yaml)) docReferences.add(name);
   }
+
+  const markdownSizes = new Map<string, number>();
+  const sqlSizes = new Map<string, number>();
   for (const file of files) {
-    if (
-      !docReferences.size ||
-      path.extname(file.absolutePath).toLowerCase() !== ".md"
-    ) {
-      continue;
+    const extension = path.extname(file.absolutePath).toLowerCase();
+    if (extension === ".md" && docReferences.size) {
+      const size = await sourceFileSize(file);
+      accountSourceBytes(size, budget);
+      markdownSizes.set(file.absolutePath, size);
+    } else if (extension === ".sql") {
+      const size = await sourceFileSize(file);
+      accountSourceBytes(size, budget);
+      sqlSizes.set(file.absolutePath, size);
     }
-    let fileStat;
-    try {
-      fileStat = await stat(file.absolutePath);
-    } catch {
-      codedError("file_unreadable", "A source file could not be read.");
-    }
-    if (fileStat.size > MAX_FILE_BYTES) {
-      accountSourceBytes(fileStat.size, discoveryBudget);
+  }
+
+  for (const file of files) {
+    const markdownSize = markdownSizes.get(file.absolutePath);
+    if (markdownSize === undefined) continue;
+    if (markdownSize > MAX_FILE_BYTES) {
       if (await containsReferencedDbtDocBlock(file, docReferences)) {
         codedError(
           "file_limit_exceeded",
@@ -2625,12 +2698,11 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       }
       continue;
     }
-    const markdown = await readSourceFile(file, discoveryBudget);
+    const markdown = await readSourceFile(file, budget, markdownSize);
     const parsedBlocks = parseDbtDocBlocks(markdown);
     if (![...parsedBlocks.keys()].some((name) => docReferences.has(name))) {
       continue;
     }
-    accountSourceBytes(fileStat.size, budget);
     hashFile(fingerprint, file, markdown);
     for (const [name, description] of parsedBlocks) {
       dbtDocBlocks.set(name, dbtDocBlocks.has(name) ? null : description);
@@ -2644,7 +2716,10 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       scanSummary,
     );
     if (extension === ".yml" || extension === ".yaml") {
-      const docsRaw = await readSourceFile(file, budget);
+      const docsRaw = yamlByPath.get(file.absolutePath);
+      if (docsRaw === undefined) {
+        codedError("file_unreadable", "A source file could not be read.");
+      }
       hashFile(fingerprint, file, docsRaw);
       const resolvedDocs = resolveDbtDocReferences(docsRaw, dbtDocBlocks);
       docs.push(...parseSchemaYaml(resolvedDocs, relativePath, scanSummary));
@@ -2655,7 +2730,11 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
       continue;
     }
     if (extension !== ".sql") continue;
-    const sql = await readSourceFile(file, budget);
+    const sqlSize = sqlSizes.get(file.absolutePath);
+    if (sqlSize === undefined) {
+      codedError("file_unreadable", "A source file could not be read.");
+    }
+    const sql = await readSourceFile(file, budget, sqlSize);
     hashFile(fingerprint, file, sql);
     const dependencies = extractSqlDependencies(sql);
     if (isTestSql(file.relativePath)) {

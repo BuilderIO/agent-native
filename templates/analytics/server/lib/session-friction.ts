@@ -451,9 +451,6 @@ async function remeasureReplayFrictionOnce(
     processedChunks += 1;
   }
   if (!progress) return "unmeasurable";
-  const rageClickAdjustment = input.rageClickCountOverridden
-    ? 0
-    : totals.rageClicks - input.rageClickCount;
   const written = await writeReplayFriction(input, existing, {
     counts: {
       deadClicks: totals.deadClicks,
@@ -467,7 +464,7 @@ async function remeasureReplayFrictionOnce(
     issueErrors: totals.issueErrors,
     processedChunks,
     progress,
-    rageClickAdjustment,
+    rageClickCountTotal: totals.rageClicks,
   });
   return written ? "saved" : "lost";
 }
@@ -481,36 +478,62 @@ async function writeReplayFriction(
     issueErrors: number | null;
     processedChunks: number;
     progress: ReplayFrictionProgress;
-    rageClickAdjustment: number;
+    rageClickAdjustment?: number;
+    rageClickCountTotal?: number;
   },
 ): Promise<boolean> {
   const db = getDb() as any;
   const t = schema.sessionRecordingFriction;
-  const correctedRageClickCount = Math.max(
-    0,
-    input.rageClickCount + measured.rageClickAdjustment,
-  );
-  const rageClickAdjustment = correctedRageClickCount - input.rageClickCount;
-  const score = sessionFrictionScore(
-    {
-      ...replayCountsBySignal(measured.counts),
-      errors: input.errorCount,
-      rage_clicks: correctedRageClickCount,
-    },
-    REPLAY_FRICTION_SCORE_INPUTS,
-  );
-  const values = {
-    ...measured.counts,
-    issueErrors: measured.issueErrors,
-    processedChunks: measured.processedChunks,
-    score,
-    detectorState: JSON.stringify({
-      ...measured.progress.state,
-      lastSeq: measured.progress.lastSeq,
-    }),
-    updatedAt: input.ingestedAt,
-  };
   return db.transaction(async (tx: any) => {
+    const recordings = schema.sessionRecordings;
+    const [recording] = await tx
+      .select({
+        chunkCount: recordings.chunkCount,
+        rageClickCount: recordings.rageClickCount,
+      })
+      .from(recordings)
+      .where(eq(recordings.id, input.recordingId))
+      // Chunk foreign keys take KEY SHARE, which is compatible with this lock.
+      .for("no key update");
+    if (!recording) {
+      throw new Error("Replay recording disappeared during friction write");
+    }
+    const currentRageClickCount = Number(recording.rageClickCount ?? 0);
+    const remeasurement = measured.rageClickCountTotal !== undefined;
+    if (
+      remeasurement &&
+      Number(recording.chunkCount) !== measured.processedChunks
+    ) {
+      return false;
+    }
+    const correctedRageClickCount =
+      remeasurement && !input.rageClickCountOverridden
+        ? (measured.rageClickCountTotal ?? currentRageClickCount)
+        : remeasurement
+          ? currentRageClickCount
+          : Math.max(
+              0,
+              currentRageClickCount + (measured.rageClickAdjustment ?? 0),
+            );
+    const score = sessionFrictionScore(
+      {
+        ...replayCountsBySignal(measured.counts),
+        errors: input.errorCount,
+        rage_clicks: correctedRageClickCount,
+      },
+      REPLAY_FRICTION_SCORE_INPUTS,
+    );
+    const values = {
+      ...measured.counts,
+      issueErrors: measured.issueErrors,
+      processedChunks: measured.processedChunks,
+      score,
+      detectorState: JSON.stringify({
+        ...measured.progress.state,
+        lastSeq: measured.progress.lastSeq,
+      }),
+      updatedAt: input.ingestedAt,
+    };
     let written = false;
     if (existing) {
       // Conditional on the count read above, so two overlapping uploads can
@@ -541,12 +564,11 @@ async function writeReplayFriction(
         .returning({ recordingId: t.recordingId });
       written = inserted.length > 0;
     }
-    if (written && rageClickAdjustment !== 0) {
-      const recordings = schema.sessionRecordings;
+    if (written && correctedRageClickCount !== currentRageClickCount) {
       await tx
         .update(recordings)
         .set({
-          rageClickCount: sql`${recordings.rageClickCount} + ${rageClickAdjustment}`,
+          rageClickCount: correctedRageClickCount,
         })
         .where(eq(recordings.id, input.recordingId));
     }

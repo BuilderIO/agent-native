@@ -211,6 +211,47 @@ describe("compileSourceIndex", () => {
     );
   });
 
+  it("discovers and resolves dbt doc references in block-scalar descriptions", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await mkdir(path.join(dbtRoot, "docs"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "docs", "membership.md"),
+      "{% docs membership_counts %}Membership definitions use the month cutoff.{% enddocs %}",
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: aggregate_monthly_users_per_org",
+        "    description: |-",
+        "      {{",
+        "        doc('membership_counts')",
+        "      }}",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "aggregate_monthly_users_per_org.sql"),
+      "select 1",
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-10T00:00:00.000Z",
+    });
+    const entry = bundle.entries.find(
+      (candidate) =>
+        candidate.metric === "model:aggregate_monthly_users_per_org",
+    );
+
+    expect(entry?.definition).toContain(
+      "Membership definitions use the month cutoff.",
+    );
+    expect(entry?.definition).not.toContain("{{ doc(");
+  });
+
   it("skips oversized Markdown without referenced dbt doc blocks", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
@@ -295,6 +336,44 @@ describe("compileSourceIndex", () => {
     const file = await open(oversizedMarkdown, "w");
     await file.truncate(250_000_001);
     await file.close();
+
+    await expect(
+      compileSourceIndex({
+        dbtRoots: [dbtRoot],
+        generatedAt: "2026-10-10T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "root_size_limit_exceeded" });
+  });
+
+  it("uses one aggregate byte budget across dbt discovery and indexing", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    const docsPath = path.join(dbtRoot, "docs");
+    const modelsPath = path.join(dbtRoot, "models");
+    await mkdir(docsPath, { recursive: true });
+    await mkdir(modelsPath, { recursive: true });
+    await writeFile(
+      path.join(modelsPath, "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: aggregate_monthly_users_per_org",
+        "    description: \"{{ doc('membership_counts') }}\"",
+      ].join("\n"),
+    );
+
+    for (let index = 0; index < 63; index += 1) {
+      const markdown = await open(
+        path.join(docsPath, `unrelated-${index}.md`),
+        "w",
+      );
+      await markdown.truncate(2_000_001);
+      await markdown.close();
+
+      const sql = await open(path.join(modelsPath, `filler-${index}.sql`), "w");
+      await sql.truncate(2_000_000);
+      await sql.close();
+    }
 
     await expect(
       compileSourceIndex({
