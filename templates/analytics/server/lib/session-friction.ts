@@ -213,6 +213,10 @@ export interface ReplayFrictionInput {
   /** The counts this batch wrote to the recording, so the score matches. */
   errorCount: number;
   rageClickCount: number;
+  /** Event-derived rage clusters provisionally added by this replay batch. */
+  rageClickDelta?: number;
+  /** A supplied total takes precedence over event-derived counter repair. */
+  rageClickCountOverridden?: boolean;
   /** Whether the recording has ended, so an error near its end means leaving. */
   recordingEnded: boolean;
   /** Measures an ended recording again when its row fell behind. */
@@ -336,6 +340,11 @@ async function measureReplayFriction(
       .limit(1);
   }
   const progress = existing ? readReplayFrictionProgress(existing) : null;
+  if (progress?.state.rageClickCount === null) {
+    // Older detector state could not carry an unfinished rage-click cluster.
+    await remeasureReplayFriction(input);
+    return;
+  }
   const newChunks = [...input.newChunks].sort((a, b) => a.seq - b.seq);
   // A lost upload leaves a gap in the sequence, which is skipped. A chunk that
   // arrives after a later one cannot be measured in order, so the row falls
@@ -355,6 +364,9 @@ async function measureReplayFriction(
     progress ? progress.state : null,
   );
   const lastChunk = newChunks[newChunks.length - 1];
+  const rageClickAdjustment = input.rageClickCountOverridden
+    ? 0
+    : delta.rageClicks - (input.rageClickDelta ?? 0);
   const written = await writeReplayFriction(input, existing, {
     counts: {
       deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
@@ -371,6 +383,7 @@ async function measureReplayFriction(
         ? null
         : existing.issueErrors + delta.issueErrors,
     processedChunks: input.priorChunkCount + newChunks.length,
+    rageClickAdjustment,
     progress: {
       state,
       lastSeq: lastChunk ? lastChunk.seq : progress!.lastSeq,
@@ -414,6 +427,7 @@ async function remeasureReplayFrictionOnce(
     .limit(1);
   const totals: ReplayFrictionDelta = {
     deadClicks: 0,
+    rageClicks: 0,
     errorToasts: 0,
     retryLoops: 0,
     stalledRequests: 0,
@@ -422,6 +436,14 @@ async function remeasureReplayFrictionOnce(
     issueErrors: 0,
   };
   let progress: ReplayFrictionProgress | null = null;
+  const previousProgress = existing
+    ? readReplayFrictionProgress(existing)
+    : null;
+  const previousRageClickCount =
+    previousProgress?.state.rageClickCount ??
+    (existing
+      ? Math.max(0, input.rageClickCount - (input.rageClickDelta ?? 0))
+      : 0);
   let errorThenLeave = false;
   let processedChunks = 0;
   for await (const chunk of input.readStoredChunks()) {
@@ -439,6 +461,11 @@ async function remeasureReplayFrictionOnce(
     processedChunks += 1;
   }
   if (!progress) return "unmeasurable";
+  const rageClickAdjustment = input.rageClickCountOverridden
+    ? 0
+    : existing
+      ? totals.rageClicks - previousRageClickCount - (input.rageClickDelta ?? 0)
+      : totals.rageClicks - input.rageClickCount;
   const written = await writeReplayFriction(input, existing, {
     counts: {
       deadClicks: totals.deadClicks,
@@ -452,6 +479,7 @@ async function remeasureReplayFrictionOnce(
     issueErrors: totals.issueErrors,
     processedChunks,
     progress,
+    rageClickAdjustment,
   });
   return written ? "saved" : "lost";
 }
@@ -465,15 +493,21 @@ async function writeReplayFriction(
     issueErrors: number | null;
     processedChunks: number;
     progress: ReplayFrictionProgress;
+    rageClickAdjustment: number;
   },
 ): Promise<boolean> {
   const db = getDb() as any;
   const t = schema.sessionRecordingFriction;
+  const correctedRageClickCount = Math.max(
+    0,
+    input.rageClickCount + measured.rageClickAdjustment,
+  );
+  const rageClickAdjustment = correctedRageClickCount - input.rageClickCount;
   const score = sessionFrictionScore(
     {
       ...replayCountsBySignal(measured.counts),
       errors: input.errorCount,
-      rage_clicks: input.rageClickCount,
+      rage_clicks: correctedRageClickCount,
     },
     REPLAY_FRICTION_SCORE_INPUTS,
   );
@@ -488,34 +522,48 @@ async function writeReplayFriction(
     }),
     updatedAt: input.ingestedAt,
   };
-  if (existing) {
-    // Conditional on the count read above, so two overlapping uploads can
-    // never both advance the same row.
-    const updated = await db
-      .update(t)
-      .set(values)
-      .where(
-        and(
-          eq(t.recordingId, input.recordingId),
-          eq(t.processedChunks, existing.processedChunks),
-        ),
-      )
-      .returning({ recordingId: t.recordingId });
-    return updated.length > 0;
-  }
-  const inserted = await db
-    .insert(t)
-    .values({
-      recordingId: input.recordingId,
-      tenantKey: sessionEventTenantKey(input.ownerEmail, input.orgId),
-      ownerEmail: input.ownerEmail,
-      orgId: input.orgId,
-      sessionId: input.sessionId,
-      ...values,
-    })
-    .onConflictDoNothing()
-    .returning({ recordingId: t.recordingId });
-  return inserted.length > 0;
+  return db.transaction(async (tx: any) => {
+    let written = false;
+    if (existing) {
+      // Conditional on the count read above, so two overlapping uploads can
+      // never both advance the same row.
+      const updated = await tx
+        .update(t)
+        .set(values)
+        .where(
+          and(
+            eq(t.recordingId, input.recordingId),
+            eq(t.processedChunks, existing.processedChunks),
+          ),
+        )
+        .returning({ recordingId: t.recordingId });
+      written = updated.length > 0;
+    } else {
+      const inserted = await tx
+        .insert(t)
+        .values({
+          recordingId: input.recordingId,
+          tenantKey: sessionEventTenantKey(input.ownerEmail, input.orgId),
+          ownerEmail: input.ownerEmail,
+          orgId: input.orgId,
+          sessionId: input.sessionId,
+          ...values,
+        })
+        .onConflictDoNothing()
+        .returning({ recordingId: t.recordingId });
+      written = inserted.length > 0;
+    }
+    if (written && rageClickAdjustment !== 0) {
+      const recordings = schema.sessionRecordings;
+      await tx
+        .update(recordings)
+        .set({
+          rageClickCount: sql`${recordings.rageClickCount} + ${rageClickAdjustment}`,
+        })
+        .where(eq(recordings.id, input.recordingId));
+    }
+    return written;
+  });
 }
 
 function replayCountsBySignal(

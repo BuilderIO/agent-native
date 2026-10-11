@@ -1919,6 +1919,9 @@ export default {
     presetWeekdays: "Dias úteis às 06:00",
     presetWeekly: "Semanalmente na segunda-feira às 06:00",
     status: "Status",
+    unresolvedTrackingCallSites: "Chamadas de rastreamento não resolvidas",
+    dynamicTrackingCoverageCaveat:
+      "Chamadas cujos nomes de evento são calculados em tempo de execução são excluídas; aliases ou outras APIs de rastreamento podem não ser detectados.",
     overviewFailed: "Não foi possível carregar o estado da geração.",
     build: "Gerar",
     building: "Gerando…",

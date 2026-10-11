@@ -53,7 +53,24 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         isLoading: false,
       };
     }
-    throw new Error(`Unexpected query: ${name}`);
+    if (name === "get-data-dictionary-index-status") {
+      return {
+        data: {
+          status: "available",
+          generatedAt: "2026-10-09T00:00:00.000Z",
+          entryCount: mocks.entries.length,
+          unresolvedTrackingCallSites: 2,
+          sources: [{ id: "dbt" }],
+          sourceCounts: [{ source: "dbt", entryCount: 1 }],
+          ageDays: 1,
+          staleAfterDays: 90,
+          stale: false,
+        },
+        isLoading: false,
+        isError: false,
+      };
+    }
+    return { data: undefined, isLoading: false, isError: false };
   },
   useActionMutation: () => ({
     mutateAsync: mocks.mutateAsync,
@@ -66,7 +83,11 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     key === "dataDictionary.generatedEntriesMayBeMissing"
       ? SOURCE_INDEX_WARNING
       : key,
-  useFormatters: () => ({ formatDate: () => "" }),
+  useFormatters: () => ({
+    formatDate: () => "",
+    formatRelativeTime: () => "1 day ago",
+    formatNumber: (value: number) => String(value),
+  }),
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -203,6 +224,26 @@ describe("SemanticLayer", () => {
     expect(row("Current model").textContent).not.toContain(
       "dataDictionary.deprecated",
     );
+  });
+
+  it("shows unresolved tracking coverage in the index status panel", async () => {
+    await renderPage();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Manage semanticLayer.sourceIndex"]',
+        )
+        ?.click();
+    });
+
+    expect(container.textContent).toContain(
+      "indexPanel.unresolvedTrackingCallSites",
+    );
+    expect(container.textContent).toContain(
+      "indexPanel.dynamicTrackingCoverageCaveat",
+    );
+    expect(container.textContent).toContain("2");
   });
 
   it.each(["unavailable", "invalid"] as const)(

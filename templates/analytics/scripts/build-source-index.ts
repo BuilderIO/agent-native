@@ -110,6 +110,7 @@ export interface SourceIndexScanSummary {
   unsafeEntriesOmitted: number;
   unsafeFieldsOmitted: number;
   truncatedFields: number;
+  unresolvedTrackingCallSites: number;
 }
 
 export interface SourceIndexOptions {
@@ -238,6 +239,7 @@ function emptyScanSummary(): SourceIndexScanSummary {
     unsafeEntriesOmitted: 0,
     unsafeFieldsOmitted: 0,
     truncatedFields: 0,
+    unresolvedTrackingCallSites: 0,
   };
 }
 
@@ -248,6 +250,7 @@ function addScanSummary(
   target.unsafeEntriesOmitted += source.unsafeEntriesOmitted;
   target.unsafeFieldsOmitted += source.unsafeFieldsOmitted;
   target.truncatedFields += source.truncatedFields;
+  target.unresolvedTrackingCallSites += source.unresolvedTrackingCallSites;
 }
 
 async function readSigmaCredentialsFromEnvFile(
@@ -2168,32 +2171,35 @@ function trackedEventParts(
   args: string[],
   constants: Map<string, string>,
   scanSummary: SourceIndexScanSummary,
-): { name: string; properties: string[] } | null {
+):
+  | { status: "resolved"; name: string; properties: string[] }
+  | { status: "unresolved" }
+  | { status: "unsafe" } {
   const first = args[0]?.trim();
-  if (!first) return null;
+  if (!first) return { status: "unresolved" };
   const firstLiteral = parseLiteral(first);
   if (firstLiteral !== null) {
     const name = safeEventName(firstLiteral);
     if (!name) {
       scanSummary.unsafeEntriesOmitted += 1;
-      return null;
+      return { status: "unsafe" };
     }
     const direct = objectMembers(args[1] ?? "{}", scanSummary).map(
       ({ key }) => key,
     );
-    return { name, properties: direct };
+    return { status: "resolved", name, properties: direct };
   }
   const constantName = constants.get(first);
-  if (constantName) {
+  if (constantName !== undefined) {
     const name = safeEventName(constantName);
     if (!name) {
       scanSummary.unsafeEntriesOmitted += 1;
-      return null;
+      return { status: "unsafe" };
     }
     const direct = objectMembers(args[1] ?? "{}", scanSummary).map(
       ({ key }) => key,
     );
-    return { name, properties: direct };
+    return { status: "resolved", name, properties: direct };
   }
 
   const object = objectMembers(first, scanSummary);
@@ -2201,10 +2207,13 @@ function trackedEventParts(
     ["event", "eventName", "name"].includes(key),
   );
   const rawName = eventMember ? parseLiteral(eventMember.value) : null;
-  const name = rawName ? safeEventName(rawName) : null;
+  const name = rawName !== null ? safeEventName(rawName) : null;
   if (!name) {
-    if (rawName) scanSummary.unsafeEntriesOmitted += 1;
-    return null;
+    if (rawName !== null) {
+      scanSummary.unsafeEntriesOmitted += 1;
+      return { status: "unsafe" };
+    }
+    return { status: "unresolved" };
   }
   const properties = new Set<string>();
   for (const member of object) {
@@ -2229,7 +2238,45 @@ function trackedEventParts(
       }
     }
   }
-  return { name, properties: [...properties] };
+  return { status: "resolved", name, properties: [...properties] };
+}
+
+function findCallClosingParen(code: string, openParen: number): number | null {
+  let depth = 1;
+  for (let index = openParen + 1; index < code.length; index += 1) {
+    if (code[index] === "(") depth += 1;
+    else if (code[index] === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return null;
+}
+
+function isTrackingDeclaration(
+  code: string,
+  callStart: number,
+  openParen: number,
+  args: string[] | null,
+): boolean {
+  const prefix = code.slice(Math.max(0, callStart - 40), callStart);
+  if (/\bfunction(?:\s*\*)?\s*$/.test(prefix)) return true;
+
+  const firstParameter = args?.[0]?.trim();
+  if (
+    firstParameter &&
+    /^(?:\.\.\.)?[A-Za-z_$][A-Za-z0-9_$]*(?:\?|!)?\s*:\s*/.test(firstParameter)
+  ) {
+    return true;
+  }
+
+  const closingParen = findCallClosingParen(code, openParen);
+  if (closingParen === null) return false;
+  const suffix = code.slice(closingParen + 1);
+  return (
+    /^\s*(?::\s*[^{};\n]+)?\s*\{/.test(suffix) ||
+    /^\s*(?::\s*[^{};\n]+)?\s*=>/.test(suffix)
+  );
 }
 
 function extractCodeEvents(
@@ -2246,7 +2293,7 @@ function extractCodeEvents(
   for (const match of commentMask.matchAll(constantPattern)) {
     const name = match[1]!;
     const value = parseLiteral(`${match[2]}${match[3]}${match[2]}`);
-    if (value) constants.set(name, value);
+    if (value !== null) constants.set(name, value);
   }
 
   const objectVariables = new Map<string, string[]>();
@@ -2278,9 +2325,17 @@ function extractCodeEvents(
     const start = match.index ?? 0;
     const openParen = start + match[0].lastIndexOf("(");
     const args = callArguments(source, openParen);
-    if (!args) continue;
+    if (isTrackingDeclaration(codeMask, start, openParen, args)) continue;
+    if (!args) {
+      scanSummary.unresolvedTrackingCallSites += 1;
+      continue;
+    }
     const extracted = trackedEventParts(args, constants, scanSummary);
-    if (!extracted) continue;
+    if (extracted.status === "unresolved") {
+      scanSummary.unresolvedTrackingCallSites += 1;
+      continue;
+    }
+    if (extracted.status === "unsafe") continue;
     const properties = new Set(extracted.properties);
     const secondArgument = args[1]?.trim();
     if (secondArgument && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(secondArgument)) {

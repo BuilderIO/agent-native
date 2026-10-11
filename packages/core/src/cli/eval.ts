@@ -19,10 +19,14 @@ export type EvalPromoteCliArgs = {
   runId: string;
   write?: string;
   json: boolean;
-  reviewedPrompt: string;
+  reviewedPrompt?: string;
+  reviewedPromptFile?: string;
+  reviewedHistoryFile?: string;
   mustContain?: string;
   datasetName?: string;
 };
+
+const MAX_REVIEW_FILE_BYTES = 64 * 1024;
 
 export type ParsedEvalArgs = EvalRunCliArgs | EvalPromoteCliArgs;
 
@@ -59,8 +63,8 @@ function printHelp(): void {
 
 Usage:
   agent-native eval [pattern] --owner-email email --org-id id [--json] [--threshold N]
-  agent-native eval promote <runId> --reviewed-prompt text [--write path]
-    [--json] [--must-contain text]
+  agent-native eval promote <runId> (--reviewed-prompt text | --reviewed-prompt-file path)
+    [--reviewed-history-file path] [--write path] [--json] [--must-contain text]
 
 Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
 for each eval input, scores the output with the eval's scorers, and exits
@@ -71,8 +75,9 @@ invokes the shared production agent loop with its read-only action surface.
 Identity is never inferred from environment or app configuration. This command
 does not persist eval results.
 
-promote maps a completed production run into a defineEval case using the
-required manually reviewed prompt, persists an EvalDataset row, and optionally
+promote maps a completed production run into a defineEval case using required
+manually reviewed prompt text, optionally reads reviewed history from a JSON
+file, persists an EvalDataset row, and optionally
 writes a *.eval.ts the CI gate already discovers. The hosted action never
 writes files. Repeating a promotion
 returns the existing dataset for the same owner and run. The CLI uses the
@@ -94,8 +99,14 @@ Options:
   --org-id           Explicit organization identity for the eval request.
   --threshold N      Override every eval's pass threshold (0..1).
   --write path       Write a loadable *.eval.ts for the promoted case.
-  --reviewed-prompt  Required manually reviewed prompt; production prompt text
-                     is never copied.
+  --reviewed-prompt  Manually reviewed prompt text; production prompt text is
+                     never copied. Use --reviewed-prompt-file to keep it out
+                     of shell history.
+  --reviewed-prompt-file path
+                     Read manually reviewed prompt text from a local file.
+  --reviewed-history-file path
+                     Read a JSON array of reviewed {role,text} turns from a
+                     local file; content is screened before persistence.
   --must-contain txt Optional contains() needle for the promoted case.
   --dataset-name n   Optional privacy-screened EvalDataset name
                      (defaults to from-trace:<opaque reference>).
@@ -118,6 +129,8 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
     let write: string | undefined;
     let json = false;
     let reviewedPrompt: string | undefined;
+    let reviewedPromptFile: string | undefined;
+    let reviewedHistoryFile: string | undefined;
     let mustContain: string | undefined;
     let datasetName: string | undefined;
 
@@ -149,6 +162,20 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
         i = promptVal.next;
         continue;
       }
+      const promptFileVal = takeValue(argv, i, "--reviewed-prompt-file");
+      if (promptFileVal) {
+        reviewedPromptFile = promptFileVal.value.trim();
+        if (!reviewedPromptFile) rejectMissingFlag("--reviewed-prompt-file");
+        i = promptFileVal.next;
+        continue;
+      }
+      const historyFileVal = takeValue(argv, i, "--reviewed-history-file");
+      if (historyFileVal) {
+        reviewedHistoryFile = historyFileVal.value.trim();
+        if (!reviewedHistoryFile) rejectMissingFlag("--reviewed-history-file");
+        i = historyFileVal.next;
+        continue;
+      }
       const datasetVal = takeValue(argv, i, "--dataset-name");
       if (datasetVal) {
         datasetName = datasetVal.value;
@@ -164,9 +191,12 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
       console.error("eval promote: <runId> is required");
       process.exit(2);
     }
-    if (!reviewedPrompt?.trim()) {
+    if (
+      (!reviewedPrompt?.trim() && !reviewedPromptFile) ||
+      (reviewedPrompt !== undefined && reviewedPromptFile)
+    ) {
       console.error(
-        "eval promote: --reviewed-prompt is required and must not be empty",
+        "eval promote: provide exactly one of --reviewed-prompt or --reviewed-prompt-file",
       );
       process.exit(2);
     }
@@ -179,7 +209,9 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
       command: "promote",
       runId,
       json,
-      reviewedPrompt,
+      ...(reviewedPrompt ? { reviewedPrompt } : {}),
+      ...(reviewedPromptFile ? { reviewedPromptFile } : {}),
+      ...(reviewedHistoryFile ? { reviewedHistoryFile } : {}),
       ...(write ? { write } : {}),
       ...(mustContain ? { mustContain } : {}),
       ...(datasetName ? { datasetName } : {}),
@@ -319,17 +351,37 @@ async function resolvePromoteUserId(): Promise<string> {
 async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
   const { loadTraceEvalPromotion, persistPromotedEvalDataset } =
     await import("../observability/actions/promote-trace-eval.js");
-  const { generateEvalModuleSource, promotedEvalSpecFromDataset } =
-    await import("../eval/from-trace.js");
+  const {
+    PROMOTED_EVAL_REVIEW_LIMITS,
+    generateEvalModuleSource,
+    promotedEvalSpecFromDataset,
+  } = await import("../eval/from-trace.js");
 
   let result: Awaited<ReturnType<typeof loadTraceEvalPromotion>>["promotion"];
   let rollback: (() => Promise<void>) | undefined;
   try {
+    const reviewedPrompt = args.reviewedPromptFile
+      ? await readReviewedPromptFile(
+          args.reviewedPromptFile,
+          PROMOTED_EVAL_REVIEW_LIMITS.promptLength,
+        )
+      : args.reviewedPrompt;
+    if (!reviewedPrompt?.trim()) {
+      throw new Error("Reviewed prompt file must contain nonblank text.");
+    }
+    const reviewedHistory = args.reviewedHistoryFile
+      ? await readReviewedHistoryFile(
+          args.reviewedHistoryFile,
+          PROMOTED_EVAL_REVIEW_LIMITS.historyTurns,
+          PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength,
+        )
+      : undefined;
     const userId = await resolvePromoteUserId();
     const loaded = await loadTraceEvalPromotion(
       {
         runId: args.runId,
-        reviewedPrompt: args.reviewedPrompt,
+        reviewedPrompt,
+        ...(reviewedHistory ? { reviewedHistory } : {}),
         mustContain: args.mustContain,
         datasetName: args.datasetName,
       },
@@ -407,6 +459,74 @@ async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
     );
   }
   process.exit(0);
+}
+
+async function readReviewFile(filePath: string): Promise<string> {
+  const contents = await fs.readFile(path.resolve(filePath), "utf8");
+  if (Buffer.byteLength(contents, "utf8") > MAX_REVIEW_FILE_BYTES) {
+    throw new Error("Reviewed input file exceeds the 64 KiB limit.");
+  }
+  return contents;
+}
+
+async function readReviewedPromptFile(
+  filePath: string,
+  maxLength: number,
+): Promise<string> {
+  const prompt = await readReviewFile(filePath);
+  if (prompt.length > maxLength) {
+    throw new Error(
+      `Reviewed prompt file exceeds the ${maxLength} character limit.`,
+    );
+  }
+  return prompt;
+}
+
+async function readReviewedHistoryFile(
+  filePath: string,
+  maxTurns: number,
+  maxTextLength: number,
+): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
+  const contents = await readReviewFile(filePath);
+  let value: unknown;
+  try {
+    value = JSON.parse(contents);
+  } catch {
+    throw new Error("Reviewed history file must contain a JSON array.");
+  }
+  if (!Array.isArray(value) || value.length > maxTurns) {
+    throw new Error(
+      `Reviewed history file must contain at most ${maxTurns} turns.`,
+    );
+  }
+  const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+  for (const candidate of value) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error(
+        'Reviewed history entries must have a "user" or "assistant" role and text.',
+      );
+    }
+    const turn = candidate as Record<string, unknown>;
+    if (
+      (turn.role !== "user" && turn.role !== "assistant") ||
+      typeof turn.text !== "string"
+    ) {
+      throw new Error(
+        'Reviewed history entries must have a "user" or "assistant" role and text.',
+      );
+    }
+    if (turn.text.length > maxTextLength) {
+      throw new Error(
+        `Reviewed history turn exceeds the ${maxTextLength} character limit.`,
+      );
+    }
+    turns.push({ role: turn.role, text: turn.text });
+  }
+  return turns;
 }
 
 export async function runEval(argv: string[]): Promise<void> {

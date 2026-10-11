@@ -1868,6 +1868,9 @@ export default {
     presetWeekdays: "Weekdays at 06:00",
     presetWeekly: "Weekly on Monday at 06:00",
     status: "Status",
+    unresolvedTrackingCallSites: "Unresolved tracking calls",
+    dynamicTrackingCoverageCaveat:
+      "Calls with runtime-computed event names are excluded; aliases or other tracking APIs may be missed.",
     overviewFailed: "Build state could not be loaded.",
     build: "Build",
     building: "Building…",

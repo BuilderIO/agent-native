@@ -1866,6 +1866,9 @@ export default {
     presetWeekdays: "أيام العمل في 06:00",
     presetWeekly: "أسبوعيًا يوم الاثنين في 06:00",
     status: "الحالة",
+    unresolvedTrackingCallSites: "استدعاءات التتبّع غير المحسومة",
+    dynamicTrackingCoverageCaveat:
+      "تُستبعد الاستدعاءات التي تُحسب أسماء أحداثها وقت التشغيل؛ وقد لا تُكتشف الأسماء المستعارة أو واجهات التتبّع الأخرى.",
     overviewFailed: "تعذّر تحميل حالة البناء.",
     build: "بناء",
     building: "جارٍ البناء…",

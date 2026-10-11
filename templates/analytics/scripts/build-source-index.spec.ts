@@ -544,6 +544,10 @@ describe("compileSourceIndex", () => {
         'track({ event: "organization_role_changed", properties: { organization_id: "org-synthetic", role: "admin" } });',
         'track("event_with_comments" /* ignored ), { fake: true } */, { stable_property: true /* ignored, other_property: true */ });',
         'track(dynamicEvent, { should_not_be_indexed: "dynamic-value" });',
+        'track({ event: runtimeEvent, properties: { should_not_be_indexed: "dynamic-object-value" } });',
+        "function track(eventName: string, properties?: Record<string, unknown>) {}",
+        "const client = { track(eventName: string) {} };",
+        "const track = (eventName) => eventName;",
         '// track("commented_event", { ignored: true });',
         'const documentation = `track("string_event", { ignored: true })`;',
       ].join("\n"),
@@ -586,6 +590,7 @@ describe("compileSourceIndex", () => {
     expect(bundle).toMatchObject({
       schemaVersion: 1,
       generatedAt: "2026-10-09T12:00:00.000Z",
+      scanSummary: { unresolvedTrackingCallSites: 2 },
       sources: [
         {
           id: "dbt",
@@ -646,6 +651,8 @@ describe("compileSourceIndex", () => {
     expect(serialized).not.toContain("synthetic-row-value");
     expect(serialized).not.toContain("org-synthetic");
     expect(serialized).not.toContain("user@example.test");
+    expect(serialized).not.toContain("dynamic-value");
+    expect(serialized).not.toContain("dynamic-object-value");
     expect(serialized).not.toContain("commented_out_model");
     expect(serialized).not.toContain("private.comment");
     expect(serialized).not.toContain(root);

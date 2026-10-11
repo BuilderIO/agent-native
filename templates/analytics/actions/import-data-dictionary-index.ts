@@ -29,14 +29,22 @@ export default defineAction({
     const index = bundle as SourceIndexBundle;
     await putOrgSetting(admin.orgId, SOURCE_INDEX_SETTING_KEY, index);
     invalidateSourceIndexCache(admin.orgId);
-    const scanSummary = index.scanSummary ?? null;
+    const scanSummary = index.scanSummary
+      ? {
+          ...index.scanSummary,
+          unresolvedTrackingCallSites:
+            index.scanSummary.unresolvedTrackingCallSites ?? 0,
+        }
+      : null;
     return {
       entryCount: index.entries.length,
       generatedAt: index.generatedAt,
       sources: index.sources.map((source) => source.id),
       scanSummary,
+      unresolvedTrackingCallSites:
+        scanSummary?.unresolvedTrackingCallSites ?? 0,
       message: scanSummary
-        ? `Replaced the source index with ${index.entries.length} unapproved entries; omitted ${scanSummary.unsafeEntriesOmitted} unsafe entries and ${scanSummary.unsafeFieldsOmitted} unsafe fields, and marked ${scanSummary.truncatedFields} truncated fields.`
+        ? `Replaced the source index with ${index.entries.length} unapproved entries; omitted ${scanSummary.unsafeEntriesOmitted} unsafe entries and ${scanSummary.unsafeFieldsOmitted} unsafe fields, marked ${scanSummary.truncatedFields} truncated fields, and found ${scanSummary.unresolvedTrackingCallSites} tracking call sites with unresolved event names.`
         : `Replaced the source index with ${index.entries.length} unapproved entries. Scan quality counts are unavailable for this bundle.`,
     };
   },

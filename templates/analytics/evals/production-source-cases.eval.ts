@@ -49,17 +49,43 @@ export const sourceContracts = {
               "one row per user-organization membership",
             ],
           },
-          {
-            relation: "dbt_mapping.user_id_to_org_id",
-            grains: [
-              "membership grain",
-              "one row per user-organization membership",
-            ],
-          },
         ],
       },
     ],
     concepts: ["user", "organization", "membership"],
+  },
+  builderCurrentAndHistoricalUserCounts: {
+    relationGrains: [
+      {
+        relation: "dbt_mart.organization_user_count",
+        grains: [
+          "one row per organization per date",
+          "organization by date grain",
+        ],
+      },
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        grains: [
+          "one row per organization per month",
+          "organization by month grain",
+        ],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: ["current", "historical", "date", "month"],
+  },
+  builderExternalAndInternalUserCounts: {
+    relationGrains: [
+      {
+        relation: "dbt_mart.aggregate_monthly_users_per_org",
+        grains: [
+          "one row per organization per month",
+          "organization by month grain",
+        ],
+      },
+    ],
+    relationGrainAlternatives: [],
+    concepts: ["user_count", "internal_user_count", "month-end", "builder.io"],
   },
   builderProductActivity: {
     relationGrains: [
@@ -258,9 +284,19 @@ function sourceEval(name: string, prompt: string, contract: SourceContract) {
 
 export default [
   sourceEval(
-    "Builder.io product users by organization use the dbt membership bridge",
-    "SYNTHETIC source selection only: I am designing a Builder.io product report that will count distinct product users per organization. Which canonical dbt user and organization relations and membership bridge should define the join, and what is each relation's grain? Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query production rows, list users or organizations, or return counts.",
+    "Builder.io user roster and roles use the dbt membership bridge",
+    "SYNTHETIC source selection only: I am designing a Builder.io product roster with each user's organization and role. Which canonical dbt user and organization relations and membership bridge should define the join, and what is each relation's grain? Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query production rows, list users or organizations, or return counts.",
     sourceContracts.builderUsersByOrganization,
+  ),
+  sourceEval(
+    "Builder.io current and historical organization user counts have different grains",
+    "SYNTHETIC source selection only: I need a current organization user count and a historical month-end trend. Which dbt mart relation should serve each time scope, and what is the declared row grain of each? Use model or schema metadata only. Put one relation on each line as `<relation>: grain: <declared row unit>`. Do not query production rows or return count values.",
+    sourceContracts.builderCurrentAndHistoricalUserCounts,
+  ),
+  sourceEval(
+    "Builder.io month-end customer and internal user counts are separate",
+    "SYNTHETIC source selection only: for a month-end organization report, I need external Builder.io product users and Builder staff users shown separately. Which dbt model and fields define those counts, and what is its row grain? Use model or schema metadata only. Put the relation on one line as `<relation>: grain: <declared row unit>`. Do not query production rows, list users, or return count values.",
+    sourceContracts.builderExternalAndInternalUserCounts,
   ),
   sourceEval(
     "Builder.io product activity uses its activity fact",

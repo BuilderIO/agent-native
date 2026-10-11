@@ -59,7 +59,7 @@ describe("Analytics synthetic production source evals", () => {
     expect(files.map((file) => file.split("/").at(-1))).toContain(
       "production-source-cases.eval.ts",
     );
-    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(4);
+    expect(cases.map((evalCase) => evalCase.name)).toHaveLength(6);
     expect(
       cases.every((evalCase) => evalCase.name.startsWith("SYNTHETIC:")),
     ).toBe(true);
@@ -93,7 +93,7 @@ describe("Analytics synthetic production source evals", () => {
       { persist: false },
     );
 
-    expect(report).toMatchObject({ total: 4, passed: 4, failed: 0 });
+    expect(report).toMatchObject({ total: 6, passed: 6, failed: 0 });
   });
 
   it("accepts the complete user-organization membership row unit", async () => {
@@ -117,6 +117,27 @@ describe("Analytics synthetic production source evals", () => {
     expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
   });
 
+  it("does not accept a mapping relation absent from the dbt project", async () => {
+    const report = await runEvals(
+      [cases[0]!],
+      runnerFor({
+        text: [
+          "dbt_mart.dim_users_core: one row per user",
+          "dbt_mart.dim_organizations: one row per organization",
+          "dbt_mapping.user_id_to_org_id: one row per user-organization membership",
+          "user organization membership",
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:unknown-membership-relation-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
   it("fails closed on an aborted or failed production run, even with matching text", async () => {
     const report = await runEvals(
       [cases[0]!],
@@ -136,7 +157,7 @@ describe("Analytics synthetic production source evals", () => {
 
   it("fails if an eval reads event or product rows instead of metadata", async () => {
     const report = await runEvals(
-      [cases[2]!],
+      [cases[4]!],
       runnerFor(
         outputFor(sourceContracts.agentNativeUsersAndEvents, {
           toolCalls: ["query-agent-native-analytics"],
@@ -379,7 +400,7 @@ describe("Analytics synthetic production source evals", () => {
 
   it("rejects outdated activity and account grain labels", async () => {
     const activityReport = await runEvals(
-      [cases[1]!],
+      [cases[3]!],
       runnerFor(
         outputFor(sourceContracts.builderProductActivity, {
           text: "fact_builder_activity: activity grain",
@@ -388,7 +409,7 @@ describe("Analytics synthetic production source evals", () => {
       { persist: false },
     );
     const userReport = await runEvals(
-      [cases[2]!],
+      [cases[4]!],
       runnerFor(
         outputFor(sourceContracts.agentNativeUsersAndEvents, {
           text: [

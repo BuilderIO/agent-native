@@ -1375,6 +1375,124 @@ describe("session friction on Postgres", () => {
     );
   });
 
+  it("carries rage-click clusters across uploads and rescores current totals", async () => {
+    await migrateFriction(client);
+    await addRecording("r-rage", "s-rage", at(0));
+    const click = (timestamp: number) => ({
+      type: 3,
+      timestamp,
+      data: { source: 2, type: 2, id: 7, x: 20, y: 20 },
+    });
+    const firstChunk = {
+      seq: 0,
+      inlineData: JSON.stringify({ events: [click(1_000), click(1_200)] }),
+    };
+    storeChunks("r-rage", [firstChunk]);
+    await client.query(
+      "UPDATE session_recordings SET chunk_count = 1 WHERE id = 'r-rage'",
+    );
+    await recordReplayFriction({
+      recordingId: "r-rage",
+      sessionId: "s-rage",
+      ownerEmail: OWNER,
+      orgId: ORG,
+      priorChunkCount: 0,
+      newChunks: [firstChunk],
+      errorCount: 0,
+      rageClickCount: 0,
+      rageClickDelta: 0,
+      recordingEnded: false,
+      readStoredChunks: readStored("r-rage"),
+      ingestedAt: at(1),
+    });
+
+    await client.query(
+      "UPDATE session_recording_friction SET detector_state = $1 WHERE recording_id = 'r-rage'",
+      [
+        JSON.stringify({
+          v: 1,
+          pendingClickAt: 1_200,
+          lastFocus: null,
+          lastEventAt: 1_200,
+          lastErrorAt: null,
+          failures: {},
+          toastIds: [],
+          lastSeq: 0,
+        }),
+      ],
+    );
+
+    const secondChunk = {
+      seq: 1,
+      inlineData: JSON.stringify({ events: [click(1_400)] }),
+    };
+    storeChunks("r-rage", [secondChunk]);
+    await client.query(
+      "UPDATE session_recordings SET chunk_count = 2 WHERE id = 'r-rage'",
+    );
+    await recordReplayFriction({
+      recordingId: "r-rage",
+      sessionId: "s-rage",
+      ownerEmail: OWNER,
+      orgId: ORG,
+      priorChunkCount: 1,
+      newChunks: [secondChunk],
+      errorCount: 0,
+      rageClickCount: 0,
+      rageClickDelta: 0,
+      recordingEnded: false,
+      readStoredChunks: readStored("r-rage"),
+      ingestedAt: at(2),
+    });
+
+    let recording = await client.query(
+      "SELECT rage_click_count FROM session_recordings WHERE id = 'r-rage'",
+    );
+    let friction = await client.query(
+      "SELECT score, detector_state FROM session_recording_friction WHERE recording_id = 'r-rage'",
+    );
+    expect(Number(recording.rows[0].rage_click_count)).toBe(1);
+    expect(Number(friction.rows[0].score)).toBe(
+      sessionFrictionScore({ rage_clicks: 1 }, REPLAY_FRICTION_SCORE_INPUTS),
+    );
+    expect(JSON.parse(String(friction.rows[0].detector_state))).toMatchObject({
+      v: 2,
+      rageClickCount: 1,
+      rageClickCluster: { counted: true, size: 3 },
+      lastSeq: 1,
+    });
+
+    // A retry can carry a newer authoritative total without storing a chunk.
+    await client.query(
+      "UPDATE session_recordings SET rage_click_count = 2 WHERE id = 'r-rage'",
+    );
+    await recordReplayFriction({
+      recordingId: "r-rage",
+      sessionId: "s-rage",
+      ownerEmail: OWNER,
+      orgId: ORG,
+      priorChunkCount: 2,
+      newChunks: [],
+      errorCount: 0,
+      rageClickCount: 2,
+      rageClickDelta: 0,
+      recordingEnded: false,
+      readStoredChunks: readStored("r-rage"),
+      ingestedAt: at(3),
+    });
+
+    recording = await client.query(
+      "SELECT rage_click_count FROM session_recordings WHERE id = 'r-rage'",
+    );
+    friction = await client.query(
+      "SELECT score, detector_state FROM session_recording_friction WHERE recording_id = 'r-rage'",
+    );
+    expect(Number(recording.rows[0].rage_click_count)).toBe(2);
+    expect(Number(friction.rows[0].score)).toBe(
+      sessionFrictionScore({ rage_clicks: 2 }, REPLAY_FRICTION_SCORE_INPUTS),
+    );
+  });
+
   it("measures replay batches in order and stops at a batch it missed", async () => {
     await migrateFriction(client);
     await addRecording("r1", "s1", at(0), 1);
