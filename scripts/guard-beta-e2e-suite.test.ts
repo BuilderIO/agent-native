@@ -290,7 +290,7 @@ describe("guard:beta-e2e-suite", () => {
       ['grep -q "Error: No tests found"', "true"],
       ['"$BETA_E2E_NARROWED" = "true"', "true"],
       [
-        'rm -f "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT/results.json"',
+        'rm -rf "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT" "e2e/beta/test-results/$BETA_E2E_REPORT_SLOT"',
         "true",
       ],
       ['exit "$selection_status"', "exit 0"],
