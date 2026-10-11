@@ -67,8 +67,10 @@ function runFastTestsSummary(
       DOCS_RESULT: "skipped",
       TEST_REST_RESULT: "skipped",
       TEST_TARGETED_RESULT: "success",
-      DESIGN_CANVAS_E2E: "false",
-      DESIGN_CANVAS_RESULT: "skipped",
+      DESIGN_CORE_REGRESSION: "false",
+      DESIGN_CORE_RESULT: "skipped",
+      DESIGN_BROAD_WORKFLOWS: "false",
+      DESIGN_BROAD_RESULT: "skipped",
       PRE_AUTH_REPLAY_E2E: "false",
       PRE_AUTH_REPLAY_RESULT: "skipped",
       ...overrides,
@@ -586,7 +588,7 @@ test("does not select Design dependencies for test or typecheck", () => {
   ]);
 });
 
-test("selects focused Design canvas interaction acceptance for its runtime dependencies", () => {
+test("selects focused Design core regression for its runtime dependencies", () => {
   for (const path of [
     "templates/design/app/components/MultiScreenCanvas.tsx",
     "templates/design/shared/canvas-math.ts",
@@ -624,7 +626,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "packages/creative-context/src/index.ts",
   ]) {
     assert.equal(
-      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      classifyChangedPaths([path]).checks.design_canvas_core_regression,
       true,
       path,
     );
@@ -643,7 +645,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/public/favicon.svg",
   ]) {
     assert.equal(
-      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      classifyChangedPaths([path]).checks.design_canvas_core_regression,
       false,
       path,
     );
@@ -660,7 +662,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "packages/agentkit/src/protocol/agui.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
-    assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
   }
 
   assert.deepEqual(
@@ -697,7 +699,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     ...fourDesignSpecs,
     "templates/design/e2e/interaction-pan-zoom-mouse.spec.ts",
   ]);
-  assert.equal(broadDesignScope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(broadDesignScope.checks.design_canvas_core_regression, true);
   assert.equal(broadDesignScope.designCanvasE2eSpecCount, 5);
   assert.deepEqual(
     broadDesignScope.designCanvasE2eSpecs,
@@ -720,14 +722,49 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
 
   assert.equal(
     classifyChangedPaths([".github/workflows/ci.yml"]).checks
-      .design_canvas_interaction_e2e,
+      .design_canvas_core_regression,
     true,
   );
   assert.equal(
     classifyChangedPaths(["docs/guide.md"]).checks
-      .design_canvas_interaction_e2e,
+      .design_canvas_core_regression,
     false,
   );
+});
+
+test("Design core and broad selectors cover the same on/off/full inputs", () => {
+  const cases = [
+    {
+      name: "selected Design runtime",
+      paths: ["templates/design/shared/canvas-math.ts"],
+      expected: true,
+    },
+    {
+      name: "unrelated workspace",
+      paths: ["templates/calendar/app/routes/index.tsx"],
+      expected: false,
+    },
+    { name: "full run", paths: [], expected: true },
+    {
+      name: "CI tooling-only full run",
+      paths: ["scripts/ci-change-scope.ts"],
+      expected: true,
+    },
+  ];
+
+  for (const { name, paths, expected } of cases) {
+    const scope = classifyChangedPaths(paths);
+    assert.equal(
+      scope.checks.design_canvas_core_regression,
+      expected,
+      `${name}: core`,
+    );
+    assert.equal(
+      scope.checks.design_canvas_broad_workflows,
+      expected,
+      `${name}: broad`,
+    );
+  }
 });
 
 test("the Design interaction gate runs the bounded regression acceptance cases", () => {
@@ -814,8 +851,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
-    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && matrix\.shard != 'ai-sidebar-loopback' && matrix\.shard != 'music-app-workflow' \}\}$/m,
-    "fixed Design regressions must not run on Screen-history, AI sidebar, or long music-app shards",
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
+    "fixed Design regressions must not run on Screen-history shards",
   );
   assert.equal(
     aiSidebarLoopback.match(/^        if: (.+)$/m)?.[1],
@@ -903,39 +940,40 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     [1],
   );
-  const designJobStart = workflow.indexOf(
-    "  design-canvas-interaction-acceptance:\n",
-  );
-  assert.notEqual(designJobStart, -1);
-  const designJobEnd = workflow.indexOf(
-    "\n  design-canvas-changed-spec-diagnostics:",
-    designJobStart,
-  );
-  const designJob = workflow.slice(
-    designJobStart,
-    designJobEnd === -1 ? undefined : designJobEnd,
-  );
-  assert.ok(designJob.includes("needs: change-scope"));
-  assert.ok(
-    designJob.includes(
-      "if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
-    ),
-  );
-  assert.equal(
-    designJob.match(/^    if: (.+)$/m)?.[1],
-    "needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
-    "matrix filtering must stay out of the job-level condition",
-  );
-  const designJobWithoutMusicWorkflow = designJob.replace(musicAppWorkflow, "");
-  assert.doesNotMatch(
-    designJobWithoutMusicWorkflow,
-    /changed-\d+|design_canvas_e2e_specs/,
-    "only the dedicated long shard may depend on the changed-spec selector",
-  );
+  const coreJobStart = workflow.indexOf("  design-canvas-core-regression:\n");
+  assert.notEqual(coreJobStart, -1);
+  const broadJobStart = workflow.indexOf("  design-canvas-broad-workflows:\n");
+  assert.notEqual(broadJobStart, -1);
   const diagnosticJobStart = workflow.indexOf(
     "  design-canvas-changed-spec-diagnostics:\n",
   );
   assert.notEqual(diagnosticJobStart, -1);
+  const coreJob = workflow.slice(coreJobStart, broadJobStart);
+  const broadJob = workflow.slice(broadJobStart, diagnosticJobStart);
+  const designJob = coreJob;
+
+  assert.ok(coreJob.includes("needs: change-scope"));
+  assert.equal(
+    coreJob.match(/^    if: (.+)$/m)?.[1],
+    "needs.change-scope.outputs.design_canvas_core_regression == 'true'",
+    "core regression must have its own exact selector",
+  );
+  assert.ok(broadJob.includes("needs: change-scope"));
+  assert.equal(
+    broadJob.match(/^    if: (.+)$/m)?.[1],
+    "needs.change-scope.outputs.design_canvas_broad_workflows == 'true'",
+    "broad workflows must have their own exact selector",
+  );
+  assert.doesNotMatch(
+    coreJob,
+    /design_canvas_e2e_specs/,
+    "the core regression job must not depend on the changed-spec selector",
+  );
+  assert.doesNotMatch(
+    broadJob,
+    /design_canvas_e2e_specs_overflow/,
+    "broad workflow selectors must not suppress selected tests",
+  );
   const diagnosticJobEnd = workflow.indexOf(
     "\n  pre-auth-session-replay-smoke:",
     diagnosticJobStart,
@@ -965,11 +1003,13 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
     "Design shards must reuse the runner's browser libraries",
   );
-  const jobTimeout = 9;
+  const jobTimeout = Number(
+    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  );
   assert.match(
-    designJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
-    "the longer music-app and AI sidebar caps must not lengthen ordinary Design shards",
+    broadJob,
+    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| 20 \}\}$/m,
+    "the broad job must preserve its 20-minute AI and 25-minute Music caps",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -1010,16 +1050,21 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
       diagnosticJobTimeout >= changedSpecStepTimeout + 2,
     `changed-spec diagnostics need the exact seven-minute cap and two minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
-  const shardEntries = [
-    ...designJob.matchAll(
-      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+|ai-sidebar-loopback|music-app-workflow)),?\s*$/gm,
+  const coreShardEntries = [
+    ...coreJob.matchAll(
+      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+)),?\s*$/gm,
     ),
   ].map(([, shard]) => shard);
-  assert.deepEqual(shardEntries, [
+  assert.deepEqual(coreShardEntries, [
     ...DESIGN_E2E_REGRESSION_SHARDS,
     "screen-history-1",
     "screen-history-2",
     "screen-history-3",
+  ]);
+  const broadMatrix = broadJob.match(/shard:\s*\[([^\]]+)\]/)?.[1];
+  assert.ok(broadMatrix, "broad workflow matrix must declare its shard list");
+  const broadShardEntries = broadMatrix.split(",").map((shard) => shard.trim());
+  assert.deepEqual(broadShardEntries, [
     "ai-sidebar-loopback",
     "music-app-workflow",
   ]);
@@ -1136,7 +1181,12 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.ok(
     workflow.includes(
-      "    name: Design canvas interaction acceptance (${{ matrix.shard }})\n",
+      "    name: Design core regression (${{ matrix.shard }})\n",
+    ),
+  );
+  assert.ok(
+    workflow.includes(
+      "    name: Design broad workflows (${{ matrix.shard }})\n",
     ),
   );
   assert.ok(workflow.includes("    name: Pre-auth session replay smoke\n"));
@@ -1154,13 +1204,29 @@ test("fast-tests gates the selected browser checks on their actual job results",
       "docs",
       "test-rest",
       "test-targeted",
-      "design-canvas-interaction-acceptance",
+      "design-canvas-core-regression",
+      "design-canvas-broad-workflows",
       "pre-auth-session-replay-smoke",
     ],
   );
   assert.ok(
     fastTestsJob.includes(
-      "DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}",
+      "DESIGN_CORE_REGRESSION: ${{ needs.change-scope.outputs.design_canvas_core_regression }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_CORE_RESULT: ${{ needs.design-canvas-core-regression.result }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_BROAD_WORKFLOWS: ${{ needs.change-scope.outputs.design_canvas_broad_workflows }}",
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      "DESIGN_BROAD_RESULT: ${{ needs.design-canvas-broad-workflows.result }}",
     ),
   );
   assert.match(
@@ -1188,12 +1254,32 @@ test("fast-tests gates the selected browser checks on their actual job results",
   );
   assert.ok(
     fastTestsJob.includes(
-      'require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"',
+      'require_skipped "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT" "ran outside its selected paths"',
     ),
   );
   assert.ok(
     fastTestsJob.includes(
-      'record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"',
+      'require_skipped "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT" "ran outside its selected paths"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'require_success "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'require_success "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'record_failure "Determine change scope" "Design core regression selection was missing or invalid ($DESIGN_CORE_REGRESSION)"',
+    ),
+  );
+  assert.ok(
+    fastTestsJob.includes(
+      'record_failure "Determine change scope" "Design broad workflows selection was missing or invalid ($DESIGN_BROAD_WORKFLOWS)"',
     ),
   );
   assert.ok(
@@ -1238,8 +1324,10 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     {
       name: "selected Design lanes pass",
       overrides: {
-        DESIGN_CANVAS_E2E: "true",
-        DESIGN_CANVAS_RESULT: "success",
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "success",
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "success",
       },
       status: 0,
     },
@@ -1274,23 +1362,23 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
       overrides: {
         DOCS_ONLY: "true",
         DOCS_RESULT: "success",
-        DESIGN_CANVAS_RESULT: "success",
+        DESIGN_CORE_RESULT: "success",
       },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received success)",
+        "Design core regression (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "docs-only changes still require selected Design lanes to succeed",
       overrides: {
         DOCS_ONLY: "true",
         DOCS_RESULT: "success",
-        DESIGN_CANVAS_E2E: "true",
-        DESIGN_CANVAS_RESULT: "failure",
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "failure",
       },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): did not succeed (expected success, received failure)",
+        "Design core regression (matrix jobs): did not succeed (expected success, received failure)",
     },
     {
       name: "non-docs changes require the docs job to skip",
@@ -1306,10 +1394,10 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "an unselected Design lane cannot run successfully",
-      overrides: { DESIGN_CANVAS_RESULT: "success" },
+      overrides: { DESIGN_CORE_RESULT: "success" },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received success)",
+        "Design core regression (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "a selected pre-auth lane must succeed",
@@ -1330,20 +1418,87 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "an unselected Design lane cannot fail",
-      overrides: { DESIGN_CANVAS_RESULT: "failure" },
+      overrides: { DESIGN_CORE_RESULT: "failure" },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): ran outside its selected paths (expected skipped, received failure)",
+        "Design core regression (matrix jobs): ran outside its selected paths (expected skipped, received failure)",
     },
     {
-      name: "selected Design lanes cannot be skipped",
+      name: "selected core regression cannot be skipped",
       overrides: {
-        DESIGN_CANVAS_E2E: "true",
-        DESIGN_CANVAS_RESULT: "skipped",
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "skipped",
       },
       status: 1,
       outputIncludes:
-        "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
+        "Design core regression (matrix jobs): was unexpectedly skipped",
+    },
+    {
+      name: "selected core regression cannot be cancelled",
+      overrides: {
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "cancelled",
+      },
+      status: 1,
+      outputIncludes:
+        "Design core regression (matrix jobs): did not succeed (expected success, received cancelled)",
+    },
+    {
+      name: "selected core regression requires a result",
+      overrides: {
+        DESIGN_CORE_REGRESSION: "true",
+        DESIGN_CORE_RESULT: "",
+      },
+      status: 1,
+      outputIncludes:
+        "Design core regression (matrix jobs): did not succeed (expected success, received )",
+    },
+    {
+      name: "selected broad workflows cannot fail",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "failure",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): did not succeed (expected success, received failure)",
+    },
+    {
+      name: "selected broad workflows cannot be skipped",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "skipped",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): was unexpectedly skipped (expected success)",
+    },
+    {
+      name: "selected broad workflows cannot be cancelled",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "cancelled",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): did not succeed (expected success, received cancelled)",
+    },
+    {
+      name: "selected broad workflows require a result",
+      overrides: {
+        DESIGN_BROAD_WORKFLOWS: "true",
+        DESIGN_BROAD_RESULT: "",
+      },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): did not succeed (expected success, received )",
+    },
+    {
+      name: "unselected broad workflows must skip",
+      overrides: { DESIGN_BROAD_RESULT: "success" },
+      status: 1,
+      outputIncludes:
+        "Design broad workflows (matrix jobs): ran outside its selected paths (expected skipped, received success)",
     },
     {
       name: "unselected targeted lanes must skip",
@@ -1504,17 +1659,31 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
     },
     {
       name: "a missing Design selection fails closed",
-      overrides: { DESIGN_CANVAS_E2E: "" },
+      overrides: { DESIGN_CORE_REGRESSION: "" },
       status: 1,
       outputIncludes:
-        "Determine change scope: Design canvas selection was missing or invalid ()",
+        "Determine change scope: Design core regression selection was missing or invalid ()",
     },
     {
       name: "an invalid Design selection fails closed",
-      overrides: { DESIGN_CANVAS_E2E: "invalid" },
+      overrides: { DESIGN_CORE_REGRESSION: "invalid" },
       status: 1,
       outputIncludes:
-        "Determine change scope: Design canvas selection was missing or invalid (invalid)",
+        "Determine change scope: Design core regression selection was missing or invalid (invalid)",
+    },
+    {
+      name: "a missing broad-workflow selection fails closed",
+      overrides: { DESIGN_BROAD_WORKFLOWS: "" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Design broad workflows selection was missing or invalid ()",
+    },
+    {
+      name: "an invalid broad-workflow selection fails closed",
+      overrides: { DESIGN_BROAD_WORKFLOWS: "invalid" },
+      status: 1,
+      outputIncludes:
+        "Determine change scope: Design broad workflows selection was missing or invalid (invalid)",
     },
   ];
 
@@ -1532,8 +1701,10 @@ test("fast-tests summary enforces selected and skipped prerequisite outcomes", (
 
 test("fast-tests summary reports every prerequisite failure with the Actions URL", () => {
   const result = runFastTestsSummary(fastTestsSummaryScript(), {
-    DESIGN_CANVAS_E2E: "true",
-    DESIGN_CANVAS_RESULT: "skipped",
+    DESIGN_CORE_REGRESSION: "true",
+    DESIGN_CORE_RESULT: "skipped",
+    DESIGN_BROAD_WORKFLOWS: "true",
+    DESIGN_BROAD_RESULT: "failure",
     PRE_AUTH_REPLAY_E2E: "true",
     PRE_AUTH_REPLAY_RESULT: "failure",
     DOCS_RESULT: "failure",
@@ -1544,10 +1715,11 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
   assert.equal(result.status, 1);
   assert.match(
     result.output,
-    /found 5 failing or unexpectedly skipped prerequisite\(s\)/,
+    /found 6 failing or unexpectedly skipped prerequisite\(s\)/,
   );
   for (const job of [
-    "Design canvas interaction acceptance (matrix jobs): was unexpectedly skipped",
+    "Design core regression (matrix jobs): was unexpectedly skipped",
+    "Design broad workflows (matrix jobs): did not succeed",
     "Pre-auth session replay smoke: did not succeed",
     "Docs checks: ran outside its selected paths (expected skipped, received failure)",
     "Fast tests targeted (test-targeted matrix): did not succeed",
@@ -1559,7 +1731,7 @@ test("fast-tests summary reports every prerequisite failure with the Actions URL
     result.output.match(
       /Actions run: https:\/\/github\.com\/BuilderIO\/agent-native\/actions\/runs\/123/g,
     )?.length,
-    5,
+    6,
   );
 });
 
@@ -1603,7 +1775,7 @@ test("selects the pre-auth replay browser smoke for its runtime paths", () => {
     "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
   ]);
   assert.deepEqual(smokeOnly.designCanvasE2eSpecs, []);
-  assert.equal(smokeOnly.checks.design_canvas_interaction_e2e, false);
+  assert.equal(smokeOnly.checks.design_canvas_core_regression, false);
   assert.equal(smokeOnly.checks.pre_auth_session_replay_e2e, true);
 });
 
@@ -1612,7 +1784,7 @@ test("a deleted Design E2E path runs the focused interaction suite", () => {
     "templates/design/e2e/removed-by-this-change.spec.ts",
   ]);
 
-  assert.equal(scope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(scope.checks.design_canvas_core_regression, true);
 });
 
 test("a non-empty selector with only deleted specs resolves to a no-op", () => {
@@ -1662,7 +1834,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
     "templates/design/e2e/interaction-responsive-music-app.spec.ts";
   const musicAppScope = classifyChangedPaths([musicAppPath]);
   assert.deepEqual(musicAppScope.designCanvasE2eSpecs, [musicAppPath]);
-  assert.equal(musicAppScope.checks.design_canvas_interaction_e2e, true);
+  assert.equal(musicAppScope.checks.design_canvas_core_regression, true);
 
   const selectedMusicApp = resolveDesignE2ESpecs(
     JSON.stringify([musicAppPath]),

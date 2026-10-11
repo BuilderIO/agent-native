@@ -159,7 +159,8 @@ const CHECK_NAMES = [
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
-  "design_canvas_interaction_e2e",
+  "design_canvas_core_regression",
+  "design_canvas_broad_workflows",
   "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
@@ -734,7 +735,8 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
-    design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    design_canvas_core_regression: designCanvasInteractionE2eChanged,
+    design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
@@ -790,7 +792,9 @@ export function readChangedPaths(baseSha: string, headSha: string): string[] {
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
-    { encoding: "utf8" },
+    {
+      encoding: "utf8",
+    },
   );
   return output.split("\0").filter(Boolean);
 }

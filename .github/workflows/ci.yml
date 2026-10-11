@@ -40,7 +40,8 @@ jobs:
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
-      design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      design_canvas_core_regression: ${{ steps.scope.outputs.design_canvas_core_regression }}
+      design_canvas_broad_workflows: ${{ steps.scope.outputs.design_canvas_broad_workflows }}
       pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
       design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
@@ -431,12 +432,12 @@ jobs:
           VITEST_CONCURRENCY: "1"
         run: pnpm run test:perf
 
-  design-canvas-interaction-acceptance:
-    name: Design canvas interaction acceptance (${{ matrix.shard }})
+  design-canvas-core-regression:
+    name: Design core regression (${{ matrix.shard }})
     needs: change-scope
-    if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
+    if: needs.change-scope.outputs.design_canvas_core_regression == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 25 || matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
+    timeout-minutes: 9
     strategy:
       fail-fast: false
       matrix:
@@ -461,8 +462,6 @@ jobs:
             screen-history-1,
             screen-history-2,
             screen-history-3,
-            ai-sidebar-loopback,
-            music-app-workflow,
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -513,6 +512,86 @@ jobs:
             --grep "$grep" \
             --workers=1
 
+      - name: Run focused Design regression cases
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') }}
+        working-directory: templates/design
+        timeout-minutes: 6
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
+          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
+          mapfile -d '' -t focused_specs < "$focused_specs_file"
+          if (( ${#focused_specs[@]} == 0 )); then
+            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
+            exit 2
+          fi
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+
+      - name: Detect retried Design test failures
+        id: retry-artifacts
+        if: ${{ !cancelled() && matrix.shard != 'music-app-workflow' }}
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          case "$E2E_RUN_ID" in
+            *-screen-history-*) run_id="design-selection-history-${E2E_RUN_ID#design-dnd-}" ;;
+            *-ai-sidebar-loopback) run_id="design-ai-sidebar-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ;;
+            *) run_id="$E2E_RUN_ID" ;;
+          esac
+          found=false
+          if [[ -f "test-results/$run_id/retry-failure.marker" ]]; then
+            found=true
+          fi
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Design E2E artifacts
+        if: ${{ !cancelled() && matrix.shard != 'music-app-workflow' && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: design-canvas-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: |
+            templates/design/test-results/design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**
+            templates/design/test-results/design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}/**
+          retention-days: 7
+          if-no-files-found: warn
+
+  design-canvas-broad-workflows:
+    name: Design broad workflows (${{ matrix.shard }})
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 25 || 20 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ai-sidebar-loopback, music-app-workflow]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
       - name: Run AI sidebar loopback image regressions
         if: matrix.shard == 'ai-sidebar-loopback'
         working-directory: templates/design
@@ -559,24 +638,6 @@ jobs:
           path: templates/design/test-results/design-music-app-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Run focused Design regression cases
-        if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' && matrix.shard != 'music-app-workflow' }}
-        working-directory: templates/design
-        timeout-minutes: 6
-        env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-        run: |
-          set -euo pipefail
-          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
-          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
-          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
-          mapfile -d '' -t focused_specs < "$focused_specs_file"
-          if (( ${#focused_specs[@]} == 0 )); then
-            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
-            exit 2
-          fi
-          pnpm exec playwright test "${focused_specs[@]}" --workers=1
 
       - name: Detect retried Design test failures
         id: retry-artifacts
@@ -794,7 +855,8 @@ jobs:
         docs,
         test-rest,
         test-targeted,
-        design-canvas-interaction-acceptance,
+        design-canvas-core-regression,
+        design-canvas-broad-workflows,
         pre-auth-session-replay-smoke,
       ]
     if: always()
@@ -811,8 +873,10 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
-          DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
-          DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
+          DESIGN_CORE_REGRESSION: ${{ needs.change-scope.outputs.design_canvas_core_regression }}
+          DESIGN_CORE_RESULT: ${{ needs.design-canvas-core-regression.result }}
+          DESIGN_BROAD_WORKFLOWS: ${{ needs.change-scope.outputs.design_canvas_broad_workflows }}
+          DESIGN_BROAD_RESULT: ${{ needs.design-canvas-broad-workflows.result }}
           PRE_AUTH_REPLAY_E2E: ${{ needs.change-scope.outputs.pre_auth_session_replay_e2e }}
           PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}
         run: |
@@ -864,17 +928,21 @@ jobs:
               record_failure "Determine change scope" "pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
             fi
 
-            case "$DESIGN_CANVAS_E2E" in
-              true)
-                require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
-                ;;
-              false)
-                require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"
-                ;;
-              *)
-                record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
-                ;;
-            esac
+            if [[ "$DESIGN_CORE_REGRESSION" == "true" ]]; then
+              require_success "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT"
+            elif [[ "$DESIGN_CORE_REGRESSION" == "false" ]]; then
+              require_skipped "Design core regression (matrix jobs)" "$DESIGN_CORE_RESULT" "ran outside its selected paths"
+            else
+              record_failure "Determine change scope" "Design core regression selection was missing or invalid ($DESIGN_CORE_REGRESSION)"
+            fi
+
+            if [[ "$DESIGN_BROAD_WORKFLOWS" == "true" ]]; then
+              require_success "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT"
+            elif [[ "$DESIGN_BROAD_WORKFLOWS" == "false" ]]; then
+              require_skipped "Design broad workflows (matrix jobs)" "$DESIGN_BROAD_RESULT" "ran outside its selected paths"
+            else
+              record_failure "Determine change scope" "Design broad workflows selection was missing or invalid ($DESIGN_BROAD_WORKFLOWS)"
+            fi
 
             if [[ "$DOCS_ONLY" == "true" ]]; then
               require_success "Docs checks" "$DOCS_RESULT"
