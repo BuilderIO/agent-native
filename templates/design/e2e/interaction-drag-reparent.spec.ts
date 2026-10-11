@@ -1223,11 +1223,22 @@ test.describe("drag reparent interaction", () => {
       .locator('[data-design-bottom-toolbar] button[aria-label="Rectangle"]')
       .click();
     await page.waitForTimeout(300);
+    const intendedRectSize = { width: 100, height: 80 };
+    const canvasZoomFactor = await canvasZoom(page);
+    const drawDelta = {
+      width: Math.round(intendedRectSize.width * canvasZoomFactor),
+      height: Math.round(intendedRectSize.height * canvasZoomFactor),
+    };
     await page.mouse.move(boardPoint.x, boardPoint.y);
     await page.mouse.down();
-    await page.mouse.move(boardPoint.x + 100, boardPoint.y + 80, {
-      steps: 12,
-    });
+    // Keep the intended 100x80 authored size within one physical pixel.
+    await page.mouse.move(
+      boardPoint.x + drawDelta.width,
+      boardPoint.y + drawDelta.height,
+      {
+        steps: 12,
+      },
+    );
     await page.mouse.up();
 
     await expect
@@ -1247,6 +1258,34 @@ test.describe("drag reparent interaction", () => {
       .contentFrame()
       .locator('[data-an-primitive="rectangle"]')
       .first();
+    const authoredRectSize = await rectLocator.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { width: rect.width, height: rect.height };
+    });
+    const authoredPixelTolerance = 1 / canvasZoomFactor;
+    expect(
+      Math.abs(authoredRectSize.width - intendedRectSize.width),
+    ).toBeLessThanOrEqual(authoredPixelTolerance);
+    expect(
+      Math.abs(authoredRectSize.height - intendedRectSize.height),
+    ).toBeLessThanOrEqual(authoredPixelTolerance);
+    const mainContentSize = await designFrame(page, screenId)
+      .locator('[data-agent-native-node-id="main"]')
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          width:
+            element.clientWidth -
+            Number.parseFloat(style.paddingLeft) -
+            Number.parseFloat(style.paddingRight),
+          height:
+            element.clientHeight -
+            Number.parseFloat(style.paddingTop) -
+            Number.parseFloat(style.paddingBottom),
+        };
+      });
+    expect(authoredRectSize.width).toBeLessThanOrEqual(mainContentSize.width);
+    expect(authoredRectSize.height).toBeLessThanOrEqual(mainContentSize.height);
     const rectBox = (await rectLocator.boundingBox())!;
     const main = await boxFor(page, screenId, "main");
 
