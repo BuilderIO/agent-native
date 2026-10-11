@@ -32,7 +32,7 @@ import {
   IconSubtask,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type AgentRunDto = AgentRun;
 type BackgroundAgentRunDto = {
@@ -398,6 +398,9 @@ export function RunsTrayMenuItem({
 >) {
   const t = useT();
   const [submenuOpen, setSubmenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const keepOpenRef = useRef(false);
+  const keepOpenTimerRef = useRef<number | null>(null);
   const {
     runs,
     hasRuns,
@@ -417,24 +420,40 @@ export function RunsTrayMenuItem({
   });
 
   const openRunThread = onOpenThread ?? openAgentRunThread;
+  const keepMenuOpen = () => {
+    keepOpenRef.current = true;
+    window.clearTimeout(keepOpenTimerRef.current ?? undefined);
+    keepOpenTimerRef.current = window.setTimeout(() => {
+      keepOpenRef.current = false;
+    }, 250);
+  };
+  // Radix restores focus to the parent menu while these actions update rows.
+  const onFocusOutside = (event: Event) => {
+    const target = event.target;
+    if (
+      keepOpenRef.current &&
+      target instanceof HTMLElement &&
+      target.matches('[role="menu"][data-radix-menu-content]')
+    ) {
+      event.preventDefault();
+      keepOpenRef.current = false;
+      window.clearTimeout(keepOpenTimerRef.current ?? undefined);
+    }
+  };
+
+  useEffect(
+    () => () => window.clearTimeout(keepOpenTimerRef.current ?? undefined),
+    [],
+  );
 
   if (!hasRuns && hideWhenIdle) return null;
 
   return (
     <DropdownMenuSub open={submenuOpen} onOpenChange={setSubmenuOpen}>
       <DropdownMenuSubTrigger
+        ref={triggerRef}
         aria-label={t("runsTray.ariaAgentRuns", { label: triggerLabel })}
         className="cursor-pointer gap-2"
-        onClick={(event) => {
-          event.preventDefault();
-          setSubmenuOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setSubmenuOpen(true);
-          }
-        }}
       >
         <TriggerIcon
           size={14}
@@ -463,6 +482,7 @@ export function RunsTrayMenuItem({
       <DropdownMenuSubContent
         sideOffset={6}
         className="an-runs-tray__menu w-80 max-w-[calc(100vw-24px)] p-0"
+        onFocusOutside={onFocusOutside}
       >
         <RunsTrayContent
           runs={runs}
@@ -472,6 +492,8 @@ export function RunsTrayMenuItem({
           onDismiss={dismissRun}
           onStop={stopRun}
           onOpenThread={openRunThread}
+          onKeepMenuOpen={() => triggerRef.current?.focus()}
+          onActionStart={keepMenuOpen}
           insideDropdownMenu
         />
       </DropdownMenuSubContent>
@@ -487,6 +509,8 @@ function RunsTrayContent({
   onDismiss,
   onStop,
   onOpenThread,
+  onKeepMenuOpen,
+  onActionStart,
   insideDropdownMenu,
 }: {
   runs: AgentRunDto[];
@@ -496,6 +520,8 @@ function RunsTrayContent({
   onDismiss: (runId: string) => void;
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+  onKeepMenuOpen?: () => void;
+  onActionStart?: () => void;
   insideDropdownMenu: boolean;
 }) {
   const t = useT();
@@ -527,6 +553,8 @@ function RunsTrayContent({
               onDismiss={onDismiss}
               onStop={onStop}
               onOpenThread={onOpenThread}
+              onKeepMenuOpen={onKeepMenuOpen}
+              onActionStart={onActionStart}
               insideDropdownMenu={insideDropdownMenu}
             />
           ))}
@@ -713,12 +741,16 @@ function RunRow({
   onDismiss,
   onStop,
   onOpenThread,
+  onKeepMenuOpen,
+  onActionStart,
   insideDropdownMenu,
 }: {
   run: AgentRunDto;
   onDismiss: (runId: string) => void;
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+  onKeepMenuOpen?: () => void;
+  onActionStart?: () => void;
   insideDropdownMenu: boolean;
 }) {
   const t = useT();
@@ -749,26 +781,38 @@ function RunRow({
         ) : null}
       </button>
     ) : null;
-  const stopButton = canStop ? (
-    <button
-      type="button"
-      aria-label={t("runsTray.stopRun", { title: run.title })}
-      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-destructive"
-      onClick={() => onStop(run.id)}
-    >
-      <IconPlayerStop size={13} aria-hidden />
-    </button>
-  ) : null;
-  const dismissButton = !isRunning ? (
-    <button
-      type="button"
-      aria-label={t("runsTray.hideRun", { title: run.title })}
-      className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-      onClick={() => onDismiss(run.id)}
-    >
-      <IconX size={13} aria-hidden />
-    </button>
-  ) : null;
+  const actionButton =
+    canStop || !isRunning ? (
+      <button
+        type="button"
+        aria-label={
+          canStop
+            ? t("runsTray.stopRun", { title: run.title })
+            : t("runsTray.hideRun", { title: run.title })
+        }
+        className={cn(
+          "inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60",
+          canStop ? "hover:text-destructive" : "hover:text-foreground",
+        )}
+        onPointerMove={onActionStart}
+        onPointerDown={onActionStart}
+        onClick={() => {
+          onActionStart?.();
+          if (canStop) {
+            onStop(run.id);
+          } else {
+            onKeepMenuOpen?.();
+            onDismiss(run.id);
+          }
+        }}
+      >
+        {canStop ? (
+          <IconPlayerStop size={13} aria-hidden />
+        ) : (
+          <IconX size={13} aria-hidden />
+        )}
+      </button>
+    ) : null;
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
@@ -825,19 +869,20 @@ function RunRow({
           {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          {stopButton && insideDropdownMenu ? (
-            <DropdownMenuItem asChild className="h-6 w-6 justify-center p-0">
-              {stopButton}
+          {actionButton && insideDropdownMenu ? (
+            <DropdownMenuItem
+              asChild
+              className="h-6 w-6 justify-center p-0"
+              onSelect={(event) => {
+                event.preventDefault();
+                onActionStart?.();
+                onKeepMenuOpen?.();
+              }}
+            >
+              {actionButton}
             </DropdownMenuItem>
           ) : (
-            stopButton
-          )}
-          {dismissButton && insideDropdownMenu ? (
-            <DropdownMenuItem asChild className="h-6 w-6 justify-center p-0">
-              {dismissButton}
-            </DropdownMenuItem>
-          ) : (
-            dismissButton
+            actionButton
           )}
         </div>
       </div>

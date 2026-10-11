@@ -153,6 +153,87 @@ describe("RunsTrayMenuItem", () => {
       window.removeEventListener("agent-chat:open-thread", onOpen);
     }
   });
+
+  it("keeps the runs submenu open after stopping and hiding runs", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/agent-chat/runs/list")) {
+        return Response.json({
+          status: "ok",
+          runs: [
+            {
+              id: "menu-run-2",
+              kind: "agent-team",
+              source: "agent-teams",
+              title: "Manage the active run",
+              status: "running",
+              goalId: "agent-teams",
+              needsInput: false,
+              needsApproval: false,
+              createdAt: now,
+              updatedAt: now,
+              sourceRecord: { threadId: "thread-menu-2" },
+              metadata: { parentThreadId: "thread-parent-2" },
+            },
+          ],
+        });
+      }
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DropdownMenu open>
+          <DropdownMenuContent forceMount>
+            <RunsTrayMenuItem pollMs={0} />
+          </DropdownMenuContent>
+        </DropdownMenu>,
+      );
+    });
+    const runsTrigger = document.querySelector(
+      '[aria-label^="Agent runs"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      runsTrigger?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Manage the active run"),
+      );
+    });
+
+    const stopButton = document.querySelector(
+      '[aria-label="Stop Manage the active run"]',
+    ) as HTMLButtonElement | null;
+    expect(stopButton).toBeTruthy();
+    await act(async () => {
+      stopButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[aria-label="Hide Manage the active run"]'),
+        ).toBeTruthy(),
+      );
+    });
+    expect(runsTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(runsTrigger);
+
+    const hideButton = document.querySelector(
+      '[aria-label="Hide Manage the active run"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => {
+      hideButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("No recent runs"),
+      );
+    });
+    expect(runsTrigger?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(runsTrigger);
+  });
 });
 
 describe("RunsTray polling", () => {
