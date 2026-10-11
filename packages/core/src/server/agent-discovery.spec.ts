@@ -368,6 +368,62 @@ describe("agent discovery", () => {
     );
   });
 
+  it.each(["framework", "standalone"] as const)(
+    "keeps resolved built-in URLs over seeded defaults in a %s local runtime",
+    async (runtime) => {
+      const cwd =
+        runtime === "standalone"
+          ? vi
+              .spyOn(process, "cwd")
+              .mockReturnValue("/tmp/agent-discovery-isolated-workspace")
+          : undefined;
+      try {
+        process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({
+          urls: { design: "https://beta.design.agent-native.com" },
+        });
+        resetBuiltinAgentsConfigForTests();
+        const template = TEMPLATES.find((entry) => entry.name === "design");
+        if (!template?.prodUrl)
+          throw new Error("Design template must have a URL");
+        const manifest = JSON.stringify({
+          id: "design",
+          name: "Design",
+          url: template.prodUrl,
+        });
+        resourceListMock.mockResolvedValue([
+          { id: "design-resource", path: "remote-agents/design.json" },
+        ]);
+        resourceGetMock.mockResolvedValue({ content: manifest });
+        resourceListContentByOwnersAndPrefixesMock.mockResolvedValue([
+          {
+            id: "design-resource",
+            owner: "__shared__",
+            path: "remote-agents/design.json",
+            content: manifest,
+          },
+        ]);
+        const expected =
+          runtime === "framework"
+            ? `http://localhost:${template.devPort}`
+            : "https://beta.design.agent-native.com";
+        expect(
+          (await discoverAgents("analytics")).find(
+            (agent) => agent.id === "design",
+          )?.url,
+        ).toBe(expected);
+        const directory = await discoverOrgDirectoryAgents("analytics");
+        expect(directory.status).toBe("available");
+        if (directory.status === "available") {
+          expect(
+            directory.agents.find((agent) => agent.id === "design")?.url,
+          ).toBe(expected);
+        }
+      } finally {
+        cwd?.mockRestore();
+      }
+    },
+  );
+
   it("preserves remote-manifest and workspace-app precedence over configured URLs", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_BUILTIN_AGENTS_JSON = JSON.stringify({

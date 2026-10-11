@@ -387,8 +387,6 @@ function resolveRemoteAgentManifestUrl(
   const catalogBuiltin = BUILTIN_AGENT_CATALOG.find(
     (candidate) => candidate.id === manifestId,
   );
-  const useLocalUrls =
-    options?.preferLocalUrls === true || shouldUseLocalAgentUrls();
   const hosted = isHostedRuntime();
   let url = manifestUrl;
 
@@ -397,11 +395,8 @@ function resolveRemoteAgentManifestUrl(
     else return undefined;
   }
 
-  if (catalogBuiltin && hosted && !useLocalUrls) {
-    const configuredUrl = readBuiltinAgentsConfig().urls?.[manifestId];
-    if (configuredUrl && manifestUrl === catalogBuiltin.url) {
-      url = configuredUrl;
-    }
+  if (catalogBuiltin && builtin && manifestUrl === catalogBuiltin.url) {
+    url = builtin.url;
   }
 
   if (options?.preferLocalUrls && builtin && catalogBuiltin) {
