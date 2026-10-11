@@ -116,6 +116,7 @@ export function runPrimitiveCreated(
     capture.bind(textNodeId);
     beginTextEditForOwner(screenId, textNodeId, { afterPointerGesture: true });
     let abandoned = false;
+    let canceledByPendingOwner = false;
     let cleanedUp = false;
     const cleanUpIfUntouched = () => {
       if (cleanedUp) return;
@@ -150,6 +151,7 @@ export function runPrimitiveCreated(
       isAbandoned: () =>
         abandoned || !isPendingTextRequestLive(screenId, textNodeId),
       onExhausted: (finalStatus) => {
+        if (canceledByPendingOwner) return;
         const pending = pendingEmptyTextEditRef.current;
         if (!pending || pending.nodeId !== textNodeId || pending.settled) {
           return;
@@ -174,6 +176,7 @@ export function runPrimitiveCreated(
       screenId,
       nodeId: textNodeId,
       cancel: () => {
+        canceledByPendingOwner = true;
         cancel();
         window.setTimeout(() => {
           if (isPendingTextRequestLive(screenId, textNodeId)) return;
