@@ -74,11 +74,13 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           editableScreenIds={new Set(["source", "target"])}
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -196,10 +198,12 @@ describe("cross-screen drag identity provenance", () => {
         ]}
         zoom={100}
         activeId="source"
-        activeTool="move"
-        geometryById={{
-          source: { x: 0, y: 0, width: 400, height: sourceHeight },
-          target: { x: 600, y: 300, width: 400, height: 300 },
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: {
+            source: { x: 0, y: 0, width: 400, height: sourceHeight },
+            target: { x: 600, y: 300, width: 400, height: 300 },
+          },
         }}
         renderScreenContent={(screen) => (
           <iframe
@@ -313,11 +317,13 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
-            previous: { x: 1200, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+              previous: { x: 1200, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -475,10 +481,12 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -584,9 +592,11 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -594,19 +604,17 @@ describe("cross-screen drag identity provenance", () => {
               data-screen-iframe-id={screen.id}
             />
           )}
-          boardFileId="board"
-          boardFileContent=""
-          boardFrameGeometry={{ x: 0, y: 0, width: 1200, height: 600 }}
-          boardEditMode
-          runtimeStructurePendingTransactionRef={runtimeTransactionRef}
+          board={{
+            boardFileId: "board",
+            boardFileContent: "",
+            boardFrameGeometry: { x: 0, y: 0, width: 1200, height: 600 },
+            boardEditMode: true,
+            runtimeStructurePendingTransactionRef: runtimeTransactionRef,
+            onBoardRuntimeStructureInsertApplied,
+            onBoardRuntimeStructureInsertRejected,
+          }}
           onPick={() => {}}
           onCrossScreenElementDrop={onCrossScreenElementDrop}
-          onBoardRuntimeStructureInsertApplied={
-            onBoardRuntimeStructureInsertApplied
-          }
-          onBoardRuntimeStructureInsertRejected={
-            onBoardRuntimeStructureInsertRejected
-          }
         />,
       );
     });
@@ -839,10 +847,12 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -966,10 +976,12 @@ describe("cross-screen drag identity provenance", () => {
             ]}
             zoom={100}
             activeId="source"
-            activeTool="move"
-            geometryById={{
-              source: { x: 0, y: 0, width: 400, height: 300 },
-              target: { x: 600, y: 0, width: 400, height: 300 },
+            creation={{ activeTool: "move" }}
+            geometry={{
+              geometryById: {
+                source: { x: 0, y: 0, width: 400, height: 300 },
+                target: { x: 600, y: 0, width: 400, height: 300 },
+              },
             }}
             renderScreenContent={(screen) => (
               <iframe
@@ -1115,10 +1127,12 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -1296,10 +1310,12 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -1432,10 +1448,12 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -1607,10 +1625,12 @@ describe("cross-screen drag identity provenance", () => {
           ]}
           zoom={100}
           activeId="source"
-          activeTool="move"
-          geometryById={{
-            source: { x: 0, y: 0, width: 400, height: 300 },
-            target: { x: 600, y: 0, width: 400, height: 300 },
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: {
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            },
           }}
           renderScreenContent={(screen) => (
             <iframe
@@ -1823,10 +1843,12 @@ describe("cross-screen drag identity provenance", () => {
             ]}
             zoom={100}
             activeId="source"
-            activeTool="move"
-            geometryById={{
-              source: { x: 0, y: 0, width: 400, height: 300 },
-              target: { x: 600, y: 0, width: 400, height: 300 },
+            creation={{ activeTool: "move" }}
+            geometry={{
+              geometryById: {
+                source: { x: 0, y: 0, width: 400, height: 300 },
+                target: { x: 600, y: 0, width: 400, height: 300 },
+              },
             }}
             renderScreenContent={(screen) => (
               <iframe

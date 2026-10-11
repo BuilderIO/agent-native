@@ -17,6 +17,7 @@ import {
   isHostSurfaceHidden,
   isSurfaceHidden,
 } from "../shared/surface-visibility.js";
+import { actionQueryAffectedByResources } from "./action-query-scope.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
@@ -126,12 +127,34 @@ function collabBoostWanted(): boolean {
   );
 }
 
-function noteCollaboratorActivity(events: SyncEvent[]): void {
+type CollabActivityEvent = {
+  source?: string;
+  resourceType?: string;
+  resourceId?: string;
+  requestSource?: string;
+};
+
+// The server mirrors every saved file into its Yjs doc under the "agent"
+// source, so a lone editor's own save comes back as a collab event that is not
+// from anyone else. Only an event a browser tab posted names its sender: a Yjs
+// update, or a resource event such as Slides' `deck` carrying the writing tab.
+function namesHumanSender(event: CollabActivityEvent): boolean {
+  return (
+    (event.source === "collab" || event.source === "deck") &&
+    typeof event.requestSource === "string" &&
+    event.requestSource !== "" &&
+    event.requestSource !== "agent"
+  );
+}
+
+function noteCollaboratorActivity(
+  events: readonly CollabActivityEvent[],
+): void {
   const ownSource = getBrowserTabId();
   const until = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
   for (const event of events) {
     if (
-      event.source !== "action" ||
+      (event.source !== "action" && !namesHumanSender(event)) ||
       typeof event.resourceType !== "string" ||
       event.resourceType === "" ||
       typeof event.resourceId !== "string" ||
@@ -144,6 +167,20 @@ function noteCollaboratorActivity(events: SyncEvent[]): void {
       collabActivityUntilByResource.set(key, until);
     }
   }
+}
+
+/**
+ * For a collab connection's own ~12 s poll. A viewer on a screen nobody else
+ * is on has no presence to notice, but that poll still carries the design's
+ * resource-scoped events from the other screens, and the shared transport is
+ * asleep on the 1-5 minute idle cadence until something wakes it.
+ */
+export function noteCollabPollActivity(
+  events: readonly CollabActivityEvent[],
+): void {
+  const wasWanted = collabBoostWanted();
+  noteCollaboratorActivity(events);
+  if (!wasWanted && collabBoostWanted()) notifyCollabBoostChange();
 }
 
 function collabBoostFresh(): boolean {
@@ -374,6 +411,24 @@ function normalizeEventPayload(payload: unknown): SyncEvent[] {
 
 function hasTerminalAuthFailure(query: Query): boolean {
   return isTerminalAuthFailure(query.state?.error);
+}
+
+/**
+ * The resource types the batch's action events changed. `undefined` when one
+ * event names none: its affected queries are unknown, so the batch refreshes
+ * every action query, as an event without a resource always has.
+ */
+function changedActionResourceTypes(
+  actionEvents: readonly SyncEvent[],
+): ReadonlySet<string> | undefined {
+  const types = new Set<string>();
+  for (const evt of actionEvents) {
+    if (typeof evt.resourceType !== "string" || !evt.resourceType) {
+      return undefined;
+    }
+    types.add(evt.resourceType);
+  }
+  return types;
 }
 
 const INTERACTION_CRITICAL_APP_STATE_KEYS = [
@@ -1591,14 +1646,26 @@ export function useDbSync(
             );
           }
         };
-        const hasActionEvent = invalidating.some(
+        const actionEvents = invalidating.filter(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
+        const hasActionEvent = actionEvents.length > 0;
         if (hasActionEvent) {
           const appPredicate = actionInvalidatePredicateRef.current;
-          const predicate = appPredicate
-            ? (query: Query) => appPredicate(query, invalidating)
+          // Narrowing is only sound when nothing else in the batch changed data:
+          // a db or collab change in the same batch has an unknown affected set.
+          const changedResources = invalidating.every(
+            (evt) => evt.source === "action" || evt.source === "app-state",
+          )
+            ? changedActionResourceTypes(actionEvents)
             : undefined;
+          const predicate =
+            appPredicate || changedResources
+              ? (query: Query) =>
+                  (!appPredicate || appPredicate(query, invalidating)) &&
+                  (changedResources === undefined ||
+                    actionQueryAffectedByResources(query, changedResources))
+              : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
           );

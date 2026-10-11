@@ -16,7 +16,7 @@ import {
 } from "@playwright/test";
 
 import { signedInContext } from "./authed";
-import { watchChatRequests } from "./chat";
+import { formatChatRequestDiagnostics, watchChatRequests } from "./chat";
 import {
   composerHoldsPrompt,
   describePersisted,
@@ -1007,7 +1007,7 @@ export class ChatReliabilitySession {
 
     sections.push(
       `agent-chat requests (${this.traffic.entries.length}):\n${summarizeTraffic(this.traffic.entries)}`,
-      `luna: ${JSON.stringify(this.luna.log)}`,
+      `luna: ${formatChatRequestDiagnostics(this.luna.log)}`,
     );
 
     if (id) {

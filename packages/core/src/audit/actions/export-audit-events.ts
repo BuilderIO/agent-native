@@ -68,9 +68,11 @@ export default defineAction({
       .optional()
       .describe("Filter to one resource id (pair with targetType)."),
     actorKind: z
-      .enum(["agent", "human", "system"])
+      .enum(["agent", "human", "service", "system"])
       .optional()
-      .describe("Filter to changes made by the agent, a human, or the system."),
+      .describe(
+        "Filter to changes made by an agent, human, service principal, or the system.",
+      ),
     actorEmail: z.string().optional().describe("Filter to one actor's email."),
     status: z
       .enum(["success", "error", "denied"])

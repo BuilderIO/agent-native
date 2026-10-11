@@ -79,7 +79,10 @@ import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
+import {
+  buildShareAttributedSignUpHref,
+  SignedOutShareActions,
+} from "@/components/player/signed-out-share-actions";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
@@ -152,7 +155,6 @@ import {
 } from "../../shared/recording-link";
 import {
   buildShareContinuationQuery,
-  buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
 import { resolveDashboardRedirect } from "../../shared/share-dashboard-redirect";
@@ -508,7 +510,7 @@ function AgentDiscovery({
         {/* The href alone is invisible to agents: the common way to read a page
             is rendered-text or accessibility-tree extraction, which keeps this
             text and drops every attribute. Keep the URL in the text itself. */}
-        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions")}`}
+        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions", { shareWithAgents: t("shareDialog.shareWithAgents") })}`}
       </a>
       <script
         type="application/agent-native+json"
@@ -554,10 +556,6 @@ export default function ShareRoute() {
       }
     },
     [recordingId, attribution.ref, attribution.via],
-  );
-
-  const signupHref = appPath(
-    `/signup?${buildSignupAttributionQuery(attribution.via)}`,
   );
 
   const shareViewFiredRef = useRef(false);
@@ -670,7 +668,13 @@ export default function ShareRoute() {
     const query = buildShareContinuationQuery(attribution, startAt, panelParam);
     return query ? `${path}?${query}` : path;
   }, [attribution, recordingId, startAt, panelParam]);
-  const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
+  const signupHref = buildShareAttributedSignUpHref(
+    shareReturnTo,
+    attribution.via,
+  );
+  const signInHref = buildSignInReturnHref({
+    returnTo: appPath(shareReturnTo),
+  });
   const queryClient = useQueryClient();
 
   const submitAccessRequest = useCallback(
@@ -1425,7 +1429,7 @@ export default function ShareRoute() {
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
     const signInHref = buildSignInReturnHref({
-      returnTo: `/r/${recording.id}`,
+      returnTo: appPath(`/r/${recording.id}`),
     });
     const detail = failureDetail(rawFailureReason);
     const label = storageSetupFailure

@@ -9,10 +9,21 @@ import {
   isAgentChatDurableBackgroundEnabled,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
+import { uploadFile } from "../file-upload/registry.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import {
+  assertServicePrincipalMayRun,
+  recordServicePrincipalDenial,
+  ServicePrincipalRefusedError,
+} from "../org/service-principal-guard.js";
 import { findWorkspaceDispatchAgent } from "../server/agent-discovery.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
+import {
+  DEFAULT_UPLOAD_MAX_FILE_BYTES,
+  isAllowedUploadMimeType,
+} from "../server/h3-helpers.js";
 import { markExplicitPersonalOrgScope } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
@@ -23,6 +34,7 @@ import {
 } from "./auth-policy.js";
 import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import { assertA2APersistablePayload } from "./persistence-safety.js";
 import {
   createTask,
   createOrReuseTask,
@@ -34,6 +46,7 @@ import {
   failStuckA2ATask,
   failStuckQueuedA2ATask,
   settleProcessingA2ATask,
+  resetStuckA2ATaskForRetry,
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
   pauseProcessingA2ATask,
@@ -339,6 +352,38 @@ export async function processA2ATaskFromQueue(
     typeof processorMeta.verifiedOrgId === "string"
       ? processorMeta.verifiedOrgId.trim()
       : undefined;
+  let servicePrincipalAllowedActions: string[] | null | undefined;
+  try {
+    const admission = await assertServicePrincipalMayRun(
+      verifiedEmail,
+      verifiedOrgId,
+    );
+    if (parseServiceIdentityEmail(verifiedEmail)) {
+      servicePrincipalAllowedActions = admission.allowedActions;
+    }
+  } catch (error) {
+    if (!(error instanceof ServicePrincipalRefusedError)) throw error;
+    if (error.statusCode === 503) {
+      await resetStuckA2ATaskForRetry(taskId, Date.now());
+      throw error;
+    }
+    if (error.statusCode !== 403) throw error;
+    await recordServicePrincipalDenial({
+      email: verifiedEmail,
+      orgId: verifiedOrgId,
+      actionName: "a2a:process-task",
+      caller: "a2a",
+      error,
+    });
+    await settleProcessingA2ATask(taskId, {
+      state: "failed",
+      message: {
+        role: "agent",
+        parts: [{ type: "text", text: error.message }],
+      },
+    });
+    return;
+  }
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
@@ -360,6 +405,10 @@ export async function processA2ATaskFromQueue(
     }
     if (orgDomainHint) event.context.__a2aOrgDomain = orgDomainHint;
     if (verifiedOrgId) event.context.__a2aVerifiedOrgId = verifiedOrgId;
+    if (servicePrincipalAllowedActions !== undefined) {
+      event.context.__a2aServicePrincipalAllowedActions =
+        servicePrincipalAllowedActions;
+    }
     if (verifiedEmail && !resolvedOrgId) markExplicitPersonalOrgScope(event);
   }
 
@@ -393,6 +442,7 @@ export async function processA2ATaskFromQueue(
           callerMetadata,
           event,
           sourceContext,
+          verifiedEmail,
         ),
     );
   } catch (err: any) {
@@ -411,6 +461,32 @@ const defaultHandler: A2AHandler = async (
   message: Message,
   context: A2AHandlerContext,
 ): Promise<A2AHandlerResult> => {
+  const eventContext = (
+    context.event as { context?: Record<string, unknown> } | undefined
+  )?.context;
+  const verifiedEmail =
+    typeof eventContext?.__a2aVerifiedEmail === "string"
+      ? eventContext.__a2aVerifiedEmail
+      : undefined;
+  const serviceIdentity = parseServiceIdentityEmail(verifiedEmail);
+  if (serviceIdentity) {
+    const error = new ServicePrincipalRefusedError(
+      "service_principal_handoff_unsupported",
+      "The default A2A chat handoff cannot preserve service-principal authorization. Use a service-aware A2A handler.",
+    );
+    await recordServicePrincipalDenial({
+      email: verifiedEmail,
+      orgId:
+        typeof eventContext?.__a2aVerifiedOrgId === "string"
+          ? eventContext.__a2aVerifiedOrgId
+          : undefined,
+      actionName: "a2a:agent-chat-handoff",
+      caller: "a2a",
+      error,
+    });
+    throw error;
+  }
+
   const text = message.parts
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)
@@ -488,11 +564,19 @@ function makeHandlerContext(
   metadata?: Record<string, unknown>,
   event?: any,
   sourceContext?: A2ASourceContext,
+  ownerEmail?: string,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
+  persistFileArtifacts: () => Promise<void>;
 } {
   const artifacts: Artifact[] = [];
+  const pendingFileArtifacts: Array<{
+    artifact: Artifact;
+    name: string;
+    content: string;
+    mimeType: string;
+  }> = [];
   const context: A2AHandlerContext = {
     taskId,
     contextId,
@@ -500,26 +584,76 @@ function makeHandlerContext(
     event,
     sourceContext,
     writeArtifact(name, content, mimeType) {
+      if (mimeType) {
+        const artifact: Artifact = {
+          name,
+          parts: [{ type: "file", file: { name, mimeType } }],
+        };
+        artifacts.push(artifact);
+        pendingFileArtifacts.push({ artifact, name, content, mimeType });
+        return name;
+      }
       const artifact: Artifact = {
         name,
-        parts: mimeType
-          ? [
-              {
-                type: "file",
-                file: {
-                  name,
-                  mimeType,
-                  bytes: Buffer.from(content).toString("base64"),
-                },
-              },
-            ]
-          : [{ type: "text", text: content }],
+        parts: [{ type: "text", text: content }],
       };
       artifacts.push(artifact);
       return name;
     },
   };
-  return { context, artifacts };
+  return {
+    context,
+    artifacts,
+    async persistFileArtifacts() {
+      for (const pending of pendingFileArtifacts) {
+        if (!isAllowedUploadMimeType(pending.mimeType)) {
+          throw new A2AArtifactStorageError(
+            `A2A file artifact MIME type is not supported: ${pending.mimeType}`,
+          );
+        }
+        const data = Buffer.from(pending.content, "utf8");
+        if (data.byteLength > DEFAULT_UPLOAD_MAX_FILE_BYTES) {
+          throw new A2AArtifactStorageError(
+            `A2A file artifacts cannot exceed ${Math.round(DEFAULT_UPLOAD_MAX_FILE_BYTES / 1024 / 1024)} MB.`,
+          );
+        }
+        let uploaded;
+        try {
+          uploaded = await uploadFile({
+            data,
+            filename: pending.name,
+            mimeType: pending.mimeType,
+            ownerEmail:
+              ownerEmail ??
+              (event?.context?.__a2aVerifiedEmail as string | undefined) ??
+              undefined,
+          });
+        } catch {
+          throw new A2AArtifactStorageError();
+        }
+        if (!uploaded?.url) throw new A2AArtifactStorageError();
+        try {
+          assertA2APersistablePayload(uploaded.url, "A2A artifact URI");
+        } catch {
+          throw new A2AArtifactStorageError();
+        }
+        const part = pending.artifact.parts[0];
+        if (part?.type !== "file") throw new A2AArtifactStorageError();
+        part.file.uri = uploaded.url;
+      }
+    },
+  };
+}
+
+class A2AArtifactStorageError extends Error {
+  readonly agentNativeErrorCode = "A2A_ARTIFACT_STORAGE_UNAVAILABLE";
+
+  constructor(
+    message = "A durable file storage provider is required to write A2A file artifacts.",
+  ) {
+    super(message);
+    this.name = "A2AArtifactStorageError";
+  }
 }
 
 async function withA2ARequestContext<T>(
@@ -561,13 +695,15 @@ async function runHandlerAndPersist(
   metadata: Record<string, unknown> | undefined,
   event?: any,
   sourceContext?: A2ASourceContext,
+  ownerEmail?: string,
 ): Promise<void> {
-  const { context, artifacts } = makeHandlerContext(
+  const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
     taskId,
     contextId,
     metadata,
     event,
     sourceContext,
+    ownerEmail,
   );
   try {
     const result = getHandler(config)(message, context);
@@ -585,6 +721,7 @@ async function runHandlerAndPersist(
         await pauseProcessingA2ATask(taskId, lastMessage);
         return;
       }
+      await persistFileArtifacts();
       await settleProcessingA2ATask(taskId, {
         state: "completed",
         message: lastMessage,
@@ -599,6 +736,7 @@ async function runHandlerAndPersist(
       await pauseProcessingA2ATask(taskId, handlerResult.message);
       return;
     }
+    await persistFileArtifacts();
     await settleProcessingA2ATask(taskId, {
       state: "completed",
       message: handlerResult.message,
@@ -674,6 +812,19 @@ async function handleSend(
         0,
         -32602,
         "Invalid params: message with role and parts required",
+      ),
+      _id: 0,
+    };
+  }
+  try {
+    assertA2APersistablePayload(message, "A2A message");
+    assertA2APersistablePayload(params.metadata, "A2A metadata");
+  } catch (error) {
+    return {
+      ...jsonRpcError(
+        0,
+        -32602,
+        error instanceof Error ? error.message : "Invalid A2A message payload",
       ),
       _id: 0,
     };
@@ -777,6 +928,7 @@ async function handleSend(
         sourceContext: sourceContext ?? null,
       },
     };
+    event?.context?.__a2aBeforeTaskPersistence?.();
     const { task, reused } = await createOrReuseTask(
       message,
       contextId,
@@ -849,6 +1001,7 @@ async function handleSend(
           });
           return { ...jsonRpcResult(0, updated), _id: 0 };
         }
+        await ctx.persistFileArtifacts();
         const updated = await updateTask(task.id, {
           state: "completed",
           message: lastMessage,
@@ -869,6 +1022,7 @@ async function handleSend(
         });
         return { ...jsonRpcResult(0, updated), _id: 0 };
       }
+      await ctx.persistFileArtifacts();
       const updated = await updateTask(task.id, {
         state: "completed",
         message: handlerResult.message,
@@ -909,6 +1063,24 @@ async function handleStream(
     res.end();
     return;
   }
+  try {
+    assertA2APersistablePayload(message, "A2A message");
+    assertA2APersistablePayload(params.metadata, "A2A metadata");
+  } catch (error) {
+    res.write(
+      `data: ${JSON.stringify(
+        jsonRpcError(
+          0,
+          -32602,
+          error instanceof Error
+            ? error.message
+            : "Invalid A2A message payload",
+        ),
+      )}\n\n`,
+    );
+    res.end();
+    return;
+  }
   if (hasUnboundVerifiedOrgIdentity(event)) {
     res.write(
       `data: ${JSON.stringify(
@@ -943,7 +1115,7 @@ async function handleStream(
 
     await updateTask(task.id, { state: "working" });
 
-    const { context, artifacts } = makeHandlerContext(
+    const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
       task.id,
       contextId,
       trustedA2AMetadata(metadata, event),
@@ -971,6 +1143,7 @@ async function handleStream(
       } else {
         const handlerResult = await (result as Promise<A2AHandlerResult>);
         const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+        await persistFileArtifacts();
         const updated = await updateTask(task.id, {
           state: "completed",
           message: handlerResult.message,
@@ -982,6 +1155,7 @@ async function handleStream(
       }
 
       const allArtifacts = [...artifacts];
+      await persistFileArtifacts();
       const final = await updateTask(task.id, {
         state: "completed",
         artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,

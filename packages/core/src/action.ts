@@ -27,12 +27,16 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import { parseServiceIdentityEmail } from "./org/service-identity.js";
+import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export type ActionCaller =
   | "tool"
   | "http"
   | "frontend"
+  | "mcp-widget"
+  | "mcp-widget-write"
   | "cli"
   | "mcp"
   | "webmcp"
@@ -72,6 +76,16 @@ export interface ActionRunContext {
   attachments?: AgentChatAttachment[];
   signal?: AbortSignal;
   actionName?: string;
+  /** Present only on frontend GETs authorized by a scoped directory-widget read capability. */
+  mcpDirectoryWidgetReadOnly?: true;
+  /** Present only on frontend calls authorized by a scoped directory-widget capability: the resource IDs it is bound to. */
+  mcpDirectoryWidgetResourceIds?: Record<string, string>;
+  /** Present only on frontend mutations authorized by a scoped directory-widget write capability. */
+  mcpDirectoryWidgetWrite?: {
+    appId: string;
+    resourceIds: Record<string, string>;
+    actionNames: readonly string[];
+  };
   threadId?: string;
   runId?: string;
   turnId?: string;
@@ -225,6 +239,35 @@ export function outputContractFailureEmitsChange(
   );
 }
 
+/**
+ * What a write action verified about its own effect. An action opts in by
+ * returning a plain-object result with a reserved `_receipt: WriteReceipt`.
+ * The agent loop reads it before the result is stringified and truncated, so
+ * the final answer is reconciled with what the write did instead of with the
+ * model's reading of a JSON string.
+ *
+ * - `changed: false`: nothing was written (a no-op); not a completed side effect.
+ * - `verified: true`: the effect was observed. `false`: it was checked and did
+ *   not hold. `"unverified"`: it could not be checked.
+ * - `subject`: the stable target of the write, such as a dashboard id. Later
+ *   receipts from the same action with the same subject that are `changed` and
+ *   `verified: true` supersede this one, so a no-op that was then fixed does
+ *   not flag the answer. A receipt with failing checks is superseded only when
+ *   those later receipts carry an `ok` check with the same `id` for every
+ *   check that failed here, because a verified write speaks only for what it
+ *   checked. Without a subject a receipt is never superseded.
+ * - Bounds, enforced by the loop: summary and subject 200 chars, 8 checks, 5
+ *   warnings.
+ */
+export interface WriteReceipt {
+  changed: boolean;
+  verified: true | false | "unverified";
+  summary: string;
+  subject?: string;
+  checks?: Array<{ id: string; ok: boolean; detail?: string }>;
+  warnings?: string[];
+}
+
 export class AgentActionStopError extends Error {
   readonly agentNativeStop = true;
   readonly errorCode?: string;
@@ -376,6 +419,7 @@ export type ActionMcpAppHtmlBuilder = (ctx: {
   appId?: string;
   requestOrigin?: string;
   catalogMode?: "app" | "directory";
+  startToolName?: string;
 }) => string;
 
 export interface ActionMcpAppResourceConfig {
@@ -416,6 +460,7 @@ export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
+  idempotentHint?: boolean;
 }
 
 interface DefineActionWithSchema<
@@ -488,6 +533,11 @@ interface DefineActionWithSchema<
    *  needs to see, such as telemetry. Defaults to publishing; read-only
    *  actions never publish. */
   changeEvents?: boolean;
+  /** `false` keeps this action's query results out of the browser's persisted
+   *  query cache, so a read that must not outlive the page (secrets, one-time
+   *  codes, private data) is never painted from disk on a revisit. Defaults to
+   *  persisting. */
+  persistInBrowser?: boolean;
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
@@ -576,6 +626,7 @@ interface DefineActionWithParams<
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
+  persistInBrowser?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
     result: TReturn,
@@ -623,6 +674,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
+  readonly persistInBrowser?: boolean;
   readonly changeResource?: (
     input: TInput,
     result: TReturn,
@@ -667,9 +719,16 @@ export function defineAction<
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  // Converting a schema to JSON Schema is the dominant module-scope cost of an
+  // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(options.schema, options.description);
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema,
+      options.description,
+    );
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
@@ -677,21 +736,22 @@ export function defineAction(options: any) {
     };
   }
 
-  if (
-    hasSchema &&
-    options.agentInputSchema &&
-    "~standard" in options.agentInputSchema
-  ) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema,
-      options.description,
-    );
-  }
-
+  const executionKey = {};
+  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
+    const frame = actionExecutionStorage?.getStore()?.frame;
+    if (frame?.key === executionKey) {
+      frame.handlerEntered = true;
+      if (readOnly !== true) {
+        for (let parent = frame.parent; parent; parent = parent.parent)
+          parent.descendantWriteEntered = true;
+      }
+    }
+    return options.run(args, ctx);
+  };
   const guardedRun =
     typeof options.authorize === "function" || options.access
-      ? wrapRunWithAccess(options.run, options.access, options.authorize)
-      : options.run;
+      ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
+      : handlerRun;
   const uiOnlyGuardedRun =
     options.uiOnly === true
       ? async (args: any, ctx?: ActionRunContext) => {
@@ -764,7 +824,9 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
-  const trackedRun = wrapRunWithActionTracking(finalRun, readOnly);
+  const trackedRun = wrapRunWithServicePrincipalGrant(
+    wrapRunWithActionTracking(finalRun, readOnly),
+  );
 
   const toolCallable: boolean | undefined =
     typeof options.toolCallable === "boolean"
@@ -782,11 +844,13 @@ export function defineAction(options: any) {
           !Array.isArray(options.mcpAnnotations) &&
           typeof options.mcpAnnotations.readOnlyHint === "boolean" &&
           typeof options.mcpAnnotations.destructiveHint === "boolean" &&
-          typeof options.mcpAnnotations.openWorldHint === "boolean"
+          typeof options.mcpAnnotations.openWorldHint === "boolean" &&
+          (options.mcpAnnotations.idempotentHint === undefined ||
+            typeof options.mcpAnnotations.idempotentHint === "boolean")
         ? options.mcpAnnotations
         : (() => {
             throw new TypeError(
-              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values.",
+              "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
   const deferLoading: boolean | undefined =
@@ -859,7 +923,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    run: trackedRun,
+    run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -891,6 +955,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.changeEvents === "boolean"
       ? { changeEvents: options.changeEvents }
+      : {}),
+    ...(typeof options.persistInBrowser === "boolean"
+      ? { persistInBrowser: options.persistInBrowser }
       : {}),
     ...(typeof options.changeResource === "function"
       ? { changeResource: options.changeResource }
@@ -967,9 +1034,7 @@ function wrapRunWithAccess(
   authorize: ActionAuthorize<any> | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
-    if (access) {
-      await assertRegisteredActionAccess(access, args, ctx);
-    }
+    if (access) await assertRegisteredActionAccess(access, args, ctx);
     if (authorize) {
       const verdict = await authorize(args, ctx);
       if (verdict === false) {
@@ -982,6 +1047,30 @@ function wrapRunWithAccess(
       }
     }
     return run(args, ctx);
+  };
+}
+
+/**
+ * Runs outside action tracking, so a refused call is audited once as a denial
+ * and never as a failed run of the action. Every route to running an action as
+ * a service identity passes here.
+ */
+function wrapRunWithServicePrincipalGrant(
+  run: (args: any, ctx?: ActionRunContext) => any,
+): (args: any, ctx?: ActionRunContext) => any {
+  return function grantCheckedRun(args: any, ctx?: ActionRunContext) {
+    if (!parseServiceIdentityEmail(ctx?.userEmail)) return run(args, ctx);
+    return import("./org/service-principal-guard.js")
+      .then(({ enforceServicePrincipalActionGrant }) =>
+        enforceServicePrincipalActionGrant({
+          email: ctx!.userEmail,
+          orgId: ctx!.orgId,
+          // A missing name only passes an unrestricted grant.
+          actionName: ctx!.actionName ?? "",
+          caller: ctx!.caller,
+        }),
+      )
+      .then(() => run(args, ctx));
   };
 }
 
@@ -1518,6 +1607,106 @@ export function actionCallRecord(
     : undefined;
 }
 
+/** Rejected action input; execution phase determines whether effects are possible. */
+export class ActionInputValidationError extends Error {}
+
+type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
+type ActionExecutionFrame = {
+  key: object;
+  run: ActionExecutionRun;
+  parent?: ActionExecutionFrame;
+  handlerEntered: boolean;
+  descendantWriteEntered: boolean;
+  boundaryPending?: boolean;
+};
+type ActionExecutionState = {
+  frame?: ActionExecutionFrame;
+  failures: WeakMap<object, ActionExecutionFrame>;
+};
+const ActionExecutionStorage = getAsyncLocalStorageCtor();
+const actionExecutionStorage = ActionExecutionStorage
+  ? new ActionExecutionStorage<ActionExecutionState>()
+  : undefined;
+
+function wrapRunWithExecutionBoundary(
+  run: ActionExecutionRun,
+  key: object,
+): ActionExecutionRun {
+  const boundaryRun: ActionExecutionRun = async (args, ctx) => {
+    if (!actionExecutionStorage) return run(args, ctx);
+    const parent = actionExecutionStorage.getStore();
+    const frame: ActionExecutionFrame =
+      parent?.frame?.boundaryPending && parent.frame.run === boundaryRun
+        ? parent.frame
+        : {
+            key,
+            run: boundaryRun,
+            parent: parent?.frame,
+            handlerEntered: false,
+            descendantWriteEntered: false,
+          };
+    frame.key = key;
+    frame.boundaryPending = false;
+    frame.handlerEntered = false;
+    const state: ActionExecutionState = {
+      frame,
+      failures: parent?.failures ?? new WeakMap(),
+    };
+    return actionExecutionStorage.run(state, async () => {
+      try {
+        return await run(args, ctx);
+      } catch (error) {
+        if (error !== null && typeof error === "object") {
+          state.failures.set(error, frame);
+        }
+        throw error;
+      }
+    });
+  };
+  return boundaryRun;
+}
+
+/** @internal Observe one public action invocation without transferring child refusals. */
+export async function runActionWithExecutionOutcome(
+  run: ActionExecutionRun,
+  args: unknown,
+  ctx: ActionRunContext | undefined,
+  outcome: { refused: boolean },
+): Promise<any> {
+  outcome.refused = false;
+  // A mutable async stack cannot safely attribute overlapping invocations.
+  if (!actionExecutionStorage) return run(args, ctx);
+  const parent = actionExecutionStorage.getStore();
+  const frame: ActionExecutionFrame = {
+    key: {},
+    run,
+    parent: parent?.frame,
+    handlerEntered: true,
+    descendantWriteEntered: false,
+    boundaryPending: true,
+  };
+  const state: ActionExecutionState = {
+    frame,
+    failures: parent?.failures ?? new WeakMap(),
+  };
+  return actionExecutionStorage.run(state, async () => {
+    try {
+      return await run(args, ctx);
+    } catch (error) {
+      const failure =
+        error !== null && typeof error === "object"
+          ? state.failures.get(error)
+          : undefined;
+      // Error types cannot prove non-execution once the handler has entered.
+      outcome.refused =
+        !frame.descendantWriteEntered &&
+        !frame.handlerEntered &&
+        failure === frame;
+      throw error;
+    }
+  });
+}
+
 export async function validateActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
@@ -1569,7 +1758,7 @@ export async function validateActionArgs(
       ? ` Expected: ${signature} (where * = required, ? = optional).`
       : "";
 
-    throw new Error(
+    throw new ActionInputValidationError(
       `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
     );
   }

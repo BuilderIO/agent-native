@@ -167,7 +167,7 @@ describe("figma import failure contract", () => {
     { status: 404, detail: "Not found", expectedStatus: 404 },
     { status: 500, detail: "Figma is down", expectedStatus: 502 },
   ])(
-    "surfaces Figma's own $status so the user can act on it",
+    "surfaces the provider status so the user can act on it",
     async ({ status, detail, expectedStatus }) => {
       mocks.executeProviderApiRequest.mockResolvedValue({
         response: { ok: false, status, statusText: "Error", text: detail },

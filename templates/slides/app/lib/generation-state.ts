@@ -38,11 +38,12 @@ export function shouldShowNewDeckGeneratingOverlay({
 }
 
 /**
- * A prompted deck whose generation recorded a failure, never started, or
- * whose run ended without a single slide shows the failure with Try again,
- * never an idle empty canvas that reads as "still working".
+ * Keep recovery controls visible when an empty prompted deck has a confirmed
+ * failure or a started run whose outcome could not be confirmed.
  */
-export function isNewDeckGenerationFailed({
+export type NewDeckGenerationRecoveryState = "failed" | "outcome_unresolved";
+
+export function getNewDeckGenerationRecoveryState({
   slideCount,
   hasGenerationContext,
   failureCode,
@@ -58,12 +59,21 @@ export function isNewDeckGenerationFailed({
   phase: NewDeckGenerationPhase;
   generating: boolean;
   waitingOnQuestions: boolean;
-}): boolean {
-  if (slideCount !== 0 || !hasGenerationContext) return false;
-  if (generating || waitingOnQuestions) return false;
-  if (typeof failureCode === "string") return true;
-  if (isNewDeckCreation && phase === "abandoned") return true;
-  return phase === "started";
+}): NewDeckGenerationRecoveryState | null {
+  if (
+    slideCount !== 0 ||
+    !hasGenerationContext ||
+    generating ||
+    waitingOnQuestions
+  ) {
+    return null;
+  }
+  if (failureCode === "outcome_unresolved") return "outcome_unresolved";
+  if (typeof failureCode === "string") return "failed";
+  if (!isNewDeckCreation) return null;
+  if (phase === "abandoned") return "failed";
+  if (phase === "started") return "outcome_unresolved";
+  return null;
 }
 
 export function shouldShowNewDeckGeneratingProgress({

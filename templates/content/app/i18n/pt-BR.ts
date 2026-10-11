@@ -460,7 +460,6 @@ const editor = {
   pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
   pageBodySyncingDescription:
     "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
-  createCollection: "Criar coleção",
   creatingDatabase: "Criando coleção embutida...",
   databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
@@ -821,6 +820,7 @@ const editor = {
     notifications: "Notificações",
     notionSync: "Sincronização de noções",
     openInNotion: "Aberto em noção",
+    openInAgentNative: "Abrir no Agent-Native",
     orgCanFindAndView:
       "Qualquer pessoa na sua organização pode encontrar e visualizar",
     orgLinkCanView:
@@ -1080,6 +1080,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Ainda aguardando {{stage}}. Solicitação: {{action}}.",
+    widgetDocumentLoadStage: "o conteúdo da página salva",
+    widgetDraftCheckStage: "a recuperação do rascunho da página",
+    widgetEditorInitStage: "a inicialização do editor de rich text",
     iconPickerIcons: "Ícones",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Recentes",
@@ -1126,6 +1130,8 @@ const exactEnglish = {
       openInClaude: "Abrir no Claude",
       openInClaudeCode: "Abrir no Claude Code",
       openInCodex: "Abrir no Codex",
+      connectContent: "Conectar o Content",
+      otherAgents: "Outros agentes",
       agentCopyAccessNote:
         "Os agentes podem usar o Content MCP com suas permissões atuais",
       temporaryAgentLink: "Link temporário para agentes",
@@ -1471,6 +1477,9 @@ const overrides = {
     aiUndo: "Desfazer",
     aiDone: "Concluído",
     aiMoreChanges: "+{{count}} a mais",
+    suggestionReplaced: "Substituída",
+    suggestionWithdrawn: "Retirada",
+    suggestedChange: "Alteração sugerida",
     aiUndoUnavailable:
       "O texto removido não pode ser restaurado automaticamente",
     aiUndoFailed: "Não foi possível desfazer a alteração",
@@ -1515,6 +1524,11 @@ const overrides = {
     resize: "Redimensionar barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "Falha ao criar página",
+    failedCreatePageDraftDescription:
+      "Seu rascunho está salvo neste navegador. Você pode tentar criar a página novamente ou descartar o rascunho.",
+    discardFailedCreatePageQuestion: "Descartar a criação pendente?",
+    discardFailedCreatePageDescription:
+      "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",

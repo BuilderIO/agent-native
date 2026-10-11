@@ -32,6 +32,7 @@ import {
   parseInlineGeneratePrompt,
   runGeneratePromptIfAllowed,
   slashCommandAllowedInMode,
+  slashCommandsForDirectoryWidget,
   slashCommandsForMode,
   SlashCommandMenu,
   setCodeBlockFromSlashCommand,
@@ -192,6 +193,18 @@ describe("slash command menu trigger", () => {
         (item) => item.suggestionSafe === true,
       ),
     ).toBe(true);
+  });
+
+  it("limits a writable directory widget to local document-formatting commands", () => {
+    const commands = [
+      { title: "Bulleted list", directoryWidgetSafe: true },
+      { title: "Create database", directoryWidgetSafe: false },
+    ];
+
+    expect(slashCommandsForDirectoryWidget(commands, true)).toEqual([
+      commands[0],
+    ]);
+    expect(slashCommandsForDirectoryWidget(commands, false)).toEqual(commands);
   });
 
   it("repositions after an ancestor scroll moves the caret", () => {

@@ -139,7 +139,7 @@ beforeAll(async () => {
       cache_read_tokens BIGINT NOT NULL DEFAULT 0, cache_write_tokens BIGINT NOT NULL DEFAULT 0,
       cost_cents_x100 BIGINT NOT NULL DEFAULT 0, duration_ms BIGINT NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'success', error_message TEXT, metadata TEXT,
-      created_at BIGINT NOT NULL
+      created_at BIGINT NOT NULL, ended_at BIGINT
     );
     CREATE TABLE agent_trace_summaries (
       run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT,
@@ -171,7 +171,7 @@ describe("failed tool calls are never recorded without a reason", () => {
     );
     const span = toolSpan(spans);
     expect(span.status).toBe("error");
-    expect(span.errorMessage).toBe("Error running fetch: upstream said no");
+    expect(span.errorMessage).toBe("upstream said no");
     expect(span.errorDetail).toBe("signature");
     expect(JSON.stringify(span)).not.toContain("stack line two");
     expect(JSON.stringify(span)).not.toContain("abcdef123456");

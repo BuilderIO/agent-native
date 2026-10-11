@@ -1,0 +1,1059 @@
+import { rmSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { registerLabs } from "@agent-native/core/labs/registry";
+import {
+  loadActionsFromStaticRegistry,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { setupCreativeContext } from "@agent-native/creative-context/server";
+import { eq, sql } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import {
+  createMCPServerForRequest,
+  type MCPConfig,
+} from "../../../packages/core/src/mcp/build-server.js";
+import { CONTENT_CREATIVE_CONTEXT, CONTENT_LABS } from "../shared/labs.js";
+
+const requireFromCore = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+);
+const [{ Client }, { InMemoryTransport }] = await Promise.all([
+  import(requireFromCore.resolve("@modelcontextprotocol/client")),
+  import(requireFromCore.resolve("@modelcontextprotocol/server")),
+]);
+type MCPClient = InstanceType<typeof Client>;
+
+// guard:allow-unscoped — isolated database reads verify MCP persistence and omitted-field preservation.
+const databasePath = join(
+  tmpdir(),
+  `content-description-mcp-${process.pid}-${Date.now()}.pglite`,
+);
+const databaseUrl =
+  process.env.CONTENT_SETUP_POSTGRES_URL ?? `pglite:${databasePath}`;
+const owner = "description-owner@example.com";
+const outsider = "description-outsider@example.com";
+const viewer = "description-viewer@example.com";
+const editor = "description-editor@example.com";
+const sessions: Array<{
+  client: MCPClient;
+  server: Awaited<ReturnType<typeof createMCPServerForRequest>>;
+}> = [];
+let actions: MCPConfig["actions"];
+let getDb: typeof import("../server/db/index.js").getDb;
+let schema: typeof import("../server/db/schema.js");
+let ownerClient: MCPClient;
+let outsiderClient: MCPClient;
+let readOnlyClient: MCPClient;
+let viewerClient: MCPClient;
+let editorClient: MCPClient;
+
+async function connect(userEmail: string, writes = true) {
+  const server = await createMCPServerForRequest(
+    {
+      name: "Content",
+      appId: "content",
+      description: "Agent-Native Content",
+      version: "1.0.0-test",
+      actions,
+      productionActions: actions,
+      builtinCrossAppTools: false,
+      externalAgents: { writes: "allowlisted" },
+    },
+    {
+      userEmail,
+      orgDomain: undefined,
+      oauthScopes: writes ? ["mcp:read", "mcp:write"] : ["mcp:read"],
+    },
+    {
+      origin: "http://content.test",
+      transport: "http",
+      inlineMcpApps: false,
+    },
+  );
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const client = new Client({
+    name: "content-description-test",
+    version: "1.0.0",
+  });
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
+  sessions.push({ client, server });
+  return client;
+}
+
+async function callJson(
+  client: MCPClient,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const result = await client.callTool({ name, arguments: args });
+  expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+  expect(result.structuredContent).toBeDefined();
+  return result.structuredContent as Record<string, any>;
+}
+
+async function readRow(id: string) {
+  const [row] = await getDb()
+    .select()
+    .from(schema.documents)
+    .where(eq(schema.documents.id, id));
+  return row;
+}
+
+async function createPage(args: Record<string, unknown>) {
+  const result = await ownerClient.callTool({
+    name: "create-document",
+    arguments: args,
+  });
+  const text = result.content
+    .filter((entry) => entry.type === "text")
+    .map((entry) => entry.text)
+    .join("\n");
+  expect(result.isError, text).not.toBe(true);
+  const id = /\/page\/([A-Za-z0-9_-]+)/.exec(text)?.[1];
+  if (!id) throw new Error(`create-document returned no page id: ${text}`);
+  return callJson(ownerClient, "get-document", { id });
+}
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  registerLabs(CONTENT_LABS);
+  setupCreativeContext({
+    appId: "content",
+    labKey: CONTENT_CREATIVE_CONTEXT.key,
+  });
+  const database = await import("../server/db/index.js");
+  getDb = database.getDb;
+  schema = database.schema;
+  await (await import("../server/plugins/db.js")).default(undefined as never);
+  if (!databaseUrl.startsWith("pglite:")) {
+    const { runMigrations } = await import("@agent-native/core/db");
+    const { ORG_MIGRATIONS } =
+      await import("../../../packages/core/src/org/migrations.js");
+    await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })();
+  }
+  const { provisionContentSpaces } = await import("./_content-spaces.js");
+  for (const userEmail of [owner, outsider, viewer, editor]) {
+    await runWithRequestContext({ userEmail }, () =>
+      provisionContentSpaces(getDb(), userEmail),
+    );
+  }
+  actions = loadActionsFromStaticRegistry({
+    "create-document": await import("./create-document.js"),
+    "update-document": await import("./update-document.js"),
+    "get-document": await import("./get-document.js"),
+    "list-content-spaces": await import("./list-content-spaces.js"),
+    "create-content-database": await import("./create-content-database.js"),
+    "describe-content-database": await import("./describe-content-database.js"),
+    "get-content-database": await import("./get-content-database.js"),
+  });
+  [ownerClient, outsiderClient, readOnlyClient, viewerClient, editorClient] =
+    await Promise.all([
+      connect(owner),
+      connect(outsider),
+      connect(owner, false),
+      connect(viewer),
+      connect(editor),
+    ]);
+}, 120_000);
+
+afterAll(async () => {
+  await Promise.all(
+    sessions.flatMap(({ client, server }) => [client.close(), server.close()]),
+  );
+  if (databaseUrl.startsWith("pglite:")) {
+    rmSync(databasePath, { recursive: true, force: true });
+  }
+});
+
+const longDescription = `${"Complete guidance with Unicode café 🪶 and Markdown **emphasis**.\n".repeat(160)}END OF DESCRIPTION`;
+
+describe("document descriptions through external MCP", () => {
+  it("rejects invalid creative context before saving document metadata", async () => {
+    const created = await createPage({ title: "Validate before save" });
+    const before = await readRow(created.id);
+    const rejected = await ownerClient.callTool({
+      name: "update-document",
+      arguments: {
+        id: created.id,
+        description: "Must not be saved",
+        contextModeOverride: "off",
+        contextPackId: "fake-context-pack",
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      "contextPackId cannot be applied",
+    );
+    expect(await readRow(created.id)).toEqual(before);
+  });
+
+  it.each(["unavailable", "forbidden"] as const)(
+    "reports a committed save when creative-context recording is %s",
+    async (failureKind) => {
+      const created = await createPage({
+        title: "Post-commit recording",
+        content: "Private body",
+      });
+      const creativeContext =
+        await import("@agent-native/creative-context/server");
+      const { ForbiddenError } = await import("@agent-native/core/sharing");
+      const record = vi
+        .spyOn(creativeContext, "recordGenerationCreativeContext")
+        .mockRejectedValueOnce(
+          failureKind === "forbidden"
+            ? new ForbiddenError("Private context failure")
+            : new Error("Private context failure"),
+        );
+      try {
+        const result = await ownerClient.callTool({
+          name: "update-document",
+          arguments: {
+            id: created.id,
+            description: "Saved private guidance",
+            contextModeOverride: "off",
+          },
+        });
+        expect(result.isError).toBe(true);
+        const errorText = JSON.stringify(result.content);
+        expect(errorText).toContain("DOCUMENT_SAVED_RESPONSE_FAILED");
+        expect(errorText).toContain("update was saved");
+        expect(errorText).not.toContain("Saved private guidance");
+        expect(errorText).not.toContain("Private body");
+        expect(errorText).not.toContain("Private context failure");
+        expect((await readRow(created.id)).description).toBe(
+          "Saved private guidance",
+        );
+        expect(record).toHaveBeenCalledOnce();
+      } finally {
+        record.mockRestore();
+      }
+    },
+  );
+
+  it("rejects combined description and favorite changes before mutation", async () => {
+    const created = await createPage({
+      title: "Separate favorite update",
+      description: "Original guidance",
+    });
+    const before = await readRow(created.id);
+    const rejected = await ownerClient.callTool({
+      name: "update-document",
+      arguments: {
+        id: created.id,
+        description: "Must not be dropped",
+        isFavorite: false,
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      "FAVORITE_UPDATE_MUST_BE_SEPARATE",
+    );
+    expect(await readRow(created.id)).toEqual(before);
+  });
+
+  it("distinguishes a committed description update from losing read access afterward", async () => {
+    const created = await createPage({
+      title: "Committed description",
+      content: "Private body",
+    });
+    const db = getDb();
+    const transaction = db.transaction.bind(db);
+    const race = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        const result = await transaction(...args);
+        expect((await readRow(created.id)).description).toBe(
+          "Saved private guidance",
+        );
+        await db
+          .update(schema.documents)
+          .set({ ownerEmail: outsider })
+          .where(eq(schema.documents.id, created.id));
+        return result;
+      });
+    try {
+      const result = await ownerClient.callTool({
+        name: "update-document",
+        arguments: { id: created.id, description: "Saved private guidance" },
+      });
+      expect(result.isError).toBe(true);
+      const errorText = JSON.stringify(result.content);
+      expect(errorText).toContain("DOCUMENT_SAVED_ACCESS_CHANGED");
+      expect(errorText).toContain("update was saved");
+      expect(errorText).not.toContain("Saved private guidance");
+      expect(errorText).not.toContain("Private body");
+      expect(await readRow(created.id)).toMatchObject({
+        description: "Saved private guidance",
+        ownerEmail: outsider,
+      });
+      expect(race).toHaveBeenCalledOnce();
+    } finally {
+      race.mockRestore();
+    }
+  });
+
+  it("reports a metadata conflict as an MCP error without saving any fields", async () => {
+    const created = await createPage({
+      title: "Current title",
+      content: "Body",
+    });
+    const before = await readRow(created.id);
+    const rejected = await ownerClient.callTool({
+      name: "update-document",
+      arguments: {
+        id: created.id,
+        title: "Must not apply",
+        baseTitle: "Stale title",
+        description: "Must not apply",
+      },
+    });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected.content)).toContain(
+      "DOCUMENT_UPDATE_CONFLICT",
+    );
+    expect(JSON.stringify(rejected.content)).toContain("no changes were saved");
+    expect(await readRow(created.id)).toEqual(before);
+  });
+
+  it("advertises update-document in the compact catalog with write annotations", async () => {
+    const { tools } = await ownerClient.listTools();
+    const tool = tools.find((entry) => entry.name === "update-document");
+    expect(tool).toBeDefined();
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    });
+    expect(tool?.inputSchema.properties).toHaveProperty("description");
+    expect(tool?.inputSchema.required).toContain("id");
+    expect(
+      (
+        await ownerClient.callTool({
+          name: "update-document",
+          arguments: { description: "Missing document ID" },
+        })
+      ).isError,
+    ).toBe(true);
+    expect(
+      (await readOnlyClient.listTools()).tools.map((entry) => entry.name),
+    ).not.toContain("update-document");
+  });
+
+  it("updates, reads, retries, and clears a page description without changing its body", async () => {
+    const created = await createPage({
+      title: "MCP description page",
+      content: "Keep this Markdown body. ".repeat(4000),
+      description: "Before",
+    });
+    const before = await readRow(created.id);
+    const updated = await callJson(ownerClient, "update-document", {
+      id: created.id,
+      description: longDescription,
+    });
+    expect(updated.description).toBe(longDescription);
+    expect(updated).not.toHaveProperty("content");
+    expect(updated).not.toHaveProperty("contentFidelity");
+    const read = await callJson(ownerClient, "get-document", {
+      id: created.id,
+    });
+    expect(read.description).toBe(longDescription);
+    expect(read.content).toBe(before.content);
+    expect(await readRow(created.id)).toMatchObject({
+      title: before.title,
+      content: before.content,
+      icon: before.icon,
+      bodyRevision: before.bodyRevision,
+      description: longDescription,
+    });
+    const retried = await callJson(ownerClient, "update-document", {
+      id: created.id,
+      description: longDescription,
+    });
+    expect(retried.updatedAt).toBe(updated.updatedAt);
+    const cleared = await callJson(ownerClient, "update-document", {
+      id: created.id,
+      description: "",
+    });
+    expect(cleared.description).toBe("");
+    expect((await readRow(created.id)).content).toBe(before.content);
+  });
+
+  it("uses the database backing page id and returns the complete description on database reads", async () => {
+    const spaces = await callJson(ownerClient, "list-content-spaces", {});
+    const space = spaces.spaces.find((entry: any) => entry.kind === "personal");
+    expect(space).toBeDefined();
+    const created = await callJson(ownerClient, "create-content-database", {
+      spaceId: space.id,
+      title: "MCP description database",
+      description: "Before",
+      idempotencyKey: "description-database-create",
+    });
+    const id = created.database.documentId;
+    const before = await readRow(id);
+    const updated = await callJson(ownerClient, "update-document", {
+      id,
+      description: longDescription,
+    });
+    const page = await callJson(ownerClient, "get-document", { id });
+    expect(page.description).toBe(longDescription);
+    expect(page.database.description).toBe(longDescription);
+    const described = await callJson(ownerClient, "describe-content-database", {
+      databaseId: created.database.id,
+    });
+    expect(described.database.description).toBe(longDescription);
+    expect(described.database.updatedAt).toBe(updated.updatedAt);
+    expect(Date.parse(described.database.updatedAt)).toBeGreaterThan(
+      Date.parse(created.database.updatedAt),
+    );
+    const read = await callJson(ownerClient, "get-content-database", {
+      databaseId: created.database.id,
+      limit: 1,
+    });
+    expect(read.database.description).toBe(longDescription);
+    expect(read.database.updatedAt).toBe(updated.updatedAt);
+    expect(await readRow(id)).toMatchObject({
+      title: before.title,
+      content: before.content,
+      bodyRevision: before.bodyRevision,
+    });
+    await callJson(ownerClient, "update-document", {
+      id,
+      description: longDescription,
+    });
+    const retried = await callJson(ownerClient, "describe-content-database", {
+      databaseId: created.database.id,
+    });
+    expect(retried.database.updatedAt).toBe(updated.updatedAt);
+    const rejected = await readOnlyClient.callTool({
+      name: "update-document",
+      arguments: { id, description: "Must not apply" },
+    });
+    expect(rejected.isError).toBe(true);
+    const afterRejection = await callJson(ownerClient, "get-content-database", {
+      databaseId: created.database.id,
+      limit: 1,
+    });
+    expect(afterRejection.database.updatedAt).toBe(updated.updatedAt);
+    expect(afterRejection.database.description).toBe(longDescription);
+    const cleared = await callJson(ownerClient, "update-document", {
+      id,
+      description: "",
+    });
+    const afterClear = await callJson(
+      ownerClient,
+      "describe-content-database",
+      {
+        databaseId: created.database.id,
+      },
+    );
+    expect(afterClear.database.description).toBe("");
+    expect(afterClear.database.updatedAt).toBe(cleared.updatedAt);
+    expect(Date.parse(afterClear.database.updatedAt)).toBeGreaterThan(
+      Date.parse(updated.updatedAt),
+    );
+  });
+
+  it.each(["description", "title", "title-and-description"] as const)(
+    "advances a newer collection timestamp for %s updates",
+    async (fields) => {
+      const spaces = await callJson(ownerClient, "list-content-spaces", {});
+      const space = spaces.spaces.find(
+        (entry: any) => entry.kind === "personal",
+      );
+      const created = await callJson(ownerClient, "create-content-database", {
+        spaceId: space.id,
+        title: "Monotonic database",
+        description: "Before",
+        idempotencyKey: `monotonic-database-${fields}`,
+      });
+      const id = created.database.documentId;
+      const before = await readRow(id);
+      const collectionUpdatedAt = new Date(Date.now() + 60_000).toISOString();
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({ updatedAt: collectionUpdatedAt })
+        .where(eq(schema.contentDatabases.id, created.database.id));
+      const patch = {
+        id,
+        ...(fields !== "description" ? { title: "New title" } : {}),
+        ...(fields !== "title" ? { description: longDescription } : {}),
+      };
+      const updated = await callJson(ownerClient, "update-document", patch);
+      const described = await callJson(
+        ownerClient,
+        "describe-content-database",
+        {
+          databaseId: created.database.id,
+        },
+      );
+      expect(Date.parse(described.database.updatedAt)).toBeGreaterThan(
+        Date.parse(collectionUpdatedAt),
+      );
+      expect(described.database.updatedAt).toBe(updated.updatedAt);
+      expect(described.database.description).toBe(
+        fields === "title" ? "Before" : longDescription,
+      );
+      expect(described.database.title).toBe(
+        fields === "description" ? "Monotonic database" : "New title",
+      );
+      expect((await readRow(id)).content).toBe(before.content);
+      await callJson(ownerClient, "update-document", patch);
+      const retried = await callJson(ownerClient, "describe-content-database", {
+        databaseId: created.database.id,
+      });
+      expect(retried.database.updatedAt).toBe(updated.updatedAt);
+    },
+  );
+
+  it("locks a database collection before its backing page for description updates", async () => {
+    const spaces = await callJson(ownerClient, "list-content-spaces", {});
+    const space = spaces.spaces.find((entry: any) => entry.kind === "personal");
+    const created = await callJson(ownerClient, "create-content-database", {
+      spaceId: space.id,
+      title: "Lock order database",
+      idempotencyKey: "lock-order-database",
+    });
+    const db = getDb();
+    const transaction = db.transaction.bind(db);
+    const locks: string[] = [];
+    const spy = vi.spyOn(db, "transaction").mockImplementationOnce((callback) =>
+      transaction(async (tx) => {
+        const wrapped = Object.create(tx);
+        wrapped.select = (...args: Parameters<typeof tx.select>) => {
+          const query = tx.select(...args);
+          const from = query.from.bind(query);
+          query.from = (table: any) => {
+            const selected = from(table);
+            const lock = selected.for.bind(selected);
+            selected.for = (...options: Parameters<typeof selected.for>) => {
+              if (table === schema.documents) locks.push("document");
+              if (table === schema.contentDatabases) locks.push("collection");
+              return lock(...options);
+            };
+            return selected;
+          };
+          return query;
+        };
+        return callback(wrapped);
+      }),
+    );
+    try {
+      const updated = await callJson(ownerClient, "update-document", {
+        id: created.database.documentId,
+        description: "Guidance after lock acquisition",
+      });
+      expect(updated.description).toBe("Guidance after lock acquisition");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(locks).toEqual(["collection", "document"]);
+  });
+
+  it("completes a description update racing collection-first lifecycle locks", async () => {
+    const spaces = await callJson(ownerClient, "list-content-spaces", {});
+    const space = spaces.spaces.find((entry: any) => entry.kind === "personal");
+    const created = await callJson(ownerClient, "create-content-database", {
+      spaceId: space.id,
+      title: "Lifecycle lock race database",
+      idempotencyKey: "lifecycle-lock-race-database",
+    });
+    const db = getDb();
+    const transaction = db.transaction.bind(db);
+    const { lockContentDatabaseMutation } =
+      await import("./_content-database-mutation-lock.js");
+    const pglite = databaseUrl.startsWith("pglite:");
+    const { default: postgres } = await import(
+      requireFromCore.resolve("postgres")
+    );
+    const lifecycleClient = pglite
+      ? undefined
+      : postgres(databaseUrl, { max: 1 });
+    const collectionQuery = db
+      .update(schema.contentDatabases)
+      .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+      .where(eq(schema.contentDatabases.id, created.database.id))
+      .toSQL();
+    const documentQuery = db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.database.documentId))
+      .for("update")
+      .toSQL();
+    let collectionHeld!: () => void;
+    let releaseLifecycle!: () => void;
+    let metadataRequested!: () => void;
+    let collectionRequested!: () => void;
+    const held = new Promise<void>((resolve) => (collectionHeld = resolve));
+    const release = new Promise<void>(
+      (resolve) => (releaseLifecycle = resolve),
+    );
+    const requested = new Promise<void>(
+      (resolve) => (metadataRequested = resolve),
+    );
+    const attempted = new Promise<void>(
+      (resolve) => (collectionRequested = resolve),
+    );
+    const lifecycle = lifecycleClient
+      ? lifecycleClient.begin(async (connection: any) => {
+          await connection.unsafe(collectionQuery.sql, collectionQuery.params);
+          collectionHeld();
+          await release;
+          await connection.unsafe(documentQuery.sql, documentQuery.params);
+        })
+      : transaction(async (tx) => {
+          await lockContentDatabaseMutation(tx, created.database.id);
+          collectionHeld();
+          await release;
+          await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, created.database.documentId))
+            .for("update");
+        });
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const acquireCollection = metadata.lockDocumentMetadataDatabase;
+    const spy = vi
+      .spyOn(metadata, "lockDocumentMetadataDatabase")
+      .mockImplementationOnce((args) => {
+        metadataRequested();
+        collectionRequested();
+        return acquireCollection(args);
+      });
+    let update: ReturnType<typeof callJson> | undefined;
+    try {
+      await Promise.race([
+        held,
+        lifecycle.then(() => {
+          throw new Error(
+            "Lifecycle finished before acquiring its collection lock",
+          );
+        }),
+      ]);
+      if (pglite) {
+        releaseLifecycle();
+        await lifecycle;
+      }
+      update = callJson(ownerClient, "update-document", {
+        id: created.database.documentId,
+        description: "Guidance survives lifecycle contention",
+      });
+      await Promise.race([
+        requested,
+        update.then(() => {
+          throw new Error("Metadata finished before entering its transaction");
+        }),
+      ]);
+      // PGlite serializes transactions; PostgreSQL exposes the competing row-lock attempt.
+      if (!pglite)
+        await Promise.race([
+          attempted,
+          update.then(() => {
+            throw new Error(
+              "Metadata finished before acquiring its collection lock",
+            );
+          }),
+        ]);
+      releaseLifecycle();
+      const [lifecycleResult, updateResult] = await Promise.allSettled([
+        lifecycle,
+        update,
+      ]);
+      expect(lifecycleResult.status).toBe("fulfilled");
+      expect(updateResult.status).toBe("fulfilled");
+      expect((await readRow(created.database.documentId)).description).toBe(
+        "Guidance survives lifecycle contention",
+      );
+    } finally {
+      releaseLifecycle();
+      await Promise.allSettled([lifecycle, ...(update ? [update] : [])]);
+      spy.mockRestore();
+      if (lifecycleClient) await lifecycleClient.end();
+    }
+  });
+
+  it.each(["full-page", "inline-retained", "inline-detached"] as const)(
+    "keeps database and backing-page timestamps equal after a %s reparent",
+    async (mode) => {
+      const host = await createPage({ title: "Collection move host" });
+      const destination = await createPage({
+        title: "Collection move destination",
+      });
+      const created = await callJson(ownerClient, "create-content-database", {
+        spaceId: (await readRow(host.id)).spaceId,
+        title: "Moved collection",
+        description: "Guidance survives reparenting",
+        ...(mode !== "full-page" ? { parentId: host.id } : {}),
+        idempotencyKey: `move-database-clock-${mode}`,
+      });
+      const databaseId = created.database.id;
+      const documentId = created.database.documentId;
+      const collectionUpdatedAt = new Date(Date.now() + 60_000).toISOString();
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({
+          updatedAt: collectionUpdatedAt,
+          ...(mode !== "full-page"
+            ? { ownerDocumentId: host.id, ownerBlockId: "move-clock-block" }
+            : {}),
+        })
+        .where(eq(schema.contentDatabases.id, databaseId));
+      const before = await readRow(documentId);
+      const moveDocument = (await import("./move-document.js")).default;
+      const moved = await runWithRequestContext({ userEmail: owner }, () =>
+        moveDocument.run({
+          id: documentId,
+          parentId: mode === "inline-retained" ? host.id : destination.id,
+          position: 1,
+        }),
+      );
+      const described = await callJson(
+        ownerClient,
+        "describe-content-database",
+        {
+          databaseId,
+        },
+      );
+      expect(Date.parse(described.database.updatedAt)).toBeGreaterThan(
+        Date.parse(collectionUpdatedAt),
+      );
+      expect(described.database.updatedAt).toBe(moved.updatedAt);
+      const document = await readRow(documentId);
+      expect(document.updatedAt).toBe(moved.updatedAt);
+      expect(document.content).toBe(before.content);
+      expect(document.description).toBe(before.description);
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      expect(database.ownerDocumentId).toBe(
+        mode === "inline-retained" ? host.id : null,
+      );
+      expect(database.ownerBlockId).toBe(
+        mode === "inline-retained" ? "move-clock-block" : null,
+      );
+    },
+  );
+
+  it("revalidates an inline collection's current host before detaching", async () => {
+    const host = await createPage({ title: "Original inline host" });
+    const privateHost = await createPage({ title: "Private replacement host" });
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: outsider })
+      .where(eq(schema.documents.id, privateHost.id));
+    const created = await callJson(ownerClient, "create-content-database", {
+      parentId: host.id,
+      title: "Host authority race",
+      spaceId: (await readRow(host.id)).spaceId,
+      idempotencyKey: "host-authority-race",
+    });
+    const databaseId = created.database.id;
+    const documentId = created.database.documentId;
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ ownerDocumentId: host.id, ownerBlockId: "host-authority-block" })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const before = await readRow(documentId);
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const acquireCollection = metadata.lockDocumentMetadataDatabase;
+    const spy = vi
+      .spyOn(metadata, "lockDocumentMetadataDatabase")
+      .mockImplementationOnce(async (args) => {
+        const locked = await acquireCollection(args);
+        await args.db
+          .update(schema.contentDatabases)
+          .set({ ownerDocumentId: privateHost.id })
+          .where(eq(schema.contentDatabases.id, databaseId));
+        return locked;
+      });
+    try {
+      const moveDocument = (await import("./move-document.js")).default;
+      await expect(
+        runWithRequestContext({ userEmail: owner }, () =>
+          moveDocument.run({ id: documentId, parentId: null }),
+        ),
+      ).rejects.toThrow("ownerDocumentId");
+      expect(await readRow(documentId)).toEqual(before);
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      expect(database.ownerDocumentId).toBe(host.id);
+      expect(database.ownerBlockId).toBe("host-authority-block");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("completes an inline collection move racing a description update", async () => {
+    const host = await createPage({ title: "Inline collection host" });
+    const created = await callJson(ownerClient, "create-content-database", {
+      parentId: host.id,
+      title: "Inline move race",
+      spaceId: (await readRow(host.id)).spaceId,
+      idempotencyKey: "inline-move-race",
+    });
+    const databaseId = created.database.id;
+    const documentId = created.database.documentId;
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ ownerDocumentId: host.id, ownerBlockId: "inline-move-block" })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const acquireCollection = metadata.lockDocumentMetadataDatabase;
+    let collectionHeld!: () => void;
+    let moveRequested!: () => void;
+    let releaseMetadata!: () => void;
+    const held = new Promise<void>((resolve) => (collectionHeld = resolve));
+    const attempted = new Promise<void>((resolve) => (moveRequested = resolve));
+    const release = new Promise<void>((resolve) => (releaseMetadata = resolve));
+    const spy = vi
+      .spyOn(metadata, "lockDocumentMetadataDatabase")
+      .mockImplementationOnce(async (args) => {
+        const locked = await acquireCollection(args);
+        collectionHeld();
+        await release;
+        return locked;
+      })
+      .mockImplementationOnce((args) => {
+        moveRequested();
+        return acquireCollection(args);
+      });
+    const update = callJson(ownerClient, "update-document", {
+      id: documentId,
+      description: "Guidance retained after detachment",
+    });
+    const moveDocument = (await import("./move-document.js")).default;
+    let move: ReturnType<typeof moveDocument.run> | undefined;
+    try {
+      await Promise.race([
+        held,
+        update.then(() => {
+          throw new Error(
+            "Metadata completed before holding its collection lock",
+          );
+        }),
+      ]);
+      if (databaseUrl.startsWith("pglite:")) {
+        releaseMetadata();
+        await update;
+      }
+      move = runWithRequestContext({ userEmail: owner }, () =>
+        moveDocument.run({ id: documentId, parentId: null }),
+      );
+      await Promise.race([
+        attempted,
+        move.then(() => {
+          throw new Error(
+            "Move completed before attempting its collection lock",
+          );
+        }),
+      ]);
+      releaseMetadata();
+      const results = await Promise.allSettled([update, move]);
+      expect(results.map((result) => result.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+      ]);
+      const document = await readRow(documentId);
+      expect(document.parentId).toBeNull();
+      expect(document.description).toBe("Guidance retained after detachment");
+      const [database] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      expect(database.ownerDocumentId).toBeNull();
+      expect(database.ownerBlockId).toBeNull();
+      expect(Date.parse(database.updatedAt)).toBeGreaterThanOrEqual(
+        Date.parse((await update).updatedAt),
+      );
+    } finally {
+      releaseMetadata();
+      await Promise.allSettled([update, ...(move ? [move] : [])]);
+      spy.mockRestore();
+    }
+  });
+
+  it("uses the committed title when converting a page during a metadata update", async () => {
+    const page = await createPage({ title: "Before conversion" });
+    const metadata =
+      await import("../server/lib/document-metadata-updated-at.js");
+    const nextUpdatedAt = metadata.nextDocumentMetadataUpdatedAt;
+    let documentHeld!: () => void;
+    let releaseMetadata!: () => void;
+    const held = new Promise<void>((resolve) => (documentHeld = resolve));
+    const release = new Promise<void>((resolve) => (releaseMetadata = resolve));
+    const spy = vi
+      .spyOn(metadata, "nextDocumentMetadataUpdatedAt")
+      .mockImplementationOnce(async (args) => {
+        const updatedAt = await nextUpdatedAt(args);
+        documentHeld();
+        await release;
+        return updatedAt;
+      });
+    const { createContentDatabaseCore } =
+      await import("./create-content-database.js");
+    const update = callJson(ownerClient, "update-document", {
+      id: page.id,
+      title: "After metadata update",
+      description: "Converted guidance",
+    });
+    let conversion: ReturnType<typeof createContentDatabaseCore> | undefined;
+    const { default: postgres } = await import(
+      requireFromCore.resolve("postgres")
+    );
+    const observer = databaseUrl.startsWith("pglite:")
+      ? undefined
+      : postgres(databaseUrl, { max: 1 });
+    try {
+      await Promise.race([
+        held,
+        update.then(() => {
+          throw new Error("Metadata completed before holding its page lock");
+        }),
+      ]);
+      if (!observer) {
+        releaseMetadata();
+        await update;
+      }
+      let settled = false;
+      conversion = runWithRequestContext({ userEmail: owner }, () =>
+        createContentDatabaseCore({ documentId: page.id }),
+      );
+      void conversion.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      if (observer) {
+        await expect
+          .poll(
+            async () => {
+              if (settled) return true;
+              const waiting = await observer.unsafe(
+                "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%documents%' AND query LIKE '%for update%'",
+              );
+              return waiting.length > 0;
+            },
+            { timeout: 10_000 },
+          )
+          .toBe(true);
+      }
+      releaseMetadata();
+      const results = await Promise.allSettled([update, conversion]);
+      expect(results.map((result) => result.status)).toEqual([
+        "fulfilled",
+        "fulfilled",
+      ]);
+      const created = await conversion;
+      const document = await readRow(page.id);
+      expect(created.database.title).toBe(document.title);
+      expect(created.database.title).toBe("After metadata update");
+      expect(created.database.description).toBe("Converted guidance");
+    } finally {
+      releaseMetadata();
+      await Promise.allSettled([update, ...(conversion ? [conversion] : [])]);
+      spy.mockRestore();
+      if (observer) await observer.end();
+    }
+  });
+
+  it("rejects unauthorized updates and external body replacement without applying either patch", async () => {
+    const created = await createPage({
+      title: "Private description",
+      content: "Protected body",
+      description: "Protected guidance",
+    });
+    const before = await readRow(created.id);
+    for (const [client, args] of [
+      [outsiderClient, { id: created.id, description: "Denied" }],
+      [readOnlyClient, { id: created.id, description: "Denied" }],
+      [
+        ownerClient,
+        { id: created.id, description: "Denied", content: "Replace body" },
+      ],
+    ] as const) {
+      const result = await client.callTool({
+        name: "update-document",
+        arguments: args,
+      });
+      expect(result.isError).toBe(true);
+      expect(await readRow(created.id)).toEqual(before);
+    }
+    const hidden = await outsiderClient.callTool({
+      name: "get-document",
+      arguments: { id: created.id },
+    });
+    expect(hidden.isError).toBe(true);
+    expect(JSON.stringify(hidden)).not.toContain(before.description);
+  });
+
+  it("allows a shared editor, denies a viewer, and attributes the metadata write to its actor", async () => {
+    const created = await createPage({
+      title: "Shared description",
+      content: "Shared body",
+    });
+    await getDb()
+      .insert(schema.documentShares)
+      .values(
+        [viewer, editor].map((principalId) => ({
+          id: `description-share-${principalId}`,
+          resourceId: created.id,
+          principalType: "user",
+          principalId,
+          role: principalId === viewer ? "viewer" : "editor",
+          createdBy: owner,
+          createdAt: new Date().toISOString(),
+        })),
+      );
+    const denied = await viewerClient.callTool({
+      name: "update-document",
+      arguments: { id: created.id, description: "Denied" },
+    });
+    expect(denied.isError).toBe(true);
+    expect((await readRow(created.id)).description).toBe("");
+    const updated = await callJson(editorClient, "update-document", {
+      id: created.id,
+      description: longDescription,
+    });
+    expect(updated.description).toBe(longDescription);
+    const read = await callJson(viewerClient, "get-document", {
+      id: created.id,
+    });
+    expect(read.description).toBe(longDescription);
+    expect((await readRow(created.id)).updatedBy).toBe(editor);
+    const { queryAuditEvents } = await import("@agent-native/core/audit");
+    const events = await queryAuditEvents(
+      { userEmail: owner },
+      {
+        action: "update-document",
+        targetType: "document",
+        targetId: created.id,
+      },
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorEmail: editor,
+          ownerEmail: owner,
+          status: "success",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(events)).not.toContain(longDescription);
+  });
+});

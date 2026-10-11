@@ -24,6 +24,15 @@ describe("collection layout at phone and tablet widths", () => {
     expect(databaseView).toContain('<ContentTableToolbar className="ms-auto">');
   });
 
+  it("pins a view's clear, reset, and save actions beside its scrolling chips", () => {
+    expect(databaseView).toContain(
+      "trailing={\n        showClearAll || showViewActionControls ? (",
+    );
+    expect(databaseView).not.toContain(
+      '<div className="ml-auto flex items-center gap-1 pl-2">',
+    );
+  });
+
   it("leaves vertical scrolling to the page below lg", () => {
     expect(databaseView).toContain(
       'className: "overflow-auto lg:max-h-[70vh]"',

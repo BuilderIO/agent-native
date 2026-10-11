@@ -278,7 +278,7 @@ describe("hasHexAlpha", () => {
 // no-cache invariant at the pure-function level.
 //
 // Note: because HSL/HSV store saturation/lightness/value as rounded 0-100
-// integers (matching Figma's own integer HSB/HSL fields), a handful of
+// integers (using integer HSB/HSL fields), a handful of
 // arbitrary RGB triples are inherently off by ±1 per channel after the very
 // first round trip — that's unavoidable quantization from displaying a
 // continuous color in an integer percent field, not a bug. The bug this

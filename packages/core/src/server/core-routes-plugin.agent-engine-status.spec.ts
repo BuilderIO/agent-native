@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
@@ -68,6 +72,7 @@ function createDeps(
 const originalAgentEngine = process.env.AGENT_ENGINE;
 
 afterEach(() => {
+  resetAppConfigForTests();
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
   vi.mocked(getOrgContext).mockReset();
@@ -128,6 +133,97 @@ describe("agent-engine/status route failure handling", () => {
 });
 
 describe("resolveAgentEngineStatus", () => {
+  it("reports configured engine and model before stored defaults", async () => {
+    defineAppConfig({
+      agent: { engine: "ai-sdk:openai", model: "configured-model" },
+    });
+    const entry = {
+      ...openAiEntry,
+      supportedModels: ["gpt-5", "configured-model"],
+    };
+    const result = await resolveAgentEngineStatus(
+      createDeps({
+        readStoredEngine: async () => ({
+          engine: "stored-engine",
+          model: "gpt-5",
+        }),
+        readAppDefault: async () => ({
+          engine: "app-engine",
+          model: "app-model",
+        }),
+        lookupEntry: () => entry,
+      }),
+    );
+    expect(result).toMatchObject({
+      engine: "ai-sdk:openai",
+      model: "configured-model",
+      source: "env",
+    });
+  });
+
+  it("uses an app's model when configuration pins only the same engine", async () => {
+    defineAppConfig({ agent: { engine: "ai-sdk:openai" } });
+    const entry = { ...openAiEntry, supportedModels: ["gpt-5", "app-model"] };
+    const result = await resolveAgentEngineStatus(
+      createDeps({
+        readStoredEngine: async () => ({
+          engine: "ai-sdk:openai",
+          model: "gpt-5",
+        }),
+        readAppDefault: async () => ({
+          engine: "ai-sdk:openai",
+          model: "app-model",
+        }),
+        lookupEntry: () => entry,
+      }),
+    );
+    expect(result).toMatchObject({
+      engine: "ai-sdk:openai",
+      model: "app-model",
+    });
+  });
+
+  it("reports the app override instead of the organization default", async () => {
+    delete process.env.AGENT_ENGINE;
+    const appEntry = {
+      ...openAiEntry,
+      name: "app-engine",
+      defaultModel: "app-model",
+      supportedModels: ["app-model"],
+    };
+    const result = await resolveAgentEngineStatus(
+      createDeps({
+        readStoredEngine: async () => ({
+          engine: "ai-sdk:openai",
+          model: "gpt-5",
+        }),
+        readAppDefault: async () => ({
+          engine: "app-engine",
+          model: "app-model",
+        }),
+        lookupEntry: (name) => (name === "app-engine" ? appEntry : openAiEntry),
+      }),
+    );
+    expect(result).toMatchObject({
+      engine: "app-engine",
+      model: "app-model",
+      source: "app-default",
+    });
+  });
+
+  it("does not turn an unreadable app default into a successful status", async () => {
+    delete process.env.AGENT_ENGINE;
+    await expect(
+      resolveAgentEngineStatus(
+        createDeps({
+          readAppDefault: async () => {
+            throw new Error("app default unreadable");
+          },
+        }),
+      ),
+    ).rejects.toThrow("app default unreadable");
+  });
+
   it("starts the stored-setting and base-URL lookups concurrently", async () => {
     delete process.env.AGENT_ENGINE;
     const stored = deferred<{ engine?: string; model?: string } | null>();

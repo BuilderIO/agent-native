@@ -1,11 +1,73 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  lookbackContext: {
+    includeLast: "Include last",
+    whatIsThis: "What is this?",
+    off: "Off",
+    custom: "Custom…",
+    customLabel: "Custom length",
+    customAmount: "Length",
+    customUnit: "Unit",
+    unitSeconds: "seconds",
+    unitMinutes: "minutes",
+    customSave: "Use length",
+    customErrorEmpty: "Enter a length.",
+    customErrorInvalid: "Enter a whole number of seconds or minutes.",
+    customErrorTooLong: "Keep it to 5 min or less.",
+    turnOnRewind: "Turn on Rewind",
+    rewindOffTitle: "Turn on Rewind",
+    rewindOffBody:
+      "Rewind keeps a local history of your screen so you can include the last few minutes before a recording. Footage uploads only when you include it or approve it.",
+    requestFailed:
+      "Couldn't include earlier screen time. The recording continues without it.",
+    localOnlyUnavailable:
+      "Earlier screen time isn't saved for local-only recordings.",
+    saving: "Saving {{window}} before…",
+    ready: "With {{window}} before",
+    failed: "Couldn't save earlier screen time",
+    unreadable: "Couldn't check earlier screen time",
+    edit: "Edit",
+    editTitle: "Earlier screen time",
+    editSave: "Save",
+    editFailed: "Couldn't save the window. Try again.",
+    previewPreparing: "Preparing preview…",
+    previewFailed: "Couldn't prepare the preview.",
+    previewLabel: "Earlier screen time preview",
+    retry: "Retry",
+    playSelection: "Play selection",
+    removeFailed:
+      "Couldn't remove earlier screen time for the discarded recording.",
+    removeFailedAction: "Couldn't remove earlier screen time. Try again.",
+    removeAction: "Remove earlier screen time",
+    removeConfirmTitle: "Remove earlier screen time?",
+    removeConfirmBody:
+      "The footage is moved to Trash and the clip no longer includes it.",
+    removeConfirm: "Remove",
+    removed: "Earlier screen time removed",
+    scrubberFromBefore: "From {{offset}} before",
+    scrubberFromStart: "From recording start",
+    scrubberToBefore: "To {{offset}} before",
+    scrubberToStart: "To recording start",
+    scrubberLength: "Length",
+    scrubberStartHandle: "Window start",
+    scrubberEndHandle: "Window end",
+    tab: "Context",
+    label: "Screen before recording",
+    window: "{{start}}–{{end}} before recording",
+    savingEarlierTime: "Saving earlier screen time…",
+    loadFailed: "Couldn't load earlier screen time.",
+    empty: "No earlier screen time is attached to this clip.",
+    larger: "Larger",
+    editHint: "Edit the window in Clips Desktop.",
+    waitingOtherDevice: "Waiting for the device that recorded this clip",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Use Builder.io",
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
+    onboarding: { skipForNow: "Skip for now" },
   },
   common: {
     cancel: "Cancel",
@@ -152,6 +214,7 @@ const messages = {
   recordingPage: {
     back: "Back",
     done: "Done",
+    backToClip: "Back to clip",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
@@ -187,6 +250,8 @@ const messages = {
     silenceWorking: "Removing silences…",
     silenceCompleted: "Silence removal complete",
     silenceFailed: "Silence removal failed",
+    silenceEditsUnreadable:
+      "Saved edits couldn't be read, so silence removal wasn't applied.",
     workflowQueued: "Generating workflow…",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -277,7 +342,7 @@ const messages = {
       "The owner is making changes to this clip. The link will start working again when they have finished.",
     agentReadableContext: "Agent-readable clip context",
     agentInstructions:
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Open agentContextUrl first. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link.",
     untitledClip: "Untitled Clip",
     incorrectPassword: "Incorrect password",
     passwordProtected: "This clip is password-protected",
@@ -531,7 +596,7 @@ const messages = {
     openInCodex: "Open in Codex",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
-      "Fetch this Clips agent context URL: {{agentContextUrl}}. Use transcript.segments for spoken context, fetch recommendedFrames or the frame API URLs to see the screen, and check browserDiagnostics if present for redacted console logs and fetch/XHR request metadata.",
+      "Read this Clips agent context URL: {{agentContextUrl}}. Read the complete transcript from apis.transcript and fetch recommendedFrames[].url (or apis.frame.urlTemplate with atMs) as images. Keep id and agent_access exactly as provided. For any error, inspect the JSON failureKind, error, and nextStep. If failureKind=access, explain that the link does not grant access; for a private clip, ask the owner to choose {{shareWithAgents}} in the Clips Share menu and send the generated link. If failureKind=media while the transcript works, explain that the stored media could not be retrieved; another link will not fix it. If failureKind=processing, follow nextStep; this does not mean the clip is missing or the link is invalid. If failureKind=expired, ask the owner to extend or remove the clip expiry in the Clips Share menu, save, then choose {{shareWithAgents}} and send the new link. Also use browserDiagnostics when present for a bug report.",
     agentTokenDescription:
       "Temporary read-only link for agents, since this clip is not public. Expires in 2 hours.",
     agentPublicDescription:
@@ -686,6 +751,8 @@ const messages = {
     switchToNightly: "Switch to Nightly builds",
     switchToStable: "Switch to stable builds",
     retry: "Try again",
+    mountError:
+      "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",
@@ -745,6 +812,9 @@ const messages = {
     labMeetingsDescription: "Try automatic meeting capture and transcription.",
     labWisprFlow: "Voice dictation",
     labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
+    labLookbackContext: "Include earlier screen time",
+    labLookbackContextDescription:
+      "Attach up to five minutes of screen time from before a recording as passive context.",
     uploadWorkspaceTitle: "Active workspace",
     uploadWorkspaceDescription:
       "Choose the workspace Clips uses for new recordings, including desktop uploads.",
@@ -1268,6 +1338,10 @@ const messages = {
     burningRedactionsPercent:
       "Rendering the redactions into the video… {{percent}}%",
     editFailed: "Could not save that edit",
+    refreshFailed: "Couldn't load the latest edits. Try again before editing.",
+    autoSaveHint: "Edits save to this clip automatically",
+    savingChanges: "Saving changes…",
+    changesSaved: "Changes saved to this clip",
     nothingToRedo: "Nothing to redo",
   },
   transcriptEditor: {
@@ -1305,6 +1379,14 @@ const messages = {
     agentTitle: "Create a free Clips account to join the conversation",
     genericTitle: "Create a free Clips account to continue",
     description: "You’ll return to this clip as soon as you’re done.",
+    verificationPendingTitle: "Verify your email",
+    verificationPendingCopy:
+      "We sent a verification email to {{email}}. Open it to finish creating your account and return to this clip.",
+    resendVerification: "Resend verification email",
+    resendingVerification: "Sending verification email...",
+    verificationEmailResent: "A new verification email is on its way.",
+    verificationEmailFailed:
+      "We couldn't resend the verification email. Try again or sign in with an email link.",
     passwordsMismatch: "Passwords do not match.",
     commentIntent: "comment",
     reactIntent: "add a reaction",
@@ -1380,14 +1462,24 @@ const messages = {
     builderConnectPopupError:
       "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
-      "Couldn't set up Builder.io. Try again or contact support.",
+      "Builder.io setup didn't finish. Try again, or choose S3-compatible storage.",
+    builderConnectErrorAskAdmin:
+      "Builder.io setup didn't finish. Try again, or ask an owner or admin to set up storage.",
+    builderStatusReadError:
+      "Connection status is unavailable. Retry to check again.",
+    builderUploadGrantMissing:
+      "Builder.io is connected for AI, but this connection can't upload clips. Reconnect Builder.io with upload access, or ask an owner or admin for help.",
+    builderGrantAskAdmin:
+      "Ask an owner or admin to connect Builder.io with clip upload access.",
+    statusUnavailable: "Couldn't check whether video storage is ready.",
     checkingBuilderConnection: "Checking Builder connection…",
-    builderTimeout: "Didn't hear back from Builder in 5 minutes. Try again.",
+    builderTimeout:
+      "Couldn't confirm that Builder.io storage is ready. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     description:
       "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
-    createBuilderAccount: "Create Builder.io account",
+    createBuilderAccount: "Use Builder.io",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",
     whyPrompt: "Why am I seeing this?",
@@ -1792,6 +1884,9 @@ const messages = {
       "Connect storage and Clips uploads it right away.",
     storageConnectedUploading: "Storage connected. Uploading your recording…",
     downloadCopy: "Download a copy",
+    localRecordingPreview: "Local recording preview",
+    localPreviewUnavailable:
+      "This local preview isn't available. You can still download a copy.",
     localRecordingOpenElsewhere:
       "That recording is still open in another Clips tab.",
     uploadWaitingForConnection: "Upload paused. Clips retries automatically.",
@@ -2109,21 +2204,6 @@ const messages = {
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
-  },
-  rewindExtension: {
-    title: "Add what happened before",
-    description:
-      "Pull a specific interval from local Rewind and add it to the start of this Clip. Nothing is added automatically.",
-    progressLabel: "Rewind history processing progress",
-    privateFirstTitle: "Make this Clip private first",
-    privateFirstDescription:
-      "Local Rewind history can contain context from before you chose to record. This changes the Clip to private. If anyone still has direct access, Clips will stop here so you can remove them in Share first.",
-    makePrivateContinue: "Make private and continue",
-    add30Seconds: "Add the previous 30 seconds",
-    add5Minutes: "Add the previous 5 minutes",
-    add5MinutesDescription:
-      "Good for recovering the lead-in to a longer explanation.",
-    privateReady: "This Clip is private. You can now add local Rewind history.",
   },
   browserDiagnostics: {
     debug: "Debug",

@@ -7,7 +7,9 @@ const mocks = vi.hoisted(() => ({
   notifyClients: vi.fn(),
   userEmail: vi.fn<() => string | undefined>(() => "owner@example.test"),
   orgId: vi.fn<() => string | undefined>(() => "org-one"),
+  track: vi.fn(),
 }));
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mocks.resolveAccess,
   assertAccess: mocks.assertAccess,
@@ -91,6 +93,20 @@ describe("create-deck-from-template through add-deck persistence", () => {
     expect(deck.updatedAt).toBe(row.updatedAt);
     expect(mocks.assertAccess).not.toHaveBeenCalled();
     expect(mocks.notifyClients).toHaveBeenCalledExactlyOnceWith(result.id);
+  });
+
+  it("records the template deck exactly once", async () => {
+    await action.run(request);
+
+    const created = mocks.track.mock.calls.filter(
+      ([name]) => name === "deck_created",
+    );
+    expect(created).toHaveLength(1);
+    expect(created[0]?.[1]).toMatchObject({
+      output_id: "deck-copy",
+      creation_method: "template",
+      purpose: "direct",
+    });
   });
 
   it("creates independent deck and slide IDs when no retry key is given", async () => {

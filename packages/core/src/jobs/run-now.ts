@@ -14,6 +14,7 @@ import {
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { parseJobResource } from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
 import {
   listUnclaimedAutomationRuns,
   startAutomationRun,
@@ -150,11 +151,9 @@ export async function queueAutomationRunNow(
   });
 
   const historyId = await startAutomationRun({
-    owner: resource.owner,
+    ...automationRunOwnership(resource.owner, input.userEmail, input.orgId),
     automation: name,
     path: resource.path,
-    scope: input.scope,
-    orgId: input.scope === "organization" ? input.orgId : null,
     appId: input.appId,
     // The person who asked for the run, already authorized above; a stored
     // `createdBy` may have left the organization.

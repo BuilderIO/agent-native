@@ -3,10 +3,26 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-08
+
+### Improved
+
+- Calendar highlights proposed times and links to Google Calendar for review
+- The week view's all-day section can be resized
+
+## 2026-10-06
+
+### Fixed
+
+- Builder.io setup details render immediately, and model settings hide disconnected defaults and upgrade outdated GPT selections.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Fixed
 
+- Notifications sent by the agent or an automation show up again in a bell in the Calendar header.
+- On phones, the Calendar header shows the full date range again, with Today as a compact icon.
 - Sign-in and signup pages now share the animated Agent-Native wave.
 
 ## 2026-10-02

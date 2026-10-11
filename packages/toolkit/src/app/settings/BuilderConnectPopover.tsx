@@ -1,5 +1,6 @@
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
-import { useOnboarding } from "@agent-native/core/client/onboarding/use-onboarding";
+import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
@@ -13,7 +14,11 @@ import {
   BuilderIncludedBenefitsDisclosure,
   getBuilderIncludedBenefitCapabilities,
 } from "./BuilderIncludedBenefitsDisclosure.js";
-import type { BuilderConnectFlow } from "./useBuilderStatus.js";
+import { currentTemplateId } from "./shell/app-identity.js";
+import type {
+  BuilderConnectErrorKind,
+  BuilderConnectFlow,
+} from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
   onClick?: React.MouseEventHandler<HTMLElement>;
@@ -22,8 +27,12 @@ type BuilderConnectTrigger = React.ReactElement<{
 }>;
 
 type BuilderConnectChoiceFlow = Pick<BuilderConnectFlow, "connecting"> & {
+  configured?: boolean;
   accountExists?: boolean;
+  error?: string | null;
+  errorKind?: BuilderConnectErrorKind | null;
   retry?: () => boolean | void;
+  statusCheckEnabled?: boolean;
   statusReadSettledCount?: number;
   statusResolved?: boolean;
 };
@@ -39,6 +48,7 @@ export interface BuilderConnectPopoverProps {
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
   openOnMount?: boolean;
+  appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
@@ -49,6 +59,7 @@ export interface BuilderConnectChoicePanelProps {
   canProvisionAccount: boolean;
   onCreateAndActivate: () => void;
   onExistingAccount: () => void;
+  appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
@@ -59,16 +70,20 @@ export function BuilderConnectChoicePanel({
   canProvisionAccount,
   onCreateAndActivate,
   onExistingAccount,
+  appId,
   contentTestId,
   primaryTestId,
   secondaryTestId,
 }: BuilderConnectChoicePanelProps) {
   const t = useT();
-  const statusReadFailed =
-    flow.statusResolved === false && (flow.statusReadSettledCount ?? 0) > 0;
+  const statusReadFailed = flow.errorKind === "status-read";
 
   return (
-    <div className="space-y-2.5" data-testid={contentTestId}>
+    <div
+      className="space-y-2.5"
+      data-testid={contentTestId}
+      aria-busy={flow.connecting}
+    >
       <h2
         id="builder-connect-popover-title"
         className="text-sm font-semibold text-foreground"
@@ -77,11 +92,41 @@ export function BuilderConnectChoicePanel({
           defaultValue: "Activate free credits",
         })}
       </h2>
-      <p className="text-xs leading-5 text-muted-foreground">
-        {t("agentChat.onboarding.builderActivationDescription", {
-          defaultValue:
-            "Create or connect a Builder.io account in one click to get free credits.",
-        })}
+      <p
+        id="builder-connect-popover-description"
+        className="text-xs leading-5 text-muted-foreground"
+        role={flow.connecting ? "status" : undefined}
+        aria-live={flow.connecting ? "polite" : undefined}
+      >
+        {flow.connecting
+          ? t("agentChat.onboarding.builderProvisioningDescription", {
+              defaultValue:
+                "Creating your Builder.io account and activating free credits.",
+            })
+          : canProvisionAccount
+            ? t("agentChat.onboarding.builderActivationDescription", {
+                defaultValue:
+                  "Create a new account to activate free credits, or continue with an existing account.",
+              })
+            : statusReadFailed
+              ? t("agentChat.onboarding.builderActivationCheckFailed", {
+                  defaultValue:
+                    "Couldn't check whether this app can create new accounts.",
+                })
+              : flow.statusCheckEnabled === false
+                ? t("agentChat.onboarding.builderActivationUnavailableInMode", {
+                    defaultValue:
+                      "New account activation isn't available in this mode. You can still connect an existing account.",
+                  })
+                : flow.statusResolved === false
+                  ? t("agentChat.onboarding.builderActivationChecking", {
+                      defaultValue:
+                        "Checking whether new account activation is available.",
+                    })
+                  : t("agentChat.onboarding.builderActivationUnavailable", {
+                      defaultValue:
+                        "New account creation isn't enabled for this app. You can still connect an existing account.",
+                    })}
       </p>
       {flow.accountExists ? (
         <div
@@ -99,6 +144,11 @@ export function BuilderConnectChoicePanel({
             })}
           </p>
         </div>
+      ) : null}
+      {flow.error && !statusReadFailed ? (
+        <p role="alert" className="text-xs leading-5 text-destructive">
+          {flow.error}
+        </p>
       ) : null}
       {statusReadFailed ? (
         <div
@@ -126,12 +176,13 @@ export function BuilderConnectChoicePanel({
           ) : null}
         </div>
       ) : null}
-      <BuilderConnectIncludedServices />
+      <BuilderConnectIncludedServices appId={appId} />
       <div className="flex flex-col gap-2">
         <Button
           type="button"
           data-testid={primaryTestId}
           className="w-full"
+          aria-describedby="builder-connect-popover-description"
           onClick={onCreateAndActivate}
           disabled={flow.connecting || !canProvisionAccount}
         >
@@ -197,6 +248,7 @@ export function BuilderConnectPopover({
   onConnect,
   onTriggerClick,
   openOnMount = false,
+  appId,
   contentTestId,
   primaryTestId,
   secondaryTestId,
@@ -206,21 +258,14 @@ export function BuilderConnectPopover({
   const provisioningAttemptRef = useRef(false);
 
   useEffect(() => {
-    if (
-      !flow.connecting &&
-      flow.accountExists &&
-      provisioningAttemptRef.current
-    ) {
-      provisioningAttemptRef.current = false;
-      setOpen(true);
-    } else if (!flow.connecting) {
-      provisioningAttemptRef.current = false;
-    }
-  }, [flow.accountExists, flow.connecting]);
+    if (flow.connecting || !provisioningAttemptRef.current) return;
+    provisioningAttemptRef.current = false;
+    setOpen(!!flow.accountExists || !!flow.error || flow.configured !== true);
+  }, [flow.accountExists, flow.configured, flow.connecting, flow.error]);
 
   const start = (provisionAccount: boolean) => {
     if (provisionAccount) provisioningAttemptRef.current = true;
-    setOpen(false);
+    else setOpen(false);
     if (onConnect) {
       onConnect(provisionAccount);
       return;
@@ -272,6 +317,7 @@ export function BuilderConnectPopover({
           }
           onCreateAndActivate={() => start(true)}
           onExistingAccount={() => start(false)}
+          appId={appId}
           contentTestId={contentTestId}
           primaryTestId={primaryTestId}
           secondaryTestId={secondaryTestId}
@@ -290,12 +336,14 @@ export function BuilderConnectPopover({
   );
 }
 
-function BuilderConnectIncludedServices() {
+function BuilderConnectIncludedServices({ appId }: { appId?: string }) {
   const t = useT();
-  const { profile, loading, error } = useOnboarding();
-  const capabilities = profile
-    ? getBuilderIncludedBenefitCapabilities(profile.capabilities)
-    : [];
+  const profile = getOnboardingAppProfileForId(
+    appId ?? injectedAgentNativeAppId() ?? currentTemplateId() ?? undefined,
+  );
+  const capabilities = getBuilderIncludedBenefitCapabilities(
+    profile.capabilities,
+  );
 
   return (
     <BuilderIncludedBenefitsDisclosure
@@ -306,13 +354,7 @@ function BuilderConnectIncludedServices() {
       creditsLabel={t("agentChat.onboarding.builderMonthlyCredits", {
         defaultValue: "60 monthly Agent Credits",
       })}
-      loading={loading}
       loadingLabel={t("agentChat.common.loading")}
-      error={
-        error || (!loading && !profile)
-          ? t("agentChat.common.chunkLoadFailed")
-          : null
-      }
       testId="builder-included-services"
     />
   );

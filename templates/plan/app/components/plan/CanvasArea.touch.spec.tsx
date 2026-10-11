@@ -141,7 +141,7 @@ describe("CanvasArea touch gestures", () => {
     expect(world?.style.transform).toContain("scale(1.5)");
   });
 
-  it("matches Figma's Command/Ctrl plus wheel zoom convention", () => {
+  it("uses Command/Ctrl plus wheel to zoom", () => {
     const { viewport, world } = renderCanvas();
 
     dispatchWheel(viewport, { deltaY: -20, ctrlKey: true });

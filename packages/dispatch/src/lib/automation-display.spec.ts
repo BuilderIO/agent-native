@@ -85,7 +85,7 @@ describe("automation-display", () => {
     });
   });
 
-  it("labels blocked scheduler checks separately from execution failures", () => {
+  it("shows skipped runs without a failure warning", () => {
     const blocked = item({
       id: "blocked",
       name: "Blocked",
@@ -96,9 +96,32 @@ describe("automation-display", () => {
     });
 
     expect(automationStatus(blocked)).toEqual({
-      label: "Blocked",
-      tone: "warning",
+      label: "skipped",
+      tone: "muted",
     });
+  });
+
+  it("does not sort skipped runs as errors", () => {
+    const base = {
+      name: "Check inbox",
+      path: "jobs/check-inbox.md",
+      owner: "user@example.com",
+    };
+    const skipped = item({
+      ...base,
+      id: "skipped",
+      lastStatus: "skipped",
+      lastRun: "2026-10-05T08:00:00.000Z",
+    });
+    const successful = item({
+      ...base,
+      id: "success",
+      lastStatus: "success",
+      lastRun: "2026-10-05T09:00:00.000Z",
+    });
+    expect(sortAutomations([skipped, successful]).map((row) => row.id)).toEqual(
+      ["success", "skipped"],
+    );
   });
 
   it("identifies personal and organization ownership in the UI", () => {

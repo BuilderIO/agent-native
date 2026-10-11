@@ -557,26 +557,21 @@ describe("comments sidebar layout", () => {
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toMatch(
-      /const showUtilityPanelSheet = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
-    );
-    expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
-      'window.visualViewport?.addEventListener("resize", update)',
+      "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
     );
-    expect(source).toContain("observer?.observe(element)");
-    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
-  });
-
-  it("recomputes anchors when comment indicators are restored", () => {
-    const source = readFileSync("app/components/editor/VisualEditor.tsx", {
-      encoding: "utf8",
-    });
-
     expect(source).toMatch(
-      /scheduleApply\(false\);[\s\S]*?showCommentIndicators/,
+      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
     );
+    expect(source).toContain(
+      `showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
+    );
+    expect(source).toContain(
+      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+    );
+    expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 
   it("keeps the pending composer in normal flow in the anchored card", () => {

@@ -229,7 +229,7 @@ ChatGPT 透過`window.openai`獲得專用的相容路徑：啟動檔案直接讀
 
 擴充功能頁面將其沙箱保留在 MCP 聊天嵌入中，而無需導覽第二個路由 iframe。正常應用程式使用會將 `/_agent-native/extensions/:id/render` 呈現為沙盒子 iframe。在 MCP 聊天橋模式下，框架在路由 iframe 內呈現與沙箱 `srcDoc` 相同的擴充功能檔案，避免主機 `frame-ancestors` / `X-Frame-Options` 故障，同時保留 `sandbox="allow-scripts allow-forms"`。
 
-資源 shell 擁有外部主機大小。 `embedApp({ height })`預設為`560px`，將外殼夾到`320-900px`，並為小工具列保留`44px`，因此路由視口為`height - 44px`。保持嵌入式應用程式路由內部可滾動，並讓啟動程式報告有界的固有高度而不是完整的檔案高度；否則主機自動調整大小可以將一個普通的應用頁面變成一個很高的聊天產物。更改的 shell 僅影響新的 MCP App 資源和新的工具呼叫。舊的 ChatGPT/Claude 對話框架可以保留以前的資源行為，因此在判斷修復之前使用新的行內渲染驗證大小。
+資源 shell 擁有外部主機大小。 `embedApp({ height })`預設為`560px`，將外殼夾到`320-900px`，並為小工具列保留`44px`，因此路由視口為`height - 44px`。保持嵌入式應用程式路由內部可滾動，並讓啟動程式報告有界的固有高度而不是完整的檔案高度；否則主機自動調整大小可以將一個普通的應用頁面變成一個很高的聊天產物。更改的 shell 僅影響新的 MCP App 資源和新的工具呼叫。舊的 ChatGPT/Claude 對話框架可以保留以前的資源行為，因此在判斷修復之前使用新的行內渲染驗證大小。 當主機擁有該框架時（側邊面板、全螢幕或子母畫面檢視，或 `containerDimensions.height`），shell 會改為填滿整個框架，並且不再回報固有高度。 目錄小工具（ChatGPT 與 Codex 外掛應用程式）是在主機窗格中執行的編輯器，因此一律填滿框架。當主機僅依小工具回報的高度決定窗格大小時（Codex 與 ChatGPT 的側邊面板只提供一個很小的 `containerDimensions.maxHeight` 提示，而不是實際高度），shell 會回報檢視者的螢幕高度，而不是應用程式的內容高度。
 
 ### 嵌入模式 {#embed-modes}
 

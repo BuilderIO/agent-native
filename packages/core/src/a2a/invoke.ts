@@ -40,6 +40,7 @@ export type AgentInvocationErrorCode =
   | "invalid-response"
   | "unsupported-action"
   | "self-call"
+  | "discovery-failed"
   | "not-found";
 
 export class AgentInvocationError extends Error {
@@ -50,9 +51,16 @@ export class AgentInvocationError extends Error {
   constructor(
     code: AgentInvocationErrorCode,
     message: string,
-    options?: { target?: string; availableAgents?: DiscoveredAgent[] },
+    options?: {
+      target?: string;
+      availableAgents?: DiscoveredAgent[];
+      cause?: unknown;
+    },
   ) {
-    super(message);
+    super(
+      message,
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
     this.name = "AgentInvocationError";
     this.code = code;
     this.target = options?.target;
@@ -103,6 +111,8 @@ export interface AgentInvocationRuntime {
 export interface ResolveAgentInvocationTargetOptions {
   selfAppId?: string;
   selfUrl?: string;
+  userEmail?: string;
+  orgId?: string;
   runtime?: Partial<AgentInvocationRuntime>;
 }
 
@@ -176,9 +186,48 @@ export async function resolveAgentInvocationTarget(
   const findAgent = options.runtime?.findAgent ?? defaultFindAgent;
   const discoverAgents =
     options.runtime?.discoverAgents ?? defaultDiscoverAgents;
-  const agent = await findAgent(cleanTarget, options.selfAppId);
+  const discoveryOptions = {
+    includePersonalAgents: true,
+    requireReadableAgentSources: true,
+  };
+  const requestContext = getRequestContext();
+  const resolveWithCaller = async <T>(read: () => Promise<T>): Promise<T> => {
+    if (
+      !requestContext &&
+      options.userEmail === undefined &&
+      options.orgId === undefined
+    ) {
+      return read();
+    }
+    return await runWithRequestContext(
+      {
+        ...(requestContext ?? {}),
+        ...(options.userEmail !== undefined
+          ? { userEmail: options.userEmail }
+          : {}),
+        ...(options.orgId !== undefined ? { orgId: options.orgId } : {}),
+      },
+      read,
+    );
+  };
+  const readAgentSource = async <T>(read: () => Promise<T>): Promise<T> => {
+    try {
+      return await resolveWithCaller(read);
+    } catch (cause) {
+      throw new AgentInvocationError(
+        "discovery-failed",
+        `Error: Could not read connected-agent sources while resolving "${cleanTarget}". No request was sent to another agent.`,
+        { target: cleanTarget, cause },
+      );
+    }
+  };
+  const agent = await readAgentSource(() =>
+    findAgent(cleanTarget, options.selfAppId, discoveryOptions),
+  );
   if (!agent) {
-    const availableAgents = await discoverAgents(options.selfAppId);
+    const availableAgents = await readAgentSource(() =>
+      discoverAgents(options.selfAppId, discoveryOptions),
+    );
     const available = availableAgents.map((a) => a.name).join(", ");
     throw new AgentInvocationError(
       "not-found",
@@ -217,6 +266,8 @@ export async function invokeAgent(
   const target = await resolveAgentInvocationTarget(options.target, {
     selfAppId: options.selfAppId,
     selfUrl: options.selfUrl,
+    userEmail: options.userEmail,
+    orgId: options.orgId,
     runtime: options.runtime,
   });
 
@@ -295,7 +346,11 @@ export async function invokeAgent(
       ...(continuation ? { continuation } : {}),
     };
   }
-  const authOptions = await resolveInvocationAuth(target, options.userEmail);
+  const authOptions = await resolveInvocationAuth(
+    target,
+    options.userEmail,
+    options.orgId,
+  );
   const callAgent = options.runtime?.callAgent ?? defaultCallAgent;
   const responseText = await callAgent(target.url, promptToSend, {
     ...(auth
@@ -347,6 +402,8 @@ export async function invokeAgentAction(
   const target = await resolveAgentInvocationTarget(options.target, {
     selfAppId: options.selfAppId,
     selfUrl: options.selfUrl,
+    userEmail: options.userEmail,
+    orgId: options.orgId,
     runtime: options.runtime,
   });
   const providerKind = invocationProviderKindByTarget.get(target);
@@ -359,7 +416,11 @@ export async function invokeAgentAction(
   }
   const callAction = options.runtime?.callAction ?? defaultCallAction;
   const auth = invocationAuthByTarget.get(target);
-  const authOptions = await resolveInvocationAuth(target, options.userEmail);
+  const authOptions = await resolveInvocationAuth(
+    target,
+    options.userEmail,
+    options.orgId,
+  );
   const result = await callAction(target.url, action, input, {
     ...(auth
       ? { apiKey: authOptions.token }
@@ -382,12 +443,13 @@ export async function invokeAgentAction(
 async function resolveInvocationAuth(
   target: ResolvedAgentInvocationTarget,
   userEmail?: string,
+  orgId?: string,
 ): Promise<{ token?: string }> {
   const auth = invocationAuthByTarget.get(target);
   if (!auth) return {};
   const token = await resolveRemoteAgentToken(auth, {
     userEmail: userEmail || getRequestUserEmail(),
-    orgId: getRequestOrgId(),
+    orgId: orgId ?? getRequestOrgId(),
   });
   return { token };
 }

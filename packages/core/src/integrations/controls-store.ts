@@ -6,6 +6,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { IncomingMessage } from "./types.js";
 
 let initPromise: Promise<void> | undefined;
@@ -31,7 +32,7 @@ export interface IntegrationControl {
 
 export async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const sql = `CREATE TABLE IF NOT EXISTS integration_controls (
         id TEXT PRIMARY KEY,
         action TEXT NOT NULL,
@@ -66,6 +67,7 @@ export async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

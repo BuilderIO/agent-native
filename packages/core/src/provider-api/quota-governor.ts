@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { CredentialContext } from "../credentials/index.js";
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { parseRetryAfterMs } from "../shared/retry-after.js";
 
 export interface ProviderQuotaIdentityInput {
@@ -373,7 +374,7 @@ export async function ensureCooldownTable(): Promise<void> {
   if (!shouldPersistCooldowns()) return;
   if (persistenceTemporarilyUnavailable()) return;
   if (!state.initPromise) {
-    state.initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const integerType = "BIGINT";
       const createSql = `
         CREATE TABLE IF NOT EXISTS provider_api_cooldowns (
@@ -397,6 +398,9 @@ export async function ensureCooldownTable(): Promise<void> {
       state.persistenceUnavailableUntil = Date.now() + PERSISTENCE_RETRY_MS;
       throw err;
     });
+    state.initPromise = retainRequestDbPoolScope(
+      initPromiseWithRequestDbPoolScope,
+    );
   }
   await state.initPromise;
 }

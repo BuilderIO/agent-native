@@ -5,6 +5,7 @@ import {
   describeAttachmentFailure,
   putPrivateBlob,
   readPrivateBlob,
+  type PrivateBlobHandle,
   type StorageUnavailable,
 } from "@agent-native/core/private-blob";
 import {
@@ -14,18 +15,28 @@ import {
   getRouterParam,
   readBody,
   readRawBody,
+  setResponseHeader,
   setResponseStatus,
 } from "h3";
 import { nanoid } from "nanoid";
 
 import {
+  compareAndSetChunkedUploadSession,
   createChunkedUploadSession,
+  deleteOrphanedChunkCleanup,
   deleteChunkedUploadSession,
   getChunkedUploadSession,
+  listOrphanedChunkCleanups,
   listChunkedUploadSessions,
+  recordOrphanedChunkCleanup,
   type ChunkedUploadSession,
 } from "../lib/chunked-upload-session.js";
 import { isHostedSlidesRuntime } from "../lib/tenant-files.js";
+import {
+  findUploadedVideoAssetForSession,
+  MAX_VIDEO_ASSET_FILE_SIZE,
+  uploadVideoAsset,
+} from "./assets.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -41,15 +52,122 @@ const STORAGE_NOT_CONNECTED: StorageUnavailable = {
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNKS = 128;
 const SESSION_TTL_MS = 60 * 60 * 1000;
+const FINALIZATION_LEASE_MS = 60 * 60 * 1000;
+const FINALIZATION_HEARTBEAT_MS = 60 * 1000;
+
+class UploadSessionFinalizingError extends Error {}
 
 interface StartBody {
   filename?: unknown;
   mimetype?: unknown;
   declaredSize?: unknown;
+  uploadType?: unknown;
 }
 
 async function deleteChunk(handle: ChunkedUploadSession["chunks"][string]) {
   return (await deletePrivateBlob(handle)).deleted;
+}
+
+async function cleanupConflictedChunk(args: {
+  sessionId: string;
+  chunkIndex: number;
+  ownerEmail: string;
+  orgId: string | undefined;
+  handle: PrivateBlobHandle;
+  uncertain?: boolean;
+}): Promise<boolean> {
+  let cleanupKey: string | undefined;
+  try {
+    cleanupKey = await recordOrphanedChunkCleanup({
+      version: 1,
+      ownerEmail: args.ownerEmail,
+      orgId: args.orgId ?? null,
+      uploadSessionId: args.sessionId,
+      chunkIndex: args.chunkIndex,
+      handle: args.handle,
+      createdAt: new Date().toISOString(),
+      ...(args.uncertain ? { uncertain: true } : {}),
+    });
+  } catch (error) {
+    console.error("[slides-upload] could not record orphaned chunk", {
+      sessionId: args.sessionId,
+      chunkIndex: args.chunkIndex,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (args.uncertain) return cleanupKey !== undefined;
+
+  try {
+    if (await deleteChunk(args.handle)) {
+      if (cleanupKey) {
+        try {
+          await deleteOrphanedChunkCleanup(cleanupKey);
+        } catch (error) {
+          console.warn("[slides-upload] orphaned chunk record cleanup failed", {
+            sessionId: args.sessionId,
+            chunkIndex: args.chunkIndex,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return true;
+    }
+  } catch (error) {
+    console.warn("[slides-upload] chunk cleanup after conflict failed", {
+      sessionId: args.sessionId,
+      chunkIndex: args.chunkIndex,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return cleanupKey !== undefined;
+}
+
+async function reapOrphanedChunkBlobs(
+  ownerEmail: string,
+  orgId: string | undefined,
+): Promise<void> {
+  const cleanups = await listOrphanedChunkCleanups();
+  await Promise.all(
+    cleanups.map(async ({ key, cleanup }) => {
+      if (
+        cleanup.version !== 1 ||
+        cleanup.ownerEmail !== ownerEmail ||
+        (cleanup.orgId ?? null) !== (orgId ?? null) ||
+        !cleanup.handle ||
+        typeof cleanup.handle.id !== "string" ||
+        typeof cleanup.handle.provider !== "string" ||
+        cleanup.handle.opaque !== true
+      ) {
+        return;
+      }
+      try {
+        if (cleanup.uncertain) {
+          const session = await getChunkedUploadSession(
+            cleanup.uploadSessionId,
+          );
+          const current = session?.chunks[String(cleanup.chunkIndex)];
+          if (
+            current?.id === cleanup.handle.id &&
+            current.provider === cleanup.handle.provider
+          ) {
+            await deleteOrphanedChunkCleanup(key);
+            return;
+          }
+        }
+        if (await deleteChunk(cleanup.handle)) {
+          await deleteOrphanedChunkCleanup(key);
+        }
+      } catch (error) {
+        console.warn("[slides-upload] orphaned chunk retry failed", {
+          sessionId: cleanup.uploadSessionId,
+          chunkIndex: cleanup.chunkIndex,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+  );
 }
 
 async function cleanupChunks(session: ChunkedUploadSession): Promise<boolean> {
@@ -59,22 +177,105 @@ async function cleanupChunks(session: ChunkedUploadSession): Promise<boolean> {
   return results.every(Boolean);
 }
 
+function sessionBelongsToRequest(
+  session: ChunkedUploadSession,
+  email: string,
+  orgId: string | undefined,
+): boolean {
+  return (
+    (!session.ownerEmail ||
+      (session.ownerEmail === email &&
+        (session.orgId ?? null) === (orgId ?? null))) &&
+    (session.uploadType !== "video" || Boolean(session.ownerEmail))
+  );
+}
+
+async function markSessionForCleanup(
+  sessionId: string,
+  initialSession: ChunkedUploadSession,
+  allowFinalizing = false,
+): Promise<ChunkedUploadSession | null> {
+  let session = initialSession;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (session.cleanupState === "aborting") return session;
+    if (session.finalizingAt && !allowFinalizing) {
+      throw new UploadSessionFinalizingError();
+    }
+    const cleanupSession = { ...session, cleanupState: "aborting" as const };
+    if (
+      await compareAndSetChunkedUploadSession(
+        sessionId,
+        session,
+        cleanupSession,
+      )
+    ) {
+      return cleanupSession;
+    }
+    const latest = await getChunkedUploadSession(sessionId);
+    if (!latest) return null;
+    session = latest;
+  }
+  throw new Error("Could not claim the upload session for cleanup");
+}
+
 async function discardSession(
   sessionId: string,
   session: ChunkedUploadSession,
+  { allowFinalizing = false }: { allowFinalizing?: boolean } = {},
 ): Promise<boolean> {
-  const cleaned = await cleanupChunks(session);
+  const cleanupSession = await markSessionForCleanup(
+    sessionId,
+    session,
+    allowFinalizing,
+  );
+  if (!cleanupSession) return true;
+  const cleaned = await cleanupChunks(cleanupSession);
   if (cleaned) await deleteChunkedUploadSession(sessionId);
   return cleaned;
 }
 
-async function reapExpiredChunkedUploads(): Promise<void> {
+async function reapExpiredChunkedUploads(
+  ownerEmail: string,
+  orgId: string | undefined,
+): Promise<void> {
+  await reapOrphanedChunkBlobs(ownerEmail, orgId);
   const now = Date.now();
   const sessions = await listChunkedUploadSessions();
   await Promise.all(
     sessions.map(async ({ sessionId, session }) => {
+      if (
+        session.ownerEmail !== ownerEmail ||
+        (session.orgId ?? null) !== (orgId ?? null)
+      ) {
+        return;
+      }
       const expiresAt = Date.parse(session.expiresAt);
-      if (Number.isFinite(expiresAt) && expiresAt > now) return;
+      const finalizationExpiresAt = session.finalizingAt
+        ? Date.parse(session.finalizationLeaseExpiresAt ?? "")
+        : Number.NaN;
+      const finalizationExpired =
+        session.finalizingAt !== undefined &&
+        (!Number.isFinite(finalizationExpiresAt) ||
+          finalizationExpiresAt <= now);
+      if (session.finalizingAt && session.cleanupState !== "aborting") {
+        if (!finalizationExpired) return;
+        try {
+          await discardExpiredFinalization(sessionId, session);
+        } catch (error) {
+          console.warn("[slides-upload] expired finalization cleanup failed", {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
+      if (
+        session.cleanupState !== "aborting" &&
+        Number.isFinite(expiresAt) &&
+        expiresAt > now
+      ) {
+        return;
+      }
       try {
         const cleaned = await discardSession(sessionId, session);
         if (!cleaned) {
@@ -97,7 +298,9 @@ async function cleanupCommittedSession(
   session: ChunkedUploadSession,
 ): Promise<void> {
   try {
-    const cleaned = await discardSession(sessionId, session);
+    const cleaned = await discardSession(sessionId, session, {
+      allowFinalizing: true,
+    });
     if (!cleaned) {
       console.warn("[slides-upload] committed session cleanup incomplete", {
         sessionId,
@@ -109,6 +312,72 @@ async function cleanupCommittedSession(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+function startFinalizationLease(
+  sessionId: string,
+  initialSession: ChunkedUploadSession,
+) {
+  let session = initialSession;
+  let failure: Error | undefined;
+  let renewal = Promise.resolve();
+  const timer = setInterval(() => {
+    renewal = renewal
+      .then(async () => {
+        if (failure) return;
+        const nextSession = {
+          ...session,
+          finalizationLeaseExpiresAt: new Date(
+            Date.now() + FINALIZATION_LEASE_MS,
+          ).toISOString(),
+        };
+        if (
+          !(await compareAndSetChunkedUploadSession(
+            sessionId,
+            session,
+            nextSession,
+          ))
+        ) {
+          throw new Error("Upload session finalization lease was lost");
+        }
+        session = nextSession;
+      })
+      .catch((error) => {
+        failure = error instanceof Error ? error : new Error(String(error));
+      });
+  }, FINALIZATION_HEARTBEAT_MS);
+  timer.unref?.();
+
+  return {
+    async assertActive() {
+      await renewal;
+      if (failure) throw failure;
+    },
+    async stop() {
+      clearInterval(timer);
+      await renewal;
+      return failure;
+    },
+  };
+}
+
+async function discardExpiredFinalization(
+  sessionId: string,
+  session: ChunkedUploadSession,
+): Promise<boolean> {
+  const cleanupSession = { ...session, cleanupState: "aborting" as const };
+  if (
+    !(await compareAndSetChunkedUploadSession(
+      sessionId,
+      session,
+      cleanupSession,
+    ))
+  ) {
+    return true;
+  }
+  const cleaned = await cleanupChunks(cleanupSession);
+  if (cleaned) await deleteChunkedUploadSession(sessionId);
+  return cleaned;
 }
 
 export const startChunkedUpload = defineEventHandler(async (event) => {
@@ -125,11 +394,11 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
 
   return withSlidesRequestContext(
     event,
-    async () => {
+    async ({ orgId }) => {
       if (!isHostedSlidesRuntime()) {
         return { uploadMode: "multipart" as const };
       }
-      await reapExpiredChunkedUploads();
+      await reapExpiredChunkedUploads(authContext.email!, orgId);
       const body = (await readBody(event).catch(
         () => null,
       )) as StartBody | null;
@@ -140,6 +409,7 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
           ? body.mimetype.trim()
           : "application/octet-stream";
       const declaredSize = Number(body?.declaredSize);
+      const uploadType = body?.uploadType ?? "reference";
       if (!filename) {
         setResponseStatus(event, 400);
         return { error: "filename is required" };
@@ -148,17 +418,34 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
         setResponseStatus(event, 400);
         return { error: "declaredSize must be a positive integer" };
       }
-      const limit = maxReferenceFileBytes(filename);
+      if (uploadType !== "reference" && uploadType !== "video") {
+        setResponseStatus(event, 400);
+        return { error: "Unsupported upload type" };
+      }
+      if (uploadType === "video" && !/\.(mp4|webm)$/i.test(filename)) {
+        setResponseStatus(event, 400);
+        return { error: "Only MP4 and WebM videos are allowed" };
+      }
+      const limit =
+        uploadType === "video"
+          ? MAX_VIDEO_ASSET_FILE_SIZE
+          : maxReferenceFileBytes(filename);
       if (declaredSize > limit) {
         setResponseStatus(event, 413);
         return {
-          error: `File too large (max ${Math.round(limit / 1024 / 1024)} MB)`,
+          error:
+            uploadType === "video"
+              ? "Video too large (max 50 MB)"
+              : `File too large (max ${Math.round(limit / 1024 / 1024)} MB)`,
         };
       }
 
       const sessionId = nanoid();
       const now = Date.now();
       await createChunkedUploadSession(sessionId, {
+        uploadType,
+        ownerEmail: authContext.email,
+        orgId: orgId ?? null,
         filename,
         mimeType: mimetype,
         declaredSize,
@@ -194,17 +481,50 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         setResponseStatus(event, 400);
         return { error: "Missing sessionId" };
       }
-      const session = await getChunkedUploadSession(sessionId);
+      let session = await getChunkedUploadSession(sessionId);
+      if (session && !sessionBelongsToRequest(session, email, orgId)) {
+        setResponseStatus(event, 403);
+        return { error: "Upload session belongs to another user" };
+      }
+      if (
+        !session ||
+        session.cleanupState === "aborting" ||
+        session.finalizingAt
+      ) {
+        const completedVideo = await findUploadedVideoAssetForSession(
+          email,
+          sessionId,
+          orgId ?? null,
+        );
+        if (completedVideo) return completedVideo;
+      }
       if (!session) {
         setResponseStatus(event, 404);
         return { error: "Upload session not found or expired" };
       }
+      if (session.cleanupState === "aborting") {
+        setResponseStatus(event, 410);
+        return { error: "Upload session was cancelled" };
+      }
+      if (session.finalizingAt) {
+        setResponseStatus(event, 409);
+        return { error: "Upload session is already finalizing" };
+      }
       if (Date.parse(session.expiresAt) <= Date.now()) {
-        await discardSession(sessionId, session);
+        try {
+          await discardSession(sessionId, session);
+        } catch (error) {
+          if (error instanceof UploadSessionFinalizingError) {
+            setResponseStatus(event, 409);
+            return { error: "Upload session is already finalizing" };
+          }
+          throw error;
+        }
         setResponseStatus(event, 410);
         return { error: "Upload session expired" };
       }
 
+      let activeSession = session;
       const query = getQuery(event);
       const index = Number(query.index ?? 0);
       const isFinal = query.isFinal === "1" || query.isFinal === "true";
@@ -229,15 +549,26 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
       }
 
       const chunkKey = String(index);
-      const previousSize = session.chunkSizes[chunkKey] ?? 0;
-      const receivedBefore = Object.values(session.chunkSizes).reduce(
+      const previousSize = activeSession.chunkSizes[chunkKey] ?? 0;
+      const receivedBefore = Object.values(activeSession.chunkSizes).reduce(
         (total, size) => total + size,
         0,
       );
       const nextSize = receivedBefore - previousSize + contentLength;
-      const fileLimit = maxReferenceFileBytes(session.filename);
-      if (nextSize > session.declaredSize || nextSize > fileLimit) {
-        await discardSession(sessionId, session);
+      const fileLimit =
+        activeSession.uploadType === "video"
+          ? MAX_VIDEO_ASSET_FILE_SIZE
+          : maxReferenceFileBytes(activeSession.filename);
+      if (nextSize > activeSession.declaredSize || nextSize > fileLimit) {
+        try {
+          await discardSession(sessionId, activeSession);
+        } catch (error) {
+          if (error instanceof UploadSessionFinalizingError) {
+            setResponseStatus(event, 409);
+            return { error: "Upload session is already finalizing" };
+          }
+          throw error;
+        }
         setResponseStatus(event, 413);
         return { error: "Uploaded bytes exceed the declared file size" };
       }
@@ -249,12 +580,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: "Chunk size does not match Content-Length" };
       }
 
-      const previousHandle = session.chunks[chunkKey];
-      if (previousHandle && !(await deleteChunk(previousHandle))) {
-        setResponseStatus(event, 503);
-        return { error: "Could not replace the previously uploaded chunk" };
-      }
-
+      const previousHandle = activeSession.chunks[chunkKey];
       const handle = await putPrivateBlob({
         data: bytes,
         filename: `${sessionId}-${index}`,
@@ -270,62 +596,378 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
           details: attachmentFailureDetails(STORAGE_NOT_CONNECTED),
         };
       }
-      session.chunks[chunkKey] = handle;
-      session.chunkSizes[chunkKey] = bytes.byteLength;
-      await createChunkedUploadSession(sessionId, session);
+      const nextSession = {
+        ...activeSession,
+        chunks: { ...activeSession.chunks, [chunkKey]: handle },
+        chunkSizes: {
+          ...activeSession.chunkSizes,
+          [chunkKey]: bytes.byteLength,
+        },
+        ...(isFinal
+          ? {
+              finalizingAt: new Date().toISOString(),
+              finalizationLeaseExpiresAt: new Date(
+                Date.now() + FINALIZATION_LEASE_MS,
+              ).toISOString(),
+            }
+          : {}),
+      };
+      let sessionUpdated = false;
+      let recoveredCommittedCas = false;
+      try {
+        sessionUpdated = await compareAndSetChunkedUploadSession(
+          sessionId,
+          activeSession,
+          nextSession,
+        );
+      } catch (casError) {
+        let latest: ChunkedUploadSession | null;
+        try {
+          latest = await getChunkedUploadSession(sessionId);
+        } catch {
+          await cleanupConflictedChunk({
+            sessionId,
+            chunkIndex: index,
+            ownerEmail: email,
+            orgId,
+            handle,
+            uncertain: true,
+          });
+          throw casError;
+        }
+
+        const currentHandle = latest?.chunks[chunkKey];
+        if (
+          latest &&
+          currentHandle?.id === handle.id &&
+          currentHandle.provider === handle.provider
+        ) {
+          if (latest.cleanupState === "aborting") {
+            setResponseStatus(event, 410);
+            return { error: "Upload session was cancelled" };
+          }
+          activeSession = latest;
+          sessionUpdated = true;
+          recoveredCommittedCas = true;
+        } else {
+          if (!latest && activeSession.uploadType === "video") {
+            const completedVideo = await findUploadedVideoAssetForSession(
+              email,
+              sessionId,
+              orgId ?? null,
+            );
+            if (completedVideo) return completedVideo;
+          }
+          await cleanupConflictedChunk({
+            sessionId,
+            chunkIndex: index,
+            ownerEmail: email,
+            orgId,
+            handle,
+          });
+          throw casError;
+        }
+      }
+
+      if (!sessionUpdated) {
+        const cleanupTracked = await cleanupConflictedChunk({
+          sessionId,
+          chunkIndex: index,
+          ownerEmail: email,
+          orgId,
+          handle,
+        });
+        if (!cleanupTracked) {
+          setResponseStatus(event, 503);
+          return {
+            error: "Conflicted upload chunk cleanup could not be recorded",
+          };
+        }
+        setResponseStatus(event, 409);
+        return { error: "Upload session changed while saving the chunk" };
+      }
+      if (!recoveredCommittedCas) activeSession = nextSession;
+
+      if (previousHandle) {
+        try {
+          if (!(await deleteChunk(previousHandle))) {
+            const cleanupTracked = await cleanupConflictedChunk({
+              sessionId,
+              chunkIndex: index,
+              ownerEmail: email,
+              orgId,
+              handle: previousHandle,
+            });
+            if (!cleanupTracked) {
+              console.error(
+                "[slides-upload] replaced chunk cleanup is untracked",
+                { sessionId, chunkIndex: index },
+              );
+            }
+          }
+        } catch (error) {
+          await cleanupConflictedChunk({
+            sessionId,
+            chunkIndex: index,
+            ownerEmail: email,
+            orgId,
+            handle: previousHandle,
+          });
+          console.warn("[slides-upload] replaced chunk cleanup failed", {
+            sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
 
       if (!isFinal) return { ok: true };
 
-      const orderedIndices = Object.keys(session.chunks)
+      const orderedIndices = Object.keys(activeSession.chunks)
         .map(Number)
         .sort((a, b) => a - b);
       const missing = orderedIndices.some((value, i) => value !== i);
-      const receivedSize = Object.values(session.chunkSizes).reduce(
+      const receivedSize = Object.values(activeSession.chunkSizes).reduce(
         (total, size) => total + size,
         0,
       );
       if (
         missing ||
         orderedIndices.length === 0 ||
-        receivedSize !== session.declaredSize
+        receivedSize !== activeSession.declaredSize
       ) {
-        await discardSession(sessionId, session);
+        await discardSession(sessionId, activeSession, {
+          allowFinalizing: true,
+        });
         setResponseStatus(event, 400);
         return { error: "Upload is incomplete or has an invalid size" };
       }
 
+      const finalizationLease = startFinalizationLease(
+        sessionId,
+        activeSession,
+      );
       let result;
       try {
         const parts = await Promise.all(
           orderedIndices.map(async (chunkIndex) => {
-            const chunkHandle = session.chunks[String(chunkIndex)];
+            const chunkHandle = activeSession.chunks[String(chunkIndex)];
             const read = await readPrivateBlob(chunkHandle);
             return Buffer.from(read.data);
           }),
         );
         const combined = Buffer.concat(parts);
-        if (combined.byteLength !== session.declaredSize) {
+        if (combined.byteLength !== activeSession.declaredSize) {
           throw new Error("Assembled upload size does not match declaredSize");
         }
-        result = await saveUploadedReferenceFile({
-          email,
-          orgId,
-          originalName: session.filename,
-          data: combined,
-          type: session.mimeType,
-        });
+        await finalizationLease.assertActive();
+        result =
+          activeSession.uploadType === "video"
+            ? await uploadVideoAsset({
+                email,
+                orgId,
+                originalName: activeSession.filename,
+                data: combined,
+                uploadSessionId: sessionId,
+              })
+            : await saveUploadedReferenceFile({
+                email,
+                orgId,
+                originalName: activeSession.filename,
+                data: combined,
+                type: activeSession.mimeType,
+              });
       } catch (err) {
-        await discardSession(sessionId, session);
+        await finalizationLease.stop();
+        try {
+          const cleaned = await discardSession(sessionId, activeSession, {
+            allowFinalizing: true,
+          });
+          if (!cleaned) {
+            console.warn(
+              "[slides-upload] failed finalization cleanup incomplete",
+              {
+                sessionId,
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+          }
+        } catch (cleanupError) {
+          console.error("[slides-upload] failed finalization cleanup failed", {
+            sessionId,
+            error: err instanceof Error ? err.message : String(err),
+            cleanupError:
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : String(cleanupError),
+          });
+        }
         const statusCode =
           typeof (err as { statusCode?: unknown })?.statusCode === "number"
             ? (err as { statusCode: number }).statusCode
-            : 400;
+            : 500;
         setResponseStatus(event, statusCode);
         return { error: err instanceof Error ? err.message : "Invalid upload" };
       }
 
-      await cleanupCommittedSession(sessionId, session);
-      return [result];
+      const leaseFailure = await finalizationLease.stop();
+      if (leaseFailure) {
+        console.warn("[slides-upload] finalization lease ended during commit", {
+          sessionId,
+          error: leaseFailure.message,
+        });
+      }
+      await cleanupCommittedSession(sessionId, activeSession);
+      return activeSession.uploadType === "video" ? result : [result];
+    },
+    authContext,
+  );
+});
+
+export const getChunkedUploadStatus = defineEventHandler(async (event) => {
+  setResponseHeader(event, "Cache-Control", "private, no-store");
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const authContext = auth.context;
+  const email = authContext.email;
+  if (!email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async ({ orgId }) => {
+      const sessionId = getRouterParam(event, "sessionId");
+      if (!sessionId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing sessionId" };
+      }
+
+      const session = await getChunkedUploadSession(sessionId);
+      if (session && !sessionBelongsToRequest(session, email, orgId)) {
+        setResponseStatus(event, 403);
+        return { error: "Upload session belongs to another user" };
+      }
+
+      const completedVideo = await findUploadedVideoAssetForSession(
+        email,
+        sessionId,
+        orgId ?? null,
+      );
+      if (completedVideo) {
+        return { status: "complete" as const, video: completedVideo };
+      }
+      if (!session || session.uploadType !== "video") {
+        return { status: "expired" as const };
+      }
+      if (session.cleanupState === "aborting") {
+        const cleaned = await discardSession(sessionId, session, {
+          allowFinalizing: true,
+        });
+        if (!cleaned) {
+          return { status: "processing" as const, retryAfterMs: 1500 };
+        }
+        const completedAfterCleanup = await findUploadedVideoAssetForSession(
+          email,
+          sessionId,
+          orgId ?? null,
+        );
+        return completedAfterCleanup
+          ? { status: "complete" as const, video: completedAfterCleanup }
+          : { status: "expired" as const };
+      }
+      if (session.finalizingAt) {
+        const leaseExpiresAt = Date.parse(
+          session.finalizationLeaseExpiresAt ?? "",
+        );
+        if (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= Date.now()) {
+          await discardExpiredFinalization(sessionId, session);
+          const latest = await getChunkedUploadSession(sessionId);
+          if (!latest) {
+            const completedAfterCleanup =
+              await findUploadedVideoAssetForSession(
+                email,
+                sessionId,
+                orgId ?? null,
+              );
+            return completedAfterCleanup
+              ? { status: "complete" as const, video: completedAfterCleanup }
+              : { status: "expired" as const };
+          }
+          if (!sessionBelongsToRequest(latest, email, orgId)) {
+            setResponseStatus(event, 403);
+            return { error: "Upload session belongs to another user" };
+          }
+          const completedAfterCleanup = await findUploadedVideoAssetForSession(
+            email,
+            sessionId,
+            orgId ?? null,
+          );
+          if (completedAfterCleanup) {
+            return {
+              status: "complete" as const,
+              video: completedAfterCleanup,
+            };
+          }
+          if (latest.finalizingAt || latest.cleanupState === "aborting") {
+            return { status: "processing" as const, retryAfterMs: 1500 };
+          }
+          return { status: "uploading" as const };
+        }
+        return { status: "processing" as const, retryAfterMs: 1500 };
+      }
+      return { status: "uploading" as const };
+    },
+    authContext,
+  );
+});
+
+export const abortChunkedUpload = defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const authContext = auth.context;
+  const email = authContext.email;
+  if (!email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async ({ orgId }) => {
+      const sessionId = getRouterParam(event, "sessionId");
+      if (!sessionId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing sessionId" };
+      }
+      const session = await getChunkedUploadSession(sessionId);
+      if (!session) return { ok: true };
+      if (!sessionBelongsToRequest(session, email, orgId)) {
+        setResponseStatus(event, 403);
+        return { error: "Upload session belongs to another user" };
+      }
+
+      try {
+        const cleaned = await discardSession(sessionId, session);
+        if (cleaned) return { ok: true };
+      } catch (error) {
+        if (error instanceof UploadSessionFinalizingError) {
+          setResponseStatus(event, 409);
+          return { error: "Upload session is already finalizing" };
+        }
+        console.warn("[slides-upload] aborted session cleanup failed", {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      setResponseStatus(event, 503);
+      return { error: "Could not clean up upload session" };
     },
     authContext,
   );

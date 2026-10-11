@@ -11,6 +11,7 @@ import type {
   ProviderApiRequestArgs,
   ProviderApiRuntime,
 } from "../index.js";
+import { rejectFailedProviderResult } from "../result-outcome.js";
 import { stagingExecuteRequest, type StagingRequestArgs } from "../staging.js";
 import {
   createCustomProviderRegistrationAction,
@@ -400,7 +401,10 @@ export function createProviderApiRequestAction<
           rethrowStagingError(error);
         }
       }
-      return runtime.executeRequest(args);
+      return rejectFailedProviderResult(
+        args.provider,
+        await runtime.executeRequest(args),
+      );
     },
   });
 }
@@ -459,8 +463,13 @@ export function createProviderApiDocsAction<
     schema,
     http: options.http ?? { method: "GET" },
     readOnly: true,
-    run: async (rawArgs) =>
-      runtime.fetchDocs(rawArgs as ProviderApiDocsOptions),
+    run: async (rawArgs) => {
+      const args = rawArgs as ProviderApiDocsOptions;
+      return rejectFailedProviderResult(
+        args.provider,
+        await runtime.fetchDocs(args),
+      );
+    },
   });
 }
 

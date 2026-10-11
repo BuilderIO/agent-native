@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dataSourceOAuthReturnPath,
   focusedDataSourceFromSearchParams,
+  getSharedConnectionStatus,
   getConfiguredDataSources,
   isSourceConfigured,
   isSourceLocallyConfigured,
@@ -161,6 +162,57 @@ describe("data source status", () => {
     expect(isSourceReady(hubspot!, status, envStatus)).toBe(true);
     expect(isSourceLocallyConfigured(hubspot!, status, envStatus)).toBe(false);
     expect(getConfiguredDataSources(envStatus, status)).toContain(hubspot);
+  });
+
+  it("surfaces unhealthy shared Sentry connection states separately", () => {
+    const sentry = dataSources.find((source) => source.id === "sentry")!;
+    const envStatus: EnvKeyStatus[] = [
+      {
+        key: "SENTRY_AUTH_TOKEN",
+        label: "Sentry token",
+        required: true,
+        configured: false,
+      },
+    ];
+    const connection = {
+      provider: "sentry",
+      grantState: "granted" as const,
+      connectionCount: 1,
+      grantedConnectionCount: 1,
+      activeConnectionCount: 0,
+      hasWorkspaceConnection: true,
+      hasGrantedWorkspaceConnection: true,
+      hasActiveWorkspaceConnection: false,
+    };
+
+    expect(
+      getSharedConnectionStatus(
+        sentry,
+        {
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [{ ...connection, statuses: ["needs_reauth"] }],
+          },
+        },
+        envStatus,
+      )?.kind,
+    ).toBe("needs_reauth");
+    expect(
+      getSharedConnectionStatus(
+        sentry,
+        {
+          workspaceConnections: {
+            appId: "analytics",
+            available: true,
+            error: null,
+            providers: [{ ...connection, statuses: ["error"] }],
+          },
+        },
+        envStatus,
+      )?.kind,
+    ).toBe("error");
   });
 
   it("offers shared HubSpot OAuth for setup and grants, but not when ready or local", () => {

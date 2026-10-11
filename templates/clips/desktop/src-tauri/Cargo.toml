@@ -26,6 +26,7 @@ tauri = { version = "2", features = [
   "tray-icon",
   "image-png",
   "macos-private-api",
+  "protocol-asset",
 ] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
@@ -84,6 +85,7 @@ objc2-speech = { version = "0.3", features = [
   "SFTranscription",
   "SFTranscriptionSegment",
   "SFErrors",
+  "objc2-core-media",
 ] }
 objc2-avf-audio = { version = "0.3", features = [
   "AVAudioEngine",
@@ -92,11 +94,30 @@ objc2-avf-audio = { version = "0.3", features = [
   "AVAudioNode",
   "AVAudioBuffer",
   "AVAudioSession",
+  "AVAudioSettings",
   "AVAudioTypes",
   "block2",
   "objc2-core-audio-types",
   "objc2-audio-toolbox",
 ] }
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "block2",
+  "dispatch2",
+  "objc2-core-media",
+  "AVCaptureAudioDataOutput",
+  "AVCaptureDevice",
+  "AVCaptureInput",
+  "AVCaptureOutputBase",
+  "AVCaptureSession",
+  "AVMediaFormat",
+] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "CMBlockBuffer",
+  "CMSampleBuffer",
+] }
+dispatch2 = "0.3.1"
 objc2-audio-toolbox = { version = "0.3.2", features = [
   "AUComponent",
   "AudioComponent",

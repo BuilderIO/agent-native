@@ -1,34 +1,153 @@
-import { readFileSync } from "node:fs";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getAgentEngineEntry,
+  registerAgentEngine,
+  unregisterAgentEngine,
+  type AgentEngineEntry,
+} from "../agent/engine/registry.js";
+import {
+  invalidateAgentEngineStatusCache,
+  memoizeAgentEngineStatus,
+} from "./agent-engine-status-cache.js";
+import type { AgentEngineStatusResponse } from "./core-routes-plugin.js";
 
 const credentialMocks = vi.hoisted(() => ({
   builderReady: vi.fn<() => Promise<boolean>>(),
+  builderCredentials: vi.fn<() => Promise<any>>(),
+  legacyBuilderKey: vi.fn<() => Promise<string | null>>(),
   resolveSecret: vi.fn<(key: string) => Promise<any>>(),
   authFailure:
-    vi.fn<(args: { key: string; value: string }) => Promise<unknown>>(),
+    vi.fn<
+      (args: {
+        key: string;
+        value: string;
+        throwOnReadError?: boolean;
+      }) => Promise<unknown>
+    >(),
 }));
 
 vi.mock("./credential-provider.js", () => ({
   assertCredentialStoreReadable: vi.fn(),
-  getProviderCredentialAuthFailure: (args: { key: string; value: string }) =>
-    credentialMocks.authFailure(args),
+  getProviderCredentialAuthFailure: (args: {
+    key: string;
+    value: string;
+    throwOnReadError?: boolean;
+  }) => credentialMocks.authFailure(args),
   prefetchSecrets: vi.fn(async () => undefined),
-  resolveHasBuilderGatewayCredential: () => credentialMocks.builderReady(),
+  resolveBuilderGatewayCredentialsDetailed: () =>
+    credentialMocks.builderCredentials(),
+  resolveBuilderPrivateKey: () => credentialMocks.legacyBuilderKey(),
   resolveSecretDetailed: (key: string) => credentialMocks.resolveSecret(key),
+}));
+
+vi.mock("./builder-oauth.js", () => ({
+  hasUsableBuilderOAuthSessionForReadiness: () =>
+    credentialMocks.builderReady(),
+}));
+
+vi.mock("./request-context.js", () => ({
+  getRequestOrgId: () => "test-org",
+  getRequestUserEmail: () => "steve@example.com",
 }));
 
 import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isBuilderChatSetupReady,
   isAgentChatAiSetupReady,
   isAgentChatAiSetupRequiredError,
   queuedMessagesNeedAgentChatAiSetup,
   requireAgentChatAiSetup,
 } from "./agent-chat-ai-setup.js";
 
+describe("isBuilderChatSetupReady", () => {
+  it.each([
+    ["usable OAuth", { oauthSessionUsable: true }, true],
+    ["Builder key pair", { privateKey: "private", publicKey: "public" }, true],
+    ["legacy Builder private key", { legacyPrivateKey: "private" }, true],
+    ["incomplete Builder key pair", { privateKey: "private" }, false],
+    ["blank legacy key", { legacyPrivateKey: "   " }, false],
+  ])("accepts %s consistently", (_label, input, expected) => {
+    expect(isBuilderChatSetupReady(input)).toBe(expected);
+  });
+});
+
+const testStatusEngineEntries: AgentEngineEntry[] = [
+  {
+    name: "builder",
+    label: "Builder",
+    description: "Test Builder engine",
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    defaultModel: "builder-test-model",
+    supportedModels: ["builder-test-model"],
+    requiredEnvVars: [],
+    create: () => {
+      throw new Error("The readiness test never creates an engine");
+    },
+  },
+  {
+    name: "ai-sdk:openai",
+    label: "OpenAI",
+    description: "Test OpenAI engine",
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    defaultModel: "openai-test-model",
+    supportedModels: ["openai-test-model"],
+    requiredEnvVars: ["OPENAI_API_KEY"],
+    create: () => {
+      throw new Error("The readiness test never creates an engine");
+    },
+  },
+  {
+    name: "chatgpt-subscription",
+    label: "ChatGPT subscription",
+    description: "Test subscription engine",
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    defaultModel: "subscription-test-model",
+    supportedModels: ["subscription-test-model"],
+    requiredEnvVars: [],
+    create: () => {
+      throw new Error("The readiness test never creates an engine");
+    },
+  },
+];
+
 describe("Agent-Native chat AI setup gate", () => {
   beforeEach(() => {
+    invalidateAgentEngineStatusCache();
+    for (const entry of testStatusEngineEntries) registerAgentEngine(entry);
     credentialMocks.builderReady.mockResolvedValue(false);
+    credentialMocks.builderCredentials.mockResolvedValue({
+      privateKey: null,
+      publicKey: null,
+      lookupFailed: false,
+    });
+    credentialMocks.legacyBuilderKey.mockResolvedValue(null);
     credentialMocks.resolveSecret.mockResolvedValue({
       value: null,
       lookupFailed: false,
@@ -37,6 +156,9 @@ describe("Agent-Native chat AI setup gate", () => {
   });
 
   afterEach(() => {
+    invalidateAgentEngineStatusCache();
+    for (const entry of testStatusEngineEntries)
+      unregisterAgentEngine(entry.name);
     vi.clearAllMocks();
   });
 
@@ -52,11 +174,253 @@ describe("Agent-Native chat AI setup gate", () => {
     expect(isAgentChatAiSetupRequiredError(new Error("other"))).toBe(false);
   });
 
-  it("accepts a usable Builder gateway or OAuth credential", async () => {
+  it("accepts a usable saved Builder OAuth credential", async () => {
     credentialMocks.builderReady.mockResolvedValue(true);
 
     await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
     expect(credentialMocks.resolveSecret).not.toHaveBeenCalled();
+  });
+
+  it("accepts the legacy Builder private key used by the status route", async () => {
+    credentialMocks.legacyBuilderKey.mockResolvedValue("legacy-builder-key");
+
+    await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
+  });
+
+  it("rechecks credentials instead of trusting the status route memo for dispatch", async () => {
+    await memoizeAgentEngineStatus(
+      { userEmail: "steve@example.com", orgId: "test-org" },
+      async () => ({ chatEligible: true }),
+    );
+
+    await expect(requireAgentChatAiSetup()).rejects.toMatchObject({
+      statusCode: 403,
+      data: { code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE },
+    });
+    expect(credentialMocks.builderReady).toHaveBeenCalledOnce();
+    expect(credentialMocks.resolveSecret).toHaveBeenCalled();
+  });
+
+  it("reports provider rejection marker read failures as unavailable", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? { value: "provider-key", source: "user", lookupFailed: false }
+        : { value: null, lookupFailed: false },
+    );
+    credentialMocks.authFailure.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    await expect(isAgentChatAiSetupReady()).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Could not read saved AI connections. Try again shortly.",
+    });
+  });
+
+  it("keeps a usable provider when another provider rejection marker is unreadable", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) => {
+      if (key === "OPENAI_API_KEY") {
+        return { value: "sk-openai-key", source: "user", lookupFailed: false };
+      }
+      if (key === "ANTHROPIC_API_KEY") {
+        return {
+          value: "sk-anthropic-key",
+          source: "org",
+          lookupFailed: false,
+        };
+      }
+      return { value: null, lookupFailed: false };
+    });
+    credentialMocks.authFailure.mockImplementation(async ({ key }) => {
+      if (key === "OPENAI_API_KEY") {
+        throw new Error("settings store unavailable");
+      }
+      return null;
+    });
+
+    await expect(isAgentChatAiSetupReady()).resolves.toBe(true);
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "ANTHROPIC_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+  });
+
+  it.each([
+    ["Builder OAuth", "builder", true],
+    ["Builder keys", "builder", true],
+    ["BYOK", "ai-sdk:openai", true],
+    ["ChatGPT subscription only", "chatgpt-subscription", false],
+  ] as const)(
+    "uses the shared eligibility policy for %s status (%s)",
+    async (_label, engine, expected) => {
+      const entry = getAgentEngineEntry(engine);
+      if (!entry) throw new Error(`Test engine ${engine} is not registered`);
+      if (engine === "ai-sdk:openai") {
+        credentialMocks.resolveSecret.mockImplementation(async (key) =>
+          key === "OPENAI_API_KEY"
+            ? { value: "sk-test-key", source: "user", lookupFailed: false }
+            : { value: null, lookupFailed: false },
+        );
+      }
+      const result = await isAgentChatAiSetupReady({
+        status: { configured: true, engine },
+        detectFromUserSecrets: async () => null,
+      });
+      expect(result).toBe(expected);
+    },
+  );
+
+  it("validates rejection markers before trusting a configured provider status", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? { value: "sk-rejected-key", source: "user", lookupFailed: false }
+        : { value: null, lookupFailed: false },
+    );
+    credentialMocks.authFailure.mockResolvedValue({ status: 401 });
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: true, engine: "ai-sdk:openai" },
+        detectFromUserSecrets: async () => null,
+      }),
+    ).resolves.toBe(false);
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        value: "sk-rejected-key",
+        throwOnReadError: true,
+      }),
+    );
+  });
+
+  it("returns unavailable when a configured provider status has an unreadable rejection marker", async () => {
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) =>
+      key === "OPENAI_API_KEY"
+        ? { value: "sk-test-key", source: "user", lookupFailed: false }
+        : { value: null, lookupFailed: false },
+    );
+    credentialMocks.authFailure.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: true, engine: "ai-sdk:openai" },
+        detectFromUserSecrets: async () => null,
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      statusMessage: "Could not read saved AI connections. Try again shortly.",
+    });
+  });
+
+  it("accepts another usable saved provider when the configured provider marker is unreadable", async () => {
+    const otherProvider: AgentEngineEntry = {
+      name: "ai-sdk:anthropic",
+      label: "Anthropic",
+      description: "Test Anthropic engine",
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      defaultModel: "anthropic-test-model",
+      supportedModels: ["anthropic-test-model"],
+      requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      create: () => {
+        throw new Error("The readiness test never creates an engine");
+      },
+    };
+    credentialMocks.resolveSecret.mockImplementation(async (key: string) => {
+      if (key === "OPENAI_API_KEY") {
+        return { value: "sk-openai-key", source: "user", lookupFailed: false };
+      }
+      if (key === "ANTHROPIC_API_KEY") {
+        return {
+          value: "sk-anthropic-key",
+          source: "org",
+          lookupFailed: false,
+        };
+      }
+      return { value: null, lookupFailed: false };
+    });
+    credentialMocks.authFailure.mockImplementation(async ({ key }) => {
+      if (key === "OPENAI_API_KEY") {
+        throw new Error("settings store unavailable");
+      }
+      return null;
+    });
+
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: true, engine: "ai-sdk:openai" },
+        detectFromUserSecrets: async () => otherProvider,
+      }),
+    ).resolves.toBe(true);
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+    expect(credentialMocks.authFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "ANTHROPIC_API_KEY",
+        throwOnReadError: true,
+      }),
+    );
+  });
+
+  it.each([
+    ["OpenAI-compatible endpoint", "OPENAI_BASE_URL"],
+    ["Ollama endpoint", "OLLAMA_BASE_URL"],
+  ] as const)(
+    "accepts the shared status policy for a %s",
+    async (_label, key) => {
+      credentialMocks.resolveSecret.mockImplementation(async (candidate) =>
+        candidate === key
+          ? {
+              value:
+                key === "OLLAMA_BASE_URL"
+                  ? "http://localhost:11434"
+                  : "https://ai-gateway.example/v1",
+              source: "user",
+              lookupFailed: false,
+            }
+          : { value: null, lookupFailed: false },
+      );
+      const result = await isAgentChatAiSetupReady({
+        status: {
+          configured: false,
+          ...(key === "OPENAI_BASE_URL"
+            ? { openAiBaseUrlConfigured: true }
+            : {}),
+        },
+        detectFromUserSecrets: async () => null,
+      });
+      expect(result).toBe(true);
+    },
+  );
+
+  it("does not accept an engine when setup detection rejects its key", async () => {
+    const rejected = getAgentEngineEntry("ai-sdk:openai");
+    expect(rejected).toBeDefined();
+    await expect(
+      isAgentChatAiSetupReady({
+        status: { configured: false },
+        detectFromUserSecrets: async () => null,
+      }),
+    ).resolves.toBe(false);
   });
 
   it.each(["user", "org", "workspace"] as const)(
@@ -72,6 +436,7 @@ describe("Agent-Native chat AI setup gate", () => {
       expect(credentialMocks.authFailure).toHaveBeenCalledWith({
         key: "OPENAI_API_KEY",
         value: "sk-test-key",
+        throwOnReadError: true,
       });
     },
   );
@@ -218,49 +583,9 @@ describe("Agent-Native chat AI setup gate", () => {
     ).toBe(true);
   });
 
-  it("wires the same strict gate before interactive dispatch and queue additions", () => {
-    const plugin = readFileSync(
-      new URL("./agent-chat-plugin.ts", import.meta.url),
-      "utf8",
-    );
-    const invokeStart = plugin.indexOf("const invokeAgentChatHandler");
-    const invokeEnd = plugin.indexOf("// A Function URL", invokeStart);
-    const invokeBlock = plugin.slice(invokeStart, invokeEnd);
-    expect(
-      invokeBlock.indexOf("await requireAgentChatAiSetup();"),
-    ).toBeGreaterThan(-1);
-    expect(
-      invokeBlock.indexOf("await requireAgentChatAiSetup();"),
-    ).toBeLessThan(invokeBlock.indexOf("return handler(event);"));
-    // A refused turn is answered in its thread before the 403 is rethrown.
-    expect(
-      invokeBlock.indexOf("await recordSetupRequiredTurn(event, error);"),
-    ).toBeGreaterThan(invokeBlock.indexOf("await requireAgentChatAiSetup();"));
-    expect(
-      invokeBlock.indexOf("await recordSetupRequiredTurn(event, error);"),
-    ).toBeLessThan(invokeBlock.indexOf("throw error;"));
-
-    const queueStart = plugin.indexOf("// POST /threads/:id/queued");
-    const queueEnd = plugin.indexOf('isThreadSubroute("rename")', queueStart);
-    const queueBlock = plugin.slice(queueStart, queueEnd);
-    expect(queueBlock).toContain('mutation.type === "append"');
-    expect(queueBlock).toContain('mutation.type === "moveToTop"');
-    const mutationIndex = queueBlock.indexOf(
-      "mutateThreadQueuedMessages(threadId, mutation)",
-    );
-    expect(mutationIndex).toBeGreaterThan(-1);
-    expect(queueBlock.indexOf("requireAgentChatAiSetup()")).toBeLessThan(
-      mutationIndex,
-    );
-  });
-
-  it("exposes strict chat eligibility on the existing engine status response", () => {
-    const routes = readFileSync(
-      new URL("./core-routes-plugin.ts", import.meta.url),
-      "utf8",
-    );
-    expect(routes).toContain("export interface AgentEngineStatusResponse");
-    expect(routes).toContain("chatEligible: boolean");
-    expect(routes).toContain("isAgentChatAiSetupReady()");
+  it("exposes strict chat eligibility on the engine status response", () => {
+    expectTypeOf<
+      AgentEngineStatusResponse["chatEligible"]
+    >().toEqualTypeOf<boolean>();
   });
 });

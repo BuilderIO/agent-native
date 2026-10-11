@@ -18,7 +18,9 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 import {
   assertGenerationArtifactAccessProof,
   createGenerationArtifactAccessCapability,
+  createGenerationCreativeContextSnapshotCapability,
   verifyGenerationArtifactAccessCapability,
+  verifyGenerationCreativeContextSnapshotCapability,
 } from "./generation-artifact-access.js";
 
 const originalKey = process.env.CREATIVE_CONTEXT_A2A_KEY;
@@ -26,6 +28,30 @@ const identity = {
   appId: "slides",
   artifactType: "deck",
   artifactId: "deck-1",
+};
+const snapshot = {
+  ...identity,
+  contextMode: "pinned" as const,
+  contextPackId: "pack-1",
+  reuseLabels: [
+    {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "brand-voice",
+      label: "Voice reference",
+      dataRole: "untrusted-reference" as const,
+    },
+  ],
+  elementProvenance: [
+    {
+      elementId: "slide-1",
+      influence: "reference-conditioned" as const,
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      label: "Voice reference",
+    },
+  ],
+  onlyIfMissing: true as const,
 };
 
 describe("generation artifact access capabilities", () => {
@@ -145,5 +171,24 @@ describe("generation artifact access capabilities", () => {
     await expect(
       verifyGenerationArtifactAccessCapability(forged, identity, "read"),
     ).rejects.toThrow(/invalid generation artifact access capability/i);
+  });
+
+  it("binds snapshot receipts to the exact provenance and caller", async () => {
+    const token =
+      await createGenerationCreativeContextSnapshotCapability(snapshot);
+
+    await expect(
+      verifyGenerationCreativeContextSnapshotCapability(token, snapshot),
+    ).resolves.toBeUndefined();
+    await expect(
+      verifyGenerationCreativeContextSnapshotCapability(token, {
+        ...snapshot,
+        contextPackId: "other-pack",
+      }),
+    ).rejects.toThrow(/invalid creative context snapshot capability/i);
+    mocks.getRequestUserEmail.mockReturnValue("mallory@example.test");
+    await expect(
+      verifyGenerationCreativeContextSnapshotCapability(token, snapshot),
+    ).rejects.toThrow(/invalid creative context snapshot capability/i);
   });
 });

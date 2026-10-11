@@ -3,6 +3,69 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Clips share links now guide agents to read full transcripts and inspect video frames, with distinct recovery steps for private clips, expired links, and unavailable video.
+
+### Fixed
+
+- Agents can read clip transcripts and inspect video frames from shared links, with clear guidance when a private clip needs a Share with agents link.
+- Agents now get clear recovery steps when clip frames are still processing or stored media cannot be fetched.
+
+## 2026-10-08
+
+### Improved
+
+- Opening Clips now goes directly to the recordings library.
+- Signup and login sessions are available in Analytics with all form inputs masked.
+- Skip setup to start recording; storage setup remains available after a recording finishes.
+- The Clips agent can add split markers at timestamps so segments can be edited independently
+- You can skip setup and start recording clips without connecting storage.
+- The storage setup screen no longer lists example S3 providers.
+- The video editor confirms when edits save to a clip and provides a clear way back to its viewer.
+
+### Fixed
+
+- Clip uploads recover more reliably from temporary server interruptions
+- Clips blocks chat prompts until an AI provider is connected.
+- Clips marks recordings as failed when storage setup is missing, even if upload progress cannot be repaired.
+- Clips respects Skip after storage connects and gives accurate guidance when Builder does not respond
+- Recording edits, audio cleanup, and desktop dictation recover reliably after interruptions.
+- First-run storage setup remains available when the status check fails.
+
+## 2026-10-07
+
+### Improved
+
+- Allow local recordings to be previewed and downloaded without storage.
+- Clips explains when Builder needs separate file-upload access and how to restore storage.
+- Show a skippable storage choice before the first recording, then keep local capture available.
+- Builder.io setup choices now say “Use Builder.io”.
+
+### Fixed
+
+- Clips can finish saving when a browser tab stops responding.
+- Clips keeps active recordings running while storage connects and shows current Builder recovery steps
+- Clips preserves queued uploads, keeps complete local previews, and offers a retry when Builder status is unavailable.
+- Builder connection errors now show actionable retry and browser recovery guidance.
+- Return to Home after storage connects during first-run setup
+- Skipping storage setup keeps the recorder ready, including when opened from a setup link
+- Storage setup errors now point members to an owner or admin when they can't manage storage settings
+- Clips sizes Settings and recording views correctly while a recording is active.
+- Clarify Builder storage setup choices and retry guidance
+
+## 2026-10-06
+
+### Fixed
+
+- Fixed arrow-key selection in comment mentions
+- Fixed attached images missing from visual analysis.
+- Fixed clips freezing when you hit play while the recording was still being optimized
+- Fixed returning to shared clips after email verification
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Improved
@@ -12,6 +75,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Dictation now transcribes from AirPods and other Bluetooth microphones instead of reporting that no speech was detected.
 - Agent links copied from a clip are shorter, so Claude can fetch them without hitting its URL length limit.
 - Sign-in and signup pages now share the animated Agent-Native wave.
 - Confirming Discard recording now returns you to your library.

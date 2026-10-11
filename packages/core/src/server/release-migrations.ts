@@ -34,6 +34,7 @@ import {
   OBSERVABILITY_MIGRATIONS_TABLE,
 } from "../observability/migrations.js";
 import { ORG_MIGRATIONS } from "../org/migrations.js";
+import { ensureSharingAccessIndexes } from "../sharing/indexes.js";
 import { runAutomationTriggerEventMigrations } from "../triggers/event-queue.js";
 import {
   USAGE_ALERT_MIGRATIONS,
@@ -138,4 +139,7 @@ export async function runFrameworkReleaseMigrations(
   await runAutomationRunMigrations(nitroApp);
   await runAutomationTriggerEventMigrations(nitroApp);
   await runAutomationSchedulerHealthMigrations(nitroApp);
+  // Last, so the framework's own share and owner tables exist. An app's tables
+  // are indexed by the release after the one that creates them.
+  await ensureSharingAccessIndexes();
 }

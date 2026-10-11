@@ -37,6 +37,24 @@ FROM (
 )
 WHERE _row_number = 1;
 
+-- The view above deduplicates before any caller filter runs, so BigQuery
+-- cannot prune partitions through it and every read scans the whole table.
+-- Read a date range through this function instead. Deduplicating inside the
+-- range matches the view because insertAll retries resend the same row, so
+-- every copy of an id carries the same event_date and event_name.
+-- http.response rows hold most of the properties bytes and no dashboard reads
+-- them; excluding them here, before the dedupe, lets clustering skip their
+-- blocks. Query the table directly for http.response.
+CREATE OR REPLACE TABLE FUNCTION `builder-3b0a2.analytics.first_party_analytics_events_raw_query_range`(
+  start_date DATE,
+  end_date DATE
+) AS
+SELECT raw.*
+FROM `builder-3b0a2.analytics.first_party_analytics_events_raw` AS raw
+WHERE raw.event_date BETWEEN start_date AND end_date
+  AND raw.event_name != 'http.response'
+QUALIFY ROW_NUMBER() OVER (PARTITION BY raw.id ORDER BY raw.received_at DESC) = 1;
+
 CREATE OR REPLACE VIEW `builder-3b0a2.analytics.first_party_analytics_events_raw_daily_rollups` AS
 WITH tenant_events AS (
   SELECT

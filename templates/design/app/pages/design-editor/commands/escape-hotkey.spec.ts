@@ -69,6 +69,22 @@ describe("runEscapeHotkey", () => {
     expect(calls.setOverviewSelectedScreenIds).toHaveBeenCalledWith([]);
   });
 
+  it("only closes the shortcuts dialog when it is open, leaving selection and tool alone", () => {
+    const { args, calls } = harness({
+      keyboardShortcutsOpen: true,
+      activeTool: "frame",
+    });
+
+    runEscapeHotkey(args);
+
+    expect(args.handleCloseKeyboardShortcuts).toHaveBeenCalledTimes(1);
+    expect(calls.setSelectedElement).not.toHaveBeenCalled();
+    expect(calls.setSelectedLayerIdsState).not.toHaveBeenCalled();
+    expect(calls.setOverviewSelectedScreenIds).not.toHaveBeenCalled();
+    expect(args.setActiveTool).not.toHaveBeenCalled();
+    expect(args.setMode).not.toHaveBeenCalled();
+  });
+
   it("still lets a higher-priority consumer take the keypress", () => {
     const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
 

@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { registerObservabilityProvider } from "../observability/otel-provider.js";
+import { BACKGROUND_DEADLINE_MS } from "./background-work.js";
+
 const mockAppStatePut = vi.hoisted(() => vi.fn());
 const mockRecordChange = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
+const mockGetRequestRunContext = vi.hoisted(() => vi.fn());
 
 vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
@@ -27,7 +31,7 @@ vi.mock("./poll.js", async () => {
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => mockGetRequestOrgId(),
-  getRequestRunContext: () => undefined,
+  getRequestRunContext: () => mockGetRequestRunContext(),
   getRequestUserEmail: () => mockGetRequestUserEmail(),
 }));
 
@@ -37,6 +41,7 @@ describe("notifyActionChange", () => {
     mockRecordChange.mockReset();
     mockGetRequestOrgId.mockReset();
     mockGetRequestUserEmail.mockReset();
+    mockGetRequestRunContext.mockReset();
   });
 
   it("records in-memory and durable action changes for an owner", async () => {
@@ -186,6 +191,191 @@ describe("notifyActionChange", () => {
 
     expect(mockRecordChange).not.toHaveBeenCalled();
     expect(mockAppStatePut).not.toHaveBeenCalled();
+  });
+
+  it("holds the write response on the marker write even when a waitUntil exists", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
+    mockGetRequestRunContext.mockReturnValue({
+      waitUntil: () => {},
+    });
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    let responded = false;
+    const response = notifyActionChangeForResponse({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    }).then(() => {
+      responded = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockRecordChange).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "update-project" }),
+    );
+    expect(mockAppStatePut).toHaveBeenCalled();
+    expect(responded).toBe(false);
+
+    releaseMarker();
+    await response;
+    expect(responded).toBe(true);
+  });
+
+  it("awaits the marker write past the background deadline when no waitUntil exists", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    let responded = false;
+    const response = notifyActionChangeForResponse({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    }).then(() => {
+      responded = true;
+    });
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, BACKGROUND_DEADLINE_MS + 50),
+    );
+    expect(responded).toBe(false);
+
+    releaseMarker();
+    await response;
+    expect(responded).toBe(true);
+  });
+
+  it("finishes a fast marker write before the response goes out when no waitUntil exists", async () => {
+    let written = false;
+    mockAppStatePut.mockImplementation(async () => {
+      written = true;
+    });
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    await notifyActionChangeForResponse({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    expect(written).toBe(true);
+  });
+
+  it("logs a failed marker write on the response path instead of rejecting the response", async () => {
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    await expect(
+      notifyActionChangeForResponse({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      }),
+    ).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      "[action-change] durable marker write failed:",
+      "database unavailable",
+    );
+    warn.mockRestore();
+  });
+
+  it("counts each failed durable marker write once and not a landed one", async () => {
+    const recorded: Array<{
+      name: string;
+      value: number;
+      attributes: unknown;
+    }> = [];
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({ record: () => {} }),
+          createCounter: (name: string) => ({
+            add: (value: number, attributes: unknown) =>
+              recorded.push({ name, value, attributes }),
+          }),
+        }),
+      },
+    });
+    mockAppStatePut.mockRejectedValueOnce(
+      new TypeError("database unavailable"),
+    );
+    mockAppStatePut.mockResolvedValueOnce(undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    try {
+      await notifyActionChangeForResponse({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      });
+      await notifyActionChangeForResponse({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      });
+    } finally {
+      unregister();
+      warn.mockRestore();
+    }
+
+    expect(recorded).toEqual([
+      {
+        name: "agent_native.action_change.marker_failures",
+        value: 1,
+        attributes: { "error.type": "TypeError" },
+      },
+    ]);
+  });
+
+  it("still resolves a failed marker write when the failure metric throws", async () => {
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({ record: () => {} }),
+          createCounter: () => ({
+            add: () => {
+              throw new Error("metric exporter down");
+            },
+          }),
+        }),
+      },
+    });
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    try {
+      await expect(
+        notifyActionChangeForResponse({
+          actionName: "update-project",
+          owner: "owner@example.com",
+        }),
+      ).resolves.toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] durable marker write failed:",
+        "database unavailable",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] failure metric failed:",
+        "metric exporter down",
+      );
+    } finally {
+      unregister();
+      warn.mockRestore();
+    }
   });
 });
 

@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +6,7 @@ vi.mock("@agent-native/core/client/collab", () => ({
   useCollaborativeDoc: (...args: unknown[]) => useCollaborativeDoc(...args),
 }));
 
+import { readDesignEditorSource } from "./read-design-editor-source";
 import { useViewerPresence } from "./use-viewer-presence";
 
 function render(input: Parameters<typeof useViewerPresence>[0]) {
@@ -54,10 +52,7 @@ describe("useViewerPresence", () => {
   });
 
   it("is mounted by the editor page", () => {
-    const source = readFileSync(
-      join(import.meta.dirname, "..", "DesignEditor.tsx"),
-      "utf8",
-    );
+    const source = readDesignEditorSource();
     expect(source).toContain("useViewerPresence(");
   });
 });

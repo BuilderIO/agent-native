@@ -1,15 +1,226 @@
 ---
 title: "Azure Static Web Apps"
-description: "Localized pointer to the the Nitro azure-swa preset."
+description: "使用 Static Web Apps CLI 将独立的 Agent-Native 应用部署到 Azure Static Web Apps。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Azure Static Web Apps
 
-Read the [English Azure Static Web Apps guide](/docs/azure-static-web-apps) for the build steps and
-provider-specific production configuration.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`azure-swa`.
+Azure Static Web Apps 会为你托管应用，因此无需搭建或维护服务器。它直接提供应用的
+静态文件，并把应用的服务器作为托管的 Azure Functions 运行，还会为应用提供一个支持
+HTTPS 的公共地址。
+
+本指南将从零开始演示如何部署一个独立应用。你将创建应用，为它配置生产数据库和
+身份验证密钥，准备好数据库，为 Azure 构建应用，创建一个静态 Web 应用，然后使用
+Static Web Apps CLI 上传完成的构建产物。
+
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你还需要一个 Azure 账户。请在你自己的电脑上运行本指南中的命令。你使用 Node.js
+构建应用，Static Web Apps CLI 会把完成的构建产物上传到 Azure。
+
+## 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建新的独立应用。下面的示例基于 Chat 模板创建应用，但你可以从任何模板开始。
+进入应用的文件夹并安装依赖。`corepack enable` 会启用应用所需的 `pnpm` 版本，
+因此你无需自己安装 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果愿意，可以把 `my-app` 替换为你自己的应用名称。本指南的其余部分假定你位于
+应用的文件夹中。
+
+<Callout tone="info">
+
+如果这些命令因对等依赖错误而失败，原因可能是 npx 缓存中有过时的软件包副本。运行 `npx clear-npx-cache` 清除缓存，然后重新运行这些命令。
+
+</Callout>
+
+## 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+下面的 export 命令让后续命令能在当前 shell 中正常运行。部署之前，请把这些变量
+同样保存到主机的项目或服务环境设置中。第 5 步会介绍如何在 Azure 中保存它们。
+
+### 数据库 URL {#database-url}
+
+在本地开发期间，如果未设置 `DATABASE_URL`，应用会把数据存储在本地数据库中。
+已部署的应用需要一个真正的 PostgreSQL 数据库，在各次部署之间保留数据。Azure
+Functions 不会在各次请求之间保留文件，因此数据库必须位于静态 Web 应用之外。从你的
+提供商处复制连接字符串并导出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[数据库提供商指南](/docs/neon)介绍了在每个提供商处查找连接字符串的位置，其中包括
+[Azure Database for PostgreSQL](/docs/azure-postgresql)。
+
+<Callout tone="warning">
+
+请选择持久的 PostgreSQL 提供商，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 身份验证密钥 {#auth-secret}
+
+只需生成一次，并在各次部署之间保持不变。
+
+应用使用 `BETTER_AUTH_SECRET` 为用户会话签名。如果它发生变化，所有已登录的用户
+都会被登出。下面的命令会生成一个随机值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+请把生成的值保存在安全的地方，例如密码管理器。每次部署时都使用相同的值。
+
+### 公共 URL {#public-url}
+
+可选。在使用自定义域名、反向代理，或需要固定公共源的身份验证/OAuth 流程时设置它。
+
+`BETTER_AUTH_URL` 是用户访问你的应用时使用的公共地址。如果不设置，应用会根据
+每个传入请求推断自己的地址。在 Azure 为你提供的地址上，这通常没有问题，但当你
+连接自定义域名时，请设置它，以便登录链接和 OAuth 重定向使用该域名。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次部署之前运行此命令：
+
+```bash
+pnpm migrate:production
+```
+
+该命令在你的电脑上运行，并使用你在第 2 步中导出的 `DATABASE_URL` 连接到生产
+数据库。升级应用之后、部署新版本之前，请再次运行它。
+
+## 第 4 步：构建 {#step-4-build}
+
+### 构建应用 {#build-the-app}
+
+为 Azure Static Web Apps 构建应用：
+
+```bash
+NITRO_PRESET=azure-swa pnpm build
+```
+
+`NITRO_PRESET=azure-swa` 会按照 Azure Static Web Apps 要求的格式构建应用。构建会把
+静态文件写入 `.output/public`，并把服务器函数写入 `.output/server`。它还会把一个
+`staticwebapp.config.json` 文件写入应用的文件夹，该文件告诉 Azure 如何路由请求，
+以及使用哪个 Node.js 版本运行服务器。
+
+### 设置 API 运行时 {#set-the-api-runtime}
+
+Azure 会使用 `staticwebapp.config.json` 中指定的 Node.js 版本运行应用的服务器。
+构建会从 `package.json` 的 `engines` 字段中选取该版本，但仅当该字段恰好为 `20` 或
+`22` 时才会这样做。新应用要求 `>=22.22.0`，因此构建会改为写入 Node.js 18，而这个
+版本对应用来说太旧，Azure 也已不再支持。
+
+每次构建之后，把版本设置为 Node.js 22：
+
+```bash
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+```
+
+该命令只会更改 `apiRuntime` 设置，并保留构建写入的文件中的其余内容。构建每次都会
+重写该文件，因此请在每次构建之后、部署之前运行此命令。
+
+## 第 5 步：创建静态 Web 应用并保存密钥 {#step-5-create-the-static-web-app-and-save-the-secrets}
+
+在 Azure 门户中，创建一个新的 **Static Web App**。选择订阅、资源组、名称和计划。
+在 **Deployment details** 下选择 **Other**，因为你要自己上传构建产物，而不是连接
+GitHub 仓库。
+
+在应用的 **Overview** 页面中，从 **Manage deployment token** 下复制部署令牌，
+并导出它：
+
+```bash
+export SWA_CLI_DEPLOYMENT_TOKEN='your-deployment-token'
+```
+
+Static Web Apps CLI 会在第 6 步中读取此变量。请妥善保管该令牌，不要泄露，因为
+任何拥有它的人都可以部署到你的应用。
+
+然后保存两个必填变量。在 Azure 门户中打开该静态 Web 应用，进入 **Settings** >
+**Environment variables**，选择 **Production** 环境，然后添加 `DATABASE_URL` 和
+`BETTER_AUTH_SECRET`，值为你在第 2 步中导出的值。如果你设置了 `BETTER_AUTH_URL`，
+请用同样的方式添加它。Azure 会把这些值作为环境变量传给应用的服务器函数。
+
+## 第 6 步：部署 {#step-6-deploy}
+
+<Steps>
+
+### 上传构建产物
+
+在应用的文件夹中，把静态文件和服务器函数上传到生产环境：
+
+```bash
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+`.output/public` 存放静态文件，`--api-location .output/server` 指向服务器函数。
+`--swa-config-location .` 指向应用的文件夹，构建会把 `staticwebapp.config.json`
+写到那里。如果不加这个参数，Azure 就看不到第 4 步中设置的 API 运行时。
+`--env production` 会发布到你的生产地址，而不是预览环境。
+
+### 打开应用
+
+命令完成后，会输出应用的地址，该地址以 `azurestaticapps.net` 结尾。打开它并创建
+第一个账户。
+
+</Steps>
+
+## 部署更新 {#deploy-updates}
+
+要发布新版本，请运行迁移，再次构建，然后上传：
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=azure-swa pnpm build
+
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+在新的 shell 中，请再次导出 `SWA_CLI_DEPLOYMENT_TOKEN`。已保存的环境变量会保留在
+静态 Web 应用上，因此你无需重复第 5 步。
+
+## 请求限制 {#request-limits}
+
+Azure Static Web Apps 会在 45 秒后结束对应用服务器的任何请求，并且不支持
+WebSockets。Agent-Native 已经会在大约 40 秒后结束一次对话轮次，并从浏览器中继续
+它，因此较长的智能体轮次仍然能够完成，只是会分多个步骤运行，而不是一次完成。如果你的
+应用需要长时间的请求，请使用没有此限制的主机，例如 [Node.js](/docs/node-js) 或
+[Docker](/docs/docker)。
+
+## 下一步 {#whats-next}
+
+- [**Node.js**](/docs/node-js) - 在你管理的机器上运行应用
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件

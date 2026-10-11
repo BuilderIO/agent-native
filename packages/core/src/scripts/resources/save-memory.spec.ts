@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   resourcePutSnapshotBatchIfCurrent: vi.fn(
     async (_writes: any): Promise<any> => null,
   ),
+  assertCanManageSharedResource: vi.fn(async () => {}),
 }));
 
 vi.mock("../../resources/store.js", () => ({
@@ -13,6 +14,11 @@ vi.mock("../../resources/store.js", () => ({
     mocks.resourcePutSnapshotBatchIfCurrent(...args),
   sharedResourceOwner: (orgId?: string | null) =>
     orgId ? `__organization__:${orgId}` : "__shared__",
+}));
+
+vi.mock("../../resources/script-helpers.js", () => ({
+  assertCanManageSharedResource: (...args: unknown[]) =>
+    mocks.assertCanManageSharedResource(...args),
 }));
 
 import {
@@ -67,6 +73,7 @@ describe("save-memory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("AGENT_USER_EMAIL", "");
+    mocks.assertCanManageSharedResource.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -157,6 +164,26 @@ describe("save-memory", () => {
       "Postgres uses ILIKE",
     );
     expect(mocks.resourcePutSnapshotBatchIfCurrent).toHaveBeenCalledTimes(1);
+    expect(mocks.assertCanManageSharedResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not write organization memory when shared-resource authorization fails", async () => {
+    useResourceStore();
+    mocks.assertCanManageSharedResource.mockRejectedValue(
+      new Error(
+        "Only organization owners and admins can edit organization files",
+      ),
+    );
+
+    await expect(
+      runWithRequestContext({ orgId: "org-a" }, async () => {
+        ensureRequestRunContext()!.owner = owner;
+        await saveMemoryScript([...args, "--scope", "current-org"]);
+      }),
+    ).rejects.toThrow(
+      "Only organization owners and admins can edit organization files",
+    );
+    expect(mocks.resourcePutSnapshotBatchIfCurrent).not.toHaveBeenCalled();
   });
 
   it("writes current-organization memories to the org resource scope", async () => {

@@ -392,7 +392,7 @@ Google Drive `changes.watch` notifications don't go through that generic adapter
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys — see [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var
 
-Run `agent-native doctor` (`pnpm doctor` in a scaffolded app) to check the schema, credential, and environment-variable items on this checklist automatically — every finding names the guard, file, and line. See the [Doctor](/docs/doctor) docs.
+Run `agent-native doctor` (`pnpm agent-native:doctor` in a scaffolded app) to check the schema, credential, and environment-variable items on this checklist automatically — every finding names the guard, file, and line. See the [Doctor](/docs/doctor) docs.
 
 ---
 

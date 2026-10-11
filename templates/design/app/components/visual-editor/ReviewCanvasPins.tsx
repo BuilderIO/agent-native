@@ -779,6 +779,34 @@ function displayReviewCommentBody(body: string): string {
   return body.replace(/@\[([^\]]+)\]\(mailto:[^)]+\)/g, "@$1");
 }
 
+// The plane is portaled to <body> above the editor's stacking context, so it
+// would otherwise cover sidebars and the top bar that overlap the canvas rect.
+const WORKING_AREA_CHROME_SELECTOR =
+  '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
+
+function workingAreaRect(
+  canvasRect: DOMRect,
+): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+  let left = canvasRect.left;
+  let top = canvasRect.top;
+  let right = canvasRect.right;
+  const bottom = canvasRect.bottom;
+  document.querySelectorAll(WORKING_AREA_CHROME_SELECTOR).forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    const region = el.getAttribute("data-design-chrome-region");
+    if (region === "top-bar") top = Math.max(top, r.bottom);
+    else if (region === "left-shell") left = Math.max(left, r.right);
+    else if (region === "right-panel") right = Math.min(right, r.left);
+  });
+  return {
+    left,
+    top,
+    width: Math.max(0, right - left),
+    height: Math.max(0, bottom - top),
+  };
+}
+
 export function ReviewCanvasPins({
   active,
   hidden = false,
@@ -1161,6 +1189,9 @@ export function ReviewCanvasPins({
     if (iframe) resizeObserver.observe(iframe);
     const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
     if (frameShell) resizeObserver.observe(frameShell);
+    document
+      .querySelectorAll(WORKING_AREA_CHROME_SELECTOR)
+      .forEach((region) => resizeObserver.observe(region));
     const layoutOwners = new Set<HTMLElement>();
     for (const owner of [
       canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
@@ -1751,24 +1782,32 @@ export function ReviewCanvasPins({
       if (!start || !canvas) return;
       placementDragRef.current = null;
       suppressPlacementClickRef.current = true;
+      const area = workingAreaRect(canvas.getBoundingClientRect());
+      const endX = Math.min(
+        Math.max(event.clientX, area.left),
+        area.left + area.width,
+      );
+      const endY = Math.min(
+        Math.max(event.clientY, area.top),
+        area.top + area.height,
+      );
       const isRegion =
-        Math.abs(event.clientX - start.startX) > 6 ||
-        Math.abs(event.clientY - start.startY) > 6;
+        Math.abs(endX - start.startX) > 6 || Math.abs(endY - start.startY) > 6;
       const region = isRegion
         ? regionBetween(
             canvas.getBoundingClientRect(),
             { x: start.startX, y: start.startY },
-            { x: event.clientX, y: event.clientY },
+            { x: endX, y: endY },
           )
         : null;
       if (region) {
         dropPin(
-          start.startX + (event.clientX - start.startX) / 2,
-          start.startY + (event.clientY - start.startY) / 2,
+          start.startX + (endX - start.startX) / 2,
+          start.startY + (endY - start.startY) / 2,
           region,
         );
       } else {
-        dropPin(event.clientX, event.clientY);
+        dropPin(endX, endY);
       }
       setRegionPreview(null);
       event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -2174,6 +2213,7 @@ export function ReviewCanvasPins({
     : null;
   const pinPlacementEnabled = active && canPost && !pendingRepromptId;
   const placementPlaneVisible = pinPlacementEnabled && showPlacementPlane;
+  const placementRect = placementPlaneVisible ? workingAreaRect(rect) : rect;
   const placementHintVisible =
     placementPlaneVisible &&
     !draftComposerOpen &&
@@ -2190,10 +2230,10 @@ export function ReviewCanvasPins({
           }
           className="fixed z-40 cursor-crosshair"
           style={{
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height,
+            left: placementRect.left,
+            top: placementRect.top,
+            width: placementRect.width,
+            height: placementRect.height,
           }}
           onPointerDown={handlePlacementPointerDown}
           onPointerMove={(event) =>

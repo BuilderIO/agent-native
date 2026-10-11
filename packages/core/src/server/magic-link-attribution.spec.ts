@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -61,6 +63,7 @@ describe("magic-link attribution handoff", () => {
           utm_campaign: "launch + % & 日本語",
         },
         anonymousId: "anon_123",
+        sessionId: "session_123",
       },
       SECRET,
       NOW,
@@ -84,6 +87,7 @@ describe("magic-link attribution handoff", () => {
         utm_campaign: "launch + % & 日本語",
       },
       anonymousId: "anon_123",
+      sessionId: "session_123",
     });
   });
 
@@ -105,6 +109,30 @@ describe("magic-link attribution handoff", () => {
 
   it("does not mint a token without attribution context", () => {
     expect(encodeMagicLinkSignupAttribution({}, SECRET, NOW)).toBeUndefined();
+    expect(
+      encodeMagicLinkSignupAttribution(
+        { sessionId: "session_123" },
+        SECRET,
+        NOW,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("ignores session-only tokens from earlier handoffs", () => {
+    const data = Buffer.from(
+      JSON.stringify({
+        exp: Math.floor(NOW / 1000) + 10 * 60,
+        sessionId: "session_123",
+      }),
+    ).toString("base64url");
+    const signature = crypto
+      .createHmac("sha256", SECRET)
+      .update(data)
+      .digest("base64url");
+
+    expect(
+      decodeMagicLinkSignupAttribution(`${data}.${signature}`, SECRET, NOW),
+    ).toBeUndefined();
   });
 
   it("only extracts from Better Auth's magic-link verification route", () => {

@@ -186,7 +186,10 @@ describe("resolveOwnerEngineApiKey", () => {
 
     await expect(
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
-    ).rejects.toBe(settingsError);
+    ).rejects.toMatchObject({
+      errorCode: "agent_engine_settings_unavailable",
+      cause: settingsError,
+    });
   });
 
   it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {

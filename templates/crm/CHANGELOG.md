@@ -1,5 +1,17 @@
 # CRM changelog
 
+## 2026-10-08
+
+### Improved
+
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
 ## 2026-10-05
 
 ### Fixed

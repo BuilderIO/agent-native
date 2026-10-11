@@ -12,6 +12,9 @@ const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
 const mockHasExpectedSvgSignature = vi.hoisted(() => vi.fn(() => true));
 const mockIsSafeSvg = vi.hoisted(() => vi.fn(() => true));
+const mockStripSafeSvgDoctype = vi.hoisted(() =>
+  vi.fn((data: Uint8Array) => data),
+);
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockCanSaveAsUploadedAsset = vi.hoisted(() =>
   vi.fn((..._args: unknown[]) => false),
@@ -63,6 +66,8 @@ vi.mock("./assets.js", () => ({
     mockCanSaveAsUploadedAsset(...args),
   hasExpectedSvgSignature: mockHasExpectedSvgSignature,
   isSafeSvg: () => mockIsSafeSvg(),
+  stripSafeSvgDoctype: (...args: unknown[]) =>
+    mockStripSafeSvgDoctype(...(args as [Uint8Array])),
   uploadImageAsset: (...args: unknown[]) => mockUploadImageAsset(...args),
 }));
 
@@ -109,6 +114,8 @@ describe("Slides reference upload limits", () => {
     mockHasExpectedSvgSignature.mockReturnValue(true);
     mockIsSafeSvg.mockReset();
     mockIsSafeSvg.mockReturnValue(true);
+    mockStripSafeSvgDoctype.mockReset();
+    mockStripSafeSvgDoctype.mockImplementation((data) => data);
     mockGetRequestOrgId.mockReset();
     mockGetRequestOrgId.mockReturnValue(undefined);
     mockCanSaveAsUploadedAsset.mockReset();
@@ -255,6 +262,32 @@ describe("Slides reference upload limits", () => {
       type: "image/svg+xml",
     });
     expect(mockHasExpectedSvgSignature).toHaveBeenCalledWith(svg);
+  });
+
+  it("strips the standard SVG 1.1 doctype before storing reference uploads", async () => {
+    const svg = Buffer.from("svg with doctype");
+    const strippedSvg = Buffer.from("svg without doctype");
+    mockStripSafeSvgDoctype.mockReturnValue(strippedSvg);
+    mockCanSaveAsUploadedAsset.mockReturnValue(true);
+
+    await saveUploadedReferenceFile({
+      email: "owner@example.com",
+      originalName: "arrow.svg",
+      data: svg,
+      type: "image/svg+xml",
+    });
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      expect.stringMatching(/\.svg$/),
+      strippedSvg,
+    );
+    expect(mockCanSaveAsUploadedAsset).toHaveBeenCalledWith({
+      originalName: "arrow.svg",
+      data: strippedSvg,
+    });
+    expect(mockUploadImageAsset).toHaveBeenCalledWith(
+      expect.objectContaining({ data: strippedSvg, originalName: "arrow.svg" }),
+    );
   });
 
   it("rejects unsafe SVG reference uploads before storing them", async () => {

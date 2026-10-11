@@ -1078,6 +1078,70 @@ describe("one session read per page load", () => {
   });
 });
 
+describe("isSessionFromFirstRead", () => {
+  async function resolveFresh(
+    fetchMock: ReturnType<typeof vi.fn>,
+    before?: (module: Awaited<ReturnType<typeof freshSessionModule>>) => void,
+  ) {
+    const module = await freshSessionModule();
+    vi.stubGlobal("fetch", fetchMock);
+    before?.(module);
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return module;
+  }
+
+  it("holds for the answer to the page load's own read", async () => {
+    const { isSessionFromFirstRead } = await resolveFresh(
+      vi.fn(async () => jsonResponse({ userId: "user-a", email: "a@x.test" })),
+    );
+
+    expect(isSessionFromFirstRead()).toBe(true);
+  });
+
+  it("ends when a retry answers instead", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "b@x.test" }),
+        ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(module.isSessionFromFirstRead()).toBe(false);
+  });
+
+  it("ends when an invalidation lands before the first answer is read", async () => {
+    const { isSessionFromFirstRead } = await resolveFresh(
+      vi.fn(async () => jsonResponse({ userId: "user-b", email: "b@x.test" })),
+      (module) => module.notifySessionInvalidated(),
+    );
+
+    expect(isSessionFromFirstRead()).toBe(false);
+  });
+});
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,

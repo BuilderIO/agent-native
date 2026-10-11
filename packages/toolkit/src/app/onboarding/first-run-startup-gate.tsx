@@ -2,6 +2,7 @@ import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboardin
 import { fetchFirstRunOnboardingStatus } from "@agent-native/core/client/onboarding/first-run-status";
 import { trackOnboardingEvent } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/use-preview-mode";
+import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 import React, {
   Suspense,
@@ -56,6 +57,7 @@ export function FirstRunOnboardingStartupGate({
   suppressSurface?: boolean;
 }) {
   const previewMode = useOnboardingPreviewMode();
+  const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
   useEffect(() => {
     if (firstRunCookieState === "unreadable") {
@@ -77,6 +79,9 @@ export function FirstRunOnboardingStartupGate({
       setDecision("ineligible");
       return;
     }
+    // Under a hinted preload the session is unknown; the status read and the
+    // onboarding_started event it leads to would carry the anonymous identity.
+    if (preloading) return;
 
     let cancelled = false;
     const handleFirstRunCompleted = () => {
@@ -104,7 +109,7 @@ export function FirstRunOnboardingStartupGate({
         handleFirstRunCompleted,
       );
     };
-  }, [shouldResolve]);
+  }, [shouldResolve, preloading]);
 
   const ownsSurface = !suppressSurface && decision === "eligible";
   const gateOwnsSurface = !suppressSurface && decision !== "ineligible";

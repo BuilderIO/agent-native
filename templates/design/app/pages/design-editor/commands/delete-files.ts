@@ -63,6 +63,7 @@ export interface DeleteFilesArgs {
   localContentUndoStackRef: RefObject<ContentHistoryChange[]>;
   queryClient: QueryClient;
   redoOrderRef: RefObject<UndoRedoOrderKind[]>;
+  selectionRevisionRef?: RefObject<number>;
   overviewSelectedScreenIds?: string[];
   selectedElement?: ElementInfo | null;
   selectedLayerIdsState?: string[];
@@ -107,6 +108,7 @@ export async function runDeleteFiles(
     localContentUndoStackRef,
     queryClient,
     redoOrderRef,
+    selectionRevisionRef,
     overviewSelectedScreenIds,
     selectedElement,
     selectedLayerIdsState,
@@ -142,6 +144,7 @@ export async function runDeleteFiles(
     selectedElement: selectedElement ?? null,
     selectedLayerIds: [...(selectedLayerIdsState ?? [])],
   };
+  const selectionRevisionAtStart = selectionRevisionRef?.current;
   const nextGeometry = cloneCanvasFrameGeometry(canvasFrameGeometryById);
   const designQueryKey = ["action", "get-design", { id }] as const;
   const previousDesignQuery = queryClient.getQueryData?.(designQueryKey);
@@ -298,8 +301,8 @@ export async function runDeleteFiles(
     };
   });
 
-  if (activeFile && deleteIds.has(activeFile.id) && nextActiveFile) {
-    setActiveFileId(nextActiveFile.id);
+  if (activeFile && deleteIds.has(activeFile.id)) {
+    setActiveFileId(nextActiveFile?.id ?? null);
   }
   setOverviewSelectedScreenIds?.([]);
   setSelectedElement(null);
@@ -389,12 +392,19 @@ export async function runDeleteFiles(
     if (previousDesignQuery !== undefined) {
       queryClient.setQueryData(designQueryKey, previousDesignQuery);
     }
-    if (activeFile && deleteIds.has(activeFile.id)) {
-      setActiveFileId(activeFile.id);
+    const selectionIsUnchanged =
+      selectionRevisionRef === undefined ||
+      selectionRevisionRef.current === selectionRevisionAtStart;
+    if (selectionIsUnchanged) {
+      if (activeFile && deleteIds.has(activeFile.id)) {
+        setActiveFileId(activeFile.id);
+      }
+      setOverviewSelectedScreenIds?.(
+        previousSelection.overviewSelectedScreenIds,
+      );
+      setSelectedElement(previousSelection.selectedElement);
+      setSelectedLayerIdsState(previousSelection.selectedLayerIds);
     }
-    setOverviewSelectedScreenIds?.(previousSelection.overviewSelectedScreenIds);
-    setSelectedElement(previousSelection.selectedElement);
-    setSelectedLayerIdsState(previousSelection.selectedLayerIds);
     void queryClient.invalidateQueries({
       queryKey: ["action", "get-design"],
     });

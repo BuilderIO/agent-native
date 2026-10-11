@@ -67,6 +67,22 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "Token बनाया नहीं जा सका।",
   networkError: "Network error. फिर से कोशिश करें।",
   urlTitle: "आपका MCP URL",
+  servicePrincipals: "सर्विस प्रिंसिपल",
+  principalUngoverned: "अनियंत्रित",
+  principalActive: "सक्रिय",
+  principalSuspended: "निलंबित",
+  principalRetired: "सेवानिवृत्त",
+  principalUngovernedHint: "कोई स्वामी या कार्रवाई अनुमति सेट नहीं है।",
+  principalOwner: "स्वामी",
+  principalRisk: "जोखिम",
+  riskLow: "कम",
+  riskMedium: "मध्यम",
+  riskHigh: "उच्च",
+  suspend: "निलंबित करें",
+  resume: "फिर शुरू करें",
+  couldNotUpdatePrincipal: "सर्विस प्रिंसिपल अपडेट नहीं किया जा सका।",
+  containmentIncomplete:
+    "अपडेट हो गया, लेकिन कुछ रन या टोकन रोके नहीं जा सके। फिर से प्रयास करें।",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {
@@ -90,6 +106,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "पूरी कनेक्शन पेज खोलकर उन clients के लिए token बनाएँ जो OAuth पूरा नहीं कर सकते।",
   mcpOpenConnectPage: "पूरी कनेक्शन पेज खोलें",
+  mcpIdentityError: "इस ऐप की कनेक्शन जानकारी लोड नहीं हो सकी।",
+  mcpRetry: "फिर से कोशिश करें",
   mcpConnect: mcpConnectMessages,
 };
 

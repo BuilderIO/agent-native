@@ -4,6 +4,7 @@ import {
   setResponseHeader,
   getRouterParam,
   getQuery,
+  getRequestHeader,
 } from "h3";
 import type { H3Event } from "h3";
 
@@ -39,6 +40,21 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const encodedStateVector =
     typeof query.stateVector === "string" ? query.stateVector : null;
+  let activityBaseline:
+    | { status: "ready"; version: number; cursor: string }
+    | { status: "unavailable" }
+    | undefined;
+  if (getRequestHeader(event, "x-agent-native-poll-baseline") === "1") {
+    try {
+      const { getCurrentPollBaseline } = await import("../server/poll.js");
+      activityBaseline = {
+        status: "ready",
+        ...(await getCurrentPollBaseline()),
+      };
+    } catch {
+      activityBaseline = { status: "unavailable" };
+    }
+  }
   let state: Uint8Array;
   if (encodedStateVector) {
     try {
@@ -56,6 +72,7 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
   return {
     docId,
     state: uint8ArrayToBase64(state),
+    ...(activityBaseline ? { activityBaseline } : {}),
   };
 });
 

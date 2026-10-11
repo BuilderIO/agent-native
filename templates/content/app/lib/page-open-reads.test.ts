@@ -1,5 +1,16 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { sessionFromFirstRead } = vi.hoisted(() => ({
+  sessionFromFirstRead: vi.fn(() => true),
+}));
+
+vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/use-session")
+  >()),
+  isSessionFromFirstRead: sessionFromFirstRead,
+}));
 
 import { contentActionInvalidatePredicate } from "../hooks/content-action-refresh";
 import {
@@ -30,6 +41,8 @@ describe("page open reads", () => {
 
   beforeEach(() => {
     queryClient = new QueryClient();
+    sessionFromFirstRead.mockReset();
+    sessionFromFirstRead.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -309,5 +322,76 @@ describe("page open reads", () => {
 
     expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
     expect(adoptPageOpenRead(queryClient, otherKey)).toBe("fresh");
+  });
+
+  describe("a read sent before the session was known", () => {
+    const draftKey = [
+      "action",
+      "get-preview-document-draft",
+      { documentId: "doc-1" },
+    ] as const;
+    const laterKey = ["action", "get-document", { id: "doc-2" }] as const;
+
+    async function startLandedBeforeSession() {
+      const pageRead = vi.fn().mockResolvedValue({ id: "doc-1", by: "a" });
+      const draftRead = vi.fn().mockResolvedValue({ draft: "a's draft" });
+      startPageOpenRead(
+        queryClient,
+        "doc-1",
+        { queryKey, queryFn: pageRead },
+        { beforeSession: true },
+      );
+      startPageOpenRead(
+        queryClient,
+        "doc-1",
+        { queryKey: draftKey, queryFn: draftRead },
+        { beforeSession: true },
+      );
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryData(draftKey)).toBeTruthy(),
+      );
+      return { pageRead, draftRead };
+    }
+
+    it("is adopted when the session is the answer to the load's own session read", async () => {
+      await startLandedBeforeSession();
+
+      expect(adoptPageOpenRead(queryClient, queryKey)).toBe("fresh");
+      expect(adoptPageOpenRead(queryClient, draftKey)).toBe("fresh");
+    });
+
+    it("is dropped with every other one when a later session read answered", async () => {
+      await startLandedBeforeSession();
+      startPageOpenRead(queryClient, "doc-2", {
+        queryKey: laterKey,
+        queryFn: vi.fn().mockResolvedValue({ id: "doc-2" }),
+      });
+      await vi.waitFor(() =>
+        expect(queryClient.getQueryData(laterKey)).toBeTruthy(),
+      );
+      sessionFromFirstRead.mockReturnValue(false);
+
+      expect(adoptPageOpenRead(queryClient, queryKey)).toBe("none");
+
+      expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+      expect(queryClient.getQueryData(draftKey)).toBeUndefined();
+      expect(isPageOpenRead(queryClient, draftKey)).toBe(false);
+      expect(adoptPageOpenRead(queryClient, laterKey)).toBe("fresh");
+    });
+
+    it("is read again by a component already showing it", async () => {
+      const { draftRead } = await startLandedBeforeSession();
+      const unsubscribe = new QueryObserver(queryClient, {
+        queryKey: draftKey,
+        queryFn: () => draftRead(),
+        staleTime: Infinity,
+      }).subscribe(() => {});
+      sessionFromFirstRead.mockReturnValue(false);
+
+      claimPageOpenRead(queryClient, queryKey);
+
+      await vi.waitFor(() => expect(draftRead).toHaveBeenCalledTimes(2));
+      unsubscribe();
+    });
   });
 });

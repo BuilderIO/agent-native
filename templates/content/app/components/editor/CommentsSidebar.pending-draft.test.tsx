@@ -86,6 +86,7 @@ vi.mock("@/hooks/use-comments", () => ({
       ),
     isPending: false,
   }),
+  useDeleteComment: () => ({ mutateAsync: vi.fn() }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({

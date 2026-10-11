@@ -33,11 +33,13 @@ export function useNewDeckGeneration({
   isNewDeckRoute,
   generating,
   waitingOnQuestions,
+  slideCount,
 }: {
   deckId: string;
   isNewDeckRoute: boolean;
   generating: boolean;
   waitingOnQuestions: boolean;
+  slideCount: number;
 }) {
   const [lifecycle, setLifecycle] = useState<NewDeckGenerationLifecycle>(() =>
     createLifecycle(deckId, isNewDeckRoute),
@@ -107,7 +109,8 @@ export function useNewDeckGeneration({
       currentLifecycle.phase !== "started" ||
       generating ||
       waitingOnQuestions ||
-      !currentLifecycle.isNewDeckCreation
+      !currentLifecycle.isNewDeckCreation ||
+      slideCount === 0
     ) {
       return;
     }
@@ -121,6 +124,7 @@ export function useNewDeckGeneration({
     currentLifecycle.phase,
     deckId,
     generating,
+    slideCount,
     waitingOnQuestions,
   ]);
 

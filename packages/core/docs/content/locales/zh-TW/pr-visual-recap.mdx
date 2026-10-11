@@ -189,8 +189,10 @@ npx @agent-native/recap-cli@latest recap doctor
 **團隊：請使用組織服務權杖。** 個人權杖與鑄造它的人綁定 — 如果那個人離開組織或撤銷了他們的權杖，每個使用該 secret 的儲存庫都會開始出現 401 失敗，而且由 CI 建立的計畫，擁有者會是那個人而不是團隊。組織服務權杖則歸你的**組織**所有：它會以服務主體的身分運作（`svc-<name>@service.<orgId>`），不會因任何個人離開而失效，它所發布的回顧對整個組織可見，而且任何組織擁有者或管理員都可以列出或撤銷它。鑄造一個服務權杖（僅限組織擁有者/管理員）：
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
+
+如此一來 CI 權杖有效期為 10 年，且仍可隨時撤銷。
 
 這個指令會在瀏覽器中驗證你的身分，然後只印出一次這個服務權杖 — 請把它儲存成 `PLAN_RECAP_TOKEN` 這個 secret。之後可以用 Plan 應用程式上的 `list-org-service-tokens` 和 `revoke-org-service-token` actions 來管理它。
 

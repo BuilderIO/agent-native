@@ -1,10 +1,7 @@
 ---
 name: analysis-workspace
 description: >-
-  How to use Resources-backed workspace files for large-scale multi-source
-  analyses: scratch/ temporary staging, chunked batch processing with per-item
-  memos, run-code aggregation, saveToFile for big API pulls, and synthesizing
-  across files that exceed one context window.
+  Large analyses and file delivery: scratch staging, chunked batches, run-code aggregation, CSV/XLSX exports. Use when work exceeds one context window or the user wants a file.
 ---
 
 # Analysis Workspace
@@ -98,6 +95,9 @@ Inside `run-code`, use the workspace helper functions:
   CSV control. For a durable CSV, use `run-code` with `workspaceWrite` in a
   normal Resources folder, then call `show-workspace-file` with that path. If
   `run-code` is not available, discover it once with tool search.
+- Deliver a requested CSV, Markdown, or other file in the same chat turn. Write
+  only verified successful data to a non-scratch workspace path, never an error
+  or failed response, and never finish with only a path or filename.
 - For an explicit `.xlsx` request, call `docs-search` once for `xlsx export`
   and follow the returned workflow. The QuickJS `run-code` sandbox has no Node
   imports; do not try to load `xlsx` or `exceljs` there.
@@ -267,6 +267,10 @@ agent's credential system handles auth automatically.
 
 ## Learnings Flywheel
 
-After any significant batch analysis, record discoveries to `LEARNINGS.md`
-via the `resources` tool (`action: "write"`). Capture confirmed schema paths,
-cursor fields, identity join keys, and pagination patterns.
+After any significant batch analysis, check whether each discovery applies to
+the user's setup or to the whole organization. Keep setup-specific discoveries
+in personal memory or the current analysis. Ask the user and get approval
+before writing anything to shared `LEARNINGS.md` or organization memory. For
+approved shared discoveries, use the `resources` tool (`action: "write"`) and
+capture confirmed schema paths, cursor fields, identity join keys, and
+pagination patterns.

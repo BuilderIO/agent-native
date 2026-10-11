@@ -41,7 +41,7 @@ const change = {
     verb: "created",
     kind: "workspace-connection",
     title: "Example workspace",
-    url: "/integrations",
+    url: "/settings/integrations",
   },
 };
 

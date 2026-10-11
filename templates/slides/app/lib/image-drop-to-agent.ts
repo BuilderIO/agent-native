@@ -1,3 +1,4 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
 import {
   estimateAttachmentBodyBytes,
   MAX_ESTIMATED_BODY_BYTES,
@@ -145,14 +146,12 @@ export function canInlineImageFile(file: File): boolean {
 }
 
 export function canInlineImageDataUrl(dataUrl: string): boolean {
-  const match = /^data:(image\/[^;]+);base64,(.*)$/is.exec(dataUrl);
-  const mediaType = match?.[1]?.trim().toLowerCase();
+  const parsed = parseBase64DataUrl(dataUrl);
   return Boolean(
-    match &&
-    mediaType &&
-    mediaType !== "image/svg+xml" &&
-    match[2].length + `data:${mediaType};base64,`.length <=
-      MAX_INLINE_IMAGE_BASE64_CHARS,
+    parsed &&
+    parsed.mediaType.startsWith("image/") &&
+    parsed.mediaType !== "image/svg+xml" &&
+    dataUrl.length <= MAX_INLINE_IMAGE_BASE64_CHARS,
   );
 }
 

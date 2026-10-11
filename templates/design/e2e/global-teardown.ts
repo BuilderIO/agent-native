@@ -41,6 +41,7 @@ export default async function globalTeardown(): Promise<void> {
   const runRoot = designE2eRunRoot(designDir, process.env.E2E_RUN_ROOT, id);
   if (!runRoot) return;
   const pgliteDir = path.join(runRoot, "pglite");
+  const attachmentStorageTlsDir = path.join(runRoot, "attachment-storage-tls");
   const resultsDir = path.join(designDir, "test-results", id);
   const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
   if (
@@ -57,6 +58,19 @@ export default async function globalTeardown(): Promise<void> {
     }
     rmSync(loopbackPidPath, { force: true });
   }
+  const storagePidPath = path.join(runRoot, "https-attachment-storage.pid");
+  if (existsSync(storagePidPath)) {
+    const pid = Number(readFileSync(storagePidPath, "utf8"));
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(storagePidPath, { force: true });
+  }
+  rmSync(attachmentStorageTlsDir, { recursive: true, force: true });
   const cleanup = (exitCode: number) => {
     try {
       cleanupDesignE2eArtifacts({ pgliteDir, resultsDir }, exitCode);

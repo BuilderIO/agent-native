@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { ActionRunContext } from "../action.js";
 import {
   queueTrackingEvent,
@@ -9,6 +11,7 @@ import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
+  TRACKING_EVENT_ALIAS_ID_PROPERTY,
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
@@ -75,16 +78,19 @@ export interface TrackingMeta {
   userId?: string;
   authUserId?: string;
   anonymousId?: string;
-  sessionId?: string;
+  /** Null pins session absence and disables request-context fallback. */
+  sessionId?: string | null;
   occurredAt?: number;
   telemetryOrigin?: TrackingEventOrigin;
 }
 
-export type TrackingSource = TrackingMeta | ActionRunContext;
+export type TrackingSource =
+  | TrackingMeta
+  | (ActionRunContext & Pick<TrackingMeta, "sessionId">);
 
 function isActionRunContext(
   source: TrackingSource,
-): source is ActionRunContext {
+): source is ActionRunContext & Pick<TrackingMeta, "sessionId"> {
   return typeof (source as ActionRunContext).caller === "string";
 }
 
@@ -107,12 +113,18 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   }
   if (isActionRunContext(source)) {
     const callerMatchesRequest = source.userEmail === requestContext?.userEmail;
+    const explicitSessionId = source.sessionId;
     return {
       userId: source.userEmail,
       ...(callerMatchesRequest
         ? { authUserId: requestContext?.authUserId }
         : {}),
-      sessionId: callerMatchesRequest ? ambientSessionId : undefined,
+      sessionId:
+        explicitSessionId === undefined
+          ? callerMatchesRequest
+            ? ambientSessionId
+            : undefined
+          : (explicitSessionId ?? undefined),
       telemetryOrigin: "server",
     };
   }
@@ -129,7 +141,11 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
       (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
     sessionId:
-      source.sessionId ?? (canUseAmbientSession ? ambientSessionId : undefined),
+      source.sessionId === undefined
+        ? canUseAmbientSession
+          ? ambientSessionId
+          : undefined
+        : (source.sessionId ?? undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };
@@ -175,6 +191,12 @@ export function track(
       ? { test_identity: true, test_identity_email: testIdentity }
       : {}),
   });
+  const canonical = canonicalTrackingEvent(name, trackedProperties);
+  if (canonical) {
+    const aliasId = randomUUID();
+    trackedProperties[TRACKING_EVENT_ALIAS_ID_PROPERTY] = aliasId;
+    canonical.properties[TRACKING_EVENT_ALIAS_ID_PROPERTY] = aliasId;
+  }
 
   emitTrackingEvent(name, trackedProperties, {
     userId,
@@ -190,7 +212,6 @@ export function track(
     queueTrackingEvent(name, trackedProperties, telemetryOrigin);
   }
 
-  const canonical = canonicalTrackingEvent(name, trackedProperties);
   if (canonical) {
     emitTrackingEvent(canonical.name, canonical.properties, {
       userId,
@@ -222,7 +243,7 @@ function emitTrackingEvent(
     timestamp: new Date(source.occurredAt || Date.now()).toISOString(),
     userId: source.userId,
     anonymousId: source.anonymousId,
-    sessionId: source.sessionId,
+    sessionId: source.sessionId ?? undefined,
   };
 
   for (const provider of getRegistry().values()) {

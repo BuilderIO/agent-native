@@ -1,4 +1,5 @@
 import type { ElementInfo } from "../types";
+import { inheritVectorShapeSelection } from "./selection-helpers";
 
 export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "position",
@@ -140,9 +141,10 @@ export function elementWithInteractionStateStyles(
     aliases[property] = value;
     aliases[camel] = value;
   }
-  return {
+  const projected: ElementInfo = {
     ...element,
     computedStyles: { ...element.computedStyles, ...aliases },
     inlineStyles: { ...(element.inlineStyles ?? {}), ...aliases },
   };
+  return inheritVectorShapeSelection(element, projected);
 }

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   defaultValue: null as Record<string, unknown> | null,
   defaultSource: "none" as "org" | "user" | "legacy" | "none",
   authorityAllowed: true,
+  deploymentEngines: new Set<string>(),
 }));
 
 vi.mock("../../secrets/storage.js", () => ({
@@ -69,6 +70,16 @@ vi.mock("../default-agent-engine.js", () => ({
       : { allowed: false, reason: "not-admin", message: "no" },
 }));
 
+vi.mock("../engine/registry.js", () => ({
+  getAgentEngineEntry: (name: string) => ({ name }),
+  isDeploymentEngineUsableForRequest: async (entry: { name: string }) =>
+    mocks.deploymentEngines.has(entry.name),
+}));
+
+vi.mock("../engine/builtin.js", () => ({
+  registerBuiltinEngines: vi.fn(),
+}));
+
 const { default: action } = await import("./list-model-providers.js");
 
 function setSecret(scope: string, scopeId: string, key: string, value: string) {
@@ -106,6 +117,7 @@ beforeEach(() => {
   mocks.defaultValue = null;
   mocks.defaultSource = "none";
   mocks.authorityAllowed = true;
+  mocks.deploymentEngines.clear();
 });
 
 describe("list-model-providers", () => {
@@ -128,6 +140,59 @@ describe("list-model-providers", () => {
     expect(listing.providers.every((item) => !item.org && !item.personal)).toBe(
       true,
     );
+    expect(listing.providers.every((item) => !item.deploymentConfigured)).toBe(
+      true,
+    );
+  });
+
+  it("reports usable deployment providers without exposing credential values", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    mocks.deploymentEngines.add("ai-sdk:google");
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
+    expect(entry(listing, "google").deploymentConfigured).toBe(true);
+    expect(entry(listing, "openai").deploymentConfigured).toBe(false);
+    expect(JSON.stringify(listing)).not.toContain("API_KEY");
+  });
+
+  it("does not report a deployment fallback when a rejected saved key takes precedence", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    setSecret("org", "org-1", "ANTHROPIC_API_KEY", "sk-ant-test-rejected");
+    mocks.rejected.set(
+      "ANTHROPIC_API_KEY=sk-ant-test-rejected",
+      1_700_000_900_000,
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").org?.rejectedAt).toBe(1_700_000_900_000);
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(false);
+  });
+
+  it("keeps the organization deployment fallback when an admin has a personal key", async () => {
+    mocks.deploymentEngines.add("anthropic");
+    setSecret(
+      "user",
+      "admin@example.com",
+      "ANTHROPIC_API_KEY",
+      "sk-ant-personal-test",
+    );
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "anthropic").personal?.masked).toBe("••••test");
+    expect(entry(listing, "anthropic").deploymentConfigured).toBe(true);
+  });
+
+  it("does not advertise a deployment fallback when the default scope has only a provider endpoint", async () => {
+    mocks.deploymentEngines.add("ai-sdk:openai");
+    setSecret("org", "org-1", "OPENAI_BASE_URL", "https://gateway.example/v1");
+
+    const listing = await run("admin@example.com");
+
+    expect(entry(listing, "openai").org).toBeNull();
+    expect(entry(listing, "openai").deploymentConfigured).toBe(false);
   });
 
   it("shows admins the organization key's mask and gateway", async () => {

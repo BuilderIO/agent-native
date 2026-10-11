@@ -72,6 +72,7 @@ async function creationRequestHash(args: {
   summary: string;
   operations: unknown[];
   metadata?: Record<string, unknown>;
+  supersedes?: string[];
 }): Promise<string> {
   const request = stableJson({
     resourceType: args.resourceType,
@@ -81,6 +82,8 @@ async function creationRequestHash(args: {
     summary: args.summary,
     operations: args.operations,
     metadata: args.metadata ?? null,
+    // Absent for callers that never supersede, so their receipts still match.
+    supersedes: args.supersedes,
   })!;
   const digest = await globalThis.crypto.subtle.digest(
     "SHA-256",
@@ -116,7 +119,7 @@ function assertCreationReplay(
 
 export const createResourceSuggestion = defineAction({
   description:
-    "Create a typed pending suggestion without changing the canonical resource.",
+    "Create a typed pending suggestion without changing the canonical resource. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
   schema: z.object({
     ...base,
     adapterKind: z.string().min(1),
@@ -125,6 +128,13 @@ export const createResourceSuggestion = defineAction({
     idempotencyKey: z.string().min(1).max(200),
     operations: z.array(operation).min(1),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    supersedes: z
+      .array(z.string().min(1))
+      .max(20)
+      .optional()
+      .describe(
+        "IDs of your own earlier suggestions on this resource that this one replaces. Pending ones become superseded atomically with this creation; already decided ones are left as they are.",
+      ),
   }),
   link: ({ args, result }) => {
     const suggestion = result as ResourceSuggestion;
@@ -214,6 +224,57 @@ export const createResourceSuggestion = defineAction({
           ),
           threadComment: null,
         };
+      }
+      for (const supersededId of new Set(args.supersedes ?? [])) {
+        const prior = await getSuggestion(supersededId, tx);
+        if (
+          !prior ||
+          prior.resourceType !== args.resourceType ||
+          prior.resourceId !== args.resourceId
+        ) {
+          fail("A superseded suggestion was not found on this resource", {
+            statusCode: 404,
+            errorCode: "not_found",
+          });
+        }
+        if (!authorEmail || prior.authorEmail !== authorEmail) {
+          fail("Only the author can supersede this suggestion", {
+            statusCode: 403,
+            errorCode: "forbidden",
+          });
+        }
+        if (prior.status !== "pending") continue;
+        const claimed = await updateSuggestionStatus(
+          tx,
+          prior.id,
+          "superseded",
+          prior.revision,
+        );
+        if (!claimed) {
+          const latest = await getSuggestion(prior.id, tx);
+          // A reviewer decided it first; only pending proposals are replaced.
+          if (latest && latest.status !== "pending") continue;
+          fail("The superseded suggestion changed; refresh and try again", {
+            statusCode: 409,
+            errorCode: "suggestion_conflict",
+          });
+        }
+        await recordDecision(tx, {
+          suggestionId: prior.id,
+          idempotencyKey: `${args.idempotencyKey}:supersedes:${prior.id}`,
+          reviewer: authorEmail,
+          decision: "superseded",
+          observedBase: prior.baseRevision,
+          outcome: "superseded",
+          detail: created.id,
+        });
+        await resolveReviewThreadWithClient(
+          tx,
+          prior.threadId,
+          authorEmail,
+          { resourceType: prior.resourceType, resourceId: prior.resourceId },
+          "superseded",
+        );
       }
       const threadComment = await insertReviewCommentWithClient(
         {

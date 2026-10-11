@@ -443,7 +443,7 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(container.querySelector("iframe")).toBeNull();
   });
 
-  it("sends the parent theme on iframe load and when the parent changes", async () => {
+  it("sends the parent origin and theme on iframe load", async () => {
     await act(async () => {
       root.render(
         <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
@@ -467,7 +467,16 @@ describe("WorkspaceAppKeepAlive", () => {
       await Promise.resolve();
     });
 
-    expect(postMessage).toHaveBeenCalledWith(
+    expect(postMessage).toHaveBeenNthCalledWith(
+      1,
+      {
+        type: "agentNative.frameOrigin",
+        origin: window.location.origin,
+      },
+      "*",
+    );
+    expect(postMessage).toHaveBeenNthCalledWith(
+      2,
       {
         type: "agent-native-theme-update",
         theme: "dark",

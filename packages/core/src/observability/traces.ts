@@ -1,4 +1,5 @@
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
+import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
 import type {
   AgentLoopOutcome,
   AgentLoopUsage,
@@ -21,14 +22,21 @@ import {
   toPostHogMessages,
 } from "./posthog-ai.js";
 import {
-  redactToolErrorMessage as redactToolErrorMessageText,
   sanitizeToolErrorMessage,
   TOOL_ERROR_DETAIL_METADATA_KEY,
   toolErrorSignature,
 } from "./trace-error.js";
-import { redactSensitiveFields } from "./trace-redaction.js";
+import {
+  redactCapturedString,
+  redactSensitiveFields,
+} from "./trace-redaction.js";
 export { redactSensitiveFields } from "./trace-redaction.js";
-import { recordAgentToolCall, recordGenAiChat } from "./metrics.js";
+import {
+  recordAgentToolCall,
+  recordGenAiChat,
+  recordTraceWriteFailure,
+  type TraceWriteStage,
+} from "./metrics.js";
 import {
   type AgentSpan,
   type AgentSpanAttributeValue,
@@ -39,8 +47,158 @@ import {
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 
+type TelemetrySpanEnd = NonNullable<Parameters<typeof endAgentSpan>[1]>;
+
+function endRunTelemetrySpan(
+  span: AgentSpan | null,
+  { errorCode, ...result }: TelemetrySpanEnd & { errorCode?: string },
+): void {
+  if (result.status !== "error") {
+    endAgentSpan(span, result);
+    return;
+  }
+  const code = errorCode ?? result.attributes?.["agent.terminal_code"];
+  const { error_code, error_cause } = runErrorTelemetryProperties(
+    typeof code === "string" ? code : undefined,
+    result.errorMessage,
+  );
+  endAgentSpan(span, {
+    ...result,
+    errorMessage: `Agent run failed (${error_code})`,
+    attributes: {
+      ...result.attributes,
+      "agent.error_code": error_code,
+      "agent.error_cause": error_cause,
+    },
+  });
+}
+
+function endToolTelemetrySpan(
+  span: AgentSpan | null,
+  result: TelemetrySpanEnd,
+): void {
+  endAgentSpan(
+    span,
+    result.status === "error"
+      ? { ...result, errorMessage: "Tool call failed" }
+      : result,
+  );
+}
+
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+type BoundedAssistantText = {
+  parts: string[];
+  byteLength: number;
+  truncated: boolean;
+};
+
+const ASSISTANT_CAPTURE_RESERVE_BYTES = 1024;
+const ASSISTANT_OUTPUT_TRUNCATION_MARKER = "\n[truncated]";
+
+function utf8Prefix(
+  value: string,
+  maxBytes: number,
+): {
+  text: string;
+  byteLength: number;
+} {
+  let byteLength = 0;
+  let end = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    const characterBytes =
+      character.length === 2
+        ? 4
+        : codePoint <= 0x7f
+          ? 1
+          : codePoint <= 0x7ff
+            ? 2
+            : 3;
+    if (byteLength + characterBytes > maxBytes) break;
+    byteLength += characterBytes;
+    end += character.length;
+  }
+  return { text: value.slice(0, end), byteLength };
+}
+
+function utf8ByteLength(value: string): number {
+  return utf8Prefix(value, Number.POSITIVE_INFINITY).byteLength;
+}
+
+function appendBoundedAssistantText(
+  capture: BoundedAssistantText,
+  text: string,
+): void {
+  const remaining =
+    MAX_AI_CONTENT_BYTES - ASSISTANT_CAPTURE_RESERVE_BYTES - capture.byteLength;
+  if (remaining <= 0) {
+    if (text.length > 0) capture.truncated = true;
+    return;
+  }
+
+  const prefix = utf8Prefix(text, remaining);
+  if (prefix.text) capture.parts.push(prefix.text);
+  capture.byteLength += prefix.byteLength;
+  if (prefix.text.length < text.length) capture.truncated = true;
+}
+
+function createBoundedAssistantText(): BoundedAssistantText {
+  return { parts: [], byteLength: 0, truncated: false };
+}
+
+function redactCapturedError(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return redactCapturedString(
+    typeof value === "string" ? value : String(value),
+  );
+}
+
+function boundAssistantOutput(
+  content: string,
+  toolCalls: Array<{
+    type: "function";
+    id: string;
+    function: { name: string; arguments?: unknown };
+  }>,
+  alreadyTruncated: boolean,
+): { value: unknown; truncated: boolean } {
+  const makeOutput = (assistantContent: string) => [
+    {
+      role: "assistant",
+      content: assistantContent,
+      ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    },
+  ];
+  const complete = makeOutput(content);
+  if (
+    !alreadyTruncated &&
+    utf8ByteLength(JSON.stringify(complete)) <= MAX_AI_CONTENT_BYTES
+  ) {
+    return { value: complete, truncated: false };
+  }
+
+  let low = 0;
+  let high = utf8ByteLength(content);
+  let best: unknown;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const prefix = utf8Prefix(content, middle).text;
+    const candidate = makeOutput(
+      `${prefix}${ASSISTANT_OUTPUT_TRUNCATION_MARKER}`,
+    );
+    if (utf8ByteLength(JSON.stringify(candidate)) <= MAX_AI_CONTENT_BYTES) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best === undefined
+    ? boundAiContent(makeOutput(ASSISTANT_OUTPUT_TRUNCATION_MARKER))
+    : { value: best, truncated: true };
 }
 
 function llmProviderFromEngine(
@@ -95,6 +253,7 @@ function aiTraceMetadataProperties(
   if (!metadata) return {};
   const properties: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
+    if (key === "error_message" || key === "errorMessage") continue;
     if (value === undefined || value === null) continue;
     const scalar =
       typeof value === "string"
@@ -119,11 +278,10 @@ type GenerationToolCall = {
   duration_ms: number;
   status: "success" | "error";
   error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
-  error_message?: string;
 };
 
-function redactToolErrorMessage(value: string): string {
-  return redactToolErrorMessageText(value);
+function prepareCapturedModelInput(messages: unknown): unknown {
+  return redactSensitiveFields(toPostHogMessages(messages));
 }
 
 export function httpStatusFromError(err: unknown): number | undefined {
@@ -162,6 +320,7 @@ function emitLlmGenerationTrackingEvent(args: {
   firstTokenMs: number | undefined;
   status: "success" | "error";
   errorMessage: string | null;
+  errorCode?: string;
   httpStatus?: number;
   toolCalls: number;
   successfulTools: number;
@@ -177,6 +336,7 @@ function emitLlmGenerationTrackingEvent(args: {
     parentTurnId?: string;
   };
   createdAt: number;
+  endedAt: number;
   experimentAssignments?: Array<{
     experimentId: string;
     variantId: string;
@@ -247,6 +407,8 @@ function emitLlmGenerationTrackingEvent(args: {
     model_selection_source: args.modelSelectionSource,
     created_at: new Date(args.createdAt).toISOString(),
     created_at_ms: args.createdAt,
+    ended_at: new Date(args.endedAt).toISOString(),
+    ended_at_ms: args.endedAt,
     $ai_trace_id: args.runId,
     $ai_session_id: args.threadId ?? undefined,
     $ai_span_id: args.llmSpanId,
@@ -262,7 +424,7 @@ function emitLlmGenerationTrackingEvent(args: {
       args.status === "error",
       toAiErrorDetail(error, {
         state: args.terminalOutcome?.state,
-        code: terminalCode,
+        code: terminalCode ?? args.errorCode,
         retryable: terminalRetryable,
       }),
     ),
@@ -298,7 +460,6 @@ function emitLlmGenerationTrackingEvent(args: {
       properties.experiment_variant = args.experimentAssignments[0].variantId;
     }
   }
-  if (error) properties.error_message = error;
 
   for (const key of Object.keys(properties)) {
     if (properties[key] === undefined) delete properties[key];
@@ -322,6 +483,7 @@ function buildGenerationContent(args: {
   config: ObservabilityConfig;
   messages: unknown;
   assistantText: string;
+  assistantTextTruncated?: boolean;
   toolSpans: TraceSpan[];
   toolCallIds: Map<string, string>;
 }): {
@@ -333,7 +495,7 @@ function buildGenerationContent(args: {
   const { config } = args;
 
   const input = config.capturePrompts
-    ? boundAiContent(toPostHogMessages(redactSensitiveFields(args.messages)))
+    ? boundAiContent(args.messages)
     : undefined;
 
   const toolCalls = args.toolSpans
@@ -350,23 +512,31 @@ function buildGenerationContent(args: {
     }));
 
   const hasChoice = config.capturePrompts || toolCalls.length > 0;
+  const capturedAssistantText = args.assistantText
+    ? redactCapturedString(args.assistantText, {
+        truncated: args.assistantTextTruncated === true,
+      })
+    : "";
   const output = hasChoice
-    ? boundAiContent([
-        {
-          role: "assistant",
-          ...(config.capturePrompts
-            ? { content: redactToolErrorMessage(args.assistantText) }
-            : {}),
-          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
-        },
-      ])
+    ? config.capturePrompts
+      ? boundAssistantOutput(
+          capturedAssistantText,
+          toolCalls,
+          args.assistantTextTruncated === true,
+        )
+      : boundAiContent([
+          {
+            role: "assistant",
+            ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+          },
+        ])
     : undefined;
 
   return {
     aiInput: input?.value,
     aiOutputChoices: output?.value,
     aiInputTruncated: input?.truncated,
-    aiOutputTruncated: output?.truncated,
+    aiOutputTruncated: output?.truncated || args.assistantTextTruncated,
   };
 }
 
@@ -387,6 +557,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -401,6 +572,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
@@ -500,8 +672,7 @@ export async function instrumentAgentLoop(opts: {
   const toolNameToCounters = new Map<string, number[]>();
   const toolCallIdToCounter = new Map<string, number>();
   const generationToolCalls = new Map<number, GenerationToolCall>();
-  const assistantTextParts: string[] = [];
-  let assistantTextLength = 0;
+  const assistantTextCapture = createBoundedAssistantText();
 
   let toolCallCount = 0;
   let successfulTools = 0;
@@ -514,10 +685,13 @@ export async function instrumentAgentLoop(opts: {
     end: number;
     usage?: AgentLoopUsage;
     stopReason?: string;
+    errorMessage?: string | null;
     input?: unknown[];
-    assistantText: string[];
+    assistantText: BoundedAssistantText;
   }> = [];
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
+  let pendingModelInput: unknown[] | undefined;
+  let pendingModelInputStartedAt: number | undefined;
   type CostCalculator = (
     inputTokens: number,
     outputTokens: number,
@@ -546,6 +720,7 @@ export async function instrumentAgentLoop(opts: {
   type OtelModelSpanEndResult = {
     status: "success" | "error";
     errorMessage: string | null;
+    errorCode?: string;
     attributes: Record<string, AgentSpanAttributeValue | null | undefined>;
     endTime?: number;
   };
@@ -576,7 +751,7 @@ export async function instrumentAgentLoop(opts: {
       "llm.cost_cents_x100": calculateUsageCost(callUsage),
     };
   };
-  const startOtelModelSpan = (index: number): void => {
+  const startOtelModelSpan = (index: number, startTime?: number): void => {
     const entry = {
       spanPromise: Promise.resolve(null) as Promise<AgentSpan | null>,
       span: null as AgentSpan | null,
@@ -592,13 +767,14 @@ export async function instrumentAgentLoop(opts: {
         "llm.call_index": index,
       },
       otelRunSpan,
+      startTime,
     );
     pendingOtelModelSpans.set(index, entry);
     void entry.spanPromise.then((span) => {
       if (!span || entry.ended) return;
       if (entry.endResult) {
         entry.ended = true;
-        endAgentSpan(span, entry.endResult);
+        endRunTelemetrySpan(span, entry.endResult);
       } else {
         entry.span = span;
         openOtelModelSpans.add(span);
@@ -611,20 +787,70 @@ export async function instrumentAgentLoop(opts: {
   ): void => {
     const entry = pendingOtelModelSpans.get(index);
     if (!entry || entry.ended) return;
-    entry.endResult = result;
+    const safeResult = {
+      ...result,
+      errorMessage:
+        result.errorMessage === null
+          ? null
+          : redactCapturedString(result.errorMessage),
+    };
+    entry.endResult = safeResult;
     if (!entry.span) return;
     entry.ended = true;
     openOtelModelSpans.delete(entry.span);
-    endAgentSpan(entry.span, result);
+    endRunTelemetrySpan(entry.span, safeResult);
+  };
+  const recordPreStreamModelFailure = (
+    start: number,
+    end: number,
+    input: unknown[] | undefined,
+    errorMessage: string,
+  ): void => {
+    const tripIndex = modelRoundTrips.length;
+    modelRoundTrips.push({
+      spanId: spanId(),
+      start,
+      end,
+      stopReason: "error",
+      errorMessage,
+      ...(input !== undefined ? { input } : {}),
+      assistantText: createBoundedAssistantText(),
+    });
+    startOtelModelSpan(tripIndex, start);
+    finishOtelModelSpan(tripIndex, {
+      status: "error",
+      errorMessage,
+      attributes: modelSpanAttributes(tripIndex),
+      endTime: end,
+    });
   };
   const finishAwaitingOtelModelSpans = (
     finalErrorMessage: string | null = null,
+    markUnresolvedFailed = false,
+    finalErrorCode?: string,
   ): void => {
     for (const tripIndex of modelSpansAwaitingFinalError) {
+      const trip = modelRoundTrips[tripIndex];
+      const modelCallFailed =
+        trip?.stopReason === "error" ||
+        markUnresolvedFailed ||
+        (finalErrorMessage !== null &&
+          runStatus === "error" &&
+          reportedToolFailures === 0 &&
+          pendingTools.size === 0);
+      const modelErrorMessage = modelCallFailed
+        ? (trip?.errorMessage ??
+          finalErrorMessage ??
+          "Model stream ended before completion.")
+        : null;
+      if (trip && modelCallFailed) {
+        trip.stopReason = "error";
+        trip.errorMessage ??= modelErrorMessage;
+      }
       finishOtelModelSpan(tripIndex, {
-        status: "error",
-        errorMessage:
-          finalErrorMessage ?? "Model stream ended before completion.",
+        status: modelCallFailed ? "error" : "success",
+        errorMessage: modelErrorMessage,
+        errorCode: finalErrorCode,
         attributes: modelSpanAttributes(tripIndex),
         endTime: modelRoundTrips[tripIndex]?.end,
       });
@@ -642,6 +868,7 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
+  let errorCode: string | undefined;
   let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   let terminalOutcome: AgentLoopOutcome | undefined;
   let errorHttpStatus: number | undefined;
@@ -657,17 +884,18 @@ export async function instrumentAgentLoop(opts: {
       errorMessage = null;
     } else {
       runStatus = "error";
-      errorMessage =
+      errorMessage = redactCapturedError(
         outcome.state === "canceled"
           ? (outcome.message ?? "Agent run was canceled.")
-          : outcome.message;
+          : outcome.message,
+      );
     }
     runMetadata = {
       ...(runMetadata ?? {}),
       terminal_state: outcome.state,
       ...("code" in outcome ? { terminal_code: outcome.code } : {}),
       ...(outcome.state === "input_required"
-        ? { terminal_message: outcome.message }
+        ? { terminal_message: redactCapturedError(outcome.message) }
         : {}),
       ...(outcome.state === "failed"
         ? { terminal_retryable: outcome.retryable }
@@ -682,33 +910,35 @@ export async function instrumentAgentLoop(opts: {
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
-      if (
-        config.capturePrompts &&
-        event.type === "text" &&
-        assistantTextLength < MAX_AI_CONTENT_BYTES
-      ) {
-        assistantTextParts.push(event.text);
-        assistantTextLength += event.text.length;
-        currentRoundTrip()?.assistantText.push(event.text);
+      if (config.capturePrompts && event.type === "text") {
+        appendBoundedAssistantText(assistantTextCapture, event.text);
+        const roundTrip = currentRoundTrip();
+        if (roundTrip) {
+          appendBoundedAssistantText(roundTrip.assistantText, event.text);
+        }
       }
       if (event.type === "clear" || event.type === "done") {
-        finishAwaitingOtelModelSpans();
+        finishAwaitingOtelModelSpans(null, event.type === "clear");
         runStatus = "success";
         errorMessage = null;
+        errorCode = undefined;
         cutOffReason = null;
       } else if (event.type === "auto_continue") {
         const reason = event.reason || "auto_continue";
         cutOffReason = reason;
         if (!EXPECTED_CONTINUATION_REASONS.has(reason)) {
           runStatus = "error";
-          errorMessage = `Agent run was cut off before finishing (${reason}).`;
+          errorMessage = redactCapturedError(
+            `Agent run was cut off before finishing (${reason}).`,
+          );
         }
       } else if (event.type === "error") {
         runStatus = "error";
-        errorMessage = event.error;
+        errorMessage = redactCapturedError(event.error);
+        errorCode = event.errorCode;
       } else if (event.type === "tripwire") {
         runStatus = "error";
-        errorMessage = event.reason;
+        errorMessage = redactCapturedError(event.reason);
       } else if (event.type === "loop_limit") {
         runStatus = "error";
         errorMessage = "Agent stopped at the loop limit";
@@ -718,7 +948,7 @@ export async function instrumentAgentLoop(opts: {
       }
       if (event.type === "model_stream") {
         if (event.status === "start") {
-          finishAwaitingOtelModelSpans();
+          finishAwaitingOtelModelSpans(null, true);
           if (modelStreamOpenedAt === null) {
             modelStreamOpenedAt = Date.now();
             const tripIndex = modelRoundTrips.length;
@@ -726,11 +956,11 @@ export async function instrumentAgentLoop(opts: {
               spanId: spanId(),
               start: modelStreamOpenedAt,
               end: modelStreamOpenedAt,
-              ...(config.capturePrompts
-                ? { input: [...loopOpts.messages] }
-                : {}),
-              assistantText: [],
+              ...(pendingModelInput ? { input: pendingModelInput } : {}),
+              assistantText: createBoundedAssistantText(),
             });
+            pendingModelInput = undefined;
+            pendingModelInputStartedAt = undefined;
             startOtelModelSpan(tripIndex);
           }
         } else if (modelStreamOpenedAt !== null) {
@@ -788,7 +1018,7 @@ export async function instrumentAgentLoop(opts: {
         ).then((span) => {
           if (!span) return;
           if (entry.endResult) {
-            endAgentSpan(span, {
+            endToolTelemetrySpan(span, {
               status: entry.endResult.status,
               errorMessage: entry.endResult.errorMessage,
             });
@@ -841,8 +1071,7 @@ export async function instrumentAgentLoop(opts: {
           reportedToolFailures++;
         } else successfulTools++;
 
-        // The full text goes to external sinks only when captureToolResults is
-        // on; the persisted span always keeps at least the signature.
+        // Local spans keep the error text; tracking keeps only its class.
         const toolErrorMessage =
           isError && config.captureToolResults
             ? sanitizeToolErrorMessage(event.result)
@@ -866,7 +1095,6 @@ export async function instrumentAgentLoop(opts: {
               : explicitError
                 ? "tool_error"
                 : "legacy_inferred_error",
-            error_message: toolErrorMessage ?? undefined,
           });
         }
 
@@ -885,7 +1113,7 @@ export async function instrumentAgentLoop(opts: {
         };
         if (pending?.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
-          endAgentSpan(pending.otelSpan, {
+          endToolTelemetrySpan(pending.otelSpan, {
             status: otelEndResult.status,
             errorMessage: otelEndResult.errorMessage,
             attributes: { "gen_ai.tool.name": event.tool },
@@ -960,6 +1188,25 @@ export async function instrumentAgentLoop(opts: {
         runId,
         send: instrumentedSend,
         onOutcome: instrumentedOutcome,
+        onModelInput: (messages: readonly unknown[]) => {
+          const attemptStartedAt = Date.now();
+          if (pendingModelInputStartedAt !== undefined) {
+            recordPreStreamModelFailure(
+              pendingModelInputStartedAt,
+              attemptStartedAt,
+              pendingModelInput,
+              "Model attempt failed before streaming and was retried.",
+            );
+          }
+          const capturedMessages = config.capturePrompts
+            ? prepareCapturedModelInput(messages)
+            : undefined;
+          pendingModelInput = Array.isArray(capturedMessages)
+            ? capturedMessages
+            : undefined;
+          pendingModelInputStartedAt = attemptStartedAt;
+          return loopOpts.onModelInput?.(messages);
+        },
         onUsage: (callUsage: AgentLoopUsage) => {
           const trip = currentRoundTrip();
           if (trip) trip.usage = callUsage;
@@ -970,11 +1217,13 @@ export async function instrumentAgentLoop(opts: {
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
-    errorMessage =
+    errorMessage = redactCapturedError(
       classification?.errorMessage === undefined
         ? (err?.message ?? String(err))
-        : classification.errorMessage;
+        : classification.errorMessage,
+    );
     errorHttpStatus = httpStatusFromError(err);
+    errorCode = typeof err?.errorCode === "string" ? err.errorCode : undefined;
     const errorMetadata = classification?.metadata ?? null;
     runMetadata =
       runMetadata || errorMetadata
@@ -994,8 +1243,26 @@ export async function instrumentAgentLoop(opts: {
       if (modelStreamOpenedAt !== null) {
         modelStreamIntervals.push({ start: modelStreamOpenedAt, end: runEnd });
         const trip = currentRoundTrip();
-        if (trip) trip.end = runEnd;
+        if (trip) {
+          trip.end = runEnd;
+          trip.stopReason ??= "error";
+          trip.errorMessage ??=
+            errorMessage ?? "Model stream interrupted before completion.";
+        }
         modelStreamOpenedAt = null;
+      }
+      finishAwaitingOtelModelSpans(errorMessage);
+      const pendingModelCallFailed =
+        runStatus === "error" && pendingModelInputStartedAt !== undefined;
+      if (pendingModelCallFailed) {
+        recordPreStreamModelFailure(
+          pendingModelInputStartedAt!,
+          runEnd,
+          pendingModelInput,
+          errorMessage ?? "Model attempt failed before streaming.",
+        );
+        pendingModelInput = undefined;
+        pendingModelInputStartedAt = undefined;
       }
       const measuredModelDurationMs = modelStreamIntervals.length
         ? coveredDurationMs(modelStreamIntervals)
@@ -1025,12 +1292,11 @@ export async function instrumentAgentLoop(opts: {
               duration_ms: Math.max(0, runEnd - pending.startMs),
               status: "error",
               error_class: "interrupted",
-              error_message: capturedInterruptedMessage ?? undefined,
             });
           }
           if (pending.otelSpan) {
             openOtelToolSpans.delete(pending.otelSpan);
-            endAgentSpan(pending.otelSpan, {
+            endToolTelemetrySpan(pending.otelSpan, {
               status: "error",
               errorMessage: capturedInterruptedMessage,
               attributes: { "gen_ai.tool.name": pending.toolName },
@@ -1121,15 +1387,14 @@ export async function instrumentAgentLoop(opts: {
 
       const modelCallFailed =
         failedInsideModelCall ||
+        pendingModelCallFailed ||
         (modelRoundTrips.length === 0 &&
           cutOffReason === null &&
           reportedToolFailures === 0);
 
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
-        llmCallCount =
-          usage?.llmCalls ??
-          (modelRoundTrips.length > 0 ? modelRoundTrips.length : 1);
+        llmCallCount = usage?.llmCalls ?? Math.max(1, modelRoundTrips.length);
         const runUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
@@ -1157,12 +1422,15 @@ export async function instrumentAgentLoop(opts: {
                 spanId: trip.spanId,
                 model: trip.usage?.model ?? runUsage.model,
                 createdAt: trip.start,
+                endedAt: trip.end,
                 latencyMs: Math.max(0, trip.end - trip.start),
                 callUsage: trip.usage,
                 stopReason: trip.stopReason,
+                errorMessage: trip.errorMessage,
                 tokensKnown: trip.usage !== undefined,
                 input: trip.input,
-                assistantText: trip.assistantText.join(""),
+                assistantText: trip.assistantText.parts.join(""),
+                assistantTextTruncated: trip.assistantText.truncated,
                 toolSpans: collectedToolSpans.filter(
                   (span) => toolSpanRoundTrip.get(span.id) === index,
                 ),
@@ -1180,12 +1448,19 @@ export async function instrumentAgentLoop(opts: {
                   spanId: spanId(),
                   model: runUsage.model,
                   createdAt: runStart,
+                  endedAt: runStart + derivedLlmDurationMs,
                   latencyMs: derivedLlmDurationMs,
                   callUsage: usage,
                   stopReason: undefined as string | undefined,
                   tokensKnown: usageReported,
-                  input: requestMessages,
-                  assistantText: assistantTextParts.join(""),
+                  input:
+                    pendingModelInput ??
+                    (config.capturePrompts
+                      ? prepareCapturedModelInput(requestMessages)
+                      : requestMessages),
+                  assistantText: assistantTextCapture.parts.join(""),
+                  assistantTextTruncated: assistantTextCapture.truncated,
+                  errorMessage: undefined,
                   toolSpans: collectedToolSpans,
                   toolDetails: [...generationToolCalls.entries()]
                     .sort(([a], [b]) => a - b)
@@ -1217,14 +1492,43 @@ export async function instrumentAgentLoop(opts: {
               ? "error"
               : "success";
           const generationError =
-            generationStatus === "error" ? errorMessage : null;
+            generationStatus === "error"
+              ? (generation.errorMessage ?? errorMessage)
+              : null;
+          const capturedGenerationError =
+            generationError === null
+              ? null
+              : redactCapturedString(generationError);
+          const assistantTextIncomplete =
+            (modelRoundTrips.length > 0 && !generation.stopReason) ||
+            generation.stopReason === "max_tokens" ||
+            (generationStatus === "error" &&
+              generation.assistantText.length > 0);
           const generationContent = buildGenerationContent({
             config,
             messages: generation.input,
             assistantText: generation.assistantText,
+            assistantTextTruncated:
+              generation.assistantTextTruncated || assistantTextIncomplete,
             toolSpans: generation.toolSpans,
             toolCallIds: toolSpanCallId,
           });
+          const capturedContent = config.capturePrompts
+            ? {
+                ...(generationContent.aiInput !== undefined
+                  ? { input: generationContent.aiInput }
+                  : {}),
+                ...(generationContent.aiOutputChoices !== undefined
+                  ? { output: generationContent.aiOutputChoices }
+                  : {}),
+                ...(generationContent.aiInputTruncated
+                  ? { input_truncated: true }
+                  : {}),
+                ...(generationContent.aiOutputTruncated
+                  ? { output_truncated: true }
+                  : {}),
+              }
+            : null;
 
           spans.push({
             id: generation.spanId,
@@ -1241,9 +1545,13 @@ export async function instrumentAgentLoop(opts: {
             costCentsX100: callCostCentsX100 ?? 0,
             durationMs: generation.latencyMs,
             status: generationStatus,
-            errorMessage: generationError,
-            metadata: null,
+            errorMessage: capturedGenerationError,
+            metadata:
+              capturedContent && Object.keys(capturedContent).length > 0
+                ? capturedContent
+                : null,
             createdAt: generation.createdAt,
+            endedAt: generation.endedAt,
           });
 
           emitLlmGenerationTrackingEvent({
@@ -1274,9 +1582,10 @@ export async function instrumentAgentLoop(opts: {
             llmCallCount: modelRoundTrips.length > 0 ? 1 : llmCallCount,
             firstTokenMs: generation.isFirst ? runFirstTokenMs : undefined,
             status: generationStatus,
-            errorMessage: generationError,
+            errorMessage: capturedGenerationError,
             httpStatus:
               generationStatus === "error" ? errorHttpStatus : HTTP_STATUS_OK,
+            errorCode: generationStatus === "error" ? errorCode : undefined,
             toolCalls: generation.toolSpans.length,
             successfulTools: generation.toolSpans.filter(
               (span) => span.status === "success",
@@ -1293,6 +1602,7 @@ export async function instrumentAgentLoop(opts: {
                 : undefined,
             delegation: opts.delegation,
             createdAt: generation.createdAt,
+            endedAt: generation.endedAt,
             experimentAssignments: opts.experimentAssignments,
             modelSelectionSource: opts.modelSelectionSource,
             browserSessionId,
@@ -1319,7 +1629,7 @@ export async function instrumentAgentLoop(opts: {
         costCentsX100,
         durationMs: totalDurationMs,
         status: runPaused ? "paused" : runStatus,
-        errorMessage,
+        errorMessage: redactCapturedError(errorMessage),
         metadata: runMetadata,
         createdAt: runStart,
       };
@@ -1334,7 +1644,7 @@ export async function instrumentAgentLoop(opts: {
                   effectiveTerminalOutcome?.state === "failed" ||
                   effectiveTerminalOutcome?.state === "input_required"
                     ? effectiveTerminalOutcome.code
-                    : undefined,
+                    : errorCode,
                 retryable:
                   effectiveTerminalOutcome?.state === "failed"
                     ? effectiveTerminalOutcome.retryable
@@ -1380,6 +1690,10 @@ export async function instrumentAgentLoop(opts: {
             run_id: runId,
             thread_id: threadId,
             llm_calls: llmCallCount || undefined,
+            follow_up_ms: usage?.followUpMs,
+            follow_up_input_tokens: usage?.followUpInputTokens,
+            receipt_unverified_count: usage?.receiptUnverifiedCount,
+            receipt_changed_false_count: usage?.receiptChangedFalseCount,
             tool_calls: toolCallCount,
             successful_tools: successfulTools,
             failed_tools: failedTools,
@@ -1405,27 +1719,18 @@ export async function instrumentAgentLoop(opts: {
         });
 
         for (const span of emittedToolSpans) {
-          const toolErrorMessage =
-            span.status === "error" &&
-            span.errorMessage &&
-            config.captureToolResults
-              ? sanitizeToolErrorMessage(span.errorMessage)
-              : undefined;
           const toolErrorDetail =
             span.status !== "error"
               ? undefined
-              : toolErrorMessage
-                ? toAiErrorDetail(toolErrorMessage)
-                : !config.captureToolResults
-                  ? {
-                      message:
-                        "error text withheld: captureToolResults is off for this app",
-                    }
-                  : undefined;
-          const toolOutputState = config.captureToolResults
-            ? (toolErrorMessage ??
-              (span.metadata as { output?: unknown } | null)?.output)
-            : "[tool result withheld: captureToolResults is off for this app]";
+              : toAiErrorDetail(undefined, {
+                  code: toolSpanErrorClass.get(span.id) ?? "tool_error",
+                });
+          const toolOutputState =
+            span.status === "error"
+              ? "[tool error message omitted from telemetry]"
+              : config.captureToolResults
+                ? (span.metadata as { output?: unknown } | null)?.output
+                : "[tool result withheld: captureToolResults is off for this app]";
 
           const requestingGeneration = toolSpanRoundTrip.get(span.id);
           emitAiSpanEvent({
@@ -1476,8 +1781,15 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
       };
 
-      writeTraceData(spans, summary, runId, config).catch(() => {});
+      writeTraceData(spans, summary, runId, config).catch((error) =>
+        reportTraceWriteFailure(runId, "write", error),
+      );
 
+      const runTerminalCode =
+        effectiveTerminalOutcome?.state === "failed" ||
+        effectiveTerminalOutcome?.state === "input_required"
+          ? effectiveTerminalOutcome.code
+          : errorCode;
       try {
         // Metrics are unsampled and independent of trace export.
         for (const [tripIndex, trip] of modelRoundTrips.entries()) {
@@ -1516,6 +1828,7 @@ export async function instrumentAgentLoop(opts: {
             status: "error",
             errorMessage:
               errorMessage ?? "Model stream interrupted before completion.",
+            errorCode: runTerminalCode,
             attributes: modelSpanAttributes(interruptedModelRoundTrip),
             endTime: runEnd,
           });
@@ -1530,7 +1843,7 @@ export async function instrumentAgentLoop(opts: {
             });
           }
         }
-        finishAwaitingOtelModelSpans(errorMessage);
+        finishAwaitingOtelModelSpans(errorMessage, false, runTerminalCode);
         await Promise.all(
           [...pendingOtelModelSpans.values()].map((entry) => entry.spanPromise),
         );
@@ -1546,9 +1859,11 @@ export async function instrumentAgentLoop(opts: {
               otelRunSpan,
             ),
           );
-          endAgentSpan(aggregateLlmSpan, {
+          endRunTelemetrySpan(aggregateLlmSpan, {
             status: runStatus,
-            errorMessage,
+            errorMessage:
+              errorMessage === null ? null : redactCapturedString(errorMessage),
+            errorCode: runTerminalCode,
             attributes: {
               "gen_ai.response.model": usage.model,
               ...(usage.usageReported
@@ -1566,24 +1881,27 @@ export async function instrumentAgentLoop(opts: {
           });
         }
         for (const modelSpan of openOtelModelSpans) {
-          endAgentSpan(modelSpan, {
+          endRunTelemetrySpan(modelSpan, {
             status: "error",
             errorMessage: "Agent run ended before model_stream completed.",
+            errorCode: runTerminalCode,
           });
         }
         openOtelModelSpans.clear();
         for (const toolSpan of openOtelToolSpans) {
-          endAgentSpan(toolSpan, {
+          endToolTelemetrySpan(toolSpan, {
             status: "error",
             errorMessage: "Agent run ended before tool_done.",
           });
         }
         openOtelToolSpans.clear();
-        endAgentSpan(otelRunSpan, {
+        endRunTelemetrySpan(otelRunSpan, {
           status: runStatus,
-          errorMessage,
+          errorMessage: redactCapturedError(errorMessage),
           attributes: {
             "agent.llm_calls": llmCallCount,
+            "agent.follow_up_ms": usage?.followUpMs,
+            "agent.follow_up_input_tokens": usage?.followUpInputTokens,
             "agent.tool_calls": toolCallCount,
             "agent.successful_tools": successfulTools,
             "agent.failed_tools": failedTools,
@@ -1596,11 +1914,7 @@ export async function instrumentAgentLoop(opts: {
               : undefined,
             "agent.cost_cents_x100": costCentsX100,
             "agent.terminal_state": effectiveTerminalOutcome?.state,
-            "agent.terminal_code":
-              effectiveTerminalOutcome?.state === "failed" ||
-              effectiveTerminalOutcome?.state === "input_required"
-                ? effectiveTerminalOutcome.code
-                : undefined,
+            "agent.terminal_code": runTerminalCode,
           },
         });
         // coercion-ok: OTel export must never break the run.
@@ -1622,6 +1936,7 @@ export async function instrumentAgentLoop(opts: {
       if (precedingResponse) {
         const { inferAndTrackSentiment } = await import("./sentiment.js");
         await inferAndTrackSentiment({
+          runEngine: loopOpts.engine,
           classifierModel: config.inferredSentimentModel,
           precedingResponseModel: precedingResponse.model,
           text: opts.sentimentInput,
@@ -1640,21 +1955,69 @@ export async function instrumentAgentLoop(opts: {
   return usage!;
 }
 
+/**
+ * A trace that fails to persist leaves the run unreviewable and makes a
+ * thumbs-down for it unlinkable, so it is reported once per run and stage,
+ * never silently and never per span.
+ */
+function reportTraceWriteFailure(
+  runId: string,
+  stage: TraceWriteStage,
+  error: unknown,
+  detail: Record<string, number> = {},
+): void {
+  recordTraceWriteFailure(stage, error);
+  console.warn(
+    `[agent-native] observability: could not persist trace ${stage} for run ${runId}`,
+    {
+      ...detail,
+      error: toolErrorSignature(
+        error instanceof Error ? error.message : String(error),
+      ),
+    },
+  );
+}
+
 async function writeTraceData(
   spans: TraceSpan[],
   summary: TraceSummary,
   runId: string,
   config: ObservabilityConfig,
 ): Promise<void> {
-  const { insertTraceSpan, upsertTraceSummary } = await import("./store.js");
+  const { adoptTraceOrgForThread, insertTraceSpan, upsertTraceSummary } =
+    await import("./store.js");
+  let spanFailures = 0;
+  let firstSpanError: unknown;
   await Promise.all(
     spans.map((span) =>
       insertTraceSpan({ ...span, orgId: summary.orgId ?? null }).catch(
-        () => {},
+        (error) => {
+          spanFailures += 1;
+          firstSpanError ??= error;
+        },
       ),
     ),
   );
-  await upsertTraceSummary(summary).catch(() => {});
+  if (spanFailures > 0) {
+    reportTraceWriteFailure(runId, "spans", firstSpanError, {
+      failed: spanFailures,
+      total: spans.length,
+    });
+  }
+  // Adoption reads other runs' summaries to detect a thread spanning orgs, so
+  // it is only sound once this run's own org is on record too.
+  const summaryWritten = await upsertTraceSummary(summary).then(
+    () => true,
+    (error) => {
+      reportTraceWriteFailure(runId, "summary", error);
+      return false;
+    },
+  );
+  if (summaryWritten) {
+    await adoptTraceOrgForThread(summary).catch((error) =>
+      reportTraceWriteFailure(runId, "thread_org", error),
+    );
+  }
 
   try {
     const { evaluateRun } = await import("./evals.js");

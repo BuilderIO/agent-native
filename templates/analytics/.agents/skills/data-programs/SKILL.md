@@ -1,12 +1,7 @@
 ---
 name: data-programs
 description: >-
-  Save a run-code fetch/join/aggregate script as a stored, refreshable data
-  source that dashboard panels bind to and render. Use when an ad-hoc
-  provider-api-request or run-code analysis should become a live dashboard
-  panel other users see, or when a cohort/join needs an arbitrary property
-  filter, an IN-search, or a cross-provider stitch a canned action can't
-  express.
+  Save a run-code fetch/join/aggregate script as a refreshable data source panels bind to. Use when a provider-api-request or run-code analysis should become a live panel.
 ---
 
 # Data Programs

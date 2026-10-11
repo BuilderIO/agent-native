@@ -7,6 +7,7 @@ export {
 export {
   appendAgentChatContextToMessage,
   splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
@@ -60,6 +61,13 @@ export {
   normalizeDocumentTitle,
 } from "./document-title.js";
 export {
+  parseBase64DataUrl,
+  parseDataUrl,
+  type ParsedBase64DataUrl,
+  type ParsedDataUrl,
+} from "./data-url.js";
+export { stripInlineAttachmentPayloads } from "./attachments.js";
+export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
@@ -75,6 +83,7 @@ export {
   type AgentDesignSystemContext,
   type AgentDesignSystemContextAvailable,
   type AgentDesignSystemContextUnavailable,
+  type AgentDesignSystemPurpose,
 } from "./design-system-agent-context.js";
 export {
   formatHtmlStyleSummary,

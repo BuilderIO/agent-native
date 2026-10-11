@@ -37,6 +37,10 @@ vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
 }));
 
+vi.mock("./alerts-store.js", () => ({
+  enqueueUsageAlertEvaluation: vi.fn(),
+}));
+
 const {
   builderCreditsFromCostCents,
   calculateCost,

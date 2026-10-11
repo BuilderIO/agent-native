@@ -806,6 +806,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "Höhe des Ganztagsbereichs ändern",
     addWorkingLocation: "Arbeitsort hinzufügen",
     addTitleBeforeCreate:
       "Fügen Sie einen Titel hinzu, bevor Sie das Ereignis erstellen",
@@ -1002,6 +1003,8 @@ export default {
     occurrences: "Vorkommen",
     reviewInvite: "Bewertungseinladung",
     reviewProposedTime: "Vorgeschlagene Zeit prüfen",
+    newTimeProposedBy: "Neuer Zeitpunkt vorgeschlagen von {{name}}",
+    reviewTimeProposals: "Zeitvorschläge prüfen",
     responseAwaitingCount: "{{count}} ausstehend",
     responseMaybeCount: "{{count}} vielleicht",
     responseNoCount: "{{count}} nein",

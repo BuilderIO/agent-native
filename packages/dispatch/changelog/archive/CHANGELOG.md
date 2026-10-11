@@ -1,3 +1,33 @@
+## 0.27.12
+
+### Patch Changes
+
+- febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+
+## 0.27.11
+
+### Patch Changes
+
+- 802f708: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+
+## 0.27.10
+
+### Patch Changes
+
+- 904b67c: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
+
+## 0.27.9
+
+### Patch Changes
+
+- d525c66: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
+
+## 0.27.8
+
+### Patch Changes
+
+- 8d34d57: Harden embedded workspace authentication across hosts and prevent unauthorized session-location reads.
+
 ## 0.27.7
 
 ### Patch Changes

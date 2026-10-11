@@ -12,6 +12,7 @@ import {
   createDatabaseRow,
   databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
+  assertDatabaseWidgetWriteTarget,
 } from "./_database-row-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
@@ -69,6 +70,7 @@ export default defineAction({
   },
   run: async (args, context): Promise<ContentDatabaseRowMutationResult> => {
     if (context?.caller === "mcp") agentSchema.parse(args);
+    assertDatabaseWidgetWriteTarget(args.target, "add-database-item", context);
     const result = await createDatabaseRow(
       canonicalizeDatabasePropertyInput(args),
     );

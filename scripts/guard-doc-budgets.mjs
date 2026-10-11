@@ -8,7 +8,7 @@ const BUDGETS = {
   ".agents/skills/visual-plan/SKILL.md": 4740,
   ".agents/skills/review-latest-feedback/SKILL.md": 4490,
   ".agents/skills/external-agents/SKILL.md": 4060,
-  ".agents/skills/turn-into-app/SKILL.md": 3780,
+  ".agents/skills/turn-into-app/SKILL.md": 2500,
   ".agents/skills/extensions/SKILL.md": 3680,
   ".agents/skills/address-feedback-with-replies/SKILL.md": 3670,
   ".agents/skills/visual-edit/SKILL.md": 4350,

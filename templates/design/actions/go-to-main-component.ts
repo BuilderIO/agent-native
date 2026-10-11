@@ -40,9 +40,9 @@ async function liveContent(
 
 export default defineAction({
   description:
-    "Resolve the 'main' instance of a component (Figma's Go to main " +
-    "component). Canonical linked components resolve by their persisted " +
-    "component id; legacy name-only annotations fall back to the earliest " +
+    "Find the main instance of a component. Canonical linked components " +
+    "resolve by their persisted component id; legacy name-only annotations " +
+    "fall back to the earliest " +
     "same-name instance across the design's files. Returns isMain=true when " +
     "the selected instance is already the main; otherwise navigates the " +
     "editor to it.",

@@ -70,10 +70,10 @@ describe("MultiScreenCanvas camera command delivery", () => {
       root.render(
         <MultiScreenCanvas
           screens={options.screens ?? []}
-          selectedScreenIds={options.selectedScreenIds}
+          selection={{ selectedScreenIds: options.selectedScreenIds }}
           zoom={options.zoom ?? 100}
           onPick={() => {}}
-          cameraCommand={cameraCommand}
+          camera={{ cameraCommand }}
         />,
       );
     });

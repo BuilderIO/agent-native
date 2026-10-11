@@ -4,6 +4,7 @@ import {
   ensureTableExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   authorizeComputerOperation,
   ensureComputerApprovalStore,
@@ -45,7 +46,7 @@ const TERMINAL_STATUSES = new Set<RemoteCommandStatus>(["completed", "failed"]);
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `CREATE TABLE IF NOT EXISTS integration_remote_commands (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
@@ -92,6 +93,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

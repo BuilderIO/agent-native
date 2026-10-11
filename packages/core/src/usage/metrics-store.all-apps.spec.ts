@@ -378,8 +378,16 @@ describe("listAppUsageMetrics all apps billing unit", () => {
   it("reports Builder.io credits when the agent runs on Builder.io", async () => {
     process.env.AGENT_ENGINE = "builder";
     resetAppConfigForTests();
-    await insertUsage({ owner: "owner@example.com", app: "clips" });
-    await insertUsage({ owner: "owner@example.com", app: "mail" });
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "clips",
+      engine: "builder",
+    });
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "mail",
+      engine: "builder",
+    });
 
     const metrics = await listAppUsageMetrics(
       { sinceDays: 30, scope: "me" },
@@ -392,7 +400,11 @@ describe("listAppUsageMetrics all apps billing unit", () => {
   it("reports estimated dollars on any other engine", async () => {
     process.env.AGENT_ENGINE = "ai-sdk:openai";
     resetAppConfigForTests();
-    await insertUsage({ owner: "owner@example.com", app: "clips" });
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "clips",
+      engine: "ai-sdk:openai",
+    });
 
     const metrics = await listAppUsageMetrics(
       { sinceDays: 30, scope: "me" },
@@ -428,7 +440,7 @@ describe("listAppUsageMetrics all apps billing unit", () => {
     ).toBe(3.75);
   });
 
-  it("uses the default engine for legacy rows while preserving explicit engines", async () => {
+  it("leaves legacy rows without billing metadata unclassified", async () => {
     process.env.AGENT_ENGINE = "builder";
     resetAppConfigForTests();
     await insertUsage({
@@ -448,10 +460,10 @@ describe("listAppUsageMetrics all apps billing unit", () => {
       { ownerEmail: "owner@example.com", orgId: "org-1", app: ALL_USAGE_APPS },
     );
 
-    expect(metrics.billing.unit).toBe("mixed");
+    expect(metrics.billing.unit).toBe("unknown");
     expect(metrics.totals).toMatchObject({
       builderCredits: 0,
-      estimatedBuilderCredits: 2.5,
+      estimatedBuilderCredits: 0,
       otherCostCents: 20,
       otherCalls: 1,
     });
@@ -459,7 +471,7 @@ describe("listAppUsageMetrics all apps billing unit", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "clips",
-          estimatedBuilderCredits: 2.5,
+          estimatedBuilderCredits: 0,
           otherCostCents: 0,
         }),
         expect.objectContaining({
@@ -473,7 +485,7 @@ describe("listAppUsageMetrics all apps billing unit", () => {
       expect.arrayContaining([
         expect.objectContaining({
           key: "clips",
-          estimatedBuilderCredits: 2.5,
+          estimatedBuilderCredits: 0,
           otherCostCents: 0,
         }),
         expect.objectContaining({
@@ -487,7 +499,7 @@ describe("listAppUsageMetrics all apps billing unit", () => {
       expect.arrayContaining([
         expect.objectContaining({
           app: "clips",
-          estimatedBuilderCredits: 2.5,
+          costCents: 0,
           otherCostCents: 0,
         }),
         expect.objectContaining({
@@ -498,22 +510,20 @@ describe("listAppUsageMetrics all apps billing unit", () => {
     );
   });
 
-  it("surfaces default-engine setting read failures", async () => {
+  it("does not consult the current engine when legacy rows lack billing metadata", async () => {
     process.env.AGENT_ENGINE = "ai-sdk:openai";
     resetAppConfigForTests();
     await insertUsage({ owner: "owner@example.com", app: "clips" });
-    const settingsError = new Error("settings unavailable");
-    readDefaultAgentEngineSettingMock.mockRejectedValueOnce(settingsError);
+    readDefaultAgentEngineSettingMock.mockRejectedValueOnce(
+      new Error("settings unavailable"),
+    );
 
-    await expect(
-      listAppUsageMetrics(
-        { sinceDays: 30, scope: "me", builderCreditsEnabled: true },
-        {
-          ownerEmail: "owner@example.com",
-          orgId: "org-1",
-          app: ALL_USAGE_APPS,
-        },
-      ),
-    ).rejects.toBe(settingsError);
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me", builderCreditsEnabled: true },
+      { ownerEmail: "owner@example.com", orgId: "org-1", app: ALL_USAGE_APPS },
+    );
+
+    expect(metrics.billing.unit).toBe("unknown");
+    expect(readDefaultAgentEngineSettingMock).not.toHaveBeenCalled();
   });
 });

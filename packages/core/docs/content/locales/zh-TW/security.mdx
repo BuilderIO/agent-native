@@ -392,7 +392,7 @@ Google Drive 的 `changes.watch` 通知不會經過這個通用介面卡閘道�
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **未**設定，除非您的組織實際上共用工作區金鑰 - 請參閱 [Cross-User Tooling Secrets](#tooling-secrets)
 - [] 在多租戶部署中，**使用者自帶 `ANTHROPIC_API_KEY`** - 框架拒絕回退到部署層級環境變數
 
-執行 `agent-native doctor`（在鷹架產生的應用程式中為 `pnpm doctor`）可自動檢查此清單中的架構、憑證和環境變數項目 — 每項發現都會標明 guard、檔案與行號。請參閱 [Doctor](/docs/doctor) 文件。
+執行 `agent-native doctor`（在鷹架產生的應用程式中為 `pnpm agent-native:doctor`）可自動檢查此清單中的架構、憑證和環境變數項目 — 每項發現都會標明 guard、檔案與行號。請參閱 [Doctor](/docs/doctor) 文件。
 
 ---
 

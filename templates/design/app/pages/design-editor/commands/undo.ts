@@ -46,6 +46,7 @@ import type {
   ContentHistorySelectionAfterMap,
   FileCreationHistoryEntry,
   FileDeletionHistoryEntry,
+  FileDeletionRestoreClaim,
   FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
@@ -360,6 +361,25 @@ function fileDeletionMetadataRestoreChanges(
   return { changes, skippedVariantMemberships };
 }
 
+function fileDeletionRestoreClaims(
+  original: FileDeletionHistoryEntry,
+  restored: FileDeletionHistoryEntry,
+): FileDeletionRestoreClaim[] {
+  return original.files.flatMap((file, index) => {
+    const targetFile = restored.files[index];
+    if (!targetFile || !file.restoreClaimId || !file.restoreSourceFileId) {
+      return [];
+    }
+    return [
+      {
+        claimId: file.restoreClaimId,
+        sourceFileId: file.restoreSourceFileId,
+        targetFileId: targetFile.id,
+      },
+    ];
+  });
+}
+
 export interface UndoArgs {
   activeEditorDragRef: RefObject<boolean>;
   activeFile: DesignFile;
@@ -398,6 +418,7 @@ export interface UndoArgs {
   applyDesignDataHistoryChanges?: (
     changes: readonly ContentHistoryChange[],
     direction: "undo" | "redo",
+    restoreClaims?: readonly FileDeletionRestoreClaim[],
   ) => boolean;
   canEditDesign: boolean;
   allowPendingLiveEdits?: boolean;
@@ -1615,11 +1636,15 @@ export function runUndo({
         designDataJsonRef.current,
         missingFileIds,
       );
+      const restoreClaims = fileDeletionRestoreClaims(original, restored);
       if (
         metadataRestore.changes.length > 0 &&
         (!applyDesignDataHistoryChanges ||
-          applyDesignDataHistoryChanges(metadataRestore.changes, "undo") ===
-            false)
+          applyDesignDataHistoryChanges(
+            metadataRestore.changes,
+            "undo",
+            restoreClaims,
+          ) === false)
       ) {
         throw new Error(t("common.genericError"));
       }
@@ -1643,6 +1668,11 @@ export function runUndo({
       const recreatedIds: string[] = [];
       let preparedFiles: ReturnType<typeof prepareDeletedFileRestore>[] = [];
       try {
+        // A delete-triggered read can finish late and replace restored geometry.
+        await queryClient.cancelQueries({
+          queryKey: ["action", "get-design", { id }],
+          exact: true,
+        });
         preparedFiles = entry.files.map((file) => {
           try {
             return prepareDeletedFileRestore(file);
@@ -1657,6 +1687,9 @@ export function runUndo({
             filename: file.filename,
             content: preparedFiles[index]!.content,
             fileType: file.fileType,
+            ...(file.restoreClaimId
+              ? { restoreClaimId: file.restoreClaimId }
+              : {}),
           } as any)) as { id?: string };
           if (!result.id) {
             throw new Error(`Failed to restore "${file.filename}"`);
@@ -1740,10 +1773,7 @@ export function runUndo({
         if (metadataRestore.skippedVariantMemberships) {
           toast.info(t("designEditor.toasts.undoSkippedConcurrentEdit"));
         }
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "get-design"],
-        });
-
+        // A refetch here can overwrite restored geometry before its queued save finishes.
         const firstRestoredId = recreatedEntry.files[0]?.id;
         if (firstRestoredId) {
           setActiveFileId(firstRestoredId);

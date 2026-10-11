@@ -1,5 +1,18 @@
 import { fail } from "@agent-native/core/action";
-import { and, desc, eq, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import {
   histogramBucket,
@@ -37,6 +50,7 @@ import {
   viewerTenantKeys,
   warnIndexFailure,
 } from "./session-event-index.js";
+import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
 
 /**
  * Performance aggregates.
@@ -55,6 +69,9 @@ const MAX_ROUTE_LENGTH = 200;
 const MAX_APP_LENGTH = 100;
 const MAX_SAMPLE_WEIGHT = 10_000;
 const SESSION_PERFORMANCE_RETENTION_BUFFER_DAYS = 2;
+const ASSOCIATION_READ_PAGE_SIZE = 500;
+// Leave room for tenant and other filters under PostgreSQL's bind limit.
+const SESSION_PERFORMANCE_SESSION_BATCH_SIZE = 25_000;
 export const ROUTE_PERFORMANCE_RETENTION_DAYS = 180;
 export const ROUTE_PERFORMANCE_MAX_RANGE_DAYS = 90;
 export const ROUTE_PERFORMANCE_DEFAULT_LIMIT = 50;
@@ -564,10 +581,28 @@ export async function slowSessionConditions(
   filter: SlowSessionFilter | undefined,
 ) {
   if (!filter) return [];
-  if (!(await performanceTablesExist(getDb()))) return [sql`false`];
+  const db = getDb() as any;
+  if (!(await performanceTablesExist(db))) return [sql`false`];
+  const associationsReady = await sessionRecordingAssociationsReady(db);
   const r = schema.sessionRecordings;
   const p = schema.analyticsSessionPerformance;
   const gaps = schema.analyticsPerformanceGaps;
+  const association = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_performance_association",
+  );
+  const associationPresence = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_performance_association_presence",
+  );
+  const gapAssociation = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_performance_gap_association",
+  );
+  const gapAssociationPresence = alias(
+    schema.sessionRecordingSessionAssociations,
+    "session_performance_gap_association_presence",
+  );
   const poorVitals = sql`(${p.maxLcpMs} > ${WEB_VITAL_THRESHOLDS.lcp.poor} or ${p.maxInpMs} > ${WEB_VITAL_THRESHOLDS.inp.poor} or ${p.maxCls} > ${WEB_VITAL_THRESHOLDS.cls.poor} or ${p.maxTtfbMs} > ${WEB_VITAL_THRESHOLDS.ttfb.poor})`;
   const slowRequests = sql`${p.slowRequests} > 0`;
   const slow =
@@ -577,13 +612,67 @@ export async function slowSessionConditions(
         ? slowRequests
         : sql`(${poorVitals} or ${slowRequests})`;
   const tenant = recordingTenantSql(r);
-  const measured = sql`exists (select 1 from ${p} where ${p.tenantKey} = ${tenant} and ${p.sessionId} = ${r.sessionId} and ${slow})`;
+  const legacyMeasured = sql`exists (
+    select 1 from ${p}
+    where ${p.sessionId} = ${r.sessionId}
+      and ${p.tenantKey} = ${tenant}
+      and ${slow}
+  )`;
+  const measured = associationsReady
+    ? sql`(
+    exists (
+      select 1 from ${schema.sessionRecordingSessionAssociations} as ${association}
+      inner join ${p} on ${p.sessionId} = ${association.sessionId}
+      where ${association.recordingId} = ${r.id}
+        and ${p.tenantKey} = ${tenant}
+        and ${slow}
+    )
+    or (
+      not exists (
+        select 1 from ${schema.sessionRecordingSessionAssociations} as ${associationPresence}
+        where ${associationPresence.recordingId} = ${r.id}
+      )
+      and exists (
+        select 1 from ${p}
+        where ${p.sessionId} = ${r.sessionId}
+          and ${p.tenantKey} = ${tenant}
+          and ${slow}
+      )
+    )
+  )`
+    : legacyMeasured;
+  const legacyHasGap = sql`exists (
+    select 1 from ${gaps}
+    where ${gaps.sessionId} = ${r.sessionId}
+      and ${gaps.tenantKey} = ${tenant}
+      and ${gaps.sessionId} <> ''
+  )`;
+  const hasGap = associationsReady
+    ? sql`(
+    exists (
+      select 1 from ${schema.sessionRecordingSessionAssociations} as ${gapAssociation}
+      inner join ${gaps} on ${gaps.sessionId} = ${gapAssociation.sessionId}
+      where ${gapAssociation.recordingId} = ${r.id}
+        and ${gaps.tenantKey} = ${tenant}
+        and ${gaps.sessionId} <> ''
+    )
+    or (
+      not exists (
+        select 1 from ${schema.sessionRecordingSessionAssociations} as ${gapAssociationPresence}
+        where ${gapAssociationPresence.recordingId} = ${r.id}
+      )
+      and exists (
+        select 1 from ${gaps}
+        where ${gaps.sessionId} = ${r.sessionId}
+          and ${gaps.tenantKey} = ${tenant}
+          and ${gaps.sessionId} <> ''
+      )
+    )
+  )`
+    : legacyHasGap;
   const readable = viewerReadsRecordingEventsSql(r, scope);
   if (filter !== "any") return [readable, measured];
-  return [
-    readable,
-    sql`(${measured} or exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId} and ${gaps.sessionId} <> ''))`,
-  ];
+  return [readable, sql`(${measured} or ${hasGap})`];
 }
 
 /**
@@ -611,6 +700,54 @@ export async function getPerformanceCoverageStart(
   return starts.at(-1) ?? null;
 }
 
+async function recordingSessionAssociations(
+  db: any,
+  recordingIds: readonly string[],
+): Promise<Array<{ recordingId: string; sessionId: string }>> {
+  const association = schema.sessionRecordingSessionAssociations;
+  const result: Array<{ recordingId: string; sessionId: string }> = [];
+  let offset = 0;
+  while (true) {
+    const page = await db
+      .select({
+        recordingId: association.recordingId,
+        sessionId: association.sessionId,
+      })
+      .from(association)
+      .where(inArray(association.recordingId, [...recordingIds]))
+      .orderBy(asc(association.recordingId), asc(association.sessionId))
+      .limit(ASSOCIATION_READ_PAGE_SIZE)
+      .offset(offset);
+    result.push(...page);
+    if (page.length < ASSOCIATION_READ_PAGE_SIZE) return result;
+    offset += page.length;
+  }
+}
+
+function mergePerformanceSummaries(
+  first: SessionPerformanceSummary,
+  second: SessionPerformanceSummary,
+): SessionPerformanceSummary {
+  const max = (left: number | null, right: number | null) =>
+    left === null ? right : right === null ? left : Math.max(left, right);
+  const values = {
+    ttfbMs: max(first.ttfbMs, second.ttfbMs),
+    lcpMs: max(first.lcpMs, second.lcpMs),
+    inpMs: max(first.inpMs, second.inpMs),
+    cls: max(first.cls, second.cls),
+    maxRequestMs: max(first.maxRequestMs, second.maxRequestMs),
+  };
+  const slowRequests =
+    first.slowRequests === null && second.slowRequests === null
+      ? 0
+      : (first.slowRequests ?? 0) + (second.slowRequests ?? 0);
+  return sessionSummary(
+    values,
+    slowRequests,
+    first.incomplete || second.incomplete,
+  );
+}
+
 /**
  * Performance summaries for a page of recordings the caller already read
  * through the recording access filter. Recordings the aggregates never
@@ -623,7 +760,6 @@ export async function getSessionPerformanceSummaries(
   scope: SessionEventScope,
   pageRecordings: ReadonlyArray<{
     id: string;
-    sessionId: string;
     ownerEmail: string;
     orgId: string | null;
   }>,
@@ -638,48 +774,128 @@ export async function getSessionPerformanceSummaries(
   if (!recordings.length) return summaries;
   const db = getDb() as any;
   if (!(await performanceTablesExist(db))) return summaries;
-  const p = schema.analyticsSessionPerformance;
-  const tenantKeys = [
-    ...new Set(
-      recordings.map((recording) =>
-        sessionEventTenantKey(recording.ownerEmail, recording.orgId),
-      ),
-    ),
-  ];
-  const sessionIds = [
-    ...new Set(recordings.map((recording) => recording.sessionId)),
-  ];
-  const gaps = schema.analyticsPerformanceGaps;
-  const pairLimit = tenantKeys.length * sessionIds.length;
-  const [rows, gapRowsForPage] = await Promise.all([
-    db
-      .select({
-        tenantKey: p.tenantKey,
-        sessionId: p.sessionId,
-        maxTtfbMs: p.maxTtfbMs,
-        maxLcpMs: p.maxLcpMs,
-        maxInpMs: p.maxInpMs,
-        maxCls: p.maxCls,
-        slowRequests: p.slowRequests,
-        maxRequestMs: p.maxRequestMs,
-      })
-      .from(p)
-      .where(
-        and(inArray(p.tenantKey, tenantKeys), inArray(p.sessionId, sessionIds)),
+  const associationRows = (await sessionRecordingAssociationsReady(db))
+    ? await recordingSessionAssociations(
+        db,
+        recordings.map((recording) => recording.id),
       )
-      .limit(pairLimit),
-    db
-      .selectDistinct({ tenantKey: gaps.tenantKey, sessionId: gaps.sessionId })
-      .from(gaps)
+    : [];
+  const sessionIdsByRecording = new Map<string, string[]>();
+  for (const row of associationRows) {
+    const values = sessionIdsByRecording.get(row.recordingId) ?? [];
+    values.push(row.sessionId);
+    sessionIdsByRecording.set(row.recordingId, values);
+  }
+  const recordingsWithoutAssociations = recordings.filter(
+    (recording) => !sessionIdsByRecording.has(recording.id),
+  );
+  if (recordingsWithoutAssociations.length) {
+    const r = schema.sessionRecordings;
+    const legacyRows = await db
+      .select({
+        id: r.id,
+        sessionId: r.sessionId,
+        ownerEmail: r.ownerEmail,
+        orgId: r.orgId,
+      })
+      .from(r)
       .where(
-        and(
-          inArray(gaps.tenantKey, tenantKeys),
-          inArray(gaps.sessionId, sessionIds),
-          ne(gaps.sessionId, ""),
+        inArray(
+          r.id,
+          recordingsWithoutAssociations.map((recording) => recording.id),
         ),
       )
-      .limit(pairLimit),
-  ]);
+      .limit(recordingsWithoutAssociations.length);
+    const requestedById = new Map(
+      recordingsWithoutAssociations.map((recording) => [
+        recording.id,
+        recording,
+      ]),
+    );
+    for (const row of legacyRows) {
+      const requested = requestedById.get(row.id);
+      if (
+        !requested ||
+        requested.ownerEmail !== row.ownerEmail ||
+        requested.orgId !== row.orgId
+      ) {
+        continue;
+      }
+      sessionIdsByRecording.set(row.id, [row.sessionId]);
+    }
+  }
+  const sessionIdsByTenant = new Map<string, Set<string>>();
+  for (const recording of recordings) {
+    const sessionIds = sessionIdsByRecording.get(recording.id) ?? [];
+    if (!sessionIds.length) continue;
+    const tenantKey = sessionEventTenantKey(
+      recording.ownerEmail,
+      recording.orgId,
+    );
+    const tenantSessionIds =
+      sessionIdsByTenant.get(tenantKey) ?? new Set<string>();
+    for (const sessionId of sessionIds) tenantSessionIds.add(sessionId);
+    sessionIdsByTenant.set(tenantKey, tenantSessionIds);
+  }
+  if (!sessionIdsByTenant.size) return summaries;
+  const p = schema.analyticsSessionPerformance;
+  const gaps = schema.analyticsPerformanceGaps;
+  const rows: Array<{
+    tenantKey: string;
+    sessionId: string;
+    maxTtfbMs: number | null;
+    maxLcpMs: number | null;
+    maxInpMs: number | null;
+    maxCls: number | null;
+    slowRequests: number;
+    maxRequestMs: number | null;
+  }> = [];
+  const gapRowsForPage: Array<{ tenantKey: string; sessionId: string }> = [];
+  for (const [tenantKey, tenantSessionIds] of sessionIdsByTenant) {
+    const sessionIds = [...tenantSessionIds];
+    for (
+      let offset = 0;
+      offset < sessionIds.length;
+      offset += SESSION_PERFORMANCE_SESSION_BATCH_SIZE
+    ) {
+      const batch = sessionIds.slice(
+        offset,
+        offset + SESSION_PERFORMANCE_SESSION_BATCH_SIZE,
+      );
+      const [performanceRows, gapRows] = await Promise.all([
+        db
+          .select({
+            tenantKey: p.tenantKey,
+            sessionId: p.sessionId,
+            maxTtfbMs: p.maxTtfbMs,
+            maxLcpMs: p.maxLcpMs,
+            maxInpMs: p.maxInpMs,
+            maxCls: p.maxCls,
+            slowRequests: p.slowRequests,
+            maxRequestMs: p.maxRequestMs,
+          })
+          .from(p)
+          .where(and(eq(p.tenantKey, tenantKey), inArray(p.sessionId, batch)))
+          .limit(batch.length),
+        db
+          .selectDistinct({
+            tenantKey: gaps.tenantKey,
+            sessionId: gaps.sessionId,
+          })
+          .from(gaps)
+          .where(
+            and(
+              eq(gaps.tenantKey, tenantKey),
+              inArray(gaps.sessionId, batch),
+              ne(gaps.sessionId, ""),
+            ),
+          )
+          .limit(batch.length),
+      ]);
+      rows.push(...performanceRows);
+      gapRowsForPage.push(...gapRows);
+    }
+  }
   const pairKey = (tenantKey: string, sessionId: string) =>
     `${tenantKey}\u0000${sessionId}`;
   const incomplete = new Set<string>(
@@ -725,13 +941,19 @@ export async function getSessionPerformanceSummaries(
     );
   }
   for (const recording of recordings) {
-    const summary = byKey.get(
-      pairKey(
-        sessionEventTenantKey(recording.ownerEmail, recording.orgId),
-        recording.sessionId,
-      ),
+    const tenantKey = sessionEventTenantKey(
+      recording.ownerEmail,
+      recording.orgId,
     );
-    if (summary) summaries.set(recording.id, summary);
+    for (const sessionId of sessionIdsByRecording.get(recording.id) ?? []) {
+      const summary = byKey.get(pairKey(tenantKey, sessionId));
+      if (!summary) continue;
+      const previous = summaries.get(recording.id);
+      summaries.set(
+        recording.id,
+        previous ? mergePerformanceSummaries(previous, summary) : summary,
+      );
+    }
   }
   return summaries;
 }

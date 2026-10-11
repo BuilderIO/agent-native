@@ -9,7 +9,7 @@ Ein **wiederkehrender Job** ist eine Eingabeaufforderung, die nach einem Cron-Ze
 
 <Callout tone="info">
 
-**Recurring Jobs** ist der ältere Name für Automatisierungen vom Typ **Scheduled**. **Automations** ist der Oberbegriff für **Scheduled** und **Event**. `jobs/`-Dateien und `manage-jobs` bleiben für ältere schedule-only Integrationen erhalten. Verwenden Sie `manage-automations` und **Automations** unter `/agent#jobs` für neue persönliche oder Organisationsarbeit, einschließlich Modell und MCP-Zulassungslisten.
+**Recurring Jobs** ist der ältere Name für Automatisierungen vom Typ **Scheduled**. **Automations** ist der Oberbegriff für **Scheduled** und **Event**. `jobs/`-Dateien und `manage-jobs` bleiben für ältere schedule-only Integrationen erhalten. Verwenden Sie `manage-automations` und **Settings › Automations** für neue persönliche oder Organisationsarbeit, einschließlich Modell und MCP-Zulassungslisten.
 
 </Callout>
 
@@ -105,6 +105,10 @@ Das Framework umfasst Cron-Dienstprogramme (`isValidCron()` und `describeCron()`
 
 ## Job erstellen {#creating}
 
+### Über die Automations-Oberfläche
+
+Öffnen Sie **Settings › Automations** und erstellen Sie dann eine **Scheduled**-Automatisierung. Alte `/agent#jobs`-Links leiten dorthin weiter.
+
 ### Auf der Registerkarte „Agent-Ressourcen“
 
 `+` → **Geplante Aufgabe** im Agent-Ressourcensbereich. Füllen Sie die Eingabeaufforderung und den Zeitplan aus. Speichert als `jobs/<slug>.md` und beginnt mit der Ausführung beim nächsten passenden Tick.
@@ -135,14 +139,25 @@ Summarize overnight emails.`,
 
 ## Wie der Planer ausgeführt wird {#how-scheduler-runs}
 
-Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Routine), das prozessintern ausgeführt wird: Ein `setInterval` wird alle 60 Sekunden (mit einer Startverzögerung von 10 Sekunden) innerhalb des Agenten-Chat-Plugins ausgelöst, wo auch immer der Server läuft.
+Bei jedem Tick findet der Scheduler (die interne `processRecurringJobs()`-Routine) die fälligen Jobs und führt sie aus. Was den Tick auslöst, hängt davon ab, wo die App läuft:
 
-<Diagram id="doc-block-ucl4wy" title="Ein Zeitplaner-Tick" summary={"Alle 60 Sekunden findet der Scheduler fällige Jobs, führt jeden als neuen Agent-Thread aus und schreibt das Ergebnis zurück in die Jobdatei."}>
+| Host                                                             | Was den Tick auslöst                                                             | Voraussetzungen und Grenzen                                                                                           |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Langlebiger Server (Node.js, Docker, Fly, Render, ein VPS)       | Ein prozessinterner Timer alle 60 Sekunden, beginnend 10 Sekunden nach dem Start | Läuft, solange der Prozess läuft.                                                                                     |
+| [Netlify](/docs/netlify)                                         | Eine geplante Funktion, die der Build erzeugt, jede Minute                       | Nur veröffentlichte Deploys, nie Deploy Previews oder Branch-Deploys. Der Build benötigt `A2A_SECRET`.                |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                     | Ein Vercel-Cron-Job, den der Build hinzufügt, standardmäßig jede Minute          | Nur das Produktions-Deployment. Benötigt `CRON_SECRET`. Hobby-Projekte können ihn höchstens einmal täglich ausführen. |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work) | Ein Cron Trigger, den der Build zu `wrangler.json` hinzufügt, jede Minute        | Benötigt `A2A_SECRET` als Worker-Secret.                                                                              |
+| AWS Lambda                                                       | Nichts                                                                           | Geplante Automatisierungen werden nicht ausgelöst.                                                                    |
+| Lokale Entwicklung                                               | Nichts, außer Sie aktivieren es ausdrücklich                                     | Siehe den Hinweis unten.                                                                                              |
+
+Auf Netlify, Vercel und Cloudflare leert derselbe Tick außerdem die Warteschlange ereignisgesteuerter Automatisierungen, räumt Läufe auf, deren Funktion abgebrochen wurde, und führt App-Sweeps wie Zurückstellen und geplanten Versand in Mail aus. Ein Serverless-Deployment ohne Auslöser bekommt nichts davon: Ereignisgesteuerte Automatisierungen warten in der Warteschlange, und unterbrochene Läufe bleiben hängen. Webhook-gesteuerte Automatisierungen und **Run now** werden eigenständig ausgelöst und funktionieren daher weiterhin. Wenn ein Deployment keine Zeitpläne auslösen kann, weist die Seite **Automations** darauf hin und nennt den Grund.
+
+<Diagram id="doc-block-ucl4wy" title="Ein Zeitplaner-Tick" summary={"Bei jedem Tick findet der Scheduler fällige Jobs und schickt sie dann durch denselben Lebenszyklus der Hintergrundausführung wie Ereignis-Automatisierungen."}>
 
 ```html
 <div class="sched">
   <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
+    Scheduler-Tick &bull; jede Minute &#8635;
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
@@ -201,14 +216,26 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**Eine warme Instanz führt keine Zeitpläne aus.** Serverless-Hosts starten den prozessinternen Timer nie, daher bringen Keep-Alive-Pings keine Jobs zum Auslösen. Das tut nur der Plattform-Auslöser aus der Tabelle oben. Auf AWS Lambda löst sie bisher nichts aus, also führen Sie geplante Automatisierungen stattdessen auf einem langlebigen Host (Fly, Render, ein VPS) aus.
+
+</Callout>
+
+<Callout id="doc-block-rj2" tone="warning">
+
+**In der lokalen Entwicklung standardmäßig deaktiviert.** Die `setInterval`-Schleife des Schedulers startet nie, wenn `NODE_ENV` auf `development` oder `test` steht oder die App-URL auf `localhost` / `127.0.0.1` / `*.localhost` zeigt – das deckt die meisten lokalen Entwicklungsumgebungen ab. Setzen Sie `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1`, um den Scheduler trotzdem lokal auszuführen. Um geplante Jobs auf einem beliebigen Host abzuschalten, verwenden Sie `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`, das im Folgenden beschrieben wird.
+
+</Callout>
+
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` wird in zwei Bereichen gelesen.** Auf Netlify, Vercel und Cloudflare entscheidet die **Build**-Umgebung: Der Plattform-Auslöser feuert weiter, um Ereignis-Automatisierungen abzuarbeiten und Läufe aufzuräumen, aber ein Build mit aktiviertem Schalter überspringt geplante Jobs, unabhängig davon, was die bereitgestellte Umgebung sagt. Auf einem langlebigen Server steuert die **Laufzeit**-Umgebung den prozessinternen Timer. Setzen Sie die Variable dort, wo Ihr Host sie liest. Der Build speichert seine Entscheidung, sodass die Seite **Automations** anzeigen kann, dass Zeitpläne nie ausgeführt werden, statt ein Datum für die nächste Ausführung zu zeigen, das nichts einhalten wird.
 
 </Callout>
 
 ## Debuggen eines Jobs {#debugging}
 
-- Öffnen Sie `jobs/<name>.md` im Agent-Ressourcen – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Testen Sie es ohne zu warten:** Es gibt kein Force-Fire-Tool. Um die gleiche Arbeit bei Bedarf auszuführen, fügen Sie entweder die Eingabeaufforderung des Jobs in den Agenten-Chat ein und lassen Sie ihn dort ausführen, oder stellen Sie den Zeitplan vorübergehend auf die nächste Minute ein, damit der Planer ihn beim nächsten Tick übernimmt (und stellen Sie dann den echten Cron wieder her).
+- Öffnen Sie die Details der Automatisierung in **Settings › Automations** oder `jobs/<name>.md` im Agent-Ressourcen – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- **Testen Sie es ohne zu warten:** Klicken Sie in **Settings › Automations** auf **Run now** oder bitten Sie den Agenten, den Job auszuführen (`manage-automations` mit `action=run-now`). Die Eingabeaufforderung des Jobs läuft sofort mit ihren echten Nebenwirkungen, und `nextRun` ändert sich nicht. Die Ausnahme ist ein Job, den das Framework pausiert hat: Ein erfolgreicher Lauf schaltet ihn wieder ein und berechnet `nextRun` neu. Run now wartet nicht auf einen Scheduler-Tick und funktioniert daher auch auf localhost ohne `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` und auf Hosts ohne Scheduler-Auslöser.
 - **Pause:** umdrehen `enabled: false`. Die Datei bleibt bestehen und wird einfach nicht mehr ausgeführt.
 
 ## Agent-Tool {#agent-tool}
@@ -228,7 +255,7 @@ In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter
 
 Verwechseln Sie wiederkehrende Aufträge nicht mit `@agent-native/scheduling`:
 
-- **Wiederkehrende Jobs (diese Seite)** – Cron-geplante Eingabeaufforderungen, die der Agent im Hintergrund ausführt. Framework-Ebene. Lebt im Agent-Ressourcen. Läuft auf jeder agentennativen App.
+- **Wiederkehrende Jobs (diese Seite)** – Cron-geplante Eingabeaufforderungen, die der Agent im Hintergrund ausführt. Framework-Ebene. Lebt im Agent-Ressourcen. Wird auf jedem Host mit Scheduler ausgelöst (siehe [Wie der Planer ausgeführt wird](#how-scheduler-runs)).
 - **`@agent-native/scheduling`** – ein wiederverwendbares Domänenpaket zum Erstellen von Kalender-/Buchungsfunktionen (Veranstaltungstypen, Verfügbarkeitsfenster, Buchungen). Unterstützt die `calendar`-Vorlage und benutzerdefinierte Planungsoberflächen.
 
 Wiederkehrende Aufträge lauten: „Wie bringe ich den Agent dazu, eigenständig zu handeln?“ Das Planungspaket lautet: „Wie erstelle ich eine Kalender-App?“ Verschiedene Anliegen.

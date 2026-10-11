@@ -18,12 +18,24 @@ export interface RunStuckBannerProps {
   hasInFlightWork?: () => boolean;
   isAwaitingResponse?: () => boolean;
   onStuckStateChange?: (state: RunStuckState) => void;
+  /**
+   * The server has stopped tracking a run this chat still shows as running.
+   * Resolves `settled` once the chat no longer shows it running; rejects when
+   * the thread could not be refreshed.
+   */
+  onServerSettled?: () => Promise<RunReconcileOutcome>;
   autoRetry?: boolean;
   autoRetryOwnerId?: string;
   className?: string;
 }
 
+export type RunReconcileOutcome = "settled" | "still_running";
+
+const RECONCILE_RETRY_MS = 30_000;
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
+// A user's Cancel or Retry outlives the short retry lease: a stuck run stays
+// stuck for as long as it takes someone to reload the page.
+const USER_ACTION_CLAIM_TTL_MS = 6 * 60 * 60 * 1000;
 const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
 /**
@@ -33,6 +45,14 @@ const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 const reportedStuckRunIds = new Set<string>();
 
 type BusyState = { type: "none" } | { type: "cancel" | "retry"; runId: string };
+
+// Only the click that set busy for `runId` may clear it.
+const releaseBusy =
+  (runId: string) =>
+  (current: BusyState): BusyState =>
+    current.type !== "none" && current.runId === runId
+      ? { type: "none" }
+      : current;
 
 type MaybeLockManager = {
   request<T>(
@@ -91,6 +111,32 @@ function markAutoRetryClaim(key: string, ownerId: string) {
   }
 }
 
+/**
+ * A run the user cancelled or retried must stay out of auto-retry across a
+ * reload too: the claim every owner checks is the one place that survives it, so
+ * the click takes the claim for itself. Best effort, like the claim itself.
+ */
+function markUserActedOnRun(
+  threadId: string | null | undefined,
+  runId: string,
+) {
+  if (!threadId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      autoRetryClaimKey(threadId, runId),
+      JSON.stringify({
+        ownerId: "user-action",
+        expiresAt: Date.now() + USER_ACTION_CLAIM_TTL_MS,
+      }),
+    );
+  } catch (error) {
+    console.warn(
+      "[agent-chat] could not persist the stuck-run user action; it only holds until reload:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 async function claimAutoRetryAttempt(
   threadId: string | null | undefined,
   runId: string,
@@ -123,6 +169,7 @@ export function RunStuckBanner({
   stuckThresholdMs,
   onRetry,
   onStuckStateChange,
+  onServerSettled,
   autoRetry = false,
   autoRetryOwnerId,
   hasInFlightWork,
@@ -130,9 +177,11 @@ export function RunStuckBanner({
   className,
 }: RunStuckBannerProps) {
   const t = useT();
+  const chatAwaiting = isAwaitingResponse?.();
   const state = useRunStuckDetection({
     threadId,
     enabled,
+    awaitingResponse: chatAwaiting,
     stuckThresholdMs,
     apiUrl,
   });
@@ -140,6 +189,9 @@ export function RunStuckBanner({
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
   const [autoRetriedRunId, setAutoRetriedRunId] = useState<string | null>(null);
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
+  // A run the user already acted on is never auto-retried: a failed Cancel frees
+  // `busy` again, and an auto-retry gated on other state must not then resume it.
+  const userActedRunIdsRef = useRef<Set<string>>(new Set());
   const generatedOwnerIdRef = useRef<string | null>(null);
   if (!generatedOwnerIdRef.current) {
     generatedOwnerIdRef.current = createAutoRetryOwnerId();
@@ -148,9 +200,13 @@ export function RunStuckBanner({
   const backgroundWorkerStillAlive = isFreshBackgroundWorker(state);
   const inFlightWork =
     state.hasInFlightWork === true || (hasInFlightWork?.() ?? false);
-  const awaitingResponse = isAwaitingResponse?.() ?? true;
+  const awaitingResponse = chatAwaiting ?? true;
+  // While the status is unreadable `isStuck` is the last answer carried forward
+  // by the clock, not a fresh one: only the unreadable notice may speak, and
+  // nothing may abort a run on it.
+  const isStuck = state.isStuck && !state.statusUnreadable;
   const showsStuckBanner =
-    state.isStuck &&
+    isStuck &&
     !!state.runId &&
     !backgroundWorkerStillAlive &&
     !inFlightWork &&
@@ -158,6 +214,50 @@ export function RunStuckBanner({
   const isServerContinuedDispatch =
     state.dispatchMode === "foreground-self-chain" ||
     state.dispatchMode?.startsWith("background") === true;
+
+  // Only a host that says when the chat is waiting can tell a lost ending from
+  // an idle chat, so reconciling needs `isAwaitingResponse`.
+  const chatShowsRunning = isAwaitingResponse != null && awaitingResponse;
+  const settledWhileRunning = chatShowsRunning && state.serverSettled;
+  const [reconcile, setReconcile] = useState<"idle" | "failed" | "unsettled">(
+    "idle",
+  );
+  const lastReconcileAtRef = useRef(0);
+  const reconcileEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  // `state` changes on every poll, so a reconcile that did not settle the chat
+  // is retried at most once per RECONCILE_RETRY_MS, never in a loop.
+  useEffect(() => {
+    if (!settledWhileRunning || !onServerSettled) {
+      // A reload still in flight answers a chat that has since moved on.
+      reconcileEpochRef.current += 1;
+      lastReconcileAtRef.current = 0;
+      setReconcile("idle");
+      return;
+    }
+    const now = Date.now();
+    if (now - lastReconcileAtRef.current < RECONCILE_RETRY_MS) return;
+    lastReconcileAtRef.current = now;
+    const epoch = reconcileEpochRef.current;
+    const current = () =>
+      mountedRef.current && epoch === reconcileEpochRef.current;
+    onServerSettled().then(
+      (outcome) => {
+        if (current()) {
+          setReconcile(outcome === "settled" ? "idle" : "unsettled");
+        }
+      },
+      () => {
+        if (current()) setReconcile("failed");
+      },
+    );
+  }, [onServerSettled, settledWhileRunning, state]);
 
   const lastReportedRef = useRef<{
     isStuck: boolean;
@@ -185,6 +285,13 @@ export function RunStuckBanner({
           ? Math.floor(state.stuckSinceMs / 1000)
           : null,
       runStatus: state.status,
+      reason: "no_progress",
+      dispatchMode: state.dispatchMode,
+      hasInFlightWork: state.hasInFlightWork,
+      heartbeatSinceSec:
+        state.heartbeatSinceMs != null
+          ? Math.floor(state.heartbeatSinceMs / 1000)
+          : null,
     });
   }, [showsStuckBanner, state, threadId]);
 
@@ -204,10 +311,11 @@ export function RunStuckBanner({
       backgroundWorkerStillAlive ||
       inFlightWork ||
       !awaitingResponse ||
-      !state.isStuck ||
+      !isStuck ||
       !state.runId ||
       busy.type !== "none" ||
-      autoRetriedRunIdsRef.current.has(state.runId)
+      autoRetriedRunIdsRef.current.has(state.runId) ||
+      userActedRunIdsRef.current.has(state.runId)
     ) {
       return;
     }
@@ -215,7 +323,7 @@ export function RunStuckBanner({
     const runId = state.runId;
     void claimAutoRetryAttempt(threadId, runId, ownerId).then((claimed) => {
       autoRetriedRunIdsRef.current.add(runId);
-      if (!claimed) return;
+      if (!claimed || userActedRunIdsRef.current.has(runId)) return;
       setBusy({ type: "retry", runId });
       setAutoRetriedRunId(runId);
       trackEvent("agent_chat_stuck_auto_retry", {
@@ -224,11 +332,7 @@ export function RunStuckBanner({
         stuckSinceMs: state.stuckSinceMs ?? null,
       });
       void abortRun(runId, "auto_stuck_retry").then((aborted) => {
-        setBusy((current) =>
-          current.type !== "none" && current.runId === runId
-            ? { type: "none" }
-            : current,
-        );
+        setBusy(releaseBusy(runId));
         if (aborted) onRetry?.(aborted);
       });
     });
@@ -239,9 +343,9 @@ export function RunStuckBanner({
     busy,
     inFlightWork,
     isServerContinuedDispatch,
+    isStuck,
     onRetry,
     ownerId,
-    state.isStuck,
     state.runId,
     state.stuckSinceMs,
     threadId,
@@ -249,19 +353,60 @@ export function RunStuckBanner({
   ]);
 
   if (!showsStuckBanner) {
-    return null;
+    const notice =
+      reconcile === "unsettled"
+        ? "agentChat.recovery.statusMismatch"
+        : (isAwaitingResponse
+              ? awaitingResponse
+              : state.status === "running") &&
+            (state.statusUnreadable || reconcile === "failed")
+          ? "agentChat.recovery.statusUnreadable"
+          : null;
+    if (!notice) return null;
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className={cn(
+          "mx-3 mt-2 flex items-center gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground",
+          className,
+        )}
+      >
+        <IconAlertTriangle
+          size={16}
+          className="shrink-0 text-amber-500"
+          aria-hidden="true"
+        />
+        <span className="min-w-0 flex-1 leading-snug">{t(notice)}</span>
+        {reconcile === "unsettled" ? (
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex h-7 shrink-0 cursor-pointer items-center rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90"
+          >
+            {t("agentChat.recovery.reload")}
+          </button>
+        ) : null}
+      </div>
+    );
   }
 
   const handleCancel = async () => {
     if (!state.runId || busy.type !== "none") return;
     const runId = state.runId;
+    userActedRunIdsRef.current.add(runId);
+    markUserActedOnRun(threadId, runId);
     setBusy({ type: "cancel", runId });
     trackEvent("agent_chat_stuck_cancel", {
       runId,
       threadId: threadId ?? null,
       stuckSinceMs: state.stuckSinceMs ?? null,
     });
-    await abortRun(runId, "user_stuck_cancel");
+    // A replaced run clears busy through the state effect; a failed abort never
+    // replaces it, so the buttons would stay disabled for the same stuck run.
+    if (!(await abortRun(runId, "user_stuck_cancel"))) {
+      setBusy(releaseBusy(runId));
+    }
   };
 
   const handleRetry = async () => {
@@ -274,6 +419,8 @@ export function RunStuckBanner({
       return;
     }
     const runId = state.runId;
+    userActedRunIdsRef.current.add(runId);
+    markUserActedOnRun(threadId, runId);
     setBusy({ type: "retry", runId });
     trackEvent("agent_chat_stuck_retry", {
       runId,
@@ -282,6 +429,7 @@ export function RunStuckBanner({
     });
     const aborted = await abortRun(runId, "user_stuck_retry");
     if (aborted) onRetry?.(aborted);
+    else setBusy(releaseBusy(runId));
   };
 
   const busyType = busy.type;

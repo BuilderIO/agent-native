@@ -5,19 +5,23 @@ import {
 import { getOrgContext } from "@agent-native/core/org";
 import {
   captureRouteError,
+  getForwardedRequestOrigin,
+  getForwardedRequestURL,
   getSession,
   runWithRequestContext,
   signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  parseDataUrl,
+} from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getCookie,
   getQuery,
-  getRequestURL,
   getRouterParam,
   setCookie,
   setResponseStatus,
@@ -79,7 +83,7 @@ function cookiePath(recordingId: string): string {
 }
 
 function isHttpsRequest(event: H3Event): boolean {
-  const requestUrl = getRequestURL(event);
+  const requestUrl = getForwardedRequestURL(event);
   return (
     requestUrl.protocol === "https:" ||
     process.env.APP_URL?.startsWith("https://") === true
@@ -122,16 +126,14 @@ function isRecursiveThumbnailUrl(value: string, recordingId: string): boolean {
 }
 
 function dataUrlResponse(sourceUrl: string): Response | null {
-  const match = sourceUrl.match(/^data:(image\/[\w.+-]+)(;base64)?,(.*)$/s);
-  if (!match) return null;
-
-  const [, rawMimeType, encoding, payload] = match;
-  const mimeType = rawMimeType.toLowerCase();
+  const parsed = parseDataUrl(sourceUrl);
+  if (!parsed) return null;
+  const mimeType = parsed.mediaType;
   if (!SAFE_RASTER_IMAGE_TYPES.has(mimeType)) return null;
   try {
-    const bytes = encoding
-      ? decodeBase64(payload)
-      : new TextEncoder().encode(decodeURIComponent(payload));
+    const bytes = parsed.isBase64
+      ? decodeBase64(parsed.data)
+      : new TextEncoder().encode(decodeURIComponent(parsed.data));
     return imageResponse(bytes, mimeType);
   } catch {
     return null;
@@ -367,7 +369,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
       let resolvedSourceUrl = sourceUrl;
       if (sourceUrl.startsWith("/")) {
-        resolvedSourceUrl = new URL(sourceUrl, getRequestURL(event).origin)
+        resolvedSourceUrl = new URL(sourceUrl, getForwardedRequestOrigin(event))
           .href;
       }
 

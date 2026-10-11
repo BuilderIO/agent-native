@@ -873,23 +873,26 @@ describe("Content suggested edits Blocks transaction", () => {
         createdAt: now,
         updatedAt: now,
       });
-    await getDb()
-      .update(schema.documentComments)
-      .set({ content: "Changed while AI was working" })
-      .where(eq(schema.documentComments.id, comment.id));
-
-    await expect(
+    const propose = (sourceThreadId: string) =>
       getDbExec().transaction!(async (tx) =>
         adapter.validateProposal({
           resourceType: "document",
           resourceId: documentId,
           baseRevision: before.baseRevision,
           operations: [operation],
-          metadata: { commentAiRequestId: requestId },
+          metadata: { commentAiRequestId: requestId, sourceThreadId },
           ctx: { transaction: tx, userEmail: ownerEmail },
         }),
-      ),
-    ).rejects.toThrow("comment changed");
+      );
+    await expect(propose("another-thread")).rejects.toMatchObject({
+      errorCode: "comment_ai_thread_conflict",
+    });
+    await getDb()
+      .update(schema.documentComments)
+      .set({ content: "Changed while AI was working" })
+      .where(eq(schema.documentComments.id, comment.id));
+
+    await expect(propose(comment.threadId)).rejects.toThrow("comment changed");
   });
 
   it("accepts a Page in multiple ordinary databases and reconciles every primary Blocks field", async () => {

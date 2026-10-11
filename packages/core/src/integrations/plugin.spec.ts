@@ -1697,7 +1697,7 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toContain("Base prompt.");
     expect(options.systemPrompt).toContain("Shared Dispatch instruction");
     expect(options.systemPrompt).toContain(
-      "Organization learnings above and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
+      "`resources` reads personal memory (memory/MEMORY.md) and organization learnings",
     );
     expect(options.systemPrompt).toContain("Builder organization instruction");
     expect(options.systemPrompt).not.toContain("Personal Dispatch memory");

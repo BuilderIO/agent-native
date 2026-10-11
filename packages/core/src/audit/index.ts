@@ -10,6 +10,7 @@ export type {
 } from "./types.js";
 
 export {
+  AGENT_AUDIT_CALLERS,
   deriveActorKind,
   isAuditDisabled,
   normalizeAuditConfig,
@@ -41,7 +42,14 @@ export {
   type OrgAdminAuditEventInput,
 } from "./org-admin.js";
 
+export {
+  auditEventToOcsf,
+  OCSF_SCHEMA_VERSION,
+  type OcsfApiActivity,
+} from "./ocsf.js";
+
 export { recordActionAudit } from "./record.js";
+export { withCommittedActionAudit } from "./committed-outcome.js";
 
 export {
   runAuditCleanupOnce,

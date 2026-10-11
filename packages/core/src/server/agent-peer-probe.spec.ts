@@ -154,6 +154,49 @@ describe("probePeerAgent", () => {
     );
   });
 
+  it("keeps a caller-auth lookup failure local to the peer probe", async () => {
+    const deps = makeDeps({
+      resolveCallerAuth: async () => {
+        throw new Error("organization lookup unavailable");
+      },
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result).toMatchObject({
+      reachable: true,
+      authError: "organization lookup unavailable",
+    });
+    expect(result.authorized).toBeUndefined();
+    expect("authorized" in result).toBe(false);
+  });
+
+  it("returns an error row when one peer probe throws without rejecting its batch", async () => {
+    const goodCapabilities = await makeDeps().loadCapabilities(agent);
+    const peers = [
+      { ...agent, id: "broken" },
+      { ...agent, id: "healthy" },
+    ];
+    const deps = makeDeps({
+      loadCapabilities: async (candidate) => {
+        if (candidate.id === "broken") {
+          throw new Error("peer card probe failed unexpectedly");
+        }
+        return { ...goodCapabilities, agent: candidate };
+      },
+    });
+
+    await expect(probeAllPeerAgents(peers, deps)).resolves.toMatchObject([
+      {
+        id: "broken",
+        url: agent.url,
+        reachable: false,
+        error: "peer card probe failed unexpectedly",
+      },
+      { id: "healthy", reachable: true, authorized: true },
+    ]);
+  });
+
   it("leaves authorized undefined, with no reason, for a card that has no JSON-RPC endpoint", async () => {
     const base = await makeDeps().loadCapabilities(agent);
     const deps = makeDeps({

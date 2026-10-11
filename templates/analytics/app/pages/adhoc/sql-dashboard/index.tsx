@@ -301,10 +301,22 @@ const PanelCell = memo(function PanelCell({
   const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
     null,
   );
+  const validTimeRangeOverride = timeRangeFilter?.options?.some(
+    (option) => option.value === timeRangeOverride,
+  )
+    ? timeRangeOverride
+    : null;
+  useEffect(() => {
+    if (timeRangeOverride !== null && validTimeRangeOverride === null) {
+      setTimeRangeOverride(null);
+    }
+  }, [timeRangeOverride, validTimeRangeOverride]);
   const effectiveVars = useMemo(
     () =>
-      timeRangeOverride ? { ...vars, timeRange: timeRangeOverride } : vars,
-    [vars, timeRangeOverride],
+      validTimeRangeOverride
+        ? { ...vars, timeRange: validTimeRangeOverride }
+        : vars,
+    [vars, validTimeRangeOverride],
   );
   const resolved = useMemo(
     () =>
@@ -395,7 +407,7 @@ const PanelCell = memo(function PanelCell({
         }
         filters={effectiveVars}
         timeRangeFilter={timeRangeFilter}
-        timeRangeOverride={timeRangeOverride}
+        timeRangeOverride={validTimeRangeOverride}
         onTimeRangeOverrideChange={setTimeRangeOverride}
         extensionContext={
           panel.chartType === "extension"

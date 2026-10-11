@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_ORIGINAL_HASH_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
 } from "../shared/route-chunk-recovery-bootstrap.js";
@@ -150,17 +152,19 @@ function expectRecoveryNavigation(
   const actual = new URL(assignedHref ?? "");
   const expected = new URL(expectedHref);
   expect(actual.origin).toBe(expected.origin);
-  expect(actual.pathname).toBe(expected.pathname);
-  expect(actual.hash).toBe(expected.hash);
-  expect(actual.searchParams.get(CHUNK_RECOVERY_QUERY_PARAM)).toBe(
-    CHUNK_RECOVERY_QUERY_VALUE,
+  const trailingSlash = expected.pathname.endsWith("/") ? "/" : "";
+  const routePath = trailingSlash
+    ? expected.pathname.slice(0, -trailingSlash.length)
+    : expected.pathname;
+  expect(actual.pathname).toBe(
+    `${routePath === "/" ? "" : routePath}${CHUNK_RECOVERY_PATH_SUFFIX}${trailingSlash}`,
   );
-  actual.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
-  expect(
-    actual.searchParams.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM),
-  ).toBeTruthy();
-  actual.searchParams.delete(CHUNK_RECOVERY_CACHE_BUSTER_PARAM);
-  expect(actual.href).toBe(expected.href);
+  expect(actual.search).toBe(expected.search);
+  const recoveryHash = new URLSearchParams(actual.hash.slice(1));
+  expect(recoveryHash.get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)).toBeTruthy();
+  expect(recoveryHash.get(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM)).toBe(
+    expected.hash,
+  );
 }
 
 describe("route chunk recovery", () => {
@@ -208,6 +212,26 @@ describe("route chunk recovery", () => {
       "http://127.0.0.1:9327/chat/chat-new",
     );
     expect(originalReload).not.toHaveBeenCalled();
+  });
+
+  it("preserves trailing slashes while normalizing recovery before hydration", () => {
+    const { fakeWindow, fakeLocation } = createFakeWindow(
+      "https://example.com/dispatch/apps/",
+    );
+
+    expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
+    expectRecoveryNavigation(
+      fakeLocation,
+      "https://example.com/dispatch/apps/",
+    );
+
+    const recoveryHref = fakeLocation.assign.mock.calls[0]?.[0];
+    const nextPage = createFakeWindow(recoveryHref ?? "");
+    installRouteChunkRecovery(nextPage.fakeWindow);
+
+    expect(new URL(nextPage.fakeLocation.href).pathname).toBe(
+      "/dispatch/apps/",
+    );
   });
 
   it("keeps a fresh intended navigation target for recovery", () => {
@@ -339,7 +363,9 @@ describe("route chunk recovery", () => {
       fakeLocation,
       "https://example.com/dispatch/new-app",
     );
-    expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/new-app");
+    expect(new URL(fakeLocation.href).pathname).toBe(
+      `/dispatch/new-app${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
 
     fakeLocation.reload();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
@@ -578,7 +604,9 @@ describe("route chunk recovery", () => {
       fakeLocation,
       "https://example.com/dispatch/new-app",
     );
-    expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/new-app");
+    expect(new URL(fakeLocation.href).pathname).toBe(
+      `/dispatch/new-app${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
     expect(originalReload).toHaveBeenCalledOnce();
   });
 
@@ -657,25 +685,29 @@ describe("route chunk recovery", () => {
     );
   });
 
-  it("keeps the recovery marker as a cooldown when session storage is unavailable", () => {
+  it("cleans the recovery path and keeps a cooldown when session storage is unavailable", () => {
     for (const storageOptions of [
       { sessionStorageThrows: true },
       { sessionStorageGetterThrows: true },
     ]) {
-      const startUrl = new URL("https://example.com/dispatch/apps");
-      startUrl.searchParams.set(
-        CHUNK_RECOVERY_QUERY_PARAM,
-        CHUNK_RECOVERY_QUERY_VALUE,
+      const startUrl = new URL(
+        `https://example.com/dispatch/apps${CHUNK_RECOVERY_PATH_SUFFIX}`,
       );
+      const recoveryHash = new URLSearchParams();
+      recoveryHash.set(
+        CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+        Date.now().toString(36),
+      );
+      recoveryHash.set(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM, "");
+      startUrl.hash = recoveryHash.toString();
       const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
         startUrl.href,
         storageOptions,
       );
 
       installRouteChunkRecovery(fakeWindow);
-      expect(
-        new URL(fakeLocation.href).searchParams.get(CHUNK_RECOVERY_QUERY_PARAM),
-      ).toBe(CHUNK_RECOVERY_QUERY_VALUE);
+      expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/apps");
+      expect(new URL(fakeLocation.href).hash).toBe("");
 
       dispatchDocument("error", {
         target: { tagName: "SCRIPT", type: "module" },
@@ -696,11 +728,15 @@ describe("route chunk recovery", () => {
     expect(reloadForStaleChunk(firstPage.fakeWindow, 1_000)).toBe(true);
     const recoveryUrl = firstPage.fakeLocation.assign.mock.calls[0]?.[0];
     expect(recoveryUrl).toBeDefined();
+    const recoveryNavigation = new URL(recoveryUrl ?? "");
+    expect(recoveryNavigation.pathname).toBe(
+      `/dispatch/apps${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
     expect(
-      new URL(recoveryUrl ?? "").searchParams
-        .get(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)
-        ?.startsWith(`${(1_000).toString(36)}-`),
-    ).toBe(true);
+      new URLSearchParams(recoveryNavigation.hash.slice(1)).get(
+        CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+      ),
+    ).toBe((1_000).toString(36));
 
     const nextPage = createFakeWindow(recoveryUrl ?? "", {
       sessionStorageThrows: true,

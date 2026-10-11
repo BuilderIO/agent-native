@@ -6,6 +6,13 @@ export type SelectAllDecision =
 
 export type SelectAllFallback = "screens" | "top-level-layers";
 
+export function explicitScreenTargetsAfterSelectAll(
+  decision: SelectAllDecision,
+  currentExplicitScreenIds: readonly string[],
+): string[] {
+  return decision.kind === "layers" ? [] : [...currentExplicitScreenIds];
+}
+
 function siblingIdsOf(
   nodes: readonly CodeLayerTreeNode[],
   layerId: string,

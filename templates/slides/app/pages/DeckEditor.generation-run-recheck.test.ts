@@ -28,9 +28,10 @@ describe("DeckEditor new-deck generation run cleanup", () => {
     );
 
     expect(effectBody).toContain("!generationSubmitId");
-    expect(effectBody).toContain("refetchPendingQuestion()");
-    const thenIndex = effectBody.indexOf(".then((stillWaiting)");
+    expect(effectBody).toContain("refetchPendingQuestionStatus()");
+    const thenIndex = effectBody.indexOf(".then((questionCheck)");
     expect(thenIndex).toBeGreaterThanOrEqual(0);
+    expect(effectBody).toContain('questionCheck.status !== "none"');
     expect(effectBody.indexOf(clearCall)).toBeGreaterThan(thenIndex);
   });
 });

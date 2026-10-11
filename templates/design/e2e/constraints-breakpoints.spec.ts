@@ -145,7 +145,7 @@ test.beforeEach(async ({ page }, testInfo) => {
     e2eBaseURL();
 });
 
-test.describe("constraints (Figma parity)", () => {
+test.describe("constraints", () => {
   test("a child defaults to Top and Left constraints", async ({ page }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
@@ -173,7 +173,7 @@ test.describe("constraints (Figma parity)", () => {
     });
     expect(
       text,
-      `Figma: "By default, constraints are set to Top and Left". Panel reads "${text}".`,
+      `The default constraints should include Top and Left. Panel reads "${text}".`,
     ).toMatch(/Left/i);
     expect(text).toMatch(/Top/i);
   });
@@ -199,8 +199,7 @@ test.describe("constraints (Figma parity)", () => {
     ).toBeGreaterThanOrEqual(1);
     expect(
       Math.round(after.left - parentAfter.left),
-      `Figma: Top+Left "will stay in the same position relative to the top left corner of ` +
-        `its parent frame". Offset went ${Math.round(before.left - parentBefore.left)} → ` +
+      `Top+Left should preserve the child offset from its parent. Offset went ${Math.round(before.left - parentBefore.left)} → ` +
         `${Math.round(after.left - parentAfter.left)}.`,
     ).toBe(Math.round(before.left - parentBefore.left));
   });
@@ -233,8 +232,7 @@ test.describe("constraints (Figma parity)", () => {
     const parentAfter = await rendered(page, "parent");
     expect(
       childAfter.width / parentAfter.width,
-      `Figma: Scale "will define the layer's size and position as a percentage of the ` +
-        `frame's dimensions" — 70px in a 100px frame becomes 140px in a 200px frame. ` +
+      `Scale should preserve the child's proportion of the parent. ` +
         `Ratio went ${ratio.toFixed(3)} → ${(childAfter.width / parentAfter.width).toFixed(3)}.`,
     ).toBeCloseTo(ratio, 2);
   });
@@ -248,12 +246,12 @@ test.describe("constraints (Figma parity)", () => {
     await page.waitForTimeout(1500);
     expect(
       await page.locator('button[aria-label="Constraints"]').count(),
-      `Figma: "It's not possible to apply constraints to layers ... in an auto layout frame."`,
+      `Constraints should be hidden for children of auto-layout frames.`,
     ).toBe(0);
   });
 });
 
-test.describe("breakpoints (Design's Framer model, not Figma)", () => {
+test.describe("breakpoints", () => {
   test("add-breakpoint records the width in the design's breakpointSet", async ({
     page,
   }) => {

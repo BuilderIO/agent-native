@@ -31,6 +31,6 @@ npx agent-native upgrade --codemods
 
 `agent-native doctor` 也會執行 `server-plugin-default-export`，找出 Nitro 從 `server/plugins/` 載入、但沒有執行期預設匯出的檔案。Nitro 會呼叫每個 plugin 的預設匯出，因此即使 typecheck 通過，正式環境建置仍會以 `[MISSING_EXPORT]` 失敗。請使用 `export default defineNitroPlugin(...)`，或將僅負責註冊的程式碼移到 `server/`，再從某個 plugin 匯入。
 
-CLI 會為每個新建的 app 與 workspace 加入 `pnpm doctor` 及 `pnpm agent-native:doctor` 指令。從 workspace 根目錄執行時，會檢查 `apps/<name>` 下的每個 app。發現問題時，build 預設會失敗；只有經過審查的例外才應使用 `failOnBuild: false`。
+CLI 會為每個新建的 app 與 workspace 加入 `pnpm agent-native:doctor` 指令。從 workspace 根目錄執行時，會檢查 `apps/<name>` 下的每個 app。發現問題時，build 預設會失敗；只有經過審查的例外才應使用 `failOnBuild: false`。
 
 標記為 `planned` 的項目只會顯示為警告，不會被重寫。active 項目會列為問題；codemod 只有在目標 export 已安裝時才會重寫。

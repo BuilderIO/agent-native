@@ -8,7 +8,6 @@ export default {
     overview: "Übersicht",
     dashboard: "Dashboard",
     dataSources: "Datenquellen",
-    dataDictionary: "Datenlexikon",
     sessions: "Sitzungen",
     monitoring: "Monitoring",
     monitoringUptime: "Uptime",
@@ -24,6 +23,7 @@ export default {
     openNavigation: "Navigation öffnen",
     loadingDashboardTitle: "Dashboard-Titel wird geladen",
     templateCatalog: "Katalog",
+    semanticLayer: "Semantische Ebene",
   },
   dashboardHeader: {
     updated: "Aktualisiert am {{date}}",
@@ -89,8 +89,7 @@ export default {
     visibilityPrivateOnly: "Meine",
     visibilitySharedOnly: "Geteilt",
     visibilityAllDescription: "Alle Elemente anzeigen",
-    visibilityPrivateOnlyDescription:
-      "Nur für dich sichtbare Elemente anzeigen",
+    visibilityPrivateOnlyDescription: "Von dir erstellte Elemente anzeigen",
     visibilitySharedOnlyDescription:
       "Mit Organisation geteilte und öffentliche Elemente anzeigen",
     hiddenAnalyses: "Ausgeblendete Analysen",
@@ -532,29 +531,37 @@ export default {
       resourcesSubmitted: "{{count}} Ressourcen gesendet.",
     },
   },
+  dataStatus: {
+    connected: "Verbunden",
+    notConnected: "Nicht verbunden",
+    needsReauth: "Erneute Authentifizierung erforderlich",
+    error: "Fehler",
+    indexNotImported: "Es wurde kein generierter Index importiert.",
+    indexUnreadable:
+      "Der gespeicherte Index konnte nicht gelesen werden. Lade einen gültigen Index hoch.",
+    indexReadFailed: "Der Indexstatus konnte nicht geladen werden.",
+    freshness: "Aktualität",
+    fresh: "Aktuell · {{age}}",
+    stale: "Veraltet · {{age}}",
+    generatedUnapproved: "Generiert · nicht genehmigt",
+    noSourceEntries: "Keine Quellenzahlen verfügbar.",
+    exportDictionary: "Datenlexikon exportieren",
+    exportingDictionary: "Datenlexikon wird exportiert…",
+    exportFailed:
+      "Export des Datenlexikons fehlgeschlagen. Bitte erneut versuchen.",
+    exportEmpty: "Es gibt keine Einträge zum Exportieren.",
+    exportLimitReached:
+      "Das Datenlexikon überschreitet das Exportlimit. Wende dich an einen Administrator.",
+  },
   dataDictionary: {
-    intro:
-      "Der Katalog von Metriken, Tabellen und Geschäftsdefinitionen, den der Analyseagent beim Erstellen von Dashboards aus Eingabeaufforderungen verwendet. Sorgen Sie dafür, dass die Eingaben korrekt sind, und der Agent hört auf, Ihre Daten zu erraten.",
-    searchPlaceholder: "Suchmetriken, Definitionen...",
-    noEntriesTitle: "Noch keine Einträge",
-    noEntriesDescription:
-      "Definieren Sie die Metriken und Tabellen, die Ihr Team am häufigsten verwendet. Der Agent liest diese, bevor er SQL schreibt, damit die Dashboards Ihren Definitionen und nicht ihren Vermutungen entsprechen.",
-    addEntry: "Fügen Sie einen Eintrag hinzu",
     askAgent: "Bitten Sie den Agenten, beim Ausfüllen zu helfen",
     populateAgentPrompt:
       "Helfen Sie mir, das Datenwörterbuch zu füllen. Fragen Sie mich, wo sich die Metrikdefinitionen meines Teams derzeit befinden (Dokumente, Tabellen, dbt, Notion, Confluence, ein Wiki usw.) und speichern Sie dann jede einzelne über die Aktion „save-data-dictionary-entry“.",
-    approved: "genehmigt",
-    suggestion: "Anregung",
-    unreviewed: "unrezensiert",
+    deprecated: "veraltet",
     ai: "AI",
-    source: "Quelle",
     deleteTitle: "„{{metric}}“ löschen?",
     deleteDescription:
       "Dadurch wird der Eintrag aus dem Datenwörterbuch entfernt. Der Agent wird diese Definition beim Erstellen von Dashboards nicht mehr heranziehen.",
-    editEntry: "Eintrag bearbeiten",
-    newDictionaryEntry: "Neuer Wörterbucheintrag",
-    dialogDescription:
-      "Dokumentieren Sie eine Metrik, Tabelle oder ein Konzept, über das der Analyseagent Bescheid wissen sollte.",
     metric: "Metrisch",
     metricPlaceholder: "z.B. Aktive Zahlungskonten",
     definition: "Begriffsdefinition",
@@ -593,6 +600,32 @@ export default {
       "Wann sollte jemand nach dieser Kennzahl greifen?",
     saving: "Sparen...",
     saveEntry: "Eintrag speichern",
+    importIndex: "Quellindex importieren",
+    generatedEntriesMayBeMissing:
+      "Generierte Quelleinträge fehlen möglicherweise; gespeicherte Einträge sind weiterhin verfügbar.",
+    indexFileInvalid:
+      "Wähle eine gültige Quellindex-JSON-Datei mit höchstens 750 KB aus.",
+    replaceIndexTitle: "Quellindex ersetzen?",
+    replaceIndexDescription:
+      "Dadurch wird der aktuelle Quellindex der Organisation ersetzt. Importierte Definitionen bleiben ungeprüfte Vorschläge und sind keine Live-Abfrageergebnisse.",
+    indexPreview:
+      "{{count}} Definitionen aus {{sources}}; erstellt am {{date}}.",
+    replaceIndex: "Index ersetzen",
+    importingIndex: "Wird importiert…",
+    indexImportFailed:
+      "Der Quellindex konnte nicht importiert werden. Prüfe die Datei und versuche es erneut.",
+    deleteFailed: "Eintrag konnte nicht gelöscht werden. Versuche es erneut.",
+    deleting: "Wird gelöscht...",
+    saveFailed: "Eintrag konnte nicht gespeichert werden. Versuche es erneut.",
+    sourceLabel: "Quelle",
+    sourceUrlInvalid: "Gib eine gültige http- oder https-URL ein.",
+    sourceUrlLabel: "Quell-URL",
+    moreFields: "Weitere Felder",
+    openSource: "Quelle öffnen",
+    sameNameNote:
+      "Für diese Kennzahl gibt es bereits einen Eintrag. Beim Speichern wird dieser Eintrag aktualisiert.",
+    sameNameCheckFailed:
+      "Vorhandene Einträge für diese Kennzahl konnten nicht geprüft werden.",
   },
   dataSources: {
     uploadFile: "Datei hochladen",
@@ -610,6 +643,7 @@ export default {
     opening: "Öffnung...",
     reconnect: "Wieder verbinden",
     connect: "Verbinden",
+    manage: "Verwalten",
     connectedAs: "Verbunden als {{viewer}}",
     githubConnected: "GitHub ist angeschlossen",
     githubReconnectNeeded:
@@ -631,6 +665,10 @@ export default {
       "Verwenden der in dieser App gespeicherten Anmeldeinformationen. Für die Wiederverwendung über Apps hinweg verbinden und gewähren Sie diesen Anbieter in Dispatch.",
     sharedFallback:
       "Verbinden oder gewähren Sie diesen Anbieter in Dispatch, um ihn in allen Apps wiederzuverwenden, oder speichern Sie unten die lokalen Anmeldeinformationen.",
+    sharedNeedsReauth:
+      "Für diese gemeinsame Verbindung ist eine erneute Autorisierung erforderlich. Verbinden Sie sie erneut in Dispatch.",
+    sharedError:
+      "Diese gemeinsame Verbindung hat einen Fehler gemeldet. Öffnen Sie Dispatch, um sie zu überprüfen und zu reparieren.",
     workspaceReadyDescription:
       "Diese Quelle ist über eine gemeinsame Arbeitsbereichsverbindung bereit. Verwalten Sie den gemeinsamen Zugriff in Dispatch oder fügen Sie lokale Anmeldeinformationen nur für diese App hinzu.",
     testing: "Testen...",
@@ -696,6 +734,8 @@ export default {
     endpoint: "Endpunkt",
     serverEnv: "Serverumgebung",
     browserEnv: "Browserumgebung",
+    firstPartySdkAutoCapture:
+      "Sobald ein Public Key gesetzt ist, erfasst das Browser-SDK automatisch nicht abgefangene Ausnahmen und unbehandelte Promise-Ablehnungen und stellt eine Sentry-ähnliche API mit captureException() / captureMessage() bereit. Fehler werden unter Monitoring → Errors zu Issues gruppiert und mit dem Session Replay verknüpft, in dem sie aufgetreten sind.",
     keyNamePlaceholder: "Schlüsselname",
     generating: "Generieren...",
     generateKey: "Schlüssel generieren",
@@ -703,13 +743,23 @@ export default {
     copied: "Kopiert",
     copy: "Kopie",
     keyActions: "{{name}}-Schlüsselaktionen",
+    manageReplayOrigins: "Replay-Ursprünge verwalten",
+    replayOriginsDescription:
+      "Fügen Sie exakte HTTPS-Ursprünge ein, einen pro Zeile. Vorhandene Ursprünge bleiben erhalten.",
+    currentReplayOrigins: "Derzeit erlaubte Ursprünge",
+    anyReplayOriginAllowed:
+      "Derzeit ist jeder Ursprung zugelassen. Nach dem Hinzufügen sind nur die aufgeführten Ursprünge erlaubt. Fügen Sie daher jede App hinzu, die diesen Schlüssel verwendet.",
+    originsToAdd: "Hinzuzufügende Ursprünge",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Ursprünge hinzufügen",
+    addingReplayOrigins: "Ursprünge werden hinzugefügt…",
+    replayOriginsUpdateFailed:
+      "Zugelassene Ursprünge konnten nicht aktualisiert werden.",
+    cancel: "Abbrechen",
     lastUsed: "zuletzt verwendeter {{date}}",
     neverUsed: "nie benutzt",
     revoking: "Widerrufen...",
     revoke: "Widerrufen",
-    intro:
-      "Verbinden Sie Ihre Datenquellen und bitten Sie dann den Agenten, Dashboards zu erstellen.",
-    configuredCount: "{{count}} konfiguriert",
     searchPlaceholder: "Datenquellen durchsuchen...",
     noMatch: "Keine Datenquelle entspricht „{{search}}“",
     customApi: {
@@ -992,7 +1042,6 @@ export default {
     analyses: "Analysen - Analytics",
     ask: "Fragen - Analytics",
     dashboard: "Dashboard – Analytics",
-    dataDictionary: "Datenwörterbuch – Analytics",
     dataSources: "Datenquellen – Analytics",
     sessions: "Sitzungen - Analytics",
     eventCatalog: "Ereigniskatalog - Analytics",
@@ -1005,6 +1054,7 @@ export default {
     overview: "Übersicht – Analytics",
     settings: "Einstellungen – Analytics",
     team: "Team-Bereich - Analytics",
+    semanticLayer: "Semantische Ebene - Analytics",
   },
   markdown: {
     embedBlocked: "Einbetten blockiert",
@@ -1107,6 +1157,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "Benutzerdefinierter Zeitraum",
+    allValues: "Alle",
+    searchValues: "Werte suchen",
+    noValuesFound: "Keine Werte gefunden",
+    selectAll: "Alle auswählen",
+    selectOnly: "Nur",
+    selectOnlyValue: "Nur {{value}}",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",
@@ -1525,6 +1581,8 @@ export default {
     replayPlayer: "Wiedergabe-Player",
     replayLoading: "Wiedergabe wird geladen...",
     replayLoadingProgress: "{{loaded}} von {{total}} Wiedergabe-Chunks geladen",
+    replayTargetFallback:
+      "Der angeforderte Aufnahmezeitpunkt ({{requested}}) ist nicht verfügbar; das nächste Replay-Bild bei {{available}} wird angezeigt.",
     replayUnavailable: "Keine Wiedergabe-Chunks für diese Sitzung",
     replayUnavailableDescription:
       "Die Sitzung enthält Analytics-Ereignisse, aber keine rrweb-Chunk-Ereignisse.",
@@ -1534,6 +1592,19 @@ export default {
       "Zugriffsgeschützte Chunks zum Rekonstruieren dieser Wiedergabe. Anbieter-URLs bleiben privat.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Screenshot herunterladen",
+    savingScreenshot: "Screenshot wird gespeichert…",
+    screenshotDownloaded: "Screenshot heruntergeladen",
+    screenshotSaveFailed: "Screenshot konnte nicht gespeichert werden",
+    copyScreenshot: "In Design kopieren",
+    copyingScreenshot: "Screenshot wird kopiert…",
+    screenshotCopiedForDesign: "Screenshot kopiert. Füge ihn in Design ein.",
+    screenshotCopyFailed:
+      "Screenshot konnte nicht kopiert werden. Lade ihn herunter und lade die PNG-Datei stattdessen in Design hoch.",
+    screenshotCopyUnsupportedAssets:
+      "Screenshot nicht kopiert: Eingebettete Medien oder Bilder in diesem Moment können nicht sicher erfasst werden. Versuche eine andere Stelle der Wiedergabe.",
+    screenshotUnsupportedAssets:
+      "Screenshot nicht gespeichert: Eingebettete Medien oder Bilder können teilweise nicht sicher erfasst werden.",
     timeline: "Ereignis-Timeline",
     replayTimeline: "Wiedergabe-Zeitachse",
     timelineDescription:
@@ -1570,8 +1641,12 @@ export default {
     time: "Zeit",
     storageSetupTitle: "Wiedergabe-Speicher verbinden",
     storageSetupDescription:
-      "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Nutzen Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
+      "Sitzungswiedergaben benötigen einen autorisierten Anbieter für Datei-Uploads. Builder.io kann sie speichern, wenn die Upload-Berechtigung erteilt wurde; alternativ können Sie einen eigenen S3-kompatiblen Bucket einrichten.",
     storageConnected: "Speicher verbunden",
+    storageStatusUnavailable:
+      "Der Status des Wiedergabe-Speichers konnte nicht geprüft werden. Versuchen Sie es erneut, um die Upload-Bereitschaft zu prüfen.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io ist für KI und Credits verbunden, aber Wiedergabe-Uploads benötigen eine separate Speicherberechtigung.",
     connectBuilder: "Builder.io verwenden",
     configureS3: "S3-Speicher konfigurieren",
     devtools: "Dev-Tools",
@@ -1606,6 +1681,62 @@ export default {
       "Keine Konsolenmeldungen entsprechen den aktuellen Filtern.",
     devtoolsNoNetworkMatches:
       "Keine Anfragen entsprechen den aktuellen Filtern.",
+    storyboardSelectionCoverage:
+      "{{selected}} von {{total}} Sitzungswiedergaben ausgewählt ({{percent}}).",
+    storyboardSelectHint: "Wähle bis zu 3 Sitzungen für ein Storyboard aus.",
+    clearStoryboardSelection: "Auswahl aufheben",
+    createStoryboard: "Storyboard erstellen",
+    selectReplayForStoryboard: "Wiedergabe {{id}} für das Storyboard auswählen",
+    storyboardDesignId: "Design-ID (optional)",
+    storyboardTitle: "Storyboard-Titel",
+    storyboardDefaultTitle: "Sitzungswiedergabe-Storyboard",
+    storyboardTimestamps: "Zeitpunkte (bis zu 3, durch Kommas getrennt)",
+    storyboardReplayPreview: "Wiedergabevorschau",
+    storyboardStartingCapture:
+      "Wähle diese Analytics-Registerkarte im Browser-Aufnahmefenster aus.",
+    storyboardLoadingReplay: "Wiedergabe {{replayId}} wird geladen…",
+    storyboardCapturingFrame:
+      "Aufnahme {{current}} von {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Screenshots werden an Design gesendet…",
+    storyboardComplete:
+      "{{screenshots}} Screenshots wurden zu Design hinzugefügt.",
+    storyboardTimestampError: "Verwende mm:ss, hh:mm:ss oder mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Gib für jede ausgewählte Wiedergabe mindestens einen Zeitpunkt ein.",
+    storyboardTimestampLimit:
+      "Wähle höchstens 3 Zeitpunkte pro Wiedergabe aus.",
+    storyboardDuplicateTimestamp: "Entferne doppelte Zeitpunkte.",
+    storyboardScreenshotLimit: "Wähle höchstens 9 Screenshots aus.",
+    storyboardReplayLimit: "Wähle bis zu 3 Sitzungswiedergaben aus.",
+    storyboardCaptureFailed: "Screenshot-Aufnahme fehlgeschlagen.",
+    storyboardCanceled: "Aufnahme abgebrochen.",
+    storyboardReplayIncomplete:
+      "Wiedergabe {{replayId}} enthält nicht verfügbare Ereignisse; der Export wurde gestoppt.",
+    storyboardViewportUnavailable:
+      "Die aufgezeichneten Ansichtsfensterabmessungen sind nicht verfügbar.",
+    storyboardTimestampOutOfRange:
+      "Der Zeitpunkt liegt außerhalb der Wiedergabe {{replayId}}.",
+    storyboardScreenshotTooLarge:
+      "Ein Screenshot überschreitet das Limit von 5 MB.",
+    storyboardBatchTooLarge:
+      "Der Screenshot-Stapel überschreitet das Limit von 20 MB.",
+    storyboardRouteUnavailable:
+      "Die Route bei {{timestamp}} ist für Wiedergabe {{replayId}} nicht verfügbar.",
+    storyboardNoDesignResponse:
+      "Design hat kein Storyboard-Ergebnis zurückgegeben.",
+    storyboardTemporaryCleanupPending:
+      "Das Storyboard wurde gespeichert, aber temporäre Screenshots konnten nicht entfernt werden.",
+    storyboardTemporaryCleanupFailed:
+      "Die Bereinigung der temporären Screenshots steht noch aus.",
+    storyboardUnexpectedResponse:
+      "Der Screenshot-Export hat eine unlesbare Antwort zurückgegeben. Bitte erneut versuchen.",
+    storyboardSaveOutcomeUnknown:
+      "Design hat das Storyboard möglicherweise gespeichert. Prüfen Sie Design, bevor Sie es erneut versuchen.",
+    openStoryboard: "Storyboard in Design öffnen",
+    cancelStoryboardCapture: "Aufnahme abbrechen",
+    captureToDesign: "Aufnehmen und zu Design hinzufügen",
+    storyboardSelectAnalyticsTab:
+      "Wähle diese Analytics-Registerkarte im Browser-Aufnahmefenster aus.",
   },
   catalog: {
     description:
@@ -1724,5 +1855,144 @@ export default {
     name: "Name",
     appId: "App-ID",
     flagKey: "Funktionsschalter",
+  },
+  githubFolderSync: {
+    menuItem: "Mit GitHub synchronisieren",
+    folderActions: "Ordneraktionen",
+    title: "{{name}} mit GitHub synchronisieren",
+    loadFailed:
+      "Der GitHub-Synchronisierungsstatus konnte nicht geladen werden.",
+    actionFailed:
+      "Die GitHub-Synchronisierung konnte nicht aktualisiert werden.",
+    owner: "Eigentümer",
+    repo: "Repository",
+    branch: "Branch",
+    path: "Ordnerpfad im Repository",
+    ownerRequired: "Gib den GitHub-Eigentümer ein.",
+    repoRequired: "Gib den Namen des Repositorys ein.",
+    branchRequired: "Gib den Branch-Namen ein.",
+    connect: "Ordner verbinden",
+    linkedTo: "Verbunden mit",
+    rootPath: "Repository-Stammverzeichnis",
+    exportPullRequest: "Export-Pull-Request",
+    pullRequest: "Pull Request #{{number}}",
+    prOpen: "Offen",
+    prMerged: "Zusammengeführt",
+    prClosed: "Geschlossen",
+    dashboard: "Dashboard",
+    status: "Status",
+    statuses: {
+      inSync: "Synchron",
+      githubChanged: "In GitHub geändert",
+      appChanged: "In der App geändert",
+      bothChanged: "In beiden geändert",
+      conflict: "Konflikt",
+      notExported: "Nicht in GitHub",
+      newInGithub: "Neu in GitHub",
+      removedInGithub: "In GitHub gelöscht",
+      exportPending: "Export ausstehend",
+      noAccess: "Kein Zugriff",
+    },
+    conflictPanel: "Panel: {{id}}",
+    conflictOrder: "Panel-Reihenfolge",
+    conflictMeta: "Dashboard-Einstellungen",
+    checkGitHub: "GitHub prüfen",
+    pullFromGitHub: "Aus GitHub abrufen",
+    exportToGitHub: "Nach GitHub exportieren",
+    disconnect: "Trennen",
+    disconnectTitle: "Diesen Ordner von GitHub trennen?",
+    disconnectDescription:
+      "Dashboards bleiben in dieser App. Dateien in GitHub werden nicht geändert.",
+    pulled: "Aus GitHub abgerufen.",
+    exported: "Nach GitHub exportiert.",
+    nothingToExport: "Nichts zu exportieren.",
+    finalizedMerged: "Der offene Export-Pull-Request wurde zusammengeführt.",
+    finalizedClosed: "Der offene Export-Pull-Request wurde geschlossen.",
+    skippedHeading: "Übersprungene Dashboards",
+    skippedItem: "{{title}}: {{reason}}",
+  },
+  semanticLayer: {
+    addDefinition: "Definition hinzufügen",
+    adminOnlyNote:
+      "Nur Organisationsadministratoren können Definitionen ändern.",
+    definitionsSection: "Definitionen",
+    edit: "Bearbeiten",
+    editNamed: "{{name}} bearbeiten",
+    emptyDefinitions: "Noch keine Definitionen.",
+    indexBuilding: "Wird erstellt",
+    indexBuilt: "{{count}} Einträge, erstellt am {{date}}",
+    indexFailed: "Fehlgeschlagen",
+    indexFresh: "Aktuell",
+    indexNotBuilt: "Nicht erstellt",
+    indexSection: "Index",
+    indexStale: "Veraltet",
+    indexUnavailable: "Status nicht verfügbar",
+    loadFailed:
+      "Definitionen konnten nicht geladen werden. Versuche es erneut.",
+    loading: "Wird geladen…",
+    loadMore: "Weitere Definitionen laden",
+    newDefinition: "Neue Definition",
+    noMatches: "Keine Definitionen passen zur Suche.",
+    searchPlaceholder: "Definitionen durchsuchen",
+    sourceIndex: "Quellindex",
+    statusApproved: "Freigegeben",
+    statusSuggested: "Vorgeschlagen",
+    statusUnreviewed: "Nicht geprüft",
+    unsourced: "Ohne Quelle",
+  },
+  indexPanel: {
+    presetDaily: "Täglich um 06:00",
+    presetWeekdays: "Werktags um 06:00",
+    presetWeekly: "Wöchentlich montags um 06:00",
+    status: "Status",
+    unresolvedTrackingCallSites: "Nicht aufgelöste Tracking-Aufrufe",
+    unresolvedTrackingCallSitesUnavailable: "Nicht verfügbar",
+    dynamicTrackingCoverageCaveat:
+      "Aufrufe mit zur Laufzeit berechneten Ereignisnamen sind ausgeschlossen; Aliase oder andere Tracking-APIs werden möglicherweise nicht erkannt.",
+    overviewFailed: "Der Erstellungsstatus konnte nicht geladen werden.",
+    build: "Erstellen",
+    building: "Wird erstellt…",
+    buildNow: "Jetzt erstellen",
+    buildFailed: "Der Index konnte nicht erstellt werden. Versuche es erneut.",
+    schedule: "Zeitplan",
+    scheduleReadFailed: "Der Zeitplan konnte nicht geladen werden.",
+    scheduleEnabled: "Aktiviert",
+    frequency: "Häufigkeit",
+    timezone: "Zeitzone",
+    on: "Ein",
+    off: "Aus",
+    scheduleFailed: "Der Zeitplan konnte nicht gespeichert werden.",
+    saving: "Wird gespeichert…",
+    saveSchedule: "Zeitplan speichern",
+    dbtRepository: "dbt-Repository",
+    repository: "Repository",
+    repositoryReadFailed: "Das Repository konnte nicht geladen werden.",
+    notSet: "Nicht festgelegt",
+    saveRepository: "Repository speichern",
+    repositoryFailed: "Das Repository konnte nicht gespeichert werden.",
+    runRunning: "Läuft",
+    runSucceeded: "Erfolgreich",
+    runFailed: "Fehlgeschlagen",
+    triggerScheduled: "Geplant",
+    triggerManual: "Manuell",
+    runEntries: "{{count}} Einträge",
+    runHistory: "Ausführungsverlauf",
+    runsReadFailed: "Der Ausführungsverlauf konnte nicht geladen werden.",
+    noRuns: "Es wurden noch keine Indexerstellungen ausgeführt.",
+    dictionary: "Datenwörterbuch",
+    dbtStatus: "Zustand",
+    dbtEnvironmentId: "Umgebungs-ID",
+    dbtEnvironmentPlaceholder: "Beispiel: 123456",
+    dbtSemanticLayerUrl: "Basis-URL der Semantic Layer",
+    dbtToken: "Dienst-Token",
+    dbtTokenPlaceholder: "Dienst-Token eingeben",
+    dbtTokenStored: "Token gespeichert, wird nicht erneut angezeigt",
+    dbtDisabled: "Deaktiviert",
+    dbtAdminOnly:
+      "Nur Organisationsadministratoren können diese Verbindung ändern.",
+    dbtReadFailed: "Die dbt-Verbindung konnte nicht geladen werden.",
+    dbtSave: "Verbindung speichern",
+    dbtChecking: "Wird geprüft",
+    dbtSaveFailed: "Die dbt-Verbindung konnte nicht gespeichert werden.",
   },
 };

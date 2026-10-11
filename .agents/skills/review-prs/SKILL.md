@@ -284,9 +284,11 @@ the major product/UX decision above.
 
 For a PR that passes the applicable gate and lacks a current-head approval,
 submit one GitHub approval review and record the approval URL in the recap.
-Do not duplicate an existing current-head approval. Do not add a tag,
-assignment, mention, or explanatory comment unless the invocation explicitly
-asks for it.
+Do not duplicate an existing current-head approval. This skill reviews other
+people's PRs: do not add a tag, assignment, mention, or explanatory comment
+unless the current invocation explicitly authorizes that communication on the
+exact PR. This does not add a separate authorization step for replies required
+on the active user's own PR under `/ship`, `/ship-now`, or `/babysit-pr`.
 
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
@@ -469,8 +471,10 @@ Do not apply author-reply or screenshot requests to PRs that were auto-approved
 under an explicit exception; keep their existing recap and approval behavior
 unchanged.
 
-This handoff is measured by `pr-review-handoff`; first-contact thanks also
-contribute to the existing `feedback-reply-tone` measure.
+Measure this handoff with `pr-review-handoff`; first-contact thanks with
+`feedback-reply-tone`, and reply-detail corrections with
+`feedback-reply-detail`. Verify the latter with
+`node scripts/agent-friction-report.mjs --weeks 2 --pattern feedback-reply-detail`.
 
 ## Worktrees and PR provenance
 

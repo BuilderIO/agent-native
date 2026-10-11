@@ -32,7 +32,7 @@ interface AutomationRun {
   id: string;
   runId: string | null;
   threadId: string | null;
-  status: "running" | "success" | "error" | "interrupted";
+  status: "running" | "success" | "error" | "interrupted" | "skipped";
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
@@ -385,10 +385,24 @@ export function AutomationDetailsPanel({
         ) : null}
 
         {automation.lastError ? (
-          <section className="flex items-start gap-2 border-t border-destructive/30 pt-5">
-            <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <section
+            className={
+              automation.lastStatus === "skipped"
+                ? "flex items-start gap-2 border-t pt-5"
+                : "flex items-start gap-2 border-t border-destructive/30 pt-5"
+            }
+          >
+            {automation.lastStatus !== "skipped" ? (
+              <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            ) : null}
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-destructive">
+              <h3
+                className={
+                  automation.lastStatus === "skipped"
+                    ? "text-sm font-semibold text-muted-foreground"
+                    : "text-sm font-semibold text-destructive"
+                }
+              >
                 Latest scheduler result
               </h3>
               <p className="mt-1 break-words text-sm text-muted-foreground">
@@ -455,7 +469,13 @@ export function AutomationDetailsPanel({
                         ) : null}
                       </div>
                       {run.error ? (
-                        <p className="break-words text-sm text-destructive">
+                        <p
+                          className={
+                            run.status === "skipped"
+                              ? "break-words text-sm text-muted-foreground"
+                              : "break-words text-sm text-destructive"
+                          }
+                        >
                           {run.error}
                         </p>
                       ) : null}
