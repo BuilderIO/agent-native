@@ -51,20 +51,32 @@ function toMessages(
   return messages;
 }
 
-function appendReferences(
+export function buildAnalyticsPromptContext(
   systemPrompt: string,
-  candidates: Awaited<
-    ReturnType<typeof retrieveAnalyticsPromptReferences>
-  >["jevPromptCandidates"],
+  references: Awaited<ReturnType<typeof retrieveAnalyticsPromptReferences>>,
 ): string {
-  if (candidates.length === 0) return systemPrompt;
-  const references = candidates
-    .map(
-      (candidate) =>
-        `### ${candidate.name}\n${candidate.description}\n${candidate.content}`,
-    )
-    .join("\n\n");
-  return `${systemPrompt}\n\n<resource scope="analytics-catalog">\n${references}\n</resource>`;
+  const candidates = references.jevPromptCandidates;
+  let prompt = systemPrompt;
+  if (candidates.length > 0) {
+    const resource = candidates
+      .map(
+        (candidate) =>
+          `### ${candidate.name}\n${candidate.description}\n${candidate.content}`,
+      )
+      .join("\n\n");
+    prompt += `\n\n<resource scope="analytics-catalog">\n${resource}\n</resource>`;
+  }
+  if (
+    references.prefetchStatus === "timed_out" ||
+    references.prefetchStatus === "failed"
+  ) {
+    const reason =
+      references.prefetchStatus === "timed_out" ? "timed out" : "failed";
+    const subject =
+      candidates.length > 0 ? "Some preloaded context" : "Preloaded context";
+    prompt += `\n\n<context-note>${subject} was unavailable this turn (${reason}); search for anything relevant with the available tools before answering.</context-note>`;
+  }
+  return prompt;
 }
 
 export function filterAnalyticsEvalActions(
@@ -123,10 +135,7 @@ async function runAnalyticsProductionPath(args: {
     deadlineAt: Date.now() + 1_300,
   });
   const runId = `eval:${crypto.randomUUID()}`;
-  const prompt = appendReferences(
-    args.systemPrompt,
-    references.jevPromptCandidates,
-  );
+  const prompt = buildAnalyticsPromptContext(args.systemPrompt, references);
   const availableTools = actionsToEngineTools(args.actions);
   const initialNames = new Set(args.initialToolNames);
   const tools = availableTools.filter((tool) => initialNames.has(tool.name));
@@ -195,23 +204,6 @@ async function runAnalyticsProductionPath(args: {
     availableActionNames,
     readOnlyActionNames,
   };
-  if (
-    references.prefetchStatus !== "ok" &&
-    references.prefetchStatus !== "empty"
-  ) {
-    return {
-      output: {
-        text: "",
-        toolCalls: [],
-        ok: false,
-        error: `Analytics request preparation ${references.prefetchStatus}.`,
-        runId,
-        durationMs: 0,
-      },
-      receipt,
-    };
-  }
-
   const started = Date.now();
   let ok = true;
   try {

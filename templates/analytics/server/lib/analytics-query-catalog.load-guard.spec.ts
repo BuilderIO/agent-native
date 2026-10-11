@@ -134,7 +134,7 @@ vi.mock("./dashboards-store", () => ({
   searchDashboardReferencesPage: state.searchDashboardReferencesPage,
 }));
 
-const { searchAnalyticsQueryCatalog } =
+const { searchAnalyticsDictionaryCatalog, searchAnalyticsQueryCatalog } =
   await import("./analytics-query-catalog.js");
 
 function savedRevenueSummary() {
@@ -259,6 +259,93 @@ describe("searchAnalyticsQueryCatalog", () => {
       "favorites",
     );
     expect(state.listOrgSettings).not.toHaveBeenCalled();
+  });
+
+  it("searches dictionary metadata with pagination and no dashboard reads", async () => {
+    state.userSettings = [
+      {
+        key: "data-dict-builder-users",
+        value: {
+          id: "builder-users",
+          metric: "Builder user membership",
+          definition: "The user dimension.",
+          source: "dbt",
+          table: "dim_users_core",
+        },
+      },
+      {
+        key: "data-dict-builder-user-organizations",
+        value: {
+          id: "builder-user-organizations",
+          metric: "Builder organization membership",
+          definition: "The user and organization membership relation.",
+          source: "dbt",
+          table: "user_organization_role",
+        },
+      },
+    ];
+
+    const firstPage = await searchAnalyticsDictionaryCatalog({
+      search: "membership",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 1,
+    });
+    const secondPage = await searchAnalyticsDictionaryCatalog({
+      search: "membership",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 1,
+      nextPage: firstPage.nextPage ?? undefined,
+    });
+
+    expect(firstPage).toMatchObject({
+      searched: 2,
+      of: 2,
+      truncated: true,
+      dictionarySearchStatus: "available",
+      sourceIndexStatus: "not-configured",
+    });
+    expect(firstPage.nextPage).toBeTruthy();
+    expect(secondPage.candidates).toHaveLength(1);
+    expect(secondPage.candidates[0]).not.toEqual(firstPage.candidates[0]);
+    expect(state.listSettingsByPrefix).toHaveBeenCalledWith(
+      "u:alice@example.com:data-dict-",
+      { limit: 201 },
+    );
+    expect(state.readSourceIndex).toHaveBeenCalledWith(null);
+    expect(state.listDashboardSummaries).not.toHaveBeenCalled();
+    expect(state.searchDashboardReferencesPage).not.toHaveBeenCalled();
+    expect(state.loadDashboardCatalogDashboards).not.toHaveBeenCalled();
+    expect(state.getUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("reports a dictionary source cap even when no cursor can recover omitted entries", async () => {
+    state.userSettings = Array.from({ length: 201 }, (_, index) => ({
+      key: `data-dict-builder-user-${index}`,
+      value: {
+        id: `builder-user-${index}`,
+        metric: `Builder user ${index}`,
+        definition: "Builder user metadata.",
+        table: "dim_users_core",
+      },
+    }));
+
+    const result = await searchAnalyticsDictionaryCatalog({
+      search: "Builder user",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 200,
+    });
+
+    expect(result).toMatchObject({
+      searched: 200,
+      of: 200,
+      truncated: true,
+      nextPage: null,
+      dictionarySearchTruncated: true,
+    });
+    expect(state.listDashboardSummaries).not.toHaveBeenCalled();
   });
 
   it("reports and logs when dashboard summary search reaches its cap", async () => {
