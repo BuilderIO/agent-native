@@ -397,7 +397,12 @@ export function projectRootAssistantMessages(input: {
       contentMatches(root, candidate, toolMessageIds),
     );
     const rootText = text(root);
-    const matchingCandidate = sameRunMatches[0];
+    const exactMatches = sameRunMatches.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    const candidateMatches =
+      exactMatches.length > 0 ? exactMatches : sameRunMatches;
+    const matchingCandidate = candidateMatches[0];
     const exactTextMatch =
       matchingCandidate !== undefined &&
       rootText !== undefined &&
@@ -410,7 +415,7 @@ export function projectRootAssistantMessages(input: {
             (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
               messageIdsByRun.get(runId)?.size === 1))));
     if (
-      sameRunMatches.length === 1 &&
+      candidateMatches.length === 1 &&
       (exactTextMatch ||
         (sameRunCandidates.length === 1 && clientCanMatchPartial))
     ) {
