@@ -134,6 +134,25 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
         sessionStorage.getItem("agent-native:embed-auth-token"),
       ),
     ).toBeTruthy();
+    const anonymousUpdate = await page.evaluate(
+      async ({ designId, fileId, url }) => {
+        const response = await fetch(
+          "/_agent-native/actions/update-screen-source",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ designId, fileId, sourceType: "url", url }),
+          },
+        );
+        return { status: response.status, body: await response.json() };
+      },
+      { designId, fileId: screenId, url: `${devServerUrl}/?anonymousEdit=1` },
+    );
+    expect(anonymousUpdate.status, JSON.stringify(anonymousUpdate.body)).toBe(
+      200,
+    );
+    expect(anonymousUpdate.body.url).toContain("anonymousEdit=1");
+
     const login = await page.evaluate(
       async (credentials) => {
         const response = await fetch("/_agent-native/auth/login", {
@@ -207,6 +226,33 @@ test("signing in after opening a scoped Visual Edit link keeps the editor role",
     );
     expect(directRead.status(), await directRead.text()).toBe(200);
     expect(await directRead.json()).toMatchObject({ accessRole: "viewer" });
+
+    const deniedUpdate = await signedInViewerContext.request.post(
+      `${BASE_URL}/_agent-native/actions/update-screen-source`,
+      {
+        data: {
+          designId,
+          fileId: screenId,
+          sourceType: "url",
+          url: `${devServerUrl}/?viewerEdit=1`,
+        },
+      },
+    );
+    expect(deniedUpdate.status()).toBe(403);
+
+    const ownerUpdate = await ownerContext.request.post(
+      `${BASE_URL}/_agent-native/actions/update-screen-source`,
+      {
+        data: {
+          designId,
+          fileId: screenId,
+          sourceType: "url",
+          url: `${devServerUrl}/?ownerEdit=1`,
+        },
+      },
+    );
+    expect(ownerUpdate.status(), await ownerUpdate.text()).toBe(200);
+    expect((await ownerUpdate.json()).url).toContain("ownerEdit=1");
   } finally {
     if (designId) {
       const deletion = await ownerContext.request.post(
