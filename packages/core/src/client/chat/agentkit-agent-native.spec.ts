@@ -7460,6 +7460,7 @@ describe("createAgentNativeAgentKitTransport", () => {
               },
             ],
             agentKit: {
+              _mergeRootMessages: true,
               messages: [
                 {
                   id: "message-agentkit-one",
