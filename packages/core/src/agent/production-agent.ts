@@ -65,6 +65,7 @@ import {
   MAX_INLINE_IMAGE_BASE64_CHARS,
 } from "../file-upload/inline-attachment-limits.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
@@ -3815,7 +3816,7 @@ function extractToolSearchResultNamesFromMessages(
   return names;
 }
 
-function normalizeToolInputSchema(
+export function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
@@ -3829,7 +3830,8 @@ function normalizeToolInputSchema(
     // shipping it unsanitized is how this class of 400 reaches the provider.
     return null;
   }
-  const safe = stripUnsupportedSchemaKeywords(cloned);
+  // Rewriting oneOf to anyOf renumbers the paths a deep local $ref names.
+  const safe = stripUnsupportedSchemaKeywords(rebaseLocalRefs(cloned));
   return {
     ...safe,
     type: "object",

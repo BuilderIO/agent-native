@@ -2438,15 +2438,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const result = await client.listTools();
         const inputSchema = (name: string) =>
           result.tools.find((tool) => tool.name === name)?.inputSchema;
+        // Zod input objects are open, so a key one branch declares can hold
+        // any value in the other branch; the declared type stays as a hint.
+        const anyValue = { $ref: "#/$defs/JsonValue" };
         expect(inputSchema("union-input")).toMatchObject({
           type: "object",
           properties: {
             phase: { anyOf: [{ const: "validate" }, { const: "verify" }] },
-            plan: { type: "object" },
-            digest: { type: "string" },
+            plan: { anyOf: [{ type: "object" }, anyValue] },
+            digest: { anyOf: [{ type: "string" }, anyValue] },
           },
           required: ["phase"],
+          $defs: { JsonValue: { anyOf: expect.any(Array) } },
         });
+        expect(inputSchema("union-input")?.description).toContain(
+          'phase="validate": requires plan',
+        );
         expect(inputSchema("intersection-input")).toMatchObject({
           type: "object",
           properties: { id: { type: "string" } },

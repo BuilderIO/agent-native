@@ -225,7 +225,7 @@ describe("flattenComposedRootSchema", () => {
       expect(admits({ a: "x", "x-trace": "t" })).toBe(true);
     });
 
-    it("keeps shared patternProperties and closes over them", () => {
+    it("keeps shared patternProperties but leaves pattern branches open", () => {
       const patternProperties = { "^x-": { type: "string" } };
       const schema = {
         anyOf: [
@@ -239,10 +239,9 @@ describe("flattenComposedRootSchema", () => {
       ];
       const { flat, admits } = flatten(schema, inputs);
 
-      expect(flat.additionalProperties).toBe(false);
+      expect(flat).not.toHaveProperty("additionalProperties");
       expect(flat.patternProperties).toEqual(patternProperties);
       expect(admits({ a: "x", "x-trace": 1 })).toBe(false);
-      expect(admits({ a: "x", other: "t" })).toBe(false);
     });
   });
 
@@ -386,6 +385,214 @@ describe("flattenComposedRootSchema", () => {
     expect(flat.required).toEqual([]);
     expect(admits({ a: "x" })).toBe(false);
     expect(admits({ b: 1, c: 2 })).toBe(false);
+  });
+
+  describe("open branches", () => {
+    it("leaves a key unconstrained when an open branch does not declare it", () => {
+      const schema = {
+        type: "object",
+        anyOf: [
+          { type: "object", properties: { x: { type: "string" } } },
+          { type: "object", properties: { y: { type: "string" } } },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { x: 42, y: "yes" },
+        { x: "a", y: 1 },
+      ]);
+
+      expect(validates(schema, { x: 42, y: "yes" })).toBe(true);
+      expect(admits({ x: 42, y: "yes" })).toBe(true);
+      expect(flat.properties.x.anyOf[0]).toEqual({ type: "string" });
+    });
+
+    it("constrains a key by a branch's additionalProperties schema", () => {
+      const schema = {
+        anyOf: [
+          {
+            type: "object",
+            properties: { x: { type: "string" } },
+            additionalProperties: { type: "number" },
+          },
+          {
+            type: "object",
+            properties: { y: { type: "string" } },
+            additionalProperties: false,
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { x: "a", y: 2 },
+        { y: "b" },
+        { x: "a", z: 3 },
+      ]);
+
+      expect(flat.properties.y).toEqual({
+        anyOf: [{ type: "number" }, { type: "string" }],
+      });
+      expect(flat.additionalProperties).toEqual({ type: "number" });
+      expect(admits({ y: true })).toBe(false);
+    });
+
+    it("writes an unconstrained key with the caller's any-value schema", () => {
+      const flat = flattenComposedRootSchema(
+        {
+          type: "object",
+          anyOf: [
+            { properties: { x: { type: "string" } } },
+            { properties: { y: { type: "string" } } },
+          ],
+        },
+        { anyValue: () => ({ $ref: "#/$defs/JsonValue" }) },
+      ) as Record<string, any>;
+
+      expect(flat.properties.x).toEqual({
+        anyOf: [{ type: "string" }, { $ref: "#/$defs/JsonValue" }],
+      });
+    });
+  });
+
+  describe("local references", () => {
+    it("rebases definitions local to a removed branch", () => {
+      const schema = {
+        anyOf: [
+          {
+            type: "object",
+            $defs: { Item: { type: "string", minLength: 2 } },
+            properties: { a: { $ref: "#/anyOf/0/$defs/Item" } },
+            required: ["a"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: { b: { type: "number" } },
+            required: ["b"],
+            additionalProperties: false,
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [{ a: "xy" }, { b: 1 }]);
+
+      expect(flat.properties.a.$ref).toMatch(/^#\/\$defs\//);
+      expect(admits({ a: "x" })).toBe(false);
+    });
+
+    it("rebases a reference that points into a branch", () => {
+      const schema = {
+        type: "object",
+        properties: { copy: { $ref: "#/anyOf/0/properties/a" } },
+        anyOf: [
+          { properties: { a: { type: "string" } } },
+          { properties: { b: { type: "number" } } },
+        ],
+      };
+      const { admits } = flatten(schema, [
+        { copy: "s", a: "t" },
+        { copy: "s", b: 1 },
+      ]);
+
+      expect(admits({ copy: 1 })).toBe(false);
+    });
+
+    it("keeps a recursive root definition", () => {
+      const schema = {
+        type: "object",
+        $defs: {
+          Node: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              children: { type: "array", items: { $ref: "#/$defs/Node" } },
+            },
+          },
+        },
+        properties: { tree: { $ref: "#/$defs/Node" } },
+        anyOf: [
+          { required: ["tree"] },
+          { properties: { flag: { type: "boolean" } }, required: ["flag"] },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { tree: { name: "a", children: [{ name: "b", children: [] }] } },
+        { flag: true },
+      ]);
+
+      expect(flat.$defs).toEqual(schema.$defs);
+      expect(admits({ tree: { children: [{ name: 1 }] } })).toBe(false);
+    });
+
+    it("rebases a branch definition that refers to itself", () => {
+      const schema = {
+        anyOf: [
+          {
+            type: "object",
+            $defs: {
+              Link: {
+                type: "object",
+                properties: { next: { $ref: "#/anyOf/0/$defs/Link" } },
+              },
+            },
+            properties: { head: { $ref: "#/anyOf/0/$defs/Link" } },
+          },
+          {
+            type: "object",
+            properties: { z: { type: "string" } },
+            required: ["z"],
+          },
+        ],
+      };
+      const { flat, admits } = flatten(schema, [
+        { head: { next: { next: {} } } },
+        { z: "1" },
+      ]);
+
+      const name = String(flat.properties.head.anyOf?.[0]?.$ref ?? "");
+      expect(name).toMatch(/^#\/\$defs\//);
+      expect(admits({ z: "1", head: { next: { next: 1 } } })).toBe(true);
+    });
+
+    it("keeps a root definition a branch refers to", () => {
+      const schema = {
+        type: "object",
+        $defs: { Id: { type: "string", minLength: 1 } },
+        oneOf: [
+          { properties: { id: { $ref: "#/$defs/Id" } }, required: ["id"] },
+          {
+            properties: {
+              ids: { type: "array", items: { $ref: "#/$defs/Id" } },
+            },
+            required: ["ids"],
+          },
+        ],
+      };
+      const { flat } = flatten(schema, [{ id: "a" }, { ids: ["a", "b"] }]);
+
+      expect(flat.$defs).toEqual(schema.$defs);
+    });
+  });
+
+  it("describes which fields go together once the branches are merged", () => {
+    const { flat } = flatten({
+      type: "object",
+      description: "Run one migration phase.",
+      anyOf: [
+        {
+          properties: { phase: { const: "plan" }, plan: { type: "object" } },
+          required: ["phase", "plan"],
+        },
+        {
+          properties: {
+            phase: { const: "verify" },
+            digest: { type: "string" },
+          },
+          required: ["phase", "digest"],
+        },
+      ],
+    });
+
+    expect(flat.description).toBe(
+      'Run one migration phase.\n\nPass one of these argument sets:\n- phase="plan": requires plan\n- phase="verify": requires digest',
+    );
   });
 
   it("returns a schema without a root composition as-is", () => {

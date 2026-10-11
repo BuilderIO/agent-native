@@ -1,182 +1,420 @@
-type JsonSchema = Record<string, unknown>;
+import { boundedJsonValueBranches } from "../../json-schema/json-value.js";
+import {
+  rebaseLocalRefs,
+  resolveLocalRef,
+} from "../../json-schema/local-refs.js";
+import {
+  isJsonSchemaObject as isSchema,
+  type JsonSchema,
+} from "../../json-schema/subschemas.js";
 
 const COMPOSITIONS = ["anyOf", "oneOf", "allOf"] as const;
 
-interface ObjectPart {
-  properties: JsonSchema;
-  required: string[];
-  closed: boolean;
+/**
+ * What an object view allows for one key's value. `never` means the key is
+ * not allowed; `any` means any value, with `hints` naming the shapes some
+ * branch declared so the model still sees them.
+ */
+type Side =
+  | { kind: "never" }
+  | { kind: "any"; hints: JsonSchema[] }
+  | { kind: "schema"; schema: JsonSchema };
+
+const NEVER: Side = { kind: "never" };
+const ANY: Side = { kind: "any", hints: [] };
+
+/**
+ * Object-level keywords that hold independently of which keys are declared,
+ * so an allOf can keep every branch's and an anyOf can keep the ones all
+ * branches share.
+ */
+interface Constraints {
   patternProperties?: JsonSchema;
   propertyNames?: unknown;
   minProperties?: number;
   maxProperties?: number;
 }
 
-function isSchema(value: unknown): value is JsonSchema {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+/**
+ * An over-approximation of the objects one schema accepts: each declared key
+ * is checked against its side, every other key against `extra`. `null` is the
+ * empty view (the schema admits no object).
+ */
+interface ObjectView {
+  properties: Map<string, Side>;
+  extra: Side;
+  required: Set<string>;
+  constraints: Constraints;
 }
 
-function requiredOf(schema: JsonSchema): string[] {
-  if (!Array.isArray(schema.required)) return [];
-  return schema.required.filter(
-    (key): key is string => typeof key === "string",
-  );
-}
-
-function numberOf(value: unknown): number | undefined {
-  return typeof value === "number" ? value : undefined;
-}
-
-function partOf(schema: JsonSchema): ObjectPart {
-  return {
-    properties: isSchema(schema.properties) ? schema.properties : {},
-    required: requiredOf(schema),
-    closed: schema.additionalProperties === false,
-    patternProperties: isSchema(schema.patternProperties)
-      ? schema.patternProperties
-      : undefined,
-    propertyNames: schema.propertyNames,
-    minProperties: numberOf(schema.minProperties),
-    maxProperties: numberOf(schema.maxProperties),
-  };
-}
+const TOP: ObjectView = {
+  properties: new Map(),
+  extra: ANY,
+  required: new Set(),
+  constraints: {},
+};
 
 function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-function variantsOf(schema: unknown, keyword: "anyOf" | "allOf"): unknown[] {
-  if (
-    isSchema(schema) &&
-    Object.keys(schema).length === 1 &&
-    Array.isArray(schema[keyword])
-  ) {
-    return schema[keyword];
+function variantsOf(schema: JsonSchema, keyword: "anyOf" | "allOf") {
+  if (Object.keys(schema).length === 1 && Array.isArray(schema[keyword])) {
+    return (schema[keyword] as unknown[]).filter(isSchema);
   }
   return [schema];
 }
 
-function combine(schemas: unknown[], keyword: "anyOf" | "allOf"): unknown {
-  const variants: unknown[] = [];
+function combine(
+  schemas: JsonSchema[],
+  keyword: "anyOf" | "allOf",
+): JsonSchema {
+  const variants: JsonSchema[] = [];
   for (const schema of schemas) {
     for (const variant of variantsOf(schema, keyword)) {
-      if (keyword === "allOf" && (variant === true || same(variant, {}))) {
-        continue;
-      }
       if (!variants.some((known) => same(known, variant))) {
         variants.push(variant);
       }
     }
   }
-  if (variants.length === 0) return {};
-  if (variants.length === 1) return variants[0];
+  if (variants.length === 1) return variants[0]!;
   return { [keyword]: variants };
 }
 
-function mergeMaps(
-  maps: (JsonSchema | undefined)[],
-  keyword: "anyOf" | "allOf",
-): JsonSchema {
-  const grouped = new Map<string, unknown[]>();
-  for (const map of maps) {
-    for (const [key, schema] of Object.entries(map ?? {})) {
-      grouped.set(key, [...(grouped.get(key) ?? []), schema]);
+function sideOf(value: unknown): Side {
+  if (value === false) return NEVER;
+  if (!isSchema(value) || Object.keys(value).length === 0) return ANY;
+  return { kind: "schema", schema: value };
+}
+
+function conjoinSides(sides: Side[]): Side {
+  if (sides.some((side) => side.kind === "never")) return NEVER;
+  const schemas = sides.flatMap((side) =>
+    side.kind === "schema" ? [side.schema] : [],
+  );
+  if (schemas.length > 0) {
+    return { kind: "schema", schema: combine(schemas, "allOf") };
+  }
+  return {
+    kind: "any",
+    hints: sides.flatMap((side) => (side.kind === "any" ? side.hints : [])),
+  };
+}
+
+function disjoinSides(sides: Side[]): Side {
+  const allowed = sides.filter((side) => side.kind !== "never");
+  if (allowed.length === 0) return NEVER;
+  const schemas = allowed.flatMap((side) =>
+    side.kind === "schema" ? [side.schema] : [],
+  );
+  if (allowed.some((side) => side.kind === "any")) {
+    const hints = [
+      ...schemas,
+      ...allowed.flatMap((side) => (side.kind === "any" ? side.hints : [])),
+    ];
+    return { kind: "any", hints };
+  }
+  return { kind: "schema", schema: combine(schemas, "anyOf") };
+}
+
+function sideFor(view: ObjectView, key: string): Side {
+  return view.properties.get(key) ?? view.extra;
+}
+
+function keysOf(views: ObjectView[]): string[] {
+  return [...new Set(views.flatMap((view) => [...view.properties.keys()]))];
+}
+
+function conjoinConstraints(views: ObjectView[]): Constraints {
+  const pick = <K extends keyof Constraints>(key: K) =>
+    views.flatMap((view) =>
+      view.constraints[key] === undefined ? [] : [view.constraints[key]!],
+    );
+  const patterns = pick("patternProperties") as JsonSchema[];
+  const names = pick("propertyNames");
+  const mins = pick("minProperties") as number[];
+  const maxes = pick("maxProperties") as number[];
+  const patternProperties: JsonSchema = {};
+  for (const map of patterns) {
+    for (const [pattern, schema] of Object.entries(map)) {
+      const existing = patternProperties[pattern];
+      patternProperties[pattern] =
+        existing === undefined || !isSchema(schema) || !isSchema(existing)
+          ? schema
+          : combine([existing, schema], "allOf");
     }
   }
-  const merged: JsonSchema = {};
-  for (const [key, schemas] of grouped) merged[key] = combine(schemas, keyword);
-  return merged;
-}
-
-function shared<K extends keyof ObjectPart>(
-  parts: ObjectPart[],
-  key: K,
-): ObjectPart[K] | undefined {
-  const first = parts[0]?.[key];
-  return parts.every((part) => same(part[key], first)) ? first : undefined;
-}
-
-function conjoin(parts: ObjectPart[]): ObjectPart {
-  const patterns = parts.flatMap((part) =>
-    part.patternProperties ? [part.patternProperties] : [],
-  );
-  const names = parts.flatMap((part) =>
-    part.propertyNames === undefined ? [] : [part.propertyNames],
-  );
-  const mins = parts.flatMap((part) =>
-    part.minProperties === undefined ? [] : [part.minProperties],
-  );
-  const maxes = parts.flatMap((part) =>
-    part.maxProperties === undefined ? [] : [part.maxProperties],
-  );
   return {
-    properties: mergeMaps(
-      parts.map((part) => part.properties),
-      "allOf",
-    ),
-    required: [...new Set(parts.flatMap((part) => part.required))],
-    closed: parts.some((part) => part.closed),
-    patternProperties:
-      patterns.length > 0 ? mergeMaps(patterns, "allOf") : undefined,
-    propertyNames: names.length > 0 ? combine(names, "allOf") : undefined,
+    patternProperties: patterns.length > 0 ? patternProperties : undefined,
+    propertyNames:
+      names.length === 0
+        ? undefined
+        : names.length === 1
+          ? names[0]
+          : combine(names.filter(isSchema), "allOf"),
     minProperties: mins.length > 0 ? Math.max(...mins) : undefined,
     maxProperties: maxes.length > 0 ? Math.min(...maxes) : undefined,
   };
 }
 
-function disjoin(parts: ObjectPart[]): ObjectPart {
-  const samePatterns = parts.every((part) =>
-    same(part.patternProperties, parts[0]?.patternProperties),
-  );
+function disjoinConstraints(views: ObjectView[]): Constraints {
+  const shared = <K extends keyof Constraints>(key: K) => {
+    const first = views[0]?.constraints[key];
+    return views.every((view) => same(view.constraints[key], first))
+      ? first
+      : undefined;
+  };
   return {
-    properties: mergeMaps(
-      parts.map((part) => part.properties),
-      "anyOf",
-    ),
-    required: (parts[0]?.required ?? []).filter((key) =>
-      parts.every((part) => part.required.includes(key)),
-    ),
-    closed: samePatterns && parts.every((part) => part.closed),
-    patternProperties: shared(parts, "patternProperties"),
-    propertyNames: shared(parts, "propertyNames"),
-    minProperties: shared(parts, "minProperties"),
-    maxProperties: shared(parts, "maxProperties"),
+    patternProperties: shared("patternProperties"),
+    propertyNames: shared("propertyNames"),
+    minProperties: shared("minProperties"),
+    maxProperties: shared("maxProperties"),
   };
 }
 
-export function flattenComposedRootSchema(schema: JsonSchema): JsonSchema {
-  const compositions = COMPOSITIONS.filter((key) => key in schema);
-  if (compositions.length === 0) return schema;
-
-  const parts: ObjectPart[] = [partOf(schema)];
-  for (const composition of compositions) {
-    const raw = schema[composition];
-    if (!Array.isArray(raw) || raw.length === 0) continue;
-    const branches = raw.map((branch) =>
-      partOf(isSchema(branch) ? flattenComposedRootSchema(branch) : {}),
-    );
-    parts.push(composition === "allOf" ? conjoin(branches) : disjoin(branches));
-  }
-  const merged = conjoin(parts);
-
-  const root: JsonSchema = { ...schema };
-  for (const key of COMPOSITIONS) delete root[key];
-  const constraints = {
-    patternProperties: merged.patternProperties,
-    propertyNames: merged.propertyNames,
-    minProperties: merged.minProperties,
-    maxProperties: merged.maxProperties,
-  };
-  for (const [key, value] of Object.entries(constraints)) {
-    if (value === undefined) delete root[key];
-    else root[key] = value;
-  }
-  if (merged.closed) root.additionalProperties = false;
-
+function conjoin(views: (ObjectView | null)[]): ObjectView | null {
+  if (views.some((view) => view === null)) return null;
+  const parts = views as ObjectView[];
+  if (parts.length === 1) return parts[0]!;
   return {
-    ...root,
+    properties: new Map(
+      keysOf(parts).map((key) => [
+        key,
+        conjoinSides(parts.map((view) => sideFor(view, key))),
+      ]),
+    ),
+    extra: conjoinSides(parts.map((view) => view.extra)),
+    required: new Set(parts.flatMap((view) => [...view.required])),
+    constraints: conjoinConstraints(parts),
+  };
+}
+
+function disjoin(views: (ObjectView | null)[]): ObjectView | null {
+  const parts = views.filter((view): view is ObjectView => view !== null);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0]!;
+  return {
+    properties: new Map(
+      keysOf(parts).map((key) => [
+        key,
+        disjoinSides(parts.map((view) => sideFor(view, key))),
+      ]),
+    ),
+    extra: disjoinSides(parts.map((view) => view.extra)),
+    required: new Set(
+      [...parts[0]!.required].filter((key) =>
+        parts.every((view) => view.required.has(key)),
+      ),
+    ),
+    constraints: disjoinConstraints(parts),
+  };
+}
+
+function admitsObjects(schema: JsonSchema): boolean {
+  const { type } = schema;
+  if (type === undefined) return true;
+  if (Array.isArray(type)) return type.includes("object");
+  return type === "object";
+}
+
+/**
+ * The view of the keywords on `schema` itself, ignoring its compositions.
+ * `patternProperties` exempts matching keys from `additionalProperties`, and
+ * a view cannot say which keys match, so a node with patterns leaves every
+ * undeclared key open and carries the patterns as a constraint instead.
+ */
+function ownView(schema: JsonSchema): ObjectView {
+  const properties = new Map<string, Side>();
+  if (isSchema(schema.properties)) {
+    for (const [key, value] of Object.entries(schema.properties)) {
+      properties.set(key, sideOf(value));
+    }
+  }
+  const patternProperties = isSchema(schema.patternProperties)
+    ? schema.patternProperties
+    : undefined;
+  return {
+    properties,
+    extra: patternProperties ? ANY : sideOf(schema.additionalProperties),
+    required: new Set(
+      Array.isArray(schema.required)
+        ? schema.required.filter(
+            (key): key is string => typeof key === "string",
+          )
+        : [],
+    ),
+    constraints: {
+      patternProperties,
+      propertyNames: schema.propertyNames,
+      minProperties:
+        typeof schema.minProperties === "number"
+          ? schema.minProperties
+          : undefined,
+      maxProperties:
+        typeof schema.maxProperties === "number"
+          ? schema.maxProperties
+          : undefined,
+    },
+  };
+}
+
+/**
+ * The object view of a branch: its own keywords conjoined with its `$ref`
+ * target and nested compositions. Keywords the view cannot express (`not`,
+ * `if`, `dependentRequired`, ...) are dropped, which only widens it. A
+ * reference cycle or an unresolvable reference contributes no constraint.
+ */
+function viewOf(
+  value: unknown,
+  root: JsonSchema,
+  refs: Set<string>,
+): ObjectView | null {
+  if (value === false) return null;
+  if (!isSchema(value)) return TOP;
+  if (!admitsObjects(value)) return null;
+  const parts: (ObjectView | null)[] = [ownView(value)];
+  if (typeof value.$ref === "string" && !refs.has(value.$ref)) {
+    const target = resolveLocalRef(root, value.$ref);
+    if (target !== undefined) {
+      parts.push(viewOf(target, root, new Set(refs).add(value.$ref)));
+    }
+  }
+  for (const keyword of COMPOSITIONS) {
+    const branches = value[keyword];
+    if (!Array.isArray(branches) || branches.length === 0) continue;
+    const views = branches.map((branch) => viewOf(branch, root, refs));
+    parts.push(keyword === "allOf" ? conjoin(views) : disjoin(views));
+  }
+  return conjoin(parts);
+}
+
+function quoted(value: unknown): string {
+  return typeof value === "string" ? `"${value}"` : JSON.stringify(value);
+}
+
+/**
+ * One line per root anyOf/oneOf branch naming its fixed values and required
+ * fields. Flattening keeps every branch's fields but loses which ones go
+ * together, so the guidance moves into the description the model reads.
+ */
+function argumentSetGuidance(branches: unknown[]): string | undefined {
+  const lines: string[] = [];
+  for (const branch of branches) {
+    if (!isSchema(branch)) continue;
+    const properties = isSchema(branch.properties) ? branch.properties : {};
+    const fixed: string[] = [];
+    for (const [key, schema] of Object.entries(properties)) {
+      if (!isSchema(schema)) continue;
+      if (schema.const !== undefined) {
+        fixed.push(`${key}=${quoted(schema.const)}`);
+      } else if (Array.isArray(schema.enum) && schema.enum.length === 1) {
+        fixed.push(`${key}=${quoted(schema.enum[0])}`);
+      }
+    }
+    const fixedKeys = new Set(fixed.map((entry) => entry.split("=")[0]));
+    const required = (
+      Array.isArray(branch.required) ? branch.required : []
+    ).filter(
+      (key): key is string => typeof key === "string" && !fixedKeys.has(key),
+    );
+    if (fixed.length === 0 && required.length === 0) continue;
+    const parts = [
+      ...(fixed.length > 0 ? [fixed.join(", ")] : []),
+      ...(required.length > 0 ? [`requires ${required.join(", ")}`] : []),
+    ];
+    lines.push(`- ${parts.join(": ")}`);
+  }
+  if (lines.length < 2) return undefined;
+  return `Pass one of these argument sets:\n${lines.join("\n")}`;
+}
+
+export interface FlattenOptions {
+  /**
+   * Writes "any JSON value" for a key some open branch leaves unconstrained.
+   * Defaults to the bounded union the in-app providers accept.
+   */
+  anyValue?: () => JsonSchema;
+}
+
+function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
+  if (side.kind === "schema") return side.schema;
+  if (side.kind === "any" && side.hints.length > 0) {
+    return combine([...side.hints, anyValue()], "anyOf");
+  }
+  return anyValue();
+}
+
+/**
+ * Rewrites a root anyOf/oneOf/allOf into one object schema, because Anthropic
+ * rejects a composed root ("input_schema does not support oneOf, allOf, or
+ * anyOf at the top level"). The result accepts every input the original
+ * accepts and may accept more: a key one open branch leaves unconstrained
+ * stays unconstrained, and keywords a flat object cannot express are
+ * dropped. Callers validate against the action's own schema, so the looser
+ * advertised copy never lets a bad call through. Local references into the
+ * removed compositions are rebased into root `$defs` first.
+ */
+export function flattenComposedRootSchema(
+  schema: JsonSchema,
+  options: FlattenOptions = {},
+): JsonSchema {
+  if (!COMPOSITIONS.some((key) => key in schema)) return schema;
+  const anyValue =
+    options.anyValue ?? (() => ({ anyOf: boundedJsonValueBranches() }));
+  const root = rebaseLocalRefs(schema);
+
+  const parts: (ObjectView | null)[] = [ownView(root)];
+  const guidance: string[] = [];
+  for (const keyword of COMPOSITIONS) {
+    const branches = root[keyword];
+    if (!Array.isArray(branches) || branches.length === 0) continue;
+    const views = branches.map((branch) => viewOf(branch, root, new Set()));
+    parts.push(keyword === "allOf" ? conjoin(views) : disjoin(views));
+    if (keyword !== "allOf") {
+      const lines = argumentSetGuidance(branches);
+      if (lines) guidance.push(lines);
+    }
+  }
+  const merged = conjoin(parts) ?? TOP;
+
+  const flat: JsonSchema = { ...root };
+  for (const key of [
+    ...COMPOSITIONS,
+    "properties",
+    "required",
+    "additionalProperties",
+    "unevaluatedProperties",
+    "patternProperties",
+    "propertyNames",
+    "minProperties",
+    "maxProperties",
+  ]) {
+    delete flat[key];
+  }
+  for (const [key, value] of Object.entries(merged.constraints)) {
+    if (value !== undefined) flat[key] = value;
+  }
+  if (merged.extra.kind === "never") flat.additionalProperties = false;
+  else if (merged.extra.kind === "schema") {
+    flat.additionalProperties = merged.extra.schema;
+  }
+  if (guidance.length > 0) {
+    flat.description = [
+      typeof root.description === "string" ? root.description : "",
+      ...guidance,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  const properties: JsonSchema = {};
+  for (const [key, side] of merged.properties) {
+    if (side.kind !== "never") properties[key] = writeSide(side, anyValue);
+  }
+  return {
+    ...flat,
     type: "object",
-    properties: merged.properties,
-    required: merged.required,
+    properties,
+    required: [...merged.required],
   };
 }
