@@ -531,6 +531,19 @@ export function Bubble() {
 
   const draggingRef = useRef(false);
   const moveFrameRef = useRef<number | null>(null);
+  // Keep drag start, move, and final-save IPC in invocation order.
+  const dragCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const queueDragCommand = (
+    command: "bubble_drag_start" | "bubble_drag_move" | "bubble_drag_end",
+  ) => {
+    const pending = dragCommandQueueRef.current.then(() => invoke(command));
+    dragCommandQueueRef.current = pending
+      .then(() => {})
+      .catch((err) => {
+        console.warn(`[bubble] ${command} failed`, err);
+      });
+  };
 
   const handleBubblePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -543,9 +556,7 @@ export function Bubble() {
     } catch {
       // capture is best-effort
     }
-    void invoke("bubble_drag_start").catch((err) => {
-      console.warn("[bubble] bubble_drag_start failed", err);
-    });
+    queueDragCommand("bubble_drag_start");
   };
 
   const handleBubblePointerMove = (e: React.PointerEvent) => {
@@ -554,10 +565,7 @@ export function Bubble() {
     moveFrameRef.current = requestAnimationFrame(() => {
       moveFrameRef.current = null;
       if (!draggingRef.current) return;
-      void invoke("bubble_drag_move").catch(() => {
-        // Transient failures (e.g. window mid-teardown) are non-fatal; the
-        // next pointermove schedules another frame.
-      });
+      queueDragCommand("bubble_drag_move");
     });
   };
 
@@ -573,9 +581,7 @@ export function Bubble() {
     } catch {
       // already released
     }
-    void invoke("bubble_drag_end").catch((err) => {
-      console.warn("[bubble] bubble_drag_end failed", err);
-    });
+    queueDragCommand("bubble_drag_end");
   };
 
   return (

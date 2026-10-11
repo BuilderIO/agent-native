@@ -126,6 +126,13 @@ fn bubble_visible_center(position: (i32, i32), size: (u32, u32)) -> (i32, i32) {
     )
 }
 
+fn bubble_window_center(position: (i32, i32), size: (u32, u32)) -> (i32, i32) {
+    (
+        position.0 + size.0 as i32 / 2,
+        position.1 + size.1 as i32 / 2,
+    )
+}
+
 fn bubble_position_preserving_visible_center(
     position: (i32, i32),
     current_size: (u32, u32),
@@ -163,6 +170,68 @@ fn migrate_legacy_bubble_position(
     )
 }
 
+fn bubble_saved_geometry_scale(preference: &BubblePositionPreference, fallback_scale: f64) -> f64 {
+    preference.scale_factor.unwrap_or(fallback_scale).max(1.0)
+}
+
+fn bubble_saved_window_size(
+    preference: &BubblePositionPreference,
+    size_name: &str,
+    scale_factor: f64,
+) -> (u32, u32) {
+    if preference.geometry_version < BUBBLE_POSITION_GEOMETRY_VERSION {
+        legacy_bubble_window_size_for_scale(size_name, scale_factor)
+    } else {
+        bubble_window_size_for_scale(bubble_size_for_name(size_name), scale_factor)
+    }
+}
+
+fn bubble_position_for_target_scale(
+    preference: &BubblePositionPreference,
+    size_name: &str,
+    fallback_scale: f64,
+    target_scale: f64,
+) -> ((i32, i32), bool) {
+    let previous_scale = bubble_saved_geometry_scale(preference, fallback_scale);
+    let previous_size = bubble_saved_window_size(preference, size_name, previous_scale);
+    let target_size = bubble_window_size_for_scale(bubble_size_for_name(size_name), target_scale);
+    let needs_rebase = preference.geometry_version < BUBBLE_POSITION_GEOMETRY_VERSION
+        || (previous_scale - target_scale).abs() > 0.01;
+    let origin = (preference.x, preference.y);
+    if needs_rebase {
+        let position = if preference.geometry_version < BUBBLE_POSITION_GEOMETRY_VERSION {
+            migrate_legacy_bubble_position(origin, size_name, previous_scale, target_scale)
+        } else {
+            bubble_position_preserving_visible_center(origin, previous_size, target_size)
+        };
+        (position, true)
+    } else {
+        (origin, false)
+    }
+}
+
+fn bubble_scale_factor_for_monitors(
+    x: i32,
+    y: i32,
+    monitors: &[(i32, i32, u32, u32, f64)],
+) -> Option<f64> {
+    monitors
+        .iter()
+        .copied()
+        .find(|(mx, my, width, height, _)| {
+            x >= *mx && x < *mx + *width as i32 && y >= *my && y < *my + *height as i32
+        })
+        .or_else(|| {
+            monitors
+                .iter()
+                .copied()
+                .min_by_key(|(mx, my, width, height, _)| {
+                    distance_to_rect_squared(x, y, (*mx, *my, *width, *height))
+                })
+        })
+        .map(|(_, _, _, _, scale)| scale.max(1.0))
+}
+
 fn bubble_scale_factor_for_position(app: &AppHandle, x: i32, y: i32) -> f64 {
     let scale = app
         .get_webview_window(BUBBLE_LABEL)
@@ -183,21 +252,7 @@ fn bubble_scale_factor_for_position(app: &AppHandle, x: i32, y: i32) -> f64 {
                     )
                 })
                 .collect();
-            monitors
-                .iter()
-                .copied()
-                .find(|(mx, my, width, height, _)| {
-                    x >= *mx && x < *mx + *width as i32 && y >= *my && y < *my + *height as i32
-                })
-                .or_else(|| {
-                    monitors
-                        .iter()
-                        .copied()
-                        .min_by_key(|(mx, my, width, height, _)| {
-                            distance_to_rect_squared(x, y, (*mx, *my, *width, *height))
-                        })
-                })
-                .map(|(_, _, _, _, scale)| scale)
+            bubble_scale_factor_for_monitors(x, y, &monitors)
         })
         .flatten()
         .unwrap_or_else(|| overlay_scale_factor(app));
@@ -249,8 +304,7 @@ fn bubble_target_monitor_rect(
     width: u32,
     height: u32,
 ) -> (i32, i32, u32, u32) {
-    let cx = x + width as i32 / 2;
-    let cy = y + height as i32 / 2;
+    let (cx, cy) = bubble_window_center((x, y), (width, height));
     let rects = monitor_rects_for_bubble(app);
 
     rects
@@ -423,6 +477,8 @@ struct BubblePositionPreference {
     y: i32,
     #[serde(default, rename = "geometryVersion")]
     geometry_version: u8,
+    #[serde(default, rename = "scaleFactor")]
+    scale_factor: Option<f64>,
 }
 
 fn load_bubble_position(app: &AppHandle) -> Option<BubblePositionPreference> {
@@ -1332,8 +1388,12 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_bubble invoked");
     mark_popover_shown(&app);
     if let Some(existing) = app.get_webview_window(BUBBLE_LABEL) {
-        sync_bubble_window_geometry(&app, &existing)?;
+        let sync_result = sync_bubble_window_geometry(&app, &existing);
         crate::util::show_without_activation(&existing);
+        if let Err(error) = sync_result {
+            eprintln!("[clips-tray] bubble reuse sync failed: {error}");
+            return Err(error);
+        }
         dlog!("[clips-tray] bubble reused");
         return Ok(());
     }
@@ -1342,22 +1402,25 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
 
     let (mon_x, mon_y, mon_w, mon_h) = tray_monitor_physical_rect(&app);
     let saved_preference = load_bubble_position(&app);
-    let saved_origin = saved_preference
+    let fallback_scale = overlay_scale_factor(&app);
+    let scale_anchor = saved_preference
         .as_ref()
-        .map(|position| (position.x, position.y));
-    let scale_anchor = saved_origin.unwrap_or((mon_x + mon_w as i32 / 2, mon_y + mon_h as i32 / 2));
+        .map(|preference| {
+            let position = (preference.x, preference.y);
+            let geometry_scale = bubble_saved_geometry_scale(preference, fallback_scale);
+            let geometry_size = bubble_saved_window_size(preference, &size_name, geometry_scale);
+            bubble_window_center(position, geometry_size)
+        })
+        .unwrap_or((mon_x + mon_w as i32 / 2, mon_y + mon_h as i32 / 2));
     let scale = bubble_scale_factor_for_position(&app, scale_anchor.0, scale_anchor.1);
-    let migrated_legacy_position = saved_preference
+    let (saved_position, position_rebased) = saved_preference
         .as_ref()
-        .is_some_and(|position| position.geometry_version < BUBBLE_POSITION_GEOMETRY_VERSION);
-    let saved_position = saved_preference.map(|position| {
-        let origin = (position.x, position.y);
-        if position.geometry_version < BUBBLE_POSITION_GEOMETRY_VERSION {
-            migrate_legacy_bubble_position(origin, &size_name, overlay_scale_factor(&app), scale)
-        } else {
-            origin
-        }
-    });
+        .map(|preference| {
+            let (position, needs_rebase) =
+                bubble_position_for_target_scale(preference, &size_name, fallback_scale, scale);
+            (Some(position), needs_rebase)
+        })
+        .unwrap_or((None, false));
     let gutter = (OVERLAY_SHADOW_GUTTER_LOGICAL * scale).round() as u32;
     let (win_w, win_h) = bubble_window_size_for_scale(size_logical, scale);
 
@@ -1368,7 +1431,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     let (x, y, source) = match saved_position {
         Some((sx, sy)) => {
             let (cx, cy) = clamp_bubble_window_position(&app, sx, sy, win_w, win_h);
-            let source = if migrated_legacy_position {
+            let source = if position_rebased {
                 "saved-migrated"
             } else if cx == sx && cy == sy {
                 "saved"
@@ -1435,18 +1498,20 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
             }
         }
     });
-    if migrated_legacy_position {
-        let position = win
-            .outer_position()
-            .map_err(|error| format!("read migrated bubble window position: {error}"))?;
-        if let Err(error) = save_bubble_position_at(&app, position.x, position.y) {
-            close_bubble_window(&app);
-            return Err(error);
-        }
-    }
+    let position_persistence_result = if position_rebased {
+        win.outer_position()
+            .map_err(|error| format!("read migrated bubble window position: {error}"))
+            .and_then(|position| save_bubble_position_at(&app, position.x, position.y).map(|_| ()))
+    } else {
+        Ok(())
+    };
     configure_overlay_behavior(&win);
     crate::util::show_without_activation(&win);
     dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, win_w);
+    if let Err(error) = position_persistence_result {
+        eprintln!("[clips-tray] migrated bubble position save failed: {error}");
+        return Err(error);
+    }
     Ok(())
 }
 
@@ -2221,12 +2286,13 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        bubble_position_preserving_visible_center, bubble_size_for_name, bubble_visible_center,
-        bubble_window_size_for_scale, clamp_popover_logical_size,
-        legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
-        overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
-        BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
-        BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
+        bubble_position_for_target_scale, bubble_position_preserving_visible_center,
+        bubble_saved_window_size, bubble_scale_factor_for_monitors, bubble_size_for_name,
+        bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
+        clamp_popover_logical_size, legacy_bubble_window_size_for_scale,
+        migrate_legacy_bubble_position, overlay_labels_to_hide,
+        strip_trailing_period_for_messaging, text_insertion_strategy, BubblePositionPreference,
+        TextInsertionStrategy, BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
 
@@ -2305,6 +2371,38 @@ mod tests {
 
         assert_eq!((preference.x, preference.y), (17, 42));
         assert!(preference.geometry_version < BUBBLE_POSITION_GEOMETRY_VERSION);
+        assert_eq!(preference.scale_factor, None);
+    }
+
+    #[test]
+    fn restored_bubble_scale_comes_from_the_window_center_monitor() {
+        let preference = serde_json::from_str::<BubblePositionPreference>(
+            r#"{"x":900,"y":100,"geometryVersion":1,"scaleFactor":2.0}"#,
+        )
+        .expect("current bubble position should load");
+        let position = (preference.x, preference.y);
+        let previous_size = bubble_saved_window_size(&preference, "medium", 2.0);
+        let window_center = bubble_window_center(position, previous_size);
+        let monitors = [(0, 0, 1_000, 800, 2.0), (1_000, 0, 1_000, 800, 1.0)];
+
+        assert_eq!(
+            bubble_scale_factor_for_monitors(position.0, position.1, &monitors),
+            Some(2.0)
+        );
+        let target_scale =
+            bubble_scale_factor_for_monitors(window_center.0, window_center.1, &monitors)
+                .expect("restored window center should be on a monitor");
+        assert_eq!(target_scale, 1.0);
+
+        let (restored_position, was_rebased) =
+            bubble_position_for_target_scale(&preference, "medium", 2.0, target_scale);
+        let target_size =
+            bubble_window_size_for_scale(bubble_size_for_name("medium"), target_scale);
+        assert!(was_rebased);
+        assert_eq!(
+            bubble_visible_center(position, previous_size),
+            bubble_visible_center(restored_position, target_size)
+        );
     }
 
     #[test]
@@ -2776,32 +2874,34 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
     };
     let size_logical = bubble_size_for_name(name);
     let position_result = if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
-        let scale = win
-            .scale_factor()
-            .map_err(|error| format!("read bubble scale factor: {error}"))?
-            .max(1.0);
-        let gutter = (OVERLAY_SHADOW_GUTTER_LOGICAL * scale).round() as u32;
-        let content_size = (f64::from(size_logical) * scale).round() as u32;
-        let (win_w, win_h) = bubble_window_size_for_scale(size_logical, scale);
-        let current_pos = win
-            .outer_position()
-            .map_err(|error| format!("read bubble window position: {error}"))?;
-        let current_size = win
-            .outer_size()
-            .map_err(|error| format!("read bubble window size: {error}"))?;
-        let current_circle_size = current_size.width as i32 - (gutter * 2) as i32;
-        let delta = (current_circle_size - content_size as i32) / 2;
-        let new_x = current_pos.x + delta;
-        let new_y = current_pos.y + delta;
-        let (new_x, new_y) = clamp_bubble_window_position(&app, new_x, new_y, win_w, win_h);
-        win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)))
-            .map_err(|error| format!("resize bubble window: {error}"))?;
-        win.set_position(PhysicalPosition::new(new_x, new_y))
-            .map_err(|error| format!("reposition bubble window: {error}"))?;
-        match win.outer_position() {
-            Ok(position) => save_bubble_position_at(&app, position.x, position.y).map(|_| ()),
-            Err(error) => Err(format!("read bubble window position: {error}")),
-        }
+        (|| {
+            let scale = win
+                .scale_factor()
+                .map_err(|error| format!("read bubble scale factor: {error}"))?
+                .max(1.0);
+            let gutter = (OVERLAY_SHADOW_GUTTER_LOGICAL * scale).round() as u32;
+            let content_size = (f64::from(size_logical) * scale).round() as u32;
+            let (win_w, win_h) = bubble_window_size_for_scale(size_logical, scale);
+            let current_pos = win
+                .outer_position()
+                .map_err(|error| format!("read bubble window position: {error}"))?;
+            let current_size = win
+                .outer_size()
+                .map_err(|error| format!("read bubble window size: {error}"))?;
+            let current_circle_size = current_size.width as i32 - (gutter * 2) as i32;
+            let delta = (current_circle_size - content_size as i32) / 2;
+            let new_x = current_pos.x + delta;
+            let new_y = current_pos.y + delta;
+            let (new_x, new_y) = clamp_bubble_window_position(&app, new_x, new_y, win_w, win_h);
+            win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)))
+                .map_err(|error| format!("resize bubble window: {error}"))?;
+            win.set_position(PhysicalPosition::new(new_x, new_y))
+                .map_err(|error| format!("reposition bubble window: {error}"))?;
+            match win.outer_position() {
+                Ok(position) => save_bubble_position_at(&app, position.x, position.y).map(|_| ()),
+                Err(error) => Err(format!("read bubble window position: {error}")),
+            }
+        })()
     } else {
         Ok(())
     };
@@ -2821,16 +2921,23 @@ pub async fn save_bubble_position(app: AppHandle, x: i32, y: i32) -> Result<(), 
 
 fn save_bubble_position_at(app: &AppHandle, x: i32, y: i32) -> Result<(i32, i32), String> {
     let path = bubble_position_path(app).ok_or("bubble position path unavailable")?;
-    let (width, height) = if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
+    let (width, height, scale_factor) = if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
         let size = window
             .outer_size()
             .map_err(|error| format!("read bubble window size: {error}"))?;
-        (size.width, size.height)
+        let scale_factor = window
+            .scale_factor()
+            .map_err(|error| format!("read bubble scale factor: {error}"))?;
+        (size.width, size.height, scale_factor.max(1.0))
     } else {
         let size_name = load_bubble_size_name(app);
         let size_logical = bubble_size_for_name(&size_name);
-        let scale = bubble_scale_factor_for_position(app, x, y);
-        bubble_window_size_for_scale(size_logical, scale)
+        let fallback_scale = overlay_scale_factor(app);
+        let assumed_size = bubble_window_size_for_scale(size_logical, fallback_scale);
+        let (center_x, center_y) = bubble_window_center((x, y), assumed_size);
+        let scale_factor = bubble_scale_factor_for_position(app, center_x, center_y);
+        let (width, height) = bubble_window_size_for_scale(size_logical, scale_factor);
+        (width, height, scale_factor)
     };
     let (x, y) = clamp_bubble_window_position(app, x, y, width, height);
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
@@ -2847,6 +2954,7 @@ fn save_bubble_position_at(app: &AppHandle, x: i32, y: i32) -> Result<(i32, i32)
         "x": x,
         "y": y,
         "geometryVersion": BUBBLE_POSITION_GEOMETRY_VERSION,
+        "scaleFactor": scale_factor,
     }))
     .map_err(|e| format!("serialize: {e}"))?;
     let tmp = path.with_extension("json.tmp");
@@ -2868,15 +2976,17 @@ pub async fn bubble_drag_start(app: AppHandle) -> Result<(), String> {
     let (Ok(cursor), Ok(pos)) = (window.cursor_position(), window.outer_position()) else {
         return Ok(());
     };
-    *bubble_drag_anchor()
+    let mut anchor = bubble_drag_anchor()
         .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(BubbleDragAnchor {
+        .unwrap_or_else(|e| e.into_inner());
+    *anchor = Some(BubbleDragAnchor {
         cursor_x: cursor.x.round() as i32,
         cursor_y: cursor.y.round() as i32,
         win_x: pos.x,
         win_y: pos.y,
     });
     BUBBLE_DRAGGING.store(true, Ordering::SeqCst);
+    drop(anchor);
     mark_popover_shown(&app);
     Ok(())
 }
@@ -2886,35 +2996,39 @@ pub async fn bubble_drag_move(app: AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window(BUBBLE_LABEL) else {
         return Ok(());
     };
+    // Drag end takes this lock before saving, so no earlier move can land later.
+    let anchor = bubble_drag_anchor()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let Some(anchor) = anchor.as_ref() else {
+        return Ok(());
+    };
     let Ok(cursor) = window.cursor_position() else {
         return Ok(());
     };
-    let target = {
-        let guard = bubble_drag_anchor()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let Some(anchor) = guard.as_ref() else {
-            return Ok(());
-        };
-        (
-            anchor.win_x + (cursor.x.round() as i32 - anchor.cursor_x),
-            anchor.win_y + (cursor.y.round() as i32 - anchor.cursor_y),
-        )
-    };
+    let target = (
+        anchor.win_x + (cursor.x.round() as i32 - anchor.cursor_x),
+        anchor.win_y + (cursor.y.round() as i32 - anchor.cursor_y),
+    );
     let Ok(size) = window.outer_size() else {
         return Ok(());
     };
     let (x, y) = clamp_bubble_window_position(&app, target.0, target.1, size.width, size.height);
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|error| format!("move bubble window: {error}"))?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
-    *bubble_drag_anchor()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = None;
-    BUBBLE_DRAGGING.store(false, Ordering::SeqCst);
+    {
+        let mut anchor = bubble_drag_anchor()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *anchor = None;
+        BUBBLE_DRAGGING.store(false, Ordering::SeqCst);
+    }
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
         sync_bubble_window_geometry(&app, &window)?;
     }
