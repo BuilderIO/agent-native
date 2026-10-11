@@ -9,6 +9,7 @@ import {
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
+import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
 import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import {
   AgentChatAiSetupRequiredError,
@@ -36,6 +37,55 @@ function json(value: unknown, status = 200): Response {
     headers: { "content-type": "application/json" },
   });
 }
+
+describe("projectRootAssistantMessages", () => {
+  it("counts event-associated durable replies when deciding whether a run is ambiguous", () => {
+    const runId = "run-with-event-associated-root";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-explicit",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "root-event-associated",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-duplicate",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+      events: [
+        {
+          type: "message.completed",
+          runId,
+          message: { id: "root-event-associated", role: "assistant" },
+        },
+      ],
+    });
+
+    expect(projection.representedRootMessageIds).not.toContain("root-explicit");
+    expect(projection.supersededSnapshotMessageIds).not.toContain(
+      "snapshot-duplicate",
+    );
+  });
+});
 
 function createAgentNativeAgentKitTransport(
   options: Parameters<
@@ -3862,6 +3912,13 @@ describe("createAgentNativeAgentKitTransport", () => {
                       metadata: { runId },
                     },
                     {
+                      id: "assistant-duplicate-with-trailing-whitespace",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: `${answer}\n${answer}\n` }],
+                      metadata: { runId },
+                    },
+                    {
                       id: "assistant-extended",
                       role: "assistant",
                       status: "complete",
@@ -3869,6 +3926,36 @@ describe("createAgentNativeAgentKitTransport", () => {
                         {
                           type: "text",
                           text: `${answer}\nHere is the full diff: ...`,
+                        },
+                      ],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-unmatched-reasoning",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        { type: "text", text: `${answer}\n${answer}` },
+                        { type: "reasoning", text: "extra reasoning" },
+                      ],
+                      metadata: { runId },
+                    },
+                    {
+                      id: "assistant-unmatched-tool-call",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [
+                        { type: "text", text: `${answer}\n${answer}` },
+                        {
+                          type: "data",
+                          mediaType:
+                            "application/x-agent-native-repository-part",
+                          data: {
+                            type: "tool-call",
+                            toolCallId: "tool-unmatched",
+                            toolName: "search",
+                            args: { query: "extra content" },
+                          },
                         },
                       ],
                       metadata: { runId },
@@ -3900,7 +3987,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     const assistantMessages = snapshot?.messages.filter(
       (message) => message.role === "assistant",
     );
-    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages).toHaveLength(4);
     expect(assistantMessages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -3915,6 +4002,8 @@ describe("createAgentNativeAgentKitTransport", () => {
             { type: "text", text: `${answer}\nHere is the full diff: ...` },
           ],
         }),
+        expect.objectContaining({ id: "assistant-unmatched-reasoning" }),
+        expect.objectContaining({ id: "assistant-unmatched-tool-call" }),
       ]),
     );
     await transport.dispose();

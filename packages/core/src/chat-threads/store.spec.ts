@@ -1574,10 +1574,40 @@ describe("chat thread store", () => {
             metadata: { runId: "run-1" },
           },
           {
+            id: "assistant-duplicate-with-trailing-whitespace",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done.\nDone.\n" }],
+            metadata: { runId: "run-1" },
+          },
+          {
             id: "assistant-extended",
             role: "assistant",
             parts: [
               { type: "text", text: "Done.\nHere is the full diff: ..." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-unmatched-reasoning",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nDone." },
+              { type: "reasoning", text: "extra reasoning" },
+            ],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "assistant-unmatched-tool-call",
+            role: "assistant",
+            parts: [
+              { type: "text", text: "Done.\nDone." },
+              {
+                type: "tool-call",
+                toolCallId: "tool-unmatched",
+                toolName: "search",
+                args: { query: "extra content" },
+                result: { ok: true },
+              },
             ],
             metadata: { runId: "run-1" },
           },
@@ -1601,7 +1631,7 @@ describe("chat thread store", () => {
       3,
     );
 
-    expect(row!.message_count).toBe(3);
+    expect(row!.message_count).toBe(5);
   });
 
   it("counts an identical root and AgentKit assistant mirror once", async () => {

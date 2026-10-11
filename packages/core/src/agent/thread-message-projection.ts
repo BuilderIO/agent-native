@@ -168,6 +168,7 @@ function isRepeatedAnswerSnapshot(
 ): boolean {
   if (!answer || !candidateText.startsWith(answer)) return false;
   let offset = answer.length;
+  let repeatedAnswers = 0;
   while (offset < candidateText.length) {
     while (
       offset < candidateText.length &&
@@ -175,15 +176,14 @@ function isRepeatedAnswerSnapshot(
     ) {
       offset += 1;
     }
-    if (
-      offset === candidateText.length ||
-      !candidateText.startsWith(answer, offset)
-    ) {
+    if (offset === candidateText.length) return repeatedAnswers > 0;
+    if (!candidateText.startsWith(answer, offset)) {
       return false;
     }
     offset += answer.length;
+    repeatedAnswers += 1;
   }
-  return offset > answer.length;
+  return repeatedAnswers > 0;
 }
 
 function rootToolCalls(
@@ -196,6 +196,44 @@ function rootToolCalls(
     const data = record(part.data);
     return data?.type === "tool-call" ? [data] : [];
   });
+}
+
+function sameToolCallIdentity(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  const id = (call: Record<string, unknown>) =>
+    typeof call.toolCallId === "string" ? call.toolCallId : call.id;
+  const name = (call: Record<string, unknown>) =>
+    typeof call.toolName === "string" ? call.toolName : call.name;
+  const args = (call: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(call, "args") ? call.args : call.input;
+  const hasArgs = (call: Record<string, unknown>) =>
+    Object.prototype.hasOwnProperty.call(call, "args") ||
+    Object.prototype.hasOwnProperty.call(call, "input");
+  return (
+    typeof id(left) === "string" &&
+    id(left) === id(right) &&
+    typeof name(left) === "string" &&
+    name(left) === name(right) &&
+    hasArgs(left) &&
+    hasArgs(right) &&
+    sameValue(args(left), args(right))
+  );
+}
+
+function snapshotAdditionalContentIsRepresented(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+): boolean {
+  const candidateReasoning = reasoning(candidate);
+  if (candidateReasoning && candidateReasoning !== reasoning(root)) {
+    return false;
+  }
+  const rootCalls = rootToolCalls(root);
+  return rootToolCalls(candidate).every((candidateCall) =>
+    rootCalls.some((rootCall) => sameToolCallIdentity(rootCall, candidateCall)),
+  );
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -423,7 +461,7 @@ export function projectRootAssistantMessages(input: {
   const directMatches = new Map<string, string>();
   const rootAssistantCountsByRun = new Map<string, number>();
   for (const root of rootMessages) {
-    const runId = root.role === "assistant" ? explicitRunId(root) : undefined;
+    const runId = assistantRunId(root, runIdsByMessageId);
     if (!runId) continue;
     rootAssistantCountsByRun.set(
       runId,
@@ -433,7 +471,7 @@ export function projectRootAssistantMessages(input: {
   const supersededSnapshotMessageIds = new Set<string>();
   for (const root of rootMessages) {
     if (root.role !== "assistant" || typeof root.id !== "string") continue;
-    const runId = explicitRunId(root);
+    const runId = assistantRunId(root, runIdsByMessageId);
     if (!runId) continue;
     const toolMessageIds = representedToolCallMessageIds(root, input.toolCalls);
     const sameRunCandidates = (snapshotMessagesByRunId.get(runId) ?? []).filter(
@@ -461,6 +499,7 @@ export function projectRootAssistantMessages(input: {
         if (
           candidateText &&
           isRepeatedAnswerSnapshot(rootText, candidateText) &&
+          snapshotAdditionalContentIsRepresented(root, candidate) &&
           typeof candidate.id === "string"
         ) {
           supersededSnapshotMessageIds.add(candidate.id);
