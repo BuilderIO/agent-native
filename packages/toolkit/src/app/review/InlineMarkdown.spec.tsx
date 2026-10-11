@@ -150,4 +150,29 @@ describe("InlineMarkdown", () => {
     expect(container.querySelector("em")?.textContent).toBe("after");
     expect(container.querySelector("p")).toBeNull();
   });
+
+  it("protects overlapping spans once each, at their own occurrences", () => {
+    const content = "@Sam Lee and @Sam, not @Sam here";
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          content={content}
+          inline
+          protectedSpans={[
+            { source: "@Sam", label: "@Sam", at: content.indexOf("@Sam,") },
+            { source: "@Sam Lee", label: "@Sam Lee" },
+          ]}
+          renderProtectedSpan={(span, children) => (
+            <mark data-protected={span.label}>{children}</mark>
+          )}
+        />,
+      );
+    });
+
+    expect(
+      [...container.querySelectorAll("mark")].map((mark) => mark.textContent),
+    ).toEqual(["@Sam Lee", "@Sam"]);
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.textContent).toBe(content);
+  });
 });

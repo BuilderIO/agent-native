@@ -200,7 +200,6 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
                 onMentionAdd={() => {}}
                 onSubmit={() => {}}
                 onEscape={() => {}}
-                members={[]}
               />
             ) : (
               <CommentsSidebar

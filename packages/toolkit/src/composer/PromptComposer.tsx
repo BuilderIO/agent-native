@@ -244,6 +244,9 @@ export interface PromptComposerProps {
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   mentionItems?: MentionItem[];
+  /** Why some of `mentionItems` could not load, shown in the @ popover. */
+  mentionItemsError?: string;
+  onRetryMentionItems?: () => void;
   mentionPopoverDensity?: "default" | "stacked";
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
@@ -689,6 +692,8 @@ function PromptComposerInner({
   modelStatusChecksEnabled,
   onTextChange,
   mentionItems,
+  mentionItemsError,
+  onRetryMentionItems,
   mentionPopoverDensity,
   includeDefaultMentionSearch,
   onReferencesChange,
@@ -1014,6 +1019,8 @@ function PromptComposerInner({
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
+          mentionItemsError={mentionItemsError}
+          onRetryMentionItems={onRetryMentionItems}
           mentionPopoverDensity={mentionPopoverDensity}
           includeDefaultMentionSearch={includeDefaultMentionSearch}
           onReferencesChange={onReferencesChange}

@@ -1012,6 +1012,7 @@ const overrides = {
     addEmoji: "新增表情符號",
     mentionSomeone: "提及某人",
     mentionPeople: "成員",
+    mentionPeopleLoadFailed: "無法載入成員。",
     mentionAgents: "代理程式",
     identityPerson: "使用者",
     identityModel: "模型",

@@ -116,6 +116,20 @@ describe("sent comment mentions", () => {
     expect(spokenText(host)).toBe("@Sam Lee and @Sam Lee, plus @Priya");
   });
 
+  it("draws a name inside a longer stored name once, as the longer one", () => {
+    const pills = render(
+      "@Sam Lee met @Sam; @Samantha did not",
+      JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+        { kind: "person", email: "sam.lee@example.com", name: "Sam Lee" },
+      ]),
+    );
+
+    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Sam Lee", "@Sam"]);
+    expect(spokenText(host)).toBe("@Sam Lee met @Sam; @Samantha did not");
+    expect(host.textContent).not.toContain("](");
+  });
+
   it("never turns markup in a name or comment into elements", () => {
     const pills = render(
       "<b>bold</b> @<img src=x>",

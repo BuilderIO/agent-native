@@ -22,7 +22,6 @@ import {
   useReactToComment,
   type Comment,
 } from "@/hooks/use-comments";
-import type { MentionMember } from "@/hooks/use-mention-members";
 
 import {
   AgentAvatar,
@@ -94,7 +93,6 @@ export function CommentEntry({
   documentId,
   currentUserEmail,
   canComment,
-  members,
   headerActions,
   revealActions = "always",
   replyAction,
@@ -107,7 +105,6 @@ export function CommentEntry({
   documentId: string;
   currentUserEmail?: string;
   canComment: boolean;
-  members: MentionMember[];
   /** Thread-level actions (resolve, accept) shown after this row's menu. */
   headerActions?: ReactNode;
   revealActions?: "always" | "hover";
@@ -459,7 +456,6 @@ export function CommentEntry({
             ariaLabel={t("comments.edit")}
             value={draft.draft.text}
             onChange={draft.setText}
-            members={members}
             onMentionAdd={(mention) =>
               draft.setMentions((previous) => [...previous, mention])
             }

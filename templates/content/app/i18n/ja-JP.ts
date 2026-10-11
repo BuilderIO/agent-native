@@ -1419,6 +1419,7 @@ const overrides = {
     addEmoji: "絵文字を追加",
     mentionSomeone: "メンションする",
     mentionPeople: "メンバー",
+    mentionPeopleLoadFailed: "メンバーを読み込めませんでした。",
     mentionAgents: "エージェント",
     identityPerson: "ユーザー",
     identityModel: "モデル",

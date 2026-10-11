@@ -1095,6 +1095,9 @@ export interface TiptapComposerProps {
   /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
   mentionItems?: MentionItem[];
+  /** Why some of `mentionItems` could not load, shown in the @ popover. */
+  mentionItemsError?: string;
+  onRetryMentionItems?: () => void;
   mentionPopoverDensity?: "default" | "stacked";
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
@@ -2835,6 +2838,8 @@ export function TiptapComposer({
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
   mentionItems: hostMentionItems = [],
+  mentionItemsError,
+  onRetryMentionItems,
   mentionPopoverDensity = "default",
   includeDefaultMentionSearch = true,
   onReferencesChange,
@@ -6228,6 +6233,8 @@ export function TiptapComposer({
         commands={filteredCommands}
         hint={hint}
         isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
+        error={mentionItemsError}
+        onRetry={onRetryMentionItems}
         query={popover?.query ?? ""}
         onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}

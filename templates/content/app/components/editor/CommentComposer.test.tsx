@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CommentComposer } from "./CommentComposer";
 
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({ data: [], isError: false, refetch: vi.fn() }),
+}));
+
 describe("CommentComposer", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -28,7 +32,6 @@ describe("CommentComposer", () => {
           onChange: vi.fn(),
           onSubmit: vi.fn(),
           onMentionAdd: vi.fn(),
-          members: [],
           disabled,
         }),
       );

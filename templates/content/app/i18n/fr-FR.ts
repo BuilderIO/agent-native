@@ -1457,6 +1457,7 @@ const overrides = {
     addEmoji: "Ajouter un emoji",
     mentionSomeone: "Mentionner quelqu’un",
     mentionPeople: "Personnes",
+    mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",
     identityPerson: "Personne",
     identityModel: "Modèle",

@@ -1404,6 +1404,7 @@ const overrides = {
     addEmoji: "이모지 추가",
     mentionSomeone: "멘션하기",
     mentionPeople: "사람",
+    mentionPeopleLoadFailed: "사람 목록을 불러오지 못했습니다.",
     mentionAgents: "에이전트",
     identityPerson: "사용자",
     identityModel: "모델",

@@ -133,7 +133,6 @@ function Harness({
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
-          members={[]}
         />
       )}
     </CommentDraftProvider>
@@ -297,7 +296,6 @@ it("lets a long author shrink while keeping thread actions inline after the menu
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
-          members={[]}
           headerActions={<button data-testid="resolve">resolve</button>}
         />
       </CommentDraftProvider>,
@@ -335,7 +333,6 @@ it("keeps the exact AI conversation link in the comment overflow", async () => {
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
-          members={[]}
           onOpenAiConversation={onOpenAiConversation}
         />
       </CommentDraftProvider>,

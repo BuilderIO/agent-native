@@ -1452,6 +1452,7 @@ const enUS = {
     addEmoji: "Add emoji",
     mentionSomeone: "Mention someone",
     mentionPeople: "People",
+    mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
     identityPerson: "Person",
     identityModel: "Model",

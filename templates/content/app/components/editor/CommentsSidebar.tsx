@@ -64,10 +64,6 @@ import {
   type CommentThread,
 } from "@/hooks/use-comments";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import {
-  useMentionMembers,
-  type MentionMember,
-} from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
 import { modelDisplayName } from "./agent-identity";
@@ -801,7 +797,6 @@ export function CommentsSidebar({
     currentUserEmail,
     currentUserOrgId,
   );
-  const { data: members = [] } = useMentionMembers();
   const createComment = useCreateComment({ email: currentUserEmail });
   const deleteComment = useDeleteComment();
   const resolveComment = useResolveComment();
@@ -1714,7 +1709,6 @@ export function CommentsSidebar({
           replyDrafts.setAiDraft(thread.threadId, aiDraft)
         }
         onHeightChange={handleThreadCardHeightChange}
-        members={members}
         canComment={canComment && !thread.resolved}
         canResolve={canResolve}
         onSubmitReply={() => handleReply(thread.threadId)}
@@ -1738,7 +1732,6 @@ export function CommentsSidebar({
             documentId={documentId}
             currentUserEmail={currentUserEmail}
             canComment={canComment}
-            members={members}
             headerActions={slots.headerActions}
             revealActions={slots.revealActions}
             replyAction={slots.replyAction}
@@ -1850,7 +1843,6 @@ export function CommentsSidebar({
         canComment={canComment}
         canDecide={canDecideSuggestions}
         deciding={suggestionBusy(suggestion)}
-        members={members}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
         }}
@@ -1919,7 +1911,6 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
-      members={members}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
       onActivateSaved={(saved) => {
@@ -2214,7 +2205,6 @@ export function CommentsSidebar({
                 onBlur={() => {
                   if (pendingFocus) pendingFocus.current = null;
                 }}
-                members={members}
                 placeholder={t("comments.add")}
                 submitLabel={t("comments.submit")}
                 submitDisabled={!pendingTargetValid || ambiguousCreate()}
@@ -2567,7 +2557,6 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
-  members,
   onActivate,
   onMaterialize,
   onActivateSaved,
@@ -2585,7 +2574,6 @@ function DraftSuggestionThreadView({
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
-  members: MentionMember[];
   onActivate: () => void;
   onMaterialize?: (
     suggestion: DraftSuggestion,
@@ -2635,7 +2623,6 @@ function DraftSuggestionThreadView({
         isSubmitting={isSaving}
         timeLabel={t("editor.toolbar.suggesting")}
         replyText=""
-        members={members}
         onHoverChange={() => {}}
         onExpand={() => {
           onActivate();
@@ -2724,7 +2711,6 @@ function SuggestionThreadView({
   canComment,
   canDecide,
   deciding,
-  members,
   onActivate,
   onExpansionChange,
   onDecide,
@@ -2751,7 +2737,6 @@ function SuggestionThreadView({
   canComment: boolean;
   canDecide: boolean;
   deciding: boolean;
-  members: MentionMember[];
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
   onDecide: (decision: SuggestionDecision) => void;
@@ -2861,7 +2846,6 @@ function SuggestionThreadView({
         isSubmitting={comments.isLoading}
         isReplySubmitting={reply.isPending}
         replyText={draft}
-        members={members}
         onHoverChange={() => {}}
         onExpand={() => {
           if (!canExpand) return;
@@ -3107,7 +3091,6 @@ function ThreadView({
   timeLabel,
   replyText,
   aiDraft,
-  members,
   onHoverChange,
   onExpand,
   onCollapse,
@@ -3163,7 +3146,6 @@ function ThreadView({
   timeLabel?: string;
   replyText: string;
   aiDraft?: CommentAiDraft | null;
-  members: MentionMember[];
   onHoverChange: (hovered: boolean) => void;
   onExpand: () => void;
   onCollapse: () => void;
@@ -3567,7 +3549,6 @@ function ThreadView({
               if (replyDrafts?.focus.current?.threadId === thread.threadId)
                 replyDrafts.focus.current = null;
             }}
-            members={members}
             placeholder={t("comments.reply")}
             submitLabel={t("comments.submit")}
             submitDisabled={isReplySubmitting}

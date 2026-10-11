@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   commentMentionsForText,
+  findCommentMentions,
   parseCommentMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
@@ -91,6 +92,51 @@ describe("comment mentions", () => {
       ]),
     ).toBe(serializeStoredCommentMentions([sam, claude]));
     expect(commentMentionsForText("No mentions", [sam])).toBeUndefined();
+  });
+
+  it("matches a stored name only as a whole @ token, longest first", () => {
+    const sam = {
+      kind: "person" as const,
+      email: "sam@example.com",
+      name: "Sam",
+    };
+    const samLee = {
+      kind: "person" as const,
+      email: "sam.lee@example.com",
+      name: "Sam Lee",
+    };
+    const text = "@Sam Lee, @Sam. Not @Samantha or me@Sam.com";
+
+    expect(
+      findCommentMentions(text, [sam, samLee]).map(({ start, name }) => [
+        start,
+        name,
+      ]),
+    ).toEqual([
+      [0, "Sam Lee"],
+      [10, "Sam"],
+    ]);
+    expect(commentMentionsForText("Ask @Samantha", [sam])).toBeUndefined();
+  });
+
+  it("keeps both people who share a name but draws neither as theirs", () => {
+    const first = {
+      kind: "person" as const,
+      email: "a@example.com",
+      name: "Sam",
+    };
+    const second = {
+      kind: "person" as const,
+      email: "b@example.com",
+      name: "Sam",
+    };
+
+    expect(findCommentMentions("Hi @Sam", [first, second])).toEqual([
+      { start: 3, name: "Sam", mention: null },
+    ]);
+    expect(commentMentionsForText("Hi @Sam", [first, second])).toBe(
+      serializeStoredCommentMentions([first, second]),
+    );
   });
 
   it("stores the same mentions the same way whatever order their keys came in", () => {

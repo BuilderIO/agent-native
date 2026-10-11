@@ -43,6 +43,9 @@ interface MentionPopoverProps {
   commands?: SlashCommand[];
   hint?: string;
   isLoading: boolean;
+  /** Why some @ items could not load; shown above the items that did. */
+  error?: string;
+  onRetry?: () => void;
   query: string;
   onSelectMention: (item: MentionItem) => void;
   onSelectSkill: (skill: SkillResult) => void;
@@ -158,6 +161,8 @@ export const MentionPopover = forwardRef<
     commands = [],
     hint,
     isLoading,
+    error,
+    onRetry,
     query,
     onSelectMention,
     onSelectSkill,
@@ -308,9 +313,28 @@ export const MentionPopover = forwardRef<
           ),
         }}
       >
+        {type === "@" && error && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-destructive"
+          >
+            <span>{error}</span>
+            {onRetry && (
+              <button
+                type="button"
+                className="shrink-0 rounded px-1.5 py-0.5 font-medium text-foreground hover:bg-accent"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onRetry}
+              >
+                {t("agentChat.common.retry", { defaultValue: "Retry" })}
+              </button>
+            )}
+          </div>
+        )}
         {isLoading && itemCount === 0 ? (
           <LoadingSkeleton />
-        ) : itemCount === 0 ? (
+        ) : itemCount === 0 && type === "@" && error ? null : itemCount ===
+          0 ? (
           <div className="px-3 py-4 text-center text-xs text-muted-foreground">
             {type === "@" ? (
               query ? (

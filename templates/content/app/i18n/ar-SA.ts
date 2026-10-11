@@ -1405,6 +1405,7 @@ const overrides = {
     addEmoji: "إضافة رمز تعبيري",
     mentionSomeone: "الإشارة إلى شخص",
     mentionPeople: "الأشخاص",
+    mentionPeopleLoadFailed: "تعذّر تحميل الأشخاص.",
     mentionAgents: "الوكلاء",
     identityPerson: "شخص",
     identityModel: "النموذج",

@@ -128,6 +128,66 @@ export function serializeStoredCommentMentions(
   );
 }
 
+export interface CommentMentionMatch {
+  /** Offset of the `@` in the text. */
+  start: number;
+  name: string;
+  /** Null when two stored identities share the name: no position says which. */
+  mention: CommentMention | null;
+}
+
+const NAME_CHARACTER = /[\p{L}\p{N}_]/u;
+
+function isNameCharacter(character: string | undefined): boolean {
+  return character !== undefined && NAME_CHARACTER.test(character);
+}
+
+/**
+ * Where stored mentions' `@name`s appear in the text. A name counts only as a
+ * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
+ * two names start at the same `@` the longer wins. Saving and rendering both
+ * use this, so a pill is drawn exactly where a saved mention is.
+ */
+export function findCommentMentions(
+  text: string,
+  mentions: readonly CommentMention[],
+): CommentMentionMatch[] {
+  const byName = new Map<string, CommentMention | null>();
+  for (const mention of mentions) {
+    if (!mention.name) continue;
+    const known = byName.get(mention.name);
+    byName.set(
+      mention.name,
+      known === undefined ||
+        (known && commentMentionKey(known) === commentMentionKey(mention))
+        ? mention
+        : null,
+    );
+  }
+  const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  const matches: CommentMentionMatch[] = [];
+  let start = text.indexOf("@");
+  while (start !== -1) {
+    const name = isNameCharacter(text[start - 1])
+      ? undefined
+      : names.find(
+          (candidate) =>
+            text.startsWith(candidate, start + 1) &&
+            !(
+              isNameCharacter(candidate[candidate.length - 1]) &&
+              isNameCharacter(text[start + 1 + candidate.length])
+            ),
+        );
+    if (name === undefined) {
+      start = text.indexOf("@", start + 1);
+      continue;
+    }
+    matches.push({ start, name, mention: byName.get(name) ?? null });
+    start = text.indexOf("@", start + 1 + name.length);
+  }
+  return matches;
+}
+
 /**
  * The mentions whose `@name` still appears in the text, once each, encoded
  * for an add or update. Undefined when nothing is mentioned.
@@ -136,11 +196,13 @@ export function commentMentionsForText(
   text: string,
   mentions: readonly CommentMention[],
 ): string | undefined {
+  const named = new Set(
+    findCommentMentions(text, mentions).map((match) => match.name),
+  );
   const seen = new Set<string>();
   const present = mentions.filter((mention) => {
     const key = commentMentionKey(mention);
-    if (seen.has(key) || !mention.name || !text.includes(`@${mention.name}`))
-      return false;
+    if (seen.has(key) || !named.has(mention.name)) return false;
     seen.add(key);
     return true;
   });

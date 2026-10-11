@@ -30,7 +30,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { MentionMember } from "@/hooks/use-mention-members";
+import {
+  useMentionMembers,
+  type MentionMember,
+} from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
 import { modelDisplayName } from "./agent-identity";
@@ -79,7 +82,6 @@ interface CommentComposerProps {
   onSelectionChange?: (selection: ComposerTextSelection) => void;
   /** Shows a Cancel button beside Send, for editing or a new comment. */
   onCancel?: () => void;
-  members: MentionMember[];
   placeholder?: string;
   ariaLabel?: string;
   /** Accessible name for the send button. Defaults to "Comment". */
@@ -182,7 +184,6 @@ export const CommentComposer = forwardRef<
     onFocus,
     onSelectionChange,
     onCancel,
-    members,
     placeholder,
     ariaLabel,
     submitLabel,
@@ -195,6 +196,8 @@ export const CommentComposer = forwardRef<
   forwardedRef,
 ) {
   const t = useT();
+  const membersQuery = useMentionMembers();
+  const members = membersQuery.data ?? [];
   const wrapperRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [composerReady, setComposerReady] = useState(false);
@@ -601,6 +604,12 @@ export const CommentComposer = forwardRef<
         }}
         onSubmit={submit}
         mentionItems={mentionItems}
+        mentionItemsError={
+          membersQuery.isError
+            ? t("comments.mentionPeopleLoadFailed")
+            : undefined
+        }
+        onRetryMentionItems={() => void membersQuery.refetch()}
         mentionPopoverDensity="stacked"
         includeDefaultMentionSearch={false}
         onReferencesChange={handleReferencesChange}

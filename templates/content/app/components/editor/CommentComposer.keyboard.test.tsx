@@ -12,6 +12,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { typeRichEditorText } from "./comment-composer-test-utils";
 import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
 
+const mentionMembers = vi.hoisted(() => ({
+  current: {
+    data: [{ name: "Alice", email: "alice@example.test" }] as
+      | { name: string; email: string }[]
+      | undefined,
+    isError: false,
+    refetch: vi.fn(),
+  },
+}));
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => mentionMembers.current,
+}));
 const onModelChange = vi.fn();
 const onAiDraftChange = vi.fn();
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -94,7 +106,6 @@ describe("CommentComposer rich recipient", () => {
           setAiDraft(next);
         }}
         aiModelStorageKey="comment-ai:test"
-        members={[{ name: "Alice", email: "alice@example.test" }]}
       />
     );
   }
@@ -216,6 +227,31 @@ describe("CommentComposer rich recipient", () => {
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
   });
 
+  it("says when people could not load and retries from the mention menu", async () => {
+    const people = mentionMembers.current;
+    const refetch = vi.fn();
+    mentionMembers.current = { data: undefined, isError: true, refetch };
+    try {
+      await act(async () =>
+        root.render(<Owner key="members-failed" initialValue="" />),
+      );
+      await typeRichEditorText(editor(), "@");
+
+      const popover = document.querySelector(
+        '[data-agent-native-composer-popover="true"]',
+      );
+      const alert = popover?.querySelector('[role="alert"]');
+      expect(alert).not.toBeNull();
+      expect(popover?.textContent).toContain("Claude Sonnet 5");
+      expect(popover?.textContent).not.toContain("alice@example.test");
+
+      await act(async () => alert?.querySelector("button")?.click());
+      expect(refetch).toHaveBeenCalledTimes(1);
+    } finally {
+      mentionMembers.current = people;
+    }
+  });
+
   it("keeps the composer settled after clicking the AI mention", async () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -292,7 +328,6 @@ describe("CommentComposer rich recipient", () => {
           aiDraft={aiDraft}
           onAiDraftChange={setAiDraft}
           aiModelStorageKey="comment-ai:controlled"
-          members={[]}
         />
       );
     }

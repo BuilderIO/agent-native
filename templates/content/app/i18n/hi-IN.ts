@@ -1392,6 +1392,7 @@ const overrides = {
     addEmoji: "इमोजी जोड़ें",
     mentionSomeone: "किसी का उल्लेख करें",
     mentionPeople: "लोग",
+    mentionPeopleLoadFailed: "लोगों को लोड नहीं किया जा सका।",
     mentionAgents: "एजेंट",
     identityPerson: "व्यक्ति",
     identityModel: "मॉडल",

@@ -1,7 +1,7 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { InlineMarkdown } from "@agent-native/toolkit/app/review";
 import {
-  commentMentionKey,
+  findCommentMentions,
   type CommentMention,
 } from "@shared/comment-mentions";
 import { forwardRef, useState, type ReactNode } from "react";
@@ -31,36 +31,29 @@ export { CommentAvatar } from "./CommentAvatar";
 /**
  * Render a comment body. Each `@name` that matches one of the comment's
  * stored mentions becomes a pill for that person or agent; text that only
- * looks like a mention stays text. Raw HTML is never interpreted.
+ * looks like a mention, or a name two stored identities share, stays text.
+ * Raw HTML is never interpreted.
  */
 export function renderCommentBody(
   content: string,
   mentions: readonly CommentMention[],
 ) {
-  const bySource = new Map<string, CommentMention | null>();
-  for (const mention of mentions) {
-    if (!mention.name) continue;
-    const source = `@${mention.name}`;
-    const known = bySource.get(source);
-    // Stored mentions carry no positions, so a name shared by two identities
-    // can't be attributed per occurrence; it stays text instead of a guess.
-    bySource.set(
-      source,
-      known === undefined ||
-        (known && commentMentionKey(known) === commentMentionKey(mention))
-        ? mention
-        : null,
-    );
+  const mentionAt = new Map<number, CommentMention>();
+  for (const { start, mention } of findCommentMentions(content, mentions)) {
+    if (mention) mentionAt.set(start, mention);
   }
   return (
     <InlineMarkdown
       content={content}
       inline
-      protectedSpans={[...bySource]
-        .filter(([, mention]) => mention)
-        .map(([source]) => ({ source, label: source }))}
+      protectedSpans={[...mentionAt].map(([at, mention]) => ({
+        source: `@${mention.name}`,
+        label: `@${mention.name}`,
+        at,
+      }))}
       renderProtectedSpan={(span, children) => {
-        const mention = bySource.get(span.source);
+        const mention =
+          span.at === undefined ? undefined : mentionAt.get(span.at);
         return mention ? (
           <CommentMentionPill mention={mention} />
         ) : (
