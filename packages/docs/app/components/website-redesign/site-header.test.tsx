@@ -39,9 +39,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderHeader(starCount: number | null = 1234) {
+function renderHeader(starCount: number | null = 1234, path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AgentNativeI18nProvider
         catalog={docsI18nCatalog}
         initialLocale="en-US"
@@ -58,6 +58,13 @@ function renderHeader(starCount: number | null = 1234) {
 }
 
 describe("SiteHeader search", () => {
+  it("keeps the mobile docs navigation in the sticky header stack", () => {
+    const { container } = renderHeader(1234, "/docs/");
+
+    const stickyHeader = container.querySelector(".sticky.top-0.z-50");
+    expect(stickyHeader?.querySelector(".mobile-docs-nav")).toBeTruthy();
+  });
+
   it("renders the server-provided GitHub star count", () => {
     renderHeader(4647);
     expect(
