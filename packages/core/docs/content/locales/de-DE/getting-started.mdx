@@ -19,8 +19,7 @@ dessen enthaltene `hello`-Action über den Agenten und die UI auf.
 
 - [Node.js](https://nodejs.org) 22.22 oder höher
 - [pnpm](https://pnpm.io), installiert und über Ihren `PATH` verfügbar
-- Eine LLM-Verbindung für den Agenten: Builder.io, ein Anthropic- oder
-  OpenAI-API-Schlüssel oder ein lokales Ollama-Modell
+- Bei der Einrichtung optional, zum Ausführen des Agenten erforderlich: Builder.io, ein Anthropic-/OpenAI-Schlüssel oder lokales Ollama
 
 ## Einen Agenten erstellen
 
@@ -62,21 +61,9 @@ lokale Entwicklung müssen Sie keine E-Mail-Adresse und kein Passwort eingeben.
 
 </Callout>
 
-## Ein LLM verbinden {#connect-an-llm}
+## LLM verbinden (optional) {#connect-an-llm}
 
-Die App öffnet sich auf der Seite **Loslegen**. Fügen Sie für die lokale Entwicklung vor dem Start von `pnpm dev` einen Provider-Schlüssel zur `.env`-Datei der App hinzu:
-
-```dotenv
-ANTHROPIC_API_KEY=replace-with-your-key
-```
-
-Selbst gehostete Apps verwenden den Schlüssel aus der Umgebungsvariable als appweiten Fallback. Nutzer müssen daher keinen eigenen Schlüssel in der UI hinzufügen. Produktionsumgebungen von Hosted workspace blockieren Deployment-Provider-Schlüssel. Gespeicherte Benutzer- oder Organisationsschlüssel haben Vorrang.
-
-Mit diesem Provider-Schlüssel stimmt der Betreiber der appweiten Freigabe und Abrechnung zu; ein zusätzliches Flag ist nicht erforderlich. Angemeldete Nutzer ohne scoped Schlüssel können das Provider-Konto des Deployments organisationsübergreifend verwenden; die Nutzung wird diesem Konto berechnet. Nutze scoped Schlüssel, wenn Tenants getrennte Zugangsdaten oder Abrechnung benötigen.
-
-Mit PostgreSQL können Nutzer außerdem über **Custom keys** einen Schlüssel speichern. Mit dem persönlichen Geltungsbereich bleibt er auf das eigene Konto beschränkt; Admins können den Organisationsbereich wählen, um ihn im Workspace zu teilen. Gespeicherte Schlüssel liegen im verschlüsselten, datenbankgestützten Anmeldedatenspeicher.
-
-Um stattdessen Builders verwalteten Provider zu nutzen, wählen Sie **Use Builder.io** im Composer. Unter [Umgebungsvariablen](/docs/environment-variables#optional-ai-search-and-email-fallbacks) finden Sie unterstützte Provider-Schlüssel und ihren Geltungsbereich.
+Verbinden Sie ein Builder.io-Konto über **Use Builder.io**, speichern Sie einen persönlichen oder Organisationsschlüssel über **Custom keys** oder setzen Sie einen Provider-Schlüssel für die lokale Entwicklung in `.env` und für die appweite Nutzung in selbst gehosteten Apps in der Deployment-Umgebung. Weitere Informationen finden Sie unter [LLM-Provider einrichten](/docs/environment-variables#llm-provider-keys).
 
 ## Die Action über den Agenten ausführen
 

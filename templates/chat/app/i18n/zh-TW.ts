@@ -59,7 +59,7 @@ const messages = {
     editHint: "編輯 {{file}} 並儲存，再問一次就能看到新的問候語。",
     lead: "應用程式的介面和代理共用同一組操作。",
     leadTry: "讓代理呼叫 hello 操作試試。",
-    llmSetupLink: "設定應用程式共用的 LLM 金鑰",
+    llmSetupLink: "LLM 提供者設定",
     title: "開始使用",
   },
   navigation: {

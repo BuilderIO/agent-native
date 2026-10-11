@@ -143,6 +143,9 @@ describe("BuilderConnectPopover", () => {
       consent?.querySelector<HTMLButtonElement>("[data-testid='create']")
         ?.disabled,
     ).toBe(true);
+    expect(consent?.textContent).toContain(
+      "New account creation isn't enabled for this app.",
+    );
 
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(onConnect).not.toHaveBeenCalled();
@@ -371,7 +374,7 @@ describe("BuilderConnectPopover", () => {
 
     const consent = document.querySelector("[data-testid='consent']");
     expect(consent?.textContent).toContain(
-      "Create or connect a Builder.io account in one click to get free credits.",
+      "Create a new account to activate free credits, or continue with an existing account.",
     );
     expect(consent?.textContent).toContain(
       "You already have a Builder.io account",

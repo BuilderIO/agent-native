@@ -19,8 +19,7 @@ son action `hello` incluse depuis l’agent et l’interface utilisateur.
 
 - [Node.js](https://nodejs.org) 22.22 ou version ultérieure
 - [pnpm](https://pnpm.io) installé et disponible dans votre `PATH`
-- Une connexion LLM pour l’agent : Builder.io, une clé API Anthropic ou OpenAI,
-  ou un modèle Ollama local
+- Facultatif pendant la configuration, requis pour exécuter l’agent : Builder.io, une clé Anthropic/OpenAI ou Ollama local
 
 ## Créer un agent
 
@@ -62,21 +61,9 @@ besoin de saisir d’adresse e-mail ni de mot de passe pour le développement lo
 
 </Callout>
 
-## Connecter un LLM {#connect-an-llm}
+## Connecter un LLM (facultatif) {#connect-an-llm}
 
-L’app s’ouvre sur la page **Commencer**. Pour le développement local, ajoutez une clé de fournisseur au fichier `.env` de l’app avant de lancer `pnpm dev` :
-
-```dotenv
-ANTHROPIC_API_KEY=replace-with-your-key
-```
-
-Les apps auto-hébergées utilisent la clé d’environnement comme solution de repli pour toute l’app. Les utilisateurs n’ont donc pas à ajouter leur propre clé dans l’interface. Les environnements Hosted workspace en production bloquent les clés fournisseur du déploiement. Les clés enregistrées pour un utilisateur ou une organisation restent prioritaires.
-
-Configurer cette clé fournisseur constitue le consentement de l’opérateur au partage de l’accès et de la facturation dans toute l’app ; aucun indicateur supplémentaire n’est nécessaire. Tout utilisateur connecté sans clé à portée propre peut utiliser le compte fournisseur du déploiement dans toutes les organisations de l’app ; l’usage est facturé sur ce compte. Utilisez des clés à portée distincte lorsque les tenants ont besoin d’identifiants ou d’une facturation séparés.
-
-Avec PostgreSQL, les utilisateurs peuvent aussi enregistrer une clé via **Custom keys**. Choisissez la portée personnelle pour la limiter à votre compte ; les administrateurs peuvent choisir la portée organisation pour la partager dans l’espace de travail. L’app conserve les clés enregistrées dans son coffre chiffré adossé à la base de données.
-
-Pour utiliser le fournisseur géré de Builder, sélectionnez **Use Builder.io** dans le compositeur. Consultez [Variables d’environnement](/docs/environment-variables#optional-ai-search-and-email-fallbacks) pour connaître les clés prises en charge et leur portée.
+Connectez un compte Builder.io avec **Use Builder.io**, enregistrez une clé personnelle ou d’organisation via **Custom keys**, ou configurez une clé fournisseur dans `.env` pour le développement local et dans l’environnement de déploiement pour un usage partagé dans une app auto-hébergée. Consultez [Configuration des fournisseurs LLM](/docs/environment-variables#llm-provider-keys).
 
 ## Exécuter l’action depuis l’agent
 

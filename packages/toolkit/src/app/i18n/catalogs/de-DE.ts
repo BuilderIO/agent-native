@@ -160,8 +160,15 @@ const messages: ToolkitAgentChatTranslation = {
     "Du hast bereits ein Builder.io-Konto",
   "onboarding.builderAccountExistsDescription":
     "Melde dich an, um dein Konto zu nutzen.",
+  "onboarding.builderActivationChecking":
+    "Es wird geprüft, ob die Erstellung eines neuen Kontos verfügbar ist.",
+  "onboarding.builderActivationUnavailable":
+    "Die Erstellung neuer Konten ist für diese App nicht aktiviert. Du kannst ein bestehendes Konto verbinden.",
+  "onboarding.builderActivationCheckFailed":
+    "Es konnte nicht geprüft werden, ob diese App neue Konten erstellen kann.",
+
   "onboarding.builderActivationDescription":
-    "Erstelle oder verbinde ein Builder.io-Konto mit einem Klick und erhalte kostenlose Credits.",
+    "Erstelle ein neues Konto, um kostenlose Credits zu aktivieren, oder fahre mit einem bestehenden Konto fort.",
   "onboarding.builderOrgActivationDescription":
     "Wir erstellen dein Builder.io-Konto mit einem Klick, damit deine Organisation es nutzen kann.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
@@ -170,7 +177,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Nutzungsbedingungen",
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
-  "onboarding.builderExistingAccount": "Builder.io verwenden",
+  "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
@@ -906,6 +913,13 @@ const messages: ToolkitAgentChatTranslation = {
     "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
+  "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
+  "setup.addKeyInSettingsDescription":
+    "Für dein Konto oder deine Organisation.",
+  "setup.setEnvironmentVariable": "Eine Umgebungsvariable festlegen",
+  "setup.setEnvironmentVariableDescription":
+    "Ein Anbieterschlüssel für alle in dieser App.",
+
   "setup.addOwnKeys": "Eigene Schlüssel hinzufügen",
   "setup.builderCredits":
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
