@@ -3637,6 +3637,14 @@ export function TiptapComposer({
             popoverRef.current?.moveDown();
             return true;
           }
+          if (
+            (event.key === "Enter" ||
+              (event.key === "Tab" && !event.shiftKey)) &&
+            popoverRef.current?.activateRetry()
+          ) {
+            event.preventDefault();
+            return true;
+          }
           // A mention comes only from an explicit pick of a highlighted row. With
           // nothing highlighted, even while a search is pending, the "@" is
           // plain text: Enter submits it and a late result changes nothing.

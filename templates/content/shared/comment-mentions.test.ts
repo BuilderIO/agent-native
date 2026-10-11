@@ -147,12 +147,12 @@ describe("comment mentions", () => {
     };
     const two = { ...one, provider: "Two", name: "Agent Two" };
 
-    expect(commentMentionsForText("@Agent One and @Agent Two", [one, two])).toBe(
-      serializeStoredCommentMentions([one, two]),
-    );
+    expect(
+      commentMentionsForText("@Agent One and @Agent Two", [one, two]),
+    ).toBe(serializeStoredCommentMentions([one, two]));
   });
 
-  it("keeps both people who share a name but draws neither as theirs", () => {
+  it("leaves out a name two people share, so it neither draws nor notifies", () => {
     const first = {
       kind: "person" as const,
       email: "a@example.com",
@@ -163,13 +163,19 @@ describe("comment mentions", () => {
       email: "b@example.com",
       name: "Sam",
     };
+    const priya = {
+      kind: "person" as const,
+      email: "priya@example.com",
+      name: "Priya",
+    };
 
     expect(findCommentMentions("Hi @Sam", [first, second])).toEqual([
       { start: 3, name: "Sam", mention: null },
     ]);
-    expect(commentMentionsForText("Hi @Sam", [first, second])).toBe(
-      serializeStoredCommentMentions([first, second]),
-    );
+    expect(commentMentionsForText("Hi @Sam", [first, second])).toBeUndefined();
+    expect(
+      commentMentionsForText("Hi @Sam and @Priya", [first, second, priya]),
+    ).toBe(serializeStoredCommentMentions([priya]));
   });
 
   it("stores the same mentions the same way whatever order their keys came in", () => {

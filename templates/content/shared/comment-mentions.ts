@@ -200,14 +200,18 @@ export function findCommentMentions(
 
 /**
  * The mentions whose `@name` still appears in the text, once each, encoded
- * for an add or update. Undefined when nothing is mentioned.
+ * for an add or update. Undefined when nothing is mentioned. A name two
+ * identities share is left out: the draft keeps people whose chips were
+ * deleted, so it can't tell which one is meant, and it renders as text.
  */
 export function commentMentionsForText(
   text: string,
   mentions: readonly CommentMention[],
 ): string | undefined {
   const named = new Set(
-    findCommentMentions(text, mentions).map((match) => match.name),
+    findCommentMentions(text, mentions).flatMap((match) =>
+      match.mention ? [match.name] : [],
+    ),
   );
   const seen = new Set<string>();
   const present = mentions.filter((mention) => {

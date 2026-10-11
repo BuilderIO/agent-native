@@ -252,6 +252,45 @@ describe("CommentComposer rich recipient", () => {
     }
   });
 
+  it("reaches Retry from the keyboard when people could not load", async () => {
+    const people = mentionMembers.current;
+    const refetch = vi.fn();
+    mentionMembers.current = { data: undefined, isError: true, refetch };
+    try {
+      await act(async () =>
+        root.render(<Owner key="members-failed-keyboard" initialValue="" />),
+      );
+      await typeRichEditorText(editor(), "@");
+      const press = (key: string) =>
+        act(async () => {
+          editor().dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+
+      await press("ArrowUp");
+      const retry = document.querySelector(
+        '[data-agent-native-composer-popover="true"] [role="alert"] button',
+      );
+      expect(retry?.getAttribute("data-mention-index")).toBe("-1");
+      expect(retry?.className).toContain("bg-muted");
+
+      await press("Enter");
+      expect(refetch).toHaveBeenCalledTimes(1);
+      expect(submit).not.toHaveBeenCalled();
+      expect(aiSubmit).not.toHaveBeenCalled();
+      expect(
+        document.querySelector('[data-agent-native-composer-popover="true"]'),
+      ).not.toBeNull();
+    } finally {
+      mentionMembers.current = people;
+    }
+  });
+
   it("keeps the composer settled after clicking the AI mention", async () => {
     const consoleError = vi
       .spyOn(console, "error")

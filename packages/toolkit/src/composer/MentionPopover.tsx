@@ -33,6 +33,8 @@ export interface MentionPopoverRef {
   getSelectedIndex: () => number;
   getSelectedMention: () => MentionItem | null;
   getSelectedCommand: () => SlashCommand | null;
+  /** Runs Retry if it is the highlighted row; false when it is not. */
+  activateRetry: () => boolean;
 }
 
 interface MentionPopoverProps {
@@ -173,7 +175,7 @@ export const MentionPopover = forwardRef<
   const stacked = density === "stacked";
 
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const listRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const t = useComposerRuntimeAdapters().translate!;
 
   const sectionLabel = (section: string) => {
@@ -201,6 +203,10 @@ export const MentionPopover = forwardRef<
 
   const itemCount =
     type === "@" ? mentionItems.length : commands.length + skills.length;
+  // Focus stays in the editor, so Retry is a row above the items, at -1,
+  // for the arrow keys to reach.
+  const retryable = type === "@" && !!error && !!onRetry;
+  const firstIndex = retryable ? -1 : 0;
   const itemIdentitySignature =
     type === "@"
       ? mentionItems.map((item) => item.id).join("\0")
@@ -255,10 +261,10 @@ export const MentionPopover = forwardRef<
 
   useEffect(() => {
     setSelectedIndex((current) => (current === 0 ? current : 0));
-  }, [itemIdentitySignature, query]);
+  }, [itemIdentitySignature, query, retryable]);
 
   useEffect(() => {
-    const container = listRef.current;
+    const container = containerRef.current;
     if (!container) return;
     const selected = container.querySelector(
       `[data-mention-index="${selectedIndex}"]`,
@@ -271,17 +277,24 @@ export const MentionPopover = forwardRef<
   useImperativeHandle(ref, () => ({
     moveUp: () => {
       setSelectedIndex((prev) =>
-        prev <= 0 ? Math.max(0, itemCount - 1) : prev - 1,
+        prev <= firstIndex ? Math.max(firstIndex, itemCount - 1) : prev - 1,
       );
     },
     moveDown: () => {
-      setSelectedIndex((prev) => (prev >= itemCount - 1 ? 0 : prev + 1));
+      setSelectedIndex((prev) =>
+        prev >= itemCount - 1 ? firstIndex : prev + 1,
+      );
     },
     getSelectedIndex: () => selectedIndex,
     getSelectedMention: () => flatMentionItems[selectedIndex] ?? null,
     getSelectedCommand: () => {
       if (type !== "/" || selectedIndex >= commands.length) return null;
       return commands[selectedIndex] ?? null;
+    },
+    activateRetry: () => {
+      if (!retryable || selectedIndex !== -1) return false;
+      onRetry!();
+      return true;
     },
   }));
 
@@ -292,6 +305,7 @@ export const MentionPopover = forwardRef<
       {/* Backdrop to capture outside clicks */}
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
+        ref={containerRef}
         data-agent-native-composer-popover="true"
         data-agent-native-mention-popover="true"
         className="fixed z-[9999] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 shadow-2xl"
@@ -322,7 +336,11 @@ export const MentionPopover = forwardRef<
             {onRetry && (
               <button
                 type="button"
-                className="shrink-0 rounded px-1.5 py-0.5 font-medium text-foreground hover:bg-accent"
+                data-mention-index={-1}
+                className={`shrink-0 rounded px-1.5 py-0.5 font-medium text-foreground ${
+                  selectedIndex === -1 ? "bg-muted" : "hover:bg-accent"
+                }`}
+                onMouseEnter={() => setSelectedIndex(-1)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={onRetry}
               >
@@ -355,7 +373,7 @@ export const MentionPopover = forwardRef<
             )}
           </div>
         ) : (
-          <div ref={listRef}>
+          <div>
             {isLoading && <LoadingSkeletonRow />}
             {type === "@"
               ? (() => {
