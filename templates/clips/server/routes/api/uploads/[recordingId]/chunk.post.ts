@@ -672,6 +672,7 @@ export async function handleRecordingChunk(
         !storageStatusUnavailable && total > 0
           ? Math.min(100, Math.round(((index + 1) / total) * 100))
           : undefined,
+      ...(storageStatusUnavailable ? { preserveParked: true } : {}),
     });
     if (!lease.held) {
       if (lease.staleAttempt) {
@@ -694,6 +695,18 @@ export async function handleRecordingChunk(
           videoSizeBytes: lease.videoSizeBytes,
           durationMs: lease.durationMs,
           sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
+        };
+      }
+      if (
+        storageStatusUnavailable &&
+        (lease.status === "uploading" || lease.status === "processing")
+      ) {
+        setResponseStatus(event, 503);
+        return {
+          ok: false,
+          errorCode: "video_storage_status_unavailable",
+          retryable: true,
+          storageSetupRequired: false,
         };
       }
       await deleteRecordingChunks(

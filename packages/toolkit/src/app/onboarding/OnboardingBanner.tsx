@@ -24,13 +24,21 @@ export function OnboardingBanner({
     allComplete,
     dismissed,
     error,
+    summaryKnown,
     refresh,
   } = useOnboarding();
   const t = useT();
   const [retrying, setRetrying] = useState(false);
 
-  if (loading || dismissed || (totalCount > 0 && allComplete)) return null;
-  if (error) {
+  if (
+    loading ||
+    !summaryKnown ||
+    dismissed ||
+    (totalCount > 0 && allComplete)
+  ) {
+    return null;
+  }
+  if (error && totalCount > 0) {
     const retry = async () => {
       setRetrying(true);
       try {

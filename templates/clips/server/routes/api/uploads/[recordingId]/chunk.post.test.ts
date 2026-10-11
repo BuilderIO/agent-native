@@ -549,6 +549,40 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
+  it("keeps an upload parked when storage status is unavailable", async () => {
+    mockShouldRejectVideoUploadWithoutStorage.mockRejectedValueOnce(
+      new MockVideoStorageStatusUnavailableError(),
+    );
+    mockRenewUploadLease.mockResolvedValueOnce({
+      held: false,
+      staleAttempt: false,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+      videoUrl: null,
+      videoSizeBytes: null,
+      durationMs: null,
+    });
+    setRequest({
+      query: { index: "0", total: "1", mimeType: "video/webm" },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      errorCode: "video_storage_status_unavailable",
+      retryable: true,
+      storageSetupRequired: false,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
+    expect(mockRenewUploadLease).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({ preserveParked: true }),
+    );
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("retries storage failure state repair after same-attempt app-state contention", async () => {
     const attemptState = {
       recordingId: "rec-1",

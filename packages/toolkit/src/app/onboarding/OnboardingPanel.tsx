@@ -58,6 +58,7 @@ export function OnboardingPanel({
     dismissed,
     loading,
     error,
+    summaryKnown,
     refresh,
     complete,
     dismiss,
@@ -114,28 +115,35 @@ export function OnboardingPanel({
       setRetrying(false);
     }
   };
-  const errorNotice = error ? (
-    <div role="alert" style={styles.errorNotice}>
-      <span>{t("agentChat.common.chunkLoadFailed")}</span>
-      <Button
-        type="button"
-        variant="outline"
-        size="xs"
-        data-testid="onboarding-summary-retry"
-        disabled={retrying}
-        onClick={() => void handleRetry()}
-      >
-        {retrying ? <IconLoader2 className="animate-spin" aria-hidden /> : null}
-        {t("agentChat.common.retry")}
-      </Button>
-    </div>
-  ) : null;
+  const errorNotice =
+    error &&
+    (previewMode ||
+      (summaryKnown && totalCount > 0 && !dismissed && !allComplete)) ? (
+      <div role="alert" style={styles.errorNotice}>
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          data-testid="onboarding-summary-retry"
+          disabled={retrying}
+          onClick={() => void handleRetry()}
+        >
+          {retrying ? (
+            <IconLoader2 className="animate-spin" aria-hidden />
+          ) : null}
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
+    ) : null;
 
   if (loading) return null;
+  if (!previewMode && !summaryKnown) return null;
   if (!previewMode && (dismissed || (totalCount > 0 && allComplete))) {
     return null;
   }
   if (error && totalCount === 0) {
+    if (!errorNotice) return null;
     return (
       <div className={className} style={styles.errorOnly}>
         {errorNotice}
@@ -143,11 +151,6 @@ export function OnboardingPanel({
     );
   }
   if (totalCount === 0) return null;
-  if (!previewMode) {
-    if (dismissed) return null;
-    if (allComplete) return null;
-  }
-
   if (!expanded) {
     return (
       <div className={className} style={styles.compactBanner}>
@@ -179,6 +182,7 @@ export function OnboardingPanel({
           </TooltipTrigger>
           <TooltipContent>Expand setup</TooltipContent>
         </Tooltip>
+        {errorNotice}
       </div>
     );
   }

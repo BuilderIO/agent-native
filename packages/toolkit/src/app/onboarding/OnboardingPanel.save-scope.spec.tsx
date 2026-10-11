@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 let steps: OnboardingStepStatus[] = [];
 let onboardingError: string | null = null;
 let dismissed = false;
+let summaryKnown = true;
 let refresh = vi.fn(async () => {});
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
@@ -23,6 +24,7 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
       steps.length > 0 &&
       steps.filter((step) => step.required).every((step) => step.complete),
     dismissed,
+    summaryKnown,
     loading: false,
     error: onboardingError,
     refresh,
@@ -82,6 +84,7 @@ afterEach(() => {
   steps = [];
   onboardingError = null;
   dismissed = false;
+  summaryKnown = true;
   refresh = vi.fn(async () => {});
   vi.unstubAllGlobals();
 });
@@ -187,22 +190,16 @@ describe("onboarding form save scope", () => {
     expect(secretSave.body.scope).toBe("workspace");
   });
 
-  it("shows and retries an unavailable summary when no steps loaded", async () => {
+  it("hides an unavailable summary until onboarding state is known", async () => {
     onboardingError = "summary: 503";
+    summaryKnown = false;
     refresh = vi.fn(async () => {});
     await renderOnboarding(<OnboardingPanel />);
 
+    expect(container?.querySelector('[role="alert"]')).toBeNull();
     expect(
-      container?.querySelector('[role="alert"]')?.textContent,
-    ).toBeTruthy();
-    const retry = container?.querySelector<HTMLButtonElement>(
-      '[data-testid="onboarding-summary-retry"]',
-    );
-    expect(retry).not.toBeNull();
-    await act(async () => {
-      retry?.click();
-    });
-    expect(refresh).toHaveBeenCalledOnce();
+      container?.querySelector('[data-testid="onboarding-summary-retry"]'),
+    ).toBeNull();
   });
 
   it("keeps known steps visible while showing a summary retry state", async () => {
@@ -217,26 +214,36 @@ describe("onboarding form save scope", () => {
     ).not.toBeNull();
   });
 
-  it("shows a retry action on the banner when its summary is unavailable", async () => {
+  it("hides a banner retry until onboarding state is known", async () => {
     onboardingError = "summary: 503";
+    summaryKnown = false;
+    await renderOnboarding(<OnboardingBanner />);
+
+    expect(container?.querySelector('[role="alert"]')).toBeNull();
+    expect(
+      container?.querySelector('[data-testid="onboarding-summary-retry"]'),
+    ).toBeNull();
+  });
+
+  it("shows a retry action on the banner for a known active summary", async () => {
+    steps = [formStep()];
+    onboardingError = "summary: 503";
+    summaryKnown = true;
     refresh = vi.fn(async () => {});
     await renderOnboarding(<OnboardingBanner />);
 
-    expect(
-      container?.querySelector('[role="alert"]')?.textContent,
-    ).toBeTruthy();
     const retry = container?.querySelector<HTMLButtonElement>(
       '[data-testid="onboarding-summary-retry"]',
     );
+    expect(container?.querySelector('[role="alert"]')).not.toBeNull();
     expect(retry).not.toBeNull();
-    await act(async () => {
-      retry?.click();
-    });
+    await act(async () => retry?.click());
     expect(refresh).toHaveBeenCalledOnce();
   });
 
   it("hides summary errors after onboarding is dismissed", async () => {
     dismissed = true;
+    summaryKnown = true;
     onboardingError = "summary: 503";
 
     await renderOnboarding(
@@ -250,6 +257,7 @@ describe("onboarding form save scope", () => {
 
   it("hides summary errors after all required steps are complete", async () => {
     steps = [{ ...formStep(), complete: true }];
+    summaryKnown = true;
     onboardingError = "summary: 503";
 
     await renderOnboarding(
@@ -259,5 +267,22 @@ describe("onboarding form save scope", () => {
       </>,
     );
     expect(container?.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("keeps the retry notice visible while the panel is collapsed", async () => {
+    steps = [formStep()];
+    summaryKnown = true;
+    onboardingError = "summary: 503";
+    await renderOnboarding(<OnboardingPanel />);
+
+    const collapse = container?.querySelector<HTMLButtonElement>(
+      '[aria-label="Collapse onboarding"]',
+    );
+    await act(async () => collapse?.click());
+
+    expect(container?.querySelector('[role="alert"]')).not.toBeNull();
+    expect(
+      container?.querySelector('[data-testid="onboarding-summary-retry"]'),
+    ).not.toBeNull();
   });
 });
