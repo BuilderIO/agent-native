@@ -5878,6 +5878,87 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("preserves prefix and final snapshot segments when an exact same-run root is represented", async () => {
+    const threadId = "thread-prefix-final-projection";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active"))
+          return json({ active: false, status: "idle" });
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "server-run-one",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Answer complete" }],
+                  status: { type: "complete", reason: "stop" },
+                  metadata: {
+                    runId: "run-one",
+                    custom: { foldedRunIds: ["run-one"] },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              _mergeRootMessages: true,
+              events: ["segment-prefix", "segment-final"].map((id, index) => ({
+                id: `event-${index}`,
+                type: "message.completed",
+                sequence: index + 1,
+                threadId,
+                runId: "run-one",
+                occurredAt: "2026-10-11T00:00:00Z",
+                message: {
+                  id,
+                  role: "assistant",
+                  status: "complete",
+                  parts: [
+                    {
+                      type: "text",
+                      text:
+                        id === "segment-prefix" ? "Answer" : "Answer complete",
+                    },
+                  ],
+                },
+              })),
+              messages: [
+                {
+                  id: "segment-prefix",
+                  role: "assistant",
+                  status: "complete",
+                  parts: [{ type: "text", text: "Answer" }],
+                  metadata: { runId: "run-one" },
+                },
+                {
+                  id: "segment-final",
+                  role: "assistant",
+                  status: "complete",
+                  parts: [{ type: "text", text: "Answer complete" }],
+                  metadata: { runId: "run-one" },
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+    try {
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      expect(snapshot?.messages.map((message) => message.id)).toEqual([
+        "segment-prefix",
+        "segment-final",
+      ]);
+      expect(snapshot?.messages.map((message) => message.parts)).toEqual([
+        [{ type: "text", text: "Answer" }],
+        [{ type: "text", text: "Answer complete" }],
+      ]);
+    } finally {
+      await transport.dispose();
+    }
+  });
+
   it("drops an exact same-run server mirror without collapsing AgentKit messages", async () => {
     const threadId = "thread-server-reply-mirror";
     const runId = "run-server-reply-mirror";
