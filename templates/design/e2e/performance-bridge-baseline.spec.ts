@@ -563,7 +563,7 @@ async function performProfiledMarquee(
     await page.mouse.move(
       secondLastBox.x + secondLastBox.width + 12,
       secondLastBox.y + secondLastBox.height + 12,
-      { steps: 8 },
+      { steps: 2 },
     );
     await page.mouse.up();
   } finally {
