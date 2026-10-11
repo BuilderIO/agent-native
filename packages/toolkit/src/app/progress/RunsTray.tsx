@@ -762,37 +762,52 @@ function RunRow({
   const backgroundStatus = getBackgroundStatus(run);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
   const titleButtonRef = useRef<HTMLButtonElement>(null);
+  const pointerStartedOnRunRef = useRef<string | null>(null);
   const pointerStartedOnActionRef = useRef(false);
-  const pointerReleasedOnActionRef = useRef(false);
   const pointerStartedOnAnyActionRef = useRef(false);
-  const pointerReleasedOnTitleFromActionRef = useRef(false);
+  const pointerReleasedOnActionRef = useRef(false);
+  const pointerReleasedOnSuppressedTitleRef = useRef(false);
 
   useEffect(() => {
     if (!insideDropdownMenu) return;
     const isActionTarget = (target: EventTarget | null) =>
       target instanceof Node &&
       actionButtonRef.current?.contains(target) === true;
-    const isAnyActionTarget = (target: EventTarget | null) =>
-      target instanceof Element &&
-      target.closest("[data-runs-tray-action]") !== null;
+    const getRunTarget = (target: EventTarget | null) =>
+      target instanceof Element
+        ? target.closest<HTMLElement>(
+            "[data-runs-tray-title], [data-runs-tray-action]",
+          )
+        : null;
     const isTitleTarget = (target: EventTarget | null) =>
       target instanceof Node &&
       titleButtonRef.current?.contains(target) === true;
     const recordPointerDown = (event: PointerEvent) => {
+      const runTarget = getRunTarget(event.target);
+      pointerStartedOnRunRef.current =
+        runTarget?.dataset.runsTrayTitle ??
+        runTarget?.dataset.runsTrayAction ??
+        null;
       pointerStartedOnActionRef.current = isActionTarget(event.target);
+      pointerStartedOnAnyActionRef.current =
+        runTarget?.dataset.runsTrayAction !== undefined;
       pointerReleasedOnActionRef.current = false;
-      pointerStartedOnAnyActionRef.current = isAnyActionTarget(event.target);
-      pointerReleasedOnTitleFromActionRef.current = false;
+      pointerReleasedOnSuppressedTitleRef.current = false;
     };
     const recordPointerUp = (event: PointerEvent) => {
+      const startedOnAnotherRun =
+        pointerStartedOnRunRef.current !== null &&
+        pointerStartedOnRunRef.current !== run.id;
       pointerReleasedOnActionRef.current = isActionTarget(event.target);
-      pointerReleasedOnTitleFromActionRef.current =
-        pointerStartedOnAnyActionRef.current && isTitleTarget(event.target);
+      pointerReleasedOnSuppressedTitleRef.current =
+        isTitleTarget(event.target) &&
+        (startedOnAnotherRun || pointerStartedOnAnyActionRef.current);
       window.setTimeout(() => {
+        pointerStartedOnRunRef.current = null;
         pointerStartedOnActionRef.current = false;
-        pointerReleasedOnActionRef.current = false;
         pointerStartedOnAnyActionRef.current = false;
-        pointerReleasedOnTitleFromActionRef.current = false;
+        pointerReleasedOnActionRef.current = false;
+        pointerReleasedOnSuppressedTitleRef.current = false;
       }, 0);
     };
     document.addEventListener("pointerdown", recordPointerDown, true);
@@ -809,8 +824,9 @@ function RunRow({
         type="button"
         className="group flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         ref={insideDropdownMenu ? titleButtonRef : undefined}
+        data-runs-tray-title={insideDropdownMenu ? run.id : undefined}
         onClick={() => {
-          if (pointerReleasedOnTitleFromActionRef.current) return;
+          if (pointerReleasedOnSuppressedTitleRef.current) return;
           onOpenThread(threadId, run);
         }}
       >
@@ -833,7 +849,7 @@ function RunRow({
       <button
         type="button"
         ref={insideDropdownMenu ? actionButtonRef : undefined}
-        data-runs-tray-action={insideDropdownMenu ? "" : undefined}
+        data-runs-tray-action={insideDropdownMenu ? run.id : undefined}
         aria-label={
           canStop
             ? t("runsTray.stopRun", { title: run.title })
@@ -882,6 +898,11 @@ function RunRow({
             <DropdownMenuItem
               asChild
               className="min-w-0 flex-1 justify-start p-0"
+              onSelect={(event) => {
+                if (pointerReleasedOnSuppressedTitleRef.current) {
+                  event.preventDefault();
+                }
+              }}
             >
               {titleButton}
             </DropdownMenuItem>

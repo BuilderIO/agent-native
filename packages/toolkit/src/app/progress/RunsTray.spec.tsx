@@ -369,10 +369,11 @@ describe("RunsTrayMenuItem", () => {
       return Response.json([]);
     });
     vi.stubGlobal("fetch", fetchMock);
+    const onOpenChange = vi.fn();
 
     await act(async () => {
       root.render(
-        <DropdownMenu open>
+        <DropdownMenu open onOpenChange={onOpenChange}>
           <DropdownMenuContent forceMount>
             <RunsTrayMenuItem pollMs={0} />
           </DropdownMenuContent>
@@ -418,6 +419,29 @@ describe("RunsTrayMenuItem", () => {
       });
 
       expect(openedThreads).toHaveLength(0);
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+      const firstRunTitle = Array.from(
+        document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'),
+      ).find((button) => button.textContent?.includes("Manage the active run"));
+      expect(firstRunTitle).toBeTruthy();
+
+      await act(async () => {
+        firstRunTitle?.dispatchEvent(
+          new Event("pointerdown", { bubbles: true }),
+        );
+        otherRunTitle?.dispatchEvent(new Event("pointerup", { bubbles: true }));
+        otherRunTitle?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 0,
+          }),
+        );
+      });
+
+      expect(openedThreads).toHaveLength(0);
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
     } finally {
       window.removeEventListener("agent-chat:open-thread", onOpen);
     }
