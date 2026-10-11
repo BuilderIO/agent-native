@@ -169,6 +169,31 @@ describe("VisualEditor comment highlights", () => {
     expect(highlighted("t1")).toBe("exact quote");
   });
 
+  it("moves a highlight when its thread is re-anchored to another copy", async () => {
+    const anchored = (suffix: string) => ({
+      ...thread("t1", "beta"),
+      suffix,
+    });
+    await act(async () => render("beta Alpha beta.", [anchored(".")]));
+    await settle();
+    const editor = (
+      container.querySelector(".ProseMirror") as HTMLElement & {
+        editor: Editor;
+      }
+    ).editor;
+    const start = () =>
+      commentHighlightKey
+        .getState(editor.state)!
+        .specs.find((spec) => spec.threadId === "t1")?.from;
+    expect(start()).toBe(12);
+
+    // Only the context changes: the quote is the same text.
+    await act(async () => render("beta Alpha beta.", [anchored(" Alpha")]));
+    await settle();
+
+    expect(start()).toBe(1);
+  });
+
   it("keeps a thread's highlight on its copy when another thread changes", async () => {
     const quoteOnly = (threadId: string, quotedText: string) => ({
       ...thread(threadId, quotedText),

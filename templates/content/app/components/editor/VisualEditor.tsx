@@ -2071,6 +2071,17 @@ export function runIfMediaCreationAllowed(
   return true;
 }
 
+// Everything that places a thread's highlight: a change to any of it resolves
+// the highlight again.
+function threadAnchor(thread: CommentThread) {
+  return {
+    quotedText: thread.quotedText,
+    prefix: thread.prefix ?? undefined,
+    suffix: thread.suffix ?? undefined,
+    startOffset: thread.startOffset ?? undefined,
+  };
+}
+
 function mediaSourceCounts(doc: ProseMirrorNode) {
   const counts = new Map<string, number>();
   doc.descendants((node) => {
@@ -3230,12 +3241,7 @@ export function VisualEditor({
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
       if (!thread || thread.resolved) return null;
-      return resolveAnchor(doc, {
-        quotedText: thread.quotedText,
-        prefix: thread.prefix ?? undefined,
-        suffix: thread.suffix ?? undefined,
-        startOffset: thread.startOffset ?? undefined,
-      });
+      return resolveAnchor(doc, threadAnchor(thread));
     },
     [],
   );
@@ -4300,7 +4306,10 @@ export function VisualEditor({
   const threadsSignature = useMemo(
     () =>
       (commentThreads ?? [])
-        .map((t) => `${t.threadId}:${t.resolved ? 1 : 0}:${t.quotedText ?? ""}`)
+        .map(
+          (t) =>
+            `${t.threadId}:${t.resolved ? 1 : 0}:${JSON.stringify(threadAnchor(t))}`,
+        )
         .join("|"),
     [commentThreads],
   );
@@ -4334,12 +4343,8 @@ export function VisualEditor({
         // thread's own new quote, such as the one an accepted edit re-anchors
         // to, replaces it. Re-resolving an unchanged quote can pick another
         // copy of its text.
-        const quote = JSON.stringify([
-          thread.quotedText,
-          thread.prefix ?? null,
-          thread.suffix ?? null,
-          thread.startOffset ?? null,
-        ]);
+        const anchor = threadAnchor(thread);
+        const quote = JSON.stringify(anchor);
         if (
           existing &&
           !force &&
@@ -4349,12 +4354,7 @@ export function VisualEditor({
           continue;
         }
         resolvedQuotesRef.current.set(thread.threadId, quote);
-        const range = resolveAnchor(view.state.doc, {
-          quotedText: thread.quotedText,
-          prefix: thread.prefix ?? undefined,
-          suffix: thread.suffix ?? undefined,
-          startOffset: thread.startOffset ?? undefined,
-        });
+        const range = resolveAnchor(view.state.doc, anchor);
         if (range) {
           specs.push({
             threadId: thread.threadId,
