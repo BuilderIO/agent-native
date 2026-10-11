@@ -72,11 +72,10 @@ describe("agent-access server helpers", () => {
     ).toEqual({ ok: false, reason: "bad_signature" });
   });
 
-  it("keeps verifying tokens minted in the legacy format", () => {
+  it("rejects tokens minted by signShortLivedToken", () => {
     const legacy = signShortLivedToken({
       resourceId: scopedAgentAccessResourceId("clip-agent-context", "rec-1"),
       viewerEmail: "viewer@example.com",
-      agentLabel: "Fusion",
     });
 
     expect(
@@ -84,17 +83,7 @@ describe("agent-access server helpers", () => {
         resourceKind: "clip-agent-context",
         resourceId: "rec-1",
       }),
-    ).toEqual({
-      ok: true,
-      viewerEmail: "viewer@example.com",
-      agentLabel: "Fusion",
-    });
-    expect(
-      verifyScopedAgentAccessToken(legacy, {
-        resourceKind: "clip-agent-context",
-        resourceId: "rec-2",
-      }),
-    ).toEqual({ ok: false, reason: "wrong_resource" });
+    ).toEqual({ ok: false, reason: "bad_signature" });
   });
 
   it("does not put the resource id in the token", () => {
