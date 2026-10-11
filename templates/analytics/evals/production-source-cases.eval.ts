@@ -15,6 +15,11 @@ type RelationMeaningClaim = {
   meanings: string[];
 };
 
+type RelationFieldsClaim = {
+  relation: string;
+  fields: string[];
+};
+
 type FieldMeaningClaim = {
   relation: string;
   field: string;
@@ -23,6 +28,7 @@ type FieldMeaningClaim = {
 
 type SourceContract = {
   relationGrains: RelationGrainClaim[];
+  relationFields?: RelationFieldsClaim[];
   relationMeanings?: RelationMeaningClaim[];
   fieldMeanings?: FieldMeaningClaim[];
   relationGrainAlternatives: Array<{
@@ -186,6 +192,16 @@ export const sourceContracts = {
       {
         relation: "dbt_intermediate.user_organization_role",
         meanings: ["includes organization_role"],
+      },
+    ],
+    relationFields: [
+      {
+        relation: "dbt_mapping.user_id_to_org_id",
+        fields: ["user_id", "organization_id", "is_root_org"],
+      },
+      {
+        relation: "dbt_intermediate.user_organization_role",
+        fields: ["organization_role"],
       },
     ],
     relationGrainAlternatives: [],
@@ -357,6 +373,36 @@ function hasRelationMeaningClaim(
   );
 }
 
+function hasRelationFieldsClaim(
+  lines: string[],
+  claim: RelationFieldsClaim,
+  allRelations: RelationGrainClaim[],
+): boolean {
+  const relation = claim.relation.toLowerCase();
+  const matchingLines = lines.filter((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    const relationsOnLine = allRelations.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
+    );
+    return relationsOnLine.length === 1;
+  });
+  if (matchingLines.length === 0) return false;
+
+  return claim.fields.every((field) =>
+    matchingLines.some((line) => {
+      const relationIndex = findCompletePhraseIndexes(line, relation)[0];
+      return (
+        relationIndex !== undefined &&
+        findCompletePhraseIndexes(line, field.toLowerCase()).some(
+          (fieldIndex) => fieldIndex > relationIndex,
+        )
+      );
+    }),
+  );
+}
+
 function hasFieldMeaningClaim(
   lines: string[],
   claim: FieldMeaningClaim,
@@ -433,6 +479,14 @@ function sourceContractScorer(
         if (!hasRelationGrainClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not declare its expected ${claim.grains[0]}`,
+          );
+        }
+      }
+
+      for (const claim of contract.relationFields ?? []) {
+        if (!hasRelationFieldsClaim(lines, claim, allClaims)) {
+          reasons.push(
+            `${claim.relation} did not attribute its expected fields: ${claim.fields.join(", ")}`,
           );
         }
       }

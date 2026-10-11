@@ -25,11 +25,11 @@ exits with an error before running or scoring any case.
 ## Synthetic source and grain cases
 
 `production-source-cases.eval.ts` adds seven synthetic questions. They ask for
-model selection and declared grain only; they do not use captured prompts,
-people, identifiers, event rows, or production result values. Their scorer
-rejects failed or aborted runs, email-shaped output, and calls outside the
-metadata-only tool set. The CLI still runs each case through this directory's
-production adapter and the shared production agent loop.
+source selection, declared grain, and relation or field attribution; they do
+not use captured prompts, people, identifiers, event rows, or production result
+values. Their scorer rejects failed or aborted runs, email-shaped output, and
+calls outside the metadata-only tool set. The CLI still runs each case through
+this directory's production adapter and the shared production agent loop.
 
 The expected source contracts are:
 

@@ -33,6 +33,9 @@ function outputFor(
       )?.meanings[0];
       return `${claim.relation}: ${[meaning, claim.grains[0]].filter(Boolean).join("; ")}`;
     }),
+    ...(contract.relationFields ?? []).map(
+      (claim) => `${claim.relation}: fields ${claim.fields.join(", ")}`,
+    ),
     ...(contract.fieldMeanings ?? []).map(
       (claim) => `${claim.relation}.${claim.field}: ${claim.meanings[0]}`,
     ),
@@ -344,7 +347,7 @@ describe("Analytics synthetic production source evals", () => {
       runnerFor({
         text: [
           "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; fields user_id, organization_id, is_root_org; lacks organization_role",
-          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership",
+          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership; field organization_role",
           ...contract.concepts,
         ].join("\n"),
         toolCalls: ["search-bigquery-schema"],
@@ -371,6 +374,27 @@ describe("Analytics synthetic production source evals", () => {
         toolCalls: ["search-bigquery-schema"],
         ok: true,
         runId: "eval:false-user-org-map-absence-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+  });
+
+  it("requires ID map fields to be attributed to that relation", async () => {
+    const contract = sourceContracts.builderUserOrganizationIdMapping;
+    const report = await runEvals(
+      [cases[6]!],
+      runnerFor({
+        text: [
+          "dbt_mapping.user_id_to_org_id: maps user_id to organization_id; one row per user-organization membership; lacks organization_role",
+          "dbt_intermediate.user_organization_role: includes organization_role; one row per user-organization membership; fields user_id, organization_id, is_root_org, organization_role",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:user-org-map-fields-misattributed-fixture",
         durationMs: 0,
       }),
       { persist: false },
