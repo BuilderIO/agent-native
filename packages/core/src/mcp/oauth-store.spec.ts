@@ -76,6 +76,24 @@ describe("oauth-store hashing & token generation", () => {
 });
 
 describe("OAuth issuance-owner schema migration", () => {
+  it("preserves the friendly OAuth client through code consumption", async () => {
+    const store = await freshStore();
+    const created = await store.createOAuthCode({
+      clientId: "client-random-id",
+      clientName: "Claude",
+      redirectUri: "https://client.example.com/callback",
+      codeChallenge: "challenge",
+      codeChallengeMethod: "S256",
+      ownerEmail: "person@example.com",
+      scope: "mcp:read",
+      resource: "https://plan.example.com/mcp",
+    });
+    expect((await store.getOAuthCode(created.code))?.clientName).toBe("Claude");
+    expect(
+      (await store.consumeOAuthCode(created.code, "person@example.com"))
+        ?.clientName,
+    ).toBe("Claude");
+  });
   it("adds nullable bindings without assigning ambiguous legacy grants to their current owners", async () => {
     await pglite.exec(`
       CREATE TABLE mcp_oauth_codes (
