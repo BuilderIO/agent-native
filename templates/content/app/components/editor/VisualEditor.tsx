@@ -118,6 +118,7 @@ import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
+  type CommentHighlightOptions,
   setCommentHighlights,
   commentHighlightKey,
   type CommentHighlightSpec,
@@ -2033,6 +2034,7 @@ interface VisualEditorExtensionOptions {
     editor: CoreEditor,
     transaction: Transaction,
   ) => void;
+  findCommentQuote?: CommentHighlightOptions["findQuote"];
 }
 
 export function hasAncestorType(
@@ -2630,6 +2632,7 @@ export function createVisualEditorExtensions({
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
+  findCommentQuote,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -2720,7 +2723,7 @@ export function createVisualEditorExtensions({
         referenceDepth,
       }),
       LocalMdxComponentNode,
-      CommentHighlight,
+      CommentHighlight.configure({ findQuote: findCommentQuote }),
       SuggestionHighlight,
       DragHandle,
       TypographyReplacements,
@@ -3221,6 +3224,21 @@ export function VisualEditor({
     },
     [],
   );
+  const threadsRef = useRef(commentThreads);
+  threadsRef.current = commentThreads;
+  const findCommentQuote = useCallback(
+    (threadId: string, doc: ProseMirrorNode) => {
+      const thread = threadsRef.current?.find((t) => t.threadId === threadId);
+      if (!thread || thread.resolved) return null;
+      return resolveAnchor(doc, {
+        quotedText: thread.quotedText,
+        prefix: thread.prefix ?? undefined,
+        suffix: thread.suffix ?? undefined,
+        startOffset: thread.startOffset ?? undefined,
+      });
+    },
+    [],
+  );
   const onImageFilePickerRequest = useCallback(
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
@@ -3327,6 +3345,7 @@ export function VisualEditor({
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
+        findCommentQuote,
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3370,6 +3389,7 @@ export function VisualEditor({
       referenceDepth,
       t,
       onMediaSourceCommitted,
+      findCommentQuote,
     ],
   );
 
@@ -4277,8 +4297,6 @@ export function VisualEditor({
     }
   }, [editor, editable, referenceDepth, documentId]);
 
-  const threadsRef = useRef(commentThreads);
-  threadsRef.current = commentThreads;
   const threadsSignature = useMemo(
     () =>
       (commentThreads ?? [])

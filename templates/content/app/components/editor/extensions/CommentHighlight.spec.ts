@@ -158,6 +158,11 @@ describe("CommentHighlight", () => {
     expect(
       highlighted(state.apply(state.tr.insertText("XYZ", 15, 24))),
     ).toEqual([]);
+    expect(
+      highlighted(
+        state.apply(state.tr.insertText("X", 15, 20).insertText("YZ", 16, 20)),
+      ),
+    ).toEqual([]);
     // A copy of the quote added ahead of it does not take its highlight.
     expect(
       commentHighlightKey.getState(
@@ -166,6 +171,27 @@ describe("CommentHighlight", () => {
     ).toEqual([{ threadId: "t1", from: 25, to: 34 }]);
     // Deleting the quote while editing next to it drops the highlight.
     expect(highlighted(swap("Intro.", "Ships."))).toEqual([]);
+  });
+
+  it("drops a highlight whose text a rewrite shares only letters with", () => {
+    let state = EditorState.create({
+      doc: doc("Hand edits are gold."),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 1, to: 20 }],
+      }),
+    );
+
+    const rewritten = state.apply(
+      state.tr.replaceWith(
+        0,
+        state.doc.content.size,
+        doc("Something else entirely here.").content,
+      ),
+    );
+    expect(commentHighlightKey.getState(rewritten)!.specs).toEqual([]);
   });
 
   it("drops a highlight whose word was deleted ahead of an identical one", () => {

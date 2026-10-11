@@ -82,5 +82,21 @@ describe("BubbleToolbar tooltips", () => {
 
     expect(onComment).toHaveBeenCalledOnce();
     expect(tooltips()).toHaveLength(0);
+
+    // Enter or Space activates the focused button with a click of detail 0.
+    act(() => {
+      editor!.commands.setTextSelection({ from: 1, to: 8 });
+      commentButton.blur();
+    });
+    act(() => commentButton.focus());
+    expect(tooltips()).toHaveLength(1);
+    act(() => {
+      commentButton.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, detail: 0 }),
+      );
+    });
+
+    expect(onComment).toHaveBeenCalledTimes(2);
+    expect(tooltips()).toHaveLength(0);
   });
 });

@@ -131,6 +131,44 @@ describe("VisualEditor comment highlights", () => {
     expect(highlighted("t1")).toBe("every Friday at 2 pm");
   });
 
+  it("finds a highlight's quote again after a swap too large to diff in time", async () => {
+    let seed = 7;
+    const word = () =>
+      Array.from({ length: 6 }, () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return "abcdefghijklmnopqrstuvwxyz"[seed % 26];
+      }).join("");
+    const sentence = () => `${Array.from({ length: 20 }, word).join(" ")}.`;
+    const before = Array.from({ length: 100 }, sentence);
+    before[50] = "Keep this exact quote here.";
+    await act(async () =>
+      render(before.join("\n"), [thread("t1", "exact quote")]),
+    );
+    await settle();
+    expect(highlighted("t1")).toBe("exact quote");
+    const editor = (
+      container.querySelector(".ProseMirror") as HTMLElement & {
+        editor: Editor;
+      }
+    ).editor;
+
+    // One collaborative update rewrites every paragraph but the quote's.
+    const after = before.map((text, index) =>
+      index === 50 ? text : sentence(),
+    );
+    await act(async () => {
+      editor.commands.setContent({
+        type: "doc",
+        content: after.map((text) => ({
+          type: "paragraph",
+          content: [{ type: "text", text }],
+        })),
+      });
+    });
+
+    expect(highlighted("t1")).toBe("exact quote");
+  });
+
   it("keeps a thread's highlight on its copy when another thread changes", async () => {
     const quoteOnly = (threadId: string, quotedText: string) => ({
       ...thread(threadId, quotedText),

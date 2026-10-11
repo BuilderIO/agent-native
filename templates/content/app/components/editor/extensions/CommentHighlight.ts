@@ -105,7 +105,11 @@ function swapMapping(
   const ranges: number[] = [];
   let changed: [number, number, number] | null = null;
   let offset = 0;
-  for (const [kind, text] of differ.diff_main(left, right, false)) {
+  const diffs = differ.diff_main(left, right, false);
+  // Letters a rewrite happens to share with the text it replaces are not that
+  // text surviving.
+  differ.diff_cleanupSemantic(diffs);
+  for (const [kind, text] of diffs) {
     if (kind === DIFF_EQUAL) {
       if (changed) ranges.push(...changed);
       changed = null;
@@ -124,14 +128,24 @@ function swapMapping(
   return new StepMap(ranges);
 }
 
-function keepsText(map: StepMap, from: number, to: number) {
-  let at = from;
-  let kept = false;
-  map.forEach((oldStart, oldEnd) => {
-    if (oldStart > at && at < to) kept = true;
-    at = Math.max(at, oldEnd);
-  });
-  return kept || at < to;
+// Text an earlier step of a change put inside a highlight is not its text.
+function keepsText(maps: readonly StepMap[], from: number, to: number) {
+  let parts = [[from, to]];
+  for (const map of maps) {
+    parts = parts.flatMap(([start, end]) => {
+      const left: number[][] = [];
+      let at = start;
+      map.forEach((oldStart, oldEnd) => {
+        if (oldStart >= end) return;
+        if (oldStart > at) left.push([map.map(at, 1), map.map(oldStart, -1)]);
+        at = Math.max(at, oldEnd);
+      });
+      if (at < end) left.push([map.map(at, 1), map.map(end, -1)]);
+      return left;
+    });
+    if (!parts.length) return false;
+  }
+  return true;
 }
 
 // A highlight keeps only what is left of its text. Once a change replaces all
@@ -142,8 +156,8 @@ function mapHighlight(
   from: number,
   to: number,
 ): PendingRange | null {
+  if (!keepsText(maps, from, to)) return null;
   for (const map of maps) {
-    if (!keepsText(map, from, to)) return null;
     from = map.map(from, 1);
     to = map.map(to, -1);
   }
@@ -188,7 +202,14 @@ function buildDecorations(
   return DecorationSet.create(doc, decos);
 }
 
-export function createCommentHighlightPlugin() {
+export interface CommentHighlightOptions {
+  // Where a thread's quote is in a document, if anywhere.
+  findQuote?: (threadId: string, doc: ProseMirrorNode) => PendingRange | null;
+}
+
+export function createCommentHighlightPlugin({
+  findQuote,
+}: CommentHighlightOptions = {}) {
   return new Plugin<CommentHighlightState>({
     key: commentHighlightKey,
     state: {
@@ -223,6 +244,10 @@ export function createCommentHighlightPlugin() {
                 swap = swapMapping(tr, oldState.doc, newState.doc);
               if (swap) range = mapHighlight([swap], s.from, s.to);
             }
+            // A highlight with none of its text left falls back to its quote,
+            // as on a fresh load. A rewrite too large to diff in time drops
+            // text it never touched.
+            range ??= findQuote?.(s.threadId, newState.doc) ?? null;
             return range ? [{ threadId: s.threadId, ...range }] : [];
           });
           if (pending) {
@@ -257,11 +282,15 @@ export function createCommentHighlightPlugin() {
   });
 }
 
-export const CommentHighlight = Extension.create({
+export const CommentHighlight = Extension.create<CommentHighlightOptions>({
   name: "commentHighlight",
 
+  addOptions() {
+    return { findQuote: undefined };
+  },
+
   addProseMirrorPlugins() {
-    return [createCommentHighlightPlugin()];
+    return [createCommentHighlightPlugin(this.options)];
   },
 });
 
