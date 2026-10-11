@@ -229,6 +229,41 @@ const DockedButton = forwardRef<
 ));
 DockedButton.displayName = "DockedButton";
 
+function BubbleActionButton({ item }: { item: ToolbarAction }) {
+  // Calling preventDefault on pointer-down also skips Radix's own close on
+  // press. An action that hides the bubble, like Comment, then leaves the
+  // tooltip open on a detached trigger, pinned to the top-left of the window.
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const { icon: Icon, title, action, isActive } = item;
+  return (
+    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+      <TooltipTrigger asChild>
+        <button
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setTooltipOpen(false);
+            action();
+          }}
+          onClick={(event) => {
+            if (event.detail === 0) action();
+          }}
+          aria-label={title}
+          className={cn(
+            "p-2 rounded",
+            isActive()
+              ? "bg-accent text-accent-foreground"
+              : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <Icon size={16} strokeWidth={2.5} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function toolbarEditChain(editor: Editor) {
   if (!editor.isEditable) return null;
   return editor.chain().command(({ tr }) => {
@@ -1341,38 +1376,8 @@ export function BubbleToolbar({
             if ("type" in item && item.type === "color") {
               return renderColor();
             }
-            const {
-              icon: Icon,
-              title,
-              action,
-              isActive,
-            } = item as ToolbarAction;
-            return (
-              <Tooltip key={title}>
-                <TooltipTrigger asChild>
-                  <button
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      action();
-                    }}
-                    onClick={(event) => {
-                      if (event.detail === 0) action();
-                    }}
-                    aria-label={title}
-                    className={cn(
-                      "p-2 rounded",
-                      isActive()
-                        ? "bg-accent text-accent-foreground"
-                        : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    <Icon size={16} strokeWidth={2.5} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{title}</TooltipContent>
-              </Tooltip>
-            );
+            const action = item as ToolbarAction;
+            return <BubbleActionButton key={action.title} item={action} />;
           })}
         </div>
       )}

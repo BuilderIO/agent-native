@@ -193,11 +193,13 @@ export function bodyHoldsChanges(
   holder: string,
   other: string,
 ): boolean {
-  // The base compares in the form an editor holds it, as in the merge.
+  // Only the holder comes from an editor. The base and the other body can be
+  // stored Markdown, such as an agent's blank-line paragraphs, so they compare
+  // in the form an editor holds them, as in the merge.
   const [baseText, holderText, otherText] = [
     parsedForm(base),
     holder,
-    other,
+    parsedForm(other),
   ].map((content) => {
     if (content === null) return null;
     const blocks = parseStableBlocks(content);
