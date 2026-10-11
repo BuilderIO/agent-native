@@ -289,6 +289,39 @@ describe("save-time reveal identity across a content edit", () => {
     });
   });
 
+  it("accepts an edit to the first of two identical paragraphs, which removes one occurrence", () => {
+    const duplicate = box("<p>Two</p><p>Two</p>");
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: box("<p>Three</p><p>Two</p>"),
+        animations: [{ id: "two", elementIndex: 1, elementPath: [1, 0] }],
+        baseline: {
+          content: duplicate,
+          animations: [{ id: "two", elementIndex: 1, elementPath: [1, 0] }],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a reveal that resolves once a rootless baseline gains a slide root", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: box("<p>One</p><p>Two</p>"),
+        animations: [reveal],
+        baseline: {
+          content: "<h1>Title</h1><p>One</p><p>Two</p>",
+          animations: [reveal],
+        },
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
+  });
+
   it("accepts a text edit to the target, which keeps its identity", () => {
     expect(() => saveWith(box("<p>One</p><p>Two, revised</p>"))).not.toThrow();
   });

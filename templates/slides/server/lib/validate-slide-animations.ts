@@ -118,34 +118,37 @@ function tagAndClass(element: Element): string {
 }
 
 /**
- * Whether the target's old text now sits on another element of its tag and class. A
- * swap of two same-tag siblings keeps the structure, and looks like two text edits,
- * so the old text on another sibling is the signal that the target moved.
+ * Whether the target's text change removed one occurrence of its old text among the
+ * elements of its tag and class. An edit always does. A move, such as a swap of two
+ * distinct texts, keeps every occurrence, so it is refused. Duplicate texts make the
+ * edited element ambiguous, but the count still tells an edit from a move.
  */
-function oldTextMovedElsewhere(
+function targetTextAccountedFor(
   prior: Element,
+  baselineRoot: Element,
   current: Element,
   root: Element,
 ): boolean {
-  const text = prior.textContent ?? "";
-  if (text === (current.textContent ?? "")) return false;
+  const before = prior.textContent ?? "";
+  if (before === (current.textContent ?? "")) return true;
   const key = tagAndClass(prior);
-  return [root, ...Array.from(root.querySelectorAll("*"))].some(
-    (other) =>
-      other !== current &&
-      tagAndClass(other) === key &&
-      (other.textContent ?? "") === text,
-  );
+  const occurrences = (scope: Element) =>
+    [scope, ...Array.from(scope.querySelectorAll("*"))].filter(
+      (element) =>
+        tagAndClass(element) === key && (element.textContent ?? "") === before,
+    ).length;
+  return occurrences(root) < occurrences(baselineRoot);
 }
 
 /**
  * The index of the first kept reveal that may now target a different element, or -1.
  * A kept reveal has the same id, index, and path as a baseline reveal. When every
  * element keeps its tag and class in document order, a kept path resolves to the same
- * element and only text changed, so identity holds exactly. Any change to that
- * structure makes identity a guess (an inserted or removed sibling, a retag, a reorder),
- * so every kept reveal on the slide is refused. A baseline reveal that did not resolve
- * has no target to keep, so once it resolves under the same path, the content moved in.
+ * element, and a text change must be an edit of the target itself (see
+ * targetTextAccountedFor). Any structure change makes identity a guess, so every kept
+ * reveal on the slide is refused. A baseline reveal that did not resolve has no target
+ * to keep, so once it resolves under the same path, the content moved in. A baseline
+ * with no slide root has no targets at all, so every such reveal counts as unresolved.
  */
 function retargetedRevealIndex(
   baseline: SlideAnimationBaseline,
@@ -153,9 +156,14 @@ function retargetedRevealIndex(
   animations: readonly SlideAnimation[],
 ): number {
   const baselineRoot = slideRootOf(baseline.content);
-  if (!baselineRoot) return -1;
-  const baselineStructure = structureOf(baselineRoot);
-  const structureChanged = baselineStructure !== structureOf(root);
+  if (!baselineRoot) {
+    const baselineIds = new Set(baseline.animations.map(revealIdentity));
+    return resolveRevealSteps(root, animations).findIndex(
+      (outcome, index) =>
+        outcome.ok && baselineIds.has(revealIdentity(animations[index]!)),
+    );
+  }
+  const structureChanged = structureOf(baselineRoot) !== structureOf(root);
   // null marks a baseline reveal that did not resolve.
   const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(
@@ -171,7 +179,7 @@ function retargetedRevealIndex(
     const prior = priorTargets.get(revealIdentity(animations[index]!));
     if (prior === undefined) return false;
     if (prior === null || structureChanged) return true;
-    return oldTextMovedElsewhere(prior, outcome.element, root);
+    return !targetTextAccountedFor(prior, baselineRoot, outcome.element, root);
   });
 }
 
