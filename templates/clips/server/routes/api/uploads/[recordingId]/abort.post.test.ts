@@ -312,6 +312,37 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
   });
 
+  it("rejects a stale interruption abort for a storage-parked upload", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: "Waiting for storage setup",
+        uploadAttemptId: "attempt-2",
+        uploadGenerationId: "generation-2",
+      },
+    ];
+    mockReadBody.mockResolvedValue({
+      reason: "Upload failed (503)",
+      failureCode: "upload_interrupted",
+      attemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
+    expect(mockUpdateSets).toHaveLength(0);
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    expect(mockGetResumableSession).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
   it("allows an explicit user cancellation to cancel a storage-parked upload", async () => {
     mockSelectRows.rows = [
       {

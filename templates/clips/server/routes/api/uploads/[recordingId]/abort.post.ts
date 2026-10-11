@@ -195,15 +195,6 @@ export async function handleAbortRecordingUpload(
       return { error: "Recording not found" };
     }
 
-    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
-      return {
-        ok: true,
-        recordingId,
-        status: "uploading",
-        parkedForStorage: true,
-      };
-    }
-
     const preserveFailure =
       existing.status === "failed" && existing.failureCode != null;
     const persistedFailureCode =
@@ -229,6 +220,15 @@ export async function handleAbortRecordingUpload(
       return {
         error: "A newer upload retry is already active.",
         staleAttempt: true,
+      };
+    }
+
+    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
       };
     }
 
