@@ -20,16 +20,23 @@ const AUDIT_TIMEOUT_MS = 60_000;
 
 export default defineAction({
   description:
-    "Check text color contrast on every slide of a deck against WCAG AA, using axe-core in the user's open editor tab. " +
+    "Check text color contrast against WCAG AA on the given slideIds, or on every slide when omitted, using axe-core in the user's open editor tab. " +
     "Requires the deck to be open in the Slides editor. Returns failures (measured vs required ratio, colors, objectId), " +
     "unverified text that could not be measured (text over images, gradients, blend modes, or filters; text over overlapping solid shapes is measured), and skipped slides. " +
-    "Only claim the deck passes when canClaimContrastPasses is true; report unverified and skipped slides as not checked.",
+    "Only claim the deck passes when canClaimContrastPasses is true (whole deck audited, no findings). A slideIds audit can only support canClaimRequestedSlidesPass, for those slides alone. Report unverified and skipped slides as not checked.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    slideIds: z
+      .array(z.string())
+      .min(1)
+      .optional()
+      .describe(
+        "Audit only these slides, such as the ones this turn created or changed. Omit to audit the whole deck.",
+      ),
   }),
   http: false,
   readOnly: true,
-  run: async ({ deckId }) => {
+  run: async ({ deckId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) {
       fail(`Deck not found: ${deckId}`, {
@@ -56,13 +63,31 @@ export default defineAction({
     const designSystemAccess = designSystemId
       ? await resolveAccess("design-system", designSystemId)
       : null;
-    const request = buildContrastAuditRequest(deckId, {
-      designSystemId,
-      designSystemData: designSystemAccess?.resource.data ?? null,
-      tweaks: data.tweaks,
-      aspectRatio: data.aspectRatio,
-      slides: Array.isArray(data.slides) ? data.slides : [],
-    });
+    const slides = Array.isArray(data.slides) ? data.slides : [];
+    const requestedSlideIds = slideIds ? new Set(slideIds) : undefined;
+    const unknownSlideIds = slideIds?.filter(
+      (id) => !slides.some((slide) => slide.id === id),
+    );
+    if (unknownSlideIds?.length) {
+      fail(
+        `Slides not found in deck ${deckId}: ${unknownSlideIds.join(", ")}`,
+        {
+          errorCode: "slide_not_found",
+          statusCode: 404,
+        },
+      );
+    }
+    const request = buildContrastAuditRequest(
+      deckId,
+      {
+        designSystemId,
+        designSystemData: designSystemAccess?.resource.data ?? null,
+        tweaks: data.tweaks,
+        aspectRatio: data.aspectRatio,
+        slides,
+      },
+      requestedSlideIds ? (id) => requestedSlideIds.has(id) : undefined,
+    );
 
     const sessions = (await listBrowserSessions(ownerEmail)).filter(
       (session) =>
