@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   commentMentionsForText,
   findCommentMentions,
+  notifiedPeople,
   parseCommentMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
@@ -152,7 +153,7 @@ describe("comment mentions", () => {
     ).toBe(serializeStoredCommentMentions([one, two]));
   });
 
-  it("leaves out a name two people share, so it neither draws nor notifies", () => {
+  it("keeps a name two people share, but draws neither as theirs and notifies neither", () => {
     const first = {
       kind: "person" as const,
       email: "a@example.com",
@@ -172,10 +173,38 @@ describe("comment mentions", () => {
     expect(findCommentMentions("Hi @Sam", [first, second])).toEqual([
       { start: 3, name: "Sam", mention: null },
     ]);
-    expect(commentMentionsForText("Hi @Sam", [first, second])).toBeUndefined();
-    expect(
-      commentMentionsForText("Hi @Sam and @Priya", [first, second, priya]),
-    ).toBe(serializeStoredCommentMentions([priya]));
+    expect(commentMentionsForText("Hi @Sam", [first, second])).toBe(
+      serializeStoredCommentMentions([first, second]),
+    );
+    expect(notifiedPeople([first, second, priya])).toEqual([priya]);
+  });
+
+  it("never draws a shorter name inside a longer one two people share", () => {
+    const samLee = (email: string) => ({
+      kind: "person" as const,
+      email,
+      name: "Sam Lee",
+    });
+    const sam = {
+      kind: "person" as const,
+      email: "sam@example.com",
+      name: "Sam",
+    };
+    const text = "Hi @Sam Lee and @Sam";
+
+    const stored = readStoredCommentMentions(
+      commentMentionsForText(text, [
+        samLee("a@example.com"),
+        samLee("b@example.com"),
+        sam,
+      ]) ?? null,
+    );
+
+    expect(findCommentMentions(text, stored)).toEqual([
+      { start: 3, name: "Sam Lee", mention: null },
+      { start: 16, name: "Sam", mention: sam },
+    ]);
+    expect(notifiedPeople(stored)).toEqual([sam]);
   });
 
   it("stores the same mentions the same way whatever order their keys came in", () => {

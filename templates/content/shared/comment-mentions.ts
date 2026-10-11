@@ -152,16 +152,10 @@ function isNameCharacter(character: string | undefined): boolean {
   return character !== undefined && NAME_CHARACTER.test(character);
 }
 
-/**
- * Where stored mentions' `@name`s appear in the text. A name counts only as a
- * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
- * two names start at the same `@` the longer wins. Saving and rendering both
- * use this, so a pill is drawn exactly where a saved mention is.
- */
-export function findCommentMentions(
-  text: string,
+/** Each name's identity, or null when two identities share it. */
+function identitiesByName(
   mentions: readonly CommentMention[],
-): CommentMentionMatch[] {
+): Map<string, CommentMention | null> {
   const byName = new Map<string, CommentMention | null>();
   for (const mention of mentions) {
     if (!mention.name) continue;
@@ -174,6 +168,20 @@ export function findCommentMentions(
         : null,
     );
   }
+  return byName;
+}
+
+/**
+ * Where stored mentions' `@name`s appear in the text. A name counts only as a
+ * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
+ * two names start at the same `@` the longer wins. Saving and rendering both
+ * use this, so a pill is drawn exactly where a saved mention is.
+ */
+export function findCommentMentions(
+  text: string,
+  mentions: readonly CommentMention[],
+): CommentMentionMatch[] {
+  const byName = identitiesByName(mentions);
   const names = [...byName.keys()].sort((a, b) => b.length - a.length);
   const matches: CommentMentionMatch[] = [];
   let start = text.indexOf("@");
@@ -201,17 +209,14 @@ export function findCommentMentions(
 /**
  * The mentions whose `@name` still appears in the text, once each, encoded
  * for an add or update. Undefined when nothing is mentioned. A name two
- * identities share is left out: the draft keeps people whose chips were
- * deleted, so it can't tell which one is meant, and it renders as text.
+ * identities share is kept, so rendering never reads a shorter name inside it.
  */
 export function commentMentionsForText(
   text: string,
   mentions: readonly CommentMention[],
 ): string | undefined {
   const named = new Set(
-    findCommentMentions(text, mentions).flatMap((match) =>
-      match.mention ? [match.name] : [],
-    ),
+    findCommentMentions(text, mentions).map((match) => match.name),
   );
   const seen = new Set<string>();
   const present = mentions.filter((mention) => {
@@ -221,6 +226,20 @@ export function commentMentionsForText(
     return true;
   });
   return serializeStoredCommentMentions(present) ?? undefined;
+}
+
+/**
+ * The people a comment notifies. A name two people share renders as text, and
+ * a draft keeps people whose chips were deleted, so it can't say which one is
+ * meant: it notifies neither.
+ */
+export function notifiedPeople(
+  mentions: readonly CommentMention[],
+): CommentPersonMention[] {
+  const byName = identitiesByName(mentions);
+  return personMentions(mentions).filter(
+    (mention) => byName.get(mention.name) !== null,
+  );
 }
 
 export function personMentions(

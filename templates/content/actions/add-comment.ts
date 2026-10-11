@@ -19,8 +19,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
+  notifiedPeople,
   parseCommentMentions,
-  personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
@@ -307,7 +307,7 @@ export async function addCommentWithGuard(
     authorName: name,
     submissionSource,
     content,
-    mentions: personMentions(mentions),
+    mentions: notifiedPeople(mentions),
     isReply: Boolean(parentId ?? args.threadId),
   });
 

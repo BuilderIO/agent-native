@@ -74,7 +74,6 @@ describe("CommentComposer", () => {
             },
             mode: "auto",
           },
-          members: [],
         }),
       );
     });
