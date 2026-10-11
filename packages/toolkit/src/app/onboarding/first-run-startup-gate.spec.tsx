@@ -549,7 +549,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
-  it("reveals the app if both eligibility checks are unavailable", async () => {
+  it("keeps the app behind a retry surface if both eligibility checks are unavailable", async () => {
     vi.useFakeTimers();
     mocks.fetchStatus
       .mockRejectedValueOnce(new Error("first status read failed"))
@@ -570,6 +570,12 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
     expect(
       container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-first-run-app-hidden]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-first-run-status-error]"),
     ).not.toBeNull();
     expect(
       container.querySelector("[data-first-run-startup-loading]"),
