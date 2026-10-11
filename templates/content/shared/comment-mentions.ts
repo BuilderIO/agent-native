@@ -30,10 +30,23 @@ function mentionFrom(entry: unknown): CommentMention | string {
     return "Comment mentions metadata contains an invalid entry";
   }
   const record = entry as Record<string, unknown>;
-  const name = typeof record.name === "string" ? record.name : "";
+  if (
+    record.kind !== undefined &&
+    record.kind !== "person" &&
+    record.kind !== "agent"
+  ) {
+    return "Comment mention kind must be person or agent";
+  }
+  const name = text(record.name);
+  if (!name) return "Comment mention name is required";
   if (record.kind === "agent") {
     const model = text(record.model);
     if (!model) return "Comment agent mention model is required";
+    for (const key of ["engine", "provider"] as const) {
+      if (record[key] != null && typeof record[key] !== "string") {
+        return `Comment agent mention ${key} must be a string`;
+      }
+    }
     const engine = text(record.engine);
     const provider = text(record.provider);
     return {
@@ -43,9 +56,6 @@ function mentionFrom(entry: unknown): CommentMention | string {
       ...(provider ? { provider } : {}),
       name,
     };
-  }
-  if (record.kind !== undefined && record.kind !== "person") {
-    return "Comment mention kind must be person or agent";
   }
   const email = text(record.email);
   if (!email) return "Comment mention email is required";
@@ -104,7 +114,7 @@ export function readStoredCommentMentions(
 /** One identity per person or agent, however many times it is mentioned. */
 export function commentMentionKey(mention: CommentMention): string {
   return mention.kind === "agent"
-    ? `agent:${mention.model}:${mention.engine ?? ""}`
+    ? `agent:${mention.model}:${mention.engine ?? ""}:${mention.provider ?? ""}`
     : `person:${mention.email.trim().toLowerCase()}`;
 }
 

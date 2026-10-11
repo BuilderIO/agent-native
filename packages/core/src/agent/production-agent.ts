@@ -6507,6 +6507,11 @@ export async function runAgentLoop(opts: {
           providerOptions,
         };
 
+        // Actions record the effort their call ran at, which an empty-response
+        // retry steps down. A nested loop with no effort of its own (a custom
+        // agent profile) shares this context and must not erase the caller's.
+        if (runCtx && opts.reasoningEffort)
+          runCtx.reasoningEffort = effectiveReasoningEffort;
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
         notifyModelInputObserver(opts.onModelInput, engineMessages);
         const eventStream = engine.stream(streamOpts);

@@ -9,13 +9,19 @@ import {
 } from "@agent-native/toolkit/composer";
 import type { CommentMention } from "@shared/comment-mentions";
 import { IconExternalLink } from "@tabler/icons-react";
-import type { ReactElement } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactElement,
+} from "react";
 
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useMentionMembers } from "@/hooks/use-mention-members";
 
 import {
@@ -250,9 +256,15 @@ function AgentIdentityCard({
   );
 }
 
+const HOVER_OPEN_DELAY_MS = 300;
+const HOVER_CLOSE_DELAY_MS = 150;
+
 /**
  * The one card behind every person or agent in a comment: mention pills,
- * author avatars, and author names all open it.
+ * author avatars, and author names all open it. Hovering shows it at a
+ * glance; a click or Enter opens it with focus inside. It is a popover, not a
+ * Radix hover card, because a hover card takes its links out of the tab order
+ * and keyboard users could never reach "Open run".
  */
 export function CommentIdentityHoverCard({
   identity,
@@ -261,15 +273,65 @@ export function CommentIdentityHoverCard({
   identity: CommentIdentity;
   children: ReactElement;
 }) {
+  const [open, setOpen] = useState(false);
+  // A hover-opened card must not take focus, or give it back to its trigger
+  // when it closes: the pointer passing over a pill would pull focus out of
+  // the comment being typed.
+  const openedByHover = useRef(false);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+
+  const hover = (entering: boolean) => (event: PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== "mouse") return;
+    window.clearTimeout(hoverTimer.current);
+    if (entering ? open : !open || !openedByHover.current) return;
+    hoverTimer.current = window.setTimeout(
+      () => {
+        if (entering) openedByHover.current = true;
+        setOpen(entering);
+      },
+      entering ? HOVER_OPEN_DELAY_MS : HOVER_CLOSE_DELAY_MS,
+    );
+  };
+
   return (
-    <HoverCard openDelay={300} closeDelay={150}>
-      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
-      <HoverCardContent
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        asChild
+        role="button"
+        onPointerEnter={hover(true)}
+        onPointerLeave={hover(false)}
+        onClick={(event) => {
+          // The comment row's click would focus its reply box, and focus
+          // leaving the card closes it.
+          event.stopPropagation();
+          window.clearTimeout(hoverTimer.current);
+          // Clicking a card the pointer already opened keeps it open.
+          if (open && openedByHover.current) event.preventDefault();
+          openedByHover.current = false;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.currentTarget.click();
+        }}
+      >
+        {children}
+      </PopoverTrigger>
+      <PopoverContent
         side="top"
         align="start"
         sideOffset={6}
         className="w-64 p-3"
         data-comment-identity-card={identity.kind}
+        onPointerEnter={hover(true)}
+        onPointerLeave={hover(false)}
+        onOpenAutoFocus={(event) => {
+          if (openedByHover.current) event.preventDefault();
+        }}
+        onCloseAutoFocus={(event) => {
+          if (openedByHover.current) event.preventDefault();
+        }}
         // The card is portaled but still bubbles through React to the
         // comment row, whose click selects the thread.
         onClick={(event) => event.stopPropagation()}
@@ -279,7 +341,7 @@ export function CommentIdentityHoverCard({
         ) : (
           <AgentIdentityCard identity={identity} />
         )}
-      </HoverCardContent>
-    </HoverCard>
+      </PopoverContent>
+    </Popover>
   );
 }

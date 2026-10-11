@@ -54,6 +54,25 @@ describe("comment mentions", () => {
     );
   });
 
+  it("rejects a submitted mention whose name or agent identity is not text", () => {
+    expect(() =>
+      parseCommentMentions([{ kind: "agent", model: "m", name: 42 }]),
+    ).toThrow("Comment mention name is required");
+    expect(() =>
+      parseCommentMentions([{ email: "sam@example.com", name: " " }]),
+    ).toThrow("Comment mention name is required");
+    expect(() =>
+      parseCommentMentions([
+        { kind: "agent", model: "m", name: "Agent", engine: 7 },
+      ]),
+    ).toThrow("Comment agent mention engine must be a string");
+    expect(() =>
+      parseCommentMentions([
+        { kind: "agent", model: "m", name: "Agent", provider: {} },
+      ]),
+    ).toThrow("Comment agent mention provider must be a string");
+  });
+
   it("skips unreadable stored entries without losing the readable ones", () => {
     expect(
       readStoredCommentMentions(
@@ -117,6 +136,20 @@ describe("comment mentions", () => {
       [10, "Sam"],
     ]);
     expect(commentMentionsForText("Ask @Samantha", [sam])).toBeUndefined();
+  });
+
+  it("keeps agents on one model from different providers apart", () => {
+    const one = {
+      kind: "agent" as const,
+      model: "m",
+      provider: "One",
+      name: "Agent One",
+    };
+    const two = { ...one, provider: "Two", name: "Agent Two" };
+
+    expect(commentMentionsForText("@Agent One and @Agent Two", [one, two])).toBe(
+      serializeStoredCommentMentions([one, two]),
+    );
   });
 
   it("keeps both people who share a name but draws neither as theirs", () => {

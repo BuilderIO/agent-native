@@ -15972,6 +15972,65 @@ describe("runAgentLoop", () => {
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
 
+  it.each([
+    { loopEffort: "high" as const, recorded: "medium" },
+    { loopEffort: undefined, recorded: "high" },
+  ])(
+    "reports the effort a tool call ran at to the run context (loop effort $loopEffort)",
+    async ({ loopEffort, recorded }) => {
+      let call = 0;
+      const engine: AgentEngine = {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          call += 1;
+          if (call === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "thinking" as const, text: "..." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts:
+              call === 2
+                ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+                : [{ type: "text", text: "Done." }],
+          };
+          yield { type: "stop", reason: call === 2 ? "tool_use" : "end_turn" };
+        },
+      };
+      const seen: unknown[] = [];
+
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", run: { reasoningEffort: "high" } },
+        () =>
+          runAgentLoop({
+            engine,
+            model: "claude-sonnet-5",
+            systemPrompt: "system",
+            tools: [],
+            messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+            actions: {
+              record: {
+                ...actionEntry({}),
+                run: async () => {
+                  seen.push(getRequestRunContext()?.reasoningEffort);
+                  return "ok";
+                },
+              },
+            },
+            send: () => {},
+            signal: new AbortController().signal,
+            reasoningEffort: loopEffort,
+          }),
+      );
+
+      expect(seen).toEqual([recorded]);
+    },
+  );
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",
