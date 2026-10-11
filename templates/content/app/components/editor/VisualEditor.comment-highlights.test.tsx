@@ -19,10 +19,13 @@ import { VisualEditor } from "./VisualEditor";
 const BEFORE = "Intro.\nThe team ships every Friday afternoon, so it lands.";
 const AFTER = "Intro.\nThe team ships every Friday at 2 pm, so it lands.";
 
-function thread(threadId: string): CommentThread {
+function thread(
+  threadId: string,
+  quotedText = "ships every Friday afternoon",
+): CommentThread {
   return {
     threadId,
-    quotedText: "ships every Friday afternoon",
+    quotedText,
     prefix: null,
     suffix: null,
     startOffset: null,
@@ -116,5 +119,13 @@ describe("VisualEditor comment highlights", () => {
     await settle();
 
     expect(highlighted("t1")).toBe("ships every Friday at 2 pm");
+
+    // The thread's re-anchored quote then replaces the mapped range.
+    await act(async () =>
+      render(AFTER, [thread("t1", "every Friday at 2 pm")], "accepted"),
+    );
+    await settle();
+
+    expect(highlighted("t1")).toBe("every Friday at 2 pm");
   });
 });

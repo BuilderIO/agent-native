@@ -4368,7 +4368,9 @@ export function VisualEditor({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (stopped || editor.isDestroyed) return;
-      applyRef.current(false);
+      // A thread's new quote, such as the one an accepted edit re-anchors to,
+      // replaces the range mapped while it was on its way.
+      applyRef.current(attempts === 0);
       attempts += 1;
       const present = new Set(
         (commentHighlightKey.getState(editor.view.state)?.specs ?? []).map(

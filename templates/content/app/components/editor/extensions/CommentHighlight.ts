@@ -3,6 +3,11 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { ReplaceStep, StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import DiffMatchPatch, {
+  DIFF_DELETE,
+  DIFF_EQUAL,
+  DIFF_INSERT,
+} from "diff-match-patch";
 
 export interface CommentHighlightSpec {
   threadId: string;
@@ -45,52 +50,48 @@ function clampRange(
   return { from: a, to: b };
 }
 
-// What each position of a document names: a node boundary or one character.
-function positionUnits(node: ProseMirrorNode, units: string[] = []): string[] {
-  node.forEach((child) => {
-    if (child.isText) {
-      for (let index = 0; index < child.text!.length; index += 1)
-        units.push(child.text!.charAt(index));
-    } else if (child.isLeaf) {
-      units.push(`<${child.type.name}/>`);
-    } else {
-      units.push(`<${child.type.name}>`);
-      positionUnits(child, units);
-      units.push(`</${child.type.name}>`);
+// What each position of a document names, one character per position: its
+// text, and a private-use character for each node boundary.
+function positionText(doc: ProseMirrorNode, codes: Map<string, string>) {
+  const parts: string[] = [];
+  const boundary = (key: string) => {
+    let code = codes.get(key);
+    if (code === undefined) {
+      code = String.fromCharCode(0xe000 + codes.size);
+      codes.set(key, code);
     }
-  });
-  return units;
-}
-
-interface DocumentSwap {
-  before: string[];
-  after: string[];
-  map: StepMap;
-  // The old document's changed span, when the swap only rewrites text there.
-  rewrite: PendingRange | null;
+    parts.push(code);
+  };
+  const walk = (node: ProseMirrorNode) =>
+    node.forEach((child) => {
+      if (child.isText) {
+        parts.push(child.text!);
+      } else if (child.isLeaf) {
+        boundary(`${child.type.name}/`);
+      } else {
+        boundary(child.type.name);
+        walk(child);
+        boundary(`/${child.type.name}`);
+      }
+    });
+  walk(doc);
+  return parts.join("");
 }
 
 // A collaborative update, a reconcile, or a decision readback swaps in the
 // whole document, so its own mapping collapses every range inside it. Such a
-// swap maps through the one span where the documents stop naming the same
-// node types and text. A narrower change keeps its own mapping: deleting one
-// of two identical words reads, by text alone, as deleting the other.
-function documentSwap(
+// swap maps through a diff of the two documents' node types and text. A
+// narrower change keeps its own mapping: deleting one of two identical words
+// reads, by text alone, as deleting the other.
+function swapMapping(
   tr: Transaction,
   before: ProseMirrorNode,
   after: ProseMirrorNode,
-): DocumentSwap | null {
-  const left = positionUnits(before);
-  const right = positionUnits(after);
-  let start = 0;
-  while (
-    start < left.length &&
-    start < right.length &&
-    left[start] === right[start]
-  )
-    start += 1;
-  if (start === left.length && start === right.length)
-    return { before: left, after: right, map: StepMap.empty, rewrite: null };
+): StepMap | null {
+  const codes = new Map<string, string>();
+  const left = positionText(before, codes);
+  const right = positionText(after, codes);
+  if (left === right) return StepMap.empty;
   const swapsDocument = tr.steps.some(
     (step, index) =>
       step instanceof ReplaceStep &&
@@ -98,63 +99,29 @@ function documentSwap(
       step.to === tr.docs[index].content.size,
   );
   if (!swapsDocument) return null;
-  let endLeft = left.length;
-  let endRight = right.length;
-  while (
-    endLeft > start &&
-    endRight > start &&
-    left[endLeft - 1] === right[endRight - 1]
-  ) {
-    endLeft -= 1;
-    endRight -= 1;
+  const differ = new DiffMatchPatch();
+  // This runs on the main thread: a large rewrite settles for a coarser diff.
+  differ.Diff_Timeout = 0.05;
+  const ranges: number[] = [];
+  let changed: [number, number, number] | null = null;
+  let offset = 0;
+  for (const [kind, text] of differ.diff_main(left, right, false)) {
+    if (kind === DIFF_EQUAL) {
+      if (changed) ranges.push(...changed);
+      changed = null;
+      offset += text.length;
+      continue;
+    }
+    changed ??= [offset, 0, 0];
+    if (kind === DIFF_DELETE) {
+      changed[1] += text.length;
+      offset += text.length;
+    } else if (kind === DIFF_INSERT) {
+      changed[2] += text.length;
+    }
   }
-  const changed = [
-    ...left.slice(start, endLeft),
-    ...right.slice(start, endRight),
-  ];
-  return {
-    before: left,
-    after: right,
-    map: new StepMap([start, endLeft - start, endRight - start]),
-    rewrite: changed.some((unit) => unit.length > 1)
-      ? null
-      : { from: start, to: endLeft },
-  };
-}
-
-function indexOfUnits(
-  units: string[],
-  part: string[],
-  from: number,
-  to: number,
-) {
-  for (let at = from; at + part.length <= to; at += 1)
-    if (part.every((unit, index) => units[at + index] === unit)) return at;
-  return -1;
-}
-
-// A rewrite that cuts into a highlight takes in all of its new text, as an
-// accepted edit re-anchors the thread's quote (shared/comment-reanchor.ts),
-// unless the highlighted text survives there: one swap can carry separate
-// edits on either side of it. Typing at its edge does not cut it, and a
-// change to blocks drops it to be found again by its quote.
-function swappedRange(
-  swap: DocumentSwap,
-  from: number,
-  to: number,
-): PendingRange | null {
-  const { map, rewrite } = swap;
-  if (!rewrite || from >= rewrite.to || to <= rewrite.from) {
-    const mappedFrom = map.map(from, 1);
-    const mappedTo = map.map(to, -1);
-    return mappedTo > mappedFrom ? { from: mappedFrom, to: mappedTo } : null;
-  }
-  const start = map.map(Math.min(from, rewrite.from), -1);
-  const end = map.map(Math.max(to, rewrite.to), 1);
-  const text = swap.before.slice(from, to);
-  const at = indexOfUnits(swap.after, text, start, end);
-  if (at >= 0) return { from: at, to: at + text.length };
-  return end > start ? { from: start, to: end } : null;
+  if (changed) ranges.push(...changed);
+  return new StepMap(ranges);
 }
 
 function buildDecorations(
@@ -222,15 +189,25 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          let swap: DocumentSwap | null | undefined;
+          let swap: StepMap | null | undefined;
           specs = specs.flatMap((s) => {
             const from = tr.mapping.map(s.from, 1);
             const to = tr.mapping.map(s.to, -1);
             if (to > from) return [{ threadId: s.threadId, from, to }];
             if (swap === undefined)
-              swap = documentSwap(tr, oldState.doc, newState.doc);
-            const range = swap && swappedRange(swap, s.from, s.to);
-            return range ? [{ threadId: s.threadId, ...range }] : [];
+              swap = swapMapping(tr, oldState.doc, newState.doc);
+            if (!swap) return [];
+            // An end inside text the swap replaced moves out to take in the
+            // replacement, as accepting an edit re-anchors the thread's quote.
+            const start = swap.mapResult(s.from, 1);
+            const end = swap.mapResult(s.to, -1);
+            const swappedFrom = start.deletedAcross
+              ? swap.map(s.from, -1)
+              : start.pos;
+            const swappedTo = end.deletedAcross ? swap.map(s.to, 1) : end.pos;
+            return swappedTo > swappedFrom
+              ? [{ threadId: s.threadId, from: swappedFrom, to: swappedTo }]
+              : [];
           });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);

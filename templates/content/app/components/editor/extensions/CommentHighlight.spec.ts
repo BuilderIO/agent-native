@@ -137,14 +137,6 @@ describe("CommentHighlight", () => {
     expect(highlighted(swap("New intro.", "ships Friday pm."))).toEqual([
       "Friday pm",
     ]);
-    // A rewrite that takes in the whole quote and more covers its new text,
-    // as accepting it re-anchors the quote.
-    expect(highlighted(swap("Intro.", "We ship Fri."))).toEqual([
-      "We ship Fri",
-    ]);
-    expect(highlighted(swap("Intro.", "Shipping happens!"))).toEqual([
-      "Shipping happens!",
-    ]);
     // Separate edits on either side of the quote leave its text alone.
     expect(
       highlighted(swap("Intro.", "Team ships Friday pm, always.")),
@@ -155,7 +147,17 @@ describe("CommentHighlight", () => {
     expect(highlighted(swap("Intro.", "ships Friday pm now."))).toEqual([
       "Friday pm",
     ]);
-    expect(highlighted(swap("Intro.", "ships."))).toEqual([]);
+    // A rewrite that takes in the quote and the words around it covers what
+    // replaced them.
+    expect(highlighted(swap("Intro.", "X."))).toEqual(["X"]);
+    // A copy of the quote added ahead of it does not take its highlight.
+    expect(
+      commentHighlightKey.getState(
+        swap("Intro.", "Friday pm ships Friday pm, always."),
+      )!.specs,
+    ).toEqual([{ threadId: "t1", from: 25, to: 34 }]);
+    // Deleting the quote while editing next to it drops the highlight.
+    expect(highlighted(swap("Intro.", "Ships."))).toEqual([]);
   });
 
   it("drops a highlight whose word was deleted ahead of an identical one", () => {
@@ -173,7 +175,7 @@ describe("CommentHighlight", () => {
     expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
   });
 
-  it("drops a highlight when a swap keeps the text but moves it into a quote", () => {
+  it("follows its text when a swap moves it into a quote", () => {
     const paragraph = (text: string) =>
       schema.node("paragraph", null, schema.text(text));
     const quoted = (text: string) =>
@@ -194,6 +196,9 @@ describe("CommentHighlight", () => {
         paragraph("beta"),
       ]),
     );
-    expect(commentHighlightKey.getState(moved)!.specs).toEqual([]);
+    expect(commentHighlightKey.getState(moved)!.specs).toEqual([
+      { threadId: "t1", from: 2, to: 7 },
+    ]);
+    expect(moved.doc.textBetween(2, 7)).toBe("alpha");
   });
 });
