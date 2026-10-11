@@ -169,9 +169,9 @@ assert.ok(
   typeof reportStepByName("Collect failed jobs and full logs")?.run ===
     "string" &&
     String(reportStepByName("Collect failed jobs and full logs")?.run).includes(
-      "gh run view --log-failed --job",
+      'gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/logs"',
     ),
-  "the scheduled report must retain complete failed-job logs",
+  "the scheduled report must read completed job logs while its workflow run remains active",
 );
 const reportArtifact = reportStepByName(
   "Upload the complete Design E2E report",

@@ -246,7 +246,7 @@ jobs:
           while IFS=$'\t' read -r job_id job_name; do
             [ -n "$job_id" ] || continue
             log_path="$report_dir/logs/$job_id.log"
-            if ! gh run view --log-failed --job "$job_id" --repo "$GITHUB_REPOSITORY" > "$log_path" 2> "$log_path.error"; then
+            if ! gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$job_id/logs" > "$log_path" 2> "$log_path.error"; then
               detail="$(tr '\r\n' ' ' < "$log_path.error" | cut -c 1-500)"
               printf 'Could not read logs for %s (%s): %s\n' "$job_name" "$job_id" "${detail:-GitHub returned no job log.}" >> "$report_dir/collection-errors.txt"
               incomplete=true
