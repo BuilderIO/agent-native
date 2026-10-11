@@ -1549,6 +1549,42 @@ describe("createAgentNativeChatRuntime", () => {
     ).toHaveLength(1);
   });
 
+  it.each([undefined, "", " "])(
+    "preserves prior user turns without a stable ID (%s)",
+    async (id) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-missing-current-id",
+        fetch: fetchMock as typeof fetch,
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Current question",
+        messages: [
+          {
+            id: id as unknown as string,
+            role: "user",
+            content: [{ type: "text", text: "Prior question" }],
+          },
+          {
+            id: id as unknown as string,
+            role: "user",
+            content: [{ type: "text", text: "Current question" }],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.history).toEqual([
+        { role: "user", content: "Prior question" },
+      ]);
+    },
+  );
+
   it("keeps structured history after an assistant tail longer than its scan limit", async () => {
     const prompt = "Use the final review summary.";
     const assistantTail = Array.from({ length: 1_025 }, (_, index) => ({

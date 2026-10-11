@@ -4467,7 +4467,10 @@ export function createAgentNativeChatRuntime(
         ? (turn.messages?.lastIndexOf(latestUserMessage) ?? -1)
         : -1;
       const messagesForHistory =
-        latestUserMessage && latestUserMessageIndex >= 0
+        latestUserMessage &&
+        typeof latestUserMessage.id === "string" &&
+        latestUserMessage.id.trim().length > 0 &&
+        latestUserMessageIndex >= 0
           ? turn.messages!.filter(
               (message, index) =>
                 message.role !== "user" ||
