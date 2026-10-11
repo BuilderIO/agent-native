@@ -471,14 +471,69 @@ fn save_bubble_size_name(app: &AppHandle, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn persist_bubble_size_after_geometry(
-    geometry_result: &Result<(), String>,
-    persist: impl FnOnce() -> Result<(), String>,
+fn commit_bubble_size_transaction(
+    apply_geometry: impl FnOnce() -> Result<(), String>,
+    persist_position: impl FnOnce() -> Result<(), String>,
+    persist_size: impl FnOnce() -> Result<(), String>,
+    rollback: impl FnOnce(bool) -> Result<(), String>,
 ) -> Result<(), String> {
-    if geometry_result.is_ok() {
-        persist()
-    } else {
+    let mut position_persisted = false;
+    let result = (|| {
+        apply_geometry()?;
+        persist_position()?;
+        position_persisted = true;
+        persist_size()
+    })();
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => match rollback(position_persisted) {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(format!(
+                "{error}; restoring the previous bubble geometry failed: {rollback_error}"
+            )),
+        },
+    }
+}
+
+fn rollback_bubble_size_geometry(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    restore_position_preference: bool,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    let size_restored = match window.set_size(tauri::Size::Physical(size)) {
+        Ok(()) => true,
+        Err(error) => {
+            errors.push(format!("restore bubble window size: {error}"));
+            false
+        }
+    };
+    let position_restored = match window.set_position(position) {
+        Ok(()) => true,
+        Err(error) => {
+            errors.push(format!("restore bubble window position: {error}"));
+            false
+        }
+    };
+
+    if restore_position_preference && size_restored && position_restored {
+        match window.outer_position() {
+            Ok(position) => {
+                if let Err(error) = save_bubble_position_at(app, position.x, position.y) {
+                    errors.push(format!("restore saved bubble position: {error}"));
+                }
+            }
+            Err(error) => errors.push(format!("read restored bubble position: {error}")),
+        }
+    }
+
+    if errors.is_empty() {
         Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 
@@ -2307,10 +2362,11 @@ mod tests {
         bubble_position_for_target_scale, bubble_position_preserving_visible_center,
         bubble_saved_window_size, bubble_scale_factor_for_monitors, bubble_size_for_name,
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
-        clamp_popover_logical_size, legacy_bubble_window_size_for_scale,
-        migrate_legacy_bubble_position, overlay_labels_to_hide, persist_bubble_size_after_geometry,
-        strip_trailing_period_for_messaging, text_insertion_strategy, BubblePositionPreference,
-        TextInsertionStrategy, BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
+        clamp_popover_logical_size, commit_bubble_size_transaction,
+        legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
+        overlay_labels_to_hide, strip_trailing_period_for_messaging, text_insertion_strategy,
+        BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
+        BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
 
@@ -2321,25 +2377,97 @@ mod tests {
     }
 
     #[test]
-    fn bubble_size_preference_is_saved_only_after_geometry_succeeds() {
-        let mut persisted = false;
-        assert_eq!(
-            persist_bubble_size_after_geometry(&Err("resize failed".into()), || {
-                persisted = true;
-                Ok(())
-            }),
-            Ok(())
-        );
-        assert!(!persisted);
+    fn bubble_size_transaction_does_not_persist_after_geometry_fails() {
+        let position_persisted = std::cell::Cell::new(false);
+        let size_persisted = std::cell::Cell::new(false);
+        let rollback_called = std::cell::Cell::new(false);
 
-        assert_eq!(
-            persist_bubble_size_after_geometry(&Ok(()), || {
-                persisted = true;
-                Err("preference write failed".into())
-            }),
-            Err("preference write failed".into())
+        let result = commit_bubble_size_transaction(
+            || Err("resize failed".to_string()),
+            || {
+                position_persisted.set(true);
+                Ok(())
+            },
+            || {
+                size_persisted.set(true);
+                Ok(())
+            },
+            |position_was_persisted| {
+                rollback_called.set(true);
+                assert!(!position_was_persisted);
+                Ok(())
+            },
         );
-        assert!(persisted);
+
+        assert_eq!(result, Err("resize failed".to_string()));
+        assert!(rollback_called.get());
+        assert!(!position_persisted.get());
+        assert!(!size_persisted.get());
+    }
+
+    #[test]
+    fn bubble_size_transaction_rolls_back_when_position_save_fails() {
+        let live_size = std::cell::Cell::new("small");
+        let saved_size = std::cell::Cell::new("small");
+        let rollback_called = std::cell::Cell::new(false);
+
+        let result = commit_bubble_size_transaction(
+            || {
+                live_size.set("medium");
+                Ok(())
+            },
+            || Err("position write failed".to_string()),
+            || {
+                saved_size.set("medium");
+                Ok(())
+            },
+            |position_persisted| {
+                rollback_called.set(true);
+                assert!(!position_persisted);
+                live_size.set("small");
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("position write failed".to_string()));
+        assert!(rollback_called.get());
+        assert_eq!(live_size.get(), "small");
+        assert_eq!(saved_size.get(), "small");
+    }
+
+    #[test]
+    fn bubble_size_transaction_restores_saved_position_when_size_save_fails() {
+        let live_size = std::cell::Cell::new("small");
+        let live_position = std::cell::Cell::new("old");
+        let saved_position = std::cell::Cell::new("old");
+        let rollback_called = std::cell::Cell::new(false);
+
+        let result = commit_bubble_size_transaction(
+            || {
+                live_size.set("medium");
+                live_position.set("new");
+                Ok(())
+            },
+            || {
+                saved_position.set("new");
+                Ok(())
+            },
+            || Err("size preference write failed".to_string()),
+            |position_persisted| {
+                rollback_called.set(true);
+                assert!(position_persisted);
+                live_size.set("small");
+                live_position.set("old");
+                saved_position.set("old");
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Err("size preference write failed".to_string()));
+        assert!(rollback_called.get());
+        assert_eq!(live_size.get(), "small");
+        assert_eq!(live_position.get(), "old");
+        assert_eq!(saved_position.get(), "old");
     }
 
     #[test]
@@ -2912,66 +3040,50 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
         "medium" => "medium",
         _ => "small",
     };
-    let size_logical = bubble_size_for_name(name);
-    let (geometry_result, position_result) = if let Some(win) = app.get_webview_window(BUBBLE_LABEL)
-    {
-        let geometry_result = (|| {
-            let scale = win
-                .scale_factor()
-                .map_err(|error| format!("read bubble scale factor: {error}"))?
-                .max(1.0);
-            let gutter = (OVERLAY_SHADOW_GUTTER_LOGICAL * scale).round() as u32;
-            let content_size = (f64::from(size_logical) * scale).round() as u32;
-            let (win_w, win_h) = bubble_window_size_for_scale(size_logical, scale);
-            let current_pos = win
-                .outer_position()
-                .map_err(|error| format!("read bubble window position: {error}"))?;
-            let current_size = win
-                .outer_size()
-                .map_err(|error| format!("read bubble window size: {error}"))?;
-            let current_circle_size = current_size.width as i32 - (gutter * 2) as i32;
-            let delta = (current_circle_size - content_size as i32) / 2;
-            let new_x = current_pos.x + delta;
-            let new_y = current_pos.y + delta;
-            let (new_x, new_y) = clamp_bubble_window_position(&app, new_x, new_y, win_w, win_h);
-            win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)))
-                .map_err(|error| format!("resize bubble window: {error}"))?;
-            Ok((new_x, new_y))
-        })();
-        let position_result = match &geometry_result {
-            Ok((new_x, new_y)) => win
-                .set_position(PhysicalPosition::new(*new_x, *new_y))
-                .map_err(|error| format!("reposition bubble window: {error}"))
-                .and_then(|_| {
-                    win.outer_position()
-                        .map_err(|error| format!("read bubble window position: {error}"))
-                })
-                .and_then(|position| {
-                    save_bubble_position_at(&app, position.x, position.y).map(|_| ())
-                }),
-            Err(_) => Ok(()),
-        };
-        (geometry_result.map(|_| ()), position_result)
-    } else {
-        (Ok(()), Ok(()))
+    let Some(win) = app.get_webview_window(BUBBLE_LABEL) else {
+        return save_bubble_size_name(&app, name);
     };
-    let size_result =
-        persist_bubble_size_after_geometry(&geometry_result, || save_bubble_size_name(&app, name));
-    match (geometry_result, position_result, size_result) {
-        (Ok(()), Ok(()), Ok(())) => Ok(()),
-        (Ok(()), Err(position_error), Ok(())) => {
-            eprintln!(
-                "[clips-tray] bubble size applied but final position update failed: {position_error}"
-            );
+    let size_logical = bubble_size_for_name(name);
+    let scale = win
+        .scale_factor()
+        .map_err(|error| format!("read bubble scale factor: {error}"))?
+        .max(1.0);
+    let gutter = (OVERLAY_SHADOW_GUTTER_LOGICAL * scale).round() as u32;
+    let content_size = (f64::from(size_logical) * scale).round() as u32;
+    let (win_w, win_h) = bubble_window_size_for_scale(size_logical, scale);
+    let current_pos = win
+        .outer_position()
+        .map_err(|error| format!("read bubble window position: {error}"))?;
+    let current_size = win
+        .outer_size()
+        .map_err(|error| format!("read bubble window size: {error}"))?;
+    let current_circle_size = current_size.width as i32 - (gutter * 2) as i32;
+    let delta = (current_circle_size - content_size as i32) / 2;
+    let new_x = current_pos.x + delta;
+    let new_y = current_pos.y + delta;
+    let (new_x, new_y) = clamp_bubble_window_position(&app, new_x, new_y, win_w, win_h);
+    let new_position = PhysicalPosition::new(new_x, new_y);
+    let new_size = PhysicalSize::new(win_w, win_h);
+
+    commit_bubble_size_transaction(
+        || {
+            win.set_size(tauri::Size::Physical(new_size))
+                .map_err(|error| format!("resize bubble window: {error}"))?;
+            win.set_position(new_position)
+                .map_err(|error| format!("reposition bubble window: {error}"))?;
             Ok(())
-        }
-        (Err(geometry_error), _, Ok(())) => Err(geometry_error),
-        (Ok(()), Ok(()), Err(size_error)) => Err(size_error),
-        (Ok(()), Err(position_error), Err(size_error)) => {
-            Err(format!("{position_error}; {size_error}"))
-        }
-        (Err(geometry_error), _, Err(size_error)) => Err(format!("{geometry_error}; {size_error}")),
-    }
+        },
+        || {
+            let position = win
+                .outer_position()
+                .map_err(|error| format!("read resized bubble position: {error}"))?;
+            save_bubble_position_at(&app, position.x, position.y).map(|_| ())
+        },
+        || save_bubble_size_name(&app, name),
+        |position_persisted| {
+            rollback_bubble_size_geometry(&app, &win, current_pos, current_size, position_persisted)
+        },
+    )
 }
 
 #[tauri::command]
