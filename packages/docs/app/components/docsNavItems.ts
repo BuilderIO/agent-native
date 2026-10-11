@@ -1059,20 +1059,18 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-agent-ux",
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
-            children: [
-              {
-                id: "toolkit-chat-history",
-                labelKey: "toolkitChatHistory",
-                slug: "toolkit-agent-ux",
-                anchor: "chat-history",
-              },
-              {
-                id: "toolkit-agent-page",
-                labelKey: "toolkitAgentPage",
-                slug: "agent-surfaces",
-                anchor: "agent-page",
-              },
-            ],
+          },
+          {
+            id: "toolkit-chat-history",
+            labelKey: "toolkitChatHistory",
+            slug: "toolkit-agent-ux",
+            anchor: "chat-history",
+          },
+          {
+            id: "toolkit-agent-page",
+            labelKey: "toolkitAgentPage",
+            slug: "agent-surfaces",
+            anchor: "agent-page",
           },
           {
             id: "toolkit-notifications",
