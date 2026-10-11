@@ -498,6 +498,38 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
   });
 
+  it("rejects a superseded attempt before returning a storage-status error", async () => {
+    mockShouldRejectVideoUploadWithoutStorage.mockRejectedValueOnce(
+      new MockVideoStorageStatusUnavailableError(),
+    );
+    mockSelectRows.rows[0] = {
+      ...mockSelectRows.rows[0],
+      uploadAttemptId: "current-attempt",
+      uploadGenerationId: "generation-1",
+    };
+    setRequest({
+      query: {
+        index: "0",
+        total: "1",
+        mimeType: "video/webm",
+        attemptId: "stale-attempt",
+        uploadGenerationId: "generation-1",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockShouldRejectVideoUploadWithoutStorage).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("retries storage failure state repair after same-attempt app-state contention", async () => {
     const attemptState = {
       recordingId: "rec-1",

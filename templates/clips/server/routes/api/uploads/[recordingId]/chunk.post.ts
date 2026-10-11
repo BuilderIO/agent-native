@@ -660,6 +660,32 @@ export async function handleRecordingChunk(
         rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage();
       } catch (error) {
         if (!(error instanceof VideoStorageStatusUnavailableError)) throw error;
+
+        const [current] = await db
+          .select({
+            uploadAttemptId: schema.recordings.uploadAttemptId,
+            uploadGenerationId: schema.recordings.uploadGenerationId,
+          })
+          .from(schema.recordings)
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            ),
+          );
+        if (
+          !current ||
+          (current.uploadAttemptId ?? null) !== attemptId ||
+          (current.uploadGenerationId ?? null) !== uploadGenerationId
+        ) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error: "A newer upload retry is already active.",
+            staleAttempt: true,
+          };
+        }
+
         setResponseStatus(event, 503);
         return {
           ok: false,
