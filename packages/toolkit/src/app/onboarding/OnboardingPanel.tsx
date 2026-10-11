@@ -132,10 +132,10 @@ export function OnboardingPanel({
   ) : null;
 
   if (loading) return null;
-  if (
-    error &&
-    (totalCount === 0 || (!previewMode && (dismissed || allComplete)))
-  ) {
+  if (!previewMode && (dismissed || (totalCount > 0 && allComplete))) {
+    return null;
+  }
+  if (error && totalCount === 0) {
     return (
       <div className={className} style={styles.errorOnly}>
         {errorNotice}

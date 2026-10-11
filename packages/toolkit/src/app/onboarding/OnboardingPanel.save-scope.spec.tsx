@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 let steps: OnboardingStepStatus[] = [];
 let onboardingError: string | null = null;
+let dismissed = false;
 let refresh = vi.fn(async () => {});
 vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   createOnboardingCorrelationId: () => "test-onboarding-correlation-id",
@@ -16,7 +17,12 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   useOnboarding: () => ({
     steps,
     currentStepId: steps[0]?.id ?? null,
-    dismissed: false,
+    completeCount: steps.filter((step) => step.complete).length,
+    totalCount: steps.length,
+    allComplete:
+      steps.length > 0 &&
+      steps.filter((step) => step.required).every((step) => step.complete),
+    dismissed,
     loading: false,
     error: onboardingError,
     refresh,
@@ -75,6 +81,7 @@ afterEach(() => {
   container = null;
   steps = [];
   onboardingError = null;
+  dismissed = false;
   refresh = vi.fn(async () => {});
   vi.unstubAllGlobals();
 });
@@ -226,5 +233,31 @@ describe("onboarding form save scope", () => {
       retry?.click();
     });
     expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("hides summary errors after onboarding is dismissed", async () => {
+    dismissed = true;
+    onboardingError = "summary: 503";
+
+    await renderOnboarding(
+      <>
+        <OnboardingBanner />
+        <OnboardingPanel />
+      </>,
+    );
+    expect(container?.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("hides summary errors after all required steps are complete", async () => {
+    steps = [{ ...formStep(), complete: true }];
+    onboardingError = "summary: 503";
+
+    await renderOnboarding(
+      <>
+        <OnboardingBanner />
+        <OnboardingPanel />
+      </>,
+    );
+    expect(container?.querySelector('[role="alert"]')).toBeNull();
   });
 });

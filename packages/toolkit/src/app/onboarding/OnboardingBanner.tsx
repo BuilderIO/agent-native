@@ -29,7 +29,7 @@ export function OnboardingBanner({
   const t = useT();
   const [retrying, setRetrying] = useState(false);
 
-  if (loading) return null;
+  if (loading || dismissed || (totalCount > 0 && allComplete)) return null;
   if (error) {
     const retry = async () => {
       setRetrying(true);
@@ -59,7 +59,7 @@ export function OnboardingBanner({
       </div>
     );
   }
-  if (totalCount === 0 || allComplete || dismissed) return null;
+  if (totalCount === 0) return null;
 
   return (
     <button
