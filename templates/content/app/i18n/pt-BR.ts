@@ -816,7 +816,6 @@ const editor = {
     linkToNotionPage: "Link para a página de noção",
     localFile: "Arquivo local",
     morePageActions: "Mais ações de página",
-    formatting: "Formatação",
     noPagesFound: "Nenhuma página encontrada",
     notifications: "Notificações",
     notionSync: "Sincronização de noções",

@@ -63,11 +63,21 @@ desarrollo local.
 
 </Callout>
 
-## Conectar un LLM
+## Conectar un LLM {#connect-an-llm}
 
-A continuación, conecta un LLM. Selecciona **Usa Builder.io** para usar
-créditos gratuitos, o selecciona **Custom keys**, elige un proveedor e introduce
-los datos de conexión solicitados.
+La app se abre en la página **Empieza aquí**. Para el desarrollo local, añade una clave de proveedor al archivo `.env` de la app antes de iniciar `pnpm dev`:
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+Las apps autoalojadas usan la clave del entorno como alternativa para toda la app, así que sus usuarios no tienen que añadir una clave en la interfaz. Los entornos de producción de Hosted workspace bloquean las claves de proveedor del despliegue. Las claves guardadas de usuario u organización tienen prioridad.
+
+Configurar esta clave de proveedor es la autorización del operador para compartir el acceso y la facturación en toda la app; no hace falta otra variable. Cualquier usuario con sesión iniciada que no tenga una clave con ámbito propio puede usar la cuenta del proveedor del despliegue en todas las organizaciones de la app; el uso se factura a esa cuenta. Usa claves con ámbito cuando cada tenant necesite credenciales o facturación separadas.
+
+Con PostgreSQL, los usuarios también pueden guardar una clave mediante **Custom keys**. Elige el ámbito personal para que solo se aplique a tu cuenta; los administradores pueden elegir el ámbito de organización para compartirla en el espacio de trabajo. La app guarda las claves en su almacén de credenciales cifrado y respaldado por la base de datos.
+
+Para usar el proveedor gestionado de Builder, selecciona **Use Builder.io** en el compositor. Consulta [Variables de entorno](/docs/environment-variables#optional-ai-search-and-email-fallbacks) para ver las claves compatibles y su alcance.
 
 ## Ejecutar la acción desde el agente
 
@@ -76,7 +86,7 @@ llamar desde el código y que los agentes pueden utilizar como herramienta. La
 plantilla de Chat incluye una sencilla acción `hello` para que puedas probar este
 patrón antes de escribir una propia.
 
-En el panel del agente, escribe:
+En el campo de mensaje de la página **Empieza aquí**, escribe:
 
 > Call the hello action for Alex.
 

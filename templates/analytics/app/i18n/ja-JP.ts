@@ -1916,6 +1916,7 @@ export default {
     presetWeekly: "毎週月曜 06:00",
     status: "ステータス",
     unresolvedTrackingCallSites: "解決できないトラッキング呼び出し",
+    unresolvedTrackingCallSitesUnavailable: "利用できません",
     dynamicTrackingCoverageCaveat:
       "イベント名が実行時に決まる呼び出しは除外されます。別名やその他のトラッキング API は検出されない場合があります。",
     overviewFailed: "作成状態を読み込めませんでした。",

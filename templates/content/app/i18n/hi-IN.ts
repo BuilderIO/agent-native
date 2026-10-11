@@ -787,7 +787,6 @@ const editor = {
     linkToNotionPage: "धारणा पृष्ठ से लिंक करें",
     localFile: "स्थानीय फ़ाइल",
     morePageActions: "अधिक पृष्ठ क्रियाएँ",
-    formatting: "स्वरूपण",
     noPagesFound: "कोई पेज नहीं मिला",
     notifications: "सूचनाएं",
     notionSync: "धारणा सिंक",

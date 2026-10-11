@@ -1396,7 +1396,8 @@ export function CommentsSidebar({
     );
   }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
 
-  useEffect(() => {
+  // Measured before paint, so a card under a new id never paints unplaced.
+  useLayoutEffect(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container) return;
 
@@ -1405,7 +1406,7 @@ export function CommentsSidebar({
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(recomputeOffsets);
     };
-    schedule();
+    recomputeOffsets();
 
     const pm = container.querySelector(".ProseMirror");
     const observer = new MutationObserver(schedule);

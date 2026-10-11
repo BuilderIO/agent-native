@@ -959,7 +959,6 @@ const overrides = {
       localAndNotionChanged:
         "本機檔案和 Notion 自上次同步後都已更改。請選取保留哪個版本。",
       morePageActions: "更多頁面操作",
-      formatting: "格式",
       noPagesFound: "沒有找到頁面",
       notifications: "通知",
       notionSync: "概念同步",

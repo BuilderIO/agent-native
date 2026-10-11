@@ -1849,6 +1849,7 @@ export default {
     presetWeekly: "हर सोमवार 06:00 बजे",
     status: "स्थिति",
     unresolvedTrackingCallSites: "अनसुलझे ट्रैकिंग कॉल",
+    unresolvedTrackingCallSitesUnavailable: "उपलब्ध नहीं",
     dynamicTrackingCoverageCaveat:
       "रनटाइम पर जिन कॉल के इवेंट नाम बनते हैं, वे शामिल नहीं होते; aliases या अन्य tracking APIs छूट सकती हैं।",
     overviewFailed: "बिल्ड स्थिति लोड नहीं हो सकी।",

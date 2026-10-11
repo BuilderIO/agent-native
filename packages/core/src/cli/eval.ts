@@ -462,11 +462,30 @@ async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
 }
 
 async function readReviewFile(filePath: string): Promise<string> {
-  const contents = await fs.readFile(path.resolve(filePath), "utf8");
-  if (Buffer.byteLength(contents, "utf8") > MAX_REVIEW_FILE_BYTES) {
-    throw new Error("Reviewed input file exceeds the 64 KiB limit.");
+  const handle = await fs.open(path.resolve(filePath), "r");
+  try {
+    if ((await handle.stat()).size > MAX_REVIEW_FILE_BYTES) {
+      throw new Error("Reviewed input file exceeds the 64 KiB limit.");
+    }
+    const buffer = Buffer.alloc(MAX_REVIEW_FILE_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const result = await handle.read(
+        buffer,
+        bytesRead,
+        buffer.length - bytesRead,
+        bytesRead,
+      );
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    if (bytesRead > MAX_REVIEW_FILE_BYTES) {
+      throw new Error("Reviewed input file exceeds the 64 KiB limit.");
+    }
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
   }
-  return contents;
 }
 
 async function readReviewedPromptFile(

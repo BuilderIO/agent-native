@@ -101,6 +101,7 @@ export interface ShareButtonProps {
     label: string;
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
+    size?: "default" | "sm";
     className?: string;
   };
   /** Optional label for the primary copyable link section. */
@@ -376,6 +377,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            size={props.quickCopy.size}
             className={props.quickCopy.className}
           />
         ) : (
@@ -413,6 +415,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            size={props.quickCopy.size}
             className={props.quickCopy.className}
           />
         </PopoverAnchor>

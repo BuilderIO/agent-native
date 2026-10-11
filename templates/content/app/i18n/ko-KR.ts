@@ -796,7 +796,6 @@ const editor = {
     linkToNotionPage: "Notion 페이지 링크",
     localFile: "로컬 파일",
     morePageActions: "추가 페이지 작업",
-    formatting: "서식",
     noPagesFound: "페이지를 찾을 수 없습니다",
     notifications: "알림",
     notionSync: "노션싱크",

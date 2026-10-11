@@ -17,7 +17,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { renderToString } from "react-dom/server";
-import { Link, MemoryRouter, useMatch } from "react-router";
+import {
+  Link,
+  MemoryRouter,
+  useLocation,
+  useMatch,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
@@ -525,6 +531,20 @@ function ActiveIndex() {
   return <Index active={useMatch("/home") !== null} />;
 }
 
+function HistoryControls() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <div data-testid="history-path">{location.pathname}</div>
+      <div data-testid="history-state">{JSON.stringify(location.state)}</div>
+      <button type="button" onClick={() => navigate(-1)}>
+        Browser back
+      </button>
+    </>
+  );
+}
+
 const ownDeck = {
   id: "own",
   title: "My presentation",
@@ -560,6 +580,7 @@ function renderHome(
         <Link to="/templates">Open templates</Link>
         <Link to="/home">Back home</Link>
       </nav>
+      <HistoryControls />
       <TooltipProvider>
         <ActiveIndex />
       </TooltipProvider>
@@ -802,6 +823,7 @@ describe("Slides prompt-led home", () => {
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    const onLocalSubmit = vi.fn();
 
     await act(async () => {
       expect(
@@ -812,11 +834,13 @@ describe("Slides prompt-led home", () => {
           {
             slidesContext: { designSystemId: null, references: [] },
             contextItems: [],
+            onLocalSubmit,
           },
         ),
       ).toBe("retain");
     });
 
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(updateDeck).toHaveBeenCalledWith(
@@ -829,6 +853,46 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("returns home without refilling the submitted prompt after generation", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const submittedPrompt = "Create a product overview";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        submittedPrompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toBe(
+        "/deck/new-deck",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toBe("/home"),
+    );
+    expect(screen.getByTestId("history-state").textContent).toBe("null");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).not.toBe(submittedPrompt);
   });
 
   it("includes optional media-search fallback in the submitted agent context", async () => {

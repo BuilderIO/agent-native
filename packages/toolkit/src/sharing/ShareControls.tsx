@@ -12,6 +12,7 @@ export interface JoinedShareControlProps {
   copyLabel: string;
   copiedLabel: string;
   onCopy: () => Promise<boolean | void> | boolean | void;
+  size?: "default" | "sm";
   disabled?: boolean;
   blocked?: boolean;
   className?: string;
@@ -22,7 +23,16 @@ export const JoinedShareControl = forwardRef<
   HTMLDivElement,
   JoinedShareControlProps
 >(function JoinedShareControl(
-  { trigger, copyLabel, copiedLabel, onCopy, disabled, blocked, className },
+  {
+    trigger,
+    copyLabel,
+    copiedLabel,
+    onCopy,
+    size = "default",
+    disabled,
+    blocked,
+    className,
+  },
   ref,
 ) {
   const [copied, setCopied] = useState(false);
@@ -45,11 +55,16 @@ export const JoinedShareControl = forwardRef<
   };
 
   const label = copied ? copiedLabel : copyLabel;
+  const segmentHeightClass =
+    size === "sm"
+      ? "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8"
+      : "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9";
   return (
     <ButtonGroup
       ref={ref}
       className={cn(
-        "shrink-0 [&>*]:h-9 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)]:border-primary-foreground/20",
+        "shrink-0 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)]:border-primary-foreground/20",
+        segmentHeightClass,
         className,
       )}
     >

@@ -157,7 +157,6 @@ interface SourceFormState {
   granolaPageSize: string;
   granolaUpdatedAfter: string;
   zoomMeetingIds: string;
-  zoomMeetingTopics: string;
   zoomLookbackDays: string;
   zoomIncludeSummaries: boolean;
   zoomConfigExtras: Record<string, unknown>;
@@ -257,7 +256,6 @@ function defaultForm(
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
     zoomMeetingIds: "",
-    zoomMeetingTopics: "",
     zoomLookbackDays: "7",
     zoomIncludeSummaries: false,
     zoomConfigExtras: {},
@@ -285,16 +283,11 @@ function zoomConfigFromSource(config: Record<string, unknown>) {
     !Array.isArray(config.zoom)
       ? (config.zoom as Record<string, unknown>)
       : {};
-  const {
-    meetingIds,
-    meetingTopics,
-    lookbackDays,
-    includeSummaries,
-    ...extras
-  } = zoom;
+  const { meetingIds, lookbackDays, includeSummaries, ...extras } = zoom;
+  // Title matching was removed; saving drops any stored titles.
+  delete extras.meetingTopics;
   return {
     zoomMeetingIds: listValue(meetingIds),
-    zoomMeetingTopics: listValue(meetingTopics),
     zoomLookbackDays:
       typeof lookbackDays === "number" || typeof lookbackDays === "string"
         ? String(lookbackDays)
@@ -395,7 +388,6 @@ function buildConfig(form: SourceFormState) {
     config.zoom = {
       ...form.zoomConfigExtras,
       meetingIds: zoomFilterLines(form.zoomMeetingIds),
-      meetingTopics: zoomFilterLines(form.zoomMeetingTopics),
       lookbackDays: numberValue(form.zoomLookbackDays, 7, 1, 30),
       includeSummaries: form.zoomIncludeSummaries,
     };
@@ -2214,10 +2206,14 @@ export default function SourcesRoute() {
     form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
   const zoomMeetingIdIssues =
     form.provider === "zoom" ? invalidZoomMeetingIds(form.zoomMeetingIds) : [];
+  const zoomMeetingIdsMissing =
+    form.provider === "zoom" &&
+    zoomFilterLines(form.zoomMeetingIds).length === 0;
   const formConfigInvalid =
     slackChannelIssues.length > 0 ||
     githubRepoIssues.length > 0 ||
-    zoomMeetingIdIssues.length > 0;
+    zoomMeetingIdIssues.length > 0 ||
+    zoomMeetingIdsMissing;
   const formMissingCredentialKeys =
     formProviderMetadata?.credentialHealth?.status === "missing"
       ? formProviderMetadata.credentialHealth.missingCredentialKeys
@@ -3290,22 +3286,6 @@ export default function SourcesRoute() {
                   ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">
                     {t("sources.zoomMeetingIdsDescription")}
-                  </p>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="zoom-meeting-topics">
-                    {t("sources.zoomMeetingTopics")}
-                  </Label>
-                  <Textarea
-                    id="zoom-meeting-topics"
-                    value={form.zoomMeetingTopics}
-                    onChange={(event) =>
-                      updateForm({ zoomMeetingTopics: event.target.value })
-                    }
-                    placeholder={"Weekly Sync\nMarketing Standup"}
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("sources.zoomMeetingTopicsDescription")}
                   </p>
                 </div>
                 <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">

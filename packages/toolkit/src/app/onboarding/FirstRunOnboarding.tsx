@@ -145,9 +145,8 @@ const FIRST_RUN_ROLE_OPTIONS = [
 ] as const;
 
 /**
- * Where "Skip and configure manually" lands: Agent › Model, whose empty state
- * adds a provider key in one click, since the agent can't answer until a model
- * provider is set up. API keys with the redesign off.
+ * Where the custom-key choice lands: Agent › Model, whose empty state adds a
+ * provider key in one click. API keys with the redesign off.
  */
 export function manualSetupSettingsRoute({
   redesign,
@@ -853,16 +852,8 @@ export function FirstRunOnboarding({
               <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
                 <div className="flex flex-col gap-2">
                   <h2 className="text-lg font-bold text-foreground">
-                    Configure manually
+                    {t("agentChat.composer.addOwnKeys")}
                   </h2>
-                </div>
-                <div className="flex flex-col gap-1 rounded-xl bg-muted px-4 py-3">
-                  <p className="text-[13px] font-semibold text-foreground">
-                    You configure and maintain everything
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Full control over your infrastructure
-                  </p>
                 </div>
                 <CapabilityList
                   capabilities={profile.capabilities}
@@ -874,7 +865,7 @@ export function FirstRunOnboarding({
                   className={cn(secondaryButtonClass, "w-full")}
                   onClick={() => void handleOpenSettings()}
                 >
-                  Skip and configure manually
+                  {t("agentChat.onboarding.openAiKeySettings")}
                 </button>
               </section>
             </div>

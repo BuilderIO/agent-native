@@ -1153,6 +1153,7 @@
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/api-path",
+        "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/use-change-version",
         "@agent-native/core/client/use-poll-loop",

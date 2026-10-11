@@ -1148,6 +1148,7 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   useEffect(() => {
     if (active) return;
+    setIsStartingNewDeck(false);
     setDeckToDelete(null);
     setWorkspaceDefaultCandidate(null);
     setShowDesignSystemSetup(false);
@@ -1325,7 +1326,6 @@ export default function Index({ active = true }: { active?: boolean }) {
     void navigate(
       `/deck/${deck.id}?generating=1&generation_attempt_id=${encodeURIComponent(generationAttemptId)}&generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}`,
       {
-        replace: true,
         flushSync: true,
       },
     );
@@ -1790,6 +1790,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       const carriedDeckMissing =
         carriedImportedReference !== undefined &&
         !decks.some((deck) => deck.id === carriedImportedReference.deckId);
+      options?.onLocalSubmit?.();
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const promptReferenceDeckId = findPromptReferenceDeckId(
         prompt,

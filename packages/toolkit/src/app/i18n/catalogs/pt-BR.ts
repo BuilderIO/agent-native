@@ -132,7 +132,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Descreva sua função",
   "onboarding.skipForNow": "Pular por enquanto",
   "onboarding.saveRoleError": "Não foi possível salvar sua função.",
-  "onboarding.builderCreateAccount": "Criar uma conta do Builder.io",
+  "onboarding.builderCreateAccount": "Usar o Builder.io",
   "onboarding.builderSignInWithAccount": "Entrar com uma conta do Builder.io",
   "onboarding.builderActivateDescription":
     "Crie ou reutilize sua conta do Builder.io e ative os créditos gratuitos com um clique.",
