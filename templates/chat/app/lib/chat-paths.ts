@@ -10,7 +10,7 @@ export const HOME_PATH = "/home";
 export const NEW_CHAT_PATH = "/chat";
 
 const FAILED_CHAT_HANDOFF_PREFIX = "agent-native.chat.failed-handoff:";
-const MAX_FAILED_HANDOFF_BYTES = 64 * 1024;
+const MAX_FAILED_HANDOFF_BYTES = COMPOSER_CONTEXT_MAX_BYTES * 2 + 32 * 1024;
 const MAX_HANDOFF_FIELD_LENGTH = 8 * 1024;
 const MAX_HANDOFF_ITEMS = 20;
 const INVALID_JSON_VALUE = Symbol("invalid-json-value");

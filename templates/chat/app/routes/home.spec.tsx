@@ -1250,9 +1250,9 @@ describe("ChatRoute AgentKit surface", () => {
     ).toBe("chat.recoveryDraftUnsaved");
   });
 
-  it("sends a multibyte prompt when its recovery envelope exceeds the byte limit", async () => {
+  it("sends an oversized recovery prompt without blocking the initial request", async () => {
     routeState.threadId = "large-prompt-chat";
-    const message = "漢".repeat(24 * 1024);
+    const message = "漢".repeat(64 * 1024);
     routeState.locationState = { initialMessage: message };
 
     await act(async () => root.render(<ChatRoute />));
@@ -1266,7 +1266,7 @@ describe("ChatRoute AgentKit surface", () => {
     });
   });
 
-  it("sends context that fits the composer limit when the recovery envelope is too large", async () => {
+  it("sends context that fits the composer limit with its recovery envelope", async () => {
     routeState.threadId = "large-context-chat";
     const contextItems = [
       {
@@ -1278,11 +1278,6 @@ describe("ChatRoute AgentKit surface", () => {
     expect(
       new TextEncoder().encode(JSON.stringify(contextItems)).byteLength,
     ).toBeLessThanOrEqual(COMPOSER_CONTEXT_MAX_BYTES);
-    expect(
-      writeFailedChatHandoff("large-context-chat", "Use the project context", {
-        contextItems,
-      }),
-    ).toEqual({ status: "invalid", reason: "payload-too-large" });
     routeState.locationState = {
       initialMessage: "Use the project context",
       initialComposerOptions: { contextItems },
@@ -1374,7 +1369,7 @@ describe("ChatRoute AgentKit surface", () => {
 
     await act(async () => root.render(<ChatRoute />));
 
-    const editedDraft = "漢".repeat(24 * 1024);
+    const editedDraft = "漢".repeat(64 * 1024);
     const onTextChange = (
       routeState.chatProps?.composerProps as {
         onTextChange: (text: string) => void;

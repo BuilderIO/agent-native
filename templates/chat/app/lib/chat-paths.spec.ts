@@ -195,6 +195,31 @@ describe("failed Chat handoff storage", () => {
     ).toEqual({ status: "invalid" });
   });
 
+  it("stores composer-sized context alongside a multibyte prompt", () => {
+    const message = "漢".repeat(24 * 1024);
+    const contextItems = [
+      {
+        key: "project",
+        title: "Project",
+        context: "界".repeat(21_800),
+      },
+    ];
+
+    expect(
+      new TextEncoder().encode(JSON.stringify(contextItems)).byteLength,
+    ).toBeLessThanOrEqual(COMPOSER_CONTEXT_MAX_BYTES);
+    expect(new TextEncoder().encode(message).byteLength).toBeGreaterThan(
+      COMPOSER_CONTEXT_MAX_BYTES,
+    );
+    expect(
+      writeFailedChatHandoff("thread-one", message, { contextItems }),
+    ).toEqual({ status: "stored" });
+    expect(readFailedChatHandoff("thread-one")).toMatchObject({
+      status: "found",
+      handoff: { text: message, options: { contextItems } },
+    });
+  });
+
   it("uses a tombstone when session storage refuses to remove a cleared handoff", () => {
     expect(
       writeFailedChatHandoff("thread-one", "Accepted request", {}),
@@ -219,7 +244,7 @@ describe("failed Chat handoff storage", () => {
 
   it("rejects oversized UTF-8 envelopes and non-serializable payloads", () => {
     expect(
-      writeFailedChatHandoff("thread-one", "漢".repeat(24 * 1024), {}),
+      writeFailedChatHandoff("thread-one", "漢".repeat(64 * 1024), {}),
     ).toEqual({ status: "invalid", reason: "payload-too-large" });
     expect(
       writeFailedChatHandoff("thread-one", "Retry this", {
