@@ -2922,14 +2922,14 @@ function mergeAgentKitHistory(
       continue;
     }
     const richer = newer.lastSequence >= run.lastSequence ? newer : run;
-    const statusRun =
-      run.lastSequence > newer.lastSequence
-        ? run
-        : newer.lastSequence > run.lastSequence
-          ? newer
-          : isTerminalRunStatus(run.status)
-            ? run
-            : newer;
+    // A later protocol cursor cannot reopen a terminal run.
+    const statusRun = isTerminalRunStatus(run.status)
+      ? run
+      : isTerminalRunStatus(newer.status)
+        ? newer
+        : run.lastSequence > newer.lastSequence
+          ? run
+          : newer;
     runs.set(run.id, {
       ...run,
       ...newer,

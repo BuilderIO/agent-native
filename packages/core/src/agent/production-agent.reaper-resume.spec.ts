@@ -350,9 +350,10 @@ async function recover(
     },
   });
   const requestBody = {
-    message: resumeContinue
-      ? AGENT_INTERNAL_CONTINUE_PROMPT
-      : "Send the refund email, then finish the refund.",
+    message:
+      resumeContinue || isRecovery === "client-continuation"
+        ? AGENT_INTERNAL_CONTINUE_PROMPT
+        : "Send the refund email, then finish the refund.",
     threadId,
     turnId,
     ...(withCustomAgent

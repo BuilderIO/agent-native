@@ -127,6 +127,7 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             else
               export CONTENT_PARITY_EVALS=1
+              set +e
               (
                 cd templates/content
                 ./node_modules/.bin/agent-native eval parity \
@@ -134,7 +135,32 @@ jobs:
                   --org-id "$CONTENT_PARITY_ORG_ID" \
                   --json
               ) | tee content-parity-evals.json
-              append_eval_summary "Content parity" content-parity-evals.json
+              eval_status=$?
+              if [[ -s content-parity-evals.json ]]; then
+                append_eval_summary "Content parity" content-parity-evals.json
+                summary_status=$?
+              else
+                summary_status=1
+              fi
+              set -e
+
+              if [[ "$summary_status" -ne 0 ]]; then
+                {
+                  echo "### Content parity"
+                  echo ""
+                  echo "Status: FAIL"
+                  echo ""
+                  echo "The eval command did not produce a usable JSON report; see the step logs."
+                  echo ""
+                } >> "$GITHUB_STEP_SUMMARY"
+                if [[ "$eval_status" -eq 0 ]]; then
+                  eval_status="$summary_status"
+                fi
+              fi
+
+              if [[ "$eval_status" -ne 0 ]]; then
+                exit "$eval_status"
+              fi
             fi
           fi
 

@@ -12049,6 +12049,9 @@ export function createProductionAgentHandler(
       !isBackgroundWorker &&
       internalContinuation === true &&
       !continueOf &&
+      !requestedApprovedToolCalls?.length &&
+      typeof message === "string" &&
+      message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
       typeof threadId === "string" &&
       threadId.trim().length > 0 &&
       typeof requestTurnId === "string" &&
