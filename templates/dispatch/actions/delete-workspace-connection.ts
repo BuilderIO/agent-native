@@ -9,7 +9,7 @@ import {
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
-import { assertWorkspaceConnectionManager } from "./connection-permissions.js";
+import { assertWorkspaceConnectionDeleteManager } from "./connection-permissions.js";
 
 export default defineAction({
   description: "Delete a shared workspace integration connection.",
@@ -26,7 +26,7 @@ export default defineAction({
     if (!connection) {
       throw new Error(`Workspace connection "${id}" was not found.`);
     }
-    await assertWorkspaceConnectionManager(ctx);
+    await assertWorkspaceConnectionDeleteManager(ctx, connection);
     const deleted = await deleteWorkspaceConnection(id);
     if (!deleted) {
       throw new Error(`Workspace connection "${id}" was not found.`);

@@ -205,7 +205,7 @@ export default defineAction({
     lastError: z.string().nullable().optional(),
   }),
   run: async (args, ctx) => {
-    await assertWorkspaceConnectionManager(ctx);
+    await assertWorkspaceConnectionManager(ctx, args.allowedApps);
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {
       throw new Error(
