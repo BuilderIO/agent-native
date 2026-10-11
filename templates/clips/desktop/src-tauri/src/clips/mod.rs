@@ -1471,10 +1471,13 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
         eprintln!("[clips-tray] bubble build failed: {}", e);
         e.to_string()
     })?;
-    win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)))
-        .map_err(|error| format!("size bubble window: {error}"))?;
-    win.set_position(PhysicalPosition::new(x, y))
-        .map_err(|error| format!("position bubble window: {error}"))?;
+    let initial_geometry_result = (|| {
+        win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)))
+            .map_err(|error| format!("size bubble window: {error}"))?;
+        win.set_position(PhysicalPosition::new(x, y))
+            .map_err(|error| format!("position bubble window: {error}"))?;
+        Ok(())
+    })();
     let app_for_bounds = app.clone();
     let win_for_bounds = win.clone();
     win.on_window_event(move |event| {
@@ -1498,7 +1501,7 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
             }
         }
     });
-    let position_persistence_result = if position_rebased {
+    let position_persistence_result = if initial_geometry_result.is_ok() && position_rebased {
         win.outer_position()
             .map_err(|error| format!("read migrated bubble window position: {error}"))
             .and_then(|position| save_bubble_position_at(&app, position.x, position.y).map(|_| ()))
@@ -1508,6 +1511,10 @@ pub async fn show_bubble(app: AppHandle) -> Result<(), String> {
     configure_overlay_behavior(&win);
     crate::util::show_without_activation(&win);
     dlog!("[clips-tray] bubble shown at ({},{}) size {}", x, y, win_w);
+    if let Err(error) = initial_geometry_result {
+        eprintln!("[clips-tray] bubble initial geometry failed: {error}");
+        return Err(error);
+    }
     if let Err(error) = position_persistence_result {
         eprintln!("[clips-tray] migrated bubble position save failed: {error}");
         return Err(error);
@@ -2873,8 +2880,9 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
         _ => "small",
     };
     let size_logical = bubble_size_for_name(name);
-    let position_result = if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
-        (|| {
+    let (geometry_result, position_result) = if let Some(win) = app.get_webview_window(BUBBLE_LABEL)
+    {
+        let geometry_result = (|| {
             let scale = win
                 .scale_factor()
                 .map_err(|error| format!("read bubble scale factor: {error}"))?
@@ -2895,22 +2903,40 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
             let (new_x, new_y) = clamp_bubble_window_position(&app, new_x, new_y, win_w, win_h);
             win.set_size(tauri::Size::Physical(PhysicalSize::new(win_w, win_h)))
                 .map_err(|error| format!("resize bubble window: {error}"))?;
-            win.set_position(PhysicalPosition::new(new_x, new_y))
-                .map_err(|error| format!("reposition bubble window: {error}"))?;
-            match win.outer_position() {
-                Ok(position) => save_bubble_position_at(&app, position.x, position.y).map(|_| ()),
-                Err(error) => Err(format!("read bubble window position: {error}")),
-            }
-        })()
+            Ok((new_x, new_y))
+        })();
+        let position_result = match &geometry_result {
+            Ok((new_x, new_y)) => win
+                .set_position(PhysicalPosition::new(*new_x, *new_y))
+                .map_err(|error| format!("reposition bubble window: {error}"))
+                .and_then(|_| {
+                    win.outer_position()
+                        .map_err(|error| format!("read bubble window position: {error}"))
+                })
+                .and_then(|position| {
+                    save_bubble_position_at(&app, position.x, position.y).map(|_| ())
+                }),
+            Err(_) => Ok(()),
+        };
+        (geometry_result.map(|_| ()), position_result)
     } else {
-        Ok(())
+        (Ok(()), Ok(()))
     };
     let size_result = save_bubble_size_name(&app, name);
-    match (position_result, size_result) {
-        (Ok(()), Ok(())) => Ok(()),
-        (Err(position_error), Ok(())) => Err(position_error),
-        (Ok(()), Err(size_error)) => Err(size_error),
-        (Err(position_error), Err(size_error)) => Err(format!("{position_error}; {size_error}")),
+    match (geometry_result, position_result, size_result) {
+        (Ok(()), Ok(()), Ok(())) => Ok(()),
+        (Ok(()), Err(position_error), Ok(())) => {
+            eprintln!(
+                "[clips-tray] bubble size applied but final position update failed: {position_error}"
+            );
+            Ok(())
+        }
+        (Err(geometry_error), _, Ok(())) => Err(geometry_error),
+        (Ok(()), Ok(()), Err(size_error)) => Err(size_error),
+        (Ok(()), Err(position_error), Err(size_error)) => {
+            Err(format!("{position_error}; {size_error}"))
+        }
+        (Err(geometry_error), _, Err(size_error)) => Err(format!("{geometry_error}; {size_error}")),
     }
 }
 
