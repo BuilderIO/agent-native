@@ -242,7 +242,10 @@ Standardmäßig kann jeder Workspace die gehosteten First-Party-Apps (Mail, Cale
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -250,10 +253,11 @@ Standardmäßig kann jeder Workspace die gehosteten First-Party-Apps (Mail, Cale
 
 - `mode`: `"all"` (Standard, alle öffentlichen First-Party-Apps), `"none"` (keine integrierten Apps) oder `"selected"` (nur `include`).
 - `include`: die integrierten Apps, die dieser Workspace bei `mode: "selected"` anbietet. Alle anderen bleiben dem Workspace unbekannt.
+- `urls` (optional): ordnet angebotenen integrierten Apps HTTPS-Basis-URLs zu, ohne die angebotenen Agents zu ändern. Die Zuordnung ersetzt die kanonische gehostete URL, auch in einem vorhandenen Manifest mit diesem Standardwert, während benutzerdefinierte URLs verbundener Remote-Agents und Workspace-App-Overlays Vorrang behalten. Unbekannte IDs und ungültige URLs führen zu einem Parse-Fehler. Jeder Wert muss eine bereinigte, absolute HTTPS-URL ohne Anmeldedaten, Abfrage oder Fragment sein. Beim lokalen Entwickeln haben lokale URLs weiterhin Vorrang.
 
-Unbekannte IDs erzeugen eine Warnung und werden ignoriert. Eine Standalone-App kann denselben Schlüssel in ihrer eigenen `package.json` verwenden. `agent-native dev` und Workspace-Deployments übergeben den Wert als `AGENT_NATIVE_BUILTIN_AGENTS_JSON` an jede App.
+Unbekannte IDs in `include` erzeugen eine Warnung und werden ignoriert. Eine Standalone-App kann denselben Schlüssel in ihrer eigenen `package.json` verwenden. `agent-native dev` und Workspace-Deployments übergeben den Wert als `AGENT_NATIVE_BUILTIN_AGENTS_JSON` an jede App.
 
-Diese Konfiguration steuert die App-Liste, die Agent-Erkennung und Aufrufe zwischen Agents. Eingebundene Workspace-Apps und verbundene Remote-Agents sind nicht betroffen, und der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
+Diese Konfiguration steuert die App-Liste, die Agent-Erkennung und Aufrufe zwischen Agents. Eingebundene Workspace-Apps und benutzerdefinierte URLs verbundener Remote-Agents behalten Vorrang. Der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
 
 ## Freigegebene MCP-Server {#shared-mcp}
 

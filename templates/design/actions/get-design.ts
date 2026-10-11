@@ -45,7 +45,7 @@ export default defineAction({
   schema: getDesignSchema,
   readOnly: true,
   requiresAuth: false,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   http: { method: "GET" },
   run: async (
     { id, fileId, includeFileContent, reviewPreview, reviewOrgId },

@@ -242,7 +242,10 @@ De forma predeterminada, cada espacio de trabajo puede acceder a las aplicacione
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -250,10 +253,11 @@ De forma predeterminada, cada espacio de trabajo puede acceder a las aplicacione
 
 - `mode`: `"all"` (predeterminado, todas las aplicaciones propias públicas), `"none"` (ninguna) o `"selected"` (solo `include`).
 - `include`: las aplicaciones integradas que ofrece este espacio de trabajo cuando `mode` es `"selected"`. Las demás siguen siendo desconocidas para el espacio de trabajo.
+- `urls` (opcional): asigna URL base HTTPS a las apps integradas ofrecidas sin cambiar qué agentes se ofrecen. La asignación reemplaza la URL alojada canónica, también en un manifiesto existente que aún use ese valor predeterminado, mientras las URL personalizadas de agentes remotos conectados y las superposiciones de apps del workspace conservan prioridad. Los IDs desconocidos y las URL no válidas hacen que falle el análisis. Cada valor debe ser una URL HTTPS absoluta y sin espacios externos, credenciales, consulta ni fragmento. El enrutamiento de desarrollo local mantiene la prioridad y usa URL locales.
 
-Los ids desconocidos registran una advertencia y se ignoran. Una aplicación independiente puede usar la misma clave en su propio `package.json`. `agent-native dev` y los despliegues del espacio de trabajo pasan el valor a cada aplicación como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+Los IDs desconocidos en `include` registran una advertencia y se ignoran. Una aplicación independiente puede usar la misma clave en su propio `package.json`. `agent-native dev` y los despliegues del espacio de trabajo pasan el valor a cada aplicación como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
-Esta configuración controla la lista de aplicaciones, el descubrimiento de agentes y las llamadas entre agentes. Las aplicaciones montadas en el workspace y los agentes remotos conectados no se ven afectados, y el acceso de aplicaciones MCP sigue siendo un permiso de enrutamiento independiente.
+Esta configuración controla la lista de aplicaciones, el descubrimiento de agentes y las llamadas entre agentes. Las aplicaciones montadas en el workspace y las URL personalizadas de agentes remotos conectados conservan prioridad. El acceso de aplicaciones MCP sigue siendo un permiso de enrutamiento independiente.
 
 ## Servidores MCP compartidos {#shared-mcp}
 

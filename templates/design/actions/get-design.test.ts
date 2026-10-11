@@ -188,12 +188,12 @@ describe("get-design", () => {
     ]);
   });
 
-  it("exposes a signed-out public read-only surface", () => {
+  it("allows public HTTP reads and exposes authenticated agent reads", () => {
     expect(action.requiresAuth).toBe(false);
     expect(action.publicAgent).toEqual({
       expose: true,
       readOnly: true,
-      requiresAuth: false,
+      requiresAuth: true,
     });
   });
 

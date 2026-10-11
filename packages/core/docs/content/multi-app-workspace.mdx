@@ -260,7 +260,10 @@ By default every workspace can reach the hosted first-party apps (Mail, Calendar
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -268,10 +271,11 @@ By default every workspace can reach the hosted first-party apps (Mail, Calendar
 
 - `mode`: `"all"` (default, every public first-party app), `"none"` (no built-ins), or `"selected"` (only `include`).
 - `include`: the built-ins this workspace offers when `mode` is `"selected"`. Anything else stays unknown to the workspace.
+- `urls` (optional): maps built-in IDs to HTTPS base URL overrides for offered built-ins without changing the offered agents. It replaces the canonical hosted URL, including in a seeded manifest that still uses that default, while custom connected remote-agent URLs and workspace-app overlays retain priority. Unknown IDs and invalid URLs fail parsing. Each value must be a trimmed absolute HTTPS URL with no credentials, query, or fragment. Local-development routing keeps priority and uses local URLs.
 
-Unknown ids log a warning and are ignored. A standalone app can use the same key in its own `package.json`. `agent-native dev` and workspace deploys pass the value to every app as `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+Unknown IDs in `include` log a warning and are ignored. A standalone app can use the same key in its own `package.json`. `agent-native dev` and workspace deploys pass the value to every app as `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
-This config controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and connected remote agents are unaffected, and MCP app access stays a separate routing permission.
+This config controls the app list, agent discovery, and agent-to-agent calls. Mounted workspace apps and custom connected remote-agent URLs retain priority, and MCP app access stays a separate routing permission.
 
 ## Shared MCP servers {#shared-mcp}
 

@@ -242,7 +242,10 @@ pnpm dev
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -250,10 +253,11 @@ pnpm dev
 
 - `mode`：`"all"`（默认，所有公开的第一方应用）、`"none"`（不提供内置应用）或 `"selected"`（仅 `include` 中的应用）。
 - `include`：当 `mode` 为 `"selected"` 时此工作区提供的内置应用。其他应用对该工作区不可见。
+- `urls`（可选）：为已提供的内置应用指定 HTTPS 基础 URL，不会改变提供哪些代理。它会覆盖规范托管 URL，也会应用于仍使用该默认 URL 的现有种子清单，同时已连接远程代理的自定义 URL 和工作区应用覆盖项保持优先。未知 ID 或无效 URL 会导致解析失败。每个值都必须是去除首尾空格、且不含凭据、查询或片段的绝对 HTTPS URL。本地开发路由仍优先使用本地 URL。
 
-未知 ID 会记录警告并被忽略。独立应用可以在自己的 `package.json` 中使用同一个键。`agent-native dev` 和工作区部署会将该值作为 `AGENT_NATIVE_BUILTIN_AGENTS_JSON` 传递给每个应用。
+`include` 中的未知 ID 会记录警告并被忽略。独立应用可以在自己的 `package.json` 中使用同一个键。`agent-native dev` 和工作区部署会将该值作为 `AGENT_NATIVE_BUILTIN_AGENTS_JSON` 传递给每个应用。
 
-该配置控制应用列表、代理发现和代理间调用。已挂载的工作区应用和已连接的远程代理不受影响，MCP 应用访问仍是独立的路由权限。
+该配置控制应用列表、代理发现和代理间调用。已挂载的工作区应用以及已连接远程代理的自定义 URL 保持优先。MCP 应用访问仍是独立的路由权限。
 
 ## 共享MCP服务器 {#shared-mcp}
 
