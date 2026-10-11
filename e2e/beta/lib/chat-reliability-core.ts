@@ -271,6 +271,21 @@ export function stopControlState(state: ChatState): StopControlState {
 }
 
 export function describeState(state: ChatState): string {
+  const scanned = state.messages.slice(0, 256);
+  const users = scanned.filter((message) => message.role === "user");
+  const identified = users.filter((message) => message.id?.trim());
+  const distinctIds = new Set(identified.map((message) => message.id));
+  const userIdentity = {
+    scannedMessages: scanned.length,
+    truncated: state.messages.length > scanned.length,
+    userCount: users.length,
+    missingIdCount: users.length - identified.length,
+    distinctIdCount: distinctIds.size,
+    repeatedIdCount: identified.length - distinctIds.size,
+    serverUserCount: identified.filter((message) =>
+      message.id!.startsWith("server-user-"),
+    ).length,
+  };
   const messages = state.messages
     .map(
       (message) =>
@@ -284,6 +299,7 @@ export function describeState(state: ChatState): string {
     `send=${state.sendVisible ? (state.sendEnabled ? "enabled" : "disabled") : "hidden"}`,
     `activity=${JSON.stringify(state.currentActivity)}`,
     `messages=[${messages}]`,
+    `userIdentity=${JSON.stringify(userIdentity)}`,
     state.errorCards.length
       ? `errorCards=${JSON.stringify(state.errorCards)}`
       : "",
