@@ -2922,14 +2922,14 @@ function mergeAgentKitHistory(
       continue;
     }
     const richer = newer.lastSequence >= run.lastSequence ? newer : run;
-    // A later protocol cursor cannot reopen a terminal run.
-    const statusRun = isTerminalRunStatus(run.status)
-      ? run
-      : isTerminalRunStatus(newer.status)
-        ? newer
-        : run.lastSequence > newer.lastSequence
-          ? run
-          : newer;
+    const statusRun =
+      run.lastSequence > newer.lastSequence
+        ? run
+        : newer.lastSequence > run.lastSequence
+          ? newer
+          : isTerminalRunStatus(run.status)
+            ? run
+            : newer;
     runs.set(run.id, {
       ...run,
       ...newer,
@@ -3001,14 +3001,16 @@ function mergeAgentKitHistory(
         (suggestion: any) => suggestion?.runId === latest?.id,
       );
     }
-    if (Array.isArray(merged.activeRunIds)) {
-      merged.activeRunIds = merged.activeRunIds.filter(
-        (id: string) =>
-          !["completed", "failed", "cancelled"].includes(
-            runs.get(id)?.status ?? "",
-          ),
-      );
-    }
+    const activeRunIds = new Set([
+      ...(Array.isArray(previous.activeRunIds) ? previous.activeRunIds : []),
+      ...(Array.isArray(next.activeRunIds) ? next.activeRunIds : []),
+    ]);
+    merged.activeRunIds = [...activeRunIds].filter(
+      (id) =>
+        !["completed", "failed", "cancelled"].includes(
+          runs.get(id)?.status ?? "",
+        ),
+    );
   }
   const existingMessageRunIds = snapshotMessageRunIds(previous);
   const incomingMessageRunIds = snapshotMessageRunIds(next);

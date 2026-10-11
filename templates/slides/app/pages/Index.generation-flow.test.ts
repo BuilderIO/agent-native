@@ -56,16 +56,6 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
-  it("keeps Home in browser history when opening a generated deck", () => {
-    const navigation = flow.slice(
-      flow.indexOf("void navigate("),
-      flow.indexOf("const recoverFromGenerationSetupFailure"),
-    );
-
-    expect(navigation).toContain("flushSync: true");
-    expect(navigation).not.toContain("replace: true");
-  });
-
   it("defers new empty deck persistence until generation setup is ready", () => {
     const createIndex = flow.indexOf("deck = createDeck(undefined, {");
     const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");

@@ -1148,6 +1148,7 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   useEffect(() => {
     if (active) return;
+    setIsStartingNewDeck(false);
     setDeckToDelete(null);
     setWorkspaceDefaultCandidate(null);
     setShowDesignSystemSetup(false);
