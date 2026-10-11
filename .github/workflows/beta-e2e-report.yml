@@ -7,6 +7,11 @@ on:
         description: Result of the beta E2E jobs in the caller run
         required: true
         type: string
+      update_baseline:
+        description: Whether this run covers the full suite and may update shared notification state
+        required: false
+        default: true
+        type: boolean
     secrets:
       QA_SLACK_BOT_TOKEN:
         required: false
@@ -16,6 +21,9 @@ jobs:
     name: Report beta E2E status
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: beta-e2e-report-${{ github.repository }}
+      queue: max
     permissions:
       actions: read
       contents: read
@@ -24,6 +32,7 @@ jobs:
       REPO: ${{ github.repository }}
       RUN_ID: ${{ github.run_id }}
       RUN_RESULT: ${{ inputs.run_result }}
+      UPDATE_BASELINE: ${{ inputs.update_baseline }}
       REPORT_DIR: .tmp/beta-e2e
       SLACK_CHANNEL: C0C4U4XRT6X
     steps:
@@ -53,7 +62,17 @@ jobs:
           current_data_incomplete=false
           previous_state_artifact_missing=false
           if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[]' > "$REPORT_DIR/jobs.ndjson" 2> "$REPORT_DIR/jobs-api-error.txt" && \
-            jq -s '{jobs: .}' "$REPORT_DIR/jobs.ndjson" > "$REPORT_DIR/jobs.json"; then
+            jq -s '
+              {
+                jobs: [
+                  .[]
+                  | select(
+                      (.name // "") == "Beta E2E pre-flight"
+                      or ((.name // "") | test("(^| / )(Resolve host shards|Typecheck and helper tests|Fleet-wide checks|Advisory findings \\(non-gating\\)|Signup canary|[A-Za-z0-9_-]+ public sweep|Authenticated .*)$"))
+                    )
+                ]
+              }
+            ' "$REPORT_DIR/jobs.ndjson" > "$REPORT_DIR/jobs.json"; then
             :
           else
             detail="$(tr '\r\n' ' ' < "$REPORT_DIR/jobs-api-error.txt" | cut -c 1-300)"
@@ -122,7 +141,7 @@ jobs:
             : > "$runs_file"
             for workflow_file in beta-e2e-scheduled.yml beta-e2e.yml deploy-production-sites-prebuilt.yml; do
               workflow_runs_file="$REPORT_DIR/previous/runs-$workflow_file.tsv"
-              if ! gh api --paginate \
+              if ! gh api --paginate --method GET \
                 -f "branch=$GITHUB_REF_NAME" \
                 -f status=completed \
                 -f per_page=100 \
@@ -311,7 +330,8 @@ jobs:
             --artifacts "$REPORT_DIR/artifacts.json" --logs-dir "$REPORT_DIR/logs"
             --out-dir "$REPORT_DIR/out"
           )
-          if [ -f "$REPORT_DIR/previous/state.json" ]; then args+=(--previous-state "$REPORT_DIR/previous/state.json"); fi
+          if [ "$UPDATE_BASELINE" = "true" ] && [ -f "$REPORT_DIR/previous/state.json" ]; then args+=(--previous-state "$REPORT_DIR/previous/state.json"); fi
+          if [ "$UPDATE_BASELINE" != "true" ]; then args+=(--note "This scoped run is reported independently and does not update the full-suite notification baseline."); fi
           if [ -n "$SLACK_NOTE" ]; then args+=(--slack-note "$SLACK_NOTE"); fi
           while IFS= read -r line; do
             if [ -n "$line" ]; then args+=(--note "$line"); fi
@@ -395,6 +415,7 @@ jobs:
         if: ${{ always() && steps.digest.outcome == 'success' }}
         env:
           SHOULD_NOTIFY: ${{ steps.digest.outputs.should_notify }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline }}
           METADATA_INCOMPLETE: ${{ steps.digest.outputs.metadata_incomplete }}
           CURRENT_DATA_INCOMPLETE: ${{ steps.digest.outputs.current_data_incomplete }}
           PREVIOUS_STATE_ARTIFACT_MISSING: ${{ steps.digest.outputs.previous_state_artifact_missing }}
@@ -403,6 +424,19 @@ jobs:
           SLACK_OK: ${{ steps.slack.outputs.ok }}
         run: |
           set -euo pipefail
+          if [ "$UPDATE_BASELINE" != "true" ]; then
+            if [ -f "$REPORT_DIR/previous/state.json" ]; then
+              cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+            elif [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ]; then
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+            else
+              jq -n '{_betaE2EStateAvailability: "absent"}' > "$REPORT_DIR/out/state.json"
+            fi
+            message="This scoped report did not update the shared full-suite notification baseline."
+            echo "::notice::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if [ "$SHOULD_NOTIFY" = "true" ] && { [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ] || [ "$CURRENT_DATA_INCOMPLETE" = "true" ] || [ "$SLACK_CONFIGURED" != "true" ] || [ "$SLACK_OUTCOME" != "success" ] || [ "$SLACK_OK" != "true" ]; }; then
             if [ "$PREVIOUS_STATE_ARTIFACT_MISSING" = "true" ]; then
               jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"

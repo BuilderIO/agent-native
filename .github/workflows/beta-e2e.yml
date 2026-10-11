@@ -572,6 +572,7 @@ jobs:
     uses: ./.github/workflows/beta-e2e-report.yml
     with:
       run_result: ${{ contains(join(needs.*.result, ','), 'failure') && 'failure' || contains(join(needs.*.result, ','), 'cancelled') && 'cancelled' || 'success' }}
+      update_baseline: ${{ inputs.apps == 'all' && inputs.lane == 'public+authed' && inputs.grep == '' }}
     secrets:
       QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
     permissions:

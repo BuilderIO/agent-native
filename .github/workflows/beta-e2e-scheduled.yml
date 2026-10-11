@@ -35,6 +35,7 @@ jobs:
     uses: ./.github/workflows/beta-e2e-report.yml
     with:
       run_result: ${{ needs.beta-e2e.result }}
+      update_baseline: true
     secrets:
       QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
     permissions:
