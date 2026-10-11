@@ -22,6 +22,7 @@ export default async (nitroApp: any): Promise<void> => {
   registerOnboardingStep({
     id: "file-storage",
     order: 15,
+    // Local recordings work before users connect remote storage.
     required: false,
     title: "Connect storage",
     description:
