@@ -1808,6 +1808,14 @@ function outputValidator(
     try {
       result = await outputSchema["~standard"].validate(output);
     } catch (error) {
+      // A connection request or stop from a transform is the action's own
+      // signal, not a broken result, under every strategy.
+      if (
+        isAgentConnectionRequiredError(error) ||
+        isAgentActionStopError(error)
+      ) {
+        throw error;
+      }
       // A refinement that throws has not judged the output, and its message
       // may repeat it.
       if (strategy === "strict") {

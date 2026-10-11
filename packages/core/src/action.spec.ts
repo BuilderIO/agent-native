@@ -1147,6 +1147,22 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     }
   });
 
+  it("passes a connection request from a strict output transform through unchanged", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const action = defineAction({
+      description: "strict transform that asks for a connection",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
+        throw failure;
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ ok: true }),
+    });
+    await expect(action.run({})).rejects.toBe(failure);
+  });
+
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
     const fallback = { id: "fallback", count: 0 };
     const action = defineAction({
