@@ -1,7 +1,7 @@
 ===================================================================
 --- a/.agents/skills/adding-a-feature/SKILL.md
 +++ b/.agents/skills/adding-a-feature/SKILL.md
-@@ -129,11 +129,12 @@
+@@ -131,11 +131,12 @@
  Instruction examples may name secret keys like `SLACK_WEBHOOK`, but must use
  placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
  real keys, internal data, or customer data into instructions as examples.

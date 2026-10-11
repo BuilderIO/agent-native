@@ -4066,9 +4066,9 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(googleEngine);
     });
 
-    it("does not auto-detect deploy-level provider env keys for signed-in production users", async () => {
+    it("auto-detects deployment provider env keys for self-hosted production users", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies hosted resolution ignores this key
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies self-hosted resolution uses the shared fallback
       vi.doMock("../../settings/store.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue(null),
@@ -4129,20 +4129,20 @@ describe("AgentEngine registry", () => {
 
       const resolved = await resolveEngine({});
 
-      expect(openAiCreate).not.toHaveBeenCalled();
-      expect(anthropicCreate).toHaveBeenCalledWith({
+      expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: false,
+        allowEnvFallback: true,
       });
-      expect(resolved).toBe(anthropicEngine);
+      expect(anthropicCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(openAiEngine);
       await expect(isResolvedEngineUsableForRequest(resolved)).resolves.toBe(
-        false,
+        true,
       );
     });
 
-    it("disables deploy env fallback for explicitly selected LLM engines in hosted requests", async () => {
+    it("uses deployment env fallback for explicitly selected LLM engines in self-hosted production", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies explicit hosted selection ignores this key
+      process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — verifies explicit self-hosted selection uses the shared fallback
       vi.doMock("../../settings/store.js", async (importOriginal) => ({
         ...(await importOriginal<typeof import("../../settings/store.js")>()),
         getSetting: vi.fn().mockResolvedValue(null),
@@ -4186,7 +4186,7 @@ describe("AgentEngine registry", () => {
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
-        allowEnvFallback: false,
+        allowEnvFallback: true,
       });
       expect(resolved).toBe(openAiEngine);
     });

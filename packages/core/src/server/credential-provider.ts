@@ -159,12 +159,21 @@ export function assertCredentialStoreReadable(result: {
 }
 
 /**
- * Deployment-level credential fallback for single-tenant/local operation.
- * Multi-tenant call sites must gate this explicitly before calling.
+ * Read deployment-owned configuration. LLM provider keys have an app-wide
+ * fallback policy; user and workspace credentials must use scoped resolvers.
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
   if (
-    HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key) &&
+    key === "GOOGLE_APPLICATION_CREDENTIALS" &&
+    (getRequestContext()?.isSyntheticTraffic === true ||
+      isHostedWorkspaceRuntime() ||
+      !isDeployCredentialFallbackAllowed())
+  ) {
+    return undefined;
+  }
+  if (
+    (DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key) ||
+      BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) &&
     !canUseDeployCredentialFallbackForRequest(key)
   ) {
     return undefined;
@@ -172,13 +181,10 @@ export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
 }
 
-const HOSTED_MODEL_PROVIDER_ENV_KEYS = new Set([
+const DEPLOY_LLM_PROVIDER_ENV_KEYS = new Set([
   "ANTHROPIC_API_KEY",
-  "BUILDER_GATEWAY_SPACE_ID",
-  "BUILDER_GATEWAY_TOKEN",
   "COHERE_API_KEY",
   "GEMINI_API_KEY",
-  "GOOGLE_APPLICATION_CREDENTIALS",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "JEV_API_KEY",
@@ -187,6 +193,11 @@ const HOSTED_MODEL_PROVIDER_ENV_KEYS = new Set([
   "OPENROUTER_API_KEY",
   "TYPESAFE_API_KEY",
   "VOYAGE_API_KEY",
+]);
+
+const BUILDER_CREDITS_DEPLOY_ENV_KEYS = new Set([
+  "BUILDER_GATEWAY_SPACE_ID",
+  "BUILDER_GATEWAY_TOKEN",
 ]);
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
@@ -211,13 +222,10 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
 }
 
 /**
- * Deployment-level credentials are safe as a runtime fallback only in local /
- * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential for provider
- * keys. Model-provider env keys are never shared with hosted users because
- * they bill the app owner. Other app-provided service credentials configure
- * the deployed app itself, such as email transport and OAuth client
- * credentials whose per-user identity remains in scoped OAuth tokens.
+ * Legacy deployment-level credential policy for non-provider call sites.
+ * Model-provider env keys use `canUseDeployCredentialFallbackForRequest()` so
+ * self-hosted apps and local PGlite development can share an app-owned
+ * inference key.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
@@ -231,13 +239,23 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 export function canUseDeployCredentialFallbackForRequest(
   key?: string,
 ): boolean {
+  const requestContext = getRequestContext();
   // Synthetic checks must never fall through to a deploy-wide provider key.
-  // If the dedicated test credential is rejected, using the site's shared key
-  // would make a green retry both misleading and billable to real traffic.
-  if (getRequestContext()?.isSyntheticTraffic === true) return false;
-  if (key && HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key)) {
-    if (isHostedWorkspaceRuntime()) return false;
-    if (isProductionLikeRuntime() && !isLocalDatabase()) return false;
+  // Anonymous public runs must not consume the deployment owner's key either.
+  if (
+    requestContext?.isSyntheticTraffic === true ||
+    requestContext?.agentRunAnonymous === true
+  ) {
+    return false;
+  }
+  if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
+    return isTrustedSelfHostedRuntime();
+  }
+  if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
+    const hostedWorkspace = isHostedWorkspaceRuntime();
+    if (hostedWorkspace && isProductionLikeRuntime()) return false;
+    if (isLocalDatabase()) return true;
+    return !hostedWorkspace;
   }
   const email = getRequestUserEmail();
   if (!email) return true;

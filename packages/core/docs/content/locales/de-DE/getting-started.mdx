@@ -62,11 +62,21 @@ lokale Entwicklung müssen Sie keine E-Mail-Adresse und kein Passwort eingeben.
 
 </Callout>
 
-## Ein LLM verbinden
+## Ein LLM verbinden {#connect-an-llm}
 
-Verbinden Sie als Nächstes ein LLM. Wählen Sie **Builder.io verwenden**, um
-kostenlose Credits zu verwenden, oder **Custom keys**, wählen Sie einen Anbieter
-aus und geben Sie die abgefragten Verbindungsdaten ein.
+Die App öffnet sich auf der Seite **Loslegen**. Fügen Sie für die lokale Entwicklung vor dem Start von `pnpm dev` einen Provider-Schlüssel zur `.env`-Datei der App hinzu:
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+Selbst gehostete Apps verwenden den Schlüssel aus der Umgebungsvariable als appweiten Fallback. Nutzer müssen daher keinen eigenen Schlüssel in der UI hinzufügen. Produktionsumgebungen von Hosted workspace blockieren Deployment-Provider-Schlüssel. Gespeicherte Benutzer- oder Organisationsschlüssel haben Vorrang.
+
+Mit diesem Provider-Schlüssel stimmt der Betreiber der appweiten Freigabe und Abrechnung zu; ein zusätzliches Flag ist nicht erforderlich. Angemeldete Nutzer ohne scoped Schlüssel können das Provider-Konto des Deployments organisationsübergreifend verwenden; die Nutzung wird diesem Konto berechnet. Nutze scoped Schlüssel, wenn Tenants getrennte Zugangsdaten oder Abrechnung benötigen.
+
+Mit PostgreSQL können Nutzer außerdem über **Custom keys** einen Schlüssel speichern. Mit dem persönlichen Geltungsbereich bleibt er auf das eigene Konto beschränkt; Admins können den Organisationsbereich wählen, um ihn im Workspace zu teilen. Gespeicherte Schlüssel liegen im verschlüsselten, datenbankgestützten Anmeldedatenspeicher.
+
+Um stattdessen Builders verwalteten Provider zu nutzen, wählen Sie **Use Builder.io** im Composer. Unter [Umgebungsvariablen](/docs/environment-variables#optional-ai-search-and-email-fallbacks) finden Sie unterstützte Provider-Schlüssel und ihren Geltungsbereich.
 
 ## Die Action über den Agenten ausführen
 
@@ -75,7 +85,7 @@ kann und die Agenten als Tool verwenden können. Das Chat-Template enthält eine
 einfache `hello`-Action, damit Sie dieses Muster ausprobieren können, bevor Sie
 selbst eine schreiben.
 
-Geben Sie im Agenten-Panel ein:
+Geben Sie im Eingabefeld der Seite **Loslegen** ein:
 
 > Call the hello action for Alex.
 

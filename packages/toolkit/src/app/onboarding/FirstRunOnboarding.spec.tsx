@@ -991,7 +991,7 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-create-account"]',
       )?.textContent,
-    ).toBe("Create a Builder.io account");
+    ).toBe("Use Builder.io");
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
@@ -1565,6 +1565,54 @@ describe("FirstRunOnboarding", () => {
     );
     expect(document.body.textContent).not.toContain("Choose your setup.");
     expect(document.body.textContent).not.toContain("This app is an agent.");
+  });
+
+  it("labels Clips setup as Builder, custom keys, or an optional skip", async () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: { appId: "clips", appName: "Clips", capabilities: [] },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector('[data-testid="first-run-role-skip"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const builderButton = document.body.querySelector<HTMLButtonElement>(
+      '[data-testid="first-run-builder-create-account"]',
+    );
+    const customKeysButton = document.body.querySelector<HTMLButtonElement>(
+      '[data-testid="first-run-open-key-settings"]',
+    );
+    const customKeysCard = customKeysButton?.closest("section");
+
+    expect({
+      builder: builderButton?.textContent,
+      customKeys: customKeysCard?.querySelector("h2")?.textContent,
+      customKeysAction: customKeysButton?.textContent,
+      skip: document.body.querySelector('[data-testid="first-run-setup-skip"]')
+        ?.textContent,
+    }).toEqual({
+      builder: "Use Builder.io",
+      customKeys: "Custom keys",
+      customKeysAction: "Open AI key settings",
+      skip: "Skip for now",
+    });
   });
 
   it("opens the app directly after a configured Builder connection", () => {

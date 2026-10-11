@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "إزالة {{name}}",
+    removeReference: "إزالة مرجع {{name}}",
+  },
   settings: {
     title: "الإعدادات",
     workspaceTitle: "مساحة العمل",
@@ -29,6 +33,10 @@ const messages = {
     pinned: "المثبتة",
     recents: "الأخيرة",
     retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
+    invalidHandoffOptions:
+      "تم حفظ المطالبة كمسودة، لكن تعذرت استعادة إعدادات الدردشة. راجع المطالبة والسياق والنموذج قبل إرسالها مرة أخرى.",
+    recoveryDraftUnsaved:
+      "لم تُحفظ هذه التغييرات على المسودة. قد تفقدها إذا أعدت تحميل هذه المحادثة.",
     retryAttachmentUnavailable:
       "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
@@ -40,12 +48,29 @@ const messages = {
     unpinChat: "إلغاء تثبيت المحادثة",
     untitledChat: "محادثة بلا عنوان",
   },
+  home: {
+    communityDescription: "انضم إلى مجتمع Agent-Native",
+    composerPlaceholder: "استدعِ الإجراء hello من أجل Alex",
+    communityTitle: "تواصل معنا",
+    docsAddAction: "إضافة إجراء",
+    docsAddPage: "إضافة صفحة",
+    docsDescription: "أدلة حول الإجراءات والصفحات والوكلاء",
+    docsGettingStarted: "البدء",
+    docsKeyConcepts: "المفاهيم الأساسية",
+    docsTitle: "المستندات",
+    editHint: "عدّل {{file}} واحفظه، ثم اسأل مجددًا لترى التحية الجديدة.",
+    lead: "تتشارك واجهة تطبيقك ووكيله الإجراءات نفسها.",
+    leadTry: "اطلب من الوكيل استدعاء الإجراء hello.",
+    llmSetupLink: "إعداد مفتاح LLM للتطبيق بالكامل",
+    title: "ابدأ الآن",
+  },
   navigation: {
     chat: "المحادثة",
     collapseSidebar: "طي الشريط الجانبي",
     database: "قاعدة البيانات",
     expandSidebar: "توسيع الشريط الجانبي",
     extensions: "الإضافات",
+    home: "الرئيسية",
     navigation: "التنقل",
     navigationDescription: "التنقل الرئيسي",
     observability: "قابلية المراقبة",
