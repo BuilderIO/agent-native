@@ -122,9 +122,71 @@ describe("foldThreadRunSuggestions for a turn that yielded to a connection reque
 });
 
 describe("foldThreadRunSuggestions protocol sequence", () => {
-  it("preserves the AgentKit cursor instead of advancing from runtime events", () => {
+  it("discards a persisted cursor without protocol evidence", () => {
+    const fold = (repo: any) =>
+      foldThreadRunSuggestions(repo, {
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+        status: "completed",
+        events: [
+          {
+            seq: 80,
+            event: { type: "done" },
+          },
+        ],
+      });
+    const contaminated = fold({
+      agentKit: { runs: [{ id: "run-1", lastSequence: 67 }], events: [] },
+    });
+    expect(contaminated.agentKit.runs[0].lastSequence).toBe(0);
+  });
+
+  it("uses persisted protocol sequence metadata instead of runtime sequences", () => {
+    const fold = (agentKit: any) =>
+      foldThreadRunSuggestions(
+        { agentKit },
+        {
+          runId: "run-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          startedAt: Date.parse("2026-10-06T00:00:00.000Z"),
+          status: "completed",
+          events: [{ seq: 80, event: { type: "done" } }],
+        },
+      ).agentKit.runs[0].lastSequence;
+
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        _eventRunWatermarks: { "run-1": 2 },
+      }),
+    ).toBe(2);
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        events: [{ runId: "run-1", sequence: 3 }],
+      }),
+    ).toBe(3);
+    expect(
+      fold({
+        runs: [{ id: "run-1", lastSequence: 67 }],
+        _eventRunSnapshotCommits: {
+          "run-1": [{ snapshotId: "snapshot-1", lastSequence: 4 }],
+        },
+      }),
+    ).toBe(4);
+  });
+
+  it("does not advance the protocol cursor from runtime event sequences", () => {
     const repo = foldThreadRunSuggestions(
-      { agentKit: { runs: [{ id: "run-1", lastSequence: 4 }] } },
+      {
+        agentKit: {
+          runs: [{ id: "run-1", lastSequence: 4 }],
+          _eventRunWatermarks: { "run-1": 4 },
+        },
+      },
       {
         runId: "run-1",
         threadId: "thread-1",
@@ -133,7 +195,7 @@ describe("foldThreadRunSuggestions protocol sequence", () => {
         status: "completed",
         events: [
           {
-            seq: 67,
+            seq: 80,
             event: { type: "done" },
           },
         ],

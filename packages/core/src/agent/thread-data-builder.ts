@@ -2108,14 +2108,27 @@ export function foldThreadRunSuggestions(
     ? previous.runs
     : [];
   const oldRun = runs.find((entry) => entry.id === run.runId);
-  const previousSequence =
-    oldRun &&
-    Number.isSafeInteger(oldRun.lastSequence) &&
-    oldRun.lastSequence >= 0
-      ? oldRun.lastSequence
-      : 0;
-  // Runtime event sequence numbers and AgentKit protocol cursors are separate.
-  const lastSequence = previousSequence;
+  const committedSnapshots = previous._eventRunSnapshotCommits?.[run.runId];
+  const protocolSequences = [
+    previous._eventRunWatermarks?.[run.runId],
+    ...(Array.isArray(previous.events)
+      ? previous.events
+          .filter((event: any) => event?.runId === run.runId)
+          .map((event: any) => event?.sequence)
+      : []),
+    ...(Array.isArray(committedSnapshots)
+      ? committedSnapshots.map((snapshot: any) => snapshot?.lastSequence)
+      : []),
+  ];
+  const lastSequence = protocolSequences.reduce(
+    (maximum, sequence) =>
+      typeof sequence === "number" &&
+      Number.isSafeInteger(sequence) &&
+      sequence >= 0
+        ? Math.max(maximum, sequence)
+        : maximum,
+    0,
+  );
   const snapshot: AgentRunSnapshot = {
     ...oldRun,
     id: run.runId,
