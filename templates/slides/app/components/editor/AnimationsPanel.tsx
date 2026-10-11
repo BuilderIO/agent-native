@@ -27,10 +27,7 @@ import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getRenderedSlideSource } from "@/components/deck/SlideRenderer";
-import {
-  findBuildStepElements,
-  setBuildState,
-} from "@/components/presentation/slide-build-steps";
+import { setBuildState } from "@/components/presentation/slide-build-steps";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -64,6 +61,16 @@ const REASON_LABEL_KEY: Record<RevealUnresolvedReason, string> = {
   "missing-element": "animations.issueMissingElement",
   "duplicate-after-expansion": "animations.issueDuplicate",
 };
+
+// Same rule as server/lib/validate-slide-animations.ts: a reveal keeps its identity
+// while its id and target stay the same.
+function revealIdentity(animation: SlideAnimation): string {
+  return JSON.stringify([
+    animation.id,
+    animation.elementIndex,
+    animation.elementPath ?? null,
+  ]);
+}
 
 const ANIM_TYPES: { value: AnimationType; labelKey: string }[] = [
   { value: "appear", labelKey: "animations.appear" },
@@ -329,12 +336,24 @@ export function AnimationsPanel({
     if (selectedAnimation) setExpandedAnimationId(selectedAnimation.id);
   }, [selectedAnimation]);
 
-  // A list is saved only when every reveal in it resolves. A refused change
-  // is not applied; the reason shows until a save goes through.
+  // A list is refused only when it introduces a reveal that does not resolve. A
+  // reveal the stored list already had unresolved may stay or leave, so a partial
+  // repair saves. A refused change is not applied; the reason shows until a save
+  // goes through.
   const commitAnimations = useCallback(
     (next: SlideAnimation[]): boolean => {
-      const [failed] = resolveRevealSteps(storedRoot, next).flatMap((outcome) =>
-        outcome.ok ? [] : [outcome.reason],
+      const alreadyUnresolved = new Set(
+        outcomes.flatMap((outcome, index) =>
+          outcome.ok ? [] : [revealIdentity(animations[index]!)],
+        ),
+      );
+      const [failed] = resolveRevealSteps(storedRoot, next).flatMap(
+        (outcome, index) => {
+          if (outcome.ok) return [];
+          return alreadyUnresolved.has(revealIdentity(next[index]!))
+            ? []
+            : [outcome.reason];
+        },
       );
       if (failed) {
         setRefusedChange(failed);
@@ -345,7 +364,7 @@ export function AnimationsPanel({
       onUpdateSlide({ animations: next });
       return true;
     },
-    [onUpdateSlide, storedRoot],
+    [animations, onUpdateSlide, outcomes, storedRoot],
   );
 
   const handleDragEnd = useCallback(

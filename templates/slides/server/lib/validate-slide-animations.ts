@@ -14,6 +14,12 @@ interface SlideAnimation extends AnimationTarget {
   id?: string;
 }
 
+/** The stored content and reveal list that a save replaces. */
+export interface SlideAnimationBaseline {
+  content: string;
+  animations: readonly SlideAnimation[];
+}
+
 /**
  * Why a save refuses a reveal list. Each is a 400 whose errorCode is
  * `slide_animation_<reason>` with the reason in details, so a caller can branch
@@ -72,6 +78,28 @@ function slideRootOf(content: string) {
   return document.querySelector(".fmd-slide");
 }
 
+// A reveal keeps its identity across a save while its id and target stay the same.
+// Client AnimationsPanel.tsx applies the same rule to its own list.
+function revealIdentity(animation: SlideAnimation): string {
+  return JSON.stringify([
+    animation.id ?? null,
+    animation.elementIndex,
+    animation.elementPath ?? null,
+  ]);
+}
+
+function unresolvedIdentities(baseline: SlideAnimationBaseline): Set<string> {
+  const outcomes = resolveRevealSteps(
+    slideRootOf(baseline.content),
+    baseline.animations,
+  );
+  return new Set(
+    outcomes.flatMap((outcome, index) =>
+      outcome.ok ? [] : [revealIdentity(baseline.animations[index]!)],
+    ),
+  );
+}
+
 // The same resolver the editor and the runtime use, so a save rejects exactly
 // what playback would fail to resolve, including "By paragraph" expansion.
 export function summarizeSlideAnimationTargets(
@@ -117,16 +145,24 @@ export function summarizeSlideAnimationTargets(
   );
 }
 
+/**
+ * Refuses a save whose reveal list introduces a reveal that does not resolve.
+ * A reveal the baseline already had unresolved (same id, same target) may stay
+ * or leave the list, so a partial repair saves; only a new unresolved reveal,
+ * or one a content change strands, is refused.
+ */
 export function assertSlideAnimationsResolve({
   slideId,
   content,
   animations,
   requireElementPaths = false,
+  baseline,
 }: {
   slideId: string;
   content: string;
   animations: readonly SlideAnimation[];
   requireElementPaths?: boolean;
+  baseline?: SlideAnimationBaseline;
 }): void {
   if (animations.length === 0) return;
 
@@ -163,16 +199,12 @@ export function assertSlideAnimationsResolve({
   }
 
   const root = slideRootOf(content);
-  if (!root) {
-    refuse(
-      "missing-element",
-      `Cannot save animations for slide ${slideId}: the final HTML has no .fmd-slide wrapper. Re-read the slide content, then send the content and complete animation list together.`,
-      { slideId, animationIndex: null, animationId: null },
-    );
-  }
-
+  const alreadyUnresolved = baseline
+    ? unresolvedIdentities(baseline)
+    : new Set<string>();
   const failure = resolveRevealSteps(root, animations).find(
-    (outcome): outcome is Extract<RevealOutcome, { ok: false }> => !outcome.ok,
+    (outcome, index): outcome is Extract<RevealOutcome, { ok: false }> =>
+      !outcome.ok && !alreadyUnresolved.has(revealIdentity(animations[index]!)),
   );
   if (!failure) return;
 
@@ -185,6 +217,13 @@ export function assertSlideAnimationsResolve({
     path: failure.path,
     preview: failure.preview,
   };
+  if (!root) {
+    refuse(
+      "missing-element",
+      `Cannot save animations for slide ${slideId}: the final HTML has no .fmd-slide wrapper. Re-read the slide content, then send the content and complete animation list together.`,
+      details,
+    );
+  }
   if (failure.reason === "duplicate-after-expansion") {
     const path = failure.path ? animationElementKey(failure.path) : "unknown";
     refuse(

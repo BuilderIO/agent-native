@@ -1100,6 +1100,32 @@ describe("update-slide", () => {
     expect(lastUpdateSet).toBeUndefined();
   });
 
+  it("does not block a content edit on a reveal that was already unresolved", async () => {
+    const animations = [
+      { id: "reveal-body", elementIndex: 1, elementPath: [4], type: "fade" },
+    ];
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>Title</h1><p>Body</p></div>',
+          animations,
+        },
+      ],
+    });
+
+    await runSlideActionWithCurrentHash({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: '<div class="fmd-slide"><h1>Retitled</h1><p>Body</p></div>',
+    });
+
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0].animations,
+    ).toEqual(animations);
+  });
+
   it("preserves animations for style-only CSS edits", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

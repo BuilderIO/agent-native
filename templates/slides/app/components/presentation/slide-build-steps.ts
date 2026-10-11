@@ -12,6 +12,8 @@ import {
   type RevealUnresolvedReason,
 } from "@/lib/slide-animation-elements";
 
+import { prefersReducedMotion } from "./slide-transition-motion";
+
 export interface UnresolvedReveal {
   animationIndex: number;
   id: string | null;
@@ -172,14 +174,15 @@ export function revealAnimationValue(
  * Moves mounted step elements to `buildStep`. Only steps entering now (index in
  * [previousStep, buildStep)) get their reveal. Other steps keep their state, so
  * a press never replays a reveal that already ran. `previousStep` is null for a
- * freshly mounted DOM, and then nothing animates.
+ * freshly mounted DOM, and then nothing animates. `reducedMotion` defaults to the
+ * user's preference, so a caller that omits it still gets no motion under it.
  */
 export function setBuildState(
   elements: ReadonlyArray<Element | null>,
   steps: ReadonlyArray<SlideAnimation>,
   buildStep: number,
   previousStep: number | null,
-  reducedMotion = false,
+  reducedMotion = prefersReducedMotion(),
 ): void {
   elements.forEach((element, index) => {
     if (!element) return;

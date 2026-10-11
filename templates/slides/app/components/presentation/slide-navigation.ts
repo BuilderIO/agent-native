@@ -8,6 +8,11 @@ export interface SlideFlight {
   /** Slide the flight lands on. The displayed index moves only when it finishes. */
   to: number;
   direction: SlideDirection;
+  /**
+   * Builds the arriving slide has taken from presses mid-flight. Only a flight
+   * with no later slide to advance to records them; they land as its build step.
+   */
+  builds: number;
 }
 
 export interface SlideNavigationState {
@@ -110,6 +115,18 @@ function prevConsumesBuildStep(state: SlideNavigationState): boolean {
   );
 }
 
+/** Builds the arriving slide still has to show, after the presses it already took. */
+function arrivingBuildsLeft(
+  flight: SlideFlight,
+  layout: SlideNavigationLayout,
+): number {
+  return (
+    layout.stepCounts[flight.to] -
+    entryBuildStep(layout, flight.to, flight.direction) -
+    flight.builds
+  );
+}
+
 export function canCommand(
   state: SlideNavigationState,
   layout: SlideNavigationLayout,
@@ -120,7 +137,8 @@ export function canCommand(
   }
   return (
     state.targetIndex < layout.stepCounts.length - 1 ||
-    nextConsumesBuildStep(state, layout)
+    nextConsumesBuildStep(state, layout) ||
+    (state.flight !== null && arrivingBuildsLeft(state.flight, layout) > 0)
   );
 }
 
@@ -168,7 +186,7 @@ function settle(
       const id = next.flightSequence + 1;
       next = {
         ...next,
-        flight: { id, to, direction },
+        flight: { id, to, direction, builds: 0 },
         flightSequence: id,
       };
     }
@@ -197,7 +215,15 @@ export function reduceSlideNavigation(
         return { ...state, buildStep: state.buildStep + 1 };
       }
       const targetIndex = Math.min(slideCount - 1, state.targetIndex + 1);
-      if (targetIndex === state.targetIndex) return state;
+      if (targetIndex === state.targetIndex) {
+        // Nothing lies past the last slide, so a press mid-flight there takes a
+        // build on the arriving slide, the same as a press that would advance.
+        const flight = state.flight;
+        if (flight && arrivingBuildsLeft(flight, layout) > 0) {
+          return { ...state, flight: { ...flight, builds: flight.builds + 1 } };
+        }
+        return state;
+      }
       return settle({ ...state, targetIndex }, layout, true);
     }
     case "flightFinished": {
@@ -208,7 +234,8 @@ export function reduceSlideNavigation(
         {
           ...state,
           displayedIndex: flight.to,
-          buildStep: entryBuildStep(layout, flight.to, flight.direction),
+          buildStep:
+            entryBuildStep(layout, flight.to, flight.direction) + flight.builds,
           flight: null,
         },
         layout,

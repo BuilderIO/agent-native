@@ -1,5 +1,7 @@
 // Slide transition catalog, matching the Google Slides Transitions panel.
-// Attached to the slide being entered; plays on any entry to that slide.
+// A slide's transition belongs to the boundary before it. It plays when moving
+// across that boundary in either direction, and the later slide of the pair
+// supplies the type and speed (boundarySlideIndex in slide-navigation.ts).
 
 export const SLIDE_TRANSITION_TYPES = [
   "none",
@@ -41,7 +43,10 @@ export function isSlideTransitionType(
 export function normalizeSlideTransition(value: unknown): SlideTransitionType {
   if (isSlideTransitionType(value)) return value;
   // hasOwn, not `in`: "toString" must not resolve through the prototype chain.
-  if (typeof value === "string" && Object.hasOwn(LEGACY_SLIDE_TRANSITIONS, value)) {
+  if (
+    typeof value === "string" &&
+    Object.hasOwn(LEGACY_SLIDE_TRANSITIONS, value)
+  ) {
     return LEGACY_SLIDE_TRANSITIONS[
       value as keyof typeof LEGACY_SLIDE_TRANSITIONS
     ];

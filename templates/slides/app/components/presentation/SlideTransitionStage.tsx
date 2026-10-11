@@ -139,16 +139,36 @@ const PREVIEW_SURFACE_CLASS =
 const PREVIEW_CLOSE_CLASS =
   "absolute end-4 top-4 z-10 rounded-lg bg-white/10 p-3 text-white hover:bg-white/20 sm:p-2"; // guard:allow-raw-color - fixed black playback surface
 
+/**
+ * The pair a transition preview plays for slides[index], with the visible
+ * numbering playback uses: the visible slide before it, then the slide itself.
+ * Null when that slide is skipped, since playback never shows it, or when no
+ * visible slide precedes it, since it has no incoming transition.
+ */
+export function transitionPreviewPair(slides: readonly Slide[], index: number) {
+  const incoming = slides[index];
+  if (!incoming || incoming.skipped) return null;
+  const visible = slides.filter((slide) => Boolean(slide) && !slide.skipped);
+  const position = visible.indexOf(incoming);
+  if (position <= 0) return null;
+  return {
+    outgoing: visible[position - 1],
+    incoming,
+    position,
+    count: visible.length,
+  };
+}
+
 export interface SlideTransitionPreviewProps {
   slides: Slide[];
-  /** Plays slides[index]'s incoming transition from slides[index - 1]. */
+  /** Plays slides[index]'s incoming transition from the visible slide before it. */
   index: number;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   onClose: () => void;
 }
 
-/** Index 0 has no incoming transition, so nothing renders for it. */
+/** Renders nothing where transitionPreviewPair has no pair to play. */
 export function SlideTransitionPreview({
   slides,
   index,
@@ -157,11 +177,15 @@ export function SlideTransitionPreview({
   onClose,
 }: SlideTransitionPreviewProps) {
   const t = useT();
-  const outgoingSource = slides[index - 1];
-  const incomingSource = slides[index];
-  if (index <= 0 || !outgoingSource || !incomingSource) return null;
+  const pair = transitionPreviewPair(slides, index);
+  if (!pair) return null;
 
-  const count = slides.length;
+  const {
+    outgoing: outgoingSource,
+    incoming: incomingSource,
+    position,
+    count,
+  } = pair;
   const outgoingSteps = getBuildSteps(outgoingSource).steps;
   const incomingSteps = getBuildSteps(incomingSource).steps;
   // The outgoing slide has just finished its build, so it shows fully built.
@@ -179,7 +203,7 @@ export function SlideTransitionPreview({
       reducedMotion: prefersReducedMotion(),
     },
   );
-  const incomingPosition = { number: index + 1, count };
+  const incomingPosition = { number: position + 1, count };
 
   return (
     <Dialog
@@ -202,7 +226,7 @@ export function SlideTransitionPreview({
               key={index}
               outgoing={outgoing}
               incoming={incoming}
-              outgoingPosition={{ number: index, count }}
+              outgoingPosition={{ number: position, count }}
               incomingPosition={incomingPosition}
               motion={motion}
               aspectRatio={aspectRatio}

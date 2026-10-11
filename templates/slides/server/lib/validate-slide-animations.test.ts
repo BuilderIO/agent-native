@@ -120,3 +120,153 @@ describe("save-time reveal validation", () => {
     });
   });
 });
+
+describe("save-time reveal validation against the stored list", () => {
+  const stale = (id: string, elementPath: number[]) => ({
+    id,
+    elementIndex: 0,
+    elementPath,
+  });
+  const stored = {
+    content,
+    animations: [stale("gone-a", [9]), stale("gone-b", [8])],
+  };
+
+  it("accepts a partial repair: removing one stored unresolved reveal while another stays", () => {
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content,
+        animations: [stale("gone-b", [8])],
+        baseline: stored,
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses a new unresolved reveal even while stored unresolved reveals remain", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content,
+        animations: [
+          stale("gone-a", [9]),
+          stale("gone-b", [8]),
+          stale("new", [7]),
+        ],
+        baseline: stored,
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      statusCode: 400,
+      details: { reason: "stale-path", animationIndex: 2, animationId: "new" },
+    });
+  });
+
+  it("refuses a stored unresolved reveal moved onto another unresolved target", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content,
+        animations: [stale("gone-a", [7]), stale("gone-b", [8])],
+        baseline: stored,
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      details: { animationId: "gone-a" },
+    });
+  });
+
+  it("refuses a reveal that a content change strands, even when the stored list resolved it", () => {
+    const withBody = `<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>`;
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><h1>Title</h1></div>`,
+        animations: [{ id: "body", elementIndex: 1, elementPath: [1] }],
+        baseline: {
+          content: withBody,
+          animations: [{ id: "body", elementIndex: 1, elementPath: [1] }],
+        },
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_stale_path",
+      details: { animationId: "body" },
+    });
+  });
+
+  it("does not block a content change while the reveal stays unresolved", () => {
+    expect(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><h1>Retitled</h1></div>`,
+        animations: [{ id: "body", elementIndex: 1, elementPath: [1] }],
+        baseline: {
+          content: `<div class="fmd-slide"><h1>Title</h1></div>`,
+          animations: [{ id: "body", elementIndex: 1, elementPath: [1] }],
+        },
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("save-time reveal validation of sanitizer-dropped targets", () => {
+  it("refuses a reveal on an svg, which the runtime removes with its subtree", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><p>Keep</p><svg><circle r="4"></circle></svg></div>`,
+        animations: [{ id: "dot", elementIndex: 1, elementPath: [1] }],
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      statusCode: 400,
+      details: { reason: "missing-element", animationId: "dot" },
+    });
+  });
+
+  it("refuses a reveal inside a button, which the runtime removes with its subtree", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><button><p>Go</p></button></div>`,
+        animations: [{ id: "go", elementIndex: 0, elementPath: [0, 0] }],
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      details: { animationId: "go" },
+    });
+  });
+
+  it("refuses a reveal on a tag the runtime unwraps, since its data-pstep never renders", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><nav><p>Menu</p></nav></div>`,
+        animations: [{ id: "menu", elementIndex: 0, elementPath: [0] }],
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      details: { animationId: "menu" },
+    });
+  });
+
+  it("refuses a reveal on a mermaid block, which the renderer replaces with a placeholder", () => {
+    const error = refusalOf(() =>
+      assertSlideAnimationsResolve({
+        slideId: "s1",
+        content: `<div class="fmd-slide"><div class="mermaid">graph TD; A-->B</div></div>`,
+        animations: [{ id: "diagram", elementIndex: 0, elementPath: [0] }],
+      }),
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_missing_element",
+      details: { animationId: "diagram" },
+    });
+  });
+});

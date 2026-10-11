@@ -89,7 +89,10 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
-import { SlideTransitionPreview } from "@/components/presentation/SlideTransitionStage";
+import {
+  SlideTransitionPreview,
+  transitionPreviewPair,
+} from "@/components/presentation/SlideTransitionStage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -4148,6 +4151,8 @@ export default function DeckEditor() {
   const currentSlide =
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
+  const canPreviewTransition =
+    transitionPreviewPair(deck.slides, currentIndex) !== null;
   currentSlideRef.current = currentSlide;
   syncSlideContentSnapshots(
     deck.slides,
@@ -4360,7 +4365,9 @@ export default function DeckEditor() {
             : undefined
         }
         onPlaySlideTransition={
-          currentIndex > 0 ? () => setTransitionPreviewOpen(true) : undefined
+          canPreviewTransition
+            ? () => setTransitionPreviewOpen(true)
+            : undefined
         }
         onApplySlideTransitionToAll={
           canEdit && deck.slides.length > 0
@@ -4577,7 +4584,7 @@ export default function DeckEditor() {
           </div>
         )}
 
-        {transitionPreviewOpen && currentIndex > 0 && (
+        {transitionPreviewOpen && canPreviewTransition && (
           <SlideTransitionPreview
             slides={deck.slides}
             index={currentIndex}

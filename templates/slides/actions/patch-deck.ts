@@ -48,7 +48,10 @@ import {
   sourceImportForDeck,
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
-import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
+import {
+  assertSlideAnimationsResolve,
+  type SlideAnimationBaseline,
+} from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { isRealSlide } from "../shared/blank-slide.js";
 import { stableStringify } from "../shared/deck-content.js";
@@ -120,20 +123,20 @@ const SlideAnimationSchema = z.object({
     .int()
     .min(0)
     .describe(
-      "0-based legacy child index. Keep it paired with elementPath for compatibility.",
+      "0-based legacy child index. Resolution uses elementPath when present, so keep it paired with elementPath for compatibility.",
     ),
   elementPath: z
     .array(z.number().int().min(0))
     .min(1)
     .optional()
     .describe(
-      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
+      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required when this patch sends an animations list; reveals that a content patch keeps do not need it. Re-read final HTML after content edits.",
     ),
   byParagraph: z
     .boolean()
     .optional()
     .describe(
-      "Reveal each paragraph in this text object as its own click step.",
+      "Reveal each paragraph or list item inside this element as its own click step, in document order. A paragraph reveal starts at that paragraph and runs through the rest of its container. With nothing to split it is one step.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
@@ -143,9 +146,9 @@ const SlideAnimationSchema = z.object({
 });
 
 const SLIDE_TRANSITION_DESCRIPTION =
-  "Transition that plays when the presenter enters this slide (not when leaving it). One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents.";
+  "Transition between the previous slide and this one. It plays when the presenter moves across that boundary in either direction, and the later slide of the pair supplies the type and speed. One of: none, dissolve, fade, slide-from-right, slide-from-left, flip, cube, gallery. Legacy instant, slide, and zoom are accepted and stored as their canonical equivalents. Null resets to none. On patch-slide, omitting it keeps the current transition; on add-slide, omitting it means none.";
 const SLIDE_TRANSITION_SPEED_DESCRIPTION =
-  "Speed of the entering transition, from 0 (slowest, 5.0 s) to 49 (fastest, 0.1 s). Omit or null uses the default 45 (0.5 s).";
+  "Speed of this slide's transition, from 0 (slowest, 5.0 s) to 49 (fastest, 0.1 s). Null resets to the default 45 (0.5 s). On patch-slide, omitting it keeps the current speed; on add-slide, omitting it means the default 45 (0.5 s).";
 
 const SlideFieldsSchema = z.object({
   content: z.string().optional(),
@@ -175,7 +178,7 @@ const SlideFieldsSchema = z.object({
     .nullable()
     .optional()
     .describe(
-      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes. Omit it to keep the current reveals; a content change that strands one fails with a slide_animation_* error (400) and writes nothing. [] or null clears every reveal.",
     ),
   splitByParagraph: z.boolean().nullable().optional(),
   skipped: z
@@ -1139,48 +1142,20 @@ export function slideContents(deck: any): Map<string, string> {
   return contents;
 }
 
-export function clearOmittedAnimationsForAgentContentPatches(
+// The stored content and reveals of every slide, read before any operation runs.
+// Reveal objects are replaced, never mutated, so a shallow copy is a true baseline.
+export function slideAnimationBaselines(
   deck: any,
-  operations: readonly Operation[],
-  options?: {
-    sourceImport?: SourceImportMetadata | null;
-    contentChangedSlideIds?: ReadonlySet<string>;
-  },
-): void {
-  const explicitAnimationSlideIds = new Set(
-    operations.flatMap((operation) =>
-      operation.op === "patch-slide" &&
-      operation.fields.animations !== undefined
-        ? [operation.slideId]
-        : [],
-    ),
-  );
-  const sourceSlideIds = new Set(
-    options?.sourceImport?.slideIds ??
-      options?.sourceImport?.slides.map((slide) => slide.id) ??
-      [],
-  );
-  const slideIds = new Set(
-    operations.flatMap((operation) =>
-      operation.op === "patch-slide" &&
-      operation.fields.content !== undefined &&
-      !operation.styleOnly &&
-      operation.fields.animations === undefined &&
-      !explicitAnimationSlideIds.has(operation.slideId) &&
-      (options?.contentChangedSlideIds?.has(operation.slideId) ?? true) &&
-      (operation.preserveSource === false ||
-        !sourceSlideIds.has(operation.slideId))
-        ? [operation.slideId]
-        : [],
-    ),
-  );
-  if (!slideIds.size) return;
-
-  for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
-    if (slideIds.has(slide?.id) && Array.isArray(slide.animations)) {
-      delete slide.animations;
-    }
+): Map<string, SlideAnimationBaseline> {
+  const baselines = new Map<string, SlideAnimationBaseline>();
+  for (const slide of Array.isArray(deck?.slides) ? deck.slides : []) {
+    if (typeof slide?.id !== "string") continue;
+    baselines.set(slide.id, {
+      content: typeof slide.content === "string" ? slide.content : "",
+      animations: Array.isArray(slide.animations) ? [...slide.animations] : [],
+    });
   }
+  return baselines;
 }
 
 export function assertPatchedSlideAnimationsResolve(
@@ -1189,6 +1164,7 @@ export function assertPatchedSlideAnimationsResolve(
   options?: {
     requireElementPaths?: boolean;
     contentChangedSlideIds?: ReadonlySet<string>;
+    baselines?: ReadonlyMap<string, SlideAnimationBaseline>;
   },
 ): void {
   const slideIdsToValidate = new Set(
@@ -1207,6 +1183,17 @@ export function assertPatchedSlideAnimationsResolve(
   );
   if (slideIdsToValidate.size === 0) return;
 
+  // Only a reveal list the caller sent must carry element paths. Reveals that a
+  // content patch keeps are checked the same way update-slide checks them.
+  const explicitAnimationSlideIds = new Set(
+    operations.flatMap((operation) =>
+      (operation.op === "patch-slide" || operation.op === "add-slide") &&
+      operation.fields.animations !== undefined
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+
   const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
   for (const slideId of slideIdsToValidate) {
     const slide = slides.find((candidate) => candidate?.id === slideId);
@@ -1217,7 +1204,10 @@ export function assertPatchedSlideAnimationsResolve(
       slideId,
       content: typeof slide.content === "string" ? slide.content : "",
       animations: slide.animations,
-      requireElementPaths: options?.requireElementPaths,
+      requireElementPaths:
+        options?.requireElementPaths === true &&
+        explicitAnimationSlideIds.has(slideId),
+      baseline: options?.baselines?.get(slideId),
     });
   }
 }
@@ -1261,8 +1251,11 @@ export default defineAction({
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
     "operation with content for every imported slide in one call; the action " +
     "rejects partial coverage. For animations, inspect the final slide HTML, " +
-    "then patch content and the complete ordered animations list together; " +
-    "use delete-slide to remove a slide and reorder-slides to set the order; " +
+    "then patch content and the complete ordered animations list together. " +
+    "A content patch that omits animations keeps the current reveals; one its " +
+    "change strands fails with a slide_animation_* error (400) and writes nothing. " +
+    "Send animations: [] to clear every reveal. " +
+    "Use delete-slide to remove a slide and reorder-slides to set the order; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck once with slideIds and compact=false to verify the " +
     "persisted full source, notes, IDs, and animation metadata before reporting " +
@@ -1518,6 +1511,7 @@ export default defineAction({
       const deletedSlideIds = new Set<string>();
       const signaturesBeforeOperations = slideSignatures(deck);
       const contentsBeforeOperations = slideContents(deck);
+      const animationBaselinesBeforeOperations = slideAnimationBaselines(deck);
       const fitFieldsBeforeOperations = new Map<
         string,
         { content: unknown; layout: unknown; excalidrawData: unknown }
@@ -1727,15 +1721,10 @@ export default defineAction({
       }
 
       if (sourceImportCleared) delete deck.sourceImport;
-      if (isAgentCaller) {
-        clearOmittedAnimationsForAgentContentPatches(deck, operations, {
-          sourceImport: sourceImportCleared ? null : sourceImport,
-          contentChangedSlideIds,
-        });
-      }
       assertPatchedSlideAnimationsResolve(deck, operations, {
         requireElementPaths: isAgentCaller,
         contentChangedSlideIds,
+        baselines: animationBaselinesBeforeOperations,
       });
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =

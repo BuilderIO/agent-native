@@ -8,12 +8,16 @@ import type { AspectRatio } from "@/lib/aspect-ratios";
 import { isMediaKeyboardEvent } from "@/lib/slide-video";
 
 import type { DesignSystemData } from "../../../shared/api";
-import {
-  advancePresentIndex,
-  openPresentChannel,
-  type PresentMessage,
-} from "./present-channel";
+import type { SlideTransitionType } from "../../../shared/slide-transitions";
+import { openPresentChannel, type PresentMessage } from "./present-channel";
 import { annotateBuildSteps, getBuildSteps } from "./slide-build-steps";
+import {
+  canCommand,
+  createSlideNavigation,
+  reduceSlideNavigation,
+  type SlideNavigationLayout,
+  type SlideNavigationState,
+} from "./slide-navigation";
 
 interface PresenterViewProps {
   slides: Slide[];
@@ -27,6 +31,17 @@ function formatElapsed(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+// The presenter holds no flight, only the settled position it mirrors.
+function presenterNavState(position: {
+  index: number;
+  buildStep: number;
+}): SlideNavigationState {
+  return {
+    ...createSlideNavigation(position.index),
+    buildStep: position.buildStep,
+  };
 }
 
 export default function PresenterView({
@@ -73,6 +88,14 @@ export default function PresenterView({
     () => safeSlides.map((slide) => getBuildSteps(slide).steps),
     [safeSlides],
   );
+  // The presenter animates nothing, so each press commits at its boundary.
+  const presenterLayout = useMemo<SlideNavigationLayout>(
+    () => ({
+      stepCounts: buildSteps.map((steps) => steps.length),
+      transitions: buildSteps.map((): SlideTransitionType => "none"),
+    }),
+    [buildSteps],
+  );
   const channelRef = useRef<BroadcastChannel | null>(null);
   const controllerConnectedRef = useRef(false);
   const indexRef = useRef(index);
@@ -112,20 +135,21 @@ export default function PresenterView({
       const channel = channelRef.current;
       if (message.type === "command" && !controllerConnectedRef.current) {
         channel?.postMessage(message);
-        // With no audience to report back, the presenter moves itself: a next
-        // press lands on the slide's first build, a prev press on its last.
+        // With no audience to report back, the presenter moves itself by the
+        // audience's own rule: a press reveals the next build before it advances.
         setPosition((current) => {
-          const next = advancePresentIndex(
-            current.index,
-            message.command,
-            safeSlides.length,
+          const next = reduceSlideNavigation(
+            presenterNavState(current),
+            { type: "command", command: message.command },
+            presenterLayout,
           );
-          if (next === current.index) return current;
-          return {
-            index: next,
-            buildStep:
-              message.command === "next" ? 0 : (buildSteps[next]?.length ?? 0),
-          };
+          if (
+            next.displayedIndex === current.index &&
+            next.buildStep === current.buildStep
+          ) {
+            return current;
+          }
+          return { index: next.displayedIndex, buildStep: next.buildStep };
         });
         return;
       }
@@ -133,7 +157,7 @@ export default function PresenterView({
       // and reports its new state back, so nothing here steps the presenter.
       channel?.postMessage(message);
     },
-    [buildSteps, safeSlides.length],
+    [presenterLayout],
   );
 
   const goNext = useCallback(
@@ -204,6 +228,8 @@ export default function PresenterView({
 
   const current = safeSlides[index];
   const next = safeSlides[index + 1];
+  // A button is enabled exactly when its key press would move the presenter.
+  const navState = presenterNavState(position);
   const notes = current?.notes?.trim();
   // The same annotation the audience renders, at the audience's build step.
   const currentPreview = useMemo(
@@ -241,7 +267,7 @@ export default function PresenterView({
         <div className="flex items-center gap-2">
           <button
             onClick={goPrev}
-            disabled={index === 0}
+            disabled={!canCommand(navState, presenterLayout, "prev")}
             className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.previousSlide")}
           >
@@ -249,7 +275,7 @@ export default function PresenterView({
           </button>
           <button
             onClick={goNext}
-            disabled={index >= safeSlides.length - 1}
+            disabled={!canCommand(navState, presenterLayout, "next")}
             className="cursor-pointer rounded-lg bg-white/10 p-2 hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-30"
             aria-label={t("presentation.nextSlide")}
           >

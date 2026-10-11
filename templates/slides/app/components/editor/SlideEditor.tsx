@@ -95,7 +95,6 @@ import { revealsAfterDelete } from "@/lib/reveal-after-delete";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
-  resolveElementPath,
   storedPathOfRenderedElement,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";

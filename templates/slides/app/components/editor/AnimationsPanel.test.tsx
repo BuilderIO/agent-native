@@ -172,4 +172,65 @@ describe("AnimationsPanel", () => {
       ],
     });
   });
+
+  it("saves removing one stored unresolved reveal while another stays unresolved", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            { id: "gone-a", elementIndex: 0, elementPath: [7], type: "fade" },
+            { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
+            { id: "ok", elementIndex: 1, elementPath: [1], type: "fade" },
+          ],
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Remove transition" })[0]!,
+    );
+
+    expect(onUpdateSlide).toHaveBeenCalledWith({
+      animations: [
+        expect.objectContaining({ id: "gone-b" }),
+        expect.objectContaining({ id: "ok" }),
+      ],
+    });
+    expect(screen.getByRole("alert").textContent).not.toContain(
+      "animations.changeNotApplied",
+    );
+  });
+
+  it("refuses a new unresolved reveal while stored unresolved reveals remain", () => {
+    const onUpdateSlide = vi.fn();
+    render(
+      <AnimationsPanel
+        slide={{
+          ...slide,
+          animations: [
+            { id: "gone-a", elementIndex: 0, elementPath: [7], type: "fade" },
+            { id: "gone-b", elementIndex: 0, elementPath: [8], type: "fade" },
+          ],
+        }}
+        selectedTarget={{
+          elementIndex: 0,
+          elementPath: [9],
+          preview: "Missing",
+        }}
+        onUpdateSlide={onUpdateSlide}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add transition/i }));
+
+    expect(onUpdateSlide).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("animations.issueStalePath");
+    expect(alert.textContent).toContain("animations.changeNotApplied");
+  });
 });

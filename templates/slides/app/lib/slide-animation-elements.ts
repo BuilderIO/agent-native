@@ -1,5 +1,6 @@
 import type { AnimationType } from "@/context/DeckContext";
 
+import { ALLOWED_TAGS, DROP_WITH_CHILDREN } from "./sanitize-slide-html";
 import { SOURCE_STAMP_ATTR, stampSlideSource } from "./slide-source-map";
 
 export interface ParsedAnimationElement {
@@ -24,7 +25,8 @@ export interface SelectedAnimationTarget {
 /**
  * Why a reveal does not resolve in its slide's HTML.
  * - stale-path: its elementPath no longer points at an element.
- * - missing-element: a legacy elementIndex target, or the slide has no .fmd-slide.
+ * - missing-element: a legacy elementIndex target, the slide has no .fmd-slide, or
+ *   the target is one the slide sanitizer does not render (see renderedBySanitizer).
  * - duplicate-after-expansion: once "By paragraph" is expanded, a step lands on
  *   an element another reveal already hides, or on one of its ancestors or
  *   descendants.
@@ -484,6 +486,26 @@ function isRevealOutcome<T extends AnimationTarget>(
   return "ok" in value;
 }
 
+// The deck renderer swaps a <div class="mermaid"> block for a placeholder before
+// sanitizing (mermaid-blocks.ts), so the block and its contents never reach the DOM.
+const NOT_RENDERED_SELECTOR = [
+  ...DROP_WITH_CHILDREN,
+  'div[class="mermaid"]',
+].join(",");
+
+/**
+ * Whether the runtime renders this element. The sanitizer removes a
+ * DROP_WITH_CHILDREN element with its whole subtree, and unwraps any tag outside
+ * ALLOWED_TAGS. Either way the element's own data-pstep is lost, so a reveal on it
+ * would never hide or show anything.
+ */
+function renderedBySanitizer(element: Element): boolean {
+  return (
+    ALLOWED_TAGS.has(element.tagName.toLowerCase()) &&
+    element.closest(NOT_RENDERED_SELECTOR) === null
+  );
+}
+
 /**
  * The one resolver for reveals. Every animation resolves to an outcome, in
  * list order: ok with its steps, or unresolved with a typed reason. Save,
@@ -535,12 +557,13 @@ export function resolveRevealSteps<T extends AnimationTarget>(
         );
       }
       const path = getPersistedElementPath(root, element);
-      if (!path) {
+      if (!path || !renderedBySanitizer(element)) {
         return unresolved(
           animation,
           animationIndex,
           "missing-element",
           element,
+          path,
         );
       }
       const elements = animation.byParagraph
@@ -549,7 +572,7 @@ export function resolveRevealSteps<T extends AnimationTarget>(
       const targets: LocatedReveal<T>["targets"] = [];
       for (const target of elements) {
         const targetPath = getPersistedElementPath(root, target);
-        if (!targetPath) {
+        if (!targetPath || !renderedBySanitizer(target)) {
           return unresolved(
             animation,
             animationIndex,

@@ -238,11 +238,69 @@ describe("PresenterView without an audience", () => {
     expect(commandsPosted(presenterChannel!)).toHaveLength(1);
   });
 
-  it("lands a prev press on the earlier slide fully built, as the audience does", () => {
+  it("reveals each build step on a press before the slide advances, as the audience does", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
 
     clickNext(presenter.container);
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+    expect(visibility(paragraphStates(presenter.container))).toEqual([
+      false,
+      false,
+      false,
+    ]);
+
     clickNext(presenter.container);
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+    expect(visibility(paragraphStates(presenter.container))).toEqual([
+      true,
+      false,
+      false,
+    ]);
+
+    clickNext(presenter.container);
+    clickNext(presenter.container);
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+    expect(visibility(paragraphStates(presenter.container))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+
+    clickNext(presenter.container);
+    expect(within(presenter.container).getByText("3 / 3")).toBeTruthy();
+  });
+
+  it("keeps Next enabled on the last slide while its builds remain", () => {
+    const presenter = render(
+      <PresenterView
+        slides={[slides[0], slides[1]] as Slide[]}
+        deckId="deck-1"
+      />,
+    );
+    const next = within(presenter.container).getByRole("button", {
+      name: "presentation.nextSlide",
+    }) as HTMLButtonElement;
+
+    clickNext(presenter.container);
+    expect(within(presenter.container).getByText("2 / 2")).toBeTruthy();
+    expect(next.disabled).toBe(false);
+
+    clickNext(presenter.container);
+    expect(visibility(paragraphStates(presenter.container))).toEqual([
+      true,
+      false,
+      false,
+    ]);
+    clickNext(presenter.container);
+    clickNext(presenter.container);
+    expect(next.disabled).toBe(true);
+  });
+
+  it("lands a prev press on the earlier slide fully built, as the audience does", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+
+    // plain -> reveal (three builds) -> after.
+    for (let press = 0; press < 5; press++) clickNext(presenter.container);
     expect(within(presenter.container).getByText("3 / 3")).toBeTruthy();
 
     fireEvent.click(

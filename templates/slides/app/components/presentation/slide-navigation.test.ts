@@ -104,7 +104,12 @@ describe("slide navigation", () => {
     expect(secondPress.flight).toBeNull();
 
     const thirdPress = command(secondPress, l, "next");
-    expect(thirdPress.flight).toEqual({ id: 1, to: 1, direction: "forward" });
+    expect(thirdPress.flight).toEqual({
+      id: 1,
+      to: 1,
+      direction: "forward",
+      builds: 0,
+    });
     expect(thirdPress.displayedIndex).toBe(0);
 
     const landed = finishFlight(thirdPress, l);
@@ -135,7 +140,12 @@ describe("slide navigation", () => {
 
     const landed = finishFlight(queued, l);
     expect(landed.displayedIndex).toBe(1);
-    expect(landed.flight).toEqual({ id: 2, to: 2, direction: "forward" });
+    expect(landed.flight).toEqual({
+      id: 2,
+      to: 2,
+      direction: "forward",
+      builds: 0,
+    });
   });
 
   it("shows the arriving slide's build before a press that arrived mid-flight advances", () => {
@@ -155,7 +165,43 @@ describe("slide navigation", () => {
     expect(secondBuild.flight).toBeNull();
 
     const advance = command(secondBuild, l, "next");
-    expect(advance.flight).toEqual({ id: 2, to: 2, direction: "forward" });
+    expect(advance.flight).toEqual({
+      id: 2,
+      to: 2,
+      direction: "forward",
+      builds: 0,
+    });
+  });
+
+  it("offers and takes a mid-flight build when the flight lands on the last slide", () => {
+    const l = layout(["none", "dissolve"], [0, 2]);
+    const started = command(createSlideNavigation(0), l, "next");
+    expect(started.flight?.to).toBe(1);
+    expect(canCommand(started, l, "next")).toBe(true);
+
+    const oneBuild = command(started, l, "next");
+    expect(oneBuild.flight?.builds).toBe(1);
+    expect(canCommand(oneBuild, l, "next")).toBe(true);
+
+    const bothBuilds = command(oneBuild, l, "next");
+    expect(bothBuilds.flight?.builds).toBe(2);
+    expect(canCommand(bothBuilds, l, "next")).toBe(false);
+    // One press per step: a press past the last build does nothing.
+    expect(command(bothBuilds, l, "next")).toBe(bothBuilds);
+
+    const landed = finishFlight(bothBuilds, l);
+    expect(landed.displayedIndex).toBe(1);
+    expect(landed.buildStep).toBe(2);
+    expect(landed.flight).toBeNull();
+    expect(canCommand(landed, l, "next")).toBe(false);
+  });
+
+  it("does not offer Next during a flight to a last slide with no builds", () => {
+    const l = layout(["none", "dissolve"], [0, 0]);
+    const started = command(createSlideNavigation(0), l, "next");
+
+    expect(canCommand(started, l, "next")).toBe(false);
+    expect(command(started, l, "next")).toBe(started);
   });
 
   it("counts every mid-flight press: the arriving slide's builds first, then the advance", () => {
@@ -169,7 +215,12 @@ describe("slide navigation", () => {
     const landed = finishFlight(queued, l);
     expect(landed.displayedIndex).toBe(1);
     expect(landed.buildStep).toBe(2);
-    expect(landed.flight).toEqual({ id: 2, to: 2, direction: "forward" });
+    expect(landed.flight).toEqual({
+      id: 2,
+      to: 2,
+      direction: "forward",
+      builds: 0,
+    });
   });
 
   it("reverses a prev that arrives mid-transition once the flight lands", () => {
@@ -327,7 +378,7 @@ describe("transition selection at a boundary", () => {
       layout(["none", "dissolve"]),
     ).flight;
 
-    expect(flight).toEqual({ id: 1, to: 1, direction: "forward" });
+    expect(flight).toEqual({ id: 1, to: 1, direction: "forward", builds: 0 });
   });
 
   it("commits a backward step instantly when the later slide has no transition, though the earlier one is animated", () => {
@@ -352,6 +403,11 @@ describe("transition selection at a boundary", () => {
       layout(["none", "dissolve"]),
     );
 
-    expect(back.flight).toEqual({ id: 1, to: 0, direction: "backward" });
+    expect(back.flight).toEqual({
+      id: 1,
+      to: 0,
+      direction: "backward",
+      builds: 0,
+    });
   });
 });

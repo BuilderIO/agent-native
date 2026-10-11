@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Slide, SlideAnimation } from "@/context/DeckContext";
+import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
+import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 import {
   byParagraphTargets,
   resolveSlideAnimationElement,
@@ -261,5 +263,82 @@ describe("reduced motion reveals", () => {
     );
     expect(reduced.every((entry) => entry.animation === "")).toBe(true);
     expect(normal.some((entry) => entry.animation !== "")).toBe(true);
+  });
+});
+
+describe("reveals on elements the sanitizer does not render", () => {
+  it("reports a reveal on an svg as unresolved instead of a step that never plays", () => {
+    const slide = slideWith(
+      `<div class="fmd-slide"><p>Keep</p><svg><circle r="4"></circle></svg></div>`,
+      [{ id: "dot", elementIndex: 1, elementPath: [1], type: "fade" }],
+    );
+    const build = getBuildSteps(slide);
+
+    expect(build.steps).toEqual([]);
+    expect(build.unresolved).toEqual([
+      { animationIndex: 0, id: "dot", reason: "missing-element" },
+    ]);
+  });
+
+  it("gives every step the build reports an element the rendered slide keeps", () => {
+    const content = `<div class="fmd-slide"><p>One</p><nav><p>Two</p></nav><svg><circle r="4"></circle></svg><button><p>Three</p></button><div class="mermaid">graph TD; A-->B</div><p>Four</p></div>`;
+    const reveals: SlideAnimation[] = [0, 1, 2, 3, 4, 5].map((index) => ({
+      id: `reveal-${index}`,
+      elementIndex: index,
+      elementPath: index === 1 ? [1, 0] : [index],
+      type: "fade",
+    }));
+    const slide = slideWith(content, reveals);
+    const build = getBuildSteps(slide);
+
+    // The runtime annotates the stored HTML, then renders it: mermaid blocks are
+    // swapped for placeholders, and the result goes through the sanitizer.
+    const rendered = sanitizeSlideHtml(
+      extractMermaidBlocks(annotateBuildSteps(slide, build.steps, 0).content)
+        .contentWithPlaceholders,
+    );
+    const root = mount(rendered);
+    const elements = findBuildStepElements(root, build.steps.length);
+
+    expect(build.steps.map((step) => step.id)).toEqual([
+      "reveal-0",
+      "reveal-1",
+      "reveal-5",
+    ]);
+    expect(elements.every((element) => element !== null)).toBe(true);
+    root.remove();
+  });
+});
+
+describe("setBuildState reduced-motion default", () => {
+  it("follows the user's reduced-motion preference when the caller passes none", () => {
+    const steps: SlideAnimation[] = [
+      { id: "a", elementIndex: 0, elementPath: [0, 0], type: "fade" },
+    ];
+    const original = window.matchMedia;
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+
+    try {
+      const root = mount(
+        annotateBuildSteps(slideWith(textBox, steps), steps, 0).content,
+      );
+      const elements = findBuildStepElements(root, steps.length);
+      setBuildState(elements, steps, 1, 0);
+
+      expect(elements[0]?.getAttribute("data-pstep-state")).toBe("entering");
+      expect((elements[0] as HTMLElement).style.animation).toBe("");
+      root.remove();
+    } finally {
+      window.matchMedia = original;
+    }
   });
 });
