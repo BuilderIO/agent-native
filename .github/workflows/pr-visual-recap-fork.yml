@@ -288,6 +288,7 @@ jobs:
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || 'https://plan.agent-native.com' }}
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
+      REPOSITORY_ID: ${{ github.repository_id }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_STATE: ${{ github.event.pull_request.state }}
       PR_MERGED: ${{ github.event.pull_request.merged }}
@@ -676,9 +677,8 @@ jobs:
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
-          # Earlier recap snapshots are viewer-only for this workflow identity.
-          # Give each GitHub run its own key so publishing never tries to replace them.
-          ARGS+=(--idempotency-key "pr-recap:$GITHUB_REPOSITORY:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
+          # Plan caps idempotency keys at 200 characters; the numeric repository ID keeps this bounded.
+          ARGS+=(--idempotency-key "pr-recap:$REPOSITORY_ID:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
           ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
           if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
             ARGS+=(--source-pr-state merged)
@@ -794,7 +794,7 @@ jobs:
         run: |
           set -uo pipefail
           ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
-          ARGS+=(--idempotency-key "pr-recap:$GITHUB_REPOSITORY:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
+          ARGS+=(--idempotency-key "pr-recap:$REPOSITORY_ID:$PR_NUMBER:$HEAD_SHA:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT")
           ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
           if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
             ARGS+=(--source-pr-state merged)
