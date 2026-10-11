@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { ReplaceStep, StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 export interface CommentHighlightSpec {
@@ -44,16 +45,61 @@ function clampRange(
   return { from: a, to: b };
 }
 
-// The same node types and text throughout, so every position still names the
-// same character. Matching text alone is not enough: deleting one of two
-// identical words, or moving a block into a quote, keeps the text but shifts it.
-function sameShape(before: ProseMirrorNode, after: ProseMirrorNode): boolean {
-  if (before.type !== after.type || before.childCount !== after.childCount)
-    return false;
-  if (before.isText) return before.text === after.text;
-  for (let index = 0; index < before.childCount; index += 1)
-    if (!sameShape(before.child(index), after.child(index))) return false;
-  return true;
+// What each position of a document names: a node boundary or one character.
+function positionUnits(node: ProseMirrorNode, units: string[] = []): string[] {
+  node.forEach((child) => {
+    if (child.isText) {
+      for (let index = 0; index < child.text!.length; index += 1)
+        units.push(child.text!.charAt(index));
+    } else if (child.isLeaf) {
+      units.push(`<${child.type.name}/>`);
+    } else {
+      units.push(`<${child.type.name}>`);
+      positionUnits(child, units);
+      units.push(`</${child.type.name}>`);
+    }
+  });
+  return units;
+}
+
+// A collaborative update, a reconcile, or a decision readback swaps in the
+// whole document, so its own mapping collapses every range inside it. Such a
+// swap maps through the one span where the documents stop naming the same
+// node types and text. A narrower change keeps its own mapping: deleting one
+// of two identical words reads, by text alone, as deleting the other.
+function swapMapping(
+  tr: Transaction,
+  before: ProseMirrorNode,
+  after: ProseMirrorNode,
+): StepMap | null {
+  const left = positionUnits(before);
+  const right = positionUnits(after);
+  let start = 0;
+  while (
+    start < left.length &&
+    start < right.length &&
+    left[start] === right[start]
+  )
+    start += 1;
+  if (start === left.length && start === right.length) return StepMap.empty;
+  const swapsDocument = tr.steps.some(
+    (step, index) =>
+      step instanceof ReplaceStep &&
+      step.from === 0 &&
+      step.to === tr.docs[index].content.size,
+  );
+  if (!swapsDocument) return null;
+  let endLeft = left.length;
+  let endRight = right.length;
+  while (
+    endLeft > start &&
+    endRight > start &&
+    left[endLeft - 1] === right[endRight - 1]
+  ) {
+    endLeft -= 1;
+    endRight -= 1;
+  }
+  return new StepMap([start, endLeft - start, endRight - start]);
 }
 
 function buildDecorations(
@@ -121,15 +167,19 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          let unchanged: boolean | undefined;
+          let swap: StepMap | null | undefined;
           specs = specs.flatMap((s) => {
             const from = tr.mapping.map(s.from, 1);
             const to = tr.mapping.map(s.to, -1);
             if (to > from) return [{ threadId: s.threadId, from, to }];
-            // Swapping in an identical document, as a collaborative reconcile
-            // or a decision readback does, collapses every range inside it.
-            unchanged ??= sameShape(oldState.doc, newState.doc);
-            return unchanged ? [s] : [];
+            if (swap === undefined)
+              swap = swapMapping(tr, oldState.doc, newState.doc);
+            if (!swap) return [];
+            const swappedFrom = swap.map(s.from, 1);
+            const swappedTo = swap.map(s.to, -1);
+            return swappedTo > swappedFrom
+              ? [{ threadId: s.threadId, from: swappedFrom, to: swappedTo }]
+              : [];
           });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);

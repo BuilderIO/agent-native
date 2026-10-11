@@ -106,6 +106,40 @@ describe("CommentHighlight", () => {
     expect(commentHighlightKey.getState(deleted)!.specs).toEqual([]);
   });
 
+  it("follows the changed text when a collaborative swap rewrites it", () => {
+    const paragraphs = (...texts: string[]) =>
+      texts.map((text) => schema.node("paragraph", null, schema.text(text)));
+    let state = EditorState.create({
+      doc: schema.node("doc", null, paragraphs("Intro.", "ships Friday pm.")),
+      plugins: [createCommentHighlightPlugin()],
+    });
+    // "Friday pm" in the second paragraph.
+    state = state.apply(
+      state.tr.setMeta(commentHighlightKey, {
+        specs: [{ threadId: "t1", from: 15, to: 24 }],
+      }),
+    );
+    const swap = (...texts: string[]) =>
+      state.apply(
+        state.tr.replaceWith(0, state.doc.content.size, paragraphs(...texts)),
+      );
+    const highlighted = (next: EditorState) =>
+      commentHighlightKey
+        .getState(next)!
+        .specs.map(({ from, to }) => next.doc.textBetween(from, to));
+
+    expect(highlighted(swap("Intro.", "ships Friday at 2 pm."))).toEqual([
+      "Friday at 2 pm",
+    ]);
+    expect(highlighted(swap("Intro.", "ships Friday 2 pm."))).toEqual([
+      "Friday 2 pm",
+    ]);
+    expect(highlighted(swap("New intro.", "ships Friday pm."))).toEqual([
+      "Friday pm",
+    ]);
+    expect(highlighted(swap("Intro.", "We ship Fri."))).toEqual([]);
+  });
+
   it("drops a highlight whose word was deleted ahead of an identical one", () => {
     let state = EditorState.create({
       doc: doc("alpha alpha"),

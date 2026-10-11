@@ -631,13 +631,13 @@ export const CommentComposer = forwardRef<
         layoutVariant="compact"
         toolbarSlot={toolbar}
         actionButton={
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             {onCancel && expanded ? (
               <button
                 type="button"
                 onClick={onCancel}
                 disabled={disabled}
-                className="h-7 rounded-full px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                className="h-7 shrink-0 whitespace-nowrap rounded-full px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
               >
                 {t("comments.cancel")}
               </button>

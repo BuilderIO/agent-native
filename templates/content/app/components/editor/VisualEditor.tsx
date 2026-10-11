@@ -4295,9 +4295,9 @@ export function VisualEditor({
       if (!editor || editor.isDestroyed) return;
       const view = editor.view;
       const current = commentHighlightKey.getState(view.state);
-      const mapped = force
-        ? new Map<string, CommentHighlightSpec>()
-        : new Map((current?.specs ?? []).map((s) => [s.threadId, s]));
+      const mapped = new Map(
+        (current?.specs ?? []).map((s) => [s.threadId, s]),
+      );
       const specs: CommentHighlightSpec[] = [];
       if (!showCommentIndicators) {
         setCommentHighlights(view, {
@@ -4311,7 +4311,7 @@ export function VisualEditor({
       for (const thread of threadsRef.current ?? []) {
         if (thread.resolved) continue;
         const existing = mapped.get(thread.threadId);
-        if (existing) {
+        if (existing && !force) {
           specs.push(existing);
           continue;
         }
@@ -4327,6 +4327,10 @@ export function VisualEditor({
             from: range.from,
             to: range.to,
           });
+        } else if (existing) {
+          // An edit to the quoted text, such as an accepted suggestion, can
+          // reach the editor before the thread's re-anchored quote does.
+          specs.push(existing);
         }
       }
       setCommentHighlights(view, {
@@ -4354,11 +4358,14 @@ export function VisualEditor({
   }, []);
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
-  useEffect(() => {
+  // Before paint: a thread's card can render under a new id, as an optimistic
+  // thread is saved, and anything that finds the card's highlight by that id
+  // misses it until this runs.
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     let stopped = false;
     let attempts = 0;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
       if (stopped || editor.isDestroyed) return;
       applyRef.current(false);
@@ -4373,7 +4380,7 @@ export function VisualEditor({
         .every((t) => present.has(t.threadId));
       if (!allPresent && attempts < 25) timer = setTimeout(tick, 150);
     };
-    timer = setTimeout(tick, 0);
+    tick();
     return () => {
       stopped = true;
       clearTimeout(timer);
