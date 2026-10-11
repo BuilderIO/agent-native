@@ -231,6 +231,7 @@ const messages = {
     importCompleteFile: "已从 {{fileName}} 导入文件。",
     backToDecks: "返回幻灯片",
     toggleSlideList: "切换幻灯片列表",
+    openInAgentNative: "在 Agent-Native 中打开",
     designSystem: "设计系统",
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已关联的设计系统",

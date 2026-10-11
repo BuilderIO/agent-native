@@ -170,6 +170,9 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
   const documentMock = {
     referrer: "https://builder.io/start?token=secret&utm=ok",
     title: "Inbox",
+    get baseURI() {
+      return location.href;
+    },
     get cookie() {
       return readCookies();
     },
@@ -233,6 +236,93 @@ describe("browser analytics pageviews", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("waits for the auth session before resolving the analytics identity", async () => {
+    installBrowser();
+    let resolveSession!: (response: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: unknown) => {
+        if (String(url).includes("/_agent-native/auth/session")) {
+          return new Promise<Response>((resolve) => {
+            resolveSession = resolve;
+          });
+        }
+        return Promise.resolve(new Response("{}"));
+      }),
+    );
+    const {
+      configureTracking,
+      getAnalyticsAnonymousId,
+      resolveAnalyticsIdentityKey,
+    } = await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    const identity = resolveAnalyticsIdentityKey();
+    await tick();
+    let resolved = false;
+    void identity.then(() => {
+      resolved = true;
+    });
+    expect(resolveSession).toBeTypeOf("function");
+    expect(resolved).toBe(false);
+
+    resolveSession(
+      new Response(
+        JSON.stringify({
+          userId: "auth-user-1",
+          email: "person@example.com",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(identity).resolves.toBe("person@example.com");
+    expect(await identity).not.toBe(getAnalyticsAnonymousId());
+  });
+
+  it("uses anonymous identity only for a resolved signed-out session", async () => {
+    installBrowser();
+    installFetch({ session: { error: "not authenticated" } });
+    const {
+      configureTracking,
+      getAnalyticsAnonymousId,
+      resolveAnalyticsIdentityKey,
+    } = await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    await expect(resolveAnalyticsIdentityKey()).resolves.toBe(
+      getAnalyticsAnonymousId(),
+    );
+  });
+
+  it("does not resolve an anonymous identity when auth status is unavailable", async () => {
+    installBrowser();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 503 })),
+    );
+    const { configureTracking, resolveAnalyticsIdentityKey } =
+      await freshAnalytics();
+    configureTracking({
+      authSessionRefresh: false,
+      errorCapture: false,
+      llmConnectionStatus: false,
+      pageviewTracking: false,
+    });
+
+    await expect(resolveAnalyticsIdentityKey()).resolves.toBeUndefined();
   });
 
   it("keeps the pageview enrichment window open until the deferred boot refresh starts", async () => {
@@ -1147,6 +1237,10 @@ describe("browser analytics pageviews", () => {
         legacy_event_name: legacyName,
       },
     });
+    expect(events[0]?.properties.event_alias_id).toEqual(
+      events[1]?.properties.event_alias_id,
+    );
+    expect(events[0]?.properties.event_alias_id).toEqual(expect.any(String));
     expect(gtag).toHaveBeenCalledWith(
       "event",
       "session_status",
@@ -1936,6 +2030,110 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it.each([
+    [
+      "Analytics track",
+      "https://analytics.example.test/api/analytics/track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "SSR track",
+      "https://analytics.example.test/ssr-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "build track",
+      "https://analytics.example.test/build-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "config track",
+      "https://analytics.example.test/config-track",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    [
+      "custom analytics path",
+      "https://analytics.example.test/v1/events",
+      "https://analytics.example.test/api/analytics/replay",
+    ],
+    ["relative SSR track", "/ssr-track", "/api/analytics/replay"],
+    ["relative build track", "/build-track", "/api/analytics/replay"],
+    ["relative config track", "/config-track", "/api/analytics/replay"],
+    ["relative custom analytics path", "/v1/events", "/api/analytics/replay"],
+    [
+      "path-relative analytics path",
+      "analytics/track",
+      "/workspace/analytics/api/analytics/replay",
+      "https://mail.agent-native.com/workspace/",
+      "/workspace/analytics/track",
+    ],
+  ])(
+    "starts replay from server-injected %s config and attaches active replay fields",
+    async (
+      _label,
+      trackingEndpoint,
+      replayEndpoint,
+      browserUrl,
+      expectedTrackingPath,
+    ) => {
+      installBrowser(browserUrl);
+      const { analyticsCalls } = installFetch({
+        session: {
+          email: "user@example.com",
+          userId: "user-1",
+          orgId: "org-1",
+        },
+      });
+      (window as any).__AGENT_NATIVE_CONFIG__ = {
+        agentNativeAnalyticsPublicKey: "anpk_runtime_test",
+        agentNativeAnalyticsEndpoint: trackingEndpoint,
+      };
+      const { configureTracking, setTrackingIdentity, trackEvent } =
+        await freshAnalytics();
+      setTrackingIdentity({ id: "user-1", email: "user@example.com" }, "org-1");
+
+      configureTracking({
+        authSessionRefresh: false,
+        pageviewTracking: false,
+        llmConnectionStatus: false,
+        errorCapture: false,
+      });
+      await tick();
+
+      expect(replayMock.startSessionReplay).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicKey: "anpk_runtime_test",
+          endpoint: replayEndpoint,
+        }),
+      );
+
+      replayMock.getSessionReplayContext.mockReturnValue({
+        active: true,
+        replayId: "replay-test",
+        startedAt: "2026-10-09T18:00:00.000Z",
+      });
+      trackEvent("setup_step_saved");
+      await tick();
+
+      const event = analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .find((body) => body.event === "setup_step_saved");
+      expect(event.properties).toMatchObject({
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      });
+      if (expectedTrackingPath) {
+        const eventUrl = analyticsCalls.find(
+          ([, init]) =>
+            JSON.parse(String(init.body)).event === "setup_step_saved",
+        )?.[0];
+        expect(new URL(String(eventUrl), document.baseURI).pathname).toBe(
+          expectedTrackingPath,
+        );
+      }
+    },
+  );
+
   it("normalizes AI SDK engine names into provider connection labels", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({
@@ -1961,6 +2159,99 @@ describe("browser analytics pageviews", () => {
       llm_model: "gpt-5.5",
       llm_connection_source: "env",
       llm_connection_env_var: "OPENAI_API_KEY",
+    });
+  });
+
+  it("keeps scheduled routes on pageviews while replay starts", async () => {
+    const { history } = installBrowser(
+      "https://design.agent-native.com/design/output-first?generation_attempt_id=attempt_1234567890abcdef",
+    );
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "user@example.com",
+        userId: "user-1",
+        orgId: "org-1",
+      },
+    });
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_runtime_test",
+      agentNativeAnalyticsEndpoint: "https://analytics.example.test/track",
+    };
+    let finishReplayStart: (() => void) | undefined;
+    replayMock.startSessionReplay.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplayStart = () => resolve({ started: true });
+        }),
+    );
+    const { configureTracking, setTrackingIdentity } = await freshAnalytics();
+    setTrackingIdentity({ id: "user-1", email: "user@example.com" }, "org-1");
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      errorCapture: false,
+      webVitals: false,
+      getDefaultProps: (name, properties) => ({
+        ...properties,
+        ...(name === "pageview"
+          ? {
+              observedRoute: properties.path,
+              observedSearch: properties.search,
+            }
+          : {}),
+      }),
+    });
+    await tick();
+    expect(replayMock.startSessionReplay).toHaveBeenCalled();
+
+    const readPageviews = () =>
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .filter((body) => body.event === "pageview");
+    expect(readPageviews()).toHaveLength(0);
+
+    history.pushState(
+      {},
+      "",
+      "/design/output-second?generation_attempt_id=attempt_2234567890abcdef",
+    );
+    await tick();
+
+    replayMock.getSessionReplayContext.mockReturnValue({
+      active: true,
+      replayId: "replay-test",
+      startedAt: "2026-10-09T18:00:00.000Z",
+    });
+    finishReplayStart?.();
+    await tick();
+    expect(readPageviews()).toHaveLength(2);
+    expect(readPageviews().map((event) => event.properties)).toMatchObject([
+      {
+        path: "/design/output-first",
+        search: "?generation_attempt_id=attempt_1234567890abcdef",
+        observedRoute: "/design/output-first",
+        observedSearch: "?generation_attempt_id=attempt_1234567890abcdef",
+        navigation_type: "load",
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      },
+      {
+        path: "/design/output-second",
+        search: "?generation_attempt_id=attempt_2234567890abcdef",
+        observedRoute: "/design/output-second",
+        observedSearch: "?generation_attempt_id=attempt_2234567890abcdef",
+        navigation_type: "pushState",
+        sessionReplayId: "replay-test",
+        sessionReplayStartedAt: "2026-10-09T18:00:00.000Z",
+      },
+    ]);
+    expect(
+      analyticsCalls
+        .map(([, init]) => JSON.parse(String(init.body)))
+        .find((event) => event.event === "app_entered")?.properties,
+    ).toMatchObject({
+      entry_path: "/design/output-first",
     });
   });
 

@@ -68,7 +68,6 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
-// oracle: none — verifies which controls render, not parity with a design reference.
 test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
@@ -165,7 +164,6 @@ test("agent rail stays contained at a narrow viewport", async ({
   await cdpScreenshot(page, testInfo.outputPath("design-agent-narrow.png"));
 });
 
-// oracle: none — verifies viewport bounds, not parity with a design reference.
 test("designs list shared sidebar stays contained at normal and narrow widths", async ({
   page,
 }, testInfo) => {
@@ -289,7 +287,6 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   }
 });
 
-// oracle: none — verifies which shell carries the moved controls, not parity with a design reference.
 test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs", async ({
   page,
 }) => {
@@ -313,7 +310,6 @@ test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs",
   }
 });
 
-// oracle: none — verifies the top bar's own height and containment, not parity with a design reference.
 test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
   page,
 }, testInfo) => {
@@ -358,7 +354,6 @@ test("top bar is 48px and keeps Share, presence and zoom inside the bar", async 
   await cdpScreenshot(page, testInfo.outputPath("editor-top-bar.png"));
 });
 
-// oracle: none — verifies app-specific breakpoint control routing; native Figma behavior is unmeasured.
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
   page,
 }) => {

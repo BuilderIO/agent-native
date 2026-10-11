@@ -8,6 +8,7 @@ import {
 import { getActiveEmbeddingSet } from "@agent-native/creative-context/store";
 
 import {
+  candidateScopeCompatibility,
   candidateTrustTier,
   relevanceTerms,
   searchAnalyticsQueryCatalog,
@@ -47,6 +48,7 @@ export interface AnalyticsPromptReferences {
 }
 
 const CATALOG_TOOL_NAMES = new Set([
+  "find-data",
   "search-analytics-query-catalog",
   "search-dashboard-references",
   "get-sql-dashboard",
@@ -195,6 +197,12 @@ function candidateContent(candidate: AnalyticsQueryCatalogCandidate): string {
           aiGenerated: candidate.aiGenerated,
         },
       ]),
+      candidate.semanticScope
+        ? `Subject scope: ${candidate.semanticScope}.`
+        : "",
+      candidate.origin === "source-index"
+        ? `Generated source index snapshot: ${candidate.sourceIndexGeneratedAt ?? "unknown time"}; source revisions: ${candidate.sourceIndexSources ?? "not recorded"}; source path: ${candidate.sourcePath ?? "not recorded"}; entry revision: ${candidate.sourceRevision ?? "not recorded"}. Static metadata is a search aid, not proof of runtime behavior; verify model grain, lineage, and current live schema before SQL.`
+        : "",
       candidate.source?.toLowerCase().includes("bigquery")
         ? "Source dialect: BigQuery GoogleSQL; use STRING, not TEXT, and avoid ILIKE."
         : "",
@@ -230,6 +238,9 @@ function candidateEmbeddingSummary(
           candidate.definition,
           candidate.source ? `Source: ${candidate.source}` : "",
           candidate.table ? `Table: ${candidate.table}` : "",
+          candidate.semanticScope
+            ? `Subject scope: ${candidate.semanticScope}`
+            : "",
         ]
       : [
           `Dashboard: ${candidate.dashboardTitle}`,
@@ -246,7 +257,7 @@ function candidateEmbeddingSummary(
 
 function candidateName(candidate: AnalyticsQueryCatalogCandidate): string {
   return candidate.kind === "data-dictionary"
-    ? `Data dictionary: ${candidate.metric}`
+    ? `${candidate.origin === "source-index" ? "Source index" : "Data dictionary"}: ${candidate.metric}`
     : `${candidate.dashboardTitle}: ${candidate.panelTitle}`;
 }
 
@@ -390,17 +401,22 @@ async function rankWithEmbeddings(
       candidate,
       similarity: scores[index]!,
       lexicalScore: candidate.score,
+      scope: candidateScopeCompatibility(candidate, request),
+      trust: candidateTrustTier(candidate),
+      name: candidateName(candidate),
     }))
-    .sort(
-      (left, right) =>
-        candidateTrustTier(right.candidate) -
-          candidateTrustTier(left.candidate) ||
+    .sort((left, right) => {
+      const sameKind = left.candidate.kind === right.candidate.kind;
+      const trustDifference = right.trust - left.trust;
+      return (
+        right.scope - left.scope ||
+        (sameKind ? trustDifference : 0) ||
         right.similarity - left.similarity ||
         right.lexicalScore - left.lexicalScore ||
-        candidateName(left.candidate).localeCompare(
-          candidateName(right.candidate),
-        ),
-    );
+        trustDifference ||
+        left.name.localeCompare(right.name)
+      );
+    });
 }
 
 function jevDescription(
@@ -410,7 +426,9 @@ function jevDescription(
 ): string {
   const kind =
     candidate.kind === "data-dictionary"
-      ? "dictionary entry"
+      ? candidate.origin === "source-index"
+        ? "generated source-index entry"
+        : "dictionary entry"
       : "dashboard panel";
   const trust =
     candidate.kind === "data-dictionary"
@@ -422,11 +440,15 @@ function jevDescription(
       : candidate.dashboardCertified
         ? "certified"
         : "not certified";
+  const scope =
+    candidate.kind === "data-dictionary" && candidate.semanticScope
+      ? `; subject scope ${candidate.semanticScope}`
+      : "";
   const similarityText =
     similarity === undefined
       ? ""
       : `; embedding similarity ${similarity.toFixed(3)}`;
-  return `Analytics ${kind}; retrieval rank ${retrievalRank}${similarityText}; ${trust}. ${candidateEmbeddingSummary(candidate)}`.slice(
+  return `Analytics ${kind}; retrieval rank ${retrievalRank}${similarityText}; ${trust}${scope}. ${candidateEmbeddingSummary(candidate)}`.slice(
     0,
     MAX_EMBEDDING_SUMMARY_CHARS,
   );
@@ -546,6 +568,7 @@ export async function retrieveAnalyticsPromptReferences(input: {
       search.value.dashboardSearchStatus === "available" &&
       search.value.dictionarySearchStatus === "available" &&
       !search.value.dashboardSearchTruncated &&
+      !search.value.dashboardDetailHydrationTruncated &&
       !search.value.dictionarySearchTruncated;
   } catch (error) {
     console.warn(

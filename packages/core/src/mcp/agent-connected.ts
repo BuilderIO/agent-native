@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { getAppConfig } from "../app-config/index.js";
 import { mutateSetting } from "../settings/store.js";
 import { normalizeTrackingDimension } from "../shared/analytics-events.js";
 import { resolveMcpConnectHostId } from "../shared/mcp-connect-content.js";
@@ -10,15 +9,11 @@ import {
   track,
 } from "../tracking/registry.js";
 import { detectVendorClient } from "./analytics.js";
+import { connectAppLabel, connectEnvironment } from "./connect-app-label.js";
 
 export function connectionApp(origin: string, appId?: string): string {
-  const app = getAppConfig().app;
   return normalizeTrackingDimension(
-    appId ??
-      app.id ??
-      app.template ??
-      app.slug ??
-      new URL(origin).hostname.split(".")[0],
+    connectAppLabel(origin, { appId }, connectEnvironment()),
   )!;
 }
 

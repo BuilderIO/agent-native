@@ -4,6 +4,10 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  getCurrentRequestDbPoolScope,
+  retainRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
@@ -18,6 +22,7 @@ import {
   describeErrorWithCauses,
   isProviderConnectionError,
 } from "./engine/error-detail.js";
+import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
@@ -328,6 +333,7 @@ export interface RunChunkControl {
   readonly chunkSignal: AbortSignal;
   chunkBoundaryReason(): string | null;
   beginChunk(): AbortSignal;
+  flushEvents(): Promise<void>;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -465,6 +471,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
       event.type === "clear" ||
       event.type === "error" ||
       event.type === "missing_api_key" ||
+      event.type === "connection_required" ||
       event.type === "auto_continue" ||
       event.type === "loop_limit"
     ) {
@@ -490,6 +497,7 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
       event.type === "tool_start" ||
       event.type === "tool_done" ||
       event.type === "approval_required" ||
+      event.type === "connection_required" ||
       event.type === "clear" ||
       event.type === "error" ||
       event.type === "missing_api_key" ||
@@ -532,8 +540,6 @@ function terminalReasonForRun(
   if (finalStatus === "errored") return "error:unknown";
   return "done";
 }
-
-const MAX_RUN_ERROR_DETAIL_LENGTH = 500;
 
 function emitRunBoundaryTrackingEvent(args: {
   runId: string;
@@ -586,7 +592,6 @@ function emitRunTerminalTrackingEvent(args: {
   status: "completed" | "errored" | "aborted" | "truncated";
   terminalReason: string;
   errorCode?: string;
-  errorDetail?: string;
   dispatchMode?: string;
   abortReason?: string;
   durationMs: number;
@@ -617,11 +622,7 @@ function emitRunTerminalTrackingEvent(args: {
     status: args.status,
     terminal_reason: args.terminalReason,
     error_code: args.errorCode,
-    error_detail: args.errorDetail
-      ? args.errorDetail.length > MAX_RUN_ERROR_DETAIL_LENGTH
-        ? `${args.errorDetail.slice(0, MAX_RUN_ERROR_DETAIL_LENGTH)}…`
-        : args.errorDetail
-      : undefined,
+    ...(args.errorCode ? runErrorTelemetryProperties(args.errorCode) : {}),
     dispatch_mode: args.dispatchMode,
     abort_reason: args.abortReason,
     duration_ms: args.durationMs,
@@ -736,6 +737,7 @@ export function startRun(
     });
   }
   const runControl: RunChunkControl = {
+    flushEvents: () => persistenceChain,
     get turnSignal() {
       return abort.signal;
     },
@@ -1116,20 +1118,23 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string },
     disposition: "recovered" | "terminal",
   ) => {
-    void recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.runBoundaryReached,
-      JSON.stringify({
-        reason,
-        disposition,
-        silentForMs: diagnostic.silentForMs,
-        lastEventType: diagnostic.lastEventType,
-        inFlightWorkCount,
-        eventCount: run.events.length,
-        elapsedMs: Date.now() - run.startedAt,
-      }),
-      // coercion-ok: recordRunDiagnostic already swallows its own failures;
-      // this guards only against an unhandled rejection.
+    if (getCurrentRequestDbPoolScope()?.closing) return;
+    void retainRequestDbPoolScope(
+      recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.runBoundaryReached,
+        JSON.stringify({
+          reason,
+          disposition,
+          silentForMs: diagnostic.silentForMs,
+          lastEventType: diagnostic.lastEventType,
+          inFlightWorkCount,
+          eventCount: run.events.length,
+          elapsedMs: Date.now() - run.startedAt,
+        }),
+        // coercion-ok: recordRunDiagnostic already swallows its own failures;
+        // this guards only against an unhandled rejection.
+      ).catch(() => {}),
     ).catch(() => {});
   };
 
@@ -1337,6 +1342,7 @@ export function startRun(
     captureError(error, {
       route: "/_agent-native/agent-chat",
       aiTraceId: runId,
+      errorMessagePolicy: "omit",
       tags: {
         source: "agent-run-manager",
         phase,
@@ -1374,9 +1380,21 @@ export function startRun(
     });
   };
 
-  const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
-    const eventData = JSON.stringify(runEvent.event);
-    const write = () => insertRunEvent(runId, runEvent.seq, eventData);
+  const persistRunEvent = async (
+    runEvent: RunEvent,
+    eventData: string,
+  ): Promise<void> => {
+    if (runEvent.event.type === "tool_start") await insertRunPromise;
+    const write = () =>
+      runEvent.event.type === "tool_start" ||
+      runEvent.event.type === "tool_done"
+        ? insertRunEvent(runId, runEvent.seq, eventData, {
+            toolInputSource: "execution",
+            ...(runEvent.event.type === "tool_start"
+              ? { requireInserted: true }
+              : {}),
+          })
+        : insertRunEvent(runId, runEvent.seq, eventData);
     return options?.persistEvent
       ? options.persistEvent(write, {
           terminal: isTerminalRunEvent(runEvent.event),
@@ -1391,6 +1409,7 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
+    const eventData = JSON.stringify(runEvent.event);
     run.events.push(runEvent);
 
     for (const subscriber of run.subscribers) {
@@ -1409,7 +1428,7 @@ export function startRun(
 
     const thisInsert = persistenceChain.then(async () => {
       try {
-        await persistRunEvent(runEvent);
+        await persistRunEvent(runEvent, eventData);
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1418,7 +1437,7 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await persistRunEvent(runEvent);
+        await persistRunEvent(runEvent, eventData);
       }
     });
     persistenceChain = thisInsert;
@@ -1482,8 +1501,8 @@ export function startRun(
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
           : {}),
-        ...(err instanceof EngineError && err.providerRetryable === true
-          ? { providerRetryable: true }
+        ...(err instanceof EngineError && err.providerRetryable !== undefined
+          ? { providerRetryable: err.providerRetryable }
           : {}),
         ...(err instanceof EngineError && err.contextOverflow === true
           ? { contextOverflow: true }
@@ -1495,7 +1514,6 @@ export function startRun(
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
       let runTerminalErrorCode: string | undefined;
-      let runTerminalErrorDetail: string | undefined;
       let terminalPersistenceEstablished = false;
       try {
         await persistenceChain;
@@ -1639,7 +1657,7 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await persistRunEvent(terminal);
+                await persistRunEvent(terminal, JSON.stringify(terminal.event));
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;
@@ -1720,7 +1738,6 @@ export function startRun(
         }
         errorCode ??= classifyTerminalErrorCode(errorDetail);
         runTerminalErrorCode = errorCode ?? "unknown";
-        runTerminalErrorDetail = errorDetail;
         await setRunError(runId, errorCode ?? "unknown", errorDetail);
       }
 
@@ -1748,7 +1765,6 @@ export function startRun(
           status: persistedStatus,
           terminalReason,
           errorCode: runTerminalErrorCode,
-          errorDetail: runTerminalErrorDetail,
           dispatchMode: options?.dispatchMode,
           abortReason: run.abortReason,
           durationMs: Date.now() - run.startedAt,

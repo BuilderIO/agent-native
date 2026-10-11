@@ -116,6 +116,7 @@ export type {
   AppRoles,
   AppRolesDescriptor,
   AppRoleCaller,
+  AppPermissionPolicy,
   AppRoleLookup,
   AppMemberRoleRow,
   AppAuthorizationContext,

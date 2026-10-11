@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_FIG_FILE_BYTES as SERVER_MAX_FIG_FILE_BYTES } from "../../server/lib/fig-file-limits";
-import { MAX_UPLOAD_BYTES as SERVER_MAX_UPLOAD_BYTES } from "../../server/lib/request-body-limits";
+import {
+  MAX_UPLOAD_BYTES as SERVER_MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES_PER_REQUEST as SERVER_MAX_UPLOAD_FILES_PER_REQUEST,
+} from "../../server/lib/request-body-limits";
 import {
   MAX_FIG_UPLOAD_BYTES,
   uploadDesignFile,
   validateFigUploadFile,
 } from "./design-file-upload";
-import { MAX_UPLOAD_BYTES } from "./upload-limits";
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES_PER_REQUEST,
+} from "./upload-limits";
 
 class FakeEventTarget {
   listeners = new Map<string, Array<(event: ProgressEvent) => void>>();
@@ -129,6 +135,9 @@ describe("uploadDesignFile", () => {
 
   it("keeps the browser limit aligned with the server decoder cap", () => {
     expect(MAX_UPLOAD_BYTES).toBe(SERVER_MAX_UPLOAD_BYTES);
+    expect(MAX_UPLOAD_FILES_PER_REQUEST).toBe(
+      SERVER_MAX_UPLOAD_FILES_PER_REQUEST,
+    );
     expect(MAX_FIG_UPLOAD_BYTES).toBe(SERVER_MAX_FIG_FILE_BYTES);
     expect(MAX_FIG_UPLOAD_BYTES).toBeGreaterThan(SERVER_MAX_UPLOAD_BYTES);
     expect(

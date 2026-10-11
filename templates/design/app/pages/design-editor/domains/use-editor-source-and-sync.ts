@@ -68,6 +68,7 @@ import {
 import { usePendingLiveEditUnloadGuard } from "../pending-live-edit-unload-guard";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import { findDesignFileByScreenTarget } from "../screen-command-utils";
+import { annotationHotkeyHandlers } from "../tool-state";
 import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
@@ -598,8 +599,12 @@ export function useEditorSourceAndSync({
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: handleHandTool,
-    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
-    onDrawTool: canEditDesign ? handleDrawTool : undefined,
+    ...annotationHotkeyHandlers({
+      canEditDesign,
+      canCommentDesign,
+      onComment: handlePinToolToggle,
+      onDraw: handleDrawTool,
+    }),
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onCopyAsPng:

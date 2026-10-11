@@ -233,11 +233,12 @@ export async function applyHydration(opts: {
         },
       };
     },
+    // Screens without a metadata entry (e.g. layers pasted into an existing screen) have nothing to update.
     isApplied: (persisted) => {
       const screenMeta = persisted.screenMetadata;
-      if (!screenMeta || typeof screenMeta !== "object") return false;
+      if (!screenMeta || typeof screenMeta !== "object") return true;
       const fileMeta = (screenMeta as Record<string, unknown>)[fileId];
-      if (!fileMeta || typeof fileMeta !== "object") return false;
+      if (!fileMeta || typeof fileMeta !== "object") return true;
       const refs = (fileMeta as Record<string, unknown>).unresolvedImageRefs;
       return uniqueMissing.length === 0
         ? refs === undefined || (Array.isArray(refs) && refs.length === 0)

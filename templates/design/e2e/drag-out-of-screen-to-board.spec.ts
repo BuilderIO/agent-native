@@ -75,7 +75,6 @@ function designData(record: { data?: unknown }): Record<string, any> {
     : ((record.data ?? {}) as Record<string, any>);
 }
 
-// oracle: none — verifies cross-document drop persistence, not Figma parity.
 test("a layer dragged below the rendered Screen card moves to the board", async ({
   page,
 }) => {
@@ -129,12 +128,22 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
       await page.waitForTimeout(25);
     }
     await page.waitForTimeout(700);
-    await page.mouse.move(end.x + 1, end.y);
-    await page.waitForTimeout(300);
     await page.mouse.up();
 
+    const dropTrace = await page.evaluate(() => {
+      const entries = (window as any).__designTrace?.entries?.() ?? [];
+      return entries
+        .filter(
+          (entry: any) =>
+            entry.area === "drop" || entry.area === "cross-screen",
+        )
+        .slice(-20);
+    });
     await expect
-      .poll(() => filesContaining(page, designId), { timeout: 20_000 })
+      .poll(() => filesContaining(page, designId), {
+        timeout: 20_000,
+        message: `cross-screen drop persistence; trace: ${JSON.stringify(dropTrace)}`,
+      })
       .toEqual(["__board__.html"]);
 
     const commitPoint = await page.evaluate(() => {

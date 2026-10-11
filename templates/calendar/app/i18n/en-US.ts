@@ -768,6 +768,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "Resize all-day section",
     addWorkingLocation: "Add working location",
     addTitleBeforeCreate: "Add a title before creating the event",
     calendarSettingsLoading:
@@ -958,6 +959,8 @@ export default {
     occurrences: "occurrences",
     reviewInvite: "Review Invite",
     reviewProposedTime: "Review proposed time",
+    newTimeProposedBy: "New time proposed by {{name}}",
+    reviewTimeProposals: "Review time proposals",
     responseAwaitingCount: "{{count}} awaiting",
     responseMaybeCount: "{{count}} maybe",
     responseNoCount: "{{count}} no",

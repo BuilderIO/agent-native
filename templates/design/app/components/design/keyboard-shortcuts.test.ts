@@ -10,7 +10,7 @@ import {
 } from "./keyboard-shortcuts";
 
 describe("keyboard shortcuts catalog", () => {
-  it("keeps the Figma category order and gives every category real commands", () => {
+  it("keeps the Design category order and gives every category real commands", () => {
     expect(DESIGN_SHORTCUT_CATEGORIES).toEqual([
       "essential",
       "tools",

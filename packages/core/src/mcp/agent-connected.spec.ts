@@ -197,4 +197,12 @@ describe("agent connection attribution", () => {
       "plan",
     );
   });
+
+  it("names a beta lane after its app, like the connect identity", () => {
+    resetAppConfigForTests();
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    expect(connectionApp("https://beta.clips.agent-native.com")).toBe("clips");
+    vi.unstubAllEnvs();
+    expect(connectionApp("https://clips.agent-native.com")).toBe("clips");
+  });
 });

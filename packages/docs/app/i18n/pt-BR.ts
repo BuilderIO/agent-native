@@ -678,7 +678,7 @@ const ptBR = {
         "Instale planejamento visual como skill apoiada por app. Seu agente de código pode abrir planos estruturados com diagramas, wireframes, protótipos, anotações, comentários e links de revisão compartilháveis.",
     },
     design: {
-      replaces: "Substitui ou amplia ferramentas de prototipagem de design",
+      replaces: "Estúdio de design da Agent-Native",
       description:
         "Transforma prompts em designs interativos que seguem seu sistema de design enquanto o agente refina cada tela com seu feedback.",
     },
@@ -1448,7 +1448,7 @@ const ptBR = {
       s003: "Gerar",
       s004: "Refinar",
       s005: "Todos os modelos",
-      s006: "O estúdio de prototipagem de código aberto AI HTML",
+      s006: "Espaço de design de código aberto",
       s007: "Crie designs e protótipos interativos. Refine com ferramentas familiares ou faça edições de conversação. Exporte para qualquer lugar.",
       s008: "Crie algo",
       s009: "Como funciona",
@@ -2187,6 +2187,8 @@ const ptBR = {
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",
     loadError: "Não foi possível carregar o instalador desktop mais recente.",
+    mountError:
+      "A página de download para desktop não conseguiu encontrar seu caminho no workspace. Peça ao administrador do workspace para verificar a configuração do caminho do app.",
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",
     unavailable: "Instalador indisponível para esta plataforma",

@@ -485,6 +485,32 @@ ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
   CREATE INDEX IF NOT EXISTS design_board_replay_screenshots_design_idx
     ON design_board_replay_screenshots (design_id)`,
   },
+  {
+    version: 39,
+    name: "design-board-replay-source-stage-id",
+    sql: `ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS source_stage_id TEXT`,
+  },
+  {
+    version: 40,
+    name: "design-board-replay-capture-provenance",
+    sql: `ALTER TABLE design_board_replay_screenshots ALTER COLUMN route DROP NOT NULL;
+ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS capture_source_fingerprint TEXT`,
+  },
+  {
+    version: 41,
+    name: "design-screen-restore-claims",
+    sql: `CREATE TABLE IF NOT EXISTS design_screen_restore_claims (
+    id TEXT PRIMARY KEY,
+    design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+    source_file_id TEXT NOT NULL,
+    snapshot TEXT NOT NULL,
+    consumed_at TEXT,
+    restored_file_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+  );
+  CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_source_idx
+    ON design_screen_restore_claims (design_id, source_file_id)`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

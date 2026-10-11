@@ -1129,7 +1129,6 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
-// oracle: none — verifies mode-switch state wiring, not parity with a design reference.
 test("top bar modes toggle the editor mode buttons", async ({ page }) => {
   await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
@@ -1173,7 +1172,6 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
   );
 });
 
-// oracle: none — verifies dialog behavior, focus and iframe stability, not measured Figma geometry.
 test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
@@ -1349,7 +1347,6 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
 });
 
-// oracle: none — verifies the dialog stays inside a narrow viewport, not Figma parity.
 test("keyboard shortcuts dialog fits a narrow window and stacks its categories", async ({
   page,
 }) => {
@@ -1383,7 +1380,6 @@ test("keyboard shortcuts dialog fits a narrow window and stacks its categories",
   await expect(dialog).toHaveCount(0);
 });
 
-// oracle: none — verifies Annotate drawing and undo behavior, not visual fidelity.
 test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
   page,
 }) => {
@@ -3507,7 +3503,6 @@ test.fixme("overview undo skips deleted screen content history", async ({
   ).toBe(false);
 });
 
-// oracle: none — verifies undo of deleted-screen geometry, not parity with a design reference.
 test("overview undo does not restore ghost geometry for deleted screens", async ({
   page,
 }) => {

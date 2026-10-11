@@ -106,6 +106,7 @@ export function CommentEntry({
   revealActions = "always",
   replyAction,
   footer,
+  body,
   onOpenAiConversation,
   onCreatedCommentConfirmed,
 }: {
@@ -123,6 +124,8 @@ export function CommentEntry({
    */
   replyAction?: ReactNode;
   footer?: ReactNode;
+  /** Shown instead of the stored text, which then cannot be edited here. */
+  body?: ReactNode;
   onOpenAiConversation?: () => void;
   onCreatedCommentConfirmed?: (operationId: string) => void;
 }) {
@@ -159,7 +162,8 @@ export function CommentEntry({
     !!currentUserEmail &&
     currentUserEmail.toLowerCase() === comment.author_email.toLowerCase() &&
     !pending &&
-    comment.mutation?.kind !== "create";
+    comment.mutation?.kind !== "create" &&
+    body === undefined;
   const checkSaved = async () => {
     if (!comment.mutation?.ambiguous || checking) return;
     const submitted = sourceDraft.getSubmittedDraft(
@@ -445,7 +449,7 @@ export function CommentEntry({
           />
         </div>
       ) : (
-        renderCommentBody(comment.content, comment.mentions)
+        (body ?? renderCommentBody(comment.content, comment.mentions))
       )}
     </CommentRow>
   );

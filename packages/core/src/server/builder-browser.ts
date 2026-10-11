@@ -2484,6 +2484,8 @@ function parseBuilderAccountProvisioningResponse(
 export async function provisionBuilderAccount(input: {
   email: string;
   name?: string;
+  agentNativeApp?: string;
+  agentNativeTemplate?: string;
 }): Promise<BuilderRelayCredentials> {
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
@@ -2491,14 +2493,23 @@ export async function provisionBuilderAccount(input: {
   }
   const name =
     input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
+  const agentNativeApp = cleanTrackingParam(input.agentNativeApp);
+  const agentNativeTemplate = cleanTrackingParam(input.agentNativeTemplate);
+  const version =
+    agentNativeApp || agentNativeTemplate
+      ? "agent-native-account-v2"
+      : "agent-native-account-v1";
   const timestamp = String(Date.now());
   const requestId = randomBytes(32).toString("base64url");
   const signaturePayload = [
-    "agent-native-account-v1",
+    version,
     timestamp,
     requestId,
     email,
     name,
+    ...(version === "agent-native-account-v2"
+      ? [agentNativeApp ?? "", agentNativeTemplate ?? ""]
+      : []),
   ].join("\n");
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
@@ -2509,12 +2520,17 @@ export async function provisionBuilderAccount(input: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-agent-native-account-version": "agent-native-account-v1",
+        "x-agent-native-account-version": version,
         "x-agent-native-account-timestamp": timestamp,
         "x-agent-native-account-request-id": requestId,
         "x-agent-native-account-signature": signature,
       },
-      body: JSON.stringify({ email, name }),
+      body: JSON.stringify({
+        email,
+        name,
+        ...(agentNativeApp ? { agentNativeApp } : {}),
+        ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
+      }),
     },
     "account provisioning",
   );

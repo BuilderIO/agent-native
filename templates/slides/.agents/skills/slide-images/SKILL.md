@@ -57,6 +57,12 @@ generic style references to override a linked design system or preset.
 existing media. They are not a substitute for the active design system or a
 style-generation brief.
 
+Treat both searches as optional enrichment. If a provider is unconfigured or
+unavailable, a search has no matches, or an action returns an error, continue
+the deck with a useful image-free slide using native typography, diagrams, or
+rules. Keep the action error visible; do not retry the lookup in a loop or stop
+deck generation because search failed.
+
 ## Logo Lookup
 
 Two options for company logos:

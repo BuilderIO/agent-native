@@ -394,7 +394,6 @@ async function paintedBoxA(page: Page) {
 }
 
 test.describe("dragging an element out of a screen", () => {
-  // oracle: none - checks cross-document drop ownership and visibility, not measured Figma parity.
   test("the element stays visible somewhere instead of vanishing", async ({
     page,
   }) => {
@@ -490,7 +489,6 @@ test.describe("drag preview", () => {
 });
 
 test.describe("dragging back into a screen", () => {
-  // oracle: none - checks persisted ownership after a board-to-screen drop, not measured Figma placement.
   test("the layer lands where it was released, not in the corner", async ({
     page,
   }) => {

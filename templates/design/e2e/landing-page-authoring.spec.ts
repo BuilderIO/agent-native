@@ -42,7 +42,7 @@ async function postAction(
 
 async function newDesign(page: Page, content = BLANK_SCREEN): Promise<string> {
   const created = await postAction(page, "create-design", {
-    title: "Landing page authoring (clip repro)",
+    title: "Landing page authoring",
     projectType: "prototype",
   });
   const id = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -256,7 +256,7 @@ test("1:16 — header text is readable against the canvas background", async ({
   expect(
     colour,
     `Text committed color:"${colour}" on a #0b0f19 canvas. currentcolor resolves ` +
-      `to the UA default black, so the header is invisible. NOT Figma parity — Figma ` +
+      `to the UA default black, so the header is invisible. The design app ` +
       `defaults to black too; this asserts Design's own intent, since it stamps ` +
       `data-an-auto-text-color on every text primitive.`,
   ).not.toBe("currentcolor");
@@ -307,9 +307,7 @@ test("8:35 — a frame adopts an element drawn inside it", async ({ page }) => {
   ).toBe(true);
 });
 
-test("a rectangle does NOT adopt children, matching Figma", async ({
-  page,
-}) => {
+test("a rectangle does not adopt children", async ({ page }) => {
   const designId = await newDesign(page);
   await openEditor(page, designId);
   await drawRect(page, { left: 20, top: 150, width: 280, height: 300 });
@@ -691,7 +689,9 @@ test("4:39 — aligning a multi-selection moves every selected layer", async ({
   ).toBe(1);
 });
 
-test("0:28 — a deleted screen stays deleted", async ({ page }) => {
+test("deleting a selected screen removes it from the saved design", async ({
+  page,
+}) => {
   const designId = await newDesign(page);
   await postAction(page, "create-file", {
     designId,
@@ -705,25 +705,24 @@ test("0:28 — a deleted screen stays deleted", async ({ page }) => {
     .getByRole("treeitem")
     .filter({ hasText: "Scratch" })
     .first();
+  await expect(row).toBeVisible();
   await row.click();
-  await page.waitForTimeout(600);
+  await expect(row).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Delete");
-  await page.waitForTimeout(1500);
-  await page
-    .getByRole("alertdialog")
-    .getByRole("button")
-    .filter({ hasText: /^Delete$/ })
-    .first()
-    .click();
-  await page.waitForTimeout(2500);
+  await expect(row).toHaveCount(0);
 
-  const files = await page.request
-    .get(`${baseURL}/_agent-native/actions/get-design?id=${designId}`)
-    .then((r) => r.json());
-  expect(
-    (files.files ?? []).map((f: any) => f.filename),
-    `Clip 0:28 "that screen was never deleted, it seems".`,
-  ).not.toContain("scratch.html");
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        `${baseURL}/_agent-native/actions/get-design?id=${designId}`,
+      );
+      expect(response.ok()).toBe(true);
+      const files = await response.json();
+      return (files.files ?? []).some(
+        (file: { filename?: string }) => file.filename === "scratch.html",
+      );
+    })
+    .toBe(false);
 });
 
 test("a header + hero + footer landing page renders entirely on the page", async ({

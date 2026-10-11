@@ -5,6 +5,7 @@ import {
   cdpScreenshot,
   createFixtureDesign,
   designFrame,
+  expandAllLayers,
   gotoEditor,
   installBridge,
   readSeedDesignId,
@@ -226,6 +227,7 @@ test("text fills hide and restore without losing the original color", async ({
   await expect(showFillButton).toBeVisible();
 
   await page.reload();
+  await expandAllLayers(page);
   await selectLayerFromTree(page, "E2E Hero Heading");
   await expect(showFillButton).toBeVisible();
   await showFillButton.click();
@@ -664,7 +666,7 @@ test("numeric scrub handles use terse tooltips and drag from compact labels", as
   await expect(horizontalConstraints).toBeHidden();
 });
 
-test("numeric input applies Figma math and starts an Option scrub drag", async ({
+test("numeric input applies arithmetic expressions and starts an Option scrub drag", async ({
   page,
 }) => {
   await selectByText(page, "Alpha Button");
@@ -829,7 +831,6 @@ test("export rows add, remove, and reset when selection changes", async ({
   await expect(suffixInputs()).toHaveCount(1);
 });
 
-// oracle: none — verifies the bridge commit event contract, not Figma parity.
 test("resizing a selected element emits a visual-style-change payload", async ({
   page,
 }) => {

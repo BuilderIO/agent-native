@@ -5,6 +5,7 @@
  */
 import type { DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 export const SEARCH_RESOURCES_TABLE = "search_resources";
 export const SEARCH_INDEX_STATE_TABLE = "search_index_state";
@@ -49,10 +50,12 @@ export function ensureSearchIndexTables(
   injectedClient?: DbExec,
 ): Promise<void> {
   if (injectedClient) return ensureAll(injectedClient);
-  ensured ??= ensureAll().catch((error) => {
-    ensured = undefined;
-    throw error;
-  });
+  ensured ??= retainRequestDbPoolScope(
+    ensureAll().catch((error) => {
+      ensured = undefined;
+      throw error;
+    }),
+  );
   return ensured;
 }
 

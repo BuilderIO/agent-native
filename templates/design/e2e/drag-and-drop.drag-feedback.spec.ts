@@ -53,9 +53,7 @@ test.describe("drag feedback", () => {
     await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     expect(
       guides,
-      `Figma: "when using snap to settings ... a red guide appears on the canvas as a visual ` +
-        `indicator", and snap-to-objects "aligns the centers and outermost points of ` +
-        `different objects". No guide appeared.`,
+      `Snap-aligned objects should display a visible guide while dragging. No guide appeared.`,
     ).toBeGreaterThan(0);
   });
 
@@ -83,9 +81,8 @@ test.describe("drag feedback", () => {
     await page.waitForTimeout(1000); // e2e-harness-ignore moved verbatim by the drag-and-drop split
     expect(
       highlights,
-      `UNVERIFIED for a plain frame: Figma documents a blue indicator only for auto layout ` +
-        `containers, and says nothing about highlighting a plain frame. Treat as a usability ` +
-        `claim. No feedback of any kind appeared.`,
+      `Dragging over a plain frame should provide visible drop-target feedback. ` +
+        `No feedback of any kind appeared.`,
     ).toBeGreaterThan(0);
   });
 
@@ -112,7 +109,7 @@ test.describe("drag feedback", () => {
     await page.waitForTimeout(500);
     expect(
       indicators,
-      "Figma shows an insertion line while reordering layers",
+      "The layer list should show an insertion line while reordering",
     ).toBeGreaterThan(0);
   });
 

@@ -117,6 +117,7 @@ export function useEditorCanvasAndScreens({
     t,
     id,
     session,
+    widgetEmbed,
     isSignedIn,
     initialSearchParams,
     queryClient,
@@ -200,6 +201,7 @@ export function useEditorCanvasAndScreens({
     liveFrameGeometryRef,
     boardFileId,
     overviewScreens,
+    designSourceType,
     handleScreenRuntimeLayerSnapshot,
   } = editorFilesAndSaving;
   const {
@@ -443,12 +445,23 @@ export function useEditorCanvasAndScreens({
       return runDuplicateScreen(
         {
           canEditDesign,
+          widgetEmbed,
           createFileAsync,
           deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
           duplicateRecoveryRef,
           displayedCanvasFrameGeometryById,
           files,
+          getCurrentScreenContentForDuplicate: (targetScreenId) => {
+            const sourceType = resolveOverviewScreenSourceType(
+              overviewScreens.find((screen) => screen.id === targetScreenId),
+              designSourceType,
+            );
+            if (sourceType !== "inline") {
+              return files.find((file) => file.id === targetScreenId)?.content;
+            }
+            return historySourceReaderRef.current(targetScreenId);
+          },
           focusCreatedScreen,
           id,
           liveFrameGeometryRef,
@@ -469,9 +482,11 @@ export function useEditorCanvasAndScreens({
     },
     [
       canEditDesign,
+      widgetEmbed,
       createFileAsync,
       deleteFileMutation,
       displayedCanvasFrameGeometryById,
+      designSourceType,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -1113,9 +1128,22 @@ export function useEditorCanvasAndScreens({
     [getUnprojectedScreenContent, id],
   );
   const getProjectionContentForScreen = useCallback(
-    (screenId: string) =>
-      liveScreenSnapshotsById[screenId]?.html ?? getScreenContent(screenId),
-    [getScreenContent, liveScreenSnapshotsById],
+    (screenId: string) => {
+      const sourceType = resolveOverviewScreenSourceType(
+        overviewScreens.find((screen) => screen.id === screenId),
+        designSourceType,
+      );
+      return sourceType === "inline"
+        ? getScreenContent(screenId)
+        : (liveScreenSnapshotsById[screenId]?.html ??
+            getScreenContent(screenId));
+    },
+    [
+      designSourceType,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      overviewScreens,
+    ],
   );
 
   historySourceReaderRef.current = getProjectionContentForScreen;

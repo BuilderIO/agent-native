@@ -5,6 +5,8 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
+import { stripInlineBytesFromJson } from "../shared/inline-bytes.js";
 
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
 
@@ -51,7 +53,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
           CREATE TABLE IF NOT EXISTS agent_team_run_queue (
             task_id TEXT PRIMARY KEY,
@@ -86,6 +88,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -324,7 +327,7 @@ export async function persistAgentTeamRunEventIfCurrent(input: {
       input.runId,
       input.seq,
       Date.now(),
-      input.eventData,
+      stripInlineBytesFromJson(input.eventData, "placeholder"),
       input.runId,
     ],
   });

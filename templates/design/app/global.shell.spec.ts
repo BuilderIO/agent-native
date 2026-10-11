@@ -50,7 +50,7 @@ describe("Design app shell", () => {
       "--design-action-slot-width: calc(var(--design-baseline-unit) * 4)",
     );
     expect(css).toContain(
-      "--design-chrome-rail-width: calc(var(--design-baseline-unit) * 8)",
+      "--design-chrome-rail-width: calc(var(--design-baseline-unit) * 7)",
     );
     expect(css).toMatch(
       /grid-template-columns:\s*minmax\(0, 1fr\)\s*repeat\(\s*2,\s*var\(--design-action-slot-width\)/,

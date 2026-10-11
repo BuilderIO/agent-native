@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentKitClient } from "../../../agentkit/src/client/client.js";
 import { selectAgentSuggestions } from "../../../agentkit/src/client/state.js";
 import type { AgentThreadSnapshot } from "../../../agentkit/src/protocol/index.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  ensureAgentEngineReadiness,
+  resetAgentEngineReadinessForTests,
+} from "../client/agent-engine-readiness.js";
 import { createAgentKitProtocolAdapter } from "../client/chat/agentkit-protocol.js";
 import { createAgentNativeChatRuntime } from "../client/chat/runtime.js";
 import * as contextTransforms from "./engine/context-directives-transform.js";
@@ -223,6 +228,7 @@ describe("native agent follow-up publication", () => {
   );
 
   it("replenishes model-authored chips after using a chip when the next reply omits metadata", async () => {
+    resetAgentEngineReadinessForTests();
     const next = {
       label: "Review mobile",
       prompt: "Review this refined design at mobile sizes.",
@@ -235,9 +241,26 @@ describe("native agent follow-up publication", () => {
       ]),
     ];
     const requests: { message: string; history: unknown[] }[] = [];
+    const apiUrl = "https://example.test/agent-chat";
+    const readinessUrl = agentEngineStatusUrlForChatApi(apiUrl);
+    await expect(
+      ensureAgentEngineReadiness({
+        fresh: true,
+        source: {
+          statusUrl: readinessUrl,
+          fetch: async (input) => {
+            expect(String(input)).toBe(readinessUrl);
+            return Response.json({ configured: true, chatEligible: true });
+          },
+        },
+      }),
+    ).resolves.toBe("configured");
     const runtime = createAgentNativeChatRuntime({
-      apiUrl: "https://example.test/agent-chat",
+      apiUrl,
       fetch: async (_url, init) => {
+        if (String(_url) === readinessUrl) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         const body = JSON.parse(String(init?.body));
         requests.push(body);
         const turn = turns[requests.length - 1];
@@ -276,8 +299,14 @@ describe("native agent follow-up publication", () => {
     transport.persistThreadSnapshot = async (input) => {
       snapshot = structuredClone(input.snapshot);
     };
-    const client = new AgentKitClient({ transport });
-    const cold = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
+    const cold = new AgentKitClient({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
     try {
       await client.loadThread("thread-1");
       await (
@@ -319,6 +348,7 @@ describe("native agent follow-up publication", () => {
     } finally {
       client.dispose();
       cold.dispose();
+      resetAgentEngineReadinessForTests();
     }
   });
 

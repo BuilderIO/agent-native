@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { createServer } from "vite";
+import { createServer, resolveConfig } from "vite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseChangelog } from "../changelog/parse.js";
@@ -3510,6 +3510,53 @@ describe("Vite CSS build defaults", () => {
       cssMinify: "esbuild",
       cssTarget: ["es2020", "safari18"],
     });
+  });
+});
+
+describe("Vite barrel loading", () => {
+  it("enables Rolldown lazy barrel loading for builds", () => {
+    const config = defineConfig() as any;
+
+    expect(config.build.rolldownOptions.experimental.lazyBarrel).toBe(true);
+  });
+
+  it("keeps an app's own Rolldown options once, including opting out", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "core-vite-rolldown-"));
+    try {
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ name: "rolldown-options-app" }),
+      );
+      const appPlugin = { name: "app-rolldown-plugin" };
+      const treeshake = { moduleSideEffects: false };
+
+      const resolved = await resolveConfig(
+        {
+          configFile: false,
+          root,
+          plugins: agentNative() as any,
+          build: {
+            rolldownOptions: {
+              plugins: [appPlugin],
+              treeshake,
+              experimental: { lazyBarrel: false },
+            },
+          },
+        },
+        "build",
+      );
+      const rolldownOptions = resolved.build.rolldownOptions as any;
+
+      expect(
+        [rolldownOptions.plugins]
+          .flat(Infinity)
+          .filter((p: any) => p?.name === "app-rolldown-plugin"),
+      ).toHaveLength(1);
+      expect(rolldownOptions.treeshake).toEqual(treeshake);
+      expect(rolldownOptions.experimental.lazyBarrel).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

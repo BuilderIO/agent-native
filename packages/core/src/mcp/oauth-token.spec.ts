@@ -99,8 +99,8 @@ describe("hasMcpOAuthScope", () => {
 });
 
 describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () => {
-  it.each([undefined, 1, "2", null])(
-    "rejects a previously signed credential version %j",
+  it.each([undefined, 1, "2", null, 4])(
+    "rejects a credential version it does not know: %j",
     async (version) => {
       const token = await new jose.SignJWT({
         typ: "agent-native-mcp-oauth",
@@ -136,6 +136,59 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
       clientId: "client-abc",
     });
     expect(typeof result?.jti).toBe("string");
+    expect(result?.grantCreatedAtMs).toBeUndefined();
+  });
+
+  it("preserves a signed grant timestamp separately from the fresh JWT iat", async () => {
+    const grantCreatedAtMs = 1_700_000_000_000;
+
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      grantCreatedAtMs,
+    });
+    const claims = jose.decodeJwt(token);
+    const verified = await verifyMcpOAuthAccessToken(token, RESOURCE);
+
+    expect(typeof claims.iat).toBe("number");
+    expect(claims.iat).toBeGreaterThan(grantCreatedAtMs / 1000);
+    expect(claims.grant_created_at_ms).toBe(grantCreatedAtMs);
+    expect(verified).toMatchObject({
+      issuedAt: claims.iat,
+      grantCreatedAtMs,
+    });
+  });
+
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "does not sign an invalid grant timestamp: %j",
+    async (grantCreatedAtMs) => {
+      await expect(
+        signMcpOAuthAccessToken({ ...baseSign, grantCreatedAtMs }),
+      ).rejects.toThrow(
+        "OAuth grant creation time must be a non-negative integer.",
+      );
+    },
+  );
+
+  it("rejects a token with a malformed signed grant timestamp", async () => {
+    const token = await new jose.SignJWT({
+      typ: "agent-native-mcp-oauth",
+      credential_version: 2,
+      sub: baseSign.ownerEmail,
+      scope: baseSign.scope,
+      client_id: baseSign.clientId,
+      resource: baseSign.resource,
+      grant_created_at_ms: "not-a-time",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer(baseSign.issuer)
+      .setAudience(baseSign.resource)
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(new TextEncoder().encode("fallback-auth-secret"));
+
+    await expect(
+      verifyMcpOAuthAccessToken(token, RESOURCE),
+    ).resolves.toBeNull();
   });
 
   it("omits org claims entirely when not provided", async () => {
@@ -201,6 +254,14 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     expect(decoded.aud).toBe(RESOURCE);
     expect(typeof decoded.jti).toBe("string");
     expect(decoded.exp).toBeGreaterThan(decoded.iat);
+  });
+
+  it("signs a service credential with a version verifiers before service assurance refuse", async () => {
+    const token = await signMcpOAuthAccessToken({ ...baseSign, service: true });
+    expect(jose.decodeJwt(token).credential_version).toBe(3);
+    expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toMatchObject({
+      userEmail: baseSign.ownerEmail,
+    });
   });
 
   it("uses a provided jti when supplied", async () => {

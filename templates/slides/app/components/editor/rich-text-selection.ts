@@ -809,6 +809,9 @@ const SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES = [
   "z-index",
   "transform",
   "transform-origin",
+  "translate",
+  "rotate",
+  "scale",
 ] as const;
 
 function hasSlideClipboardText(element: Element): boolean {

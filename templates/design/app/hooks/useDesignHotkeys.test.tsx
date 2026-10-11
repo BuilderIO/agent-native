@@ -143,7 +143,7 @@ async function withNavigatorPlatform(
   }
 }
 
-describe("useDesignHotkeys — current Figma tool bindings", () => {
+describe("useDesignHotkeys — drawing tool bindings", () => {
   it("routes history chords from marked design controls only", async () => {
     const onUndo = vi.fn();
     await withHotkeys({ onUndo }, () => {
@@ -343,7 +343,7 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     expect(onArrowTool).toHaveBeenCalledTimes(1);
   });
 
-  it("binds Figma's I to the eyedropper on every platform", async () => {
+  it("binds I to the eyedropper on every platform", async () => {
     const onEyedropper = vi.fn();
     await withNavigatorPlatform("Win32", () =>
       withHotkeys({ onEyedropper }, () => {
@@ -404,7 +404,7 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
   });
 });
 
-describe("useDesignHotkeys — Figma selection and frame traversal", () => {
+describe("useDesignHotkeys — selection and frame traversal", () => {
   it("keeps Tab / Shift+Tab available for sibling traversal", async () => {
     const onTab = vi.fn();
     await withHotkeys({ onTab }, () => {
@@ -507,7 +507,7 @@ describe("useDesignHotkeys — Figma selection and frame traversal", () => {
   });
 });
 
-describe("useDesignHotkeys — Figma navigation and find", () => {
+describe("useDesignHotkeys — navigation and find", () => {
   it("routes Cmd+F on Apple and Ctrl+F on non-Apple platforms", async () => {
     const onAppleFind = vi.fn();
     await withNavigatorPlatform("MacIntel", () =>
@@ -779,7 +779,7 @@ describe("useDesignHotkeys — zoom keys", () => {
     expect(onZoomOut).toHaveBeenCalledTimes(1);
   });
 
-  it('Shift+= (the "+" keystroke on a US layout) zooms in like Figma', async () => {
+  it('Shift+= (the "+" keystroke on a US layout) zooms in', async () => {
     const onZoomIn = vi.fn();
     await withHotkeys({ onZoomIn }, () => {
       dispatchKey("+", { shiftKey: true, code: "Equal" });
@@ -1068,7 +1068,7 @@ describe("useDesignHotkeys — selection alignment (Alt+A/D/W/S/H/V)", () => {
   });
 });
 
-describe("useDesignHotkeys — distribute (Ctrl+Alt+H/V) and Tidy up (Ctrl+Alt+T)", () => {
+describe("useDesignHotkeys — distribute and Tidy up", () => {
   it("Ctrl+Alt+H distributes horizontally and stays distinct from Alt+H align", async () => {
     const onDistributeSelection = vi.fn();
     const onAlignSelection = vi.fn();
@@ -1082,17 +1082,31 @@ describe("useDesignHotkeys — distribute (Ctrl+Alt+H/V) and Tidy up (Ctrl+Alt+T
     expect(onAlignSelection).not.toHaveBeenCalled();
   });
 
-  it("Ctrl+Alt+V distributes vertically and stays distinct from Alt+V align", async () => {
+  it("keeps Ctrl+Alt+V for vertical distribution on Apple platforms", async () => {
     const onDistributeSelection = vi.fn();
     const onAlignSelection = vi.fn();
-    await withHotkeys({ onDistributeSelection, onAlignSelection }, () => {
-      dispatchKey("v", { altKey: true, ctrlKey: true });
-    });
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onDistributeSelection, onAlignSelection }, () => {
+        dispatchKey("v", { altKey: true, ctrlKey: true });
+      }),
+    );
     expect(onDistributeSelection).toHaveBeenCalledTimes(1);
     expect(onDistributeSelection.mock.calls[0]![0]).toMatchObject({
       axis: "vertical",
     });
     expect(onAlignSelection).not.toHaveBeenCalled();
+  });
+
+  it("keeps Ctrl+Alt+V for paste properties on non-Apple platforms", async () => {
+    const onDistributeSelection = vi.fn();
+    const onPasteProps = vi.fn();
+    await withNavigatorPlatform("Linux x86_64", () =>
+      withHotkeys({ onDistributeSelection, onPasteProps }, () => {
+        dispatchKey("v", { altKey: true, ctrlKey: true });
+      }),
+    );
+    expect(onPasteProps).toHaveBeenCalledTimes(1);
+    expect(onDistributeSelection).not.toHaveBeenCalled();
   });
 
   it("Ctrl+Alt+T fires Tidy up even without a meta/cmd key", async () => {

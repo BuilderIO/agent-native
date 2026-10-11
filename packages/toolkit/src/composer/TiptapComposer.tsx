@@ -41,7 +41,6 @@ import {
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
-import { BuilderBMark } from "./BuilderBMark.js";
 import {
   searchComposerContextActions,
   type ComposerContextMenuItem,
@@ -78,6 +77,7 @@ import {
   DEFAULT_REASONING_EFFORT,
   formatPromptContextItems,
   getReasoningEffortOptionsForModel,
+  getComposerReferenceEventTarget,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type AgentChatContextItem,
@@ -1041,12 +1041,16 @@ export interface TiptapComposerProps {
   /** Accessible name for the editable prompt surface. */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Unset preserves generic references; false excludes inactive chats; true reports sidebar readiness. */
+  isReferenceTarget?: boolean;
   /** Disable the + and @ launchers while the editor stays editable. */
   contextControlsDisabled?: boolean;
   /** Prevent submission without making the editable surface lose focus. */
   submissionDisabled?: boolean;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
+  /** Show progress in the send control while a pre-submit check is running. */
+  sendButtonBusy?: boolean;
   /** Prevent submission while a host request is in flight. */
   submitting?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -1247,6 +1251,18 @@ function plainTextToDoc(text: string) {
 }
 
 /** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
+// The session shell hides its tree with an inline display: none (RequireSession).
+function isInsideHiddenShell(element: HTMLElement): boolean {
+  for (
+    let node: HTMLElement | null = element;
+    node;
+    node = node.parentElement
+  ) {
+    if (node.style?.display === "none") return true;
+  }
+  return false;
+}
+
 export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   editor: T | null | undefined,
 ): editor is T {
@@ -1401,8 +1417,33 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "pi-cli": "Pi",
   "opencode-cli": "OpenCode",
   "claude-fable-5": "Claude Fable 5",
+  "claude-fable-5-1": "Claude Fable 5.1",
+  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
+  "deepseek-v3-1": "DeepSeek v3.1",
+  "z-ai-glm-4-5": "Z-AI GLM 4.5",
+  "z-ai-glm-5-1": "Z-AI GLM 5.1",
+  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
+  "grok-code-fast": "Grok Code Fast",
+  "x-ai/grok-build-0.1": "Grok Build 0.1",
+  "gpt-6-1-sol": "GPT-6.1 Sol",
+  "gemini-3-1-pro": "Gemini 3.1 Pro",
+  "gemini-3-8-flash": "Gemini 3.8 Flash",
+  "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
+  "google/gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "google/gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+  "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+  "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+  "deepseek/deepseek-chat-v3.1": "DeepSeek v3.1",
+  "z-ai/glm-4.5": "Z-AI GLM 4.5",
+  "z-ai/glm-5.1": "Z-AI GLM 5.1",
+  "z-ai/glm-5.3-flash": "Z-AI GLM 5.3 Flash",
+  "x-ai/grok-4.7": "Grok 4.7",
+  "qwen/qwen3-coder": "Qwen3 Coder",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
   "z-ai/glm-5.2": "GLM 5.2",
   "openai/gpt-6-astra": "GPT-6 Astra",
   "openai/gpt-6-astra-pro": "GPT-6 Astra Pro",
@@ -1428,13 +1469,6 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "claude-haiku-4-5": "Claude Haiku 4.5",
   "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
   "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
-  "deepseek-v3-1": "DeepSeek v3.1",
-  "deepseek-v4-1-flash": "DeepSeek V4.1 Flash",
-  "z-ai-glm-4-5": "Z-AI GLM 4.5",
-  "z-ai-glm-5-1": "Z-AI GLM 5.1",
-  "z-ai-glm-5-3-flash": "Z-AI GLM 5.3 Flash",
 };
 
 const LOCAL_RUNTIME_ENGINES = new Set([
@@ -1531,11 +1565,15 @@ function friendlyModelName(model: string, t?: ComposerTranslate): string {
       }) ?? "Default model"
     );
   }
-  if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
+  const friendlyName = Object.hasOwn(FRIENDLY_MODEL_NAMES, model)
+    ? FRIENDLY_MODEL_NAMES[model]
+    : undefined;
+  if (friendlyName !== undefined) return friendlyName;
   const normalizedModel = model.replace(/^(?:anthropic|openai|google)\//, "");
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD].
-  const claude = normalizedModel.match(
-    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?(?:-\d{8,})?$/,
+  const undatedModel = normalizedModel.replace(/-\d{8,}$/, "");
+  const claude = undatedModel.match(
+    /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:[-.](\d+))?$/,
   );
   if (claude) {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
@@ -1582,6 +1620,7 @@ export function compactComposerModelName(
 ): string {
   const fullName = friendlyModelName(model, t);
   if (model === "auto" || LOCAL_RUNTIME_ENGINES.has(model)) return fullName;
+  if (/^DeepSeek\b/i.test(fullName)) return fullName;
   const shortName = fullName
     .replace(/^GPT-\d+(?:\.\d+)?\s*/i, "")
     .replace(/^Gemini\s+\d+(?:\.\d+)?\s*/i, "")
@@ -1993,6 +2032,30 @@ function ModelSelector({
   const selectedModelDisplayName = selectedModelProviderGroups
     .map((group) => group.modelDisplayNames?.[model])
     .find((displayName) => typeof displayName === "string");
+  const selectedModelProviderGroup =
+    selectedModelProviderGroups.find(
+      (group) => group.engine === selectedEngine,
+    ) ?? selectedModelProviderGroups[0];
+  const selectedModelFriendlyName =
+    selectedModelDisplayName ?? friendlyModelName(model, t);
+  const selectedModelHasDuplicateName =
+    selectedModelProviderGroup !== undefined &&
+    modelProviderGroups.some(
+      (group) =>
+        group.engine !== selectedModelProviderGroup.engine &&
+        group.models.some(
+          (candidate) =>
+            (group.modelDisplayNames?.[candidate] ??
+              friendlyModelName(candidate, t)) === selectedModelFriendlyName,
+        ),
+    );
+  const selectedModelProviderLabel = selectedModelProviderGroup?.label.replace(
+    / · Builder\.io$/i,
+    "",
+  );
+  const selectedModelDisplayLabel = selectedModelHasDuplicateName
+    ? `${selectedModelFriendlyName} · ${selectedModelProviderLabel}`
+    : selectedModelFriendlyName;
   const selectedModelNeedsConnection =
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
@@ -2001,11 +2064,13 @@ function ModelSelector({
     ? showBuilderAction
       ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
       : t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
-    : (selectedModelDisplayName ?? friendlyModelName(model, t));
+    : selectedModelDisplayLabel;
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
-    : (selectedModelDisplayName ?? compactComposerModelName(model, t));
+    : selectedModelHasDuplicateName
+      ? selectedModelDisplayLabel
+      : (selectedModelDisplayName ?? compactComposerModelName(model, t));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2355,9 +2420,7 @@ function ModelSelector({
                                     aria-hidden="true"
                                     className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary"
                                   />
-                                ) : (
-                                  <BuilderBMark className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                )}
+                                ) : null}
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] font-medium text-foreground">
                                     {builderFlow.connecting
@@ -2498,10 +2561,15 @@ function ModelSelector({
                     {hasConfiguredProvider &&
                       !onlyConnectPathAvailable &&
                       visibleProviderGroups.map((group, groupIndex) => {
-                        const models =
+                        const latestModels =
                           group.engine === "chatgpt-subscription"
                             ? group.models
                             : latestModelsOnly(group.models);
+                        const models = group.models.filter(
+                          (candidate) =>
+                            latestModels.includes(candidate) ||
+                            candidate === model,
+                        );
                         const showProviderLabels =
                           visibleProviderGroups.length > 1;
                         const isLocalRuntime =
@@ -2697,9 +2765,11 @@ export function TiptapComposer({
   placeholder,
   ariaLabel,
   disabled = false,
+  isReferenceTarget,
   contextControlsDisabled = false,
   submissionDisabled = false,
   sendButtonDisabled = false,
+  sendButtonBusy = false,
   submitting = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -3818,6 +3888,9 @@ export function TiptapComposer({
 
   const insertReferenceIfEmpty = useCallback(
     (payload: AgentComposerReferenceInsertPayload) => {
+      const ed = editor;
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
+        return;
       const insertMessageId =
         typeof payload.insertMessageId === "string"
           ? payload.insertMessageId
@@ -3826,9 +3899,6 @@ export function TiptapComposer({
         if (seenReferenceInsertIdsRef.current.has(insertMessageId)) return;
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
-      const ed = editor;
-      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
-        return;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
       ) as any;
@@ -3844,8 +3914,16 @@ export function TiptapComposer({
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || isReferenceTarget === false) return;
+    const acceptsReferenceEvent = (event: Event) => {
+      const target = getComposerReferenceEventTarget(event);
+      return (
+        !target ||
+        (isComposerEditorUsable(editor) && target === editor.view.dom)
+      );
+    };
     const handleEvent = (event: Event) => {
+      if (!acceptsReferenceEvent(event)) return;
       const payload = (event as CustomEvent).detail;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
@@ -3869,6 +3947,7 @@ export function TiptapComposer({
       if (event.data?.type !== AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE) {
         return;
       }
+      if (!acceptsReferenceEvent(event)) return;
       const payload = event.data.data;
       const normalized = adapters.agentChat!.normalizeReference!(
         payload,
@@ -3884,18 +3963,50 @@ export function TiptapComposer({
     };
     window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleEvent);
     window.addEventListener("message", handleMessage);
+    const element = isComposerEditorUsable(editor) ? editor.view.dom : null;
+    const reportUnavailable = () => {
+      if (isReferenceTarget === true && element)
+        window.dispatchEvent(
+          new CustomEvent("agentNative:composer-reference-unavailable", {
+            detail: element,
+          }),
+        );
+    };
+    if (isReferenceTarget === true) editor?.on("destroy", reportUnavailable);
+    if (isReferenceTarget === true && element && !disabled) {
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: element,
+        }),
+      );
+    } else reportUnavailable();
     return () => {
+      reportUnavailable();
+      editor?.off("destroy", reportUnavailable);
       window.removeEventListener(
         AGENT_CHAT_INSERT_REFERENCE_EVENT,
         handleEvent,
       );
       window.removeEventListener("message", handleMessage);
     };
-  }, [adapters, insertReferenceIfEmpty]);
+  }, [adapters, insertReferenceIfEmpty, isReferenceTarget]);
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+      if (!isComposerEditorUsable(editor)) return;
+      // An editor inside a hidden session shell cannot take focus, and nothing
+      // re-runs this when the shell is shown. Focus on the first size change.
+      const dom = editor.view.dom;
+      if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => {
+          if (isInsideHiddenShell(dom)) return;
+          observer.disconnect();
+          editor.commands.focus("end");
+        });
+        observer.observe(dom);
+        return;
+      }
+      editor.commands.focus("end");
     },
     addAttachment(file: File) {
       return addAttachmentForCurrentScope(file);
@@ -4485,7 +4596,7 @@ export function TiptapComposer({
 
       const attachmentScopeGeneration = draftScopeGenerationRef.current;
       submitInFlightRef.current = true;
-      onSubmissionPendingChange?.(true);
+      if (!onBeforeSubmit) onSubmissionPendingChange?.(true);
       const attachmentSubmissionBarrier = createAttachmentSubmissionBarrier();
       let attachmentSnapshot: typeof composerAttachments;
       try {
@@ -4507,7 +4618,7 @@ export function TiptapComposer({
         return false;
       } finally {
         submitInFlightRef.current = false;
-        onSubmissionPendingChange?.(false);
+        if (!onBeforeSubmit) onSubmissionPendingChange?.(false);
       }
       if (
         !isComposerEditorUsable(ed) ||
@@ -4801,7 +4912,6 @@ export function TiptapComposer({
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
-        onSubmissionPendingChange?.(true);
         try {
           const shouldSubmit = await onBeforeSubmit(
             composerDraftSnapshot(text, references, attachments),
@@ -4825,7 +4935,6 @@ export function TiptapComposer({
           return false;
         } finally {
           submitInFlightRef.current = false;
-          onSubmissionPendingChange?.(false);
         }
       }
       if (
@@ -6092,10 +6201,15 @@ export function TiptapComposer({
                     }
                     disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
+                    aria-busy={sendButtonBusy || undefined}
                     data-agent-composer-slot="send-button"
                     className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <IconArrowUp className="h-3.5 w-3.5" />
+                    {sendButtonBusy ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                    ) : (
+                      <IconArrowUp className="h-3.5 w-3.5" />
+                    )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{sendButtonTooltip}</TooltipContent>

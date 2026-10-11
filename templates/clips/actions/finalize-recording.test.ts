@@ -42,7 +42,12 @@ const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
 const mockGetRequestContext = vi.hoisted(() =>
-  vi.fn(() => undefined as { authUserId?: string } | undefined),
+  vi.fn(
+    () =>
+      undefined as
+        | { authUserId?: string; browserSessionId?: string }
+        | undefined,
+  ),
 );
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
@@ -859,8 +864,50 @@ describe("finalize-recording media serve verification", () => {
     );
   });
 
+  it("tracks ready with the matching upload state's session without request context", async () => {
+    mockState.existingRecording.uploadAttemptId = "attempt-1";
+    seedBufferedRecording();
+    mockState.uploadState = {
+      ...mockState.uploadState,
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: null,
+      browserSessionId: "browser-session-1",
+    };
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+      uploadAttemptId: "attempt-1",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.objectContaining({ upload_attempt_id: "attempt-1" }),
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec_1",
+      expect.objectContaining({
+        uploadAttemptId: "attempt-1",
+        uploadGenerationId: null,
+        browserSessionId: "browser-session-1",
+      }),
+    );
+  });
+
   it("keeps the recording processing and schedules durable verification when uploaded media stays unservable", async () => {
     const chunkKeys = seedBufferedRecording();
+    mockGetRequestContext.mockReturnValue({
+      browserSessionId: "browser-session-1",
+    });
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
 
     const result = await finalizeRecording.run({
@@ -919,6 +966,7 @@ describe("finalize-recording media serve verification", () => {
           leaseUntil: null,
           uploadAttemptId: null,
           uploadGenerationId: null,
+          browserSessionId: "browser-session-1",
         }),
       }),
     ]);
@@ -949,6 +997,105 @@ describe("finalize-recording media serve verification", () => {
         mockDeleteAppState.mock.invocationCallOrder[deleteIndex],
       );
     }
+  });
+
+  it("keeps upload-time session attribution through a context-free terminal verification", async () => {
+    mockState.existingRecording.uploadAttemptId = "attempt-1";
+    seedBufferedRecording();
+    mockState.uploadState = {
+      ...mockState.uploadState,
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: null,
+      browserSessionId: "browser-session-1",
+    };
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));
+
+    const queued = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+      uploadAttemptId: "attempt-1",
+    });
+
+    expect(queued).toEqual(
+      expect.objectContaining({
+        status: "processing",
+        verificationPending: true,
+      }),
+    );
+    const published = mockCompareAndSetManyAppState.mock.calls
+      .map(([operations]) => operations as Array<Record<string, any>>)
+      .find((operations) =>
+        operations.some(
+          ({ key }) => key === "recording-media-verification-rec_1",
+        ),
+      );
+    const publishedUploadState = published?.find(
+      ({ key }) => key === "recording-upload-rec_1",
+    )?.nextValue;
+    const publishedVerification = published?.find(
+      ({ key }) => key === "recording-media-verification-rec_1",
+    )?.nextValue;
+    expect(publishedUploadState).toEqual(
+      expect.objectContaining({ browserSessionId: "browser-session-1" }),
+    );
+    expect(publishedVerification).toEqual(
+      expect.objectContaining({ browserSessionId: "browser-session-1" }),
+    );
+
+    mockState.existingRecording = {
+      ...mockState.existingRecording,
+      status: "processing",
+      videoUrl: publishedUploadState.videoUrl,
+    };
+    mockState.selectRows = [[{ ...mockState.existingRecording }]];
+    mockState.uploadState = {
+      ...publishedUploadState,
+      mediaVerificationAttempt: 9,
+    };
+    const terminalVerification = {
+      ...publishedVerification,
+      completedAttempts: 9,
+      nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
+      leaseUntil: null,
+    };
+    mockReadAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-upload-rec_1") return mockState.uploadState;
+      if (key === "recording-media-verification-rec_1") {
+        return terminalVerification;
+      }
+      return null;
+    });
+    mockUpdateReturning.mockResolvedValue([
+      { id: "rec_1", uploadAttemptId: "attempt-1" },
+    ]);
+
+    const terminal = await finalizeRecording.run({
+      id: "rec_1",
+      mediaVerificationRetryAttempt: 10,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: null,
+    });
+
+    expect(terminal).toEqual(expect.objectContaining({ status: "failed" }));
+    expect(mockGetRequestContext()).toBeUndefined();
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_upload_blocking_failure",
+      expect.objectContaining({
+        stage: "media_verification",
+        failure_code: "media_verification_failed",
+        upload_attempt_id: "attempt-1",
+      }),
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_failed",
+      expect.objectContaining({
+        failure_code: "media_verification_failed",
+        upload_attempt_id: "attempt-1",
+      }),
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
+    );
   });
 
   it("schedules durable verification when content-length exists without readable media bytes", async () => {
@@ -1177,6 +1324,7 @@ describe("finalize-recording media serve verification", () => {
           leaseUntil: null,
           uploadAttemptId: "attempt-1",
           uploadGenerationId: null,
+          browserSessionId: "browser-session-1",
           updatedAt: new Date(Date.now() - 2_000).toISOString(),
         };
       }
@@ -1204,7 +1352,7 @@ describe("finalize-recording media serve verification", () => {
         recording_attempt_id: "rec_1",
         upload_attempt_id: "attempt-1",
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
     );
     expect(mockTrack).toHaveBeenCalledWith(
       "recording_failed",
@@ -1214,7 +1362,7 @@ describe("finalize-recording media serve verification", () => {
         recording_platform: "unknown",
         failure_code: "media_verification_failed",
       }),
-      { userId: "owner@example.com" },
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
     );
   });
 
@@ -1408,6 +1556,7 @@ describe("finalize-recording media serve verification", () => {
       completedAttempts: 0,
       nextAttemptAt: new Date(Date.now() - 1_000).toISOString(),
       leaseUntil: null,
+      browserSessionId: "browser-session-1",
       updatedAt: new Date(Date.now() - 2_000).toISOString(),
     };
     mockState.uploadState = {
@@ -1468,6 +1617,11 @@ describe("finalize-recording media serve verification", () => {
     );
     expect(mockDeleteAppState).toHaveBeenCalledWith(
       "recording-media-verification-rec_1",
+    );
+    expect(mockTrack).toHaveBeenCalledWith(
+      "recording_ready",
+      expect.any(Object),
+      { userId: "owner@example.com", sessionId: "browser-session-1" },
     );
   });
 

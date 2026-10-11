@@ -159,6 +159,60 @@ describe("Builder account provisioning", () => {
     });
   });
 
+  it("signs app attribution into one-click account provisioning", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            credentials: {
+              privateKey: "bpk-test-provisioned",
+              publicKey: "space-test-provisioned",
+            },
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await provisionBuilderAccount({
+      email: "owner@example.com",
+      name: "Owner",
+      agentNativeApp: " agent-native-clips ",
+      agentNativeTemplate: " clips ",
+    });
+
+    const [, requestInit] = fetchSpy.mock.calls[0]!;
+    const headers = requestInit?.headers as Record<string, string>;
+    const timestamp = headers["x-agent-native-account-timestamp"];
+    const requestId = headers["x-agent-native-account-request-id"];
+    const expectedSignature = createHmac("sha256", secret)
+      .update(
+        [
+          "agent-native-account-v2",
+          timestamp,
+          requestId,
+          "owner@example.com",
+          "Owner",
+          "agent-native-clips",
+          "clips",
+        ].join("\n"),
+      )
+      .digest("base64url");
+
+    expect(headers["x-agent-native-account-version"]).toBe(
+      "agent-native-account-v2",
+    );
+    expect(headers["x-agent-native-account-signature"]).toBe(expectedSignature);
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      email: "owner@example.com",
+      name: "Owner",
+      agentNativeApp: "agent-native-clips",
+      agentNativeTemplate: "clips",
+    });
+  });
+
   it("only advertises account provisioning for a valid deploy secret", () => {
     expect(isBuilderAccountProvisioningEnabled()).toBe(false);
 

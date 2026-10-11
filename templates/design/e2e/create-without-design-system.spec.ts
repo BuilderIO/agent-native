@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { appPath } from "./helpers";
 
-// oracle: none — verifies the create-design action contract, not Figma parity.
 test("create-design preserves an explicit no-system choice", async ({
   request,
 }) => {

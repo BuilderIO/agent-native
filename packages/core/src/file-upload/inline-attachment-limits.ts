@@ -26,7 +26,7 @@ export function formatBase64CharBudget(maxChars: number): string {
   return `${decodedMb.toFixed(1)} MB`;
 }
 
-function isInlineReadableDocumentType(
+export function isInlineReadableDocumentType(
   mediaType: string,
   fileName: string | undefined,
 ): boolean {

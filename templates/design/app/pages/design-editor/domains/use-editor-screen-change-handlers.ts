@@ -1,3 +1,4 @@
+import { breakpointUpperBoundPx } from "@shared/responsive-classes";
 import { isRunningAppSourceType } from "@shared/source-mode";
 import { useEffect, useCallback, useRef, useMemo } from "react";
 
@@ -107,6 +108,20 @@ export function useEditorScreenChangeHandlers({
     activeBreakpointUpperBoundPx,
     activeCanvasSourceType,
   } = editorActiveScreenAndGeometry;
+  const activeBreakpointUpperBoundAtEvent = useCallback(() => {
+    const activeWidthPx = activeBreakpointWidthStateRef.current;
+    return activeWidthPx == null
+      ? null
+      : breakpointUpperBoundPx(
+          designBreakpoints.map((breakpoint) => breakpoint.widthPx),
+          activeWidthPx,
+          activeScreenBaseWidthPx,
+        );
+  }, [
+    activeBreakpointWidthStateRef,
+    activeScreenBaseWidthPx,
+    designBreakpoints,
+  ]);
   const {
     localhostConnectionRootPathByIdRef,
     recordPendingHistoryEntry,
@@ -503,7 +518,7 @@ export function useEditorScreenChangeHandlers({
     ) =>
       runScreenVisualStyleChange(
         {
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundPx: activeBreakpointUpperBoundAtEvent(),
           activeBreakpointWidthStateRef,
           activeFile,
           applyFileContentUpdate,
@@ -524,7 +539,7 @@ export function useEditorScreenChangeHandlers({
         metadata,
       ),
     [
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
@@ -615,7 +630,7 @@ export function useEditorScreenChangeHandlers({
           elementInfo.sourceId,
           interactionState,
           styles,
-          activeBreakpointUpperBoundPx,
+          activeBreakpointUpperBoundAtEvent(),
         );
         if (nextContent === baseContent) return;
         applyFileContentUpdate(screenId, nextContent, {
@@ -661,7 +676,7 @@ export function useEditorScreenChangeHandlers({
       });
     },
     [
-      activeBreakpointUpperBoundPx,
+      activeBreakpointUpperBoundAtEvent,
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -8,6 +10,9 @@ const mocks = vi.hoisted(() => {
     lockedBoardContent: null as string | null,
     landedSelects: [] as unknown[][],
     selectQueue: [] as unknown[][],
+    stagedRows: [] as unknown[][],
+    preflightStagedRows: [] as unknown[],
+    preflightPromotedRows: [] as unknown[],
     inserts: [] as Array<{ table: string; rows: Array<Record<string, any>> }>,
     deletes: [] as Array<{ table: string; where: unknown }>,
     boardWrites: [] as Array<{ fileId: string; content: string }>,
@@ -17,6 +22,7 @@ const mocks = vi.hoisted(() => {
     const link: Record<string, any> = {
       from: vi.fn(() => link),
       where: vi.fn(() => link),
+      for: vi.fn(() => link),
       limit: vi.fn(async () => rows),
       then: (
         resolve: (value: unknown[]) => unknown,
@@ -26,7 +32,13 @@ const mocks = vi.hoisted(() => {
     return link;
   };
   const tx = {
-    select: vi.fn(() => chain(state.selectQueue.shift() ?? [])),
+    select: vi.fn((projection: Record<string, unknown> = {}) => {
+      const fields = Object.keys(projection);
+      if (fields.includes("app") && fields.includes("replayId")) {
+        return chain(state.stagedRows.shift() ?? []);
+      }
+      return chain(state.selectQueue.shift() ?? []);
+    }),
     insert: vi.fn((table: { name: string }) => ({
       values: vi.fn(
         async (rows: Array<Record<string, any>> | Record<string, any>) => {
@@ -64,6 +76,7 @@ const mocks = vi.hoisted(() => {
     deleteVisualEditSnapshotBlobs: vi.fn(),
     queueCleanup: vi.fn(),
     mutateDesignData: vi.fn(),
+    isPrivateBlobConfiguredForRequest: vi.fn(),
   };
 });
 
@@ -82,6 +95,7 @@ vi.mock("@agent-native/core/private-blob", () => ({
   ATTACHMENT_REF_MAX_CHARS: 4_096,
   deletePrivateBlob: mocks.deletePrivateBlob,
   getActivePrivateBlobProviderForRequest: mocks.getProvider,
+  isPrivateBlobConfiguredForRequest: mocks.isPrivateBlobConfiguredForRequest,
   putPrivateBlob: mocks.putPrivateBlob,
   resolveAttachment: mocks.resolveAttachment,
 }));
@@ -95,6 +109,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => ({ accessFilter: true })),
   assertAccess: mocks.assertAccess,
 }));
 vi.mock("drizzle-orm", () => ({
@@ -116,7 +131,8 @@ vi.mock("../server/db/index.js", () => {
   return {
     getDb: mocks.getDb,
     schema: {
-      designs: table("designs", ["id"]),
+      designs: table("designs", ["id", "updatedAt"]),
+      designShares: table("designShares", ["designId"]),
       designFiles: table("designFiles", [
         "id",
         "designId",
@@ -129,7 +145,20 @@ vi.mock("../server/db/index.js", () => {
       designBoardReplayScreenshots: table("designBoardReplayScreenshots", [
         "id",
         "designId",
+        "app",
+        "route",
+        "captureSourceFingerprint",
+        "captureSourceFingerprint",
+        "replayId",
+        "capturedAt",
+        "offsetMs",
+        "viewportWidth",
+        "viewportHeight",
+        "mimeType",
+        "sizeBytes",
         "blobHandle",
+        "sourceStageId",
+        "ownerEmail",
       ]),
     },
   };
@@ -157,6 +186,7 @@ vi.mock("./migrate-board-objects-to-file.js", () => ({
 }));
 
 import { emptyBoardHtml } from "../shared/board-file.js";
+import { planJourneyCanvas } from "../shared/journey-canvas.js";
 import action from "./create-journey-canvas.js";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
@@ -212,11 +242,31 @@ function rawInput(frames: Array<Record<string, unknown>>) {
 const frame = (nodeKey: string, extra: Record<string, unknown>) => ({
   nodeKey,
   exampleIndex: 0,
+  route: "/home",
+  captureSourceFingerprint: null,
   width: 1440,
   height: 900,
   capturedAt: "2026-10-08T09:30:00.000Z",
   ...extra,
 });
+
+const stageImportId = "import-1";
+const stageFrameKey = "a\u00000";
+const stageFrameKeyHash = createHash("sha256")
+  .update(stageFrameKey)
+  .digest("hex");
+const stageFrameId = `jcu_${createHash("sha256")
+  .update(`design-1\u0000${stageImportId}\u0000${stageFrameKey}`)
+  .digest("hex")
+  .slice(0, 40)}`;
+const stageAppMarker = `journey-canvas-stage:v2:${Buffer.from(
+  JSON.stringify({
+    importId: stageImportId,
+    frameKeyHash: stageFrameKeyHash,
+    imageSha256: "a".repeat(64),
+    app: "design",
+  }),
+).toString("base64url")}`;
 
 const parsed = (input: ReturnType<typeof rawInput>) =>
   (action as any).schema.parse(input);
@@ -230,6 +280,9 @@ beforeEach(() => {
   state.lockedBoardContent = null;
   state.landedSelects = [];
   state.selectQueue = [];
+  state.stagedRows = [];
+  state.preflightStagedRows = [];
+  state.preflightPromotedRows = [];
   state.inserts = [];
   state.deletes = [];
   state.boardWrites = [];
@@ -251,10 +304,24 @@ beforeEach(() => {
   // The first select reads the board; later ones are the post-failure "did it land" checks.
   let dbSelects = 0;
   mocks.getDb.mockImplementation(() => ({
-    select: () =>
-      dbSelects++ === 0
+    select: (projection: Record<string, unknown> = {}) => {
+      const fields = Object.keys(projection);
+      if (fields.includes("app") && fields.includes("replayId")) {
+        return mocks.chain(state.stagedRows.shift() ?? []);
+      }
+      if (fields.includes("sourceStageId") && fields.includes("sizeBytes")) {
+        return mocks.chain(state.preflightPromotedRows);
+      }
+      if (fields.includes("id") && fields.includes("sizeBytes")) {
+        return mocks.chain(state.preflightStagedRows);
+      }
+      if (fields.length === 1 && fields.includes("updatedAt")) {
+        return mocks.chain(state.landedSelects.shift() ?? []);
+      }
+      return dbSelects++ === 0
         ? mocks.chain([{ ...BOARD_FILE, content: state.boardContent }])
-        : mocks.chain(state.landedSelects.shift() ?? []),
+        : mocks.chain(state.landedSelects.shift() ?? []);
+    },
   }));
   mocks.readLiveSourceFile.mockImplementation(
     async (file: { content: string }) => ({
@@ -264,6 +331,7 @@ beforeEach(() => {
     }),
   );
   mocks.getProvider.mockResolvedValue({ id: "private-provider" });
+  mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
   mocks.resolveAttachment.mockResolvedValue({
     status: "ok",
     file: { data: PNG },
@@ -362,6 +430,12 @@ describe("create-journey-canvas run", () => {
       title: "a",
       breakpointWidths: [],
       heightMode: "fixed",
+      journeyExample: {
+        eventAt: "2026-10-01T12:00:00.000Z",
+        recordingId: "a-r1",
+        offsetMs: 2_000,
+        screenshotCapturedAt: "2026-10-08T09:30:00.000Z",
+      },
     });
     expect(data.journeyCanvasOrigin).toEqual({ x: 0, y: 0 });
 
@@ -376,21 +450,91 @@ describe("create-journey-canvas run", () => {
     expect(mocks.seedFromText).toHaveBeenCalledTimes(3);
   });
 
-  it("copies attachmentRef screenshots into private blobs and serves them through the authenticated route", async () => {
-    await action.run(
-      parsed(
-        rawInput([
-          frame("a", { attachmentRef: "ref-a" }),
-          frame("b", { attachmentRef: "ref-b" }),
-        ]),
-      ),
-      {} as any,
+  it("persists an explicit recording-gap label through the action run", async () => {
+    const anonymousIdHash = "a".repeat(64);
+    const base = rawInput([]);
+    const source = {
+      ...base.tree.nodes[0]!,
+      examples: [
+        {
+          ...base.tree.nodes[0]!.examples[0]!,
+          sessionId: "synthetic-session",
+          recordingId: "synthetic-recording-entry",
+          anonymousIdHash,
+        },
+      ],
+    };
+    const target = {
+      key: "b",
+      label: "Later setup",
+      parentKey: "a",
+      depth: 2,
+      kind: "step",
+      referenceOnly: true,
+      examples: [
+        {
+          ...base.tree.nodes[1]!.examples[0]!,
+          sessionId: "synthetic-session",
+          recordingId: "synthetic-recording-setup",
+          anonymousIdHash,
+        },
+      ],
+    };
+    const input = (action as any).schema.parse({
+      ...base,
+      tree: { ...base.tree, nodes: [source, target] },
+      frames: [
+        frame("a", {
+          attachmentRef: "synthetic-private-source-frame",
+          recordingStartedAt: "2026-10-01T12:00:00.000Z",
+          recordingEndedAt: "2026-10-01T12:00:05.000Z",
+          screenshotOffsetMs: 1_000,
+        }),
+        frame("b", {
+          attachmentRef: "synthetic-private-target-frame",
+          recordingStartedAt: "2026-10-01T12:00:08.000Z",
+          screenshotOffsetMs: 1_000,
+        }),
+      ],
+      observedRecordingGaps: [
+        {
+          type: "recording-gap",
+          fromNodeKey: "a",
+          fromExampleIndex: 0,
+          toNodeKey: "b",
+          toExampleIndex: 0,
+          gapDurationMs: 3_000,
+        },
+      ],
+    });
+
+    const result = await action.run(input, { caller: "mcp" } as any);
+    const boardContent = mocks.state.boardWrites[0]!.content;
+
+    expect(result).toMatchObject({ nodeCount: 2, frameCount: 2 });
+    expect(boardContent).toContain('stroke-dasharray="6 6"');
+    expect(boardContent).toContain(
+      'data-agent-native-layer-name="Observed recording gap"',
     );
+    expect(boardContent).toContain('aria-label="Recording gap · 3s"');
+    expect(boardContent).not.toContain("Same recording");
+    expect(boardContent).not.toMatch(/conversion|successful signup/i);
+    expect(mocks.putPrivateBlob).toHaveBeenCalledTimes(2);
+  });
+
+  it("copies attachmentRef screenshots into private blobs and serves them through the authenticated route", async () => {
+    const input = rawInput([
+      frame("a", { attachmentRef: "ref-a", sourceApp: "chat" }),
+      frame("b", { attachmentRef: "ref-b", sourceApp: "chat" }),
+    ]);
+    input.tree.app = "all";
+    await action.run(parsed(input), {} as any);
 
     expect(mocks.resolveAttachment).toHaveBeenCalledWith("ref-a", {
       ownerEmail: "designer@example.test",
       orgId: null,
     });
+    expect(mocks.resolveAttachment).toHaveBeenCalledTimes(4);
     expect(mocks.putPrivateBlob).toHaveBeenCalledTimes(2);
     expect(mocks.putPrivateBlob.mock.calls[0]![0]).toMatchObject({
       ownerEmail: "designer@example.test",
@@ -412,7 +556,7 @@ describe("create-journey-canvas run", () => {
       expect(row).toMatchObject({
         designId: "generated-1",
         mimeType: "image/png",
-        app: "design",
+        app: "chat",
       });
       expect(
         files.some((file) =>
@@ -423,6 +567,307 @@ describe("create-journey-canvas run", () => {
       ).toBe(true);
     }
     expect(files.some((file) => file.content.includes("ref-a"))).toBe(false);
+  });
+
+  it("consumes a Design-staged private frame without copying it again", async () => {
+    const stagedHandle = {
+      id: "staged-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: null,
+          captureSourceFingerprint: "a".repeat(64),
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    ];
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: stageFrameId,
+          route: null,
+          captureSourceFingerprint: "a".repeat(64),
+          screenshotOffsetMs: 2_600,
+          capturedAt: "2026-10-08T02:30:00.000-07:00",
+        }),
+      ]),
+      designId: "design-1",
+    });
+
+    await action.run(input, {} as any);
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    const finalRows = mocks.state.inserts.find(
+      (entry) => entry.table === "designBoardReplayScreenshots",
+    )!.rows;
+    expect(finalRows).toHaveLength(1);
+    expect(finalRows[0]).toMatchObject({
+      id: expect.stringMatching(/^jcs_/),
+      blobHandle: JSON.stringify(stagedHandle),
+      replayId: "a-r1",
+      app: "design",
+      offsetMs: 2_600,
+      route: null,
+      captureSourceFingerprint: "a".repeat(64),
+      sourceStageId: stageFrameId,
+    });
+    expect(mocks.state.deletes).toContainEqual(
+      expect.objectContaining({ table: "designBoardReplayScreenshots" }),
+    );
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("recognizes a staged-only refresh after its mutation response is lost", async () => {
+    const stagedHandle = {
+      id: "staged-committed-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: stageFrameId,
+          screenshotOffsetMs: 2_600,
+        }),
+      ]),
+      designId: "design-1",
+    });
+    const screen = planJourneyCanvas(input, "design-1").screens[0]!;
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
+          captureSourceFingerprint: null,
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      [],
+    ];
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.000Z" }],
+      [{ id: screen.fileId, content: screen.html }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(stagedHandle),
+        },
+      ],
+    ];
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("committed response lost");
+    });
+
+    const result = await action.run(input, {} as any);
+    expect(result.designId).toBe("design-1");
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not promote an expired staged frame", async () => {
+    const stagedHandle = {
+      id: "expired-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
+          captureSourceFingerprint: null,
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date(
+            Date.now() - 8 * 24 * 60 * 60 * 1_000,
+          ).toISOString(),
+        },
+      ],
+    ];
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: stageFrameId,
+          screenshotOffsetMs: 2_600,
+          capturedAt: "2026-10-08T02:30:00.000-07:00",
+        }),
+      ]),
+      designId: "design-1",
+    });
+
+    await expect(action.run(input, {} as any)).rejects.toMatchObject({
+      errorCode: "journey_staged_frame_expired",
+      statusCode: 410,
+    });
+    expect(mocks.state.inserts).toEqual([]);
+  });
+
+  it("reuses a promoted private frame when retrying after a committed response was lost", async () => {
+    const stagedHandle = {
+      id: "already-promoted-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    const input = parsed({
+      ...rawInput([
+        frame("a", {
+          stagedFrameId: stageFrameId,
+          screenshotOffsetMs: 2_000,
+          caption: { prompt: "Updated caption after the lost response" },
+        }),
+      ]),
+      designId: "design-1",
+    });
+    const finalRowId = planJourneyCanvas(input, "design-1").screens[0]!
+      .attachment!.rowId;
+    mocks.state.preflightPromotedRows = [
+      {
+        id: finalRowId,
+        sizeBytes: 24,
+        sourceStageId: stageFrameId,
+      },
+    ];
+    mocks.state.stagedRows = [
+      [],
+      [
+        {
+          id: finalRowId,
+          app: "design",
+          route: "/home",
+          captureSourceFingerprint: null,
+          sourceStageId: stageFrameId,
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_000,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+        },
+      ],
+    ];
+    mocks.state.selectQueue = [
+      [],
+      [{ id: finalRowId, blobHandle: JSON.stringify(stagedHandle) }],
+    ];
+
+    await action.run(input, {} as any);
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.queueCleanup.mock.calls[0]?.[1]).toEqual([]);
+    const finalRows = mocks.state.inserts.find(
+      (entry) => entry.table === "designBoardReplayScreenshots",
+    )!.rows;
+    expect(finalRows).toHaveLength(1);
+    expect(finalRows[0]).toMatchObject({
+      id: finalRowId,
+      blobHandle: JSON.stringify(stagedHandle),
+    });
+  });
+
+  it("stores attachmentRef screenshots through the encrypted public-upload fallback", async () => {
+    const fallbackHandle = {
+      id: "public-upload:v1:encrypted-descriptor",
+      provider: "public-upload:builder-storage",
+      opaque: true as const,
+      encrypted: true,
+    };
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.putPrivateBlob.mockResolvedValue(fallbackHandle);
+
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    await action.run(
+      { ...input, allowEncryptedPublicUploadFallback: true },
+      {} as any,
+    );
+
+    const row = mocks.state.inserts.find(
+      (entry) => entry.table === "designBoardReplayScreenshots",
+    )!.rows[0]!;
+    expect(JSON.parse(row.blobHandle)).toEqual(fallbackHandle);
+    expect(mocks.putPrivateBlob).toHaveBeenCalledOnce();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed encrypted public-upload fallback handles", async () => {
+    const malformedHandle = {
+      id: "public-upload:v1:encrypted-descriptor",
+      provider: "private-provider",
+      opaque: true as const,
+      encrypted: false,
+    };
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.putPrivateBlob.mockResolvedValue(malformedHandle);
+
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    await expect(
+      action.run(
+        { ...input, allowEncryptedPublicUploadFallback: true },
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_mismatch" });
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(malformedHandle);
+  });
+
+  it("keeps a configured provider id check for stored screenshots", async () => {
+    const mismatchedHandle = {
+      id: "blob-id",
+      provider: "other-provider",
+      opaque: true as const,
+      encrypted: true,
+    };
+    mocks.getProvider.mockResolvedValue({ id: "private-provider" });
+    mocks.putPrivateBlob.mockResolvedValue(mismatchedHandle);
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_mismatch" });
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(mismatchedHandle);
   });
 
   it("replaces only what it drew before and leaves other canvas content in place", async () => {
@@ -591,6 +1036,74 @@ describe("create-journey-canvas run", () => {
     );
     expect(result.designId).toBe("generated-1");
   });
+
+  it("checks the aggregate screenshot size before writing any private blobs", async () => {
+    const input = rawInput([]);
+    const templateNode = input.tree.nodes[0]!;
+    const count = 26;
+    input.tree.nodes = Array.from({ length: count }, (_, index) => ({
+      ...templateNode,
+      key: `step-${index}`,
+      label: `Step ${index}`,
+      examples: [
+        {
+          ...templateNode.examples[0]!,
+          sessionId: `session-${index}`,
+          recordingId: `recording-${index}`,
+        },
+      ],
+    }));
+    input.frames = Array.from({ length: count }, (_, index) =>
+      frame(`step-${index}`, {
+        attachmentRef: `ref-${index}`,
+      }),
+    );
+    const oversizedBatchImage = Buffer.alloc(10 * 1024 * 1024);
+    oversizedBatchImage.set([0xff, 0xd8, 0xff]);
+    mocks.resolveAttachment.mockResolvedValue({
+      status: "ok",
+      file: { data: oversizedBatchImage },
+    });
+
+    await expect(action.run(parsed(input), {} as any)).rejects.toMatchObject({
+      errorCode: "journey_screenshots_too_large",
+      statusCode: 413,
+    });
+
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("does not count preflighted source bytes again while uploading them", async () => {
+    const input = rawInput([]);
+    const templateNode = input.tree.nodes[0]!;
+    const count = 15;
+    input.tree.nodes = Array.from({ length: count }, (_, index) => ({
+      ...templateNode,
+      key: `step-${index}`,
+      label: `Step ${index}`,
+      examples: [
+        {
+          ...templateNode.examples[0]!,
+          sessionId: `session-${index}`,
+          recordingId: `recording-${index}`,
+        },
+      ],
+    }));
+    input.frames = Array.from({ length: count }, (_, index) =>
+      frame(`step-${index}`, { attachmentRef: `ref-${index}` }),
+    );
+    const image = Buffer.alloc(10 * 1024 * 1024);
+    image.set(PNG);
+    mocks.resolveAttachment.mockResolvedValue({
+      status: "ok",
+      file: { data: image },
+    });
+
+    const result = await action.run(parsed(input), {} as any);
+
+    expect(result.frameCount).toBe(count);
+    expect(mocks.putPrivateBlob).toHaveBeenCalledTimes(count);
+  });
 });
 
 describe("create-journey-canvas exposure", () => {
@@ -638,8 +1151,9 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
-  it("requires a private blob provider only when attachmentRefs are used", async () => {
+  it("requires private blob storage only when attachmentRefs are used", async () => {
     mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(false);
     await expect(
       action.run(
         parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
@@ -648,6 +1162,7 @@ describe("create-journey-canvas failures", () => {
     ).rejects.toMatchObject({ errorCode: "private_blob_provider_required" });
     expect(mocks.createDesign).not.toHaveBeenCalled();
     mocks.getProvider.mockClear();
+    mocks.isPrivateBlobConfiguredForRequest.mockClear();
     await action.run(
       parsed(
         rawInput([frame("a", { imageUrl: "https://img.example.test/a.png" })]),
@@ -655,9 +1170,26 @@ describe("create-journey-canvas failures", () => {
       {} as any,
     );
     expect(mocks.getProvider).not.toHaveBeenCalled();
+    expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
   });
 
-  it("discards blobs it already stored, and deletes a design it created, when a later attachment fails", async () => {
+  it("requires explicit opt-in before using the configured encrypted fallback", async () => {
+    mocks.getProvider.mockResolvedValue(null);
+    mocks.isPrivateBlobConfiguredForRequest.mockResolvedValue(true);
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({ errorCode: "private_blob_provider_required" });
+
+    expect(mocks.resolveAttachment).not.toHaveBeenCalled();
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.isPrivateBlobConfiguredForRequest).not.toHaveBeenCalled();
+  });
+
+  it("preflights every attachment before storing any blobs when a later attachment fails", async () => {
     mocks.resolveAttachment
       .mockResolvedValueOnce({ status: "ok", file: { data: PNG } })
       .mockResolvedValueOnce({ status: "notFound", reason: "expired" });
@@ -673,7 +1205,31 @@ describe("create-journey-canvas failures", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "attachment_notFound" });
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
-    expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+  });
+
+  it("rejects attachment bytes that change between bounded preflight and storage", async () => {
+    const changedPng = Buffer.from(PNG);
+    changedPng[changedPng.length - 1] = changedPng.at(-1)! ^ 1;
+    mocks.resolveAttachment
+      .mockResolvedValueOnce({ status: "ok", file: { data: PNG } })
+      .mockResolvedValueOnce({
+        status: "ok",
+        file: { data: new Uint8Array(changedPng) },
+      });
+
+    await expect(
+      action.run(
+        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
+        {} as any,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "journey_attachment_changed_after_preflight",
+      statusCode: 409,
+    });
+    expect(mocks.putPrivateBlob).not.toHaveBeenCalled();
     expect(mocks.createDesign).not.toHaveBeenCalled();
   });
 
@@ -692,7 +1248,7 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the design and the blobs when the mutation rejects after its screenshot rows landed", async () => {
+  it("reports success when exact screen and screenshot rows prove the write landed", async () => {
     const handle = {
       id: "blob-kept",
       provider: "private-provider",
@@ -700,33 +1256,45 @@ describe("create-journey-canvas failures", () => {
       encrypted: true,
     };
     mocks.putPrivateBlob.mockResolvedValueOnce(handle);
-    mocks.state.landedSelects = [[{ blobHandle: JSON.stringify(handle) }]];
-    mocks.mutateDesignData.mockRejectedValueOnce(
-      new Error("Design not found after commit"),
-    );
-    await expect(
-      action.run(
-        parsed(rawInput([frame("a", { attachmentRef: "ref-a" })])),
-        {} as any,
-      ),
-    ).rejects.toThrow("not found after commit");
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.000Z" }],
+      [{ id: screen.fileId, content: screen.html }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(handle),
+        },
+      ],
+    ];
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("Design not found after commit");
+    });
+    const result = await action.run(input, {} as any);
+    expect(result.designId).toBe("generated-1");
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
-  it("keeps a newly created design whose screens landed even when no blobs were stored", async () => {
-    mocks.state.landedSelects = [[{ id: "jc_landed" }]];
-    mocks.mutateDesignData.mockRejectedValueOnce(new Error("not applied"));
-    await expect(
-      action.run(
-        parsed(
-          rawInput([
-            frame("a", { imageUrl: "https://img.example.test/a.png" }),
-          ]),
-        ),
-        {} as any,
-      ),
-    ).rejects.toThrow("not applied");
+  it("reports success when exact screenshotless screen rows prove the write landed", async () => {
+    const input = parsed(
+      rawInput([frame("a", { imageUrl: "https://img.example.test/a.png" })]),
+    );
+    const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.000Z" }],
+      [{ id: screen.fileId, content: screen.html }],
+    ];
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("committed response lost");
+    });
+    const result = await action.run(input, {} as any);
+    expect(result.designId).toBe("generated-1");
     expect(mocks.deleteDesign).not.toHaveBeenCalled();
   });
 
@@ -753,7 +1321,62 @@ describe("create-journey-canvas failures", () => {
     expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
   });
 
-  it("refuses to overwrite a board whose stored content changed after it was read, and cleans up", async () => {
+  it("does not treat a reused staged handle as a newly uploaded blob after rollback", async () => {
+    const stagedHandle = {
+      id: "already-promoted-private-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: false,
+    };
+    mocks.state.stagedRows = [
+      [
+        {
+          id: stageFrameId,
+          app: stageAppMarker,
+          route: "/home",
+          captureSourceFingerprint: null,
+          replayId: "a-r1",
+          capturedAt: "2026-10-08T09:30:00.000Z",
+          offsetMs: 2_600,
+          viewportWidth: 1440,
+          viewportHeight: 900,
+          mimeType: "image/png",
+          sizeBytes: 24,
+          blobHandle: JSON.stringify(stagedHandle),
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      [],
+    ];
+    mocks.state.preflightStagedRows = [{ id: stageFrameId, sizeBytes: 24 }];
+    mocks.state.landedSelects = [
+      [{ blobHandle: JSON.stringify(stagedHandle) }],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("conflict"));
+
+    await expect(
+      action.run(
+        parsed({
+          ...rawInput([
+            frame("a", {
+              stagedFrameId: stageFrameId,
+              screenshotOffsetMs: 2_600,
+            }),
+            frame("b", { attachmentRef: "ref-b" }),
+          ]),
+          designId: "design-1",
+        }),
+        {} as any,
+      ),
+    ).rejects.toThrow("conflict");
+
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledOnce();
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "blob-1" }),
+    );
+  });
+
+  it("removes the design it created and the blobs it stored when the transaction fails", async () => {
     mocks.state.lockedBoardContent = `${mocks.state.boardContent}<!-- edited -->`;
     await expect(
       action.run(
@@ -770,6 +1393,145 @@ describe("create-journey-canvas failures", () => {
     );
     expect(mocks.deletePrivateBlob).toHaveBeenCalledTimes(1);
     expect(mocks.state.inserts).toEqual([]);
+  });
+
+  it("preserves committed screenshot blobs when an editor changes the screen before write verification", async () => {
+    const input = parsed(rawInput([frame("a", { attachmentRef: "ref-a" })]));
+    const handle = {
+      id: "committed-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    const screen = planJourneyCanvas(input, "generated-1").screens[0]!;
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T10:00:00.001Z" }],
+      [{ id: screen.fileId, content: `${screen.html}<!-- editor change -->` }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(handle),
+        },
+      ],
+      [{ blobHandle: JSON.stringify(handle) }],
+    ];
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("response lost");
+    });
+
+    await expect(action.run(input, {} as any)).rejects.toThrow("response lost");
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.state.landedSelects).toEqual([]);
+  });
+
+  it("does not treat matching pre-existing screens as proof that a refresh committed", async () => {
+    const input = parsed({
+      ...rawInput([frame("a", { attachmentRef: "ref-a" })]),
+      designId: "design-1",
+    });
+    const handle = {
+      id: "existing-blob",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    const screen = planJourneyCanvas(input, "design-1").screens[0]!;
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [
+      [{ updatedAt: "2026-10-08T09:59:00.000Z" }],
+      [{ id: screen.fileId, content: screen.html }],
+      [
+        {
+          id: screen.attachment!.rowId,
+          blobHandle: JSON.stringify(handle),
+        },
+      ],
+      [{ blobHandle: JSON.stringify(handle) }],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("board conflict"));
+
+    await expect(action.run(input, {} as any)).rejects.toThrow(
+      "board conflict",
+    );
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("keeps referenced blobs when editor access is revoked during recovery", async () => {
+    const input = parsed({
+      ...rawInput([frame("a", { attachmentRef: "ref-a" })]),
+      designId: "design-1",
+    });
+    const handle = {
+      id: "committed-before-revocation",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [[{ blobHandle: JSON.stringify(handle) }]];
+    const ownerAccess = {
+      role: "owner",
+      resource: {
+        id: "design-1",
+        ownerEmail: "owner@example.test",
+        orgId: null,
+        visibility: "private",
+      },
+    };
+    mocks.assertAccess
+      .mockResolvedValueOnce(ownerAccess)
+      .mockResolvedValueOnce(ownerAccess)
+      .mockRejectedValueOnce(new Error("editor share was revoked"));
+    const commitMutation = mocks.mutateDesignData.getMockImplementation()!;
+    mocks.mutateDesignData.mockImplementationOnce(async (...args) => {
+      await commitMutation(...args);
+      throw new Error("response lost");
+    });
+
+    await expect(action.run(input, {} as any)).rejects.toThrow("response lost");
+
+    expect(mocks.deletePrivateBlob).not.toHaveBeenCalled();
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+  });
+
+  it("cleans unreferenced uploads after an ambiguous refresh without deleting the Design", async () => {
+    const input = parsed({
+      ...rawInput([frame("a", { attachmentRef: "ref-a" })]),
+      designId: "design-1",
+    });
+    const screen = planJourneyCanvas(input, "design-1").screens[0]!;
+    const handle = {
+      id: "unreferenced-upload",
+      provider: "private-provider",
+      opaque: true,
+      encrypted: true,
+    };
+    mocks.putPrivateBlob.mockResolvedValueOnce(handle);
+    mocks.state.landedSelects = [
+      [],
+      [
+        {
+          id: screen.fileId,
+          content: `${screen.html}<!-- concurrent edit -->`,
+        },
+      ],
+      [],
+      [],
+      [],
+    ];
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("conflict"));
+
+    await expect(action.run(input, {} as any)).rejects.toThrow("conflict");
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.deletePrivateBlob).toHaveBeenCalledWith(handle);
   });
 
   it("refuses to overwrite a board whose live collaboration content changed after it was read", async () => {

@@ -5,7 +5,7 @@ description: "Automatisations déclenchées et planifiées par des événements 
 
 # Automatisations
 
-Une **automatisation** est une tâche exécutée par l'agent selon un calendrier ou lorsqu'un événement survient : _quand X se produit, faites Y_. **Scheduled** et **Event** sont deux types de déclencheurs, pas des produits distincts.
+Une **automatisation** est une tâche exécutée par l'agent selon un calendrier, lorsqu'un événement survient ou lorsqu'un webhook est appelé : _quand X se produit, faites Y_. **Scheduled**, **Event** et **Webhook** sont des types de déclencheurs, pas des produits distincts.
 
 Le framework présentait à l'origine les automatisations planifiées comme des **Recurring Jobs**. Ce nom, le chemin `jobs/<name>.md` et l'outil `manage-jobs` restent disponibles pour compatibilité. La nouvelle documentation utilise **Automations** comme terme générique ; consultez [Recurring Jobs](/docs/recurring-jobs) pour maintenir une ancienne tâche planifiée ou utiliser la portée organisation et les champs avancés.
 
@@ -21,7 +21,7 @@ Le framework présentait à l'origine les automatisations planifiées comme des 
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -55,14 +55,21 @@ Le framework présentait à l'origine les automatisations planifiées comme des 
 
 </Diagram>
 
-## Deux types de déclencheurs {#trigger-types}
+## Types de déclencheurs {#trigger-types}
 
-| Tapez      | Se déclenche quand                                                       | Champ clé         |
-| ---------- | ------------------------------------------------------------------------ | ----------------- |
-| `schedule` | Une expression cron correspond (comme pour les tâches récurrentes)       | `schedule` (cron) |
-| `event`    | Un événement correspondant est émis sur le bus d'événements du framework | `event` (nom)     |
+| Tapez      | Se déclenche quand                                                              | Champ clé                    |
+| ---------- | ------------------------------------------------------------------------------- | ---------------------------- |
+| `schedule` | Une expression cron correspond (comme pour les tâches récurrentes)              | `schedule` (cron)            |
+| `event`    | Un événement correspondant est émis sur le bus d'événements du framework        | `event` (nom)                |
+| `webhook`  | Une requête HTTP `POST` arrive sur l'URL de webhook secrète de l'automatisation | L'URL renvoyée à la création |
 
-Les déclencheurs d'événements peuvent inclure un `condition` : une chaîne en langage naturel évaluée par Haiku par rapport à la charge utile de l'événement avant l'envoi. Si la condition ne correspond pas, l'automatisation est ignorée silencieusement.
+Les déclencheurs d'événement et de webhook peuvent inclure un `condition` : une chaîne en langage naturel qu'un modèle vérifie par rapport à la charge utile avant l'envoi. Si la condition ne correspond pas, l'automatisation est ignorée et enregistre le statut `skipped`. Si la condition ne peut pas être évaluée, l'automatisation ne s'exécute pas. Voir [Conditions](#conditions).
+
+### Déclencheurs webhook {#webhook-triggers}
+
+Créer une automatisation webhook renvoie un chemin d'URL de la forme `/_agent-native/automations/webhook/<token>`. Le jeton est le secret : ne donnez donc l'URL qu'au service qui l'appelle. Chaque `POST` envoyé à cette URL devient la charge utile de l'automatisation, jusqu'à 64 Ko. Un corps envoyé avec un type de contenu JSON est analysé, et tout autre corps est transmis comme texte. Le point de terminaison répond `202` et exécute l'automatisation en arrière-plan.
+
+Envoyez un identifiant d'événement stable dans un en-tête `X-Webhook-Event-Id`, `X-Event-Id` ou `X-GitHub-Delivery`, ou sous la forme d'un `id` de type chaîne de premier niveau dans un corps JSON. Une livraison répétée avec le même identifiant n'est pas remise en file d'attente et reçoit une réponse `200` marquée comme doublon. L'identifiant n'empêche que les livraisons en double. Une exécution échouée peut faire l'objet d'une nouvelle tentative, et cette nouvelle tentative peut répéter des effets de bord que l'exécution échouée a déjà causés. Une fois qu'une livraison a définitivement échoué, son identifiant est libéré, et une livraison ultérieure avec cet identifiant est mise en file d'attente comme une nouvelle livraison.
 
 ## Créer des automatisations {#creating}
 
@@ -74,7 +81,9 @@ L'agent découvre les événements disponibles, confirme le plan et rédige l'au
 
 ### Depuis l'interface Automations
 
-Ouvrez **Automations** dans la page Agent complète pour afficher et gérer les automatisations planifiées et déclenchées par événement. L'URL de compatibilité reste `/agent#jobs`, afin que les liens et favoris existants continuent de fonctionner.
+Ouvrez **Settings › Automations**. C'est l'endroit principal pour voir les automatisations planifiées, déclenchées par événement et par webhook, consulter leur statut, en exécuter une immédiatement, les mettre en pause ou les reprendre, et les supprimer. Les anciens liens `/agent#jobs` y redirigent.
+
+**Run now** est le moyen le plus rapide de tester une automatisation. Il exécute immédiatement les instructions de l'automatisation, avec leurs effets de bord réels. Il ignore le déclencheur et la condition, et il ne modifie pas la prochaine exécution planifiée, à une exception près : si le framework a mis l'automatisation en pause, une exécution réussie la réactive, et la prochaine exécution d'une automatisation planifiée est à nouveau calculée. L'agent peut faire la même chose avec `manage-automations` et `action=run-now`.
 
 <Callout tone="warning">
 
@@ -106,7 +115,7 @@ Le troisième chemin (écriture manuelle du fichier `jobs/<name>.md` via `resour
     {
       lines: "6",
       label: "Porte",
-      note: "Un `condition` en langage naturel facultatif, évalué par Haiku par rapport à la charge utile avant l'expédition.",
+      note: "Un `condition` en langage naturel facultatif, vérifié par un modèle par rapport à la charge utile avant l'expédition.",
     },
     {
       lines: "12",
@@ -120,15 +129,15 @@ Le troisième chemin (écriture manuelle du fichier `jobs/<name>.md` via `resour
 
 Les automatisations partagent tous les champs du [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Ces champs supplémentaires contrôlent les déclencheurs d'événements, les conditions et le mode d'exécution :
 
-| Champ         | Tapez                     | Par défaut     | Description                                                                                                                                                                                     |
-| ------------- | ------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"`   | Comment se déclenche l'automatisation                                                                                                                                                           |
-| `event`       | chaîne                    | _(facultatif)_ | Nom de l'événement auquel s'abonner (déclencheurs d'événement uniquement)                                                                                                                       |
-| `condition`   | chaîne                    | _(facultatif)_ | Condition du langage naturel évaluée avant l'envoi                                                                                                                                              |
-| `mode`        | `"agentic"`               | `"agentic"`    | Boucle d'agent complète (le seul mode pris en charge). `"deterministic"` a été supprimé — il n'a jamais été implémenté, et les automatisations qui le définissaient ne se déclenchaient jamais. |
-| `domain`      | chaîne                    | _(facultatif)_ | Balise de regroupement (mail, calendrier, clips, etc.)                                                                                                                                          |
+| Champ         | Tapez                                    | Par défaut     | Description                                                                                                                                                                                     |
+| ------------- | ---------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"`   | Comment se déclenche l'automatisation                                                                                                                                                           |
+| `event`       | chaîne                                   | _(facultatif)_ | Nom de l'événement auquel s'abonner (déclencheurs d'événement uniquement)                                                                                                                       |
+| `condition`   | chaîne                                   | _(facultatif)_ | Condition en langage naturel évaluée avant l'envoi (déclencheurs d'événement et de webhook)                                                                                                     |
+| `mode`        | `"agentic"`                              | `"agentic"`    | Boucle d'agent complète (le seul mode pris en charge). `"deterministic"` a été supprimé — il n'a jamais été implémenté, et les automatisations qui le définissaient ne se déclenchaient jamais. |
+| `domain`      | chaîne                                   | _(facultatif)_ | Balise de regroupement (mail, calendrier, clips, etc.)                                                                                                                                          |
 
-Pour un déclencheur d'événement, `schedule` est `""` (vide) ; pour un déclencheur de planification, il porte l'expression cron. Le répartiteur écrit également les mêmes champs gérés `lastRun` / `lastStatus` / `lastError` que le planificateur, plus un statut `"skipped"` lorsqu'une condition est évaluée comme fausse.
+Pour un déclencheur d'événement ou de webhook, `schedule` est `""` (vide) ; pour un déclencheur de planification, il porte l'expression cron. Le répartiteur écrit également les mêmes champs gérés `lastRun` / `lastStatus` / `lastError` que le planificateur, plus un statut `"skipped"` lorsqu'une condition est évaluée comme fausse. Lorsqu'une condition ne peut pas être évaluée, consultez [Conditions](#conditions) pour savoir ce qui est enregistré.
 
 ## Le bus événementiel {#event-bus}
 
@@ -186,12 +195,17 @@ Le `owner` des métadonnées d'émission détermine quelles automatisations se d
 
 ## Conditions {#conditions}
 
-Les conditions sont des chaînes en langage naturel évaluées par Claude Haiku par rapport à la charge utile de l'événement. Il s'agit d'une classification oui/non, pas d'une tâche de génération.
+Les conditions sont des chaînes en langage naturel qu'un modèle vérifie par rapport à la charge utile de l'événement ou du webhook. Il s'agit d'une classification oui/non, pas d'une tâche de génération.
 
 - **Condition vide ou manquante** = inconditionnel (se déclenche toujours).
-- Les résultats sont mémorisés (SHA-256 de condition + charge utile) avec un cache TTL de 5 minutes et un cache LRU de 500 entrées.
-- La charge utile est tronquée à 4 000 caractères avant d'être envoyée à Haiku.
-- En cas de panne de API, la condition est évaluée à `false` (valeur par défaut : l'automatisation est ignorée).
+- Les résultats sont mis en cache pendant 5 minutes, avec pour clé un hachage SHA-256 de la condition et de la charge utile, et au plus 500 entrées.
+- La charge utile est tronquée à 4 000 caractères avant d'être envoyée au modèle.
+
+<Callout tone="info">
+
+Une condition qui ne peut pas être évaluée ne compte ni comme une correspondance ni comme une non-correspondance, et l'automatisation ne s'exécute pas. Une erreur du fournisseur enregistre `lastStatus: error` avec la raison dans `lastError`, et l'événement fait l'objet d'une nouvelle tentative. Si aucune clé API n'est disponible pour évaluer la condition, une automatisation d'événement enregistre une erreur pour chaque événement correspondant et se met en pause d'elle-même après trois erreurs consécutives. Dès qu'une clé est disponible, un planificateur en cours d'exécution la réactive de lui-même en 15 minutes environ. Dans un environnement où aucun planificateur ne s'exécute, réactivez-la dans **Settings › Automations**. Une automatisation webhook dans le même état ne se met pas en pause. Sa livraison échoue et fait l'objet d'une nouvelle tentative.
+
+</Callout>
 
 Exemples de conditions :
 
@@ -228,7 +242,7 @@ Les espaces réservés sont résolus **côté serveur** après que l'agent a ém
 Les clés sont des secrets ad hoc créés par les utilisateurs ou l'agent à des fins d'automatisation (par exemple, `SLACK_WEBHOOK`, `HUBSPOT_API_KEY`). Ils diffèrent des secrets enregistrés (`registerRequiredSecret`) en ce sens qu'ils n'ont pas de métadonnées définies par un modèle ni d'étape d'intégration.
 
 - Créé via les paramètres UI ou `/_agent-native/secrets/adhoc` API.
-- Chaque clé peut avoir une **liste verte URL** qui restreint les origines auxquelles la clé peut être envoyée (correspondance au niveau de l'origine).
+- Une clé créée via l'API peut inclure un `urlAllowlist` qui restreint les origines auxquelles la clé peut être envoyée (correspondance au niveau de l'origine). Les clés ajoutées dans les paramètres n'ont pas de liste d'autorisation.
 - La valeur brute n'est jamais exposée à l'IA : seuls les espaces réservés `${keys.NAME}` apparaissent dans le contexte de l'agent.
 - La résolution passe de la portée utilisateur à la portée de l'espace de travail, afin que les utilisateurs puissent remplacer les clés partagées.
 
@@ -236,14 +250,16 @@ Les clés sont des secrets ad hoc créés par les utilisateurs ou l'agent à des
 
 Les automatisations personnelles et d'organisation utilisent `manage-automations` avec un paramètre `action` :
 
-| Actions       | Objectif                                                                                       |
-| ------------- | ---------------------------------------------------------------------------------------------- |
-| `list-events` | Découvrez tous les événements enregistrés avec des descriptions et des schémas de charge utile |
-| `list`        | Liste de toutes les automatisations avec statut ; filtrer par domaine ou activé                |
-| `define`      | Créer une nouvelle automatisation (nom, type de déclencheur, événement, condition, corps)      |
-| `update`      | Mettre à jour une automatisation existante (activée, condition, corps)                         |
-| `delete`      | Supprimer une automatisation (toujours confirmer d'abord avec l'utilisateur)                   |
-| `fire-test`   | Émettre un événement `test.event.fired` pour valider les automatisations                       |
+| Actions       | Objectif                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `list-events` | Découvrez tous les événements enregistrés avec des descriptions et des schémas de charge utile                   |
+| `list-hosts`  | Lister les hôtes d'exécution associés avant d'en attribuer un à une automatisation                               |
+| `list`        | Liste de toutes les automatisations avec statut ; filtrer par domaine ou activé                                  |
+| `define`      | Créer une nouvelle automatisation (nom, type de déclencheur, événement, condition, corps)                        |
+| `update`      | Mettre à jour une automatisation existante (activée, condition, corps)                                           |
+| `delete`      | Supprimer une automatisation (toujours confirmer d'abord avec l'utilisateur)                                     |
+| `run-now`     | Exécuter une automatisation immédiatement, avec des effets de bord réels. Ignore le déclencheur et la condition. |
+| `fire-test`   | Émettre un événement `test.event.fired`. Seules les automatisations abonnées à cet événement réagissent.         |
 
 Outil supplémentaire : `web-request` — HTTP sortant avec substitution `${keys.NAME}`.
 
@@ -251,22 +267,23 @@ Outil supplémentaire : `web-request` — HTTP sortant avec substitution `${key
 
 ## Points de terminaison API {#api}
 
-| Point de terminaison                   | Méthode | Description                                     |
-| -------------------------------------- | ------- | ----------------------------------------------- |
-| `/_agent-native/automations`           | GET     | Liste de toutes les automatisations (analysées) |
-| `/_agent-native/automations/fire-test` | POST    | Émettre un événement `test.event.fired`         |
-| `/_agent-native/secrets/adhoc`         | GET     | Liste des clés ad hoc (aucune valeur)           |
-| `/_agent-native/secrets/adhoc`         | POST    | Créer ou mettre à jour une clé ad hoc           |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE  | Supprimer une clé ad hoc                        |
+| Point de terminaison                        | Méthode | Description                                     |
+| ------------------------------------------- | ------- | ----------------------------------------------- |
+| `/_agent-native/automations`                | GET     | Liste de toutes les automatisations (analysées) |
+| `/_agent-native/automations/fire-test`      | POST    | Émettre un événement `test.event.fired`         |
+| `/_agent-native/automations/webhook/:token` | POST    | Déclencher une automatisation webhook           |
+| `/_agent-native/secrets/adhoc`              | GET     | Liste des clés ad hoc (aucune valeur)           |
+| `/_agent-native/secrets/adhoc`              | POST    | Créer ou mettre à jour une clé ad hoc           |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE  | Supprimer une clé ad hoc                        |
 
-<Endpoint id="doc-block-f9fp1y" title={"Déclencher un événement test"} method="POST" path="/_agent-native/automations/fire-test" summary={"Émettez un événement test.event.fired pour valider les automatisations déclenchées par un événement"} responses={[
+<Endpoint id="doc-block-f9fp1y" title={"Déclencher un événement test"} method="POST" path="/_agent-native/automations/fire-test" summary={"Émettez un événement test.event.fired pour tester les automatisations qui y sont abonnées"} responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+Vérifie le chemin des événements (correspondance, portée du propriétaire et condition) pour une automatisation abonnée à `test.event.fired`. Il n'émet que cet événement : il ne peut donc pas déclencher une automatisation qui écoute un événement réel comme `calendar.booking.created`. Pour essayer une automatisation réelle, utilisez **Run now**. Équivalent à l'action `fire-test` de `manage-automations`.
 
 </Endpoint>
 
@@ -296,8 +313,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

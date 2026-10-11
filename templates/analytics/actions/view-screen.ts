@@ -32,6 +32,7 @@ import {
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
+import { isAnalyticsAskPath } from "../shared/ask-route";
 import { sessionDateBound } from "../shared/session-date-bounds";
 import {
   readSessionEventFilters,
@@ -117,8 +118,8 @@ function isAskPathname(pathname: string): boolean {
   return (
     pathname === "" ||
     pathname === "/" ||
-    pathname === "/ask" ||
-    pathname === "/overview"
+    pathname === "/overview" ||
+    isAnalyticsAskPath(pathname)
   );
 }
 
@@ -294,7 +295,8 @@ export default defineAction({
               visitorType:
                 params.visitorType === "internal" ||
                 params.visitorType === "work" ||
-                params.visitorType === "personal"
+                params.visitorType === "personal" ||
+                params.visitorType === "anonymous"
                   ? params.visitorType
                   : undefined,
               sort: SESSION_SORTS.has(params.sort ?? "")
@@ -755,6 +757,8 @@ export default defineAction({
           })),
         };
       }
+    } else if (nav?.view === "semantic-layer") {
+      screen.page = "semantic-layer";
     } else if (nav?.view === "agents") {
       screen.page = "agents";
       screen.agentsView = nav?.agentsView || "monitoring";

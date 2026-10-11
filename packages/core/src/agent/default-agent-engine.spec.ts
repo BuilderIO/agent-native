@@ -4,6 +4,12 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
+const mockTrack = vi.fn();
+
+vi.mock("../tracking/registry.js", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     if (typeof input === "string") {
@@ -316,6 +322,39 @@ describe("default model scope", () => {
         })
       ).source,
     ).toBe("none");
+  });
+
+  it("tracks default model set and reset after successful writes", async () => {
+    const authority = await adminAuthority(ORG_A, "admin-a@example.test");
+    await writeDefaultAgentEngineSelection(
+      authority,
+      { engine: "ai-sdk:openai", model: "gpt-5.5" },
+      meta,
+    );
+    await clearDefaultAgentEngineSelection(authority, meta);
+
+    expect(mockTrack.mock.calls).toEqual([
+      [
+        "llm_default_model_changed",
+        {
+          engine: "ai-sdk:openai",
+          model: "gpt-5.5",
+          scope: "org",
+          operation: "set",
+        },
+        { userId: "admin-a@example.test" },
+      ],
+      [
+        "llm_default_model_changed",
+        {
+          previous_engine: "ai-sdk:openai",
+          previous_model: "gpt-5.5",
+          scope: "org",
+          operation: "reset",
+        },
+        { userId: "admin-a@example.test" },
+      ],
+    ]);
   });
 
   it("records changes and refused attempts as admin-visible audit events", async () => {

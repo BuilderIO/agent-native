@@ -11,11 +11,13 @@ import {
 import { designFinalResponseGuard } from "../../../server/lib/design-response-guard";
 import {
   builderDesignEmbedSubmitData,
+  designCanvasIntentDirectives,
   designGenerationDirectives,
   designIntakeQuestionDirectives,
   designTemplateRefinementDirectives,
   designVariantGenerationDirectives,
   structuralReferenceDirectives,
+  variantContentDirective,
 } from "./generation-prompt-directives";
 import type { IntakeTopicCoverage } from "./intake-question-topics";
 
@@ -149,6 +151,20 @@ describe("designIntakeQuestionDirectives", () => {
     expect(text).toContain('not treat it as "nothing saved"');
   });
 
+  it("treats a fixed artwork request as having answered form factor", () => {
+    const text = designIntakeQuestionDirectives(
+      "design-1",
+      null,
+      0,
+      undefined,
+      "Create a LinkedIn ad",
+    ).join("\n");
+    expect(text).toContain("form factor is answered");
+    expect(text).not.toContain(
+      "covering what's genuinely still open: form factor",
+    );
+  });
+
   it("uses an attached screenshot as the complete generation brief", () => {
     const intake = designIntakeQuestionDirectives("design-1", null, 1).join(
       "\n",
@@ -176,6 +192,131 @@ describe("DESIGN_MUTATION_REQUIRED_DIRECTIVE", () => {
     expect(designIntakeQuestionDirectives("design-1")).not.toContain(
       DESIGN_MUTATION_REQUIRED_DIRECTIVE,
     );
+  });
+});
+
+describe("designCanvasIntentDirectives", () => {
+  it("keeps multiple exact-size outputs fixed during client intake", () => {
+    expect(
+      designCanvasIntentDirectives(
+        "Create a 1080x1080 poster and a 1200x628 banner",
+      ),
+    ).toEqual([
+      "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `devices: []`; do not combine them into responsive breakpoints or add mobile variants.",
+      "After generating each output, run `take-design-screenshot` once at that output's exact dimensions.",
+    ]);
+  });
+
+  it("uses one exact-size screenshot for fixed artwork without requested variants", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a LinkedIn ad",
+    ).join("\n");
+    expect(text).toContain("LinkedIn Single Image Ad, 1200×627px");
+    expect(text).toContain("devices: []");
+    expect(text).toContain("widths: [1200] and heights: [627]");
+    expect(text).not.toContain("After responsive app generation");
+  });
+
+  it("keeps exact-size artwork device-free even when the prompt names variants", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a LinkedIn ad with desktop and mobile versions",
+    ).join("\n");
+    expect(text).toContain("Pass `devices: []` to `generate-design`");
+    expect(text).toContain("even if the prompt mentions device versions");
+  });
+
+  it("uses only prompt-named variants for a weak fixed-artwork inference", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Create a promo banner with desktop and mobile versions",
+    ).join("\n");
+    expect(text).toContain('Pass `devices: ["desktop", "mobile"]`');
+    expect(text).toContain("user explicitly requested desktop and mobile");
+    expect(text).not.toContain("model-suggested");
+  });
+
+  it("keeps responsive screenshots for app UI even when it mentions advertising", () => {
+    const text = designGenerationDirectives(
+      "design-1",
+      null,
+      0,
+      "Build a Google Ads dashboard",
+    ).join("\n");
+    expect(text).toContain(
+      "Responsive behavior is required for app and website UI",
+    );
+    expect(text).toContain(
+      "take-design-screenshot` at desktop and mobile viewports",
+    );
+    expect(text).not.toContain("Fixed canvas:");
+  });
+});
+
+describe("variant content directives", () => {
+  const OMIT = "omit large content HTML";
+  const COMPLETE = "Give every variant complete self-contained HTML `content`";
+
+  it("allows direction-only variants for open-ended app exploration", () => {
+    const text = designVariantGenerationDirectives(
+      "design-1",
+      null,
+      "Explore 3 directions for a habit tracker app",
+    ).join("\n");
+    expect(text).toContain(OMIT);
+    expect(text).not.toContain(COMPLETE);
+  });
+
+  it.each([
+    ["a fixed-canvas brief", "Explore 3 directions for a LinkedIn ad", null],
+    ["an exact-size brief", "Show 3 options for a 300x250 ad", null],
+    [
+      "a linked design system",
+      "Explore 3 directions for a habit tracker app",
+      "system-1",
+    ],
+  ])("requires complete variant HTML for %s", (_label, prompt, systemId) => {
+    for (const text of [
+      designVariantGenerationDirectives("design-1", systemId, prompt),
+      designGenerationDirectives("design-1", systemId, 0, prompt),
+    ].map((directives) => directives.join("\n"))) {
+      expect(text).toContain(COMPLETE);
+      expect(text).not.toContain(OMIT);
+    }
+  });
+
+  it("requires complete variant HTML when reference images are attached", () => {
+    expect(
+      variantContentDirective("Explore 3 directions for a todo app", null, 1),
+    ).toContain(COMPLETE);
+  });
+
+  it("keeps full HTML requirements in fixed-canvas and reference-image generation prompts", () => {
+    for (const directives of [
+      designGenerationDirectives(
+        "design-1",
+        null,
+        0,
+        "Explore 3 directions for a LinkedIn ad",
+      ),
+      designGenerationDirectives(
+        "design-1",
+        null,
+        1,
+        "Explore 3 directions for a todo app",
+      ),
+    ]) {
+      const text = directives.join("\n");
+      expect(text).toContain(COMPLETE);
+      expect(text).not.toContain(OMIT);
+    }
   });
 });
 

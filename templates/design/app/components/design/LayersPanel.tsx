@@ -2386,15 +2386,6 @@ const LayerRow = memo(function LayerRow({
             preventContextMenuFocusRestoreRef.current = false;
           }}
         >
-          {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
-              replace — Bring to front, Send to back — Group selection,
-              (Ungroup, container rows only), Frame selection, Rename —
-              Show/Hide, Lock/Unlock — Flip horizontal, Flip vertical. Real
-              Figma has no Duplicate/Delete/Paste-here on this menu (those
-              are keyboard-only there — see ⌘D/Delete). Each item only
-              renders when its callback prop is provided, so the menu
-              degrades gracefully before every callback is wired up from the
-              caller. */}
           {onCopyLayer ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
@@ -2491,8 +2482,8 @@ const LayerRow = memo(function LayerRow({
             </ContextMenuItem>
           ) : null}
 
-          {/* Real Figma only shows Ungroup on a container row — a plain row
-              never gets it, even when the callback is wired up. */}
+          {/* Only container rows expose Ungroup; plain rows do not show it, even
+              when the callback is wired up. */}
           {canUngroupThisRow ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"

@@ -500,6 +500,23 @@ describe("normalizeSlideClipboardHtml", () => {
     expect(html).not.toContain("Spacer");
   });
 
+  it.each([
+    "transform:rotate(10deg);transform-origin:top left",
+    "rotate:20deg;translate:5px 5px;scale:1.2",
+  ])(
+    "drops how the source object was rotated, moved and scaled (%s)",
+    (painting) => {
+      const html = normalizeSlideClipboardHtml(
+        `<div style="position:absolute;left:10px;${painting}"><p>Hello</p></div>`,
+      );
+
+      expect(html).toContain("Hello");
+      for (const property of ["transform", "translate", "rotate", "scale"]) {
+        expect(html).not.toContain(`${property}:`);
+      }
+    },
+  );
+
   it("does not persist embedded clipboard image payloads", () => {
     const html = normalizeSlideClipboardHtml(
       '<p>Copied text<img src="data:image/png;base64,AAAA" alt="image label"></p><p><img src="data:image/png;base64,BBBB"></p>',

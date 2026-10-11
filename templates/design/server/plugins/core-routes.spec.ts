@@ -55,6 +55,30 @@ describe("resolveDesignOpenPath", () => {
     ).toBe("/design/d1?editorView=overview&screen=file-1");
   });
 
+  it("preserves a generation attempt on the exact design deep link", () => {
+    expect(
+      resolveDesignOpenPath({
+        view: "editor",
+        params: {
+          designId: "d1",
+          screen: "file-1",
+          generation_attempt_id: "attempt_1234567890abcdef",
+        },
+      }),
+    ).toBe(
+      "/design/d1?editorView=overview&screen=file-1&generation_attempt_id=attempt_1234567890abcdef",
+    );
+  });
+
+  it("drops malformed generation attempts from a deep link", () => {
+    expect(
+      resolveDesignOpenPath({
+        view: "editor",
+        params: { designId: "d1", generation_attempt_id: "short" },
+      }),
+    ).toBe("/design/d1");
+  });
+
   it("falls back to /home for an editor view with no design id", () => {
     expect(resolveDesignOpenPath({ view: "editor", params: {} })).toBe("/home");
   });

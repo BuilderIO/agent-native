@@ -643,6 +643,16 @@ function friendlyRecordingErrorMessage(error: string): string {
   return error;
 }
 
+export function localizedRecordingErrorMessage(
+  error: Error,
+  storageStatusUnavailableCopy: string,
+): string {
+  return (error as Error & { errorCode?: string }).errorCode ===
+    "video_storage_status_unavailable"
+    ? storageStatusUnavailableCopy
+    : error.message;
+}
+
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -1578,8 +1588,12 @@ export default function RecordRoute() {
           abortUrl: "",
           onError: (err) => {
             console.error("[recorder] error:", err);
-            showRecordingErrorToast(err.message);
-            setError(err.message);
+            const message = localizedRecordingErrorMessage(
+              err,
+              t("storageSetup.statusUnavailable"),
+            );
+            showRecordingErrorToast(message);
+            setError(message);
             setUiState("error");
           },
           onWarning: (message) => {
@@ -2136,7 +2150,10 @@ export default function RecordRoute() {
                     chunk: index + 1,
                     total: totalChunks,
                     message:
-                      responseError.responseText ||
+                      (responseError.errorCode ===
+                      "video_storage_status_unavailable"
+                        ? t("storageSetup.statusUnavailable")
+                        : responseError.responseText) ||
                       (responseError.isHtml
                         ? `HTML error response (${chunkRes.status})`
                         : chunkRes.statusText),
@@ -2226,7 +2243,10 @@ export default function RecordRoute() {
                 chunk: index + 1,
                 total: totalChunks,
                 message:
-                  responseError.responseText ||
+                  (responseError.errorCode ===
+                  "video_storage_status_unavailable"
+                    ? t("storageSetup.statusUnavailable")
+                    : responseError.responseText) ||
                   (responseError.isHtml
                     ? `HTML error response (${chunkRes.status})`
                     : chunkRes.statusText),

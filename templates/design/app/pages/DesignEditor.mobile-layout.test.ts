@@ -43,9 +43,6 @@ describe("Design editor mobile layout", () => {
     expect(inspectorSource).toContain(
       "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col",
     );
-    expect(inspectorSource).toContain(
-      "absolute top-3 right-3 bottom-3 z-[70] hidden min-h-0 flex-col overflow-hidden rounded-2xl",
-    );
     expect(editorSource).toContain(
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
@@ -78,27 +75,7 @@ describe("Design editor mobile layout", () => {
     expect(layoutSource).toContain("{showAppNav && (\n");
   });
 
-  it("keeps the standard rails in the visual-edit embed", () => {
-    expect(editorSource).toContain(
-      "embedded && !hostOwnsChrome && !embedChromeRequested",
-    );
-  });
-
-  it("keeps floating canvas controls reachable inside an MCP App widget", () => {
-    expect(editorSource).toContain(
-      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
-    );
-    expect(editorSource).toContain(
-      "embedded && !shellMode && !embedChromeRequested && !widgetEmbed;",
-    );
-    expect(editorSource).toContain(
-      "widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested)",
-    );
-    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
-    expect(editorSource).toContain("minimalUi && !widgetEmbed");
-    expect(editorSource).toContain(
-      "(widgetEmbed && minimalInspectorHasSelection)",
-    );
+  it("keeps a widget's opened screen fit on its own camera, not the selection", () => {
     expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
   });
 

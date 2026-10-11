@@ -7,6 +7,7 @@ import {
 import {
   getGenerationCreativeContext as getGenerationCreativeContextLocal,
   recordGenerationCreativeContext as recordGenerationCreativeContextLocal,
+  recordGenerationCreativeContextFromSnapshot as recordGenerationCreativeContextFromSnapshotLocal,
 } from "../store/generation.js";
 import {
   createContextPack,
@@ -30,8 +31,10 @@ import { getCreativeContext } from "./context.js";
 import {
   assertGenerationArtifactAccess,
   createGenerationArtifactAccessCapability,
+  createGenerationCreativeContextSnapshotCapability,
   type GenerationArtifactAccessTarget,
   type GenerationArtifactIdentity,
+  type GenerationCreativeContextSnapshot,
 } from "./generation-artifact-access.js";
 import {
   callIsolatedCreativeContextA2A,
@@ -617,6 +620,58 @@ export async function recordGenerationCreativeContext(
   });
 }
 
+export async function recordGenerationCreativeContextFromSnapshot(
+  input: Omit<
+    IsolatedRecordPayload,
+    "artifactAccessCapability" | "snapshotCapability"
+  >,
+  options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
+) {
+  if (!input.onlyIfMissing) {
+    throw new Error("Creative Context snapshots must be recorded idempotently");
+  }
+  if (!(await creativeContextLabEnabled())) return null;
+  const artifactAccessTarget = collaborativeArtifactTarget(
+    input,
+    options.artifactAccess,
+  );
+  if (
+    input.contextMode !== "off" &&
+    !options.db &&
+    hasIsolatedCreativeContextA2A()
+  ) {
+    const snapshot = {
+      ...input,
+      onlyIfMissing: true,
+    } satisfies GenerationCreativeContextSnapshot;
+    const snapshotCapability =
+      await createGenerationCreativeContextSnapshotCapability(snapshot);
+    const artifactAccessCapability = artifactAccessTarget
+      ? await createGenerationArtifactAccessCapability(
+          input,
+          artifactAccessTarget,
+          "record",
+        )
+      : undefined;
+    return callIsolatedCreativeContextA2A("record", {
+      ...snapshot,
+      snapshotCapability,
+      artifactAccessCapability,
+    });
+  }
+  const artifactAccess = artifactAccessTarget
+    ? await assertGenerationArtifactAccess(
+        input,
+        artifactAccessTarget,
+        "record",
+      )
+    : undefined;
+  return recordGenerationCreativeContextFromSnapshotLocal(input, {
+    db: options.db,
+    artifactAccess,
+  });
+}
+
 export async function getGenerationCreativeContext(
   input: {
     appId: string;
@@ -626,6 +681,7 @@ export async function getGenerationCreativeContext(
   options: {
     artifactAccess?: GenerationArtifactAccessTarget;
     db?: any;
+    localOnly?: boolean;
   } = {},
 ) {
   if (!(await creativeContextLabEnabled())) return null;
@@ -633,7 +689,7 @@ export async function getGenerationCreativeContext(
     input,
     options.artifactAccess,
   );
-  if (!options.db && hasIsolatedCreativeContextA2A()) {
+  if (!options.db && !options.localOnly && hasIsolatedCreativeContextA2A()) {
     const state = (await readAppState("creative-context")) as {
       contextMode?: "auto" | "off";
     } | null;
@@ -656,5 +712,6 @@ export async function getGenerationCreativeContext(
     : undefined;
   return getGenerationCreativeContextLocal(input, {
     artifactAccess,
+    db: options.db,
   });
 }

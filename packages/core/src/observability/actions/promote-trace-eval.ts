@@ -7,6 +7,8 @@ import {
   promoteTraceToEval,
   promotedDatasetDescription,
   promotedDatasetIdempotencyKey,
+  PROMOTED_EVAL_REVIEW_LIMITS,
+  sanitizedPromotedDatasetFromDataset,
   promotedEvalSpecFromDataset,
   type PromoteTraceError,
   type PromotedEval,
@@ -22,6 +24,7 @@ import type { EvalDataset } from "../types.js";
 
 /** Cap on run events loaded for one promotion. One past this is a refusal. */
 export const PROMOTE_RUN_EVENT_LIMIT = 10_000;
+export const PROMOTE_TRACE_EVAL_BODY_LIMIT = 24_000;
 
 type PromoteLoadError = PromoteTraceError | "events_truncated";
 
@@ -30,7 +33,11 @@ const PROMOTE_ERROR_STATUS: Record<PromoteLoadError, number> = {
   run_not_completed: 409,
   no_user_prompt: 400,
   no_signal: 400,
+  reviewed_prompt_required: 400,
+  reviewed_history_too_long: 413,
+  reviewed_text_too_long: 413,
   events_truncated: 413,
+  unsafe_reviewed_text: 400,
 };
 
 const PROMOTE_ERROR_MESSAGE: Record<PromoteLoadError, string> = {
@@ -41,11 +48,20 @@ const PROMOTE_ERROR_MESSAGE: Record<PromoteLoadError, string> = {
     "Run has no user prompt in its thread or events to use as the eval prompt",
   no_signal:
     "Run has no successful tools and no mustContain needle, so promotion would emit an empty eval",
+  reviewed_prompt_required:
+    "Provide a nonblank, manually reviewed prompt. The production prompt is never copied automatically.",
+  reviewed_history_too_long: `Reviewed history exceeds ${PROMOTED_EVAL_REVIEW_LIMITS.historyTurns} turns; shorten it before promotion`,
+  reviewed_text_too_long:
+    "Reviewed prompt, history text, or expected text exceeds its field limit; shorten it before promotion",
+  unsafe_reviewed_text:
+    "Reviewed eval text contains an unsupported term. Replace names or organization labels with placeholders and use generic analytics words.",
   events_truncated: `Run event history exceeds ${PROMOTE_RUN_EVENT_LIMIT} events; refusing to promote a truncated trace`,
 };
 
 export interface PromoteTraceEvalArgs {
   runId: string;
+  reviewedPrompt?: string;
+  reviewedHistory?: Array<{ role: "user" | "assistant"; text: string }>;
   mustContain?: string;
   datasetName?: string;
 }
@@ -62,7 +78,18 @@ function refuse(error: PromoteLoadError): never {
     statusCode: PROMOTE_ERROR_STATUS[error],
     ...(error === "events_truncated"
       ? { details: { limit: PROMOTE_RUN_EVENT_LIMIT } }
-      : {}),
+      : error === "reviewed_history_too_long"
+        ? { details: { limit: PROMOTED_EVAL_REVIEW_LIMITS.historyTurns } }
+        : error === "reviewed_text_too_long"
+          ? {
+              details: {
+                promptLimit: PROMOTED_EVAL_REVIEW_LIMITS.promptLength,
+                historyTextLimit: PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength,
+                expectedTextLimit:
+                  PROMOTED_EVAL_REVIEW_LIMITS.expectedTextLength,
+              },
+            }
+          : {}),
   });
 }
 
@@ -82,11 +109,13 @@ async function storedPromotion(
     userId,
   });
   if (!existing) return null;
-  const spec = promotedEvalSpecFromDataset(existing, runId);
+  const dataset = sanitizedPromotedDatasetFromDataset(existing, runId);
+  if (!dataset) return null;
+  const spec = promotedEvalSpecFromDataset(dataset, runId);
   if (!spec) return null;
   return {
     sourceRunId: runId,
-    dataset: existing,
+    dataset,
     eval: spec,
   };
 }
@@ -132,6 +161,8 @@ export async function loadTraceEvalPromotion(
     spans,
     threadInput: thread?.threadData,
     options: {
+      reviewedPrompt: args.reviewedPrompt,
+      reviewedHistory: args.reviewedHistory,
       mustContain: args.mustContain,
       datasetName: args.datasetName,
       userId,
@@ -153,7 +184,29 @@ export async function loadTraceEvalPromotion(
 export async function persistPromotedEvalDataset(
   dataset: EvalDataset,
 ): Promise<EvalDataset> {
-  return savePromotedEvalDataset(dataset);
+  const runId = dataset.entries[0]?.context?.runId;
+  if (typeof runId !== "string") {
+    fail("Promoted eval dataset is missing its trace id", {
+      errorCode: "invalid_promoted_eval_dataset",
+      statusCode: 400,
+    });
+  }
+  const safeInput = sanitizedPromotedDatasetFromDataset(dataset, runId);
+  if (!safeInput) {
+    fail("Promoted eval dataset failed the privacy contract", {
+      errorCode: "invalid_promoted_eval_dataset",
+      statusCode: 400,
+    });
+  }
+  const saved = await savePromotedEvalDataset(safeInput);
+  const safe = sanitizedPromotedDatasetFromDataset(saved, runId);
+  if (!safe) {
+    fail("Stored promoted eval dataset failed the privacy contract", {
+      errorCode: "stored_promoted_eval_privacy_failure",
+      statusCode: 500,
+    });
+  }
+  return safe;
 }
 
 /**
@@ -186,7 +239,7 @@ export async function promoteTraceEvalFromStore(
  */
 export default defineAction({
   description:
-    "Turn a completed production agent run into a CI eval case (dataset row plus defineEval JSON). Use after a failing or surprising trace. Does not write *.eval.ts; use the eval CLI --write for that.",
+    "Promote a completed run into a privacy-safe CI eval dataset and JSON spec. Requires an explicitly reviewed, nonblank prompt; only reviewed text that passes the generic-word and entity-placeholder allowlist is persisted.",
   schema: z.object({
     runId: z
       .string()
@@ -195,16 +248,39 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional substring the agent's reply must contain. Adds a contains() scorer; required when the run called no successful tools.",
+        `Optional caller-reviewed substring the replayed reply must contain (up to ${PROMOTED_EVAL_REVIEW_LIMITS.expectedTextLength} characters). Adds a contains() scorer. Only approved generic analytics words and placeholders are accepted; names or unknown terms fail the promotion. Required when the run called no successful tools.`,
+      ),
+    reviewedPrompt: z
+      .string()
+      .optional()
+      .describe(
+        `Required manually reviewed, nonblank prompt (up to ${PROMOTED_EVAL_REVIEW_LIMITS.promptLength} characters) using only approved generic analytics words and entity placeholders such as [person] or [organization]. Unknown terms fail the promotion; the production prompt is never copied automatically.`,
+      ),
+    reviewedHistory: z
+      .array(
+        z.object({
+          role: z.enum(["user", "assistant"]),
+          text: z.string(),
+        }),
+      )
+      .optional()
+      .describe(
+        `Optional manually reviewed history of up to ${PROMOTED_EVAL_REVIEW_LIMITS.historyTurns} turns; each text is up to ${PROMOTED_EVAL_REVIEW_LIMITS.historyTextLength} characters. Use only approved generic analytics words and entity placeholders. Unknown terms fail the promotion; production history is never copied automatically.`,
       ),
     datasetName: z
       .string()
       .optional()
-      .describe("Optional EvalDataset name. Defaults to from-trace:<runId>."),
+      .describe(
+        `Optional manually reviewed dataset label (up to 120 characters). Only approved generic analytics words and entity placeholders are accepted.`,
+      ),
   }),
   http: { method: "POST" },
+  maxBodyBytes: PROMOTE_TRACE_EVAL_BODY_LIMIT,
   readOnly: false,
-  run: async ({ runId, mustContain, datasetName }, ctx) => {
+  run: async (
+    { runId, reviewedPrompt, reviewedHistory, mustContain, datasetName },
+    ctx,
+  ) => {
     const userId = ctx?.userEmail;
     if (!userId) {
       fail("Sign in to promote a trace", {
@@ -213,7 +289,7 @@ export default defineAction({
       });
     }
     return promoteTraceEvalFromStore(
-      { runId, mustContain, datasetName },
+      { runId, reviewedPrompt, reviewedHistory, mustContain, datasetName },
       { userId },
     );
   },

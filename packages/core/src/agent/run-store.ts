@@ -9,13 +9,20 @@ import {
 import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import {
   lockAndAssertServicePrincipalMayStartRun,
   prepareServicePrincipalRunStart,
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+  stripInlineBytesFromJson,
+} from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
   admitAutoContinue,
@@ -23,11 +30,17 @@ import {
   type ContinueRefusalCode,
   type ContinueTrigger,
 } from "./auto-continue.js";
+import { AGENT_CHAT_RECOVERY_OF_RUN_FIELD } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
-import { isContinuationTerminalReason } from "./types.js";
+import {
+  isConsistentToolCallInputFingerprint,
+  isRedactedToolCallInput,
+  toolCallInputFingerprint,
+} from "./tool-call-journal.js";
+import { CONTINUATION_REASONS, isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, ContinuationReason, RunEvent } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -219,7 +232,7 @@ export class AgentTurnInitiatorUnavailableError extends Error {
 
 export async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
@@ -355,6 +368,7 @@ export async function ensureRunTables(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -378,7 +392,9 @@ export async function writeLedgerEntry(
   try {
     await ensureRunTables();
     const client = getDbExec();
-    let boundedChatUIResultJson = chatUIResultJson ?? null;
+    let boundedChatUIResultJson = chatUIResultJson
+      ? stripInlineBytesFromJson(chatUIResultJson, "placeholder")
+      : null;
     const chatUIResultBytes = boundedChatUIResultJson
       ? new TextEncoder().encode(boundedChatUIResultJson).byteLength
       : 0;
@@ -397,11 +413,12 @@ export async function writeLedgerEntry(
       });
       boundedChatUIResultJson = null;
     }
+    const safeResultSummary = stripInlineBytes(resultSummary, "placeholder");
     const capped =
-      resultSummary.length > LEDGER_RESULT_MAX_CHARS
-        ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
+      safeResultSummary.length > LEDGER_RESULT_MAX_CHARS
+        ? safeResultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
-        : resultSummary;
+        : safeResultSummary;
     await client.execute({
       sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -415,7 +432,7 @@ export async function writeLedgerEntry(
         threadId,
         toolKey,
         capped,
-        JSON.stringify(artifacts),
+        JSON.stringify(stripInlineBytes(artifacts, "placeholder")),
         resultIsString ?? null,
         boundedChatUIResultJson,
         Date.now(),
@@ -537,8 +554,12 @@ export async function insertRun(
     dispatchPayload?: string;
     continuationOrder?: number;
     turnInitiator?: AgentTurnInitiator;
+    afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<void> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
@@ -556,7 +577,7 @@ export async function insertRun(
         options.turnInitiator,
       );
     }
-    await db.execute({
+    const inserted = await db.execute({
       sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
         id,
@@ -570,8 +591,15 @@ export async function insertRun(
         continuationOrder,
       ],
     });
+    if (options?.afterInsert) {
+      if (Number(inserted.rowsAffected ?? 0) !== 1)
+        throw new Error(`Failed to insert run ${id}`);
+      await options.afterInsert(db);
+    }
   };
   if (!client.transaction) {
+    if (options?.afterInsert)
+      throw new Error("Atomic run insertion requires transaction support");
     if (options?.turnInitiator) {
       throw new Error(
         "Atomic turn initiator binding requires transaction support",
@@ -1143,6 +1171,7 @@ export async function tryClaimRunSlot(
     turnInitiator?: AgentTurnInitiator;
     /** The stopped run this run continues in the same turn, and who asked. */
     continueOf?: { runId: string; trigger: ContinueTrigger };
+    afterInsert?: (tx: DbExec) => Promise<void>;
   },
 ): Promise<{
   claimed: boolean;
@@ -1151,6 +1180,9 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
@@ -1338,6 +1370,7 @@ export async function tryClaimRunSlot(
     if ((inserted.rowsAffected ?? 0) !== 1) {
       throw new Error(`Failed to insert claimed run ${runId}`);
     }
+    await options?.afterInsert?.(tx);
     return { result: { claimed: true, activeRunId: null } } as const;
   });
   if ("refused" in transactionResult && transactionResult.refused) {
@@ -1726,18 +1759,38 @@ function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function staleRecoveryDispatchPayload(payload: string): string {
+type StaleRecoveryDispatchPayloadResult =
+  | { ok: true; payload: string }
+  | {
+      ok: false;
+      reason: "malformed_json" | "invalid_shape" | "unsafe_payload";
+    };
+
+function staleRecoveryDispatchPayload(
+  payload: string,
+  runId: string,
+): StaleRecoveryDispatchPayloadResult {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(payload);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return payload;
-    }
-    return JSON.stringify({
-      ...(parsed as Record<string, unknown>),
-      internalContinuation: true,
-    });
+    parsed = JSON.parse(payload);
   } catch {
-    return payload;
+    return { ok: false, reason: "malformed_json" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "invalid_shape" };
+  }
+
+  try {
+    const serialized = JSON.stringify({
+      ...stripInlineBytes(parsed as Record<string, unknown>, "placeholder"),
+      internalContinuation: true,
+      // The worker replaces __backgroundRun when rehydrating a payloadRef.
+      [AGENT_CHAT_RECOVERY_OF_RUN_FIELD]: runId,
+    });
+    assertNoInlineImageBytes(serialized, "stale recovery dispatch_payload");
+    return { ok: true, payload: serialized };
+  } catch {
+    return { ok: false, reason: "unsafe_payload" };
   }
 }
 
@@ -1766,6 +1819,8 @@ async function attemptStaleRunRecovery(
   if (typeof payload !== "string" || payload.length === 0) {
     return { outcome: "not_redispatchable" };
   }
+  const recoveryPayload = staleRecoveryDispatchPayload(payload, runId);
+  if (!recoveryPayload.ok) return { outcome: "not_redispatchable" };
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
@@ -1833,6 +1888,10 @@ async function attemptStaleRunRecovery(
   const successorRunId = generateRecoveryRunId();
   const now = Date.now();
   const continuationOrder = await nextContinuationOrder(db, threadId, turnId);
+  assertNoInlineImageBytes(
+    recoveryPayload.payload,
+    "stale recovery dispatch_payload",
+  );
   await db.execute({
     sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
     args: [
@@ -1842,7 +1901,7 @@ async function attemptStaleRunRecovery(
       now,
       now,
       turnId,
-      staleRecoveryDispatchPayload(payload),
+      recoveryPayload.payload,
       continuationOrder,
     ],
   });
@@ -1944,16 +2003,16 @@ async function reapSingleStaleRun(
       });
       reaped = (rowsAffected ?? 0) > 0;
       if (reaped) {
-        outcome = await attemptStaleRunRecovery(tx, runId).catch(() => null);
+        outcome = await attemptStaleRunRecovery(tx, runId);
       }
     });
   } else {
-    outcome = await attemptStaleRunRecovery(client, runId).catch(() => null);
     const { rowsAffected } = await client.execute({
       sql: updateSql,
       args: updateArgs,
     });
     reaped = (rowsAffected ?? 0) > 0;
+    if (reaped) outcome = await attemptStaleRunRecovery(client, runId);
   }
 
   let forensics = "";
@@ -2111,6 +2170,25 @@ export async function updateRunStatusIfRunning(
     args: [status, Date.now(), runId],
   });
   return (rowsAffected ?? 0) > 0;
+}
+
+/** The caller owns this claim and has not called startRun yet. */
+export async function releaseBackgroundRunBeforeStart(
+  runId: string,
+  errorCode: string,
+  errorDetail: string,
+): Promise<void> {
+  await ensureRunTables();
+  const { rowsAffected } = await getDbExec().execute({
+    sql: `UPDATE agent_runs
+          SET status = 'errored', completed_at = ?, error_code = ?, error_detail = ?, dispatch_payload = NULL
+          WHERE id = ? AND status = 'running' AND dispatch_mode = 'background-processing'`,
+    args: [Date.now(), errorCode, errorDetail, runId],
+  });
+  if (rowsAffected !== 1)
+    throw new Error(
+      `Unstarted background worker ${runId} could not be released`,
+    );
 }
 
 export async function getRunStatus(runId: string): Promise<string | null> {
@@ -2330,23 +2408,75 @@ export async function getRunAbortState(
   };
 }
 
+function persistedRunEventData(
+  eventData: string,
+  inputSource?: "execution",
+): string {
+  const stripped = stripInlineBytesFromJson(eventData, "placeholder");
+  if (stripped === eventData && inputSource !== "execution") return eventData;
+  const original = JSON.parse(eventData);
+  if (
+    (original.type !== "tool_start" && original.type !== "tool_done") ||
+    original.input === undefined ||
+    inputSource !== "execution" ||
+    original.inputFingerprint !== undefined ||
+    original.inputStoredFingerprint !== undefined
+  )
+    return stripped;
+  const stored = JSON.parse(stripped);
+  // Only fresh execution input can establish identity; reserialization cannot recover lost arguments.
+  return JSON.stringify({
+    ...stored,
+    inputFingerprint: toolCallInputFingerprint(original.input),
+    inputStoredFingerprint: toolCallInputFingerprint(stored.input),
+  });
+}
+
+export class AgentRunEventNotPersistedError extends Error {
+  constructor(runId: string, seq: number) {
+    super(`Run event was not persisted: ${runId} sequence ${seq}`);
+    this.name = "AgentRunEventNotPersistedError";
+  }
+}
+
 export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
+  options?: { toolInputSource?: "execution"; requireInserted?: boolean },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+  const storedEventData = persistedRunEventData(
+    eventData,
+    options?.toolInputSource,
+  );
+  // The reaper must wait for the marker's commit before exposing a successor.
+  const { rowsAffected } = await client.execute({
+    sql: options?.requireInserted
+      ? `WITH running_run AS MATERIALIZED (
+          SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
+        )
+        INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+        SELECT id, ?, ?, ? FROM running_run LIMIT 1
+        ON CONFLICT (run_id, seq) DO NOTHING`
+      : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, Date.now(), eventData, runId],
+    args: [
+      runId,
+      seq,
+      Date.now(),
+      storedEventData,
+      ...(options?.requireInserted ? [] : [runId]),
+    ],
   });
+  if (options?.requireInserted && rowsAffected !== 1)
+    throw new AgentRunEventNotPersistedError(runId, seq);
 }
 
 export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
@@ -2725,6 +2855,137 @@ export interface CurrentTurnRunEvent {
   event: AgentChatEvent;
 }
 
+export class AgentRunJournalUnreadableError extends Error {
+  readonly errorCode = "tool_call_journal_unreadable";
+
+  constructor(
+    readonly threadId: string,
+    readonly turnId: string | undefined,
+    readonly rowIndex: number,
+    readonly reason:
+      | "invalid_turn"
+      | "invalid_row"
+      | "invalid_event_json"
+      | "invalid_event",
+    options?: ErrorOptions,
+  ) {
+    super(automationRecoveryMessagesForLocale().unreadable, options);
+    this.name = "AgentRunJournalUnreadableError";
+  }
+}
+
+function isJournalObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const JOURNAL_EVENT_STRING_FIELDS = {
+  text: ["text"],
+  thinking: ["text"],
+  suggestions: [],
+  rich_event: [],
+  activity: ["label"],
+  tool_input_start: [],
+  tool_input_delta: ["text"],
+  stream_keepalive: [],
+  model_stream: ["status"],
+  tool_start: ["tool"],
+  tool_done: ["tool", "result"],
+  approval_required: ["tool", "approvalKey"],
+  connection_required: ["requestId", "provider", "reason"],
+  agent_call: ["agent", "status"],
+  agent_call_progress: ["agent", "state"],
+  agent_call_text: ["agent", "text"],
+  agent_call_activity: ["agent"],
+  agent_task: ["taskId", "threadId", "description", "status"],
+  agent_task_update: ["taskId", "preview"],
+  agent_task_complete: ["taskId", "summary"],
+  done: [],
+  error: ["error"],
+  missing_api_key: [],
+  loop_limit: [],
+  tripwire: ["reason"],
+  auto_continue: ["reason"],
+  clear: [],
+} satisfies Record<AgentChatEvent["type"], readonly string[]>;
+
+function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
+  if (!isJournalObject(value) || typeof value.type !== "string") return false;
+  if (!Object.hasOwn(JOURNAL_EVENT_STRING_FIELDS, value.type)) return false;
+  const type = value.type as AgentChatEvent["type"];
+  if (
+    !JOURNAL_EVENT_STRING_FIELDS[type].every(
+      (field) => typeof value[field] === "string",
+    )
+  )
+    return false;
+  switch (type) {
+    case "tool_start":
+    case "tool_done":
+      // These fields determine whether a completed write is safe to replay.
+      return (
+        (value.tool as string).trim().length > 0 &&
+        (value.id === undefined ||
+          (typeof value.id === "string" && value.id.trim().length > 0)) &&
+        (value.inputFingerprint === undefined ||
+          (typeof value.inputFingerprint === "string" &&
+            /^[a-f0-9]{64}$/.test(value.inputFingerprint))) &&
+        (value.inputStoredFingerprint === undefined ||
+          (typeof value.inputStoredFingerprint === "string" &&
+            /^[a-f0-9]{64}$/.test(value.inputStoredFingerprint))) &&
+        isConsistentToolCallInputFingerprint(
+          value.input,
+          value.inputFingerprint as string | undefined,
+          value.inputStoredFingerprint as string | undefined,
+        ) &&
+        (!isRedactedToolCallInput(value.input) ||
+          value.inputFingerprint !== undefined) &&
+        (type === "tool_start"
+          ? Object.hasOwn(value, "input")
+          : ["isError", "completedSideEffect", "replayed"].every(
+              (field) =>
+                value[field] === undefined || typeof value[field] === "boolean",
+            ) &&
+            (value.outcomeUnknown === undefined ||
+              value.outcomeUnknown === true))
+      );
+    case "suggestions":
+      return Array.isArray(value.suggestions);
+    case "rich_event":
+      return (
+        isJournalObject(value.event) &&
+        typeof value.event.namespace === "string" &&
+        typeof value.event.name === "string"
+      );
+    case "approval_required":
+      return isJournalObject(value.input);
+    case "agent_call_activity":
+      return isJournalObject(value.snapshot);
+    case "agent_call_progress":
+      return (
+        typeof value.elapsedSeconds === "number" &&
+        Number.isFinite(value.elapsedSeconds)
+      );
+    case "model_stream":
+      return value.status === "start" || value.status === "end";
+    case "agent_call":
+      return ["start", "done", "pending", "error"].includes(
+        value.status as string,
+      );
+    case "agent_task":
+      return ["running", "completed", "errored"].includes(
+        value.status as string,
+      );
+    case "connection_required":
+      return ["connect", "grant", "reauthorize", "admin_required"].includes(
+        value.reason as string,
+      );
+    case "auto_continue":
+      return CONTINUATION_REASONS.includes(value.reason as ContinuationReason);
+    default:
+      return true;
+  }
+}
+
 async function getCurrentTurnRunEvents(
   threadId: string,
   knownTurnId?: string,
@@ -2738,8 +2999,25 @@ async function getCurrentTurnRunEvents(
       args: [threadId],
     });
     if (latest.rows.length === 0) return [];
-    const latestRow = latest.rows[0] as { id: string; turn_id: string | null };
-    turnId = latestRow.turn_id ?? latestRow.id;
+    const latestRow = latest.rows[0];
+    if (!isJournalObject(latestRow)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        0,
+        "invalid_turn",
+      );
+    }
+    const currentTurnId = latestRow.turn_id ?? latestRow.id;
+    if (typeof currentTurnId !== "string" || !currentTurnId.trim()) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        0,
+        "invalid_turn",
+      );
+    }
+    turnId = currentTurnId;
   }
   const { rows } = await client.execute({
     sql: `SELECT e.run_id AS run_id, e.seq AS seq, e.event_data AS event_data
@@ -2755,24 +3033,56 @@ async function getCurrentTurnRunEvents(
     args: [threadId, turnId],
   });
   const events: CurrentTurnRunEvent[] = [];
-  for (const r of rows) {
-    const row = r as {
-      run_id?: string;
-      seq?: number | string;
-      event_data?: string;
-    };
-    const raw = row.event_data;
-    const seq = Number(row.seq);
-    if (!row.run_id || !Number.isFinite(seq) || !raw) continue;
-    try {
-      events.push({
-        runId: row.run_id,
-        seq,
-        event: JSON.parse(raw) as AgentChatEvent,
-      });
-    } catch {
-      // Skip malformed ledger rows — the journal is best-effort.
+  for (const [rowIndex, row] of rows.entries()) {
+    if (!isJournalObject(row)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
     }
+    const raw = row.event_data;
+    const validSeq =
+      typeof row.seq === "number" ||
+      (typeof row.seq === "string" && /^\d+$/.test(row.seq));
+    const seq = validSeq ? Number(row.seq) : Number.NaN;
+    if (
+      typeof row.run_id !== "string" ||
+      !row.run_id.trim() ||
+      !Number.isSafeInteger(seq) ||
+      seq < 0 ||
+      typeof raw !== "string" ||
+      !raw
+    ) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_row",
+      );
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(raw);
+    } catch (cause) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_event_json",
+        { cause },
+      );
+    }
+    if (!isReadableJournalEvent(event)) {
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_event",
+      );
+    }
+    events.push({ runId: row.run_id, seq, event });
   }
   return events;
 }
@@ -3249,6 +3559,11 @@ async function appendTerminalRunEvent(
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   await client.execute({
     sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, nextSeq, Date.now(), JSON.stringify(event)],
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
   });
 }

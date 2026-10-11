@@ -8,6 +8,7 @@ const mockRecordRefusal = vi.fn();
 const mockSelectDefault = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
+const mockHasAppSecret = vi.fn(async () => false);
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
@@ -32,6 +33,7 @@ vi.mock("../scripts/agent-engines/set-agent-engine.js", () => ({
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: unknown[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: unknown[]) => mockDeleteAppSecret(...args),
+  hasAppSecret: (...args: unknown[]) => mockHasAppSecret(...args),
 }));
 
 // The provider's key check has its own spec; here every key is accepted.

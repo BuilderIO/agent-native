@@ -48,6 +48,7 @@ import {
   neonPoolOptions,
   guardNeonPool,
   sharedDbPool,
+  resolveSharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
   onDbClientsClosing,
@@ -82,6 +83,7 @@ import {
   enforceSignupAdmission,
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
+import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -260,6 +262,9 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
+  const requestSessionId = normalizeAnalyticsSessionId(
+    requestHeaders.get("x-agent-native-session-id"),
+  );
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
@@ -277,7 +282,8 @@ export async function emitSignupEventForCreatedUser(
       signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
     attribution = browser?.attribution;
     anonymousId = browser?.anonymousId;
-    sessionId = browser?.sessionId;
+    sessionId =
+      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -286,9 +292,13 @@ export async function emitSignupEventForCreatedUser(
   // so an account created by another signed-in user (admin or API creation)
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
-  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+  const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
+  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
+  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
+  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  if (user.id && eventAttribution) {
     try {
-      await persistUserFirstTouchAttribution(user.id, attribution);
+      await persistUserFirstTouchAttribution(user.id, eventAttribution);
     } catch (err) {
       // The signup itself already succeeded; the event below still carries
       // the attribution, so only the row copy is missing, and loudly so.
@@ -308,9 +318,9 @@ export async function emitSignupEventForCreatedUser(
     authUserId: user.id,
     email,
     name: user.name,
-    attribution,
-    anonymousId,
-    sessionId,
+    attribution: eventAttribution,
+    anonymousId: eventAnonymousId,
+    sessionId: eventSessionId,
   });
 }
 
@@ -2646,13 +2656,15 @@ export async function buildDatabaseConfig(): Promise<
       url,
       () => new Pool({ connectionString: url, ...neonPoolOptions() }),
     );
+    const getActivePool = () => resolveSharedDbPool("neon", url, _neonAuthPool);
     guardNeonPool(_neonAuthPool, url, "db/neon-auth");
     const { drizzle } = await import("drizzle-orm/neon-serverless");
     const db = scopeDbToPoolTransactions(
-      drizzle(buildResilientNeonPool(_neonAuthPool), {
+      drizzle(buildResilientNeonPool(_neonAuthPool, getActivePool), {
         schema: pgAuthSchema,
       }),
       _neonAuthPool,
+      getActivePool,
     );
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
@@ -2667,12 +2679,14 @@ export async function buildDatabaseConfig(): Promise<
   const sql = sharedDbPool("postgres-js", url, () =>
     postgres(url, pgPoolOptions(url)),
   );
+  const getActivePool = () => resolveSharedDbPool("postgres-js", url, sql);
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const db = scopeDbToPoolTransactions(
-    drizzle(buildResilientPostgresJsClient(sql), {
+    drizzle(buildResilientPostgresJsClient(sql, getActivePool), {
       schema: pgAuthSchema,
     }),
     sql,
+    getActivePool,
   );
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {

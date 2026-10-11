@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { A2ATaskTerminalError } from "../a2a/client.js";
 import { RemoteAgentCredentialRejectedError } from "../a2a/remote-agent-auth.js";
 import type { ActionRunContext } from "../action.js";
 import {
@@ -58,7 +59,10 @@ vi.mock("../a2a/anthropic-managed-agents.js", () => ({
   createAnthropicManagedAgentsHandler: managedHandlerMock,
 }));
 
-vi.mock("../a2a/client.js", () => ({
+vi.mock("../a2a/client.js", async (importOriginal) => ({
+  A2ATaskTerminalError: (
+    await importOriginal<typeof import("../a2a/client.js")>()
+  ).A2ATaskTerminalError,
   MAX_A2A_CALLER_RESPONSE_CHARS: 32_768,
   A2ATaskTimeoutError: class A2ATaskTimeoutError extends Error {
     taskId: string;
@@ -916,6 +920,381 @@ describe("call-agent action", () => {
       run({ agent: "analytics", message: "retry with raw content" }, context),
     ).rejects.toThrow("Not calling Slides again this turn");
     expect(callAgentMock).toHaveBeenCalledOnce();
+  });
+
+  // `send` selects the streaming terminal branch; without it the call takes
+  // the plain-return branch, which has its own copy of the failure handling.
+  const surfaces = [
+    ["streaming", () => ({ send: vi.fn(), blockedA2ATargets: new Map() })],
+    ["plain", () => ({ blockedA2ATargets: new Map() })],
+  ] as const;
+  const terminalTaskError = (
+    state: "failed" | "input-required",
+    responseText: string,
+    errorCode?: string,
+    metadata?: Record<string, unknown>,
+  ) =>
+    new A2ATaskTerminalError(
+      {
+        id: "task-child",
+        status: {
+          state,
+          timestamp: "2026-10-06T00:00:00.000Z",
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: responseText }],
+            ...(metadata ? { metadata } : {}),
+          },
+        },
+      },
+      state,
+      responseText,
+      errorCode,
+    );
+
+  describe("typed child task failures", () => {
+    const childFailure = (errorCode: string, responseText = "child failed") =>
+      terminalTaskError("failed", responseText, errorCode);
+    const matrix = (codes: string[]) =>
+      codes.flatMap((code) =>
+        surfaces.map(([surface, makeContext]) => [code, surface, makeContext]),
+      ) as Array<[string, string, () => Record<string, unknown>]>;
+
+    it.each(matrix(["permanent_precondition", "missing_credentials"]))(
+      "blocks the peer for the rest of the turn after %s (%s path)",
+      async (code, _surface, makeContext) => {
+        callAgentMock.mockRejectedValueOnce(childFailure(code));
+        const { run } = await import("./call-agent.js");
+        const context = makeContext() as any;
+
+        await run({ agent: "analytics", message: "first" }, context).catch(
+          () => undefined,
+        );
+
+        expect(context.blockedA2ATargets.has("slides")).toBe(true);
+        await expect(
+          run({ agent: "analytics", message: "second" }, context),
+        ).rejects.toMatchObject({ errorCode: "a2a_target_blocked_this_turn" });
+        expect(callAgentMock).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each(matrix(["run_budget_exhausted", "timeout", "a2a_auth_rejected"]))(
+      "keeps the peer callable after %s (%s path)",
+      async (code, _surface, makeContext) => {
+        callAgentMock
+          .mockRejectedValueOnce(childFailure(code))
+          .mockRejectedValueOnce(childFailure(code));
+        const { run } = await import("./call-agent.js");
+        const context = makeContext() as any;
+
+        await run({ agent: "analytics", message: "first" }, context).catch(
+          () => undefined,
+        );
+        await run({ agent: "analytics", message: "second" }, context).catch(
+          () => undefined,
+        );
+
+        expect(context.blockedA2ATargets.size).toBe(0);
+        expect(callAgentMock).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each(matrix(["a2a_task_failed", "provider_network_error"]))(
+      "does not block a peer on credential prose without a typed code (%s, %s path)",
+      async (code, surface, makeContext) => {
+        callAgentMock.mockRejectedValueOnce(
+          childFailure(
+            code,
+            "No LLM provider is connected. ANTHROPIC_API_KEY is not set.",
+          ),
+        );
+        const { run } = await import("./call-agent.js");
+        const context = makeContext() as any;
+
+        const outcome = await run(
+          { agent: "analytics", message: "first" },
+          context,
+        ).catch((error) => error);
+
+        // The plain path answers credential prose with the credential message
+        // before its terminal branch; reaching it is what gives the empty
+        // block set meaning.
+        if (surface === "plain") {
+          expect(outcome).toContain("needs an LLM connection");
+        }
+        expect(context.blockedA2ATargets.size).toBe(0);
+      },
+    );
+
+    it.each([
+      ["permanent_precondition", "a2a_child_permanent_precondition"],
+      ["missing_credentials", "missing_credentials"],
+      ["http_403", "http_403"],
+    ])(
+      "streams %s to the caller as %s, keeping a credential cause's own code",
+      async (code, streamed) => {
+        callAgentMock.mockRejectedValueOnce(childFailure(code));
+        const { run } = await import("./call-agent.js");
+        const send = vi.fn();
+
+        await run({ agent: "analytics", message: "first" }, {
+          send,
+          blockedA2ATargets: new Map(),
+        } as any).catch(() => undefined);
+
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "agent_call",
+            status: "error",
+            taskId: "task-child",
+            terminalCode: streamed,
+          }),
+        );
+      },
+    );
+
+    it.each(["missing_credentials", "http_401"])(
+      "reports the raw %s code and task id in telemetry for a credential failure",
+      async (code) => {
+        const tracked: TrackingEvent[] = [];
+        registerTrackingProvider({
+          name: "qa-a2a-credential",
+          track(event) {
+            tracked.push(event);
+          },
+        });
+        try {
+          callAgentMock.mockRejectedValueOnce(childFailure(code));
+          const { run } = await import("./call-agent.js");
+          const context = { blockedA2ATargets: new Map() } as any;
+
+          await expect(
+            run({ agent: "analytics", message: "first" }, context),
+          ).resolves.toContain("needs an LLM connection");
+
+          expect(context.blockedA2ATargets.has("slides")).toBe(true);
+          expect(
+            tracked.find((event) => event.name === "$a2a_invocation")
+              ?.properties,
+          ).toMatchObject({
+            status: "error",
+            task_id: "task-child",
+            terminal_code: code,
+          });
+        } finally {
+          unregisterTrackingProvider("qa-a2a-credential");
+        }
+      },
+    );
+
+    it.each([
+      ["missing_credentials", "needs an LLM connection", false],
+      ["http_401", "needs an LLM connection", false],
+      ["permanent_precondition", "hit a permanent precondition", true],
+    ])(
+      "words a streamed %s failure as its own cause and repeats it when the peer is retried",
+      async (code, wording, isPrecondition) => {
+        callAgentMock.mockRejectedValueOnce(childFailure(code));
+        const { run } = await import("./call-agent.js");
+        const context = {
+          send: vi.fn(),
+          blockedA2ATargets: new Map(),
+        } as any;
+
+        const first = await run(
+          { agent: "analytics", message: "first" },
+          context,
+        ).catch((error) => error);
+        const retry = await run(
+          { agent: "analytics", message: "second" },
+          context,
+        ).catch((error) => error);
+
+        for (const message of [first.message, retry.message]) {
+          expect(message).toContain(wording);
+          expect(message).toContain("Do not call Slides again this turn");
+          expect(message.includes("permanent precondition")).toBe(
+            isPrecondition,
+          );
+        }
+        expect(retry.errorCode).toBe("a2a_target_blocked_this_turn");
+      },
+    );
+  });
+
+  describe("input-required answers", () => {
+    const connectionRequired = () =>
+      terminalTaskError(
+        "input-required",
+        "Connect Slack to continue.",
+        undefined,
+        {
+          agentNativeConnectionRequest: {
+            version: 1,
+            provider: "slack",
+            reason: "connect",
+          },
+        },
+      );
+
+    it.each(surfaces)(
+      "tells the model a connection is the user's to make and blocks the peer (%s path)",
+      async (_surface, makeContext) => {
+        callAgentMock.mockRejectedValueOnce(connectionRequired());
+        const { run } = await import("./call-agent.js");
+        const context = makeContext() as any;
+
+        const result = await run(
+          { agent: "analytics", message: "verify slack" },
+          context,
+        );
+
+        expect(result).toContain(
+          "The Slides agent needs slack connected by the user in Slides.",
+        );
+        expect(result).toContain("Do not retry or wait");
+        expect(result).not.toContain("taskId");
+        expect(context.blockedA2ATargets.has("slides")).toBe(true);
+        const retry = await run(
+          { agent: "analytics", message: "verify slack again" },
+          context,
+        ).catch((error) => error);
+        expect(retry.errorCode).toBe("a2a_target_blocked_this_turn");
+        expect(retry.message).toContain(
+          "needs slack connected by the user in Slides",
+        );
+        expect(retry.message).not.toContain("permanent precondition");
+        expect(callAgentMock).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each(surfaces)(
+      "answers a connection request from its state when its text mentions an LLM credential (%s path)",
+      async (_surface, makeContext) => {
+        const tracked: TrackingEvent[] = [];
+        registerTrackingProvider({
+          name: "qa-a2a-connection-prose",
+          track(event) {
+            tracked.push(event);
+          },
+        });
+        try {
+          callAgentMock.mockRejectedValueOnce(
+            terminalTaskError(
+              "input-required",
+              "Connect Slack. ANTHROPIC_API_KEY is not set.",
+              undefined,
+              {
+                agentNativeConnectionRequest: {
+                  version: 1,
+                  provider: "slack",
+                  reason: "connect",
+                },
+              },
+            ),
+          );
+          const { run } = await import("./call-agent.js");
+          const context = makeContext() as any;
+
+          const result = await run(
+            { agent: "analytics", message: "verify slack" },
+            context,
+          );
+
+          expect(result).toContain("needs slack connected by the user");
+          expect(result).not.toContain("needs an LLM connection");
+          expect(context.blockedA2ATargets.has("slides")).toBe(true);
+          expect(
+            tracked.find((event) => event.name === "$a2a_invocation")
+              ?.properties,
+          ).toMatchObject({
+            status: "pending",
+            terminal_code: "connection_required",
+          });
+        } finally {
+          unregisterTrackingProvider("qa-a2a-connection-prose");
+        }
+      },
+    );
+
+    it.each(surfaces)(
+      "keeps an ordinary input-required answer waiting on its task (%s path)",
+      async (_surface, makeContext) => {
+        for (let call = 0; call < 2; call += 1) {
+          callAgentMock.mockRejectedValueOnce(
+            terminalTaskError(
+              "input-required",
+              "Open https://analytics.agent-native.test/approve/1",
+            ),
+          );
+        }
+        const { run } = await import("./call-agent.js");
+        const context = makeContext() as any;
+
+        for (const message of ["first", "second"]) {
+          const result = await run({ agent: "analytics", message }, context);
+          expect(result).toContain('taskId="task-child" (omit message)');
+          expect(result).toContain("/approve/1");
+        }
+
+        expect(context.blockedA2ATargets.size).toBe(0);
+        expect(callAgentMock).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each(surfaces)(
+      "keeps an input-required answer with a malformed connection request waiting on its task (%s path)",
+      async (_surface, makeContext) => {
+        callAgentMock.mockRejectedValueOnce(
+          terminalTaskError("input-required", "Connect Slack.", undefined, {
+            agentNativeConnectionRequest: {
+              version: 1,
+              provider: "slack",
+              reason: "not-a-reason",
+            },
+          }),
+        );
+        const { run } = await import("./call-agent.js");
+        const context = makeContext() as any;
+
+        const result = await run(
+          { agent: "analytics", message: "verify slack" },
+          context,
+        );
+
+        expect(result).toContain('taskId="task-child" (omit message)');
+        expect(context.blockedA2ATargets.size).toBe(0);
+      },
+    );
+
+    it("types a connection request in telemetry", async () => {
+      const tracked: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "qa-a2a-connection",
+        track(event) {
+          tracked.push(event);
+        },
+      });
+      try {
+        callAgentMock.mockRejectedValueOnce(connectionRequired());
+        const { run } = await import("./call-agent.js");
+
+        await run({ agent: "analytics", message: "verify slack" }, {
+          blockedA2ATargets: new Map(),
+        } as any);
+
+        expect(
+          tracked.find((event) => event.name === "$a2a_invocation")?.properties,
+        ).toMatchObject({
+          status: "pending",
+          task_id: "task-child",
+          terminal_code: "connection_required",
+        });
+      } finally {
+        unregisterTrackingProvider("qa-a2a-connection");
+      }
+    });
   });
 
   it("emits error when a direct semantic read returns a failed status", async () => {

@@ -87,6 +87,11 @@ describe("named workspace create targets", () => {
 
     for (const document of created) {
       expect(document.spaceId).toBe(spaceId);
+      expect(document.bodyRevision).toBe(0);
+      expect(document.contentHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(document.revision).toBe(
+        `body:${document.bodyRevision}:${document.contentHash}`,
+      );
     }
 
     const rows = await getDb()

@@ -1,4 +1,7 @@
-import type { McpDirectoryWidgetTarget } from "../../mcp/build-server.js";
+import type {
+  MCPConfig,
+  McpDirectoryWidgetTarget,
+} from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { McpDirectoryWidgetReadArgument } from "../../shared/embed-auth.js";
 
@@ -24,7 +27,14 @@ export interface AgentChatMcpOptions {
         result: unknown,
       ) => McpDirectoryWidgetTarget | null
     >;
+    authorizeWidgetWrite?: NonNullable<
+      MCPConfig["directoryProfile"]
+    >["authorizeWidgetWrite"];
     widgetReadActionArguments?: Record<
+      string,
+      Record<string, McpDirectoryWidgetReadArgument>
+    >;
+    widgetWriteActionArguments?: Record<
       string,
       Record<string, McpDirectoryWidgetReadArgument>
     >;
@@ -36,6 +46,8 @@ export interface AgentChatMcpOptions {
     widgetReadPrivateActions?: readonly string[];
     /** Authenticated reads surfaced on other agent profiles, but only scoped here. */
     widgetReadAuthenticatedActions?: readonly string[];
+    /** Scoped reads minted only into a write capability that lists the mapped write action. */
+    widgetReadActionWriteGates?: Record<string, string>;
     /** Omit the one shared resource title when tools have distinct invocation labels. */
     widgetResourceTitle?: string | false;
     keyToolNames?: readonly string[];

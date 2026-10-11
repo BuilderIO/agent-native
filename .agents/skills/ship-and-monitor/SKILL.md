@@ -55,22 +55,22 @@ ids. Auth screen copy, layout, and other changes that do not touch those
 boundaries do not need beta E2E by default:
 
 ```bash
-gh workflow run beta-e2e.yml --ref main \
-  -f lane=signup \
-  -f signup_apps=<email-signup-affected-apps> \
-  -f signup_environments=beta
+gh workflow run signup-e2e-scheduled.yml --ref main \
+  -f apps=<email-signup-affected-apps> \
+  -f environments=beta
 gh workflow run beta-e2e.yml --ref main \
   -f lane=public+authed \
   -f apps=<affected-beta-apps>
 ```
 
-The signup lane's `signup_apps` input is independent of the browser lane's
-`apps` input. Wait for the signup job's classified output to be exactly
-`success` and for the affected browser lane to pass. Complete each touched
-Google callback in a real browser session as well; the seeded authenticated
-lane deliberately excludes Google-only Mail and Calendar. A failure,
-cancellation, inconclusive Mailosaur result, missing beta deploy, or untested
-provider path stays Open - do not report the auth fix as done.
+The signup dispatcher selects its apps and environments independently of the
+browser dispatch's `apps` and `lane` inputs. Wait for the signup job's
+classified output to be exactly `success` and for the affected browser lane to
+pass. Complete each touched Google callback in a real browser session as well;
+the seeded authenticated lane deliberately excludes Google-only Mail and
+Calendar. A failure, cancellation, inconclusive Mailosaur result, missing beta
+deploy, or untested provider path stays Open - do not report the auth fix as
+done.
 
 ## Post-merge monitoring
 

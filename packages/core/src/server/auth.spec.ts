@@ -24,6 +24,10 @@ import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
+import {
+  decodeContinuation,
+  encodeContinuation,
+} from "../shared/sign-in-journey.js";
 
 function renderAuthPage(props: AuthPageProps): string {
   return `<main data-auth-view="${props.initialView}" />`;
@@ -3623,6 +3627,71 @@ describe("server/auth", () => {
       expect(event.res.status).toBe(503);
     });
 
+    it("requires workspace app access for session fallbacks on query-token paths", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "0");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+      const checkAppAccess = vi.fn(async () => false);
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: checkAppAccess,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      const getSession = vi.fn(async () => ({
+        email: "member@example.com",
+        orgId: "org-1",
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession,
+        publicPathsWithQueryToken: [
+          {
+            path: "/api/session-replay/recordings/:recordingId/chunks",
+            queryParam: "agent_access",
+          },
+        ],
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((handler: unknown) => typeof handler === "function");
+      const sessionFallbackQueries = [
+        { seqs: "0" },
+        { seqs: "0", agent_access: "" },
+        { seqs: "0", agent_access: "   " },
+        { seqs: "0", agent_access: ["", "scoped-token"] },
+      ];
+      for (const query of sessionFallbackQueries) {
+        const sessionFallback = createMockEvent({
+          path: "/api/session-replay/recordings/sr_1/chunks",
+          query,
+        });
+        await expect(guard(sessionFallback)).resolves.toEqual({
+          error: "You do not have access to this workspace app.",
+        });
+        expect(sessionFallback.res.status).toBe(403);
+      }
+      expect(checkAppAccess).toHaveBeenCalledWith("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      });
+
+      const scopedTokenRequest = createMockEvent({
+        path: "/api/session-replay/recordings/sr_1/chunks",
+        query: { seqs: "0", agent_access: "scoped-token" },
+      });
+      await expect(guard(scopedTokenRequest)).resolves.toBeUndefined();
+      expect(scopedTokenRequest.res.status).toBe(200);
+      expect(getSession).toHaveBeenCalledTimes(sessionFallbackQueries.length);
+      expect(checkAppAccess).toHaveBeenCalledTimes(
+        sessionFallbackQueries.length,
+      );
+    });
+
     it("keeps org access recovery controls reachable for a disabled app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       defineAppConfig({
@@ -3774,6 +3843,43 @@ describe("server/auth", () => {
           }),
         ),
       ).resolves.toEqual({ error: "Unauthorized" });
+    });
+
+    it("matches public route parameters as exact path segments", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+
+      await autoMountAuth(app, {
+        publicPaths: [
+          "/api/session-replay/recordings/:recordingId/manifest",
+          "/api/session-replay/recordings/:recordingId/chunks/:seq",
+        ],
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const path of [
+        "/api/session-replay/recordings/replay-1/manifest?agent_access=token",
+        "/api/session-replay/recordings/replay-1/chunks/0?agent_access=token",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
+      }
+
+      for (const path of [
+        "/api/session-replay/recordings/replay-1/events",
+        "/api/session-replay/recordings/replay-1/manifest/nested",
+        "/api/session-replay/recordings/replay-1/chunks",
+        "/api/session-replay/recordings/replay-1/chunks/0/raw",
+      ]) {
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
+      }
     });
 
     it("lets device-token remote relay routes reach their own verifier", async () => {
@@ -5520,6 +5626,44 @@ describe("server/auth", () => {
       );
     });
 
+    it("allows Content recovery headers in configured frontend preflights before auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://content-ui.example.test");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/actions/update-document",
+        headers: {
+          origin: "https://content-ui.example.test",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "content-type,x-content-save-origin",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      expect(await guard(event)).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "https://content-ui.example.test",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        "true",
+      );
+      expect(event.res.headers.get("access-control-allow-headers")).toContain(
+        "X-Content-Save-Origin",
+      );
+    });
+
     it("rejects disallowed cross-origin preflight before auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -6615,7 +6759,8 @@ describe("server/auth", () => {
         describeDbError: (error: unknown) => String(error),
       }));
 
-      const { autoMountAuth } = await import("./auth.js");
+      const { autoMountAuth, isSessionResolutionUnavailable } =
+        await import("./auth.js");
       const app = createMockApp();
       await expect(autoMountAuth(app)).resolves.toBe(true);
 
@@ -6632,6 +6777,7 @@ describe("server/auth", () => {
 
       expect(event.res.status).toBe(503);
       expect(result).toEqual({ error: "Session unavailable" });
+      expect(isSessionResolutionUnavailable(event)).toBe(true);
     });
 
     it("desktop exchange establishes the session cookie when redeeming a token", async () => {
@@ -7249,7 +7395,11 @@ describe("server/auth", () => {
         observedHeaderAttribution = signupAttributionContextFromHeaders(
           request.headers,
         );
-        await request.json();
+        if (new URL(request.url).pathname.endsWith("/sign-out")) {
+          await request.body?.cancel();
+        } else {
+          await request.json();
+        }
         return new Response(JSON.stringify({ ok: true }), {
           headers: { "content-type": "application/json" },
         });
@@ -7306,6 +7456,36 @@ describe("server/auth", () => {
       });
       expect(observedHeaderAttribution).toEqual(observedSignupAttribution);
       expect(getRequestContext()).toBeUndefined();
+
+      let bodySourceCancelled = false;
+      const signOutUrl = "http://localhost/_agent-native/auth/ba/sign-out";
+      const signOutRequest = new Request(signOutUrl, {
+        method: "POST",
+        headers: {
+          cookie: "an_aid=anon_signup_1",
+          "content-type": "application/octet-stream",
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("streamed"));
+          },
+          cancel() {
+            bodySourceCancelled = true;
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+      const signOutEvent = createMockEvent({
+        path: "/_agent-native/auth/ba/sign-out",
+        headers: Object.fromEntries(signOutRequest.headers.entries()),
+      });
+      signOutEvent.req = signOutRequest;
+      signOutEvent.url = new URL(signOutUrl);
+      signOutEvent.headers = signOutRequest.headers;
+      signOutEvent.node.req.method = "POST";
+
+      await baHandler(signOutEvent);
+      await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
     });
 
     it("upgrades Better Auth's signup Set-Cookie to SameSite=None/Secure/Partitioned behind a forwarded https proxy", async () => {
@@ -7814,71 +7994,144 @@ describe("server/auth", () => {
       expect(betterAuthHandler).not.toHaveBeenCalled();
     });
 
-    it("does not label failed email verification redirects as verified", async () => {
-      vi.stubEnv("NODE_ENV", "production");
-      delete process.env.ACCESS_TOKEN;
-      delete process.env.ACCESS_TOKENS;
+    it.each([
+      { location: "/home?error=INVALID_TOKEN", resume: "/home" },
+      {
+        location:
+          "http://localhost/plans?filter=mine&error=TOKEN_EXPIRED#saved",
+        resume: "/plans?filter=mine#saved",
+      },
+      {
+        location: "/plans?verified=1&error=INVALID_TOKEN",
+        resume: "/plans",
+      },
+      {
+        location: "/_agent-native/sign-in?error=INVALID_TOKEN",
+        resume: "/home",
+      },
+      {
+        location: `/sign-in?c=${encodeContinuation("/plans?error=INVALID_TOKEN&verified=1#saved")}&error=INVALID_TOKEN`,
+        resume: "/plans#saved",
+      },
+      {
+        location: "/login?return=%2Fplans%3Ffilter%3Dmine&error=INVALID_TOKEN",
+        resume: "/plans?filter=mine",
+      },
+      {
+        location: "/signup?return=%2Fsign-in&error=INVALID_TOKEN",
+        resume: "/home",
+      },
+      {
+        location: "https://other.example/plans?error=INVALID_TOKEN",
+        resume: "/home",
+      },
+      {
+        location: "http://[invalid?error=INVALID_TOKEN",
+        resume: "/home",
+      },
+      {
+        location: "/plan/plans?error=INVALID_TOKEN",
+        basePath: "/plan",
+        resume: "/plan/plans",
+      },
+      {
+        location: "/other/plans?error=INVALID_TOKEN",
+        basePath: "/plan",
+        resume: "/plan/home",
+      },
+      {
+        location: `/plan/sign-in?c=${encodeContinuation("/plan/plans", "/plan")}&error=INVALID_TOKEN`,
+        basePath: "/plan",
+        resume: "/plan/plans",
+      },
+    ])(
+      "routes failed email verification to recovery: $location",
+      async ({ location, basePath = "", resume }) => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("APP_BASE_PATH", basePath);
+        defineAppConfig({ app: { homePath: "/home" } });
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
 
-      vi.doMock("./better-auth-instance.js", () => ({
-        getBetterAuth: vi.fn(async () => ({
-          handler: async () =>
-            new Response(null, {
-              status: 302,
-              headers: {
-                location: "/_agent-native/sign-in?error=INVALID_TOKEN",
-              },
-            }),
-          api: {
-            getSession: vi.fn(async () => null),
-            signInEmail: vi.fn(),
-            signUpEmail: vi.fn(),
-            signOut: vi.fn(),
+        const failure = new Response(null, {
+          status: 302,
+          headers: { location },
+        });
+        const cookies = [
+          "verification-state=expired; Path=/; HttpOnly",
+          "callback-state=cleared; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/",
+        ];
+        for (const cookie of cookies)
+          failure.headers.append("set-cookie", cookie);
+        const signOut = vi.fn();
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => ({
+            handler: async () => failure,
+            api: {
+              getSession: vi.fn(async () => null),
+              signInEmail: vi.fn(),
+              signUpEmail: vi.fn(),
+              signOut,
+            },
+          })),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+
+        const { autoMountAuth } = await import("./auth.js");
+
+        const app = createMockApp();
+        await autoMountAuth(app);
+
+        const baHandler = app.use.mock.calls.find(
+          (call: any[]) => call[0] === "/_agent-native/auth/ba",
+        )?.[1];
+        expect(baHandler).toBeTypeOf("function");
+
+        const fullPath =
+          "/_agent-native/auth/ba/verify-email?token=bad&callbackURL=%2F_agent-native%2Fsign-in";
+        const request = new Request(`http://localhost${fullPath}`, {
+          method: "GET",
+        });
+        const event = {
+          req: request,
+          url: new URL("http://localhost/verify-email?token=bad"),
+          res: { headers: new Headers(), status: 200 },
+          node: {
+            req: { headers: {}, url: fullPath, method: "GET" },
+            res: {
+              setHeader: vi.fn(),
+              getHeader: vi.fn(),
+              appendHeader: vi.fn(),
+            },
           },
-        })),
-        getBetterAuthSync: vi.fn(() => undefined),
-      }));
-
-      const { autoMountAuth } = await import("./auth.js");
-
-      const app = createMockApp();
-      await autoMountAuth(app);
-
-      const baHandler = app.use.mock.calls.find(
-        (call: any[]) => call[0] === "/_agent-native/auth/ba",
-      )?.[1];
-      expect(baHandler).toBeTypeOf("function");
-
-      const fullPath =
-        "/_agent-native/auth/ba/verify-email?token=bad&callbackURL=%2F_agent-native%2Fsign-in";
-      const request = new Request(`http://localhost${fullPath}`, {
-        method: "GET",
-      });
-      const event = {
-        req: request,
-        url: new URL("http://localhost/verify-email?token=bad"),
-        res: { headers: new Headers(), status: 200 },
-        node: {
-          req: { headers: {}, url: fullPath, method: "GET" },
-          res: {
-            setHeader: vi.fn(),
-            getHeader: vi.fn(),
-            appendHeader: vi.fn(),
+          headers: request.headers,
+          context: {
+            _mountedPathname: fullPath,
+            _mountPrefix: "/_agent-native/auth/ba",
           },
-        },
-        headers: request.headers,
-        context: {
-          _mountedPathname: fullPath,
-          _mountPrefix: "/_agent-native/auth/ba",
-        },
-        path: "/verify-email",
-      };
+          path: "/verify-email",
+        };
 
-      const response = await baHandler(event);
+        const response = await baHandler(event);
 
-      expect(response.headers.get("location")).toBe(
-        "/_agent-native/sign-in?error=verification_link_invalid",
-      );
-    });
+        expect(response).toBe(failure);
+        const recovery = new URL(
+          response.headers.get("location"),
+          "http://localhost",
+        );
+        expect(recovery.pathname).toBe(`${basePath}/sign-in`);
+        expect(recovery.searchParams.get("error")).toBe(
+          "verification_link_invalid",
+        );
+        expect(recovery.searchParams.has("verified")).toBe(false);
+        expect(
+          decodeContinuation(recovery.searchParams.get("c"), basePath) ??
+            `${basePath}/home`,
+        ).toBe(resume);
+        expect(response.headers.getSetCookie()).toEqual(cookies);
+        expect(signOut).not.toHaveBeenCalled();
+      },
+    );
 
     it("repairs verified email rows from a successful verification session before showing verified redirect", async () => {
       vi.stubEnv("NODE_ENV", "production");
@@ -9267,15 +9520,14 @@ describe("server/auth", () => {
         if (/FROM organizations/.test(sql)) {
           return { rows: [{ identity_authority: null, identity_id: null }] };
         }
-        if (
-          /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql)
-        ) {
+        if (/FROM mcp_connect_tokens/.test(sql)) {
           return {
             rows: [
               {
                 org_id: "org-123",
                 owner_email: "owner@plans.test",
                 kind: "personal",
+                revoked_at: null,
               },
             ],
           };
@@ -9401,6 +9653,81 @@ describe("server/auth", () => {
       expect(event.res.status).toBe(503);
       expect(event.res.headers.get("retry-after")).toBe("5");
       consoleError.mockRestore();
+    });
+
+    it("answers an action route with a 401 naming why a connect token was refused", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+
+      const mockExecute = vi.fn(
+        async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+          if (
+            /FROM mcp_connect_tokens/.test(sql) &&
+            args?.[0] === "jti-connect-revoked-test"
+          ) {
+            return {
+              rows: [
+                {
+                  org_id: "org-123",
+                  owner_email: "owner@plans.test",
+                  kind: "personal",
+                  revoked_at: "2026-10-06T00:00:00.000Z",
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      );
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
+        getBetterAuthSync: () => null,
+      }));
+
+      const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
+        await import("../mcp/oauth-token.js");
+      const { MCP_CONNECT_OAUTH_CLIENT_ID } =
+        await import("../mcp/connect-store.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "owner@plans.test",
+        orgId: "org-123",
+        orgDomain: "plans.test",
+        clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+        scope: MCP_OAUTH_DEFAULT_SCOPE,
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+        jti: "jti-connect-revoked-test",
+        expiresIn: "30d",
+      });
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({
+        path: "/_agent-native/actions/import-visual-plan-source",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      await expect(guard(event)).resolves.toEqual({
+        error: "Unauthorized",
+        reason: "revoked",
+        message: expect.stringMatching(
+          /^This token was revoked\. Reconnect at http:\/\/localhost\S*\/mcp\/connect\.$/,
+        ),
+      });
+      expect(event.res.status).toBe(401);
     });
 
     it("does not resolve connect-minted MCP OAuth bearer tokens outside action routes", async () => {
@@ -10513,7 +10840,7 @@ describe("server/auth", () => {
       const event = createMockEvent({
         headers: {
           "x-forwarded-proto": "https",
-          cookie: `an_ft=${firstTouch}; an_aid=anon_google_1`,
+          cookie: `an_ft=${firstTouch}; an_aid=anon_google_1; an_sid=session_google_1`,
         },
       });
 
@@ -10545,6 +10872,7 @@ describe("server/auth", () => {
           landing_referrer: "t.co",
         },
         anonymousId: "anon_google_1",
+        sessionId: "session_google_1",
       });
     });
 
@@ -11928,14 +12256,16 @@ function createMockApp(): any {
 
 function createMockEvent(opts?: {
   cookies?: Record<string, string>;
-  query?: Record<string, string>;
+  query?: Record<string, string | string[]>;
   headers?: Record<string, string>;
   path?: string;
 }): any {
   const query = opts?.query || {};
   const headers = opts?.headers || {};
   const qs = Object.entries(query)
-    .map(([k, v]) => `${k}=${v}`)
+    .flatMap(([key, value]) =>
+      (Array.isArray(value) ? value : [value]).map((item) => `${key}=${item}`),
+    )
     .join("&");
   const pathname = opts?.path || "/";
   const url = qs ? `${pathname}?${qs}` : pathname;

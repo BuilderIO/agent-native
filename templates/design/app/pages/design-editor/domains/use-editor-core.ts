@@ -49,6 +49,7 @@ import type {
   PendingStructureVerificationStatus,
   RuntimeLayerSnapshot,
 } from "../command-types";
+import { resolveEditorChrome } from "../editor-chrome";
 import {
   DESIGN_EDITOR_DEBUG_LOGS,
   HOST_CHAT_SLOT_MESSAGE,
@@ -120,12 +121,15 @@ export function useEditorCore() {
   const isLiveCanvasShareLink =
     isVisualEditSurface && searchParams.get("share") === "1";
   const embedChromeRequested = isEmbedChromeRequested();
-  // An MCP App host owns navigation and chat, not the editor: the widget keeps
-  // the canvas, tools, and inspector as floating controls instead of going bare.
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
-  const hostOwnsChrome =
-    embedded && !shellMode && !embedChromeRequested && !widgetEmbed;
+  const { hostOwnsChrome, minimalUiByDefault, minimalUiLocked } =
+    resolveEditorChrome({
+      shellMode,
+      embedded,
+      embedChromeRequested,
+      widgetEmbed,
+    });
   const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
     isBuilderHostEmbed(),
   );
@@ -689,8 +693,6 @@ export function useEditorCore() {
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const activeFileIdRef = useRef(activeFileId);
   activeFileIdRef.current = activeFileId;
-  const minimalUiByDefault =
-    widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested);
   const handleScreenRuntimeVerificationSnapshot = useCallback(
     (
       screenId: string,
@@ -817,6 +819,7 @@ export function useEditorCore() {
     setActiveFileId,
     activeFileIdRef,
     minimalUiByDefault,
+    minimalUiLocked,
     handleScreenRuntimeVerificationSnapshot,
   };
 }

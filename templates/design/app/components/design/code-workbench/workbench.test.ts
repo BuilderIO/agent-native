@@ -58,19 +58,4 @@ describe("code workbench shell", () => {
     expect(source).toContain("expectedVersionHash");
     expect(source).toContain("WorkspaceStaleVersionError");
   });
-
-  it("places Code directly under Tokens with a rail separator", () => {
-    const source = readFileSync(
-      "app/components/design/editor/DesignWorkspaceRail.tsx",
-      "utf8",
-    );
-    const tokensIndex = source.indexOf('panel: "tokens"');
-    const codeIndex = source.indexOf('panel: "code"');
-    expect(tokensIndex).toBeGreaterThanOrEqual(0);
-    expect(codeIndex).toBeGreaterThan(tokensIndex);
-    expect(source.slice(tokensIndex, codeIndex + 200)).toContain(
-      "separatorBefore: true",
-    );
-    expect(source).not.toContain("const codeItem =");
-  });
 });

@@ -40,6 +40,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
   "analytics:dashboard_name_locks":
     "internal dashboard-name serialization rows, never exposed to raw DB tools",
+  "analytics:session_recording_session_associations":
+    "child rows are scoped through authorized session recordings",
   "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
   "brain:brain_audience_members":
     "internal audience memberships scoped through Brain actions",
@@ -74,6 +76,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:meeting_participants": "child rows scoped through meetings",
   "clips:organization_settings": "org-level settings accessed by actions",
   "clips:recording_comments": "child rows scoped through recordings",
+  "clips:recording_context_items":
+    "child rows scoped through recordings; every action checks access on the parent recording",
   "clips:recording_ctas": "child rows scoped through recordings",
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_playback_positions":
@@ -105,6 +109,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "design:design_versions": "version rows scoped through designs",
   "design:design_visual_edit_snapshot_blob_cleanup":
     "private snapshot blob cleanup outbox processed by Design actions",
+  "design:design_screen_restore_claims":
+    "one-use restore authorization scoped to a Design and accessed through Design actions",
   "forms:responses": "public submissions scoped through forms",
   "forms:response_deliveries":
     "internal delivery ledger scoped through form responses",

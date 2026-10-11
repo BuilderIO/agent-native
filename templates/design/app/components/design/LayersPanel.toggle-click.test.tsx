@@ -493,7 +493,6 @@ describe("LayersPanel collapse layers", () => {
 });
 
 describe("LayersPanel row hierarchy", () => {
-  // oracle: none — checks the Layers panel row classes; no parity oracle entry is recorded for the Figma 2385-4942 measurements yet.
   it("renders 32px rows with one 24px flex indent per level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);
 

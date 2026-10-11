@@ -78,7 +78,7 @@ describe("createMotionTrackFromPreset", () => {
     expect(track.keyframes[1].value).toBe("0px 0px");
   });
 
-  it("matches Figma Motion's Add-motion submenu verbatim", () => {
+  it("lists primary and additional motion properties", () => {
     const primary = MOTION_PROPERTY_PRESETS.filter(
       (p) => p.group === "primary",
     ).map((p) => p.label);

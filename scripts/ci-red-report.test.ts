@@ -236,8 +236,8 @@ describe("ci-red-report", () => {
         path: ".github/workflows/deploy-beta-sites.yml@main",
       }),
       run(34, {
-        name: "Hosted app health audit",
-        path: ".github/workflows/monitor-agent-native-sites.yml@main",
+        name: "Audit hosted app health",
+        path: ".github/workflows/keep-neon-warm.yml@main",
       }),
     ];
     const rows = buildCiRedRows(
@@ -272,7 +272,7 @@ describe("ci-red-report", () => {
     assert.equal(records.length, 4);
     assert.deepEqual(
       records.map((record) => record.workflow),
-      ["Design E2E", "Beta deploy", "Hosted app health audit", "CI"],
+      ["Design E2E", "Beta deploy", "Audit hosted app health", "CI"],
     );
     assert.equal(records[0].run_count, "2");
     assert.deepEqual(
@@ -359,14 +359,14 @@ describe("ci-red-report", () => {
 
   it("uses test fingerprints only when annotations match the final non-flaky summary", () => {
     const log = [
-      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/parity-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
-      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 2) [chromium] › e2e/parity-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
+      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 1) [chromium] › e2e/interaction-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
+      "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[error] 2) [chromium] › e2e/interaction-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
       "Shard 5/8\tUNKNOWN STEP\t2026-10-06T09:56:34Z ##[notice] 2 failed, 0 flaky",
     ].join("\n");
     const testFailures = parseFailedTestNames(log);
     assert.deepEqual(testFailures.get("Shard 5/8"), [
-      "chromium :: e2e/parity-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
-      "chromium :: e2e/parity-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
+      "chromium :: e2e/interaction-drag-move.spec.ts:294:1 › in-screen: Escape after a completed drag does NOT revert it",
+      "chromium :: e2e/interaction-drag-move.spec.ts:582:1 › in-screen: arrow-nudge after a drag continues from the dropped position",
     ]);
 
     const rows = buildCiRedRows(
@@ -392,7 +392,7 @@ describe("ci-red-report", () => {
             [
               "Shard 5/8",
               [
-                "chromium :: e2e/parity-drag-move.spec.ts:999:4 › in-screen: Escape after a completed drag does NOT revert it",
+                "chromium :: e2e/interaction-drag-move.spec.ts:999:4 › in-screen: Escape after a completed drag does NOT revert it",
               ],
             ],
           ]),

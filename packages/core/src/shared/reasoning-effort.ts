@@ -156,7 +156,13 @@ function isClaudeReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
-  if (id.includes("haiku-4-5")) return true;
+  if (
+    id.includes("haiku-5-5") ||
+    id.includes("haiku-5.5") ||
+    id.includes("haiku-4-5")
+  ) {
+    return true;
+  }
   return claudeOpusAtLeast(id, 4, 6);
 }
 
@@ -164,6 +170,7 @@ export function supportsClaudeAdaptiveThinking(model: string | undefined) {
   if (!model) return false;
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
   if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
   return claudeOpusAtLeast(id, 4, 6);
 }
@@ -188,6 +195,7 @@ export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
 function supportsClaudeXHigh(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5")) return true;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return true;
   if (id.includes("sonnet-5")) return true;
   return claudeOpusAtLeast(id, 4, 7);
 }
@@ -199,6 +207,7 @@ function isGeminiReasoningModel(model: string) {
 function claudeAcceptsSamplingParams(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   if (id.includes("fable-5") || id.includes("mythos-5")) return false;
+  if (id.includes("haiku-5-5") || id.includes("haiku-5.5")) return false;
   if (id.includes("sonnet-5")) return false;
   return !claudeOpusAtLeast(id, 4, 7);
 }

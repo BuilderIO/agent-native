@@ -8,7 +8,7 @@ export const formsAccessDescriptor = {
   },
   permissions: {
     "forms.edit": ["editor"],
-    "forms.review": ["reviewer"],
+    "forms.review": ["editor", "reviewer"],
   },
   permissionLabels: {
     "forms.edit": "Edit forms",

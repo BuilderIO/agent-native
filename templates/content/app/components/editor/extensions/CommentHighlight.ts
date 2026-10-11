@@ -44,6 +44,18 @@ function clampRange(
   return { from: a, to: b };
 }
 
+// The same node types and text throughout, so every position still names the
+// same character. Matching text alone is not enough: deleting one of two
+// identical words, or moving a block into a quote, keeps the text but shifts it.
+function sameShape(before: ProseMirrorNode, after: ProseMirrorNode): boolean {
+  if (before.type !== after.type || before.childCount !== after.childCount)
+    return false;
+  if (before.isText) return before.text === after.text;
+  for (let index = 0; index < before.childCount; index += 1)
+    if (!sameShape(before.child(index), after.child(index))) return false;
+  return true;
+}
+
 function buildDecorations(
   doc: ProseMirrorNode,
   specs: CommentHighlightSpec[],
@@ -93,7 +105,7 @@ export function createCommentHighlightPlugin() {
         hoveredId: null,
         decorations: DecorationSet.empty,
       }),
-      apply(tr, value, _oldState, newState) {
+      apply(tr, value, oldState, newState) {
         const meta = tr.getMeta(commentHighlightKey) as
           | CommentHighlightMeta
           | undefined;
@@ -109,13 +121,16 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          specs = specs
-            .map((s) => ({
-              threadId: s.threadId,
-              from: tr.mapping.map(s.from, 1),
-              to: tr.mapping.map(s.to, -1),
-            }))
-            .filter((s) => s.to > s.from);
+          let unchanged: boolean | undefined;
+          specs = specs.flatMap((s) => {
+            const from = tr.mapping.map(s.from, 1);
+            const to = tr.mapping.map(s.to, -1);
+            if (to > from) return [{ threadId: s.threadId, from, to }];
+            // Swapping in an identical document, as a collaborative reconcile
+            // or a decision readback does, collapses every range inside it.
+            unchanged ??= sameShape(oldState.doc, newState.doc);
+            return unchanged ? [s] : [];
+          });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);
             const to = tr.mapping.map(pending.to, -1);

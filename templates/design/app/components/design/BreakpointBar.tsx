@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { FRAME_SIZE_PRESET_CATEGORIES } from "@shared/frame-size-presets";
 import {
   IconDeviceDesktop,
   IconDeviceMobile,
@@ -25,8 +26,6 @@ import {
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-
-import { FRAME_SIZE_PRESET_CATEGORIES } from "./inspector/frame-size-presets";
 
 export const FRAMER_BREAKPOINT_PRESETS: ReadonlyArray<{
   labelKey: "desktop" | "tablet" | "phone";

@@ -220,6 +220,10 @@ export default function HistoryPanel({
                     <div key={slide.id || index} className="min-w-0">
                       <SlideRenderer
                         slide={slide}
+                        slidePosition={{
+                          number: index + 1,
+                          count: selectedSlides.length,
+                        }}
                         aspectRatio={
                           (selectedVersion?.aspectRatio ?? undefined) as
                             | AspectRatio

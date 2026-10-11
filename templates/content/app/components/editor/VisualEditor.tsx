@@ -22,6 +22,8 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -109,6 +111,7 @@ import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { observeEditorMount } from "./editor-mount-telemetry";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -1548,6 +1551,8 @@ function writeContentSelectionState(value: unknown) {
 }
 
 interface VisualEditorProps {
+  visitKey?: string;
+  editorMountMode?: EditorMountMode;
   documentId?: string;
   contentSpaceId?: string;
   content: string;
@@ -1578,6 +1583,8 @@ interface VisualEditorProps {
     markdown: string,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
+  /** Opens the import dialog for a drop that carries Markdown files. */
+  onImportFiles?: (files: File[]) => void;
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
@@ -1585,6 +1592,7 @@ interface VisualEditorProps {
   awareness?: Awareness | null;
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
+  directoryWidgetEditing?: boolean;
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
@@ -1628,10 +1636,8 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?:
-    | { from: number; prefix: string; suffix: string }
-    | VisualEditorSelectionSnapshot
-    | null;
+  initialSelection?: VisualEditorInitialSelection | null;
+  onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -1669,6 +1675,10 @@ export interface VisualEditorSelectionSnapshot {
   head: number;
   docJson: string;
 }
+
+export type VisualEditorInitialSelection =
+  | { from: number; prefix: string; suffix: string }
+  | VisualEditorSelectionSnapshot;
 
 export interface VisualEditorSelectionController {
   captureSelection: (options?: {
@@ -1820,6 +1830,16 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
+function hasSemanticCollaborationContent(value: string): boolean {
+  return (
+    value
+      .split(/\r?\n/)
+      .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+      .join("\n")
+      .trim().length > 0
+  );
+}
+
 export function shouldSeedCollaborativeContent({
   content,
   currentMarkdown,
@@ -1829,12 +1849,10 @@ export function shouldSeedCollaborativeContent({
   currentMarkdown: string;
   fragmentLength: number;
 }): boolean {
-  const semanticMarkdown = currentMarkdown
-    .split(/\r?\n/)
-    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
-    .join("\n")
-    .trim();
-  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+  return (
+    hasSemanticCollaborationContent(content) &&
+    (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
+  );
 }
 
 export function parseNfmForCollabReconcile(
@@ -3000,6 +3018,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 }
 
 export function VisualEditor({
+  visitKey,
+  editorMountMode,
   documentId,
   contentSpaceId,
   content,
@@ -3015,12 +3035,14 @@ export function VisualEditor({
   onChange,
   onSaveContent,
   onEscape,
+  onImportFiles,
   ydoc,
   observeLiveBody = false,
   collabSynced = true,
   awareness,
   user,
   editable = true,
+  directoryWidgetEditing = false,
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
@@ -3044,6 +3066,7 @@ export function VisualEditor({
   onHoverSuggestion,
   onSuggestionReplacementIntent,
   initialSelection,
+  onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
@@ -3281,6 +3304,8 @@ export function VisualEditor({
 
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onImportFilesRef = useRef(onImportFiles);
+  onImportFilesRef.current = onImportFiles;
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -3432,6 +3457,18 @@ export function VisualEditor({
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const editor = useEditor({
+    onCreate: ({ editor }) => {
+      if (editor.isDestroyed || !editor.view.dom.isConnected) return;
+      if (documentId && visitKey !== undefined) {
+        observeEditorMount(
+          editor,
+          documentId,
+          visitKey,
+          editorMountMode ??
+            (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+        );
+      }
+    },
     extensions,
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
@@ -3439,6 +3476,18 @@ export function VisualEditor({
         class: "notion-editor",
       },
       handleDrop(view, event) {
+        const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
+        if (
+          view.editable &&
+          onImportFilesRef.current &&
+          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+        ) {
+          // Images dropped beside Markdown belong to the import, not the page.
+          event.preventDefault();
+          setIsDraggingMedia(false);
+          onImportFilesRef.current(droppedFiles);
+          return true;
+        }
         if (view.editable) markUserEditIntent();
         setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
@@ -4196,6 +4245,17 @@ export function VisualEditor({
 
   const editableMarkedRef = useRef(false);
   useEffect(() => {
+    if (editor && !editor.isDestroyed && documentId && visitKey !== undefined) {
+      observeEditorMount.contextChanged(
+        editor,
+        documentId,
+        visitKey,
+        editorMountMode ??
+          (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+      );
+    }
+  }, [editor, editable, documentId, visitKey, suggesting, editorMountMode]);
+  useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
     if (editable && !referenceDepth && !editableMarkedRef.current) {
@@ -4487,10 +4547,11 @@ export function VisualEditor({
       if (!editor.isDestroyed) {
         editor.view.dispatch(editor.state.tr.setSelection(selection!));
         editor.view.focus();
+        onInitialSelectionApplied?.(initialSelection);
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [editable, editor, initialSelection]);
+  }, [editable, editor, initialSelection, onInitialSelectionApplied]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4605,6 +4666,7 @@ export function VisualEditor({
           documentId={documentId}
           contentSpaceId={contentSpaceId}
           suggesting={suggesting}
+          directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
             Promise.resolve(

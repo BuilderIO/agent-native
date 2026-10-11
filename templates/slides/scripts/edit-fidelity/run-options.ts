@@ -10,3 +10,12 @@ export function readValueOption(args: readonly string[], flag: string) {
   }
   return value;
 }
+
+export function authoringFilterError(
+  sourceFilter?: string,
+  flowFilter?: string,
+) {
+  if (sourceFilter === "largest" && flowFilter) {
+    return "--authoring-flow cannot be combined with --authoring-source largest";
+  }
+}

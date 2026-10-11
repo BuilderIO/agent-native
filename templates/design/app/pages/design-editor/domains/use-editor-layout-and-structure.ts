@@ -24,6 +24,7 @@ import type {
   RuntimeStructureDeleteRequest,
   RuntimeStructureRollbackRequest,
 } from "@/components/design/types";
+import { useViewSettings } from "@/hooks/use-view-settings";
 import {
   type DesignHotkeyAlignEdge,
   type DesignHotkeyDistributeAxis,
@@ -141,6 +142,7 @@ export function useEditorLayoutAndStructure({
     activeFileId,
     setActiveFileId,
     activeFileIdRef,
+    isSignedIn,
   } = editorCore;
   const {
     selectedLayerIdsState,
@@ -932,7 +934,16 @@ export function useEditorLayoutAndStructure({
       window.removeEventListener(DESIGN_HISTORY_OPEN_EVENT, openHistory);
   }, []);
 
-  const [commentsHidden, setCommentsHidden] = useState(false);
+  const {
+    settings: viewSettings,
+    update: updateViewSettings,
+    toggle: toggleViewSetting,
+  } = useViewSettings({ enabled: isSignedIn });
+  const { commentsHidden } = viewSettings;
+  const showComments = useCallback(
+    () => updateViewSettings({ commentsHidden: false }),
+    [updateViewSettings],
+  );
 
   const openRepromptComposer = useCallback(
     (screenId: string, info: ElementInfo, breakpointWidthPx?: number) => {
@@ -959,7 +970,7 @@ export function useEditorLayoutAndStructure({
         persistPendingNodeId: false,
         breakpointWidthPx,
       });
-      setCommentsHidden(false);
+      showComments();
       viewModeRef.current = "overview";
       setActiveFileId(screenId);
       setOverviewSelectedScreenIds([screenId]);
@@ -984,6 +995,7 @@ export function useEditorLayoutAndStructure({
       handleScreenElementSelect,
       id,
       overviewScreens,
+      showComments,
     ],
   );
 
@@ -1010,8 +1022,8 @@ export function useEditorLayoutAndStructure({
     [activeFile?.id, activeFileId, openRepromptComposer],
   );
   const handleToggleComments = useCallback(() => {
-    setCommentsHidden((current) => !current);
-  }, []);
+    toggleViewSetting("commentsHidden");
+  }, [toggleViewSetting]);
 
   const handleCrossScreenElementDrop = useCallback(
     (arg0: {
@@ -1578,7 +1590,10 @@ export function useEditorLayoutAndStructure({
     handleAddAutoLayout,
     handleToggleUi,
     commentsHidden,
-    setCommentsHidden,
+    viewSettings,
+    updateViewSettings,
+    toggleViewSetting,
+    showComments,
     handleToggleComments,
     handleCrossScreenElementDrop,
     handleRuntimeStructureInsertRejected,

@@ -646,7 +646,13 @@ function sourceMerge(input: MergeRenderedEditsInput) {
         }
         // The rendered <style> is the scoped copy; the stored one is
         // written from its source bytes.
-        if (el.tagName === "STYLE" && stampOf(el) === null) return;
+        if (
+          el.tagName === "STYLE" &&
+          stampOf(el) === null &&
+          !el.hasAttribute("data-fmd-crop-keyframes")
+        ) {
+          return;
+        }
         out.push(el);
       } else if (child.nodeType === 3) {
         const text = (child as Text).data;

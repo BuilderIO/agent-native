@@ -588,7 +588,10 @@ export function handleDesignHotkey(
 
   if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey) {
     if (key === "h") return runDistribute("horizontal");
-    if (key === "v") return runDistribute("vertical");
+    // Ctrl+Alt+V is the platform-primary paste-properties shortcut on Linux
+    // and Windows. Keep the legacy distribution chord on Apple platforms,
+    // where paste-properties uses Cmd+Alt+V instead.
+    if (key === "v" && isApplePlatform()) return runDistribute("vertical");
   }
 
   if (!primary && !event.altKey && !event.shiftKey && key === "i") {

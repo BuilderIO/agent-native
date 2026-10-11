@@ -284,7 +284,7 @@ async function drawClosedTriangle(page: Page, designId: string) {
   return { centroid: { x: card.x + 127, y: card.y + 207 } };
 }
 
-test("a closed pen path starts with a stroke and no fill, like Figma", async ({
+test("a closed pen path starts with a stroke and no fill", async ({
   page,
   request,
 }) => {
@@ -512,7 +512,7 @@ test("outside vector strokes clear the SVG viewport and restore overflow", async
   }
 });
 
-test("closed rect, ellipse, and circle SVG wrappers expose Position while open vectors do not", async ({
+test("closed SVG shapes enable Position while open vectors keep it disabled", async ({
   page,
   request,
 }) => {
@@ -567,11 +567,13 @@ test("closed rect, ellipse, and circle SVG wrappers expose Position while open v
         name: "Position",
       });
       if (!item.position) {
-        await expect(position).toHaveCount(0);
+        await expect(position).toBeVisible();
+        await expect(position).toBeDisabled();
         continue;
       }
 
       await expect(position).toBeVisible();
+      await expect(position).toBeEnabled();
       await position.click();
       await page.getByRole("option", { name: "Outside" }).click();
       await expect

@@ -148,7 +148,9 @@ describe("generation outcome cleanup", () => {
     const settleBody = deckEditorSource.slice(settleStart, settleEnd);
 
     expect(settleStart).toBeGreaterThanOrEqual(0);
-    expect(settleBody).toContain('if (refreshResult.status !== "ready")');
+    expect(settleBody).toContain(
+      'if (outcomeRefreshResult.status !== "ready")',
+    );
     expect(settleBody).toContain(
       'trackEvent("generation_outcome_unresolved", {',
     );

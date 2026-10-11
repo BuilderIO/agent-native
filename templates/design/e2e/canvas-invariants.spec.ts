@@ -459,7 +459,7 @@ test.describe("inspector reports the truth", () => {
       [x, y],
       `Intro is laid out by its auto-layout parent at (${rendered.left - wrap.left}, ` +
         `${rendered.top - wrap.top}) relative to the page wrapper, but the inspector ` +
-        `reports X=${x} Y=${y}. NOT a Figma-parity claim (Figma has no in-flow concept); the claim is that an inspector must not report 0 for an element that is demonstrably positioned.`,
+        `reports X=${x} Y=${y}. The inspector must not report 0 for an element that is demonstrably positioned.`,
     ).not.toEqual([0, 0]);
   });
 
@@ -701,7 +701,7 @@ test.describe("auto layout", () => {
     expect(
       overlapping,
       `Enabling auto layout must reflow the children so they no longer overlap, ` +
-        `as Figma does. Boxes: ${JSON.stringify(boxes)}. Opting a child out is ` +
+        `This keeps the child positions stable. Boxes: ${JSON.stringify(boxes)}. Opting a child out is ` +
         `the explicit "ignore auto layout" toggle, not the default.`,
     ).toEqual([]);
   });
@@ -1155,7 +1155,7 @@ test.describe("selection", () => {
     )?.trim();
     expect(
       parent,
-      `"\\" is how this editor reaches the ancestor Figma would have picked ` +
+      `"\\" is how this editor reaches the ancestor selected by container-first click behavior ` +
         `on click; got "${parent}"`,
     ).toContain("Intro");
 

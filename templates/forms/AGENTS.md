@@ -47,6 +47,10 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 - `settings.emailOnNewResponses` sends owner notifications; conditional/hidden fields follow `form-building`. Webhook/Slack/Discord/Sheets integrations also follow `form-publishing`.
 - Use framework sharing actions for forms and response resources.
 
+## Team Roles
+
+Reviewer reviews responses; Editor edits. Both need resource access. See `form-responses` for role policy.
+
 ## Application State
 
 - `navigation` exposes `/home` chat, builder, published form, responses, insights, and `form.selection`; builder `activeTab` is `edit`, `responses`, `settings`, or `integrations`.

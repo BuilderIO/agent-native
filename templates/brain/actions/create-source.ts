@@ -52,7 +52,7 @@ export default defineAction({
   }),
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
-    assertValidSourceConfig(args.provider, config);
+    assertValidSourceConfig(args.provider, config, { creating: true });
     if (args.policy !== undefined || config.answerPolicy !== undefined) {
       config = withSourceAnswerPolicy(
         config,

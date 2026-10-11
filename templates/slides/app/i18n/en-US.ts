@@ -240,6 +240,7 @@ const messages = {
     importCompleteFile: "File imported from {{fileName}}.",
     backToDecks: "Back to decks",
     toggleSlideList: "Toggle slide list",
+    openInAgentNative: "Open in Agent-Native",
     designSystem: "Design system",
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",

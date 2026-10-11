@@ -127,7 +127,6 @@ function watchBrowserErrors(page: Page) {
   return { consoleErrors, pageErrors, failedResponses, failedRequests };
 }
 
-// oracle: none — verifies built-in template metadata and save behavior, not Figma parity.
 test("built-in template preserves its dimensions and locks and can be saved again", async ({
   page,
   request,
@@ -239,7 +238,6 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
-// oracle: none — verifies app navigation and template creation, not Figma parity.
 test("home Templates tab opens a built-in template design", async ({
   page,
   request,
@@ -296,7 +294,6 @@ test("home Templates tab opens a built-in template design", async ({
   }
 });
 
-// oracle: none — verifies the create action's explicit no-system contract, not Figma parity.
 test("template copy clears a linked design system when explicitly requested", async ({
   page,
   request,

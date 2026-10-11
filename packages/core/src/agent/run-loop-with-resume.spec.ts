@@ -19,6 +19,7 @@ import {
 } from "./production-agent.js";
 import {
   AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+  appendDurableContinuationContext,
   clientAbortReason,
   runAgentLoopDirectWithSoftTimeout,
   BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
@@ -26,7 +27,10 @@ import {
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
 } from "./run-loop-with-resume.js";
-import { getCurrentTurnEventsForThread } from "./run-store.js";
+import {
+  AgentRunJournalUnreadableError,
+  getCurrentTurnEventsForThread,
+} from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
 vi.mock("./production-agent.js", async () => {
@@ -138,6 +142,17 @@ describe("isResumableEngineError", () => {
     for (const message of cases) {
       expect(isResumableEngineError(new Error(message))).toBe(true);
     }
+  });
+
+  it("keeps invalid requests terminal when their message says timeout", () => {
+    expect(
+      isResumableEngineError(
+        new EngineError("Invalid request timed out", {
+          errorCode: "invalid_request",
+          providerRetryable: false,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("inspects nested cause chains for transport markers", () => {
@@ -1689,6 +1704,29 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     expect(attempts).toBe(2);
     expect(mockGetCurrentTurnEventsForThread).not.toHaveBeenCalled();
+  });
+
+  it("refuses continuation from a corrupt persisted journal even with local context", async () => {
+    const error = new AgentRunJournalUnreadableError(
+      "thread-3",
+      "turn-3",
+      1,
+      "invalid_event_json",
+    );
+    mockGetCurrentTurnEventsForThread.mockRejectedValue(error);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    await expect(
+      appendDurableContinuationContext(
+        messages,
+        "network_interrupted",
+        "thread-3",
+        "turn-3",
+      ),
+    ).rejects.toBe(error);
+    expect(messages).toHaveLength(1);
+    expect(mockRunAgentLoop).not.toHaveBeenCalled();
   });
 
   it("still resumes when the journal ledger read throws", async () => {

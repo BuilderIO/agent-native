@@ -250,6 +250,7 @@ function mergePlainParagraph(
   candidate: PMNode,
   current: PMNode,
   incomingWins: boolean,
+  appendStaleSameWriterInsertions = false,
 ): { block: PMNode; displaced: boolean } | null {
   const before = plainParagraphText(base);
   const desired = plainParagraphText(candidate);
@@ -271,6 +272,19 @@ function mergePlainParagraph(
         acceptedCurrent.delete(overlaps[0]);
         acceptedIncoming.push(hunk);
       }
+    } else if (
+      appendStaleSameWriterInsertions &&
+      hunk.from === hunk.to &&
+      overlaps.length === 1 &&
+      overlaps[0].from === overlaps[0].to &&
+      hunk.from === overlaps[0].from
+    ) {
+      acceptedCurrent.delete(overlaps[0]);
+      acceptedIncoming.push({
+        from: hunk.from,
+        to: hunk.to,
+        insert: `${overlaps[0].insert}${hunk.insert}`,
+      });
     } else if (!overlaps.length) {
       acceptedIncoming.push(hunk);
     } else if (incomingWins) {
@@ -423,11 +437,20 @@ export function mergeDocumentBodyIntents(args: {
       (order) =>
         order === "incoming-after" || order === "incoming-concurrent-wins",
     );
+    const appendStaleSameWriterInsertions = touching.every(
+      (prior) =>
+        prior.writerId === args.incoming.writerId &&
+        args.incoming.generation !== undefined &&
+        prior.generation !== undefined &&
+        args.incoming.generation > prior.generation &&
+        args.incoming.authoredBaseRevision < prior.committedRevision,
+    );
     const paragraph = mergePlainParagraph(
       base[index],
       candidate[index],
       current[index],
       incomingWins,
+      appendStaleSameWriterInsertions,
     );
     if (paragraph) {
       merged[index] = paragraph.block;

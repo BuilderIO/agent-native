@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 const TABLE = "integration_identity_links";
 let _initPromise: Promise<void> | undefined;
@@ -46,7 +47,7 @@ const INDEXES = [
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       {
         await ensureTableExists(TABLE, createSql());
@@ -63,6 +64,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw error;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

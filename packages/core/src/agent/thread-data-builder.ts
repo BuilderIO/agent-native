@@ -19,13 +19,22 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
-import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
-import type { EngineContentPart, EngineMessage } from "./engine/types.js";
+import {
+  INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
+  stringifyToolUseInputForGateway,
+} from "./engine/translate-anthropic.js";
+import type {
+  EngineContentPart,
+  EngineMessage,
+  EngineToolResultPart,
+} from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
 import { isContinuationTerminalReason } from "./types.js";
@@ -37,7 +46,7 @@ interface ContentPart {
   toolCallId?: string;
   toolName?: string;
   argsText?: string;
-  args?: Record<string, string>;
+  args?: Record<string, unknown>;
   result?: string;
   isError?: boolean;
   outcome?: "unknown";
@@ -57,6 +66,7 @@ interface ContentPart {
 
 interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
+  preserveUnknownToolOutcomes?: boolean;
   turnId?: string;
   runDurationMs?: number;
   scope?: { type: string; id: string } | null;
@@ -65,23 +75,165 @@ interface BuildAssistantMessageOptions {
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
-const INTERRUPTED_TOOL_RESULT =
-  "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
+const INLINE_BASE64_MIN_CHARS = 64;
+const BASE64_PAYLOAD_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const ATTACHMENT_PAYLOAD_FIELD =
+  /^(?:base64|bytes|body|data|dataurl|image|payload)$/i;
+const ATTACHMENT_REFERENCE_FIELD =
+  /^(?:preview|referenceUrl|src|thumbnail|url)$/i;
+
+function isDataUrlReference(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+function isRawBase64Payload(value: string, allowShort = false): boolean {
+  const trimmed = value.trim();
+  return (
+    trimmed.length >= (allowShort ? 4 : INLINE_BASE64_MIN_CHARS) &&
+    trimmed.length % 4 === 0 &&
+    BASE64_PAYLOAD_RE.test(trimmed)
+  );
+}
+
+function isByteArray(value: unknown): boolean {
+  return (
+    (Array.isArray(value) &&
+      value.length > 0 &&
+      value.every(
+        (item) =>
+          typeof item === "number" &&
+          Number.isInteger(item) &&
+          item >= 0 &&
+          item <= 255,
+      )) ||
+    ((value instanceof Uint8Array || value instanceof Uint8ClampedArray) &&
+      value.length > 0) ||
+    (value instanceof ArrayBuffer && value.byteLength > 0)
+  );
+}
+
+function isInlineAttachmentPayload(value: unknown): boolean {
+  return (
+    (typeof value === "string" &&
+      (parseBase64DataUrl(value) !== null || isRawBase64Payload(value))) ||
+    isByteArray(value)
+  );
+}
+
+function isAttachmentCollectionField(fieldName: string): boolean {
+  const normalized = fieldName.toLowerCase().replace(/[-_]/g, "");
+  return (
+    normalized.endsWith("attachment") ||
+    normalized.endsWith("attachments") ||
+    normalized === "files" ||
+    normalized === "images"
+  );
+}
+
+export function containsInlineAttachmentPayload(value: unknown): boolean {
+  const seen = new WeakMap<object, Set<string>>();
+  const visit = (
+    entry: unknown,
+    attachmentContext = false,
+    fieldName?: string,
+    shortImagePayload = false,
+  ): boolean => {
+    if (typeof entry === "string") {
+      if (!attachmentContext) return false;
+      if (ATTACHMENT_PAYLOAD_FIELD.test(fieldName ?? "")) {
+        return (
+          isInlineAttachmentPayload(entry) ||
+          (shortImagePayload && isRawBase64Payload(entry, true))
+        );
+      }
+      return (
+        ATTACHMENT_REFERENCE_FIELD.test(fieldName ?? "") &&
+        (isDataUrlReference(entry) ||
+          isRawBase64Payload(entry, shortImagePayload))
+      );
+    }
+    if (!entry || typeof entry !== "object") return false;
+    const visitKey = `${attachmentContext}:${fieldName ?? ""}:${shortImagePayload}`;
+    let visitedContexts = seen.get(entry);
+    if (visitedContexts?.has(visitKey)) return false;
+    if (!visitedContexts) {
+      visitedContexts = new Set();
+      seen.set(entry, visitedContexts);
+    }
+    visitedContexts.add(visitKey);
+    if (Array.isArray(entry)) {
+      if (
+        attachmentContext &&
+        ATTACHMENT_PAYLOAD_FIELD.test(fieldName ?? "") &&
+        isInlineAttachmentPayload(entry)
+      ) {
+        return true;
+      }
+      return entry.some((item) =>
+        visit(item, attachmentContext, fieldName, shortImagePayload),
+      );
+    }
+    if (
+      attachmentContext &&
+      ATTACHMENT_PAYLOAD_FIELD.test(fieldName ?? "") &&
+      isByteArray(entry)
+    ) {
+      return true;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const isAttachment =
+      attachmentContext ||
+      record.type === "image" ||
+      record.type === "file" ||
+      record.type === "document" ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    const hasImagePayload =
+      shortImagePayload ||
+      record.type === "image" ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    return Object.entries(record).some(([key, child]) =>
+      visit(
+        child,
+        isAttachment || isAttachmentCollectionField(key),
+        key,
+        hasImagePayload,
+      ),
+    );
+  };
+
+  return visit(value);
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -127,6 +279,7 @@ export function buildAssistantMessage(
   metadata: Record<string, unknown>;
 } | null {
   const content: ContentPart[] = [];
+  const explicitUnknownOutcomes = new Set<ContentPart>();
   let toolCallCounter = 0;
   let runError: {
     message: string;
@@ -195,7 +348,7 @@ export function buildAssistantMessage(
       const toolCallId =
         explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
-      const args = (event.input ?? {}) as Record<string, string>;
+      const args = replayedToolInput(event.input);
       content.push({
         type: "tool-call",
         toolCallId,
@@ -262,6 +415,10 @@ export function buildAssistantMessage(
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
         if (event.isError !== undefined) part.isError = event.isError;
+        if (event.outcomeUnknown === true) {
+          part.outcome = "unknown";
+          explicitUnknownOutcomes.add(part);
+        }
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
         }
@@ -309,9 +466,17 @@ export function buildAssistantMessage(
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
-      );
+      const missingProvider =
+        event.errorCode === "missing_api_key" ||
+        event.errorCode === "missing_credentials" ||
+        /no llm provider(?: key)? (?:is connected|was found)/i.test(
+          `${event.error}\n${normalized.message}`,
+        );
+      if (!missingProvider) {
+        appendText(
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+        );
+      }
       continue;
     }
 
@@ -327,7 +492,10 @@ export function buildAssistantMessage(
 
   const continued = endedAtInternalContinuationBoundary;
   if (userStoppedRun || !continued) {
-    settleInterruptedToolCalls(content, userStoppedRun);
+    settleInterruptedToolCalls(
+      content.filter((part) => !explicitUnknownOutcomes.has(part)),
+      userStoppedRun && !options.preserveUnknownToolOutcomes,
+    );
   }
 
   const custom: Record<string, unknown> = {};
@@ -909,13 +1077,34 @@ function replayableToolCalls(message: any): any[] {
   );
 }
 
+function replayedToolInput(input: unknown): Record<string, unknown> {
+  return input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : { rawInput: input };
+}
+
+function replayedToolResult(part: {
+  result?: unknown;
+  outcome?: unknown;
+}): Pick<EngineToolResultPart, "content" | "outcome"> {
+  const unknown = part.outcome === "unknown" || part.result === undefined;
+  const result =
+    part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
+  return {
+    content: replayedToolResultContent(
+      unknown ? { outcome: "unknown", result } : result,
+    ),
+    ...(unknown ? { outcome: "unknown" as const } : {}),
+  };
+}
+
 function replayedToolPayloadCost(message: any): number {
   let cost = 0;
   for (const part of replayableToolCalls(message)) {
-    cost += stringifyToolUseInputForGateway(part.args ?? {}).length;
-    if (part.result !== undefined) {
-      cost += replayedToolResultContent(part.result).length;
-    }
+    cost += stringifyToolUseInputForGateway(
+      replayedToolInput(part.args),
+    ).length;
+    cost += replayedToolResult(part).content.length;
   }
   return cost;
 }
@@ -934,20 +1123,18 @@ function assistantReplayContent(
       typeof part.toolCallId === "string" ? part.toolCallId.trim() : "";
     const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
     if (!id || !name) continue;
-    const input =
-      part.args && typeof part.args === "object" && !Array.isArray(part.args)
-        ? (part.args as Record<string, unknown>)
-        : {};
+    const input = replayedToolInput(part.args);
     assistant.push({ type: "tool-call", id, name, input });
-    const result =
-      part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
+    const result = replayedToolResult(part);
     results.push({
       type: "tool-result",
       toolCallId: id,
       toolName: name,
       toolInput: stringifyToolUseInputForGateway(input),
-      content: replayedToolResultContent(result),
-      ...(part.isError === true ? { isError: true } : {}),
+      ...result,
+      ...(part.isError === true || result.outcome === "unknown"
+        ? { isError: true }
+        : {}),
     });
   }
   return { assistant, results };
@@ -2991,11 +3178,12 @@ export function mergeThreadDataForClientSave(
   // Queue mutations are the only writer of the queue and opt out here. Any
   // other save carries a queue it read earlier, and letting that copy win drops
   // a promotion claim or an append that landed in between.
-  if (
-    preserveExistingQueuedMessages &&
-    existingNormalized?.queuedMessages !== undefined
-  ) {
-    merged.queuedMessages = existingNormalized.queuedMessages;
+  if (preserveExistingQueuedMessages) {
+    if (existingNormalized?.queuedMessages !== undefined) {
+      merged.queuedMessages = existingNormalized.queuedMessages;
+    } else {
+      delete merged.queuedMessages;
+    }
   }
 
   const promptRunIds = submittedPromptRunIds(
@@ -3216,7 +3404,9 @@ function buildStoredAttachments(
         };
       }
       const uploadedUrl = (att as any).url as string | undefined;
-      if (uploadedUrl) {
+      const inlineDataUrl = isDataUrlReference(uploadedUrl);
+      const inlinePayload = isInlineAttachmentPayload(att.data);
+      if (uploadedUrl && !inlineDataUrl) {
         const referenceOnly = (att as any).referenceOnly === true;
         const storedAsImage = att.type === "image" && !referenceOnly;
         return {
@@ -3248,20 +3438,24 @@ function buildStoredAttachments(
         };
       }
 
-      if (typeof att.text === "string" && att.text.length > 0) {
+      const text =
+        typeof att.text === "string"
+          ? att.text
+          : typeof att.data === "string" && !inlinePayload
+            ? att.data
+            : undefined;
+      if (typeof text === "string" && text.length > 0) {
         return {
           id,
           type: "file",
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
-          content: [
-            { type: "text", text: textAttachmentEnvelope(att, att.text) },
-          ],
+          content: [{ type: "text", text: textAttachmentEnvelope(att, text) }],
         };
       }
 
-      if (att.storageRequired === true || typeof att.data === "string") {
+      if (inlineDataUrl || inlinePayload || att.storageRequired === true) {
         const uploadFailed = att.storageUploadFailed === true;
         return {
           id,
@@ -3272,9 +3466,11 @@ function buildStoredAttachments(
           content: [
             {
               type: "text",
-              text: uploadFailed
-                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
-                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+              text: inlineDataUrl
+                ? "Attachment not retained: inline data URLs cannot be stored in thread history. Attach the file using durable storage to keep it available throughout this thread."
+                : uploadFailed
+                  ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                  : "Attachment not retained: connect object storage to keep files available throughout this thread.",
             },
           ],
           metadata: {
@@ -3873,9 +4069,13 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

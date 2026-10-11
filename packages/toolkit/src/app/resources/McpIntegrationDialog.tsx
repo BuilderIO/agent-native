@@ -372,15 +372,22 @@ export function McpIntegrationDialog({
         : window.location.pathname +
           window.location.search +
           window.location.hash;
-    const oauthUrl = agentNativePath(
-      buildMcpOAuthStartUrl({
-        name: args.name,
-        url: args.url,
-        description: args.description,
-        scope: options?.scope ?? scope,
-        returnUrl,
-      }),
-    );
+    let oauthUrl: string;
+    try {
+      oauthUrl = agentNativePath(
+        buildMcpOAuthStartUrl({
+          name: args.name,
+          url: args.url,
+          description: args.description,
+          scope: options?.scope ?? scope,
+          returnUrl,
+        }),
+      );
+    } catch {
+      setBusy(false);
+      setError(t("mcpIntegrations.connectionError"));
+      return;
+    }
     if (!onOAuthStart) {
       const opened = navigateToMcpOAuthStart(oauthUrl);
       setBusy(false);

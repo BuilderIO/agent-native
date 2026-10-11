@@ -241,6 +241,7 @@ const messages = {
     importCompleteFile: "{{fileName}} からファイルをインポートしました。",
     backToDecks: "デッキに戻る",
     toggleSlideList: "スライド一覧を切り替え",
+    openInAgentNative: "Agent-Nativeで開く",
     designSystem: "デザインシステム",
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",

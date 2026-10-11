@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconBrandGithub,
   IconCheck,
   IconDots,
   IconFolder,
@@ -62,6 +63,7 @@ import {
 } from "@/lib/dashboard-visibility";
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
 
+import { GitHubFolderSyncDialog } from "../components/dashboard/GitHubFolderSyncDialog";
 import { NewDashboardDialog } from "../components/layout/NewDashboardDialog";
 
 type Scope = "personal" | "shared";
@@ -528,6 +530,7 @@ function FolderSection({
   t: ReturnType<typeof useT>;
   hideWhenEmpty?: boolean;
 }) {
+  const [githubSyncOpen, setGithubSyncOpen] = useState(false);
   const scopedDashboards = dashboards.filter((dashboard) =>
     isDashboardInScope(dashboard, scope, currentUserEmail),
   );
@@ -543,6 +546,33 @@ function FolderSection({
         <span className="text-xs text-muted-foreground">
           {scopedDashboards.length}
         </span>
+        {folder ? (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("githubFolderSync.folderActions")}
+                  className="ms-auto shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <IconDots className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setGithubSyncOpen(true)}>
+                  <IconBrandGithub className="size-4 text-muted-foreground" />
+                  {t("githubFolderSync.menuItem")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <GitHubFolderSyncDialog
+              folder={folder}
+              open={githubSyncOpen}
+              onOpenChange={setGithubSyncOpen}
+            />
+          </>
+        ) : null}
       </div>
       {scopedDashboards.length === 0 ? (
         <p className="border-t border-border/50 px-4 py-4 text-sm text-muted-foreground">

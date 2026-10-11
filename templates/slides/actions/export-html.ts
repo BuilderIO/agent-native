@@ -8,7 +8,6 @@ import {
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import "../server/db/index.js";
@@ -16,6 +15,11 @@ import {
   sanitizeCssValue,
   sanitizeSlideHtml,
 } from "../app/lib/sanitize-slide-html.js";
+import {
+  trackDeckExported,
+  withExportFailureTracking,
+} from "../server/lib/deck-export-tracking.js";
+import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -31,6 +35,10 @@ import {
   DEFAULT_SLIDE_BACKGROUND,
   resolveSlideBackground,
 } from "../shared/slide-background.js";
+import {
+  SLIDE_NUMBER_CSS,
+  slideNumberInlineStyle,
+} from "../shared/slide-number.js";
 
 function safeCssToken(
   value: unknown,
@@ -288,8 +296,9 @@ export function buildStandaloneHtml(
         slide.background,
         designSystem,
       );
-      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}`;
-      return `<section class="slide" data-index="${i}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
+      const position = { number: i + 1, count: slides.length };
+      const style = `display: ${i === 0 ? "flex" : "none"}; background: ${safeCssToken(standaloneBackgroundCssValue(slideBackground), DEFAULT_SLIDE_BACKGROUND, builderTokenValues)}; ${standaloneDesignSystemVars(designSystem, slideBackground, builderTokenValues)}; ${slideNumberInlineStyle(position)}`;
+      return `<section class="slide" data-index="${i}" data-slide-index="${position.number}" data-slide-count="${position.count}" style="${escapeHtml(style)}">${sanitizeSlideHtml(slide.content)}</section>`;
     })
     .join("\n");
 
@@ -353,6 +362,8 @@ export function buildStandaloneHtml(
       width: 100%;
       height: 100%;
     }
+
+    ${SLIDE_NUMBER_CSS}
 
     .fmd-slide {
       width: 100%;
@@ -612,13 +623,17 @@ function parseStoredDesignSystem(
   }
 }
 
+const trackHtmlExportFailures = withExportFailureTracking<{
+  deckId: string;
+}>("html");
+
 export default defineAction({
   description:
     "Export a deck as a standalone HTML file with built-in keyboard navigation. Returns a download URL for the generated file.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
   }),
-  run: async ({ deckId }, ctx) => {
+  run: trackHtmlExportFailures(async ({ deckId }, ctx, facts) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -633,9 +648,14 @@ export default defineAction({
         statusCode: 404,
       });
 
+    facts.deckId = deckId;
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    facts.slideCount = slides.length;
+    facts.generationAttemptId = generationAttemptIdOf(
+      deckData.generationContext,
+    );
     const rawAspectRatio = deckData.aspectRatio;
     const aspectRatio: AspectRatio | undefined = ASPECT_RATIO_VALUES.includes(
       rawAspectRatio,
@@ -695,21 +715,19 @@ export default defineAction({
       fs.writeFileSync(filePath, html);
     }
 
-    track(
-      "deck_exported",
+    trackDeckExported(
       {
-        app_name: "slides",
-        template_name: "slides",
-        output_id: deckId,
-        output_type: "deck",
-        export_format: "html",
-        slide_count: slides.length,
+        ...facts,
+        deckId,
+        exportFormat: "html",
+        renderLocation: "server",
+        status: "completed",
       },
       ctx,
     );
 
     return { html, filePath, filename, slideCount: slides.length };
-  },
+  }),
 });
 
 function isServerless(): boolean {

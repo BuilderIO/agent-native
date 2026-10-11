@@ -44,9 +44,6 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain(
       "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      !initialGenerationChromeLimited &&\n      activeFile &&\n      motionDockMounted",
     );
-    expect(source).toContain(
-      "motionDisabled={!activeFile || initialGenerationChromeLimited}",
-    );
   });
 
   it("keeps inspector motion controls gated and preserves explicit collapse", () => {

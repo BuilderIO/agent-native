@@ -235,7 +235,6 @@ async function dragSouthEastRadius(
   return previousRadius;
 }
 
-// oracle: none — covers local handle-drag persistence, not Figma parity.
 test("canvas corner-radius handle follows the drag and persists the radius", async ({
   page,
   request,
@@ -425,7 +424,6 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
   }
 });
 
-// oracle: none — checks local radius-handle persistence without claiming Figma parity.
 test("asymmetric normalized radius handle follows a normal drag without jumping", async ({
   page,
   request,

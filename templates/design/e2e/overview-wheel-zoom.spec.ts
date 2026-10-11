@@ -154,7 +154,6 @@ test("one mouse notch moves zoom by a notch-sized step, not the pinch curve", as
   }
 });
 
-// oracle: none — checks browser console output, not Figma behavior.
 test("a wheel burst over screen content does not log a scroll Intervention", async ({
   page,
   request,
@@ -181,7 +180,6 @@ test("a wheel burst over screen content does not log a scroll Intervention", asy
   }
 });
 
-// oracle: none — checks the displayed zoom control against the canvas transform.
 test("the zoom percentage input updates the overview canvas scale", async ({
   page,
   request,

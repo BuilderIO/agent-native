@@ -49,7 +49,7 @@ export default defineAppConfig({
     enabled: true,
     capturePrompts: false,
     captureToolArgs: true, // capture action input args
-    captureToolResults: false, // include tool results and the full error text on tool spans and $ai_generation entries
+    captureToolResults: false, // include results and full error text in local tool spans
     evalSampleRate: 0.05, // 5% of runs get LLM-as-judge eval
     inferredSentimentEnabled: false,
     inferredSentimentSampleRate: 0,
@@ -67,8 +67,9 @@ classify is not observable:
   whether the rest is kept. The span's metadata says which (`__tool_error_detail`:
   `full` | `signature`), and the read path returns it as `errorDetail`
   (`full` | `signature` | `withheld` | `unrecorded`) so "withheld on purpose" is
-  never read as "nothing was recorded". `$ai_*` events and OTel spans still
-  follow the flag.
+  never read as "nothing was recorded". `$ai_*` telemetry omits error text
+  even when capture is enabled. Optional host-owned OTel run spans also use
+  fixed code-derived messages and retain `agent.error_code` / `agent.error_cause`.
 - **A stop that waits on the user is not an error.** An `input_required`
   outcome (question, approval, connection) records the `agent_run` span as
   `status: "paused"` with the reason in `terminal_code`, not `error`. Anything
@@ -405,6 +406,15 @@ same best-effort fan-out as other tracking events.
   logical turn may span multiple concrete runs.
 
 Constraints that are not visible from the emit site:
+
+- **Run failure telemetry carries identifiers, not error text.** `error_detail`
+  and `error_message` are absent from tracking. `$ai_error.message` is fixed
+  text derived from its `terminal_code`; `cause` comes from the failure taxonomy.
+  Failed tool results in `$ai_output_state` and generation input transcripts are
+  replaced with an omission marker, and the `tools` array retains only its error
+  class. Local `agent_runs.error_detail` and `agent_trace_spans.error_message`
+  remain available to owner-scoped debugging and the Observability UI.
+  Monitoring run/gateway captures use the omission policy documented in tracking.
 
 - **The trace event carries no latency, tokens, or cost under `$ai_*`.** PostHog
   DERIVES those from a trace's children: its trace query sums `$ai_latency` over
