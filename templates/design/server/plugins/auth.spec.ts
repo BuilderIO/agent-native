@@ -44,6 +44,14 @@ describe("design auth plugin", () => {
     );
   });
 
+  it("lets Analytics reach the storyboard upload route's A2A verifier", () => {
+    expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicPaths: expect.arrayContaining(["/api/session-replay-storyboard"]),
+      }),
+    );
+  });
+
   it("does not expose review comment mutations", () => {
     const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
 
