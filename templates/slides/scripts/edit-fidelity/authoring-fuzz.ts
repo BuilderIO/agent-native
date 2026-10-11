@@ -1115,7 +1115,7 @@ export async function runAuthoringFuzz(
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled || isBrowserSessionPath(pathname)) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation} startOffsetMs=${requestStartedAt === undefined || reloadNavigationStartedAt === null ? "n/a" : requestStartedAt - reloadNavigationStartedAt}`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} startOffsetMs=${requestStartedAt === undefined || reloadNavigationStartedAt === null ? "n/a" : requestStartedAt - reloadNavigationStartedAt}`,
       );
     }
     if (
