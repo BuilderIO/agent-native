@@ -2114,11 +2114,8 @@ export function foldThreadRunSuggestions(
     oldRun.lastSequence >= 0
       ? oldRun.lastSequence
       : 0;
-  const lastSequence = run.events.reduce(
-    (maximum, { seq }) =>
-      Number.isSafeInteger(seq) && seq >= 0 ? Math.max(maximum, seq) : maximum,
-    previousSequence,
-  );
+  // Runtime event sequence numbers and AgentKit protocol cursors are separate.
+  const lastSequence = previousSequence;
   const snapshot: AgentRunSnapshot = {
     ...oldRun,
     id: run.runId,
@@ -3004,14 +3001,16 @@ function mergeAgentKitHistory(
         (suggestion: any) => suggestion?.runId === latest?.id,
       );
     }
-    if (Array.isArray(merged.activeRunIds)) {
-      merged.activeRunIds = merged.activeRunIds.filter(
-        (id: string) =>
-          !["completed", "failed", "cancelled"].includes(
-            runs.get(id)?.status ?? "",
-          ),
-      );
-    }
+    const activeRunIds = new Set([
+      ...(Array.isArray(previous.activeRunIds) ? previous.activeRunIds : []),
+      ...(Array.isArray(next.activeRunIds) ? next.activeRunIds : []),
+    ]);
+    merged.activeRunIds = [...activeRunIds].filter(
+      (id) =>
+        !["completed", "failed", "cancelled"].includes(
+          runs.get(id)?.status ?? "",
+        ),
+    );
   }
   const existingMessageRunIds = snapshotMessageRunIds(previous);
   const incomingMessageRunIds = snapshotMessageRunIds(next);

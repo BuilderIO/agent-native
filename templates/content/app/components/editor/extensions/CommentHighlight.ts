@@ -1,7 +1,13 @@
 import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import { ReplaceStep, StepMap } from "@tiptap/pm/transform";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import DiffMatchPatch, {
+  DIFF_DELETE,
+  DIFF_EQUAL,
+  DIFF_INSERT,
+} from "diff-match-patch";
 
 export interface CommentHighlightSpec {
   threadId: string;
@@ -44,16 +50,118 @@ function clampRange(
   return { from: a, to: b };
 }
 
-// The same node types and text throughout, so every position still names the
-// same character. Matching text alone is not enough: deleting one of two
-// identical words, or moving a block into a quote, keeps the text but shifts it.
-function sameShape(before: ProseMirrorNode, after: ProseMirrorNode): boolean {
-  if (before.type !== after.type || before.childCount !== after.childCount)
-    return false;
-  if (before.isText) return before.text === after.text;
-  for (let index = 0; index < before.childCount; index += 1)
-    if (!sameShape(before.child(index), after.child(index))) return false;
+// What each position of a document names, one character per position: its
+// text, and a private-use character for each node boundary.
+function positionText(doc: ProseMirrorNode, codes: Map<string, string>) {
+  const parts: string[] = [];
+  const boundary = (key: string) => {
+    let code = codes.get(key);
+    if (code === undefined) {
+      code = String.fromCharCode(0xe000 + codes.size);
+      codes.set(key, code);
+    }
+    parts.push(code);
+  };
+  const walk = (node: ProseMirrorNode) =>
+    node.forEach((child) => {
+      if (child.isText) {
+        parts.push(child.text!);
+      } else if (child.isLeaf) {
+        boundary(`${child.type.name}/`);
+      } else {
+        boundary(child.type.name);
+        walk(child);
+        boundary(`/${child.type.name}`);
+      }
+    });
+  walk(doc);
+  return parts.join("");
+}
+
+// A collaborative update, a reconcile, or a decision readback swaps in the
+// whole document, so its own mapping collapses every range inside it. Such a
+// swap maps through a diff of the two documents' node types and text. A
+// narrower change keeps its own mapping: deleting one of two identical words
+// reads, by text alone, as deleting the other.
+function swapMapping(
+  tr: Transaction,
+  before: ProseMirrorNode,
+  after: ProseMirrorNode,
+): StepMap | null {
+  const codes = new Map<string, string>();
+  const left = positionText(before, codes);
+  const right = positionText(after, codes);
+  if (left === right) return StepMap.empty;
+  const swapsDocument = tr.steps.some(
+    (step, index) =>
+      step instanceof ReplaceStep &&
+      step.from === 0 &&
+      step.to === tr.docs[index].content.size,
+  );
+  if (!swapsDocument) return null;
+  const differ = new DiffMatchPatch();
+  // This runs on the main thread: a large rewrite settles for a coarser diff.
+  differ.Diff_Timeout = 0.05;
+  const ranges: number[] = [];
+  let changed: [number, number, number] | null = null;
+  let offset = 0;
+  const diffs = differ.diff_main(left, right, false);
+  // Letters a rewrite happens to share with the text it replaces are not that
+  // text surviving.
+  differ.diff_cleanupSemantic(diffs);
+  for (const [kind, text] of diffs) {
+    if (kind === DIFF_EQUAL) {
+      if (changed) ranges.push(...changed);
+      changed = null;
+      offset += text.length;
+      continue;
+    }
+    changed ??= [offset, 0, 0];
+    if (kind === DIFF_DELETE) {
+      changed[1] += text.length;
+      offset += text.length;
+    } else if (kind === DIFF_INSERT) {
+      changed[2] += text.length;
+    }
+  }
+  if (changed) ranges.push(...changed);
+  return new StepMap(ranges);
+}
+
+// Text an earlier step of a change put inside a highlight is not its text.
+function keepsText(maps: readonly StepMap[], from: number, to: number) {
+  let parts = [[from, to]];
+  for (const map of maps) {
+    parts = parts.flatMap(([start, end]) => {
+      const left: number[][] = [];
+      let at = start;
+      map.forEach((oldStart, oldEnd) => {
+        if (oldStart >= end) return;
+        if (oldStart > at) left.push([map.map(at, 1), map.map(oldStart, -1)]);
+        at = Math.max(at, oldEnd);
+      });
+      if (at < end) left.push([map.map(at, 1), map.map(end, -1)]);
+      return left;
+    });
+    if (!parts.length) return false;
+  }
   return true;
+}
+
+// A highlight keeps only what is left of its text. Once a change replaces all
+// of it, even with text in the same place, it is gone: only an accepted edit
+// re-anchors the thread's quote, not a collaborator's rewrite.
+function mapHighlight(
+  maps: readonly StepMap[],
+  from: number,
+  to: number,
+): PendingRange | null {
+  if (!keepsText(maps, from, to)) return null;
+  for (const map of maps) {
+    from = map.map(from, 1);
+    to = map.map(to, -1);
+  }
+  return to > from ? { from, to } : null;
 }
 
 function buildDecorations(
@@ -94,7 +202,14 @@ function buildDecorations(
   return DecorationSet.create(doc, decos);
 }
 
-export function createCommentHighlightPlugin() {
+export interface CommentHighlightOptions {
+  // Where a thread's quote is in a document, if anywhere.
+  findQuote?: (threadId: string, doc: ProseMirrorNode) => PendingRange | null;
+}
+
+export function createCommentHighlightPlugin({
+  findQuote,
+}: CommentHighlightOptions = {}) {
   return new Plugin<CommentHighlightState>({
     key: commentHighlightKey,
     state: {
@@ -121,15 +236,24 @@ export function createCommentHighlightPlugin() {
           if (meta.activeId !== undefined) activeId = meta.activeId;
           if (meta.hoveredId !== undefined) hoveredId = meta.hoveredId;
         } else if (tr.docChanged) {
-          let unchanged: boolean | undefined;
+          let swap: StepMap | null | undefined;
           specs = specs.flatMap((s) => {
-            const from = tr.mapping.map(s.from, 1);
-            const to = tr.mapping.map(s.to, -1);
-            if (to > from) return [{ threadId: s.threadId, from, to }];
-            // Swapping in an identical document, as a collaborative reconcile
-            // or a decision readback does, collapses every range inside it.
-            unchanged ??= sameShape(oldState.doc, newState.doc);
-            return unchanged ? [s] : [];
+            let range = mapHighlight(tr.mapping.maps, s.from, s.to);
+            if (!range) {
+              if (swap === undefined)
+                swap = swapMapping(tr, oldState.doc, newState.doc);
+              // A swapped-in document with none of the highlight's text left
+              // falls back to its quote, as on a fresh load: a rewrite too
+              // large to diff in time drops text it never touched. A narrower
+              // edit that deletes the text takes the highlight with it, even
+              // where another copy of the quote remains.
+              if (swap)
+                range =
+                  mapHighlight([swap], s.from, s.to) ??
+                  findQuote?.(s.threadId, newState.doc) ??
+                  null;
+            }
+            return range ? [{ threadId: s.threadId, ...range }] : [];
           });
           if (pending) {
             const from = tr.mapping.map(pending.from, 1);
@@ -163,11 +287,15 @@ export function createCommentHighlightPlugin() {
   });
 }
 
-export const CommentHighlight = Extension.create({
+export const CommentHighlight = Extension.create<CommentHighlightOptions>({
   name: "commentHighlight",
 
+  addOptions() {
+    return { findQuote: undefined };
+  },
+
   addProseMirrorPlugins() {
-    return [createCommentHighlightPlugin()];
+    return [createCommentHighlightPlugin(this.options)];
   },
 });
 

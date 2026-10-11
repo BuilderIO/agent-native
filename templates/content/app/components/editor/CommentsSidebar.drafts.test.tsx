@@ -1788,3 +1788,83 @@ it("labels an open comment whose quoted text is no longer in the page", async ()
     scroll.remove();
   }
 });
+
+it("does not label a thread before its new id is measured", async () => {
+  const commentThread = (threadId: string) => ({
+    threadId,
+    quotedText: "Hand edits are gold",
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: `${threadId}-root`,
+        document_id: "document-renamed",
+        thread_id: threadId,
+        parent_id: null,
+        content: "Make this specific",
+        quoted_text: "Hand edits are gold",
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-10-05T11:24:43.172Z",
+        updated_at: "2026-10-05T11:24:43.172Z",
+        notion_comment_id: null,
+      },
+    ],
+  });
+  const scroll = document.createElement("div");
+  scroll.innerHTML =
+    '<div class="ProseMirror"><h2>Hand edits are gold</h2></div>';
+  document.body.append(scroll);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness({ threadId }: { threadId: string }) {
+    const replyDrafts = useCommentReplyDrafts("document-renamed");
+    return (
+      <CommentsSidebar
+        documentId="document-renamed"
+        replyDrafts={replyDrafts}
+        threads={[commentThread(threadId)]}
+        scrollContainerRef={{ current: scroll }}
+        surface="panel"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  const nextFrame = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+  const labelFor = (threadId: string) =>
+    container.querySelector(
+      `[data-thread-card="${threadId}"] [data-comment-anchor-unavailable]`,
+    );
+  try {
+    await act(async () => root.render(<Harness threadId="optimistic-1" />));
+    await nextFrame();
+    expect(labelFor("optimistic-1")).toBeNull();
+
+    // The saved thread replaces its optimistic copy under a new id.
+    act(() => root.render(<Harness threadId="saved-1" />));
+    expect(container.querySelector('[data-thread-card="saved-1"]')).not.toBe(
+      null,
+    );
+    expect(labelFor("saved-1")).toBeNull();
+
+    await nextFrame();
+    expect(labelFor("saved-1")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    scroll.remove();
+  }
+});

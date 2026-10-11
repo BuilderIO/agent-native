@@ -214,7 +214,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "设计",
+    home: "首页",
     templates: "模板",
     designSystems: "设计系统",
     setupDesignSystem: "设置设计系统",
@@ -752,7 +752,7 @@ export default {
       needsConnectedApp: "源代码跳转需要连接应用",
     },
     leftRail: {
-      file: "文件",
+      layers: "图层",
       agent: "代理",
       assets: "资源",
       import: "导入",
@@ -1041,7 +1041,7 @@ export default {
     templateSaveFailed: "无法保存此模板",
     fileMenu: {
       pendingEditsBlocked: "复制前，请先应用或放弃待处理的可视化编辑。",
-      designs: "设计",
+      allDesigns: "所有设计",
       rename: "重命名",
       duplicate: "复制",
       versionHistory: "版本历史",
@@ -1800,7 +1800,7 @@ export default {
     browseAllTemplates: "浏览全部",
     connectBuilderIo: "使用 Builder.io",
     connectingBuilder: "正在设置 Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "首页",
     searchPlaceholder: "搜索设计...",
     newDesign: "新Design",
     newDesignLower: "新设计",

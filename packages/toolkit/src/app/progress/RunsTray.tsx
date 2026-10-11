@@ -1,3 +1,7 @@
+import {
+  requestAgentChatThreadOpen,
+  requestAgentTaskOpen,
+} from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useChangeVersion } from "@agent-native/core/client/use-change-version";
@@ -12,6 +16,7 @@ import {
   Tooltip as DesignSystemTooltip,
 } from "@agent-native/toolkit/design-system";
 import {
+  DropdownMenuItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -27,7 +32,7 @@ import {
   IconSubtask,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type AgentRunDto = AgentRun;
 type BackgroundAgentRunDto = {
@@ -288,6 +293,8 @@ export function RunsTray({
     showRecent,
   });
 
+  const openRunThread = onOpenThread ?? openAgentRunThread;
+
   if (!hasRuns && hideWhenIdle) return null;
 
   const trigger = (
@@ -372,7 +379,8 @@ export function RunsTray({
         terminalCount={terminalCount}
         onDismiss={dismissRun}
         onStop={stopRun}
-        onOpenThread={onOpenThread}
+        onOpenThread={openRunThread}
+        insideDropdownMenu={false}
       />
     </DesignSystemPopover>
   );
@@ -390,6 +398,9 @@ export function RunsTrayMenuItem({
 >) {
   const t = useT();
   const [submenuOpen, setSubmenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const keepOpenRef = useRef(false);
+  const keepOpenTimerRef = useRef<number | null>(null);
   const {
     runs,
     hasRuns,
@@ -408,23 +419,41 @@ export function RunsTrayMenuItem({
     showRecent,
   });
 
+  const openRunThread = onOpenThread ?? openAgentRunThread;
+  const keepMenuOpen = () => {
+    keepOpenRef.current = true;
+    window.clearTimeout(keepOpenTimerRef.current ?? undefined);
+    keepOpenTimerRef.current = window.setTimeout(() => {
+      keepOpenRef.current = false;
+    }, 250);
+  };
+  // Radix restores focus to the parent menu while these actions update rows.
+  const onFocusOutside = (event: Event) => {
+    const target = event.target;
+    if (
+      keepOpenRef.current &&
+      target instanceof HTMLElement &&
+      target.matches('[role="menu"][data-radix-menu-content]')
+    ) {
+      event.preventDefault();
+      keepOpenRef.current = false;
+      window.clearTimeout(keepOpenTimerRef.current ?? undefined);
+    }
+  };
+
+  useEffect(
+    () => () => window.clearTimeout(keepOpenTimerRef.current ?? undefined),
+    [],
+  );
+
   if (!hasRuns && hideWhenIdle) return null;
 
   return (
     <DropdownMenuSub open={submenuOpen} onOpenChange={setSubmenuOpen}>
       <DropdownMenuSubTrigger
+        ref={triggerRef}
         aria-label={t("runsTray.ariaAgentRuns", { label: triggerLabel })}
         className="cursor-pointer gap-2"
-        onClick={(event) => {
-          event.preventDefault();
-          setSubmenuOpen(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setSubmenuOpen(true);
-          }
-        }}
       >
         <TriggerIcon
           size={14}
@@ -453,6 +482,7 @@ export function RunsTrayMenuItem({
       <DropdownMenuSubContent
         sideOffset={6}
         className="an-runs-tray__menu w-80 max-w-[calc(100vw-24px)] p-0"
+        onFocusOutside={onFocusOutside}
       >
         <RunsTrayContent
           runs={runs}
@@ -461,7 +491,10 @@ export function RunsTrayMenuItem({
           terminalCount={terminalCount}
           onDismiss={dismissRun}
           onStop={stopRun}
-          onOpenThread={onOpenThread}
+          onOpenThread={openRunThread}
+          onKeepMenuOpen={() => triggerRef.current?.focus()}
+          onActionStart={keepMenuOpen}
+          insideDropdownMenu
         />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
@@ -476,6 +509,9 @@ function RunsTrayContent({
   onDismiss,
   onStop,
   onOpenThread,
+  onKeepMenuOpen,
+  onActionStart,
+  insideDropdownMenu,
 }: {
   runs: AgentRunDto[];
   hasRuns: boolean;
@@ -484,6 +520,9 @@ function RunsTrayContent({
   onDismiss: (runId: string) => void;
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+  onKeepMenuOpen?: () => void;
+  onActionStart?: () => void;
+  insideDropdownMenu: boolean;
 }) {
   const t = useT();
   return (
@@ -514,6 +553,9 @@ function RunsTrayContent({
               onDismiss={onDismiss}
               onStop={onStop}
               onOpenThread={onOpenThread}
+              onKeepMenuOpen={onKeepMenuOpen}
+              onActionStart={onActionStart}
+              insideDropdownMenu={insideDropdownMenu}
             />
           ))}
         </div>
@@ -619,6 +661,29 @@ function getRunThreadId(run: AgentRunDto): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
+function openAgentRunThread(threadId: string, run: AgentRunDto): void {
+  const metadata = run.metadata ?? {};
+  const parentThreadId =
+    typeof metadata.parentThreadId === "string"
+      ? metadata.parentThreadId.trim()
+      : "";
+  const isAgentTeam =
+    metadata.kind === "agent-team" || metadata.source === "agent-teams";
+  if (isAgentTeam && parentThreadId && parentThreadId !== threadId) {
+    requestAgentTaskOpen({
+      threadId,
+      parentThreadId,
+      description:
+        typeof metadata.description === "string"
+          ? metadata.description
+          : run.title || "",
+      name: typeof metadata.name === "string" ? metadata.name : "",
+    });
+    return;
+  }
+  requestAgentChatThreadOpen({ threadId });
+}
+
 function formatRunTime(
   run: AgentRunDto,
   t: ReturnType<typeof useT>,
@@ -676,11 +741,17 @@ function RunRow({
   onDismiss,
   onStop,
   onOpenThread,
+  onKeepMenuOpen,
+  onActionStart,
+  insideDropdownMenu,
 }: {
   run: AgentRunDto;
   onDismiss: (runId: string) => void;
   onStop: (runId: string) => void;
   onOpenThread?: (threadId: string, run: AgentRunDto) => void;
+  onKeepMenuOpen?: () => void;
+  onActionStart?: () => void;
+  insideDropdownMenu: boolean;
 }) {
   const t = useT();
   const formatters = useFormatters();
@@ -689,20 +760,166 @@ function RunRow({
   const isRunning = run.status === "running";
   const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
   const backgroundStatus = getBackgroundStatus(run);
+  const actionButtonRef = useRef<HTMLButtonElement>(null);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
+  const pointerStartedOnRunRef = useRef<string | null>(null);
+  const pointerStartedOnActionRef = useRef(false);
+  const pointerStartedOnAnyActionRef = useRef(false);
+  const pointerReleasedOnActionRef = useRef(false);
+  const pointerReleasedOnSuppressedTitleRef = useRef(false);
+
+  useEffect(() => {
+    if (!insideDropdownMenu) return;
+    const isActionTarget = (target: EventTarget | null) =>
+      target instanceof Node &&
+      actionButtonRef.current?.contains(target) === true;
+    const getRunTarget = (target: EventTarget | null) =>
+      target instanceof Element
+        ? target.closest<HTMLElement>(
+            "[data-runs-tray-title], [data-runs-tray-action]",
+          )
+        : null;
+    const isTitleTarget = (target: EventTarget | null) =>
+      target instanceof Node &&
+      titleButtonRef.current?.contains(target) === true;
+    const recordPointerDown = (event: PointerEvent) => {
+      const runTarget = getRunTarget(event.target);
+      pointerStartedOnRunRef.current =
+        runTarget?.dataset.runsTrayTitle ??
+        runTarget?.dataset.runsTrayAction ??
+        null;
+      pointerStartedOnActionRef.current = isActionTarget(event.target);
+      pointerStartedOnAnyActionRef.current =
+        runTarget?.dataset.runsTrayAction !== undefined;
+      pointerReleasedOnActionRef.current = false;
+      pointerReleasedOnSuppressedTitleRef.current = false;
+    };
+    const recordPointerUp = (event: PointerEvent) => {
+      const pointerStartedOutsideThisRun =
+        pointerStartedOnRunRef.current !== run.id;
+      pointerReleasedOnActionRef.current = isActionTarget(event.target);
+      pointerReleasedOnSuppressedTitleRef.current =
+        isTitleTarget(event.target) &&
+        (pointerStartedOutsideThisRun || pointerStartedOnAnyActionRef.current);
+      window.setTimeout(() => {
+        pointerStartedOnRunRef.current = null;
+        pointerStartedOnActionRef.current = false;
+        pointerStartedOnAnyActionRef.current = false;
+        pointerReleasedOnActionRef.current = false;
+        pointerReleasedOnSuppressedTitleRef.current = false;
+      }, 0);
+    };
+    document.addEventListener("pointerdown", recordPointerDown, true);
+    document.addEventListener("pointerup", recordPointerUp, true);
+    return () => {
+      document.removeEventListener("pointerdown", recordPointerDown, true);
+      document.removeEventListener("pointerup", recordPointerUp, true);
+    };
+  }, [insideDropdownMenu]);
+
+  const titleButton =
+    threadId && onOpenThread ? (
+      <button
+        type="button"
+        className="group flex min-w-0 flex-1 flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        ref={insideDropdownMenu ? titleButtonRef : undefined}
+        data-runs-tray-title={insideDropdownMenu ? run.id : undefined}
+        onClick={() => {
+          if (pointerReleasedOnSuppressedTitleRef.current) return;
+          onOpenThread(threadId, run);
+        }}
+      >
+        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+          <span className="truncate font-medium text-foreground group-hover:underline">
+            {run.title}
+          </span>
+          <IconExternalLink size={12} className="shrink-0" aria-hidden />
+          <span className="sr-only">{t("runsTray.open")}</span>
+        </span>
+        {run.step ? (
+          <span className="mt-0.5 max-w-full truncate text-xs text-muted-foreground">
+            {run.step}
+          </span>
+        ) : null}
+      </button>
+    ) : null;
+  const actionButton =
+    canStop || !isRunning ? (
+      <button
+        type="button"
+        ref={insideDropdownMenu ? actionButtonRef : undefined}
+        data-runs-tray-action={insideDropdownMenu ? run.id : undefined}
+        aria-label={
+          canStop
+            ? t("runsTray.stopRun", { title: run.title })
+            : t("runsTray.hideRun", { title: run.title })
+        }
+        className={cn(
+          "inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60",
+          canStop ? "hover:text-destructive" : "hover:text-foreground",
+        )}
+        onPointerMove={onActionStart}
+        onPointerDown={onActionStart}
+        onClick={(event) => {
+          const isPointerActivation =
+            event.detail > 0 || pointerReleasedOnActionRef.current;
+          if (
+            insideDropdownMenu &&
+            isPointerActivation &&
+            !pointerStartedOnActionRef.current
+          ) {
+            return;
+          }
+          pointerStartedOnActionRef.current = false;
+          pointerReleasedOnActionRef.current = false;
+          onActionStart?.();
+          if (canStop) {
+            onStop(run.id);
+          } else {
+            onKeepMenuOpen?.();
+            onDismiss(run.id);
+          }
+        }}
+      >
+        {canStop ? (
+          <IconPlayerStop size={13} aria-hidden />
+        ) : (
+          <IconX size={13} aria-hidden />
+        )}
+      </button>
+    ) : null;
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-foreground">
-            {run.title}
-          </div>
-          {run.step ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">
-              {run.step}
+        {titleButton ? (
+          insideDropdownMenu ? (
+            <DropdownMenuItem
+              asChild
+              className="min-w-0 flex-1 justify-start p-0"
+              onSelect={(event) => {
+                if (pointerReleasedOnSuppressedTitleRef.current) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              {titleButton}
+            </DropdownMenuItem>
+          ) : (
+            titleButton
+          )
+        ) : (
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium text-foreground">
+              {run.title}
             </div>
-          ) : null}
-        </div>
+            {run.step ? (
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {run.step}
+              </div>
+            ) : null}
+          </div>
+        )}
         <StatusPill status={run.status} backgroundStatus={backgroundStatus} />
       </div>
       {run.percent != null || isRunning ? (
@@ -732,36 +949,21 @@ function RunRow({
           {formatRunTime(run, t, formatDate)}
         </span>
         <div className="flex shrink-0 items-center gap-1">
-          {threadId && onOpenThread ? (
-            <button
-              type="button"
-              className="inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              onClick={() => onOpenThread(threadId, run)}
+          {actionButton && insideDropdownMenu ? (
+            <DropdownMenuItem
+              asChild
+              className="h-6 w-6 justify-center p-0"
+              onSelect={(event) => {
+                event.preventDefault();
+                onActionStart?.();
+                onKeepMenuOpen?.();
+              }}
             >
-              {t("runsTray.open")}
-              <IconExternalLink size={12} aria-hidden />
-            </button>
-          ) : null}
-          {canStop ? (
-            <button
-              type="button"
-              aria-label={t("runsTray.stopRun", { title: run.title })}
-              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-destructive"
-              onClick={() => onStop(run.id)}
-            >
-              <IconPlayerStop size={13} aria-hidden />
-            </button>
-          ) : null}
-          {!isRunning ? (
-            <button
-              type="button"
-              aria-label={t("runsTray.hideRun", { title: run.title })}
-              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-              onClick={() => onDismiss(run.id)}
-            >
-              <IconX size={13} aria-hidden />
-            </button>
-          ) : null}
+              {actionButton}
+            </DropdownMenuItem>
+          ) : (
+            actionButton
+          )}
         </div>
       </div>
     </div>

@@ -221,7 +221,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "التصاميم",
+    home: "الرئيسية",
     templates: "القوالب",
     designSystems: "أنظمة التصميم",
     setupDesignSystem: "إعداد نظام التصميم",
@@ -764,7 +764,7 @@ export default {
       needsConnectedApp: "الانتقال إلى المصدر يتطلب تطبيقًا متصلًا",
     },
     leftRail: {
-      file: "ملف",
+      layers: "الطبقات",
       agent: "الوكيل",
       assets: "الأصول",
       import: "استيراد",
@@ -1062,7 +1062,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
-      designs: "التصاميم",
+      allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
@@ -1842,7 +1842,7 @@ export default {
     browseAllTemplates: "تصفح الكل",
     connectBuilderIo: "استخدم Builder.io",
     connectingBuilder: "جارٍ إعداد Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "الرئيسية",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
     newDesignLower: "تصميم جديد",

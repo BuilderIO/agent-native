@@ -73,7 +73,11 @@ beforeEach(() => {
 async function recover(
   events: AgentChatEvent[] | Error,
   ignoreContext: boolean | "after-read" | "verify-live" = false,
-  isRecovery: boolean | "client" | "continuation" = true,
+  isRecovery:
+    | boolean
+    | "client"
+    | "client-continuation"
+    | "continuation" = true,
   failFinalization:
     | boolean
     | "serialization"
@@ -100,7 +104,7 @@ async function recover(
   const threadId = `reaper-thread-${sequence}`;
   const turnId = `reaper-turn-${sequence}`;
   const runId = `reaper-run-${sequence}`;
-  if (isRecovery !== "client") {
+  if (isRecovery !== "client" && isRecovery !== "client-continuation") {
     await insertRun(runId, threadId, turnId, { dispatchMode: "background" });
   }
   if (events instanceof Error) ledger.mockRejectedValue(events);
@@ -346,9 +350,10 @@ async function recover(
     },
   });
   const requestBody = {
-    message: resumeContinue
-      ? AGENT_INTERNAL_CONTINUE_PROMPT
-      : "Send the refund email, then finish the refund.",
+    message:
+      resumeContinue || isRecovery === "client-continuation"
+        ? AGENT_INTERNAL_CONTINUE_PROMPT
+        : "Send the refund email, then finish the refund.",
     threadId,
     turnId,
     ...(withCustomAgent
@@ -362,7 +367,9 @@ async function recover(
           ],
         }
       : {}),
-    ...(isRecovery === true || isRecovery === "continuation"
+    ...(isRecovery === true ||
+    isRecovery === "client-continuation" ||
+    isRecovery === "continuation"
       ? { internalContinuation: true }
       : {}),
     ...(isRecovery === true ||
@@ -370,7 +377,7 @@ async function recover(
     isRecovery === "continuation"
       ? { __agentChatRecoveryOfRunId: "dead-worker" }
       : {}),
-    ...(isRecovery !== "client"
+    ...(isRecovery !== "client" && isRecovery !== "client-continuation"
       ? {
           __backgroundRun: {
             runId,
@@ -399,7 +406,11 @@ async function recover(
       : {}),
     ...(resumeContinue === "manual" ? { continueOfRunId: "stopped-run" } : {}),
   };
-  if (resumeContinue || isRecovery === "continuation") {
+  if (
+    resumeContinue ||
+    isRecovery === "client-continuation" ||
+    isRecovery === "continuation"
+  ) {
     const { buildUserMessage, buildAssistantMessage } =
       await import("./thread-data-builder.js");
     threadRead.mockResolvedValue({
@@ -638,6 +649,14 @@ describe("reaper successor resume context", () => {
         text: expect.stringContaining(AGENT_INTERNAL_CONTINUE_PROMPT),
       }),
     );
+  });
+
+  it("restores the journal note on a client continuation without a run id", async () => {
+    const result = await recover([START], false, "client-continuation");
+
+    expect(result.sendEmail).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.seen[0])).toContain("Tool-call journal");
+    expect(JSON.stringify(result.seen[0])).toContain("unknown outcome");
   });
 
   it("blocks the same write tool after an ambiguous error at an ordinary continuation boundary", async () => {

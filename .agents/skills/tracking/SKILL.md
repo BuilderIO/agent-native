@@ -329,13 +329,15 @@ These fields land in the `analytics_events.anonymous_id`, `analytics_events.sess
 
 `configureTracking()` also captures an anonymous visitor's **first-touch** referral context once, on first page load, and persists it across the signup boundary so the server-side `signup` event records where the user came from. This powers virality metrics for every template (Clips share links, Plans public pages, etc.).
 
+There is one capture implementation, `captureAttribution()` from `@agent-native/core/client/analytics`. Every page that can be someone's first visit calls it, including the server-rendered sign-in page, which never runs `configureTracking()` and passes `{ landingPath }` so `landing_path` names the app path behind the sign-in page. Never copy the capture into a page: the sign-in page's private copy silently dropped ad click ids, site handoff fields, and last touch for every visitor who landed on it.
+
 **Share-link params** (set by whatever generates the link; read client-side only):
 
 - `ref` — referral source bucket, e.g. `clip_share`, `plan_share`
 - `via` — the referrer's stable user id (the clip/plan owner)
 - `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`
 
-**Client persistence** (first-write-wins — an existing value is never overwritten):
+**Client persistence** (first-write-wins, except that the first visit with a source replaces one without; last touch lives in `an_last_touch` / `an_lt`):
 
 - `localStorage` key `an_attribution` and first-party cookie `an_ft` (`path=/; max-age=2592000; SameSite=Lax`, not HttpOnly — non-sensitive, written by client JS).
 - Both store the same URL-encoded compact JSON (empty fields omitted, each value capped at 120 chars): `{ ref, via, utm_source, utm_medium, utm_campaign, utm_content, utm_term, landing_path, landing_referrer, landed_at }`. `landing_referrer` is the **host only** of `document.referrer` (scrubbed; same-origin referrers are dropped).

@@ -184,7 +184,7 @@ function DesignCommandMenu({
         location.pathname.startsWith("/templates") ||
         location.pathname.startsWith("/design-systems") ? (
           <CommandMenu.Item onSelect={() => navigate("/home")}>
-            {t("navigation.designs")}
+            {t("navigation.home")}
           </CommandMenu.Item>
         ) : null}
         {location.pathname === "/home" ? (
