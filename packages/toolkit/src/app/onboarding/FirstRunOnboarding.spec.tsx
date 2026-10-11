@@ -578,7 +578,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("acknowledges cancel while a Builder connect settles", () => {
+  it("returns to setup choices immediately after cancel", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -629,7 +629,32 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
     expect(
       document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
-    ).toBeNull();
+    ).not.toBeNull();
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-pending"]')
+        ?.textContent,
+    ).toBe("Checking connection status…");
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        '[data-testid="first-run-open-key-settings"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        '[data-testid="first-run-builder-sign-in"]',
+      )?.disabled,
+    ).toBe(true);
 
     flow.connecting = false;
 
@@ -640,17 +665,14 @@ describe("FirstRunOnboarding", () => {
         </TooltipProvider>,
       );
     });
-    act(() => {
-      document.body
-        .querySelector<HTMLButtonElement>(
-          '[data-testid="first-run-back-to-choice"]',
-        )
-        ?.click();
-    });
-
     expect(
       document.body.querySelector('[data-onboarding-screen="choice"]'),
     ).toBeTruthy();
+    expect(
+      document.body.querySelector<HTMLButtonElement>(
+        '[data-testid="first-run-builder-sign-in"]',
+      )?.disabled,
+    ).toBe(false);
   });
 
   it("keeps Cancel during a failed status poll without offering a fake retry", () => {

@@ -801,6 +801,15 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
+                {connectFlow.connecting && builderCancelRequested && (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="first-run-cancel-pending"
+                    role="status"
+                  >
+                    {t("agentChat.onboarding.builderCancelPending")}
+                  </p>
+                )}
                 {connectFlow.error &&
                   connectFlow.errorKind === "status-read" && (
                     <div
@@ -1083,12 +1092,22 @@ export function FirstRunOnboarding({
             </div>
             {connectFlow.connecting &&
               (builderCancelRequested ? (
-                <p
-                  className="mt-4 text-sm text-muted-foreground"
-                  data-testid="first-run-cancel-pending"
-                >
-                  {t("agentChat.onboarding.builderCancelPending")}
-                </p>
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="first-run-cancel-pending"
+                  >
+                    {t("agentChat.onboarding.builderCancelPending")}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="first-run-back-to-choice"
+                    className={secondaryButtonClass}
+                    onClick={returnToSetupChoice}
+                  >
+                    {t("agentChat.onboarding.back")}
+                  </button>
+                </div>
               ) : (
                 <button
                   type="button"
