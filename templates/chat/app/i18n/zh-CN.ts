@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "移除 {{name}}",
+    removeReference: "移除 {{name}} 引用",
+  },
   settings: {
     title: "设置",
     workspaceTitle: "工作区",
@@ -27,6 +31,10 @@ const messages = {
     pinned: "已置顶",
     recents: "最近",
     retryPreviousRequest: "模型提供商已连接，请重试我之前的请求。",
+    invalidHandoffOptions:
+      "提示已保存为草稿，但无法恢复其聊天设置。请在重新发送前检查提示、上下文和模型。",
+    recoveryDraftUnsaved:
+      "这些草稿更改尚未保存。重新加载此聊天可能会丢失这些更改。",
     retryAttachmentUnavailable:
       "Chat 无法重新打开此附件以重试。请添加可访问的文件 URL，然后重试。",
     renameChat: "重命名聊天",
@@ -38,12 +46,29 @@ const messages = {
     unpinChat: "取消置顶聊天",
     untitledChat: "未命名聊天",
   },
+  home: {
+    communityDescription: "加入 Agent-Native 社区",
+    composerPlaceholder: "为 Alex 调用 hello 操作",
+    communityTitle: "联系我们",
+    docsAddAction: "添加操作",
+    docsAddPage: "添加页面",
+    docsDescription: "关于操作、页面和代理的指南",
+    docsGettingStarted: "快速开始",
+    docsKeyConcepts: "核心概念",
+    docsTitle: "文档",
+    editHint: "编辑 {{file}} 并保存，再问一次就能看到新的问候语。",
+    lead: "应用的界面和代理共用同一组操作。",
+    leadTry: "让代理调用 hello 操作试试。",
+    llmSetupLink: "设置应用级 LLM 密钥",
+    title: "开始使用",
+  },
   navigation: {
     chat: "聊天",
     collapseSidebar: "收起侧边栏",
     database: "数据库",
     expandSidebar: "展开侧边栏",
     extensions: "扩展",
+    home: "首页",
     navigation: "导航",
     navigationDescription: "主导航",
     observability: "可观测性",

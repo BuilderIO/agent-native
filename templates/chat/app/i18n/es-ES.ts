@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "Quitar {{name}}",
+    removeReference: "Eliminar la referencia {{name}}",
+  },
   settings: {
     title: "Ajustes",
     workspaceTitle: "Espacio de trabajo",
@@ -31,6 +35,10 @@ const messages = {
     recents: "Recientes",
     retryPreviousRequest:
       "Reintenta mi solicitud anterior ahora que el proveedor del modelo está conectado.",
+    invalidHandoffOptions:
+      "El mensaje se guardó como borrador, pero no se pudieron restaurar sus ajustes de chat. Revisa el mensaje, el contexto y el modelo antes de volver a enviarlo.",
+    recoveryDraftUnsaved:
+      "Estos cambios del borrador no se guardaron. Si recargas este chat, podrías perderlos.",
     retryAttachmentUnavailable:
       "Chat no puede volver a abrir este archivo adjunto para reintentarlo. Añade una URL de archivo accesible y vuelve a intentarlo.",
     renameChat: "Renombrar chat",
@@ -42,12 +50,30 @@ const messages = {
     unpinChat: "Desfijar chat",
     untitledChat: "Chat sin título",
   },
+  home: {
+    communityDescription: "Únete a la comunidad de Agent-Native",
+    composerPlaceholder: "Llama a la acción hello para Alex",
+    communityTitle: "Conecta con nosotros",
+    docsAddAction: "Añadir una acción",
+    docsAddPage: "Añadir una página",
+    docsDescription: "Guías sobre acciones, páginas y agentes",
+    docsGettingStarted: "Primeros pasos",
+    docsKeyConcepts: "Conceptos clave",
+    docsTitle: "Documentación",
+    editHint:
+      "Edita {{file}}, guarda y vuelve a preguntar para ver el nuevo saludo.",
+    lead: "La interfaz de tu app y su agente comparten las mismas acciones.",
+    leadTry: "Pide al agente que llame a la acción hello.",
+    llmSetupLink: "Configurar una clave de LLM para toda la app",
+    title: "Empieza aquí",
+  },
   navigation: {
     chat: "Chat",
     collapseSidebar: "Contraer barra lateral",
     database: "Base de datos",
     expandSidebar: "Expandir barra lateral",
     extensions: "Extensiones",
+    home: "Inicio",
     navigation: "Navegación",
     navigationDescription: "Navegación principal",
     observability: "Observabilidad",

@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} हटाएँ",
+    removeReference: "{{name}} संदर्भ हटाएँ",
+  },
   settings: {
     title: "सेटिंग्स",
     workspaceTitle: "कार्यस्थान",
@@ -30,6 +34,10 @@ const messages = {
     recents: "हाल की",
     retryPreviousRequest:
       "मेरा पिछला अनुरोध फिर से आज़माएँ, अब जबकि मॉडल प्रदाता कनेक्ट हो गया है।",
+    invalidHandoffOptions:
+      "प्रॉम्प्ट को ड्राफ़्ट के रूप में सहेजा गया, लेकिन उसकी चैट सेटिंग पुनर्स्थापित नहीं हो सकीं। दोबारा भेजने से पहले प्रॉम्प्ट, संदर्भ और मॉडल की समीक्षा करें।",
+    recoveryDraftUnsaved:
+      "ड्राफ़्ट में ये बदलाव सहेजे नहीं गए हैं। चैट फिर से लोड करने पर ये खो सकते हैं।",
     retryAttachmentUnavailable:
       "Chat इस अटैचमेंट को फिर से खोलकर दोबारा नहीं भेज सकता। सुलभ फ़ाइल URL जोड़ें और फिर कोशिश करें।",
     renameChat: "चैट का नाम बदलें",
@@ -41,12 +49,30 @@ const messages = {
     unpinChat: "चैट अनपिन करें",
     untitledChat: "बिना शीर्षक वाली चैट",
   },
+  home: {
+    communityDescription: "Agent-Native समुदाय में शामिल हों",
+    composerPlaceholder: "Alex के लिए hello क्रिया कॉल करो",
+    communityTitle: "हमसे जुड़ें",
+    docsAddAction: "क्रिया जोड़ें",
+    docsAddPage: "पेज जोड़ें",
+    docsDescription: "क्रियाओं, पेजों और एजेंटों की गाइड",
+    docsGettingStarted: "शुरुआत करें",
+    docsKeyConcepts: "मुख्य अवधारणाएं",
+    docsTitle: "दस्तावेज़",
+    editHint:
+      "{{file}} में बदलाव करके सेव करें, फिर नया अभिवादन देखने के लिए दोबारा पूछें।",
+    lead: "आपके ऐप का UI और उसका एजेंट एक ही क्रियाएं साझा करते हैं।",
+    leadTry: "एजेंट से hello क्रिया कॉल करने को कहें।",
+    llmSetupLink: "पूरे ऐप के लिए LLM कुंजी सेट करें",
+    title: "शुरू करें",
+  },
   navigation: {
     chat: "चैट",
     collapseSidebar: "साइडबार संक्षिप्त करें",
     database: "डेटाबेस",
     expandSidebar: "साइडबार विस्तृत करें",
     extensions: "एक्सटेंशन",
+    home: "होम",
     navigation: "नेविगेशन",
     navigationDescription: "मुख्य नेविगेशन",
     observability: "अवलोकनक्षमता",

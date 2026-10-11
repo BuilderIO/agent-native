@@ -1,19 +1,18 @@
 ---
 title: "聊天：你的第一个功能"
-description: "渲染聊天入门屏幕的唯一文件、它的真实 props 做什么，以及从头到尾添加一个功能的完整演练。"
+description: "渲染 Chat 起始界面的文件、它们实际 props 的作用，以及从头到尾添加一个功能的完整演练。"
 ---
 
 # 你的第一个功能
 
-本页面适用于扩展 [聊天模板](/docs/template-chat) 的开发者。它介绍了渲染入门聊天屏幕的唯一文件，然后演练当你要求实现一个真实功能时，代理通常会涉及的所有内容。
+本页面向扩展 [Chat 模板](/docs/template-chat) 的开发者。它介绍渲染起始界面的文件，然后逐步讲解当你请求一个真实功能时代理通常会改动的所有内容。
 
 ## 首先要检查的代码 {#first-code}
 
-- `actions/hello.ts` 是代理可以调用的启动行为。替换它，或在旁边
-  添加新的 actions。
-- `app/routes/_index.tsx` 渲染整页聊天界面。在这里调整
-  建议、空状态、composer 或周围的布局。
-- `AGENTS.md` 告诉内置代理如何在此应用中工作。
+- `actions/hello.ts` 是代理可以调用的起始行为。替换它，或在旁边添加 action。
+- `app/components/chat/ChatRouteContent.tsx` 在 `/chat/<threadId>` 渲染整页聊天界面。在这里调整空状态、输入框或消息插槽。
+- `app/components/home/HomePage.tsx` 是显示在 `/home` 的可编辑“开始使用”页面。`/chat` 会开始一个新聊天。
+- `AGENTS.md` 告诉内置代理如何在这个应用中工作。
 
 <FileTree
   id="doc-block-chat3"
@@ -21,71 +20,82 @@ description: "渲染聊天入门屏幕的唯一文件、它的真实 props 做�
   entries={[
     {
       path: "actions/hello.ts",
-      note: "唯一的示例 action；替换它，或在旁边添加新的 actions",
+      note: "唯一的示例 action；替换它或在旁边添加 action",
     },
     {
       path: "actions/view-screen.ts",
-      note: "代理最先调用的标准上下文 action",
+      note: "代理首先调用的标准上下文 action",
     },
     {
       path: "actions/navigate.ts",
       note: "标准导航 action",
     },
     {
-      path: "app/routes/_index.tsx",
-      note: "渲染整页聊天界面；在这里编辑建议、空状态、composer",
+      path: "app/routes/home.tsx",
+      note: "/home：“开始使用”页面；/chat 会开始一个新聊天",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat：开始一个新聊天并交给 /chat/:threadId",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "重新导出 _index.tsx，使 /chat/:threadId 用 URL 中的线程 id 渲染同一个界面",
+      note: "/chat/:threadId：为该线程渲染 ChatRouteContent",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "整页聊天界面；编辑空状态、输入框和消息插槽",
+    },
+    {
+      path: "app/components/home/HomePage.tsx",
+      note: "可编辑的“开始使用”主页",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "Chat 路径辅助函数",
     },
     {
       path: "AGENTS.md",
-      note: "内置代理读取的、以聊天为先的指南",
+      note: "内置代理读取的聊天优先指引",
     },
   ]}
 />
 
-真正的起始文件不只是一个简单的 `<AgentChatSurface />` —— 它接好了线程 URL 同步、用于多标签页运行的标签页身份，以及一个 hero composer 布局，并且它的文案来自 i18n key，而不是字面字符串：
+聊天界面由 AgentKit 组件组装而成：一个传输层、一个线程根和聊天视图。它的文案来自 i18n 键，而不是字面字符串：
 
 <AnnotatedCode
   id="doc-block-chat4"
-  title="app/routes/_index.tsx（精简版）"
-  filename="app/routes/_index.tsx"
+  title="app/components/chat/ChatRouteContent.tsx（节选）"
+  filename="app/components/chat/ChatRouteContent.tsx"
   language="tsx"
   code={
-    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
   }
   annotations={[
     {
-      lines: "19-21",
-      label: "线程 URL 同步",
-      note: "`/chat/:threadId`（`chat.$threadId.tsx`）重新导出了同一个组件。当路由带有线程 id 时，`threadUrlSync` 会让 URL 和当前活动线程保持同步：切换线程会 push 到 `/chat/<id>`，打开该 URL 则会恢复该线程。",
+      lines: "15-21",
+      label: "传输层",
+      note: "`createAgentNativeAgentKitTransport` 将聊天视图连接到应用的代理运行时。`TAB_ID`（`app/lib/tab-id.ts`，每个浏览器标签页生成一次的随机 id）让运行时能区分同一应用打开的多个标签页，这样在一个标签页启动的运行不会被误认为是另一个标签页的。",
     },
     {
-      lines: "38",
-      label: "标签页身份",
-      note: "`TAB_ID`（`app/lib/tab-id.ts`，每个浏览器标签页生成一次的随机 id）让共享聊天运行时能够区分同一个应用打开的多个标签页，因此在一个标签页中启动的运行不会被误认为是另一个标签页中的运行。",
+      lines: "25-30",
+      label: "线程根",
+      note: "`CoreAgentKitRoot` 加载 `/chat/:threadId`（`chat.$threadId.tsx`）中指定的线程。访问 `/chat` 会创建新的线程 id 并交到这里。分叉线程时，`chatThreadPath` 会把 URL 移到新线程。",
     },
     {
-      lines: "39-44",
-      label: "建议文案是 i18n key",
-      note: '建议文案来自 `t("chat.suggestionCapabilities")` 等调用（参见 `app/i18n/en-US.ts`），而不是字面英文字符串，并且 `dynamicSuggestions={false}` 会关闭运行时自身的建议生成功能，改用这三条建议。',
+      lines: "29",
+      label: "插槽",
+      note: "插槽替换聊天视图的部分内容。真实文件还传入了 `message`、`runFailure`、`connectionRequest` 和 `footer` 插槽，用于恢复消息、MCP 连接卡片和代理页脚。",
     },
     {
-      lines: "46-47",
-      label: "Hero composer 布局",
-      note: '`composerLayoutVariant="hero"` 加上 `centerComposerWhenEmpty` 会让 composer 居中显示，并在上方带有标题/描述，而不是其他 `mode="page"` 聊天路由使用的普通底部固定 composer。',
+      lines: "32-35",
+      label: "居中输入框",
+      note: '`emptyComposerPlacement="center"` 会在线程有消息之前将输入框居中。`requireAgentEngine` 会在连接模型之前显示“连接 AI”卡片。',
     },
     {
-      lines: "49-54",
-      label: "composerSlot 插槽",
-      note: "只有当 composer 居中显示时，才会在其上方渲染的任意 JSX —— “我能帮什么？”这行标题就在这里。编辑这里即可更改空状态的宣传文案，而不需要改动运行时。",
-    },
-    {
-      lines: "23-31",
-      label: "主页交接",
-      note: '当一次运行在此页面上启动时，`markAgentChatHomeHandoff("chat")` 会记录主页界面拥有这次活动运行，因此离开后再返回会重新接上这次运行，而不会丢失它。',
+      lines: "40-47",
+      label: "空状态",
+      note: "居中输入框上方的标题。它的文案是 `app/i18n/en-US.ts` 中的 `chat.heroTitle`：编辑目录来修改文案，或在这里添加元素。",
     },
   ]}
 />
@@ -126,10 +136,10 @@ description: "渲染聊天入门屏幕的唯一文件、它的真实 props 做�
 - `actions/create-note.ts` — 一个带有 Zod schema（`title`、`body`）的 `defineAction`，形态与 `actions/hello.ts` 相同。
 - `actions/list-notes.ts` — 一个只读 action（`readOnly: true`，与 `actions/view-screen.ts` 相同），通过 `accessFilter` 查询新表。
 - `app/routes/notes.tsx` — 一个新路由；该应用使用基于文件系统的路由（`app/routes.ts` 中的 `flatRoutes()`），因此添加这个文件就足以挂载 `/notes`。
-- 在 `app/components/layout/Sidebar.tsx` 的 `navItems` 数组中添加一个指向 `/notes` 的新条目。
+- 在 `app/components/layout/Sidebar.tsx` 中 `ChatThreadsSection` 之前添加一个指向 `/notes` 的链接。
 - 在 `AGENTS.md` 中添加说明，告诉代理 notes 的存在，以及由哪些 actions 管理它们。
 
-一个新的 action 一旦存在，聊天就可以立即调用它 —— 每个 `defineAction` 默认都是一个 tool，除非它设置了 `agentTool: false`。不过它不一定会出现在模型的第一次请求中：`server/plugins/agent-chat.ts` 设置了 `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`，它只控制第一轮会发送哪些 tool schema。其他一切，包括全新的 `create-note`，仍然可以通过 `tool-search` 到达，并按需加载 —— 只有当你想让它从第一条消息起就出现在模型的默认工具集中时，才把它的名字加入这个列表。
+一个新的 action 一旦存在，聊天就可以立即调用它 —— 每个 `defineAction` 默认都是一个 tool，除非它设置了 `agentTool: false`。不过它不一定会出现在模型的第一次请求中：`server/plugins/agent-chat.ts` 设置了 `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello", "provider-api-request"]`，它只控制第一轮会发送哪些 tool schema。其他一切，包括全新的 `create-note`，仍然可以通过 `tool-search` 到达，并按需加载 —— 只有当你想让它从第一条消息起就出现在模型的默认工具集中时，才把它的名字加入这个列表。
 
 ## 使用你自己的代理后端 {#own-agent-backend}
 

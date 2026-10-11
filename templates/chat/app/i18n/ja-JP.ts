@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} を削除",
+    removeReference: "{{name}} の参照を削除",
+  },
   settings: {
     title: "設定",
     workspaceTitle: "ワークスペース",
@@ -30,6 +34,10 @@ const messages = {
     recents: "最近",
     retryPreviousRequest:
       "モデルプロバイダーに接続できたので、前のリクエストを再試行してください。",
+    invalidHandoffOptions:
+      "プロンプトは下書きとして保存されましたが、チャット設定を復元できませんでした。再送信する前に、プロンプト、コンテキスト、モデルを確認してください。",
+    recoveryDraftUnsaved:
+      "下書きの変更は保存されていません。このチャットを再読み込みすると失われる可能性があります。",
     retryAttachmentUnavailable:
       "Chat ではこの添付ファイルを再試行のために開けません。アクセス可能なファイル URL を追加して、もう一度お試しください。",
     renameChat: "チャット名を変更",
@@ -41,12 +49,30 @@ const messages = {
     unpinChat: "チャットのピン留めを解除",
     untitledChat: "無題のチャット",
   },
+  home: {
+    communityDescription: "Agent-Native コミュニティに参加",
+    composerPlaceholder: "Alex に対して hello アクションを呼び出して",
+    communityTitle: "コミュニティ",
+    docsAddAction: "アクションを追加",
+    docsAddPage: "ページを追加",
+    docsDescription: "アクション、ページ、エージェントのガイド",
+    docsGettingStarted: "はじめに",
+    docsKeyConcepts: "主要な概念",
+    docsTitle: "ドキュメント",
+    editHint:
+      "{{file}} を編集して保存し、もう一度頼むと新しいあいさつが表示されます。",
+    lead: "アプリの UI とエージェントは同じアクションを共有しています。",
+    leadTry: "エージェントに hello アクションを呼び出してもらいましょう。",
+    llmSetupLink: "アプリ全体で使う LLM キーを設定",
+    title: "はじめに",
+  },
   navigation: {
     chat: "チャット",
     collapseSidebar: "サイドバーを折りたたむ",
     database: "データベース",
     expandSidebar: "サイドバーを展開",
     extensions: "拡張機能",
+    home: "ホーム",
     navigation: "ナビゲーション",
     navigationDescription: "メインナビゲーション",
     observability: "可観測性",

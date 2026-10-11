@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} 제거",
+    removeReference: "{{name}} 참조 제거",
+  },
   settings: {
     title: "설정",
     workspaceTitle: "워크스페이스",
@@ -31,6 +35,10 @@ const messages = {
     recents: "최근",
     retryPreviousRequest:
       "모델 공급자가 연결되었으니 이전 요청을 다시 시도해 주세요.",
+    invalidHandoffOptions:
+      "프롬프트는 초안으로 저장했지만 채팅 설정을 복원하지 못했습니다. 다시 보내기 전에 프롬프트, 컨텍스트, 모델을 확인하세요.",
+    recoveryDraftUnsaved:
+      "초안 변경 사항이 저장되지 않았습니다. 이 채팅을 새로 고치면 변경 사항이 사라질 수 있습니다.",
     retryAttachmentUnavailable:
       "Chat에서 이 첨부 파일을 다시 열어 재시도할 수 없습니다. 접근 가능한 파일 URL을 추가한 뒤 다시 시도하세요.",
     renameChat: "채팅 이름 바꾸기",
@@ -42,12 +50,30 @@ const messages = {
     unpinChat: "채팅 고정 해제",
     untitledChat: "제목 없는 채팅",
   },
+  home: {
+    communityDescription: "Agent-Native 커뮤니티에 참여하세요",
+    composerPlaceholder: "Alex에 대해 hello 작업을 호출해 줘",
+    communityTitle: "함께하기",
+    docsAddAction: "작업 추가",
+    docsAddPage: "페이지 추가",
+    docsDescription: "작업, 페이지, 에이전트 가이드",
+    docsGettingStarted: "시작하기",
+    docsKeyConcepts: "핵심 개념",
+    docsTitle: "문서",
+    editHint:
+      "{{file}} 파일을 수정하고 저장한 다음 다시 요청하면 새 인사말이 보입니다.",
+    lead: "앱의 UI와 에이전트는 같은 작업을 공유합니다.",
+    leadTry: "에이전트에게 hello 작업을 호출해 달라고 요청해 보세요.",
+    llmSetupLink: "앱 전체에서 사용할 LLM 키 설정",
+    title: "시작하기",
+  },
   navigation: {
     chat: "채팅",
     collapseSidebar: "사이드바 접기",
     database: "데이터베이스",
     expandSidebar: "사이드바 펼치기",
     extensions: "확장 프로그램",
+    home: "홈",
     navigation: "탐색",
     navigationDescription: "기본 탐색",
     observability: "관찰성",

@@ -320,9 +320,13 @@ function installAcceptanceTransportFixture(): void {
       lifecycleAnchor,
       `${lifecycleAnchor}\n  const { controller } = useAgentKit();\n  useEffect(() => registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns), [controller, threadId]);`,
     );
-    source =
-      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";\nimport { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";\n' +
-      source;
+    const acceptanceImports = [
+      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";',
+      'import { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";',
+    ].filter((statement) => !source.includes(statement));
+    if (acceptanceImports.length > 0) {
+      source = `${acceptanceImports.join("\n")}\n${source}`;
+    }
     fs.writeFileSync(chatSurfacePath, source);
   }
   if (source.includes("instrumentAgentKitAcceptanceTransport(")) return;
@@ -1340,11 +1344,21 @@ async function waitForAuthenticatedShell(
   await gotoCommitted(page, `${baseUrl}/home`);
 
   await waitForViteDepsQuiet(running.viteReload, serverLogs);
+  await page.getByRole("heading", { name: "Get started" }).waitFor({
+    state: "visible",
+    timeout: shellTimeoutMs,
+  });
+  const newChatButton = page.getByRole("button", {
+    name: "New Chat",
+    exact: true,
+  });
+  await newChatButton.waitFor({ state: "visible", timeout: shellTimeoutMs });
+  await newChatButton.click();
   const durableThreadPath = await waitForDurableChatRoute(page, shellTimeoutMs);
   assert.match(
     durableThreadPath,
     durableChatPathPattern,
-    "authenticated Chat home should hand off to a durable Chat thread",
+    "opening a new chat from Getting Started should navigate to a durable Chat thread",
   );
   network.allowInitialHomeWarmupErrors = false;
 

@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "移除 {{name}}",
+    removeReference: "移除 {{name}} 參照",
+  },
   settings: {
     title: "設定",
     workspaceTitle: "工作區",
@@ -27,6 +31,10 @@ const messages = {
     pinned: "已置頂",
     recents: "最近",
     retryPreviousRequest: "模型提供者已連線，請重試我先前的請求。",
+    invalidHandoffOptions:
+      "提示已儲存為草稿，但無法還原其聊天設定。請在重新傳送前檢查提示、上下文和模型。",
+    recoveryDraftUnsaved:
+      "這些草稿變更尚未儲存。重新載入此聊天可能會失去這些變更。",
     retryAttachmentUnavailable:
       "Chat 無法重新開啟此附件以重試。請新增可存取的檔案 URL，然後再試一次。",
     renameChat: "重新命名聊天",
@@ -38,12 +46,29 @@ const messages = {
     unpinChat: "取消置頂聊天",
     untitledChat: "未命名聊天",
   },
+  home: {
+    communityDescription: "加入 Agent-Native 社群",
+    composerPlaceholder: "為 Alex 呼叫 hello 操作",
+    communityTitle: "與我們聯繫",
+    docsAddAction: "新增操作",
+    docsAddPage: "新增頁面",
+    docsDescription: "關於操作、頁面和代理的指南",
+    docsGettingStarted: "快速開始",
+    docsKeyConcepts: "核心概念",
+    docsTitle: "文件",
+    editHint: "編輯 {{file}} 並儲存，再問一次就能看到新的問候語。",
+    lead: "應用程式的介面和代理共用同一組操作。",
+    leadTry: "讓代理呼叫 hello 操作試試。",
+    llmSetupLink: "設定應用程式共用的 LLM 金鑰",
+    title: "開始使用",
+  },
   navigation: {
     chat: "聊天",
     collapseSidebar: "收起側邊欄",
     database: "資料庫",
     expandSidebar: "展開側邊欄",
     extensions: "擴充功能",
+    home: "首頁",
     navigation: "導覽",
     navigationDescription: "主導覽",
     observability: "可觀測性",

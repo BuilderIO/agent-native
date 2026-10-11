@@ -62,11 +62,21 @@ besoin de saisir d’adresse e-mail ni de mot de passe pour le développement lo
 
 </Callout>
 
-## Connecter un LLM
+## Connecter un LLM {#connect-an-llm}
 
-Connectez ensuite un LLM. Sélectionnez **Utilisez Builder.io** pour utiliser des
-crédits gratuits, ou sélectionnez **Custom keys**, choisissez un fournisseur et
-saisissez les informations de connexion demandées.
+L’app s’ouvre sur la page **Commencer**. Pour le développement local, ajoutez une clé de fournisseur au fichier `.env` de l’app avant de lancer `pnpm dev` :
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+Les apps auto-hébergées utilisent la clé d’environnement comme solution de repli pour toute l’app. Les utilisateurs n’ont donc pas à ajouter leur propre clé dans l’interface. Les environnements Hosted workspace en production bloquent les clés fournisseur du déploiement. Les clés enregistrées pour un utilisateur ou une organisation restent prioritaires.
+
+Configurer cette clé fournisseur constitue le consentement de l’opérateur au partage de l’accès et de la facturation dans toute l’app ; aucun indicateur supplémentaire n’est nécessaire. Tout utilisateur connecté sans clé à portée propre peut utiliser le compte fournisseur du déploiement dans toutes les organisations de l’app ; l’usage est facturé sur ce compte. Utilisez des clés à portée distincte lorsque les tenants ont besoin d’identifiants ou d’une facturation séparés.
+
+Avec PostgreSQL, les utilisateurs peuvent aussi enregistrer une clé via **Custom keys**. Choisissez la portée personnelle pour la limiter à votre compte ; les administrateurs peuvent choisir la portée organisation pour la partager dans l’espace de travail. L’app conserve les clés enregistrées dans son coffre chiffré adossé à la base de données.
+
+Pour utiliser le fournisseur géré de Builder, sélectionnez **Use Builder.io** dans le compositeur. Consultez [Variables d’environnement](/docs/environment-variables#optional-ai-search-and-email-fallbacks) pour connaître les clés prises en charge et leur portée.
 
 ## Exécuter l’action depuis l’agent
 
@@ -75,7 +85,7 @@ appeler depuis le code et que les agents peuvent utiliser comme outil. Le modèl
 Chat comprend une action `hello` simple afin que vous puissiez essayer ce modèle
 avant d’en écrire une vous-même.
 
-Dans le panneau de l’agent, demandez :
+Dans le champ de saisie de la page **Commencer**, demandez :
 
 > Call the hello action for Alex.
 

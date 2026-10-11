@@ -52,15 +52,27 @@ pnpm dev
 
 </Callout>
 
-## 連線 LLM
+## 連線 LLM {#connect-an-llm}
 
-接著連線 LLM。選取 **使用 Builder.io** 使用免費額度，或選取 **Custom keys**，選擇提供者並輸入所需的連線詳細資料。
+應用程式會開啟「開始使用」頁面。本機開發時，請在啟動 `pnpm dev` 前將提供者金鑰加入應用程式的 `.env` 檔案：
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+自架應用程式會將環境中的金鑰做為整個應用程式的共用備援，因此使用者不必在介面中新增個人金鑰。Hosted workspace 的正式環境執行階段會封鎖部署供應商金鑰共用。已儲存的使用者或組織範圍金鑰優先使用。
+
+設定此供應商金鑰本身就是營運者同意在整個應用程式共用存取權限與費用；不需要額外的共用旗標。沒有範圍金鑰的已登入使用者可以在應用程式的所有組織中使用部署供應商帳戶，費用會計入該帳戶。若各租戶需要獨立憑證或費用，請使用範圍金鑰。
+
+使用 PostgreSQL 時，使用者也可以透過 **Custom keys** 儲存金鑰。選擇個人範圍可將金鑰限制在自己的帳戶；管理員可選擇組織範圍與工作區共用。應用程式會將已儲存的金鑰保存在加密的資料庫憑證儲存區。
+
+如要使用 Builder 管理的提供者，請在 composer 中選取 **Use Builder.io**。支援的提供者金鑰與使用範圍請參閱[環境變數](/docs/environment-variables#optional-ai-search-and-email-fallbacks)。
 
 ## 從代理執行 action
 
 Action 是 React UI 可從程式碼呼叫、代理可作為工具使用的具型別函式。Chat 範本包含一個簡單的 `hello` action，讓您能在自行撰寫 action 前先嘗試這個模式。
 
-在代理面板中輸入：
+在 **開始使用** 頁面的輸入框中輸入：
 
 > Call the hello action for Alex.
 

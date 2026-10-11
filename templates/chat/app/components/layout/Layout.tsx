@@ -18,6 +18,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { APP_TITLE } from "@/lib/app-config";
+import { HOME_PATH, isChatPathname } from "@/lib/chat-paths";
 
 import { Sidebar } from "./Sidebar";
 
@@ -38,8 +39,8 @@ const SIDEBAR_COLLAPSE_KEY = "chat.sidebar.collapsed";
 
 function routeOwnsToolbar(pathname: string): boolean {
   return (
-    pathname === "/home" ||
-    pathname.startsWith("/chat/") ||
+    pathname === HOME_PATH ||
+    isChatPathname(pathname) ||
     pathname === "/database" ||
     pathname.startsWith("/extensions")
   );
@@ -50,8 +51,7 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const isChatRoute =
-    location.pathname === "/home" || location.pathname.startsWith("/chat/");
+  const isChatRoute = isChatPathname(location.pathname);
   // Settings brings its own navigation, header, and agent toggle, so it
   // renders full width.
   const settingsOwnsChrome = isSettingsPathname(location.pathname);
@@ -63,8 +63,7 @@ export function Layout({ children }: LayoutProps) {
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("chat");
   useAgentChatHomeHandoffLinks({
     storageKey: "chat",
-    isChatPath: (pathname) =>
-      pathname === "/home" || pathname.startsWith("/chat/"),
+    isChatPath: isChatPathname,
     requireActiveHandoff: true,
   });
 
