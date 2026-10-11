@@ -235,6 +235,52 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
   });
 
+  it("keeps the first-run gate when status stays unavailable and allows retry", async () => {
+    vi.useFakeTimers();
+    mocks.fetchStatus
+      .mockRejectedValueOnce(new Error("status aborted"))
+      .mockRejectedValueOnce(new Error("status timed out"))
+      .mockResolvedValueOnce(true);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    await act(async () => {});
+
+    expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
+    expect(
+      container.querySelector("[data-first-run-app-hidden]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-first-run-status-error]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-first-run-status-error] button",
+        )
+        ?.click();
+    });
+    await act(async () => {});
+
+    expect(mocks.fetchStatus).toHaveBeenCalledTimes(3);
+    expect(
+      container.querySelector("[data-testid='first-run-onboarding']"),
+    ).not.toBeNull();
+  });
+
   it("reveals an existing-organization member without mounting onboarding", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
