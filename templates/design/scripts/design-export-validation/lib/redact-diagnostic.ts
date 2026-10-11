@@ -50,6 +50,7 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "token" ||
     lastWord === "secret" ||
     lastWord === "signature" ||
+    lastWord === "sig" ||
     lastWord === "password" ||
     lastWord === "apikey" ||
     lastWord === "passwd" ||

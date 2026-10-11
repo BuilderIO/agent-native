@@ -205,7 +205,8 @@ jobs:
         if: ${{ !cancelled() && matrix.shard != 'runtime-budget' && (failure() || steps.retry-artifacts.outputs.found == 'true') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: design-e2e-report-${{ matrix.shard }}-${{ github.run_attempt }}
+          name: design-e2e-report-${{ matrix.shard }}
+          overwrite: true
           path: |
             templates/design/test-results/design-e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}-*/**
             templates/design/test-results/design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**

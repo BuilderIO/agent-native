@@ -32,6 +32,7 @@ const workflow = parse(
         env?: Record<string, unknown>;
         with?: {
           name?: unknown;
+          overwrite?: unknown;
           path?: unknown;
           "if-no-files-found"?: unknown;
           "retention-days"?: unknown;
@@ -127,6 +128,8 @@ assert.equal(
   reportStep?.uses,
   "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
 );
+assert.equal(reportStep?.with?.name, "design-e2e-report-${{ matrix.shard }}");
+assert.equal(reportStep?.with?.overwrite, true);
 assert.equal(
   reportStep?.if,
   "${{ !cancelled() && matrix.shard != 'runtime-budget' && (failure() || steps.retry-artifacts.outputs.found == 'true') }}",

@@ -258,6 +258,16 @@ describe("redactExportDiagnostic credential aliases and escaped quotes", () => {
     );
   });
 
+  it("redacts abbreviated signatures and preserves ordinary JSON fields", () => {
+    expect(redactExportDiagnostic("url?sig=FAKE_SIGNATURE&x=1")).toBe(
+      "url?sig=[redacted]",
+    );
+    expect(
+      redactExportDiagnostic('"sig":"FAKE_SIGNATURE","title":"Welcome"'),
+    ).toBe('"sig":"[redacted]","title":"Welcome"');
+    expect(redactExportDiagnostic("signal=ready&x=1")).toBe("signal=ready&x=1");
+  });
+
   it("fails closed for bare cookie pairs while preserving quoted JSON fields", () => {
     expect(
       redactExportDiagnostic(
