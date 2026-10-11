@@ -389,6 +389,31 @@ describe("handleMcpConnect", () => {
     ]);
   });
 
+  it.each([
+    ["codex,cursor", ["codex", "cursor"]],
+    ["example,inc", ["example,inc"]],
+  ])("records device client %s as %j", async (client, expected) => {
+    getSessionMock.mockResolvedValue({ email: "person@example.com" });
+    const start = await handleMcpConnect(
+      ev({ method: "POST", body: { client } }),
+      "/device/start",
+    );
+    const { device_code, user_code } = await start.json();
+    await handleMcpConnect(
+      ev({ method: "POST", body: { user_code } }),
+      "/device/authorize",
+    );
+    const poll = await handleMcpConnect(
+      ev({ method: "POST", body: { device_code } }),
+      "/device/poll",
+      { appId: "plan" },
+    );
+    expect((await poll.json()).status).toBe("approved");
+    expect(trackMock.mock.calls.map((call) => call[1].client)).toEqual(
+      expected,
+    );
+  });
+
   it.each([200, 403])(
     "does not count service-token authentication when creation returns %s",
     async (status) => {

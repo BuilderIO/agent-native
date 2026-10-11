@@ -34,7 +34,7 @@ import {
   type McpConnectGuideId,
   type McpConnectIdentity,
 } from "../shared/mcp-connect-content.js";
-import { trackAgentConnected } from "./agent-connected.js";
+import { deviceFlowClients, trackAgentConnected } from "./agent-connected.js";
 import { connectAppLabel, connectEnvironment } from "./connect-app-label.js";
 import {
   ensureConnectTables,
@@ -1795,7 +1795,7 @@ export async function handleMcpConnect(
           email: row.ownerEmail,
           origin: issuer,
           appId: options.appId,
-          client: row.client ?? null,
+          client: deviceFlowClients(row.client ?? null),
           method: "mcp",
         });
       }

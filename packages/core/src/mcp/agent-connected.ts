@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { CLIENTS } from "../cli/mcp-config-writers.js";
 import { mutateSetting } from "../settings/store.js";
 import { normalizeTrackingDimension } from "../shared/analytics-events.js";
 import { resolveMcpConnectHostId } from "../shared/mcp-connect-content.js";
@@ -17,11 +18,22 @@ export function connectionApp(origin: string, appId?: string): string {
   )!;
 }
 
+/**
+ * The connect CLI sends the clients it sets up as comma-joined client ids.
+ * Any other device client value, such as "Example, Inc.", is one name.
+ */
+export function deviceFlowClients(
+  client: string | null,
+): string | string[] | null {
+  const ids = client?.split(",");
+  return ids?.every((id) => (CLIENTS as string[]).includes(id)) ? ids : client;
+}
+
 export async function trackAgentConnected(input: {
   email: string;
   origin: string;
   appId?: string;
-  client: string | null;
+  client: string | readonly string[] | null;
   method: "mcp" | "oauth";
 }): Promise<"emitted" | "duplicate" | "disabled" | "failed"> {
   // Everything runs inside the try: the connection is already committed, so a
@@ -33,12 +45,9 @@ export async function trackAgentConnected(input: {
     )
       return "disabled";
     const app = connectionApp(input.origin, input.appId);
-    const raw = input.client ?? "unknown";
-    // The connect CLI joins the client ids it configures with commas. Only a
-    // list of id-shaped parts is split, so "Example, Inc." stays one client.
-    const ids = raw.split(",");
+    const raw = input.client;
     const clients = new Set(
-      (ids.every((id) => /^[a-z0-9-]+$/.test(id)) ? ids : [raw]).map(
+      (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map(
         (name) =>
           resolveMcpConnectHostId(name) ??
           detectVendorClient(name) ??

@@ -34,7 +34,7 @@ vi.mock("../db/client.js", async (importOriginal) => ({
   }),
 }));
 
-const { trackAgentConnected, connectionApp } =
+const { trackAgentConnected, connectionApp, deviceFlowClients } =
   await import("./agent-connected.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
@@ -108,7 +108,7 @@ describe("agent connection attribution", () => {
     });
     await trackAgentConnected({
       ...connection,
-      client: "claude,cursor,cursor",
+      client: ["claude", "cursor", "cursor"],
     });
     expect(trackMock).toHaveBeenCalledTimes(4);
     expect(trackMock.mock.calls.map((call) => call[1].client)).toEqual([
@@ -119,18 +119,32 @@ describe("agent connection attribution", () => {
     ]);
   });
 
-  it.each(["oauth", "mcp"] as const)(
-    "keeps a comma in a %s client's name as one client",
-    async (method) => {
+  it.each(["Example, Inc.", "example,inc", "codex,cursor"])(
+    "keeps a comma in an OAuth client's name %s as one client",
+    async (name) => {
       await trackAgentConnected({
         ...connection,
-        client: "Example, Inc.",
-        method,
+        client: name,
+        method: "oauth",
       });
       expect(trackMock).toHaveBeenCalledTimes(1);
-      expect(trackMock.mock.calls[0][1].client).toBe("example, inc.");
     },
   );
+
+  it.each([
+    ["codex,opencode", ["codex", "opencode"]],
+    ["claude-code,github-copilot", ["claude-code", "github-copilot"]],
+    ["codex", ["codex"]],
+    ["example,inc", "example,inc"],
+    ["Example, Inc.", "Example, Inc."],
+    ["codex, cursor", "codex, cursor"],
+    ["codex,", "codex,"],
+    ["all", "all"],
+    ["", ""],
+    [null, null],
+  ])("splits device client %j only into CLI client ids", (client, expected) => {
+    expect(deviceFlowClients(client)).toEqual(expected);
+  });
 
   it.each([
     ["claude", "Claude Desktop", "claude"],
