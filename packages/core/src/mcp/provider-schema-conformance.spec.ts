@@ -90,7 +90,10 @@ const NEGATIVE_FIXTURES: Record<string, { name?: string; schema: unknown }> = {
       properties: { payload: { description: "anything" } },
     },
   },
-  "array-items": {
+  "codex-array-items": {
+    schema: { type: "object", properties: { list: { type: "array" } } },
+  },
+  "gemini-array-items": {
     schema: { type: "object", properties: { list: { type: "array" } } },
   },
   "boolean-subschema": {
@@ -151,8 +154,8 @@ describe("providerSchemaViolations", () => {
         properties: { list: { type: "array" } },
       }),
     ).toEqual([
-      "openai: array-items at /properties/list",
-      "gemini: array-items at /properties/list",
+      "openai: codex-array-items at /properties/list",
+      "gemini: gemini-array-items at /properties/list",
     ]);
   });
 

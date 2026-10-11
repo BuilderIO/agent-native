@@ -147,12 +147,20 @@ export const PROVIDER_SCHEMA_RULES = {
       "Builder gateway OpenAI path, recorded at stripUnsupportedSchemaKeywords in action.ts: \"schema must have a 'type' key\". OpenAI with strict: false accepted it through OpenRouter on 2026-10-07; kept as a floor for gateway-backed hosts.",
     message: "schema position has no type",
   },
-  arrayItems: {
-    id: "array-items",
-    providers: ["openai", "gemini"],
+  codexArrayItems: {
+    id: "codex-array-items",
+    providers: ["openai"],
     basis: "host",
     source:
-      'Codex fills a missing items with { "type": "string" } (ensure_default_children_for_schema_types in https://github.com/openai/codex/blob/main/codex-rs/tools/src/json_schema.rs), which narrows the array; Gemini via OpenRouter, 2026-10-07: "parameters.properties[list].items: missing field"',
+      'Codex fills a missing items with { "type": "string" } (ensure_default_children_for_schema_types in https://github.com/openai/codex/blob/main/codex-rs/tools/src/json_schema.rs), which narrows the array',
+    message: "array has no items schema",
+  },
+  geminiArrayItems: {
+    id: "gemini-array-items",
+    providers: ["gemini"],
+    basis: "observed",
+    source:
+      'Gemini through OpenRouter\'s OpenAPI parameters path, 2026-10-07: "parameters.properties[list].items: missing field". Not yet observed on parametersJsonSchema, the field Gemini CLI fills.',
     message: "array has no items schema",
   },
   booleanSubschema: {
@@ -276,7 +284,8 @@ export function providerSchemaViolations(tool: {
     }
     const types = declaredTypes(node);
     if (types.includes("array") && node.items === undefined) {
-      add(PROVIDER_SCHEMA_RULES.arrayItems, at);
+      add(PROVIDER_SCHEMA_RULES.codexArrayItems, at);
+      add(PROVIDER_SCHEMA_RULES.geminiArrayItems, at);
     }
     const unsupported = types.filter(
       (type) => typeof type !== "string" || !GEMINI_TYPES.has(type),
@@ -403,11 +412,19 @@ export async function loadTemplateMcpActions(
   const registry = (await importModule(
     path.join(projectRoot, ".generated/actions-registry.ts"),
   )) as { default?: Record<string, unknown> };
-  const actions = loadActionsFromStaticRegistry(
-    registry.default ?? (registry as Record<string, unknown>),
-  );
+  const modules = registry.default ?? (registry as Record<string, unknown>);
+  const actions = loadActionsFromStaticRegistry(modules);
   if (Object.keys(actions).length === 0) {
     throw new Error(`${projectRoot} registered no actions.`);
+  }
+  // The registry loader drops each action's own input schema; keep it so a
+  // caller can check arguments against the schema the handler enforces.
+  for (const [name, entry] of Object.entries(actions)) {
+    const module = modules[name] as
+      | { schema?: unknown; default?: { schema?: unknown } }
+      | undefined;
+    const schema = module?.default?.schema ?? module?.schema;
+    if (schema !== undefined) entry.schema = schema;
   }
   await mergeCoreSharingActions(actions);
   return withoutDiscoveryPredicates({
@@ -436,6 +453,7 @@ export async function loadTemplateDirectoryProfile(
 
 export interface TemplateMcpConformance {
   appId: string;
+  actions: Record<string, ActionEntry>;
   modes: McpCatalogMode[];
   listCatalog(mode: McpCatalogMode): Promise<Tool[]>;
 }
@@ -449,13 +467,12 @@ export async function loadTemplateMcpConformance(
   importModule: ImportModule = importFile,
 ): Promise<TemplateMcpConformance> {
   const appId = path.basename(projectRoot);
-  const config = conformanceMcpConfig(
-    appId,
-    await loadTemplateMcpActions(projectRoot, importModule),
-  );
+  const actions = await loadTemplateMcpActions(projectRoot, importModule);
+  const config = conformanceMcpConfig(appId, actions);
   const profile = await loadTemplateDirectoryProfile(projectRoot, importModule);
   return {
     appId,
+    actions,
     modes: templateMcpCatalogModes(projectRoot),
     listCatalog: (mode) => listMcpCatalogTools(config, mode, profile),
   };
