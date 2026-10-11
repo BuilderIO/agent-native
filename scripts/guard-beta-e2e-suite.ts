@@ -595,7 +595,7 @@ if (workflow) {
       "No authenticated tests in this slot match the app or title selection; skipping authenticated setup.",
     );
     const skipReportCleanup = authedRun.indexOf(
-      'rm -f "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT/results.json"',
+      'rm -rf "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT" "e2e/beta/test-results/$BETA_E2E_REPORT_SLOT"',
     );
     const skipExit = authedRun.indexOf("exit 0", skipMessage);
     const propagate = authedRun.indexOf('exit "$selection_status"');
@@ -615,7 +615,7 @@ if (workflow) {
       finalRun < propagate
     ) {
       issues.push(
-        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, remove the collection-only JSON report before artifact upload, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
+        `${workflowPath} authed step must capture and propagate failed authenticated discovery, skip only an explicit no-tests result for a narrowed run, remove that empty slot's report and test artifacts before upload, and run the same project, shard and grep selection it listed. A public-only grep must not require session credentials.`,
       );
     }
 
