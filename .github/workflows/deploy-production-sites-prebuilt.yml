@@ -26,6 +26,7 @@ on:
         default: true
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -162,6 +163,7 @@ jobs:
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
     permissions:
+      actions: read
       contents: read
     needs: [resolve-source, discover-sites, beta-e2e]
     if: >-
