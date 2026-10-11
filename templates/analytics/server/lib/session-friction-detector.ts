@@ -73,6 +73,8 @@ export interface ReplayFrictionDetectorState {
   rageClickCluster: ReplayRageClickCluster | null;
   /** Null only when migrating state written before rage-click progress existed. */
   rageClickCount: number | null;
+  /** Persisted separately from detector progress for out-of-order chunk checks. */
+  lastSeq?: number;
 }
 
 export interface ReplayFrictionDelta {
@@ -144,6 +146,14 @@ export function parseReplayFrictionDetectorState(
   }
   const state = record(parsed);
   if (state.v !== 1 && state.v !== 2) return null;
+  if (
+    state.lastSeq !== undefined &&
+    (typeof state.lastSeq !== "number" ||
+      !Number.isSafeInteger(state.lastSeq) ||
+      state.lastSeq < 0)
+  ) {
+    return null;
+  }
   if (
     !nullableNumber(state.pendingClickAt) ||
     !nullableNumber(state.lastEventAt) ||
@@ -220,6 +230,7 @@ export function parseReplayFrictionDetectorState(
     toastIds: state.toastIds as number[],
     rageClickCluster,
     rageClickCount,
+    ...(state.lastSeq === undefined ? {} : { lastSeq: state.lastSeq }),
   };
 }
 

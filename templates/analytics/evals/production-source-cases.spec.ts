@@ -27,7 +27,15 @@ function outputFor(
     ),
   ];
   const expectedText = [
-    ...relationClaims.map((claim) => `${claim.relation}: ${claim.grains[0]}`),
+    ...relationClaims.map((claim) => {
+      const meaning = contract.relationMeanings?.find(
+        (candidate) => candidate.relation === claim.relation,
+      )?.meanings[0];
+      return `${claim.relation}: ${[meaning, claim.grains[0]].filter(Boolean).join("; ")}`;
+    }),
+    ...(contract.fieldMeanings ?? []).map(
+      (claim) => `${claim.relation}.${claim.field}: ${claim.meanings[0]}`,
+    ),
     ...contract.concepts,
   ].join("\n");
   return {
@@ -94,6 +102,135 @@ describe("Analytics synthetic production source evals", () => {
     );
 
     expect(report).toMatchObject({ total: 6, passed: 6, failed: 0 });
+  });
+
+  it("rejects current and historical count relations assigned to the opposite time scopes", async () => {
+    const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
+    const report = await runEvals(
+      [cases[1]!],
+      runnerFor({
+        text: [
+          "dbt_mart.organization_user_count: historical month-end; one row per organization per date",
+          "dbt_mart.aggregate_monthly_users_per_org: current daily; one row per organization per month",
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:reversed-time-scope-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      "dbt_mart.organization_user_count was not assigned to its expected current time scope",
+    );
+  });
+
+  it("rejects negated and conflicting time-scope claims while accepting a clear scope", async () => {
+    const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
+    const relation = "dbt_mart.organization_user_count";
+    const monthlyRelation = "dbt_mart.aggregate_monthly_users_per_org";
+    const reportFor = (currentScope: string) =>
+      runEvals(
+        [cases[1]!],
+        runnerFor(
+          outputFor(contract, {
+            text: [
+              `${relation}: ${currentScope}; one row per organization per date`,
+              `${monthlyRelation}: historical month-end monthly trend; one row per organization per month`,
+              ...contract.concepts,
+            ].join("\n"),
+          }),
+        ),
+        { persist: false },
+      );
+
+    const affirmative = await reportFor(
+      "current daily (not the historical month-end scope)",
+    );
+    const negated = await reportFor("not current daily; historical month-end");
+    const conflicting = await reportFor(
+      "current daily and historical month-end",
+    );
+
+    expect(affirmative).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(negated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(conflicting).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(negated.results[0]?.scores[0]?.reason).toContain(
+      `${relation} was not assigned to its expected current time scope`,
+    );
+    expect(conflicting.results[0]?.scores[0]?.reason).toContain(
+      `${relation} was not assigned to its expected current time scope`,
+    );
+  });
+
+  it("rejects reversed external and internal user-count field meanings", async () => {
+    const contract = sourceContracts.builderExternalAndInternalUserCounts;
+    const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const report = await runEvals(
+      [cases[2]!],
+      runnerFor({
+        text: [
+          `${relation}: one row per organization per month`,
+          `${relation}.user_count: internal Builder.io staff users`,
+          `${relation}.internal_user_count: external Builder.io product users`,
+          ...contract.concepts,
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:reversed-population-fields-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.user_count was not mapped to its expected population`,
+    );
+    expect(report.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.internal_user_count was not mapped to its expected population`,
+    );
+  });
+
+  it("rejects negated and conflicting population fields while accepting clear mappings", async () => {
+    const contract = sourceContracts.builderExternalAndInternalUserCounts;
+    const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const reportFor = (userCountMeaning: string) =>
+      runEvals(
+        [cases[2]!],
+        runnerFor(
+          outputFor(contract, {
+            text: [
+              `${relation}: one row per organization per month`,
+              `${relation}.user_count: ${userCountMeaning}`,
+              `${relation}.internal_user_count: internal Builder.io staff users`,
+              ...contract.concepts,
+            ].join("\n"),
+          }),
+        ),
+        { persist: false },
+      );
+
+    const affirmative = await reportFor("external Builder.io product users");
+    const negated = await reportFor(
+      "not external Builder.io product users; internal Builder.io staff users",
+    );
+    const conflicting = await reportFor(
+      "external Builder.io product users and internal Builder.io staff users",
+    );
+
+    expect(affirmative).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(negated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(conflicting).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(negated.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.user_count was not mapped to its expected population`,
+    );
+    expect(conflicting.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.user_count was not mapped to its expected population`,
+    );
   });
 
   it("accepts the complete user-organization membership row unit", async () => {

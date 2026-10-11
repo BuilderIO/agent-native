@@ -39,7 +39,7 @@ export default defineAction({
       generatedAt: result.bundle.generatedAt,
       entryCount: result.bundle.entries.length,
       unresolvedTrackingCallSites:
-        result.bundle.scanSummary?.unresolvedTrackingCallSites ?? 0,
+        result.bundle.scanSummary?.unresolvedTrackingCallSites ?? null,
       sources: result.bundle.sources,
       sourceCounts: result.bundle.sources.map(({ id }) => ({
         source: id,

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import {
   mkdir,
   readdir,
@@ -23,7 +24,7 @@ const MAX_ENTRIES = 1_500;
 const MAX_BUNDLE_BYTES = 750_000;
 const MAX_ROOT_BYTES = 250_000_000;
 const MAX_STRING_LENGTH = 2_000;
-const MAX_DESCRIPTION_LENGTH = 1_000;
+const MAX_DESCRIPTION_LENGTH = 2_000;
 const SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -232,6 +233,16 @@ interface ReadBudget {
 
 function codedError(code: string, message: string): never {
   throw new SourceIndexError(code, message);
+}
+
+function accountSourceBytes(size: number, budget: ReadBudget): void {
+  budget.bytes += size;
+  if (budget.bytes > MAX_ROOT_BYTES) {
+    codedError(
+      "root_size_limit_exceeded",
+      "A source root exceeds the 250 MB scan limit.",
+    );
+  }
 }
 
 function emptyScanSummary(): SourceIndexScanSummary {
@@ -634,13 +645,7 @@ async function readSourceFile(
       "A source file exceeds the safe index size limit.",
     );
   }
-  budget.bytes += fileStat.size;
-  if (budget.bytes > MAX_ROOT_BYTES) {
-    codedError(
-      "root_size_limit_exceeded",
-      "A source root exceeds the 250 MB scan limit.",
-    );
-  }
+  accountSourceBytes(fileStat.size, budget);
   try {
     return await readFile(file.absolutePath, "utf8");
   } catch {
@@ -698,6 +703,153 @@ function yamlScalar(raw: string): string {
   }
   if ([">", ">-", ">+", "|", "|-", "|+"].includes(value)) return "";
   return value.replace(/\s+#(?!\d).*$/, "").trim();
+}
+
+function parseDbtDocBlocks(markdown: string): Map<string, string | null> {
+  const docs = new Map<string, string | null>();
+  const pattern =
+    /{%\s*docs\s+([A-Za-z_][A-Za-z0-9_-]{0,99})\s*%}([\s\S]*?){%\s*enddocs\s*%}/g;
+  for (const match of markdown.matchAll(pattern)) {
+    const name = match[1]!;
+    const description = match[2]!.replace(/\s+/g, " ").trim();
+    if (!description) continue;
+    docs.set(name, docs.has(name) ? null : description);
+  }
+  return docs;
+}
+
+function dbtDocReferenceName(raw: string): string | null {
+  const value = yamlScalar(raw);
+  const reference = value.match(
+    /^\{\{\s*doc\(\s*(['"])([A-Za-z_][A-Za-z0-9_-]{0,99})\1\s*\)\s*\}\}$/,
+  );
+  return reference?.[2] ?? null;
+}
+
+function referencedDbtDocNames(yaml: string): Set<string> {
+  const names = new Set<string>();
+  for (const line of yaml.split(/\r?\n/)) {
+    const commentFree = yamlCommentFree(line);
+    const description = commentFree.match(/^\s*description\s*:\s*(.*)$/);
+    if (!description) continue;
+    const name = dbtDocReferenceName(description[1]!);
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+async function containsReferencedDbtDocBlock(
+  file: FileRecord,
+  references: Set<string>,
+): Promise<boolean> {
+  let state:
+    | "search"
+    | "open"
+    | "prefix_whitespace"
+    | "docs_word"
+    | "docs_space"
+    | "name_start"
+    | "name"
+    | "name_end"
+    | "close_brace" = "search";
+  let docsWordIndex = 0;
+  let name = "";
+  const isWhitespace = (value: string) => /\s/u.test(value);
+  const isIdentifierStart = (value: string) => /[A-Za-z_]/u.test(value);
+  const isIdentifierPart = (value: string) => /[A-Za-z0-9_-]/u.test(value);
+  let found = false;
+  const stream = createReadStream(file.absolutePath, { encoding: "utf8" });
+  try {
+    for await (const chunk of stream) {
+      for (const value of chunk) {
+        const restart = () => {
+          state = value === "{" ? "open" : "search";
+          docsWordIndex = 0;
+          name = "";
+        };
+        switch (state) {
+          case "search":
+            if (value === "{") state = "open";
+            break;
+          case "open":
+            if (value === "%") state = "prefix_whitespace";
+            else restart();
+            break;
+          case "prefix_whitespace":
+            if (isWhitespace(value)) break;
+            if (value === "d") {
+              state = "docs_word";
+              docsWordIndex = 1;
+            } else restart();
+            break;
+          case "docs_word":
+            if (value === "docs"[docsWordIndex]) {
+              docsWordIndex += 1;
+              if (docsWordIndex === "docs".length) state = "docs_space";
+            } else restart();
+            break;
+          case "docs_space":
+            if (isWhitespace(value)) state = "name_start";
+            else restart();
+            break;
+          case "name_start":
+            if (isWhitespace(value)) break;
+            if (isIdentifierStart(value)) {
+              name = value;
+              state = "name";
+            } else restart();
+            break;
+          case "name":
+            if (isIdentifierPart(value)) {
+              name += value;
+              if (name.length > 100) restart();
+            } else if (isWhitespace(value)) state = "name_end";
+            else if (value === "%") state = "close_brace";
+            else restart();
+            break;
+          case "name_end":
+            if (isWhitespace(value)) break;
+            if (value === "%") state = "close_brace";
+            else restart();
+            break;
+          case "close_brace":
+            if (value === "}") {
+              if (references.has(name)) {
+                found = true;
+                break;
+              }
+              state = "search";
+              name = "";
+            } else restart();
+            break;
+        }
+        if (found) break;
+      }
+      if (found) break;
+    }
+  } catch {
+    codedError("file_unreadable", "A source file could not be read.");
+  }
+  return found;
+}
+
+function resolveDbtDocReferences(
+  yaml: string,
+  docs: Map<string, string | null>,
+): string {
+  return yaml
+    .split(/\r?\n/)
+    .map((line) => {
+      const commentFree = yamlCommentFree(line);
+      const description = commentFree.match(/^(\s*description\s*:\s*)(.*)$/);
+      if (!description) return line;
+      const name = dbtDocReferenceName(description[2]!);
+      if (!name) return line;
+      const resolved = docs.get(name);
+      if (!resolved) return line;
+      return `${description[1]}${JSON.stringify(resolved)}`;
+    })
+    .join("\n");
 }
 
 function yamlList(raw: string): string[] {
@@ -2441,6 +2593,49 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
   const fingerprint = createHash("sha256");
   const budget = { bytes: 0 };
   const scanSummary = emptyScanSummary();
+  const dbtDocBlocks = new Map<string, string | null>();
+  const docReferences = new Set<string>();
+  const discoveryBudget = { bytes: 0 };
+  for (const file of files) {
+    const extension = path.extname(file.absolutePath).toLowerCase();
+    if (extension !== ".yml" && extension !== ".yaml") continue;
+    const yaml = await readSourceFile(file, discoveryBudget);
+    for (const name of referencedDbtDocNames(yaml)) docReferences.add(name);
+  }
+  for (const file of files) {
+    if (
+      !docReferences.size ||
+      path.extname(file.absolutePath).toLowerCase() !== ".md"
+    ) {
+      continue;
+    }
+    let fileStat;
+    try {
+      fileStat = await stat(file.absolutePath);
+    } catch {
+      codedError("file_unreadable", "A source file could not be read.");
+    }
+    if (fileStat.size > MAX_FILE_BYTES) {
+      accountSourceBytes(fileStat.size, discoveryBudget);
+      if (await containsReferencedDbtDocBlock(file, docReferences)) {
+        codedError(
+          "file_limit_exceeded",
+          "A referenced dbt documentation file exceeds the safe index size limit.",
+        );
+      }
+      continue;
+    }
+    const markdown = await readSourceFile(file, discoveryBudget);
+    const parsedBlocks = parseDbtDocBlocks(markdown);
+    if (![...parsedBlocks.keys()].some((name) => docReferences.has(name))) {
+      continue;
+    }
+    accountSourceBytes(fileStat.size, budget);
+    hashFile(fingerprint, file, markdown);
+    for (const [name, description] of parsedBlocks) {
+      dbtDocBlocks.set(name, dbtDocBlocks.has(name) ? null : description);
+    }
+  }
   for (const file of files) {
     const extension = path.extname(file.absolutePath).toLowerCase();
     const relativePath = safeRelativePath(
@@ -2451,10 +2646,11 @@ async function readDbtRoot(root: RootContext): Promise<RootScanResult> {
     if (extension === ".yml" || extension === ".yaml") {
       const docsRaw = await readSourceFile(file, budget);
       hashFile(fingerprint, file, docsRaw);
-      docs.push(...parseSchemaYaml(docsRaw, relativePath, scanSummary));
-      docs.push(...parseEmbeddedSemanticYaml(docsRaw, relativePath));
+      const resolvedDocs = resolveDbtDocReferences(docsRaw, dbtDocBlocks);
+      docs.push(...parseSchemaYaml(resolvedDocs, relativePath, scanSummary));
+      docs.push(...parseEmbeddedSemanticYaml(resolvedDocs, relativePath));
       semanticYamlItems.push(
-        ...parseSemanticYamlItems(docsRaw, relativePath, scanSummary),
+        ...parseSemanticYamlItems(resolvedDocs, relativePath, scanSummary),
       );
       continue;
     }

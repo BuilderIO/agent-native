@@ -40,7 +40,7 @@ describe("sourceIndexFreshness", () => {
 });
 
 describe("parseSourceIndexBundle scan summary compatibility", () => {
-  it("defaults unresolved call-site counts for earlier uploaded summaries", () => {
+  it("leaves unresolved call-site counts unavailable for earlier summaries", () => {
     const bundle = parseSourceIndexBundle({
       schemaVersion: 1,
       generatedAt: "2026-10-09T12:00:00.000Z",
@@ -60,7 +60,7 @@ describe("parseSourceIndexBundle scan summary compatibility", () => {
       },
     });
 
-    expect(bundle.scanSummary?.unresolvedTrackingCallSites).toBe(0);
+    expect(bundle.scanSummary?.unresolvedTrackingCallSites).toBeUndefined();
   });
 });
 

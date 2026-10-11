@@ -106,7 +106,7 @@ export const sourceIndexBundleSchema = z
         unsafeEntriesOmitted: z.number().int().nonnegative(),
         unsafeFieldsOmitted: z.number().int().nonnegative(),
         truncatedFields: z.number().int().nonnegative(),
-        unresolvedTrackingCallSites: z.number().int().nonnegative().default(0),
+        unresolvedTrackingCallSites: z.number().int().nonnegative().optional(),
       })
       .strict()
       .optional(),
