@@ -885,15 +885,24 @@ describe("createAgentNativeAgentKitTransport", () => {
         status: "running" as const,
       },
     }));
-    const newerSnapshotEvents = snapshotEvents.map((event, index) =>
-      index === 19
-        ? {
-            ...event,
-            type: "activity.updated" as const,
-            activity: { ...event.activity, label: "newer snapshot" },
-          }
-        : event,
-    );
+    const newerSnapshotEvents = [
+      ...snapshotEvents.map((event, index) =>
+        index === 19
+          ? {
+              ...event,
+              type: "activity.updated" as const,
+              activity: { ...event.activity, label: "newer snapshot" },
+            }
+          : event,
+      ),
+      {
+        ...snapshotEvents[0],
+        id: "event-20",
+        sequence: 21,
+        occurredAt: "2026-10-01T00:00:21.000Z",
+        activity: { ...snapshotEvents[0].activity, id: "activity-20" },
+      },
+    ];
     let repository: Record<string, any> = {
       messages: [],
       agentKit: {
@@ -1081,11 +1090,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(requests.every((agentKit) => agentKit._snapshotDelta === true)).toBe(
       true,
     );
-    expect(repository.agentKit.events).toHaveLength(20);
+    expect(repository.agentKit.events).toHaveLength(21);
     expect(interleavedNewerSnapshot).toBe(true);
     expect(
       repository.agentKit.events.map((event: { id: string }) => event.id),
-    ).toEqual(Array.from({ length: 20 }, (_, index) => `event-${index}`));
+    ).toEqual(Array.from({ length: 21 }, (_, index) => `event-${index}`));
     expect(
       repository.agentKit.events.find(
         (event: { id: string }) => event.id === "event-19",
@@ -2891,6 +2900,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.started",
       "activity.completed",
       "message.completed",
+      "x-agent-native.persisted-event-omission",
       "run.completed",
       "run.failed",
     ]);
@@ -2922,6 +2932,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.started",
       "activity.completed",
       "message.completed",
+      "x-agent-native.persisted-event-omission",
       "run.completed",
       "run.failed",
     ]);

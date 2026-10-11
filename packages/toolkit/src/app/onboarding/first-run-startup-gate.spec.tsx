@@ -87,6 +87,7 @@ describe("FirstRunOnboardingStartupGate", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.useRealTimers();
     container.remove();
     vi.unstubAllGlobals();
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
@@ -193,6 +194,45 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-testid='gate-ownership']")?.textContent,
     ).toBe("true");
+  });
+
+  it("retries a failed status read before revealing a first-run app", async () => {
+    vi.useFakeTimers();
+    const status = deferred<boolean>();
+    mocks.fetchStatus
+      .mockRejectedValueOnce(new Error("status timed out"))
+      .mockReturnValueOnce(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
+    expect(
+      container.querySelector("[data-first-run-startup-loading]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-first-run-app-hidden]"),
+    ).not.toBeNull();
+
+    await act(async () => {
+      status.resolve(true);
+      await status.promise;
+    });
+
+    expect(
+      container.querySelector("[data-testid='first-run-onboarding']"),
+    ).not.toBeNull();
   });
 
   it("reveals an existing-organization member without mounting onboarding", async () => {
@@ -463,9 +503,11 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
-  it("fails closed to the app if the eligibility check is unavailable", async () => {
-    const status = deferred<boolean>();
-    mocks.fetchStatus.mockReturnValue(status.promise);
+  it("reveals the app if both eligibility checks are unavailable", async () => {
+    vi.useFakeTimers();
+    mocks.fetchStatus
+      .mockRejectedValueOnce(new Error("first status read failed"))
+      .mockRejectedValueOnce(new Error("retry failed"));
 
     act(() => {
       root.render(
@@ -476,10 +518,10 @@ describe("FirstRunOnboardingStartupGate", () => {
     });
 
     await act(async () => {
-      status.reject(new Error("unavailable"));
-      await status.promise.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
+    expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();

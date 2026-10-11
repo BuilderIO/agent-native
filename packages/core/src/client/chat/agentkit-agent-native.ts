@@ -1487,16 +1487,13 @@ function persistedRetryRequestAttachments(value: unknown): Array<{
 }
 
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
-  const sequenceByRun = new Map<string, number>();
   return events.flatMap((event): AgentEvent[] => {
     const base = () => {
-      const sequence = (sequenceByRun.get(event.runId) ?? 0) + 1;
-      sequenceByRun.set(event.runId, sequence);
       return {
         id: event.id,
         threadId: event.threadId,
         runId: event.runId,
-        sequence,
+        sequence: event.sequence,
         occurredAt: event.occurredAt,
       };
     };
@@ -1559,7 +1556,13 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
         },
       ];
     }
-    return [];
+    return [
+      {
+        ...base(),
+        type: "x-agent-native.persisted-event-omission",
+        payload: { sourceType: event.type },
+      },
+    ];
   });
 }
 
@@ -3009,15 +3012,6 @@ export function createAgentNativeAgentKitTransport(
       changedEventRunIds.has(event.runId),
     );
     const eventRunLastSequenceById = new Map<string, number>();
-    for (const run of input.snapshot.runs ?? []) {
-      if (
-        typeof run.id === "string" &&
-        Number.isSafeInteger(run.lastSequence) &&
-        run.lastSequence >= 0
-      ) {
-        eventRunLastSequenceById.set(run.id, run.lastSequence);
-      }
-    }
     for (const event of input.snapshot.events ?? []) {
       const previousSequence = eventRunLastSequenceById.get(event.runId) ?? 0;
       if (Number.isSafeInteger(event.sequence)) {

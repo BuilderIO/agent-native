@@ -24,6 +24,9 @@ const FirstRunOnboarding = lazy(() =>
 type FirstRunDecision = "pending" | "eligible" | "ineligible";
 type FirstRunCookieState = "present" | "absent" | "unreadable";
 
+const FIRST_RUN_STATUS_MAX_ATTEMPTS = 2;
+const FIRST_RUN_STATUS_RETRY_DELAY_MS = 500;
+
 const FirstRunOnboardingGateContext = createContext(false);
 
 function readFirstRunOnboardingCookieState(): FirstRunCookieState {
@@ -84,6 +87,7 @@ export function FirstRunOnboardingStartupGate({
     if (preloading) return;
 
     let cancelled = false;
+    let retryTimeout: number | undefined;
     const handleFirstRunCompleted = () => {
       trackOnboardingEvent("onboarding_app_entered", { flow: "first_run" });
       cancelled = true;
@@ -94,16 +98,28 @@ export function FirstRunOnboardingStartupGate({
       handleFirstRunCompleted,
     );
     setDecision("pending");
-    void fetchFirstRunOnboardingStatus()
-      .then((firstRun) => {
-        if (!cancelled) setDecision(firstRun ? "eligible" : "ineligible");
-      })
-      .catch(() => {
-        if (!cancelled) setDecision("ineligible");
-      });
+    const resolveStatus = (attempt: number) => {
+      void fetchFirstRunOnboardingStatus()
+        .then((firstRun) => {
+          if (!cancelled) setDecision(firstRun ? "eligible" : "ineligible");
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (attempt < FIRST_RUN_STATUS_MAX_ATTEMPTS) {
+            retryTimeout = window.setTimeout(
+              () => resolveStatus(attempt + 1),
+              FIRST_RUN_STATUS_RETRY_DELAY_MS,
+            );
+            return;
+          }
+          setDecision("ineligible");
+        });
+    };
+    resolveStatus(1);
 
     return () => {
       cancelled = true;
+      if (retryTimeout !== undefined) window.clearTimeout(retryTimeout);
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,

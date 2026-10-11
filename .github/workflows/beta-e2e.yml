@@ -447,6 +447,7 @@ jobs:
           if grep -q "Total: 0 tests in 0 files" "$selection_file" && { [ "$selection_status" -eq 0 ] || grep -q "Error: No tests found" "$selection_file"; }; then
             if [ "$BETA_E2E_NARROWED" = "true" ]; then
               echo "No authenticated tests in this slot match the app or title selection; skipping authenticated setup."
+              rm -f "e2e/beta/playwright-report/$BETA_E2E_REPORT_SLOT/results.json"
               exit 0
             fi
             echo "::error::Slot $BETA_E2E_REPORT_SLOT selected no tests for a full-fleet run. Its project or shard no longer matches any spec." >&2
