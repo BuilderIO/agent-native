@@ -14,6 +14,8 @@ export interface AgentAskPopoverProps {
   className?: string;
   icon?: ReactNode;
   draftScope?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** The trigger's look: `default` as a page action, `outline` in a row or group. */
   variant?: "default" | "secondary" | "outline";
   size?: "xs" | "sm";
@@ -28,6 +30,8 @@ export function AgentAskPopover({
   className,
   icon,
   draftScope,
+  open,
+  onOpenChange,
   variant = "outline",
   size = "sm",
 }: AgentAskPopoverProps) {
@@ -48,6 +52,8 @@ export function AgentAskPopover({
 
   return (
     <PromptBar
+      open={open}
+      onOpenChange={onOpenChange}
       autoFocus
       requireAgentEngine
       attachmentsEnabled={false}

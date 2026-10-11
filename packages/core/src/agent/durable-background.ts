@@ -52,6 +52,8 @@ import {
 export const AGENT_CHAT_PROCESS_RUN_PATH =
   "/_agent-native/agent-chat/_process-run";
 
+export const AGENT_CHAT_RECOVERY_OF_RUN_FIELD = "__agentChatRecoveryOfRunId";
+
 export const AGENT_TEAM_PROCESS_RUN_PATH =
   "/_agent-native/agent-teams/_process-run";
 

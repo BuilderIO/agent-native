@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -220,6 +221,7 @@ import {
   bumpRunProgress,
   setRunError,
   setRunTerminalReason,
+  recordRunDiagnostic,
   reapIfStale,
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
@@ -458,6 +460,38 @@ describe("run manager soft timeout", () => {
         "run_timeout",
       ),
     );
+  });
+
+  it("continues run recovery when a timeout fires after its request scope closes", async () => {
+    vi.useRealTimers();
+    const events: AgentChatEvent[] = [];
+    vi.mocked(recordRunDiagnostic).mockClear();
+    const run = await runWithRequestDbPoolScope(true, undefined, () => {
+      const startedRun = startRun(
+        "run-timeout-after-request-scope",
+        "thread-timeout-after-request-scope",
+        async (_send, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 10 },
+      );
+      startedRun.subscribers.add((event) => events.push(event.event));
+      return startedRun;
+    });
+
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "auto_continue",
+        reason: "run_timeout",
+      }),
+    );
+    expect(recordRunDiagnostic).not.toHaveBeenCalled();
+    expect(run.status).toBe("completed");
   });
 
   it("persists a soft-timeout chunk as `truncated`, never as `completed`", async () => {
@@ -809,6 +843,97 @@ describe("run manager soft timeout", () => {
         "turn-original",
       );
     });
+  });
+
+  it("waits for the run row before persisting and flushing a tool start", async () => {
+    let releaseInsert!: () => void;
+    vi.mocked(insertRun).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        releaseInsert = resolve;
+      }),
+    );
+    const write = vi.fn();
+    let flush!: Promise<void>;
+    const run = startRun(
+      "run-delayed-start-row",
+      "thread-delayed-start-row",
+      async (send, _signal, control) => {
+        send({
+          type: "tool_start",
+          tool: "send-email",
+          id: "email-1",
+          input: {},
+        });
+        flush = control.flushEvents();
+        await flush;
+        write();
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(flush).toBeDefined());
+    await Promise.resolve();
+    const prematureStarts = vi
+      .mocked(insertRunEvent)
+      .mock.calls.filter(
+        ([, , data]) => JSON.parse(data).type === "tool_start",
+      );
+    const prematureWrites = write.mock.calls.length;
+    releaseInsert();
+    await run.finalized;
+    expect(prematureStarts).toHaveLength(0);
+    expect(prematureWrites).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-delayed-start-row",
+      0,
+      expect.any(String),
+      { toolInputSource: "execution", requireInserted: true },
+    );
+  });
+
+  it("snapshots tool arguments before queued persistence and retries", async () => {
+    const input = { destination: "original" };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let toolAttempts = 0;
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, _seq, data) => {
+      const event = JSON.parse(data);
+      if (event.type === "text") await gate;
+      if (event.type === "tool_start" && toolAttempts++ === 0)
+        throw new Error("fixture write interrupted");
+    });
+    const run = startRun(
+      "run-input-snapshot",
+      "thread-input-snapshot",
+      async (send) => {
+        send({ type: "text", text: "working" });
+        send({ type: "tool_start", tool: "send-report", input });
+        input.destination = "mutated after execution started";
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => {
+      expect(input.destination).toBe("mutated after execution started");
+    });
+    release();
+    await run.finalized;
+    const starts = vi
+      .mocked(insertRunEvent)
+      .mock.calls.filter(
+        ([, , data]) => JSON.parse(data).type === "tool_start",
+      );
+    expect(starts).toHaveLength(2);
+    for (const [, , data, options] of starts) {
+      expect(JSON.parse(data).input).toEqual({ destination: "original" });
+      expect(options).toEqual({
+        toolInputSource: "execution",
+        requireInserted: true,
+      });
+    }
   });
 
   it("persists terminal error events before marking errored runs complete", async () => {

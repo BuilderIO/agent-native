@@ -1,6 +1,7 @@
 export * from "./AboutAgentNativeDialog.js";
 export * from "./AppShellSkeleton.js";
 export * from "./AgentNativeIcon.js";
+export * from "./AgentMark.js";
 export * from "./AppSidebar.js";
 export * from "./AppearancePicker.js";
 export * from "./ClientOnly.js";

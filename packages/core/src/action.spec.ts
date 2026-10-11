@@ -5,6 +5,8 @@ import {
   defineAction,
   ActionContractError,
   isActionContractError,
+  runActionWithExecutionOutcome,
+  type ActionRunContext,
   AgentActionStopError,
   AgentConnectionRequiredError,
   isAgentActionStopError,
@@ -13,6 +15,8 @@ import {
   isActionHiddenFromEveryAgentSurface,
   validateActionArgs,
 } from "./action.js";
+import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
+import { createUrlTools } from "./server/agent-chat/context-tools.js";
 
 describe("ActionContractError", () => {
   it("carries only explicitly safe structured contract details", () => {
@@ -1002,6 +1006,341 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it.each(["plain", "defined"])(
+    "keeps a direct typed failure unknown after a %s write handler enters",
+    async (kind) => {
+      const failure = new AgentConnectionRequiredError("Connect provider", {
+        provider: "test-provider",
+      });
+      const effects: string[] = [];
+      const run = async () => {
+        effects.push("sent");
+        throw failure;
+      };
+      const publicRun =
+        kind === "defined"
+          ? defineAction({ description: "Write", run }).run
+          : run;
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(publicRun, {}, undefined, outcome),
+      ).rejects.toBe(failure);
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("preserves definite refusals through the production action registry loader", async () => {
+    const handler = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Write",
+      schema: z.object({ valid: z.boolean() }),
+      authorize: () => false,
+      run: handler,
+    });
+    const loaded = loadActionsFromStaticRegistry({
+      write: { default: action },
+    }).write!;
+    expect(loaded.run).toBe(action.run);
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(
+        loaded.run,
+        { valid: true },
+        { caller: "tool" },
+        outcome,
+      ),
+    ).rejects.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+    expect(outcome.refused).toBe(true);
+  });
+
+  it.each(["plain", "defined"])(
+    "keeps a %s parent write unknown after a shared question refusal",
+    async (kind) => {
+      const question = createUrlTools()["ask-question"]!;
+      const effects: string[] = [];
+      const run = async (_args: unknown, ctx?: ActionRunContext) => {
+        effects.push("sent");
+        return question.run({ question: "Which range?", options: "[]" }, ctx);
+      };
+      const parent =
+        kind === "defined"
+          ? defineAction({ description: "Parent write", run }).run
+          : run;
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(parent, {}, { caller: "tool" }, outcome),
+      ).rejects.toThrow("non-empty JSON array");
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("does not classify a typed output-processing failure as pre-execution", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const effects: string[] = [];
+    const action = defineAction({
+      description: "Write with output validation",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
+        throw failure;
+      }),
+      run: async () => {
+        effects.push("sent");
+        return { ok: true };
+      },
+    });
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, undefined, outcome),
+    ).rejects.toBe(failure);
+    expect(effects).toEqual(["sent"]);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it("keeps concurrent failures separate when context and error objects are reused", async () => {
+    const failure = new Error("Not authorized");
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const handlerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const action = defineAction({
+      description: "Concurrent write",
+      schema: z.object({ allowed: z.boolean() }),
+      authorize: (args) => {
+        if (!args.allowed) throw failure;
+      },
+      run: async () => {
+        entered();
+        await waiting;
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const executed = { refused: false };
+    const denied = { refused: false };
+    const pending = runActionWithExecutionOutcome(
+      action.run,
+      { allowed: true },
+      ctx,
+      executed,
+    );
+    const rejection = expect(pending).rejects.toBe(failure);
+    await handlerEntered;
+    await expect(
+      runActionWithExecutionOutcome(
+        action.run,
+        { allowed: false },
+        ctx,
+        denied,
+      ),
+    ).rejects.toBe(failure);
+    release();
+    await rejection;
+    expect(denied.refused).toBe(true);
+    expect(executed.refused).toBe(false);
+  });
+
+  it("does not erase a successful child write with a later typed refusal", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "sent",
+    });
+    const parent = defineAction({
+      description: "Parent",
+      schema: z.object({ child: z.boolean() }),
+      authorize: (args) => {
+        if (!args.child) throw failure;
+      },
+      run: async (args, ctx) => {
+        if (args.child) await child.run({}, ctx);
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const executed = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, { child: true }, ctx, executed),
+    ).rejects.toBe(failure);
+    expect(executed.refused).toBe(false);
+    const denied = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, { child: false }, ctx, denied),
+    ).rejects.toBe(failure);
+    expect(denied.refused).toBe(true);
+    expect(executed.refused).toBe(false);
+  });
+
+  it("tracks child writes for plain action entries too", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child write",
+      run: async () => "sent",
+    });
+    const parent = async () => {
+      await child.run({});
+      throw failure;
+    };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent, {}, undefined, outcome),
+    ).rejects.toBe(failure);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it.each(["cloned", "omitted"])(
+    "does not inherit a nested refusal with a %s child context",
+    async (contextKind) => {
+      const failure = new AgentConnectionRequiredError(
+        "Connect child provider",
+        {
+          provider: "test-child",
+        },
+      );
+      const child = defineAction({
+        description: "Child",
+        schema: z.object({}),
+        run: async () => {
+          throw failure;
+        },
+      });
+      const effects: string[] = [];
+      const parent = defineAction({
+        description: "Parent write",
+        schema: z.object({}),
+        run: async (_args, ctx) => {
+          effects.push("sent");
+          return child.run(
+            {},
+            contextKind === "cloned" ? { ...ctx! } : undefined,
+          );
+        },
+      });
+      const ctx: ActionRunContext = { caller: "tool" };
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(parent.run, {}, ctx, outcome),
+      ).rejects.toBe(failure);
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("does not inherit a recursive invocation's refusal after a parent write", async () => {
+    const failure = new AgentConnectionRequiredError("Connect child provider", {
+      provider: "test-child",
+    });
+    const effects: string[] = [];
+    const recursive = defineAction({
+      description: "Recursive write",
+      schema: z.object({ child: z.boolean() }),
+      run: async (args, ctx): Promise<unknown> => {
+        if (args.child) throw failure;
+        effects.push("sent");
+        return recursive.run({ child: true }, ctx);
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(
+        recursive.run,
+        { child: false },
+        ctx,
+        outcome,
+      ),
+    ).rejects.toBe(failure);
+    expect(effects).toEqual(["sent"]);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it("does not inherit a nested failure's refusal guarantee after the parent handler entered", async () => {
+    const failure = new AgentConnectionRequiredError("Connect child provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child",
+      schema: z.object({}),
+      run: async () => {
+        throw failure;
+      },
+    });
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    const parent = defineAction({
+      description: "Parent write",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        try {
+          await child.run({}, ctx);
+        } catch (error) {
+          expect(error).toBe(failure);
+        }
+        await read.run({}, ctx);
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, {}, ctx, outcome),
+    ).rejects.toBe(failure);
+    expect(outcome.refused).toBe(false);
+  });
+  it("preserves a denial without treating the same error from a later handler as pre-execution", async () => {
+    const denial = Object.assign(new Error("Not authorized"), {
+      statusCode: 403,
+    });
+    let allowed = false;
+    const run = vi.fn(async () => {
+      throw denial;
+    });
+    const action = defineAction({
+      description: "Write with authorization",
+      schema: z.object({}),
+      authorize: () => {
+        if (!allowed) throw denial;
+      },
+      run,
+    });
+    const first: ActionRunContext = { caller: "tool" };
+    const second: ActionRunContext = { caller: "tool" };
+    const firstOutcome = { refused: false };
+    const secondOutcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, first, firstOutcome),
+    ).rejects.toBe(denial);
+    expect(run).not.toHaveBeenCalled();
+    expect(firstOutcome.refused).toBe(true);
+    expect(secondOutcome.refused).toBe(false);
+    allowed = true;
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, second, secondOutcome),
+    ).rejects.toBe(denial);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(secondOutcome.refused).toBe(false);
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, first, firstOutcome),
+    ).rejects.toBe(denial);
+    expect(firstOutcome.refused).toBe(false);
+  });
   it("runs the gate before the body and passes args + ctx through", async () => {
     const authorize = vi.fn();
     const run = vi.fn(async () => ({ ok: true }));

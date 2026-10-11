@@ -314,7 +314,26 @@ export const ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS = [
   "owner_email",
 ] as const;
 
+export const ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS = [
+  "id",
+  "org_id",
+  "received_at",
+  "event_date",
+  "timestamp",
+  "event_name",
+  "user_id",
+  "user_key",
+  "session_id",
+  "app",
+  "template",
+  "properties",
+  "owner_email",
+] as const;
+
 export type FirstPartyAnalyticsEventsProjection = "onboarding_journey";
+export type FirstPartyAnalyticsEventSourceProjection =
+  | FirstPartyAnalyticsEventsProjection
+  | "onboarding_journey_response_identity";
 
 export const FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS = [
   "id",
@@ -1321,20 +1340,27 @@ function addPartitionPrunedEventDeduplication(
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
     scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
   } = {},
 ): string {
   const quote = String.fromCharCode(96);
   const rawTableName = firstPartyAnalyticsRawTable(table);
   const rawSource = `${quote}${rawTableName}${quote}`;
   const projectionRequested =
-    options.scopedEventsProjection === "onboarding_journey";
+    options.scopedEventsProjection === "onboarding_journey" ||
+    options.scopedEventsSourceProjections !== undefined;
   const projectedColumnsPattern =
     ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join("\\s*,\\s*");
+  const responseIdentityColumnsPattern =
+    ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join("\\s*,\\s*");
   const selectedColumnsPattern = projectionRequested
-    ? `(?:\\*|${projectedColumnsPattern})`
+    ? `(?:\\*|${projectedColumnsPattern}|${responseIdentityColumnsPattern})`
     : "\\*";
   const sourcePattern = new RegExp(
-    `\\bSELECT\\s+${selectedColumnsPattern}\\s+FROM\\s+(${quote}[^${quote}]+${quote})\\s+WHERE\\b`,
+    `\\bSELECT\\s+(${selectedColumnsPattern})\\s+FROM\\s+(${quote}[^${quote}]+${quote})\\s+WHERE\\b`,
     "gi",
   );
   const sourceSelectPattern = new RegExp(
@@ -1363,6 +1389,8 @@ function addPartitionPrunedEventDeduplication(
       : [];
   });
   let rewrittenRawSources = 0;
+  let journeyEventSources = 0;
+  let responseIdentitySources = 0;
   while (cursor < sql.length) {
     sourcePattern.lastIndex = searchStart;
     const sourceMatch = sourcePattern.exec(sql);
@@ -1372,8 +1400,19 @@ function addPartitionPrunedEventDeduplication(
     }
     const sourceIndex = sourceMatch.index;
     searchStart = sourcePattern.lastIndex;
+    const selectedColumns = sourceMatch[1]!
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    const isResponseIdentitySource =
+      projectionRequested &&
+      selectedColumns ===
+        ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ");
+    const isJourneyEventSource =
+      projectionRequested &&
+      selectedColumns === ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ");
     if (
-      sourceMatch[1] !== rawSource ||
+      sourceMatch[2] !== rawSource ||
       (projectionRequested && !selectStarts.has(sourceIndex)) ||
       !sourceSelectPattern.test(code.slice(sourceIndex))
     ) {
@@ -1406,6 +1445,7 @@ function addPartitionPrunedEventDeduplication(
     const predicates = [
       ...onboardingEventDatePredicates(options.eventDateRange),
       ...firstPartyEventPushdownPredicates(sql, sourceIndex),
+      ...(isJourneyEventSource ? ["event_name != 'http.response'"] : []),
     ].filter(
       (predicate, index, all) =>
         all.findIndex(
@@ -1420,12 +1460,29 @@ function addPartitionPrunedEventDeduplication(
       ` QUALIFY ROW_NUMBER() OVER (PARTITION BY ${dedupPartition} ORDER BY received_at DESC) = 1` +
       (predicateEnd < sql.length ? " " : "");
     if (projectionRequested) rewrittenRawSources++;
+    if (isJourneyEventSource) journeyEventSources++;
+    if (isResponseIdentitySource) responseIdentitySources++;
     cursor = predicateEnd;
     searchStart = cursor;
   }
+  const sourceProjections = Object.values(
+    options.scopedEventsSourceProjections ?? {},
+  );
+  const expectedJourneyEventSources =
+    options.scopedEventsSourceProjections === undefined
+      ? 1
+      : sourceProjections.filter(
+          (projection) => projection === "onboarding_journey",
+        ).length;
+  const expectedResponseIdentitySources = sourceProjections.filter(
+    (projection) => projection === "onboarding_journey_response_identity",
+  ).length;
   if (
     projectionRequested &&
-    rewrittenRawSources !== rawSourcePositions.length
+    rawSourcePositions.length > 0 &&
+    (rewrittenRawSources !== rawSourcePositions.length ||
+      journeyEventSources !== expectedJourneyEventSources ||
+      responseIdentitySources !== expectedResponseIdentitySources)
   ) {
     throw new FirstPartyAnalyticsUnsupportedSqlError(
       "an unsupported onboarding journey event source projection",
@@ -1447,6 +1504,10 @@ export function renderFirstPartyAnalyticsBigQuerySql(
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
     scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
   } = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
@@ -1482,6 +1543,10 @@ export function renderFirstPartyAnalyticsBigQueryRequestSql(
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
     scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
   } = {},
 ): string {
   return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
@@ -1495,6 +1560,10 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
     scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
@@ -1526,6 +1595,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
         eventDateRange: options.eventDateRange,
         scopedEventsSingleScan: options.scopedEventsSingleScan,
         scopedEventsProjection: options.scopedEventsProjection,
+        scopedEventsSourceProjections: options.scopedEventsSourceProjections,
       }),
       {
         maxBytesBilled: options.maxBytesBilled,

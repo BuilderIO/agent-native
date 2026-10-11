@@ -75,29 +75,38 @@ describe("page-chat handoff defaults", () => {
     expect(route).not.toContain("const threadUrlSync = threadId");
   });
 
-  it("routes Chat home to AgentKit Chat with a URL-backed thread", () => {
+  it("keeps the starter home and routes the new-chat entry to AgentKit Chat", () => {
     const route = readTemplateFile("chat", "app/routes/home.tsx");
+    // source-read-ok: verifies the exported template keeps the new-chat route wired to its durable handoff.
+    const newChatRoute = readTemplateFile("chat", "app/routes/chat._index.tsx");
+    // source-read-ok: verifies the production route's durable handoff wiring.
+    const redirect = readTemplateFile(
+      "chat",
+      "app/components/chat/ChatHomeRedirect.tsx",
+    );
     const chatSurface = readTemplateFile(
       "chat",
       "app/components/chat/ChatRouteContent.tsx",
     );
-    expect(route).toContain('markAgentChatHomeHandoff("chat")');
-    expect(route).toContain("getChatHomeThreadId");
+    expect(route).toContain("<HomePage />");
+    expect(newChatRoute).toContain("ChatHomeRedirect");
+    expect(redirect).toContain('markAgentChatHomeHandoff("chat")');
+    expect(redirect).toContain("getChatHomeThreadId");
     const usesClientNavigate =
-      route.includes("useNavigate") &&
+      redirect.includes("useNavigate") &&
       /navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s.test(
-        route,
+        redirect,
       );
     const usesDurableHardNavigation =
-      /import\s*\{\s*appPath\s*\}\s*from\s*["']@agent-native\/core\/client\/api-path["']/.test(
-        route,
+      redirect.includes(
+        'import { appPath } from "@agent-native/core/client/api-path";',
       ) &&
-      /window\.location\.replace\(\s*appPath\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)\s*\)/s.test(
-        route,
+      redirect.includes(
+        "window.location.replace(appPath(chatThreadPath(threadId)));",
       );
     expect(usesClientNavigate || usesDurableHardNavigation).toBe(true);
-    expect(route).toContain("return null;");
-    expect(route).toContain("useState(");
+    expect(redirect).toContain("return null;");
+    expect(redirect).toContain("useState(");
     expect(chatSurface).toContain("AgentKitRoot");
     expect(chatSurface).toContain("AgentKitChat");
   });

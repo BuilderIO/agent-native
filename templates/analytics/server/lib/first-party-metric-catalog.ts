@@ -1056,6 +1056,7 @@ function buildOnboardingEventsCte(
     observationCutoffSql?: string;
     receivedAtCutoffSql?: string;
     includeIdentityBridge?: boolean;
+    excludeHttpResponses?: boolean;
   } = {},
 ): string {
   const dateRangeFilter =
@@ -1066,6 +1067,9 @@ function buildOnboardingEventsCte(
     : "";
   const receivedAtCutoffFilter = options.receivedAtCutoffSql
     ? `\n      AND e.received_at::timestamptz < ${options.receivedAtCutoffSql}`
+    : "";
+  const excludeHttpResponsesFilter = options.excludeHttpResponses
+    ? "\n      AND e.event_name != 'http.response'"
     : "";
   const identityBridgeCte = includeIdentityBridge
     ? `auth_identity_bridge AS (
@@ -1112,7 +1116,7 @@ function buildOnboardingEventsCte(
     ) AS funnel_user_email
   FROM analytics_events e
   ${identityBridgeJoin}
-  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
+  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}${excludeHttpResponsesFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
 ), onboarding_events AS (
@@ -1408,7 +1412,48 @@ const ONBOARDING_JOURNEY_OUTPUT_LINK_CANDIDATE_FILTER = `${ONBOARDING_JOURNEY_IN
       ))
     OR (template_name = 'design' AND event_name = 'pageview')
   )`;
-const ONBOARDING_JOURNEY_EVENT_CTES = `, classified_onboarding_events AS (
+function buildOnboardingJourneyEventCtes(
+  options: {
+    dateRangeFilter?: string;
+    observationCutoffSql?: string;
+    receivedAtCutoffSql?: string;
+  } = {},
+): string {
+  const dateRangeFilter =
+    options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
+  const observationCutoffFilter = options.observationCutoffSql
+    ? `\n    AND r.timestamp::timestamptz < ${options.observationCutoffSql}`
+    : "";
+  const receivedAtCutoffFilter = options.receivedAtCutoffSql
+    ? `\n    AND r.received_at::timestamptz < ${options.receivedAtCutoffSql}`
+    : "";
+  const responseTemplateExpr = TEMPLATE_EXPR.replace(
+    /\btemplate\b/g,
+    "r.template",
+  )
+    .replace(/\bproperties\b/g, "r.properties")
+    .replace(/\bapp\b/g, "r.app");
+  return `, response_identity_events AS (
+  SELECT r.session_id, r.event_name,
+    COALESCE(
+      CASE WHEN NULLIF(r.user_id, '') LIKE '%@%.%' THEN r.user_id END,
+      CASE WHEN NULLIF(r.user_key, '') LIKE '%@%.%' THEN r.user_key END,
+      CASE WHEN NULLIF(r.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN r.properties::jsonb ->> 'auth_user_id' END
+    ) AS funnel_user_email
+  FROM analytics_events r
+  WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
+    AND ('{{appFilter}}' IN ('', 'all') OR lower(${responseTemplateExpr}) = lower('{{appFilter}}'))
+    AND ${firstPartyTemplateFilter(responseTemplateExpr)}
+    AND r.event_name = 'http.response'
+), onboarding_journey_identity_events AS (
+  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path, e.properties,
+    e.template, e.app, e.funnel_user_email, TRUE AS is_journey_event
+  FROM scoped_onboarding_events e
+  UNION ALL
+  SELECT NULL, r.session_id, NULL, r.event_name, NULL, NULL, NULL, NULL,
+    r.funnel_user_email, FALSE
+  FROM response_identity_events r
+), classified_onboarding_events AS (
   SELECT e.*,
     lower(${TEMPLATE_EXPR}) AS template_name,
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
@@ -1418,27 +1463,23 @@ const ONBOARDING_JOURNEY_EVENT_CTES = `, classified_onboarding_events AS (
       WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END AS output_attempt_id,
-    MAX(CASE
-      WHEN NULLIF(e.session_id, '') IS NOT NULL
-        AND coalesce(${testIdentityEmailSql("funnel_user_email")}, FALSE)
-        THEN 1 ELSE 0
-    END) OVER (PARTITION BY e.session_id) AS has_test,
-    MAX(CASE
-      WHEN NULLIF(e.session_id, '') IS NOT NULL
-        AND lower(coalesce(e.funnel_user_email, '')) LIKE '%@builder.io'
-        THEN 1 ELSE 0
-    END) OVER (PARTITION BY e.session_id) AS has_builder,
-    MAX(CASE
-      WHEN NULLIF(e.session_id, '') IS NOT NULL
-        AND e.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
-        THEN 1 ELSE 0
-    END) OVER (PARTITION BY e.session_id) AS has_cohort,
-    MAX(CASE
-      WHEN NULLIF(e.session_id, '') IS NOT NULL
-        AND e.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)})
-        THEN 1 ELSE 0
-    END) OVER (PARTITION BY e.session_id) AS has_standalone_setup
-  FROM scoped_onboarding_events e
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN coalesce(${testIdentityEmailSql("e.funnel_user_email")}, FALSE) THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_test,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN lower(coalesce(e.funnel_user_email, '')) LIKE '%@builder.io' THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_builder,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN e.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)}) THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_cohort,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN e.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)}) THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_standalone_setup
+  FROM onboarding_journey_identity_events e
 ), candidate_onboarding_events AS (
   SELECT e.*,
     CASE
@@ -1454,6 +1495,7 @@ const ONBOARDING_JOURNEY_EVENT_CTES = `, classified_onboarding_events AS (
         THEN CASE WHEN e.has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END
     END AS candidate_journey_kind
   FROM classified_onboarding_events e
+  WHERE e.is_journey_event
 ), linked_onboarding_events AS (
   SELECT e.*,
     MIN(e.candidate_session_id) OVER (
@@ -1508,6 +1550,7 @@ const ONBOARDING_JOURNEY_EVENT_CTES = `, classified_onboarding_events AS (
   )
 )
 `;
+}
 const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,
@@ -1550,7 +1593,7 @@ FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
-const ONBOARDING_JOURNEY_EVENTS_SQL = `${buildOnboardingEventsCte({ includeIdentityBridge: false })}${ONBOARDING_JOURNEY_EVENT_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+const ONBOARDING_JOURNEY_EVENTS_SQL = `${buildOnboardingEventsCte({ includeIdentityBridge: false, excludeHttpResponses: true })}${buildOnboardingJourneyEventCtes()}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
 
 const ONBOARDING_JOURNEY_DATE_RANGE_FILTER =
   DASHBOARD_TIME_RANGE_FILTER.replace(
@@ -1700,6 +1743,7 @@ export function buildOnboardingJourneyEventsSql(
       dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
       observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
       includeIdentityBridge: false,
+      excludeHttpResponses: true,
       ...(options.freezeReceivedAt
         ? {
             receivedAtCutoffSql:
@@ -1707,7 +1751,16 @@ export function buildOnboardingJourneyEventsSql(
           }
         : {}),
     });
-    query = `${cte}${ONBOARDING_JOURNEY_EVENT_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+    query = `${cte}${buildOnboardingJourneyEventCtes({
+      dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
+      observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+      ...(options.freezeReceivedAt
+        ? {
+            receivedAtCutoffSql:
+              "NULLIF('{{observationWatermark}}', '')::timestamptz",
+          }
+        : {}),
+    })}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
     values.observationCutoff = observation.observationCutoff;
     values.observationDate = observation.observationDate;
     if (options.freezeReceivedAt) {

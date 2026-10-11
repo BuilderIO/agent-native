@@ -55,7 +55,6 @@ import {
   IconRefresh,
   IconSearch,
   IconSlideshow,
-  IconSparkles,
   IconUpload,
   IconWorld,
 } from "@tabler/icons-react";
@@ -109,6 +108,7 @@ import {
   type CreativeContextRootRecommendation,
   type CreativeContextRecommendationProvider,
 } from "./actions.js";
+import { AgentMark } from "./AgentMark";
 import {
   useCreativeContextState,
   type CreativeContextMode,
@@ -2542,7 +2542,7 @@ export function CreativeContextPanel({
           (logoCandidates.length || proposedLayouts.length) ? (
             <section className="border-t border-border/70 pt-6">
               <div className="flex items-center gap-2">
-                <IconSparkles className="size-5 text-muted-foreground" />
+                <AgentMark className="size-5 text-muted-foreground" />
                 <h2 className="text-lg font-semibold">
                   {t("creativeContext.suggestions")}
                 </h2>
@@ -3135,7 +3135,7 @@ export function CreativeContextPanel({
                     {importJob.status === "completed" && brandProposal ? (
                       <div className="mt-4 rounded-md bg-muted/50 p-4">
                         <div className="flex items-start gap-3">
-                          <IconSparkles className="mt-0.5 size-5 text-muted-foreground" />
+                          <AgentMark className="mt-0.5 size-5 text-muted-foreground" />
                           <div className="min-w-0 flex-1">
                             <h4 className="text-sm font-semibold">
                               {t("creativeContext.brandDnaTitle")}
@@ -3211,7 +3211,7 @@ export function CreativeContextPanel({
                                 disabled={publishBrandDna.isPending}
                                 onClick={() => void publishProposal()}
                               >
-                                <IconSparkles />
+                                <AgentMark />
                                 {publishBrandDna.isPending
                                   ? t("creativeContext.applyingBrandContext")
                                   : t("creativeContext.applyBrandContext")}

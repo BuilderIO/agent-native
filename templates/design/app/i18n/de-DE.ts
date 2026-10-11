@@ -1737,9 +1737,11 @@ export default {
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
     imageAttachmentUnavailable:
-      "Dieses Bild konnte nicht als visuelle Eingabe vorbereitet werden. Füge eine kleinere PNG-, JPG-, GIF- oder WebP-Datei an.",
+      "Dieses Bild konnte nicht für den Upload vorbereitet werden. Versuche es mit einem JPG-, PNG-, GIF- oder WebP-Bild.",
+    imageAttachmentTooLarge:
+      "Bilder dürfen jeweils bis zu {{perFile}} MB groß sein und insgesamt {{total}} MB umfassen.",
     attachmentsTooLarge:
-      "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
+      "Bilder werden automatisch optimiert. Optimierte Bilder und andere Dateien dürfen zusammen höchstens {{max}} MB groß sein.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
     skipPrompt: "Prompt überspringen",
     startBlankCanvas: "Mit leerer Zeichenfläche beginnen",

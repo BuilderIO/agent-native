@@ -2443,18 +2443,25 @@ test.describe("URL-backed live auto-layout probe", () => {
       .locator("iframe[data-design-preview-iframe]")
       .first()
       .contentFrame();
-    await expect
-      .poll(
-        () =>
-          reloadedFrame
-            .locator("[data-group-card]")
-            .evaluateAll((els) =>
-              Object.fromEntries(
-                els.map((el) => [el.id, el.getAttribute("style") ?? ""]),
-              ),
+    const readReloadedGroupStyles = async () => {
+      try {
+        return await reloadedFrame
+          .locator("[data-group-card]")
+          .evaluateAll((els) =>
+            Object.fromEntries(
+              els.map((el) => [el.id, el.getAttribute("style") ?? ""]),
             ),
-        { timeout: 15_000 },
-      )
+          );
+      } catch (error) {
+        // The preview iframe is unmounted until the bridge re-registers after
+        // a reload, so a read can land on a detached frame; keep polling.
+        if (error instanceof Error && /Frame was detached/.test(error.message))
+          return null;
+        throw error;
+      }
+    };
+    await expect
+      .poll(readReloadedGroupStyles, { timeout: 15_000 })
       .toEqual(runtimeStyles);
     await page.screenshot({
       path: path.resolve(

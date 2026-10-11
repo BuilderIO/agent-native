@@ -11,6 +11,7 @@ import {
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
@@ -197,7 +198,7 @@ export function resolvedEmbedCapabilityScope(
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const embedTicketsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
           ticket_hash TEXT PRIMARY KEY,
@@ -237,6 +238,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

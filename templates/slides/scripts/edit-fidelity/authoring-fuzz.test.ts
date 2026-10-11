@@ -20,11 +20,15 @@ import {
   isConflictResourceConsoleError,
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
+  isExpectedCleanupBrowserSessionHeartbeatConsoleError,
+  isExpectedSaveReloadBrowserSessionConsoleError,
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
+  isFirefoxBrowserSessionConsoleError,
+  normalizeFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -1345,6 +1349,184 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   ).toBe(false);
 });
 
+it("ignores browser-session poll or heartbeat errors only for matching canceled reload requests", () => {
+  const claimCandidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 8_999,
+    requestWasPendingAtNavigation: true,
+  };
+  const registrationCandidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const heartbeatWarning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
+
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      claimCandidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [registrationCandidate],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      pollWarning,
+      "cleanup/navigation",
+      [claimCandidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "step 79", [
+      claimCandidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, ageMs: -1 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      { ...claimCandidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...claimCandidate,
+        pathname: "/_agent-native/browser-sessions/session-id/requests/other",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      "another poll error",
+      "save/reload",
+      [claimCandidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [claimCandidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [{ ...registrationCandidate, requestWasPendingAtNavigation: false }],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(
+      heartbeatWarning,
+      "save/reload",
+      [{ ...registrationCandidate, ageMs: 9_000 }],
+    ),
+  ).toBe(false);
+});
+
+it("normalizes only Firefox browser-session errors with the expected console arguments", async () => {
+  const makeMessage = (prefix: unknown, error: unknown, args = 2) => ({
+    text: () => "[Agent-Native browser session] poll failed: JSHandle@object",
+    args: () =>
+      Array.from({ length: args }, (_, index) => ({
+        jsonValue: async () => (index === 0 ? prefix : undefined),
+        evaluate: async <T>(pageFunction: (value: unknown) => T) =>
+          pageFunction(error),
+      })),
+  });
+
+  expect(
+    isFirefoxBrowserSessionConsoleError(
+      "[Agent-Native browser session] heartbeat failed: JSHandle@object",
+    ),
+  ).toBe(true);
+  expect(
+    isFirefoxBrowserSessionConsoleError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+    ),
+  ).toBe(false);
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError(
+      makeMessage(
+        "[Agent-Native browser session] poll failed:",
+        "TypeError: Load failed",
+      ),
+    ),
+  ).toBe("[Agent-Native browser session] poll failed: TypeError: Load failed");
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError({
+      text: () =>
+        "[Agent-Native browser session] heartbeat failed: JSHandle@object",
+      args: () => [
+        {
+          jsonValue: async () =>
+            "[Agent-Native browser session] heartbeat failed:",
+          evaluate: async <T>(pageFunction: (value: unknown) => T) =>
+            pageFunction(new TypeError("Load failed")),
+        },
+        {
+          jsonValue: async () => undefined,
+          evaluate: async <T>(pageFunction: (value: unknown) => T) =>
+            pageFunction(new TypeError("Load failed")),
+        },
+      ],
+    }),
+  ).toBe(
+    "[Agent-Native browser session] heartbeat failed: TypeError: Load failed",
+  );
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError(
+      makeMessage(
+        "[Agent-Native browser session] poll failed:",
+        "TypeError: unrelated failure",
+      ),
+    ),
+  ).toBe(
+    "[Agent-Native browser session] poll failed: TypeError: unrelated failure",
+  );
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError(
+      makeMessage("some other console prefix", "TypeError: Load failed"),
+    ),
+  ).toBe("[Agent-Native browser session] poll failed: JSHandle@object");
+  expect(
+    await normalizeFirefoxBrowserSessionConsoleError(
+      makeMessage(
+        "[Agent-Native browser session] poll failed:",
+        "TypeError: Load failed",
+        1,
+      ),
+    ),
+  ).toBe("[Agent-Native browser session] poll failed: JSHandle@object");
+});
+
 it("accepts cleanup request cancellations only while navigation is pending", () => {
   const candidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
@@ -1366,6 +1548,44 @@ it("accepts cleanup request cancellations only while navigation is pending", () 
       "[Agent-Native browser session] poll failed: TypeError: Load failed",
       [candidate],
       false,
+    ),
+  ).toBe(false);
+});
+
+it("ignores cleanup heartbeat failures only for a matching canceled registration", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions",
+    pathname: "/_agent-native/browser-sessions",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning =
+    "[Agent-Native browser session] heartbeat failed: TypeError: Load failed";
+
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [candidate]),
+  ).toBe(true);
+  expect(isExpectedCleanupNavigationError(warning, [candidate], true)).toBe(
+    true,
+  );
+  expect(isExpectedCleanupNavigationError(warning, [candidate], false)).toBe(
+    false,
+  );
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+      { ...candidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(warning, [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionHeartbeatConsoleError(
+      "[Agent-Native browser session] heartbeat failed: TypeError: unrelated failure",
+      [candidate],
     ),
   ).toBe(false);
 });

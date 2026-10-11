@@ -1,7 +1,7 @@
 ===================================================================
 --- a/app/components/layout/Layout.tsx
 +++ b/app/components/layout/Layout.tsx
-@@ -1,189 +1,28 @@
+@@ -1,188 +1,28 @@
 -import { useT } from "@agent-native/core/client/i18n";
 -import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell/header-actions";
 -import {
@@ -23,6 +23,7 @@
 -  SheetTitle,
 -} from "@/components/ui/sheet";
 -import { APP_TITLE } from "@/lib/app-config";
+-import { HOME_PATH, isChatPathname } from "@/lib/chat-paths";
 -
 -import { Sidebar } from "./Sidebar";
 -
@@ -43,8 +44,8 @@
 -
 -function routeOwnsToolbar(pathname: string): boolean {
 -  return (
--    pathname === "/home" ||
--    pathname.startsWith("/chat/") ||
+-    pathname === HOME_PATH ||
+-    isChatPathname(pathname) ||
 -    pathname === "/database" ||
 -    pathname.startsWith("/extensions")
 -  );
@@ -66,8 +67,7 @@
 -  const t = useT();
 -  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 -  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
--  const isChatRoute =
--    location.pathname === "/home" || location.pathname.startsWith("/chat/");
+-  const isChatRoute = isChatPathname(location.pathname);
 -  // Settings brings its own navigation, header, and agent toggle, so it
 -  // renders full width.
 -  const settingsOwnsChrome = isSettingsPathname(location.pathname);
@@ -79,8 +79,7 @@
 -  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("chat");
 -  useAgentChatHomeHandoffLinks({
 -    storageKey: "chat",
--    isChatPath: (pathname) =>
--      pathname === "/home" || pathname.startsWith("/chat/"),
+-    isChatPath: isChatPathname,
 -    requireActiveHandoff: true,
 -  });
 -

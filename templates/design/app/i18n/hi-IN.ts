@@ -1686,9 +1686,11 @@ export default {
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
     imageAttachmentUnavailable:
-      "इस छवि को दृश्य इनपुट के रूप में तैयार नहीं किया जा सका। छोटी PNG, JPG, GIF या WebP फ़ाइल जोड़ें।",
+      "इस छवि को अपलोड के लिए तैयार नहीं किया जा सका। JPG, PNG, GIF या WebP छवि आज़माएँ।",
+    imageAttachmentTooLarge:
+      "हर छवि {{perFile}} MB तक हो सकती है; सभी छवियों का कुल आकार {{total}} MB तक हो सकता है।",
     attachmentsTooLarge:
-      "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
+      "छवियाँ अपने आप अनुकूलित होती हैं। अनुकूलित छवियों और अन्य फ़ाइलों का कुल आकार {{max}} MB से अधिक नहीं होना चाहिए।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
     startBlankCanvas: "खाली कैनवास से शुरू करें",

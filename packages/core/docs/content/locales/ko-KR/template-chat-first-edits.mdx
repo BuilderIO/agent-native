@@ -1,21 +1,18 @@
 ---
 title: "채팅: 첫 번째 기능"
-description: "채팅의 시작 화면을 렌더링하는 단 하나의 파일과 그 실제 props가 하는 일, 그리고 기능을 처음부터 끝까지 추가하는 전체 안내."
+description: "Chat의 시작 화면을 렌더링하는 파일, 실제 props의 역할, 그리고 기능을 처음부터 끝까지 추가하는 전체 안내."
 ---
 
 # 첫 번째 기능
 
-이 페이지는 [채팅 템플릿](/docs/template-chat)을 확장하는 개발자를 위한 것입니다.
-시작 채팅 화면을 렌더링하는 단 하나의 파일을 다룬 다음, 실제 기능을 요청할 때
-에이전트가 일반적으로 다루게 되는 모든 것을 안내합니다.
+이 페이지는 [Chat 템플릿](/docs/template-chat)을 확장하는 개발자를 위한 것입니다. 시작 화면을 렌더링하는 파일을 살펴본 다음, 실제 기능을 요청할 때 에이전트가 보통 건드리는 모든 것을 차례로 안내합니다.
 
 ## 검사할 첫 번째 코드 {#first-code}
 
-- `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 이를 교체하거나
-  그 옆에 액션을 추가하세요.
-- `app/routes/_index.tsx`는 전체 페이지 채팅 화면을 렌더링합니다. 제안, 빈 상태,
-  컴포저, 또는 주변 레이아웃을 여기서 조정하세요.
-- `AGENTS.md`는 내장 에이전트에게 이 앱 안에서 작업하는 방법을 알려줍니다.
+- `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 교체하거나 옆에 작업을 추가하세요.
+- `app/components/chat/ChatRouteContent.tsx`는 `/chat/<threadId>`에서 전체 페이지 채팅 화면을 렌더링합니다. 빈 상태, 컴포저, 메시지 슬롯은 여기서 조정하세요.
+- `app/components/home/HomePage.tsx`는 `/home`에 표시되는 편집 가능한 시작하기 페이지입니다. `/chat`에서 새 채팅을 시작합니다.
+- `AGENTS.md`는 내장 에이전트에게 이 앱 안에서 작업하는 방법을 알려 줍니다.
 
 <FileTree
   id="doc-block-chat3"
@@ -23,73 +20,82 @@ description: "채팅의 시작 화면을 렌더링하는 단 하나의 파일과
   entries={[
     {
       path: "actions/hello.ts",
-      note: "하나뿐인 예제 액션; 교체하거나 그 옆에 액션을 추가하세요",
+      note: "유일한 예제 작업. 교체하거나 옆에 작업을 추가",
     },
     {
       path: "actions/view-screen.ts",
-      note: "에이전트가 가장 먼저 호출하는 표준 context 액션",
+      note: "에이전트가 가장 먼저 호출하는 표준 컨텍스트 작업",
     },
     {
       path: "actions/navigate.ts",
-      note: "표준 내비게이션 액션",
+      note: "표준 내비게이션 작업",
     },
     {
-      path: "app/routes/_index.tsx",
-      note: "전체 페이지 채팅 화면을 렌더링; 제안, 빈 상태, 컴포저를 편집",
+      path: "app/routes/home.tsx",
+      note: "/home: 시작하기 페이지, /chat에서 새 채팅 시작",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat: 새 채팅을 시작하고 /chat/:threadId로 넘김",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "_index.tsx를 다시 내보내므로 /chat/:threadId는 URL에 스레드 id가 담긴 동일한 화면을 렌더링합니다",
+      note: "/chat/:threadId: 해당 스레드의 ChatRouteContent를 렌더링",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "전체 페이지 채팅 화면. 빈 상태, 컴포저, 메시지 슬롯을 편집",
+    },
+    {
+      path: "app/components/home/HomePage.tsx",
+      note: "편집 가능한 시작하기 홈 페이지",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "Chat 경로 도우미",
     },
     {
       path: "AGENTS.md",
-      note: "내장 에이전트가 읽는 채팅 우선 지침",
+      note: "내장 에이전트가 읽는 채팅 중심 안내",
     },
   ]}
 />
 
-실제 시작 파일은 단순한 `<AgentChatSurface />` 하나로 끝나지 않습니다. 스레드
-URL 동기화, 다중 탭 실행을 위한 탭 아이덴티티, hero 컴포저 레이아웃까지 함께
-연결되어 있으며, 그 문구는 리터럴 문자열이 아니라 i18n 키에서 가져옵니다.
+채팅 화면은 AgentKit 구성 요소로 조립됩니다. 트랜스포트, 스레드 루트, 채팅 뷰입니다. 문구는 리터럴 문자열이 아니라 i18n 키에서 가져옵니다.
 
 <AnnotatedCode
   id="doc-block-chat4"
-  title="app/routes/_index.tsx (축약됨)"
-  filename="app/routes/_index.tsx"
+  title="app/components/chat/ChatRouteContent.tsx (요약)"
+  filename="app/components/chat/ChatRouteContent.tsx"
   language="tsx"
   code={
-    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
   }
   annotations={[
     {
-      lines: "19-21",
-      label: "스레드 URL 동기화",
-      note: "`/chat/:threadId`(`chat.$threadId.tsx`)는 이 동일한 컴포넌트를 다시 내보냅니다. 라우트에 스레드 id가 있으면 `threadUrlSync`가 URL과 활성 스레드를 계속 맞춰줍니다: 스레드를 전환하면 `/chat/<id>`로 URL이 바뀌고, 그 URL을 열면 해당 스레드가 다시 복원됩니다.",
+      lines: "15-21",
+      label: "트랜스포트",
+      note: "`createAgentNativeAgentKitTransport`는 채팅 뷰를 앱의 에이전트 런타임에 연결합니다. `TAB_ID`(`app/lib/tab-id.ts`, 브라우저 탭마다 한 번 생성되는 임의 ID)를 통해 런타임은 같은 앱의 열린 탭을 구분하므로, 한 탭에서 시작한 실행이 다른 탭의 실행과 혼동되지 않습니다.",
     },
     {
-      lines: "38",
-      label: "탭 아이덴티티",
-      note: "`TAB_ID`(`app/lib/tab-id.ts`에서 브라우저 탭당 한 번 생성되는 무작위 id)는 공유 채팅 런타임이 같은 앱을 열어 둔 여러 탭을 서로 구분하게 해 주므로, 한 탭에서 시작한 실행이 다른 탭의 것으로 오인되지 않습니다.",
+      lines: "25-30",
+      label: "스레드 루트",
+      note: "`CoreAgentKitRoot`는 `/chat/:threadId`(`chat.$threadId.tsx`)에 지정된 스레드를 불러옵니다. `/chat`을 방문하면 새 스레드 ID가 만들어지고 여기로 넘어옵니다. 스레드를 포크하면 `chatThreadPath`가 URL을 새 스레드로 옮깁니다.",
     },
     {
-      lines: "39-44",
-      label: "제안은 i18n 키",
-      note: '제안 문구는 `t("chat.suggestionCapabilities")` 등(`app/i18n/en-US.ts` 참고)에서 오며, 리터럴 영어 문자열이 아닙니다. `dynamicSuggestions={false}`는 런타임 자체의 제안 생성 기능을 끄고 이 세 가지를 대신 사용합니다.',
+      lines: "29",
+      label: "슬롯",
+      note: "슬롯은 채팅 뷰의 일부를 대체합니다. 실제 파일은 복구 메시지, MCP 연결 카드, 에이전트 푸터를 위해 `message`, `runFailure`, `connectionRequest`, `footer` 슬롯도 전달합니다.",
     },
     {
-      lines: "46-47",
-      label: "Hero 컴포저 레이아웃",
-      note: '`composerLayoutVariant="hero"`와 `centerComposerWhenEmpty`는 다른 `mode="page"` 채팅 라우트가 쓰는 일반적인 하단 고정 컴포저 대신, 제목/설명을 위에 둔 채로 컴포저를 화면 중앙에 배치합니다.',
+      lines: "32-35",
+      label: "가운데 컴포저",
+      note: '`emptyComposerPlacement="center"`는 스레드에 메시지가 생길 때까지 컴포저를 가운데에 둡니다. `requireAgentEngine`은 모델이 연결될 때까지 AI 연결 카드를 표시합니다.',
     },
     {
-      lines: "49-54",
-      label: "composerSlot",
-      note: '컴포저가 중앙에 있을 때만 그 위에 렌더링되는 임의의 JSX입니다 — "무엇을 도와드릴까요?" 제목이 여기에 있습니다. 런타임을 건드리지 않고 빈 상태의 문구를 바꾸려면 여기를 편집하세요.',
-    },
-    {
-      lines: "23-31",
-      label: "홈 핸드오프",
-      note: '이 페이지에서 실행이 시작되면 `markAgentChatHomeHandoff("chat")`가 홈 화면이 활성 실행을 소유하고 있다는 사실을 기록해서, 다른 곳으로 이동했다가 돌아와도 그 실행을 잃지 않고 다시 붙을 수 있게 합니다.',
+      lines: "40-47",
+      label: "빈 상태",
+      note: "가운데 컴포저 위에 표시되는 제목입니다. 문구는 `app/i18n/en-US.ts`의 `chat.heroTitle`입니다. 카탈로그를 수정해 문구를 바꾸거나 여기에 요소를 추가하세요.",
     },
   ]}
 />
@@ -140,15 +146,14 @@ URL 동기화, 다중 탭 실행을 위한 탭 아이덴티티, hero 컴포저 �
 - `app/routes/notes.tsx` — 새 라우트. 이 앱은 파일 시스템 기반 라우팅
   (`app/routes.ts`의 `flatRoutes()`)을 사용하므로, 파일을 추가하는 것만으로
   `/notes`가 마운트됩니다.
-- `app/components/layout/Sidebar.tsx`의 `navItems` 배열에 `/notes`를 가리키는
-  새 항목.
+- `app/components/layout/Sidebar.tsx`에서 `ChatThreadsSection` 앞에 추가하는, `/notes`를 가리키는 링크.
 - notes가 존재한다는 사실과 이를 관리하는 액션이 무엇인지 에이전트에게 알려주는
   `AGENTS.md` 추가.
 
 새 액션은 만들어지는 즉시 채팅에서 호출할 수 있습니다 — 모든 `defineAction`은
 `agentTool: false`로 설정하지 않는 한 기본적으로 도구입니다. 다만 모델의 아주 첫
 요청에 반드시 포함되지는 않습니다: `server/plugins/agent-chat.ts`는
-`INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`를 설정하는데, 이는
+`INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello", "provider-api-request"]`를 설정하는데, 이는
 첫 턴에 어떤 도구 스키마가 전송되는지만 제어합니다. 새로 만든 `create-note`를
 포함한 나머지는 모두 `tool-search`를 통해 계속 접근 가능하며 필요할 때 로드됩니다
 — 첫 메시지부터 모델의 기본 도구 세트에 포함하고 싶을 때만 이 목록에 이름을

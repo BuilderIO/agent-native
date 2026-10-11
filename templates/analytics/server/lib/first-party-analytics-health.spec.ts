@@ -189,4 +189,87 @@ describe("first-party analytics pressure", () => {
       "BigQuery delivery queue migration is pending",
     );
   });
+
+  it("does not report event volume as a BigQuery migration reason after cutover", async () => {
+    getBigQueryMetrics.mockResolvedValueOnce({
+      eventCount: 1_000_001,
+      dailyRollupRows: 1,
+      firstEventDate: "2026-10-10",
+      lastEventDate: "2026-10-10",
+    });
+
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+    });
+
+    expect(health.status).toBe("healthy");
+    expect(health.reasons).not.toContain("event_volume");
+    expect(health.recommendation).toBe("none");
+    expect(health.externalBackendRecommendation).toBe("none");
+  });
+
+  it("keeps BigQuery query pressure visible without recommending another cutover", async () => {
+    getBigQueryMetrics.mockResolvedValueOnce({
+      eventCount: 1_000_001,
+      dailyRollupRows: 1,
+      firstEventDate: "2026-10-10",
+      lastEventDate: "2026-10-10",
+    });
+    select.mockReturnValueOnce({
+      from: () => ({
+        where: async () => [
+          {
+            slowQueryCount: 3,
+            timeoutCount: 1,
+            errorCount: 0,
+            maxDurationMs: 30_000,
+          },
+        ],
+      }),
+    });
+
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+    });
+
+    expect(health.status).toBe("monitor");
+    expect(health.reasons).toEqual(["slow_queries", "query_timeout"]);
+    expect(health.recommendation).toBe("none");
+    expect(health.externalBackendRecommendation).toBe("none");
+  });
+
+  it("recommends BigQuery when the built-in sink crosses a migration threshold", async () => {
+    getBackend.mockResolvedValueOnce({
+      sink: "postgres",
+      table: "analytics_events",
+    });
+    select
+      .mockReturnValueOnce({
+        from: () => ({
+          where: async () => [
+            {
+              eventCount: 1_000_001,
+              dailyRollupRows: 1,
+              firstEventDate: "2026-10-10",
+              lastEventDate: "2026-10-10",
+            },
+          ],
+        }),
+      })
+      .mockReturnValueOnce({
+        from: () => ({ where: async () => [] }),
+      });
+
+    const health = await getFirstPartyAnalyticsHealth({
+      userEmail: "owner@example.com",
+      orgId: "org_builder",
+    });
+
+    expect(health.status).toBe("recommend_bigquery");
+    expect(health.reasons).toContain("event_volume");
+    expect(health.recommendation).toBe("use_bigquery");
+    expect(health.externalBackendRecommendation).toBe("use");
+  });
 });

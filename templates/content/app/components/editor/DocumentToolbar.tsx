@@ -104,6 +104,11 @@ const ShareButton = lazy(() =>
     default: m.ShareButton,
   })),
 );
+const McpInstallActions = lazy(() =>
+  import("@agent-native/toolkit/app/sharing").then((m) => ({
+    default: m.McpInstallActions,
+  })),
+);
 
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
@@ -134,6 +139,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -925,9 +931,7 @@ const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 // the menu, and a phone's room stays above that step.
 const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
 
-// Slides' widget draws its Share at 32px, so a widget's Share group shrinks
-// from the app's h-9 to match. The joined control sizes its children.
-const WIDGET_SHARE_GROUP_CLASS_NAME = "[&>*]:h-8";
+const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
 
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
@@ -1323,6 +1327,23 @@ export function DocumentToolbar({
     [agentPrompt, documentId],
   );
 
+  const mcpSettingsRoute = buildSettingsRoute("mcp");
+
+  const handleOpenMcpSettings = useCallback(() => {
+    void navigate(mcpSettingsRoute);
+  }, [mcpSettingsRoute, navigate]);
+
+  const handleMcpInstall = useCallback(
+    (client: string) => {
+      trackEvent("mcp_install_link_opened", {
+        resource_type: "document",
+        resource_id: documentId,
+        client,
+      });
+    },
+    [documentId],
+  );
+
   const handleRevealLocalPath = useCallback(async () => {
     try {
       const result = await revealLinkedLocalSourceFile(source);
@@ -1571,7 +1592,7 @@ export function DocumentToolbar({
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
-      className={inWidget ? WIDGET_SHARE_GROUP_CLASS_NAME : undefined}
+      size={inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined}
     />
   );
   const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
@@ -1685,9 +1706,7 @@ export function DocumentToolbar({
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
-                      className: inWidget
-                        ? WIDGET_SHARE_GROUP_CLASS_NAME
-                        : undefined,
+                      size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
                     }}
                     basicSharingOnly={inWidget}
                     peopleTabLabel={t("editor.toolbar.sharePeople")}
@@ -1716,6 +1735,27 @@ export function DocumentToolbar({
                           <p className="text-xs text-muted-foreground">
                             {t("editor.toolbar.agentCopyAccessNote")}
                           </p>
+                          <Suspense
+                            fallback={
+                              <div className="space-y-1 border-t border-border pt-3">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  {t("editor.toolbar.connectContent")}
+                                </div>
+                                <Skeleton className="h-28 w-full" />
+                              </div>
+                            }
+                          >
+                            <McpInstallActions
+                              className="border-t border-border pt-3"
+                              heading={t("editor.toolbar.connectContent")}
+                              otherClients={{
+                                label: t("editor.toolbar.otherAgents"),
+                                href: appPath(mcpSettingsRoute),
+                                onNavigate: handleOpenMcpSettings,
+                              }}
+                              onInstall={handleMcpInstall}
+                            />
+                          </Suspense>
                         </div>
                       )
                     }

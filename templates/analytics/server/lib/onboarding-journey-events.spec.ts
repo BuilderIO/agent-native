@@ -284,6 +284,12 @@ describe("onboarding journey events SQL", () => {
     expect(sql.match(/\bFROM\s+scoped_onboarding_events\s+e\b/gi)).toHaveLength(
       1,
     );
+    expect(sql).toContain("FROM onboarding_journey_identity_events e");
+    expect(sql).toContain("UNION ALL");
+    expect(sql).toContain("OVER (PARTITION BY e.session_id)");
+    expect(sql).toContain(
+      "CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN",
+    );
     expect(sql).toContain(
       "PARTITION BY e.template_name, e.output_id, e.output_attempt_id",
     );
@@ -388,7 +394,9 @@ describe("onboarding journey events SQL", () => {
       expect(sql).not.toContain("auth_identity_bridge");
       expect(sql).not.toContain("funnel_user_key");
       expect(sql).toContain("funnel_user_email");
-      expect(sql.match(/FROM analytics_events/g)).toHaveLength(1);
+      expect(sql.match(/FROM analytics_events/g)).toHaveLength(
+        sql === journeySql ? 2 : 1,
+      );
     }
 
     expect(sessionsOf(await run())).toEqual(["design", "normal"]);
@@ -1215,8 +1223,32 @@ describe("onboarding journey events SQL", () => {
   it("preserves journey results with the explicit event source projection", async () => {
     await setup();
     await seedSessions();
+    await insert("response-property-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-property-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-property-employee", "http.response", 3, {
+      template: "",
+      properties: {
+        agent_native_template: "clips",
+        auth_user_id: "dev@builder.io",
+      },
+    });
+    await insert("response-top-level-test", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-top-level-test", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-top-level-test", "http.response", 3, {
+      email: "qa+autoz@builder.io",
+    });
     const sql = buildOnboardingJourneyEventsSql(
-      filters(),
+      filters({ app: "clips" }),
       { limit: 100, offset: 0 },
       observation(),
     );
@@ -1224,6 +1256,10 @@ describe("onboarding journey events SQL", () => {
     const projectedScope = scopedAnalyticsSql(sql, SCOPE, undefined, {
       scopedEventsSingleScan: true,
       scopedEventsProjection: "onboarding_journey",
+      scopedEventsSourceProjections: {
+        e: "onboarding_journey",
+        r: "onboarding_journey_response_identity",
+      },
     });
     const fullResult = (await client.query(fullScope.sql, fullScope.args)) as {
       rows: Array<Record<string, unknown>>;
@@ -1234,6 +1270,11 @@ describe("onboarding journey events SQL", () => {
     )) as { rows: Array<Record<string, unknown>> };
 
     expect(projectedResult.rows).toEqual(fullResult.rows);
+    expect(
+      projectedResult.rows.some(
+        (row) => row.session_id === "response-top-level-test",
+      ),
+    ).toBe(true);
   });
 
   it("selects attempt ids only as an internal journey field", async () => {
@@ -1395,6 +1436,50 @@ describe("onboarding journey events SQL", () => {
     const rows = await run({ emailFilter: "exclude_builder" });
     expect(sessionsOf(rows)).not.toContain("employee");
     expect(rows.filter((row) => row.session_id === "employee")).toEqual([]);
+  });
+
+  it("uses response identity to exclude the whole session without response properties", async () => {
+    await setup();
+    await insert("response-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-employee", "http.response", 3, {
+      email: "dev@builder.io",
+      properties: { ignored_payload: "large response body" },
+    });
+
+    const rows = await run({ emailFilter: "exclude_builder" });
+
+    expect(
+      rows.filter((row) => row.session_id === "response-employee"),
+    ).toEqual([]);
+  });
+
+  it("preserves response property identity when excluding the whole session", async () => {
+    await setup();
+    await insert("response-property-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-property-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-property-employee", "http.response", 3, {
+      properties: {
+        auth_user_id: "dev@builder.io",
+        ignored_payload: "large response body",
+      },
+    });
+
+    const rows = await run({ emailFilter: "exclude_builder" });
+
+    expect(
+      rows.filter((row) => row.session_id === "response-property-employee"),
+    ).toEqual([]);
   });
 
   it("never returns test identities, even when employees are included", async () => {

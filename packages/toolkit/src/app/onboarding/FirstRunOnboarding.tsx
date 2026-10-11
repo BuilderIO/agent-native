@@ -145,9 +145,8 @@ const FIRST_RUN_ROLE_OPTIONS = [
 ] as const;
 
 /**
- * Where "Skip and configure manually" lands: Agent › Model, whose empty state
- * adds a provider key in one click, since the agent can't answer until a model
- * provider is set up. API keys with the redesign off.
+ * Where the custom-key choice lands: Agent › Model, whose empty state adds a
+ * provider key in one click. API keys with the redesign off.
  */
 export function manualSetupSettingsRoute({
   redesign,
@@ -183,6 +182,10 @@ export function FirstRunOnboarding({
   const [screen, setScreen] = useState<FirstRunScreen>(() =>
     previewStep === "references" ? "extension" : (previewStep ?? "role"),
   );
+  const canRenderRoleWithoutProfile =
+    initialFirstRun && screen === "role" && (loading || error != null);
+  const canTrackOnboardingScreen =
+    (!loading && profile !== null) || canRenderRoleWithoutProfile;
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -196,6 +199,7 @@ export function FirstRunOnboarding({
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
+  const [builderCancelRequested, setBuilderCancelRequested] = useState(false);
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const beforeSetupExtensions = useMemo(
     () =>
@@ -308,6 +312,7 @@ export function FirstRunOnboarding({
   const setupSkipStartedRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
+  const onboardingStartedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const stepViewRef = useRef<{ key: string; id: string } | null>(null);
@@ -367,12 +372,18 @@ export function FirstRunOnboarding({
     [completeFirstRun, extensionIndex, navigate, trackFirstRunStepCompleted],
   );
   useEffect(() => {
-    if (!previewMode && firstRun && !loading && profile) {
+    if (
+      !previewMode &&
+      firstRun &&
+      canTrackOnboardingScreen &&
+      !onboardingStartedRef.current
+    ) {
+      onboardingStartedRef.current = true;
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
-  }, [firstRun, loading, previewMode, profile]);
+  }, [canTrackOnboardingScreen, firstRun, previewMode]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) {
+    if (previewMode || !firstRun || !canTrackOnboardingScreen) {
       stepViewRef.current = null;
       return;
     }
@@ -399,13 +410,12 @@ export function FirstRunOnboarding({
     extensionPlacement,
     extensionStepIndex,
     firstRun,
-    loading,
     previewMode,
-    profile,
+    canTrackOnboardingScreen,
     screen,
   ]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) return;
+    if (previewMode || !firstRun || !canTrackOnboardingScreen) return;
     const handlePageHide = (event: PageTransitionEvent) => {
       if (event.persisted) return;
       if (
@@ -436,9 +446,8 @@ export function FirstRunOnboarding({
     extensionPlacement,
     extensionStepIndex,
     firstRun,
-    loading,
     previewMode,
-    profile,
+    canTrackOnboardingScreen,
     screen,
   ]);
   const beginBeforeSetup = useCallback(() => {
@@ -528,7 +537,7 @@ export function FirstRunOnboarding({
 
   if (!firstRun) return null;
 
-  if (error) {
+  if (error && !canRenderRoleWithoutProfile) {
     return (
       <OnboardingShell
         profile={profile}
@@ -554,16 +563,12 @@ export function FirstRunOnboarding({
     );
   }
 
-  if (loading || !profile) {
+  if ((loading || !profile) && !canRenderRoleWithoutProfile) {
     return <OnboardingSkeleton />;
   }
 
-  // Every shared service Builder.io powers, the same list Infrastructure
-  // shows, plus the app's own headline capabilities it covers.
-  const builderCapabilities = getBuilderIncludedCapabilities(
-    profile.capabilities,
-  );
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
+    setBuilderCancelRequested(false);
     if (previewMode) {
       handleFinish(null);
       return;
@@ -736,6 +741,14 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "choice") {
+    if (!profile) return <OnboardingSkeleton />;
+
+    // Every shared service Builder.io powers, the same list Infrastructure
+    // shows, plus the app's own headline capabilities it covers.
+    const builderCapabilities = getBuilderIncludedCapabilities(
+      profile.capabilities,
+    );
+
     return (
       <OnboardingShell
         profile={profile}
@@ -799,6 +812,15 @@ export function FirstRunOnboarding({
                     {t("agentChat.onboarding.builderSignInWithAccount")}
                   </button>
                 </div>
+                {connectFlow.connecting && builderCancelRequested && (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="first-run-cancel-pending"
+                    role="status"
+                  >
+                    {t("agentChat.onboarding.builderCancelPending")}
+                  </p>
+                )}
                 {connectFlow.error &&
                   connectFlow.errorKind === "status-read" && (
                     <div
@@ -830,16 +852,8 @@ export function FirstRunOnboarding({
               <section className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-6">
                 <div className="flex flex-col gap-2">
                   <h2 className="text-lg font-bold text-foreground">
-                    Configure manually
+                    {t("agentChat.composer.addOwnKeys")}
                   </h2>
-                </div>
-                <div className="flex flex-col gap-1 rounded-xl bg-muted px-4 py-3">
-                  <p className="text-[13px] font-semibold text-foreground">
-                    You configure and maintain everything
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Full control over your infrastructure
-                  </p>
                 </div>
                 <CapabilityList
                   capabilities={profile.capabilities}
@@ -851,7 +865,7 @@ export function FirstRunOnboarding({
                   className={cn(secondaryButtonClass, "w-full")}
                   onClick={() => void handleOpenSettings()}
                 >
-                  Skip and configure manually
+                  {t("agentChat.onboarding.openAiKeySettings")}
                 </button>
               </section>
             </div>
@@ -1018,8 +1032,9 @@ export function FirstRunOnboarding({
     );
   }
 
-  const accountExists = connectFlow.accountExists;
+  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
   const provisioning = builderConnectionMode === "provision" && !accountExists;
+  const returnToSetupChoice = () => setScreen("choice");
   return (
     <OnboardingShell
       profile={profile}
@@ -1078,16 +1093,37 @@ export function FirstRunOnboarding({
                 <Skeleton className="h-7 w-full" />
               </div>
             </div>
-            {connectFlow.connecting && (
-              <button
-                type="button"
-                data-testid="first-run-cancel-builder"
-                className={cn(secondaryButtonClass, "mt-4")}
-                onClick={connectFlow.cancel}
-              >
-                {t("common.cancel")}
-              </button>
-            )}
+            {connectFlow.connecting &&
+              (builderCancelRequested ? (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="first-run-cancel-pending"
+                  >
+                    {t("agentChat.onboarding.builderCancelPending")}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="first-run-back-to-choice"
+                    className={secondaryButtonClass}
+                    onClick={returnToSetupChoice}
+                  >
+                    {t("agentChat.onboarding.back")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="first-run-cancel-builder"
+                  className={cn(secondaryButtonClass, "mt-4")}
+                  onClick={() => {
+                    setBuilderCancelRequested(true);
+                    connectFlow.cancel();
+                  }}
+                >
+                  {t("common.cancel")}
+                </button>
+              ))}
             {connectFlow.statusUnavailable &&
               connectFlow.connecting &&
               !connectFlow.terminalError && (
@@ -1120,9 +1156,39 @@ export function FirstRunOnboarding({
                   >
                     Try again
                   </button>
+                  <button
+                    type="button"
+                    data-testid="first-run-back-to-choice"
+                    className={secondaryButtonClass}
+                    onClick={returnToSetupChoice}
+                  >
+                    {t("agentChat.onboarding.back")}
+                  </button>
                 </div>
               )}
+            {!connectFlow.connecting &&
+              !connectFlow.statusUnavailable &&
+              !connectFlow.terminalError && (
+                <button
+                  type="button"
+                  data-testid="first-run-back-to-choice"
+                  className={cn(secondaryButtonClass, "mt-4")}
+                  onClick={returnToSetupChoice}
+                >
+                  {t("agentChat.onboarding.back")}
+                </button>
+              )}
           </>
+        )}
+        {accountExists && !connectFlow.connecting && (
+          <button
+            type="button"
+            data-testid="first-run-back-to-choice"
+            className={cn(secondaryButtonClass, "mt-3")}
+            onClick={returnToSetupChoice}
+          >
+            {t("agentChat.onboarding.back")}
+          </button>
         )}
       </div>
     </OnboardingShell>

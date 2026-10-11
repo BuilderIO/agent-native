@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
   ReviewActorKind,
@@ -98,7 +99,7 @@ export interface UpsertReviewStatusInput {
 
 export async function ensureReviewTables(): Promise<void> {
   if (!reviewTablesInitPromise) {
-    reviewTablesInitPromise = (async () => {
+    const reviewTablesInitPromiseWithRequestDbPoolScope = (async () => {
       const createCommentsSql = `CREATE TABLE IF NOT EXISTS agent_review_comments (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
@@ -227,6 +228,9 @@ export async function ensureReviewTables(): Promise<void> {
         );
       }
     })();
+    reviewTablesInitPromise = retainRequestDbPoolScope(
+      reviewTablesInitPromiseWithRequestDbPoolScope,
+    );
   }
 
   await reviewTablesInitPromise;

@@ -116,6 +116,7 @@ type IndexStatusAvailable = {
   status: "available";
   generatedAt: string;
   entryCount: number;
+  unresolvedTrackingCallSites: number | null;
   sources: Array<{ id: string; revision?: string }>;
   sourceCounts?: Array<{ source: string; entryCount: number }>;
   ageDays: number;
@@ -389,6 +390,17 @@ function StatusSection() {
             </Badge>
           </SettingRow>
         ) : null}
+        {available ? (
+          <SettingRow label={t("indexPanel.unresolvedTrackingCallSites")}>
+            <span className="text-sm tabular-nums text-muted-foreground">
+              {available.unresolvedTrackingCallSites === null
+                ? t("indexPanel.unresolvedTrackingCallSitesUnavailable")
+                : formatters.formatNumber(
+                    available.unresolvedTrackingCallSites,
+                  )}
+            </span>
+          </SettingRow>
+        ) : null}
         {rows.map((row) =>
           row.id === DBT_SOURCE_ID ? (
             <SourceStatusRowView
@@ -402,6 +414,11 @@ function StatusSection() {
           ),
         )}
       </div>
+      {available ? (
+        <p role="note" className="text-sm text-muted-foreground">
+          {t("indexPanel.dynamicTrackingCoverageCaveat")}
+        </p>
+      ) : null}
       {dbtOpen ? <DbtConnectionSection /> : null}
       {available && rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">

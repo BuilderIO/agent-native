@@ -4,6 +4,7 @@ import {
   ensureTableExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { AGENT_AUDIT_CALLERS } from "./config.js";
 import type {
   AuditActorKind,
@@ -50,7 +51,7 @@ export const AGENT_AUDIT_LOG_CREATE_SQL = `
 
 export async function ensureAuditTables(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const lineageColumns = [
         "run_id",
         "task_id",
@@ -109,6 +110,7 @@ export async function ensureAuditTables(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

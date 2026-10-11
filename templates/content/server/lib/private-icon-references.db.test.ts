@@ -198,6 +198,50 @@ beforeAll(async () => {
 afterAll(() => rmSync(TEST_DB_PATH, { recursive: true, force: true }));
 
 describe("private icon references", () => {
+  it("rechecks private icon authority after a workspace move before the save locks the page", async () => {
+    const id = await document();
+    const previousCheck = checkOwner.getMockImplementation();
+    checkOwner.mockImplementation(
+      async ({ orgId }: { orgId: string | null }) => {
+        if (orgId !== null)
+          throw new Error("Private icon is unavailable to this user.");
+        await db
+          .update(schema.documents)
+          .set({ orgId: "moved-icon-workspace" })
+          .where(eq(schema.documents.id, id));
+      },
+    );
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          updateDocumentAction.run(
+            { id, icon: icon() },
+            { caller: "frontend", userEmail: OWNER },
+          ),
+        ),
+      ).rejects.toThrow("Private icon is unavailable");
+      const [current] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      expect(current).toMatchObject({
+        orgId: "moved-icon-workspace",
+        icon: null,
+      });
+      const references = await db
+        .select()
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, id));
+      expect(references).toHaveLength(0);
+      expect(checkOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: "moved-icon-workspace" }),
+      );
+    } finally {
+      checkOwner.mockReset();
+      if (previousCheck) checkOwner.mockImplementation(previousCheck);
+    }
+  });
+
   it("uses the editable document's personal scope despite an active workspace session", async () => {
     const id = await document();
     await share(id);

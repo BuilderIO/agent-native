@@ -10,6 +10,7 @@ import { randomBytes, randomUUID, createHash } from "node:crypto";
 
 import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -65,7 +66,7 @@ export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createClientsSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
           client_id TEXT PRIMARY KEY,
@@ -141,6 +142,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

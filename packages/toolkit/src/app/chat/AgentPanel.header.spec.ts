@@ -1138,18 +1138,6 @@ describe("AgentPanel header overflow actions", () => {
 });
 
 describe("AgentSidebar wide drawer layout", () => {
-  it("can disable the panel without unmounting the app surface", () => {
-    const source = readSource("src/app/chat/AgentSidebar.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("enabled?: boolean");
-    expect(source).toContain("enabled &&");
-    expect(source).toMatch(
-      /const shouldRenderPanel =\s+enabled &&\s+\(sidebarAnimationEnabled \? renderAnimatedPanel : shouldMountPanel\)/,
-    );
-  });
-
   it("does not reserve the drawer placeholder after the panel closes", () => {
     const source = readSource("src/app/chat/AgentSidebar.tsx", {
       encoding: "utf8",

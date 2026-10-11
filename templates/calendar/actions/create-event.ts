@@ -217,7 +217,14 @@ function eventDeepLink(
 }
 
 export default defineAction({
-  description: "Create a calendar event on Google Calendar",
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
+  description:
+    "Create an event on an owned Google account's primary calendar. Supply start/end times and a title for ordinary events; pass accountEmail when multiple accounts are connected. Invitations and out-of-office auto-declines require approval. Returns the event id and accountEmail for later writes.",
   schema: z.object({
     title: z
       .string()
@@ -330,6 +337,12 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
+  needsApproval: ({ sendUpdates, attendees, eventType, autoDeclineMode }) =>
+    sendUpdates === "all" ||
+    sendUpdates === "externalOnly" ||
+    (sendUpdates === undefined &&
+      (normalizeAttendees(attendees)?.length ?? 0) > 0) ||
+    (eventType === "outOfOffice" && autoDeclineMode !== "declineNone"),
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

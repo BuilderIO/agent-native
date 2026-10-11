@@ -4,6 +4,10 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import {
+  getCurrentRequestDbPoolScope,
+  retainRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { recordAgentRun } from "../observability/metrics.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
@@ -329,6 +333,7 @@ export interface RunChunkControl {
   readonly chunkSignal: AbortSignal;
   chunkBoundaryReason(): string | null;
   beginChunk(): AbortSignal;
+  flushEvents(): Promise<void>;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -732,6 +737,7 @@ export function startRun(
     });
   }
   const runControl: RunChunkControl = {
+    flushEvents: () => persistenceChain,
     get turnSignal() {
       return abort.signal;
     },
@@ -1112,20 +1118,23 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string },
     disposition: "recovered" | "terminal",
   ) => {
-    void recordRunDiagnostic(
-      runId,
-      RUN_DIAG_STAGE.runBoundaryReached,
-      JSON.stringify({
-        reason,
-        disposition,
-        silentForMs: diagnostic.silentForMs,
-        lastEventType: diagnostic.lastEventType,
-        inFlightWorkCount,
-        eventCount: run.events.length,
-        elapsedMs: Date.now() - run.startedAt,
-      }),
-      // coercion-ok: recordRunDiagnostic already swallows its own failures;
-      // this guards only against an unhandled rejection.
+    if (getCurrentRequestDbPoolScope()?.closing) return;
+    void retainRequestDbPoolScope(
+      recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.runBoundaryReached,
+        JSON.stringify({
+          reason,
+          disposition,
+          silentForMs: diagnostic.silentForMs,
+          lastEventType: diagnostic.lastEventType,
+          inFlightWorkCount,
+          eventCount: run.events.length,
+          elapsedMs: Date.now() - run.startedAt,
+        }),
+        // coercion-ok: recordRunDiagnostic already swallows its own failures;
+        // this guards only against an unhandled rejection.
+      ).catch(() => {}),
     ).catch(() => {});
   };
 
@@ -1371,9 +1380,21 @@ export function startRun(
     });
   };
 
-  const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
-    const eventData = JSON.stringify(runEvent.event);
-    const write = () => insertRunEvent(runId, runEvent.seq, eventData);
+  const persistRunEvent = async (
+    runEvent: RunEvent,
+    eventData: string,
+  ): Promise<void> => {
+    if (runEvent.event.type === "tool_start") await insertRunPromise;
+    const write = () =>
+      runEvent.event.type === "tool_start" ||
+      runEvent.event.type === "tool_done"
+        ? insertRunEvent(runId, runEvent.seq, eventData, {
+            toolInputSource: "execution",
+            ...(runEvent.event.type === "tool_start"
+              ? { requireInserted: true }
+              : {}),
+          })
+        : insertRunEvent(runId, runEvent.seq, eventData);
     return options?.persistEvent
       ? options.persistEvent(write, {
           terminal: isTerminalRunEvent(runEvent.event),
@@ -1388,6 +1409,7 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
+    const eventData = JSON.stringify(runEvent.event);
     run.events.push(runEvent);
 
     for (const subscriber of run.subscribers) {
@@ -1406,7 +1428,7 @@ export function startRun(
 
     const thisInsert = persistenceChain.then(async () => {
       try {
-        await persistRunEvent(runEvent);
+        await persistRunEvent(runEvent, eventData);
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1415,7 +1437,7 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await persistRunEvent(runEvent);
+        await persistRunEvent(runEvent, eventData);
       }
     });
     persistenceChain = thisInsert;
@@ -1635,7 +1657,7 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await persistRunEvent(terminal);
+                await persistRunEvent(terminal, JSON.stringify(terminal.event));
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

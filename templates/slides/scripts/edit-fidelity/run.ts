@@ -28,7 +28,9 @@ import {
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
   isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
+  isFirefoxBrowserSessionConsoleError,
   lineNavigationKeys,
+  normalizeFirefoxBrowserSessionConsoleError,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
@@ -864,6 +866,13 @@ async function settle(page: Page) {
       return {
         settled,
         fonts: document.fonts.status,
+        pendingFontFaces: Array.from(document.fonts)
+          .filter((font) => font.status !== "loaded")
+          .slice(0, 10)
+          .map(
+            (font) =>
+              `${font.family} ${font.style} ${font.weight} (${font.status})`,
+          ),
         pendingStylesheets: stylesheets.pending.length,
         failedStylesheets: stylesheets.failed.map((link) => link.href),
       };
@@ -926,7 +935,7 @@ async function settle(page: Page) {
   }, MASK_CSS);
   if (!settleState.settled) {
     throw new CouldNotRun(
-      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
     );
   }
   // Autofit measures after paint; give it one more beat.
@@ -5238,6 +5247,7 @@ async function runAuthoringCorpusQa(
 
 async function runAuthoringFuzzQa(
   createPage: () => Promise<Page>,
+  stableCleanupPage: Page,
   base: string,
   cases: CorpusCase[],
   firstSeed: number,
@@ -5587,6 +5597,7 @@ async function runAuthoringFuzzQa(
       }
     } finally {
       const cleanupErrors: string[] = [];
+      const pendingCleanupConsoleInspections = new Set<Promise<void>>();
       const monitoredPages = new Set<Page>();
       const recoveryPages = new Set<Page>();
       let cleanupNavigationCandidates: Array<{
@@ -5597,7 +5608,7 @@ async function runAuthoringFuzzQa(
         requestWasPendingAtNavigation: true;
       }> = [];
       let cleanupNavigationPending = false;
-      let recoveryPage: Page | null = null;
+      let recoveryPage: Page | null = stableCleanupPage;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
         label: string,
@@ -5618,24 +5629,70 @@ async function runAuthoringFuzzQa(
           seedHarnessUnavailable ??= unavailable;
         }
       };
-      const isExpectedCleanupNavigationError = (message: string) => {
+      const getCleanupNavigationCandidates = () => {
         const now = Date.now();
-        const candidates = cleanupNavigationCandidates.map(
+        return cleanupNavigationCandidates.map(
           ({ startedAt, ...candidate }) => ({
             ...candidate,
             ageMs: now - startedAt,
           }),
         );
+      };
+      const isExpectedCleanupNavigationError = (
+        message: string,
+        candidates = getCleanupNavigationCandidates(),
+        navigationPending = cleanupNavigationPending,
+      ) => {
         return isExpectedCleanupNavigationRequestError(
           message,
           candidates,
-          cleanupNavigationPending,
+          navigationPending,
         );
       };
-      const onConsole = (message: { type(): string; text(): string }) => {
+      if (authoringSucceeded && page && !page.isClosed()) {
+        unavailableCleanupPages.add(page);
+        try {
+          await page.close();
+        } catch (error) {
+          recordCleanupFailure(
+            "could not close authoring page before cleanup",
+            error,
+            page,
+          );
+        }
+      }
+      const onConsole = (message: any) => {
         if (message.type() === "error") {
-          if (isExpectedCleanupNavigationError(message.text())) return;
-          cleanupErrors.push(`console: ${message.text()}`);
+          const text = message.text();
+          if (
+            !cleanupNavigationPending ||
+            !isFirefoxBrowserSessionConsoleError(text)
+          ) {
+            if (isExpectedCleanupNavigationError(text)) return;
+            cleanupErrors.push(`console: ${text}`);
+            return;
+          }
+          const candidates = getCleanupNavigationCandidates();
+          const navigationPending = cleanupNavigationPending;
+          let inspection: Promise<void>;
+          inspection = normalizeFirefoxBrowserSessionConsoleError(message)
+            .then((normalized) => {
+              if (
+                isExpectedCleanupNavigationError(
+                  normalized,
+                  candidates,
+                  navigationPending,
+                )
+              ) {
+                return;
+              }
+              cleanupErrors.push(`console: ${normalized}`);
+            })
+            .catch((error: unknown) => {
+              cleanupErrors.push(`console: ${text} (${String(error)})`);
+            })
+            .finally(() => pendingCleanupConsoleInspections.delete(inspection));
+          pendingCleanupConsoleInspections.add(inspection);
         }
       };
       const onPageError = (error: Error) => {
@@ -5803,15 +5860,22 @@ async function runAuthoringFuzzQa(
                   requestWasPendingAtNavigation: true as const,
                 };
               });
-            cleanupNavigationPending = true;
-            try {
-              await cleanupPage.goto(`${base}/home`, {
-                waitUntil: "domcontentloaded",
-                timeout: 120_000,
-              });
-            } finally {
-              cleanupNavigationPending = false;
-              cleanupNavigationCandidates = [];
+            const cleanupUrl = new URL(cleanupPage.url());
+            const homeUrl = new URL(`${base}/home`);
+            if (
+              cleanupUrl.origin !== homeUrl.origin ||
+              cleanupUrl.pathname !== homeUrl.pathname
+            ) {
+              cleanupNavigationPending = true;
+              try {
+                await cleanupPage.goto(`${base}/home`, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 120_000,
+                });
+              } finally {
+                cleanupNavigationPending = false;
+                cleanupNavigationCandidates = [];
+              }
             }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
@@ -5845,6 +5909,9 @@ async function runAuthoringFuzzQa(
           recordCleanupFailure(label, error, target);
         }
       };
+      while (pendingCleanupConsoleInspections.size) {
+        await Promise.all([...pendingCleanupConsoleInspections]);
+      }
       if (page) await closePage(page, "could not close authoring page");
       for (const cleanupPage of recoveryPages) {
         await closePage(cleanupPage, "could not close recovery page");
@@ -7240,7 +7307,7 @@ async function main() {
     });
     await ensureSignedIn(warm);
     await warmUp(warm, base);
-    await warm.close();
+    if (!authoringFuzzOnly) await warm.close();
 
     if (typingChatOnly) {
       const page = await context.newPage();
@@ -7339,6 +7406,7 @@ async function main() {
     if (authoringFuzzOnly) {
       const problems = await runAuthoringFuzzQa(
         () => context.newPage(),
+        warm,
         base,
         cases,
         fuzzSeed,
@@ -7571,6 +7639,22 @@ async function main() {
   return exitCode;
 }
 
+function installWarmUpNavigationTrace() {
+  const report = (kind: string, stack?: string) =>
+    console.debug(
+      "[edit-fidelity-navigation]",
+      JSON.stringify({ kind, url: location.href, stack }),
+    );
+  report("document");
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = window.history[method];
+    window.history[method] = function (...args) {
+      original.apply(this, args);
+      report(method, new Error().stack);
+    };
+  }
+}
+
 /** Load the editor chunks once so Vite's optimize-dep reload happens here. */
 async function warmUp(page: Page, base: string) {
   const created = await action(page, "create-deck", {
@@ -7583,13 +7667,57 @@ async function warmUp(page: Page, base: string) {
   // The first editor route can trigger Vite dependency optimization and a
   // full-page reload; let that cold browser warm-up finish before retrying.
   const browserErrors: string[] = [];
-  const onConsole = (message: any) => {
-    if (message.type() === "error") browserErrors.push(message.text());
+  const navigationTrace: string[] = [];
+  const traceStartedAt = Date.now();
+  const trace = (message: string) => {
+    navigationTrace.push(`${Date.now() - traceStartedAt}ms ${message}`);
+    if (navigationTrace.length > 60) navigationTrace.shift();
   };
-  const onPageError = (error: Error) => browserErrors.push(error.message);
+  const onConsole = (message: any) => {
+    if (
+      message.text().startsWith("[edit-fidelity-navigation]") ||
+      message.text().includes("[agent-native] Vite re-bundled deps")
+    ) {
+      trace(message.text());
+    }
+    if (message.type() === "error") {
+      browserErrors.push(
+        `${message.text()} (${JSON.stringify(message.location())})`,
+      );
+    }
+  };
+  const onPageError = (error: Error) =>
+    browserErrors.push(error.stack ?? error.message);
+  const onResponse = (response: any) => {
+    const request = response.request();
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      const headers = response.headers();
+      trace(
+        JSON.stringify({
+          kind: "document-response",
+          url: response.url(),
+          status: response.status(),
+          location: headers.location,
+          retryAfter: headers["retry-after"],
+          redirectedFrom: request.redirectedFrom()?.url(),
+        }),
+      );
+    }
+    if (response.status() >= 500) {
+      browserErrors.push(
+        `${response.request().method()} ${response.url()} returned ${response.status()}`,
+      );
+    }
+  };
+  const onFrameNavigated = (frame: any) => {
+    if (frame === page.mainFrame()) trace(`main-frame ${frame.url()}`);
+  };
   page.on("console", onConsole);
   page.on("pageerror", onPageError);
+  page.on("response", onResponse);
+  page.on("framenavigated", onFrameNavigated);
   try {
+    await page.addInitScript(installWarmUpNavigationTrace);
     await openSlide(page, base, deckId, 0, "warm-1", {
       canvasTimeoutMs: 120_000,
     });
@@ -7599,10 +7727,15 @@ async function warmUp(page: Page, base: string) {
         `[edit-fidelity] warm-up browser errors: ${browserErrors.slice(-20).join(" | ")}`,
       );
     }
+    console.error(
+      `[edit-fidelity] warm-up navigation trace:\n${navigationTrace.join("\n")}`,
+    );
     throw error;
   } finally {
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
+    page.off("response", onResponse);
+    page.off("framenavigated", onFrameNavigated);
   }
   const [target] = await listTargets(page, "warm-1");
   if (target && (await enterEdit(page, "warm-1", target.point, []))) {
@@ -7617,6 +7750,18 @@ main().then(
     console.error(
       `[edit-fidelity] could not run: ${(error as Error).stack ?? error}`,
     );
+    const serverLogPath = path.join(outRoot, "server.log");
+    if (existsSync(serverLogPath)) {
+      try {
+        console.error(
+          `[edit-fidelity] scratch server log tail:\n${readFileSync(serverLogPath, "utf8").slice(-16_000)}`,
+        );
+      } catch (logError) {
+        console.error(
+          `[edit-fidelity] could not read scratch server log: ${String(logError)}`,
+        );
+      }
+    }
     process.exit(2);
   },
 );

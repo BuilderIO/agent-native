@@ -341,6 +341,10 @@ describe("list-agent-engines", () => {
   it("does not auto-detect hosted deployment provider env as the current engine", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
+    vi.doMock("../../db/client.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../db/client.js")>()),
+      isLocalDatabase: () => false,
+    }));
 
     const { registerAgentEngine } = await import("../../agent/engine/index.js");
     const { runWithRequestContext } =

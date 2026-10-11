@@ -63,6 +63,7 @@ describe("Content action-owned agent catalogs", () => {
     "get-document": getDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
+    "update-document": updateDocument,
     "list-comments": listComments,
     "add-comment": addComment,
     "update-comment": updateComment,

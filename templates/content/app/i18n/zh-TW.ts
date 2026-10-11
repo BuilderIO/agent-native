@@ -872,6 +872,8 @@ const overrides = {
       openInClaude: "在 Claude 中開啟",
       openInClaudeCode: "在 Claude Code 中開啟",
       openInCodex: "在 Codex 中開啟",
+      connectContent: "連接 Content",
+      otherAgents: "其他代理程式",
       agentCopyAccessNote: "代理程式可以透過現有權限使用 Content MCP",
       temporaryAgentLink: "暫時性代理程式連結",
       privateLinkCanView: "只有有權限的人可以檢視",
@@ -957,7 +959,6 @@ const overrides = {
       localAndNotionChanged:
         "本機檔案和 Notion 自上次同步後都已更改。請選取保留哪個版本。",
       morePageActions: "更多頁面操作",
-      formatting: "格式",
       noPagesFound: "沒有找到頁面",
       notifications: "通知",
       notionSync: "概念同步",

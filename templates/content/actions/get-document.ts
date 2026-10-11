@@ -80,7 +80,7 @@ function deferFailure<T>(read: Promise<T>): () => Promise<T> {
 
 export default defineAction({
   description:
-    "Read one access-scoped document by its stable ID, including the full Markdown body and metadata. Use list-documents or search-documents first when the ID is unknown.",
+    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Use list-documents or search-documents first when the ID is unknown.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({

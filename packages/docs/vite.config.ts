@@ -54,7 +54,7 @@ export default defineConfig({
         "@assistant-ui/react",
       ],
       routeWarmup: {
-        strategy: "viewport",
+        strategy: "off",
         data: true,
         modules: true,
         maxConcurrent: 8,

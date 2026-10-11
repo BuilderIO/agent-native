@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
+import { committedActionAuditOutcome } from "./committed-outcome.js";
 import {
   deriveActorKind,
   isAuditDisabled,
@@ -146,9 +147,14 @@ export async function recordActionAudit(
 
     const caller = ctx?.caller ?? "http";
     const actorEmail = ctx?.userEmail ?? null;
+    const committed =
+      input.status === "error"
+        ? committedActionAuditOutcome(input.error)
+        : undefined;
     // A refused call is an attempt worth seeing, not a failure.
-    const status: AuditStatus =
-      input.status === "error" && isRefusal(input.error)
+    const status: AuditStatus = committed
+      ? "success"
+      : input.status === "error" && isRefusal(input.error)
         ? "denied"
         : input.status;
     if (isRejectedProbe(input.args, status, input.error)) return;
@@ -159,8 +165,9 @@ export async function recordActionAudit(
       orgId: ctx?.orgId ?? null,
     };
 
-    const target = safeTarget(input.config, input.args, input.result, meta);
-    const summary = safeSummary(input.config, input.args, input.result, meta);
+    const result = committed ? committed.result : input.result;
+    const target = safeTarget(input.config, input.args, result, meta);
+    const summary = safeSummary(input.config, input.args, result, meta);
 
     const recordInputs = input.config?.recordInputs !== false;
     const inputJson = recordInputs ? redactArgsToJson(input.args) : null;

@@ -820,7 +820,6 @@ const editor = {
     linkToNotionPage: "Lien vers la page Notion",
     localFile: "Fichier local",
     morePageActions: "Plus d'actions sur la page",
-    formatting: "Mise en forme",
     noPagesFound: "Aucune page trouvée",
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
@@ -1141,6 +1140,8 @@ const exactEnglish = {
       openInClaude: "Ouvrir dans Claude",
       openInClaudeCode: "Ouvrir dans Claude Code",
       openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
       agentCopyAccessNote:
         "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
       temporaryAgentLink: "Lien temporaire pour agent",

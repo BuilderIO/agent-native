@@ -36,6 +36,7 @@ import {
   shouldRunCoreRouteBootDatabaseWork,
   ensureS3FileUploadProvider,
   mountApplicationStateRoutes,
+  mountMcpConnectRoutes,
   matchesSavedHostedAgentProbe,
   stripRemoteAgentAuth,
   createPublicRemoteAgentsHandler,
@@ -62,6 +63,34 @@ describe("mountApplicationStateRoutes", () => {
       "/_agent-native/application-state/compose",
       "/_agent-native/application-state",
     ]);
+  });
+});
+
+describe("mountMcpConnectRoutes", () => {
+  const request = (path: string) =>
+    new Request(`https://mail.example.test${path}`, {
+      headers: { host: "mail.example.test", "x-forwarded-proto": "https" },
+    });
+
+  it("still serves the identity route when the connect flows are off", async () => {
+    const app = createApp();
+    mountMcpConnectRoutes(app, {
+      connect: false,
+      serverName: undefined,
+      appId: "mail",
+      appName: "Mail",
+    });
+
+    for (const prefix of ["/_agent-native/mcp", "/mcp"]) {
+      const identity = await app.fetch(request(`${prefix}/connect/identity`));
+      expect(identity.status).toBe(200);
+      expect(await identity.json()).toMatchObject({
+        serverName: expect.stringMatching(/agent-native-mail$/),
+        mcpUrl: "https://mail.example.test/mcp",
+        connect: false,
+      });
+      expect((await app.fetch(request(`${prefix}/connect`))).status).toBe(404);
+    }
   });
 });
 

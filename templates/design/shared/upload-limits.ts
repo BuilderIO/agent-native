@@ -1,0 +1,1 @@
+export const MAX_UPLOAD_FILES_PER_REQUEST = 20;

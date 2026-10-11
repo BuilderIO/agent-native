@@ -5,6 +5,10 @@ import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
 import type { DbExec } from "../db/client.js";
 import { getOrgDomain } from "../org/context.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "../server/app-base-path.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import {
   describeBearerCredentialRefusalWithRecovery,
@@ -118,19 +122,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
-}
-
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -159,11 +150,11 @@ function configuredPublicBaseUrl(): string | undefined {
 }
 
 function appendConfiguredBasePath(baseUrl: string): string {
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   if (!basePath) return stripTrailingSlash(baseUrl);
   try {
     const url = new URL(baseUrl);
-    const pathname = normalizeBasePath(url.pathname);
+    const pathname = normalizeAppBasePath(url.pathname);
     if (pathname === basePath || pathname.endsWith(`${basePath}`)) {
       return stripTrailingSlash(`${url.origin}${pathname}`);
     }

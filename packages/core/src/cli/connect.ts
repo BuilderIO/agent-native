@@ -7,6 +7,7 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
+import { PLAIN_MCP_SERVER_NAME } from "../shared/mcp-connect-content.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   CLIENTS,
@@ -14,6 +15,8 @@ import {
   configPathFor,
   jsonMcpConfigKeyForClient,
   removeSameUrlDuplicatesForClient,
+  tomlQuote,
+  unescapeTomlBasicString,
   writeCodexBlock,
   writeHttpEntryForClient,
   writeJsonMcpEntryForClient,
@@ -23,6 +26,7 @@ import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
 const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
 const DEVICE_POLL_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll`;
+const CONNECT_IDENTITY_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/identity`;
 const MCP_PATH = MCP_PUBLIC_ROUTE_PREFIX;
 const LEGACY_MCP_PATH = MCP_LEGACY_ROUTE_PREFIX;
 const SERVER_NAME_PREFIX = "agent-native";
@@ -724,6 +728,98 @@ async function validateOAuthMcpServer(
   return false;
 }
 
+function unusableServerNameReason(name: string): string {
+  return `the server name ${JSON.stringify(name)} is not a plain name (letters, digits, "-" and "_")`;
+}
+
+type ConnectIdentityLookup =
+  | { status: "found"; serverName: string }
+  | { status: "unsupported" }
+  | { status: "failed"; reason: string };
+
+async function lookupConnectServerName(
+  baseUrl: string,
+  deps: ConnectDeps,
+): Promise<ConnectIdentityLookup> {
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetchImpl(`${baseUrl}${CONNECT_IDENTITY_PATH}`, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    // Servers released before the identity route answer 404 (or 401 behind
+    // the auth guard); the hostname-derived name is their real name.
+    if (response.status === 404 || response.status === 401) {
+      return { status: "unsupported" };
+    }
+    if (!response.ok) {
+      return { status: "failed", reason: `HTTP ${response.status}` };
+    }
+    const body = (await response.json()) as { serverName?: unknown } | null;
+    const serverName =
+      typeof body?.serverName === "string" ? body.serverName.trim() : "";
+    if (!serverName) {
+      return { status: "failed", reason: "the response had no serverName" };
+    }
+    if (!PLAIN_MCP_SERVER_NAME.test(serverName)) {
+      return { status: "failed", reason: unusableServerNameReason(serverName) };
+    }
+    return { status: "found", serverName };
+  } catch (err: any) {
+    return { status: "failed", reason: err?.message ?? String(err) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * `--name` is the person's own choice and is escaped where it is written. The
+ * grant's name comes from the server, so it meets the same plain-name rule as
+ * the identity lookup, and only once `--name` has not replaced it: the device
+ * flow also mints tokens for callers that never use the name.
+ */
+function serverNameForGrant(
+  grant: { mcpUrl: string; serverName: string },
+  requestedName: string | undefined,
+): string | null {
+  if (requestedName !== undefined) return requestedName;
+  const name =
+    reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+    grant.serverName;
+  if (!PLAIN_MCP_SERVER_NAME.test(name)) {
+    logErr(`  Could not connect: ${unusableServerNameReason(name)}.`);
+    return null;
+  }
+  return name;
+}
+
+/**
+ * The server owns its name (it adds the environment prefix that keeps beta
+ * and local entries apart from production), so ask it before guessing from
+ * the hostname. Only a server without the identity route keeps the hostname
+ * name: after any other failure a guess can land on another app's entry
+ * (`beta.mail…` guesses `agent-native-beta`), so the connect stops instead.
+ */
+async function serverNameFromServer(
+  baseUrl: string,
+  deps: ConnectDeps,
+): Promise<string | null> {
+  const lookup = await lookupConnectServerName(baseUrl, deps);
+  if (lookup.status === "found") return lookup.serverName;
+  if (lookup.status === "unsupported") return defaultServerName(baseUrl);
+  logErr(
+    `  Could not read the server name from ${baseUrl}${CONNECT_IDENTITY_PATH} ` +
+      `(${lookup.reason}).`,
+  );
+  logErr(
+    "  Run the command again, or pass --name <name> to choose the name yourself.",
+  );
+  return null;
+}
+
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export async function runDeviceFlow(
@@ -1043,12 +1139,8 @@ function readJsonMcpServerEntry(
   }
 }
 
-function tomlQuoteForRead(s: string): string {
-  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 function codexHeadersForRead(name: string): string[] {
-  const headers = [`[mcp_servers.${tomlQuoteForRead(name)}]`];
+  const headers = [`[mcp_servers.${tomlQuote(name)}]`];
   if (/^[A-Za-z0-9_-]+$/.test(name)) headers.push(`[mcp_servers.${name}]`);
   return headers;
 }
@@ -1118,10 +1210,6 @@ function writeSavedMcpEntry(
   writeJsonMcpEntryForClient(client, file, serverName, saved.entry);
 }
 
-function unescapeTomlString(value: string): string {
-  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-
 function parseCodexHeaders(block: string): Record<string, string> {
   const line = block
     .split(/\r?\n/)
@@ -1133,7 +1221,9 @@ function parseCodexHeaders(block: string): Record<string, string> {
   const pairRe = /"((?:\\.|[^"])*)"\s*=\s*"((?:\\.|[^"])*)"/g;
   let pair: RegExpExecArray | null;
   while ((pair = pairRe.exec(match[1]))) {
-    headers[unescapeTomlString(pair[1])] = unescapeTomlString(pair[2]);
+    headers[unescapeTomlBasicString(pair[1])] = unescapeTomlBasicString(
+      pair[2],
+    );
   }
   return headers;
 }
@@ -1144,7 +1234,7 @@ function savedEntryUrl(saved: SavedMcpEntry | undefined): string | undefined {
     return typeof saved.entry.url === "string" ? saved.entry.url : undefined;
   }
   const match = saved.block.match(/^\s*url\s*=\s*"((?:\\.|[^"])*)"/m);
-  return match ? unescapeTomlString(match[1]) : undefined;
+  return match ? unescapeTomlBasicString(match[1]) : undefined;
 }
 
 interface ExistingMcpEntry {
@@ -1188,7 +1278,7 @@ function readJsonMcpServerEntries(
 function parseCodexMcpServerName(line: string): string | undefined {
   const trimmed = line.trim();
   const quoted = trimmed.match(/^\[mcp_servers\."((?:\\.|[^"])*)"\]$/);
-  if (quoted) return unescapeTomlString(quoted[1]);
+  if (quoted) return unescapeTomlBasicString(quoted[1]);
   const bare = trimmed.match(/^\[mcp_servers\.([A-Za-z0-9_-]+)\]$/);
   return bare?.[1];
 }
@@ -1971,15 +2061,19 @@ async function connectOne(
   let headers: Record<string, string> | undefined;
 
   if (parsed.token) {
+    const name = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
+    if (!name) return { ok: false };
     token = parsed.token;
     mcpUrl = normalizedMcpUrl;
-    serverName = parsed.name ?? defaultServerName(baseUrl);
+    serverName = name;
     logOut("");
     logOut(`  Using supplied --token for ${baseUrl} (skipping browser flow).`);
   } else if (deviceFlowClients.length === 0) {
+    const name = parsed.name ?? (await serverNameFromServer(baseUrl, deps));
+    if (!name) return { ok: false };
     token = undefined;
     mcpUrl = normalizedMcpUrl;
-    serverName = parsed.name ?? defaultServerName(baseUrl);
+    serverName = name;
   } else {
     const grant = await runDeviceFlow(
       baseUrl,
@@ -1989,13 +2083,11 @@ async function connectOne(
       { fullCatalog: parsed.fullCatalog },
     );
     if (!grant) return { ok: false };
+    const name = serverNameForGrant(grant, parsed.name);
+    if (!name) return { ok: false };
     token = grant.token;
     mcpUrl = grant.mcpUrl;
-    serverName =
-      parsed.name ??
-      reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
-      grant.serverName ??
-      defaultServerName(baseUrl);
+    serverName = name;
     headers = grant.headers;
   }
 
@@ -2021,13 +2113,11 @@ async function connectOne(
           { fullCatalog: parsed.fullCatalog },
         );
         if (!grant) return { ok: false };
+        const name = serverNameForGrant(grant, parsed.name);
+        if (!name) return { ok: false };
         token = grant.token;
         mcpUrl = grant.mcpUrl;
-        serverName =
-          parsed.name ??
-          reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
-          grant.serverName ??
-          defaultServerName(baseUrl);
+        serverName = name;
         headers = grant.headers;
       }
 
@@ -2458,6 +2548,14 @@ export async function runConnect(
       logErr(
         "  --ttl-days is only supported with --service-token. Set a personal token lifetime on the app's Connect page.",
       );
+      process.exitCode = 1;
+      return;
+    }
+
+    // Checked before the device flow, which would otherwise mint a token the
+    // person approved and then stop without writing it.
+    if (parsed.name !== undefined && !parsed.name.trim()) {
+      logErr("  --name needs a value: the name to save the MCP server under.");
       process.exitCode = 1;
       return;
     }

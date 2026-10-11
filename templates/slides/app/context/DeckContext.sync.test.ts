@@ -14,7 +14,7 @@ const requestString = (value: unknown) =>
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const orgQueryState = vi.hoisted(() => ({
-  data: undefined as unknown,
+  data: { orgId: null } as unknown,
   isLoading: false,
 }));
 
@@ -215,7 +215,7 @@ async function lastEventSource(): Promise<MockEventSource> {
 describe("DeckContext optimistic create", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
-    orgQueryState.data = undefined;
+    orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal("BroadcastChannel", undefined);
@@ -225,7 +225,7 @@ describe("DeckContext optimistic create", () => {
 
   afterEach(() => {
     cleanup();
-    orgQueryState.data = undefined;
+    orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
@@ -302,68 +302,118 @@ describe("DeckContext optimistic create", () => {
     expect(result.current.decks).toHaveLength(1);
   });
 
-  it("clears previous-organization decks before loading the next organization", async () => {
-    window.history.pushState({}, "", "/");
-    orgQueryState.data = { orgId: "org-a" };
+  it("preserves a deck deep link when the first organization read resolves", async () => {
+    window.history.pushState({}, "", "/deck/deep-linked-deck?slide=1");
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     const api = setupFetch();
-    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    let previousDeckId = "";
-    act(() => {
-      previousDeckId = result.current.createDeck("Previous Org Deck").id;
-    });
-    api.setServerDecks([result.current.getDeck(previousDeckId)!]);
-    await act(async () => {
-      api.resolveCreate(new Response("", { status: 200 }));
-      await Promise.resolve();
-    });
-    const previousOrgDeck = result.current.getDeck(previousDeckId)!;
-    window.history.pushState({}, "", `/deck/${previousDeckId}`);
-
-    const currentOrgDeck: Deck = {
-      id: "current-org-deck",
-      title: "Current Org Deck",
+    const linkedDeck: Deck = {
+      id: "deep-linked-deck",
+      title: "Deep-linked Deck",
       createdAt: "2026-09-14T00:00:00.000Z",
       updatedAt: "2026-09-14T00:00:00.000Z",
-      slides: [],
+      slides: [
+        {
+          id: "linked-slide",
+          content: "<p>Linked slide</p>",
+          notes: "",
+          layout: "content",
+        },
+      ],
     };
-    api.holdNextList();
-    let previousOrgReload: Promise<void> = Promise.resolve();
-    act(() => {
-      previousOrgReload = result.current.reloadDecks();
+    api.setServerDecks([linkedDeck]);
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+    await act(async () => {
+      await Promise.resolve();
     });
-    await waitFor(() => expect(api.pendingListCount()).toBe(1));
 
-    api.holdNextList();
-    api.setServerDecks([currentOrgDeck]);
+    expect(result.current.loading).toBe(true);
+    expect(result.current.decks).toEqual([]);
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/get-deck"),
+      ),
+    ).toBe(false);
+
     act(() => {
-      orgQueryState.data = { orgId: "org-b" };
+      orgQueryState.data = { orgId: "first-org" };
       rerender();
     });
 
-    await waitFor(() => expect(api.pendingListCount()).toBe(2));
-    expect(result.current.decks).toEqual([]);
-    expect(window.location.pathname).toBe("/home");
-
-    await act(async () => {
-      api.releaseList([previousOrgDeck]);
-      await previousOrgReload;
-    });
-    expect(result.current.loading).toBe(true);
-    expect(result.current.decks).toEqual([]);
-
-    await act(async () => {
-      api.releaseList([currentOrgDeck]);
-      await Promise.resolve();
-    });
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.decks.map((deck) => deck.id)).toEqual([
-      currentOrgDeck.id,
-    ]);
-    expect(result.current.getDeck(previousDeckId)).toBeUndefined();
+    expect(window.location.pathname + window.location.search).toBe(
+      "/deck/deep-linked-deck?slide=1",
+    );
+    await waitFor(() =>
+      expect(result.current.getDeck(linkedDeck.id)).toEqual(linkedDeck),
+    );
+    expect(result.current.loading).toBe(false);
   });
+
+  it.each(["org-a", null])(
+    "clears decks from scope %s before loading the next organization",
+    async (previousOrgId) => {
+      window.history.pushState({}, "", "/");
+      orgQueryState.data = { orgId: previousOrgId };
+      const api = setupFetch();
+      const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      let previousDeckId = "";
+      act(() => {
+        previousDeckId = result.current.createDeck("Previous Org Deck").id;
+      });
+      api.setServerDecks([result.current.getDeck(previousDeckId)!]);
+      await act(async () => {
+        api.resolveCreate(new Response("", { status: 200 }));
+        await Promise.resolve();
+      });
+      const previousOrgDeck = result.current.getDeck(previousDeckId)!;
+      window.history.pushState({}, "", `/deck/${previousDeckId}`);
+
+      const currentOrgDeck: Deck = {
+        id: "current-org-deck",
+        title: "Current Org Deck",
+        createdAt: "2026-09-14T00:00:00.000Z",
+        updatedAt: "2026-09-14T00:00:00.000Z",
+        slides: [],
+      };
+      api.holdNextList();
+      let previousOrgReload: Promise<void> = Promise.resolve();
+      act(() => {
+        previousOrgReload = result.current.reloadDecks();
+      });
+      await waitFor(() => expect(api.pendingListCount()).toBe(1));
+
+      api.holdNextList();
+      api.setServerDecks([currentOrgDeck]);
+      act(() => {
+        orgQueryState.data = { orgId: "org-b" };
+        rerender();
+      });
+
+      await waitFor(() => expect(api.pendingListCount()).toBe(2));
+      expect(result.current.decks).toEqual([]);
+      expect(window.location.pathname).toBe("/home");
+
+      await act(async () => {
+        api.releaseList([previousOrgDeck]);
+        await previousOrgReload;
+      });
+      expect(result.current.loading).toBe(true);
+      expect(result.current.decks).toEqual([]);
+
+      await act(async () => {
+        api.releaseList([currentOrgDeck]);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.decks.map((deck) => deck.id)).toEqual([
+        currentOrgDeck.id,
+      ]);
+      expect(result.current.getDeck(previousDeckId)).toBeUndefined();
+    },
+  );
 });
 
 function openDeck(): Deck {
@@ -434,7 +484,7 @@ describe("fallbackPollIntervalMs", () => {
 describe("DeckContext fallback polling", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
-    orgQueryState.data = undefined;
+    orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal("EventSource", MockEventSource);
@@ -444,7 +494,7 @@ describe("DeckContext fallback polling", () => {
 
   afterEach(() => {
     cleanup();
-    orgQueryState.data = undefined;
+    orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     restoreVisibility?.();
     restoreVisibility = null;

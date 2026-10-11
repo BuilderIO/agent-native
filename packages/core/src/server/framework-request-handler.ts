@@ -2,6 +2,8 @@ import type { EventHandler, H3Event } from "h3";
 import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
 import { AppConfigurationError } from "../app-config/index.js";
+import { hasCloudflareRuntime } from "../db/migration-runtime.js";
+import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
@@ -322,7 +324,9 @@ function registerRequestContextBoundary(nitroApp: any): void {
           isSyntheticTraffic: syntheticTraffic,
           trackingScope,
         };
-    return runWithRequestContext(requestContext, () => next());
+    return runWithRequestDbPoolScope(hasCloudflareRuntime(), event.req, () =>
+      runWithRequestContext(requestContext, () => next()),
+    );
   };
 
   h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;

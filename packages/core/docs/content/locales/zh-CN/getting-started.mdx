@@ -52,15 +52,27 @@ pnpm dev
 
 </Callout>
 
-## 连接 LLM
+## 连接 LLM {#connect-an-llm}
 
-接下来，连接 LLM。选择 **使用 Builder.io** 以使用免费额度，或选择 **Custom keys**，选择提供商并输入所需的连接信息。
+应用会打开“开始使用”页面。本地开发时，请在启动 `pnpm dev` 前将提供商密钥添加到应用的 `.env` 文件：
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+自托管应用会将环境中的密钥用作整个应用的共享备用密钥，因此用户无需在界面中添加个人密钥。Hosted workspace 的生产运行时会阻止共享部署提供商密钥。已保存的用户或组织范围密钥优先使用。
+
+设置此提供商密钥本身就是运营者同意在整个应用中共享访问权限和费用；无需额外的共享标志。没有范围密钥的已登录用户可以在应用的所有组织中使用部署提供商账户，费用计入该账户。若各租户需要独立凭据或费用，请使用范围密钥。
+
+使用 PostgreSQL 时，用户也可以通过 **Custom keys** 保存密钥。选择个人范围可将密钥限于自己的账户；管理员可以选择组织范围，与工作区共享。应用会将保存的密钥保存在加密的数据库凭据存储中。
+
+如需使用 Builder 托管的提供商，请在 composer 中选择 **Use Builder.io**。有关支持的提供商密钥及其适用范围，请参阅[环境变量](/docs/environment-variables#optional-ai-search-and-email-fallbacks)。
 
 ## 从智能体运行动作
 
 动作是 React UI 可以从代码中调用、智能体可以作为工具使用的类型化函数。Chat 模板包含一个简单的 `hello` 动作，让你可以在自己编写动作前先体验这一模式。
 
-在智能体面板中，输入：
+在 **开始使用** 页面的输入框中，输入：
 
 > Call the hello action for Alex.
 

@@ -99,6 +99,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "打开完整连接页面，为无法完成 OAuth 的客户端创建令牌。",
   mcpOpenConnectPage: "打开完整连接页面",
+  mcpIdentityError: "无法加载此应用的连接信息。",
+  mcpRetry: "重试",
   mcpConnect: mcpConnectMessages,
 };
 

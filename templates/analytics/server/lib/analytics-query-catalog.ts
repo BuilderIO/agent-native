@@ -30,6 +30,7 @@ import {
   type DashboardReferenceRecord,
   type DashboardSummaryRecord,
 } from "./dashboards-store";
+import { mergeDataDictionaryEntry } from "./data-dictionary-overlays";
 import {
   readSourceIndex,
   sourceIndexDictionaryEntries,
@@ -785,18 +786,8 @@ async function listDictionaryEntries(args: {
     const existingIndex = seen.get(id);
     if (existingIndex !== undefined) {
       const existing = entries[existingIndex];
-      if (entry.sourceIndex === true && existing?.sourceIndex !== true) {
-        entries[existingIndex] = {
-          ...entry,
-          ...existing,
-          status: entry.status,
-          sourceIndex: true,
-          sourcePath: entry.sourcePath,
-          sourceRevision: entry.sourceRevision,
-          sourceIndexGeneratedAt: entry.sourceIndexGeneratedAt,
-          sourceIndexSources: entry.sourceIndexSources,
-        };
-      }
+      if (existing)
+        entries[existingIndex] = mergeDataDictionaryEntry(existing, entry);
       return;
     }
     seen.set(id, entries.length);

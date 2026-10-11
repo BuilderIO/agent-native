@@ -9,6 +9,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -89,7 +90,7 @@ function buildCreateSql(): string {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const createSql = buildCreateSql();
       await ensureTableExists("integration_a2a_continuations", createSql);
@@ -159,6 +160,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

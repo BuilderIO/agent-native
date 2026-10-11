@@ -23,10 +23,10 @@ available. Classify each fingerprint as **product regression**, **stale spec**,
 **harness flake**, or **infrastructure**, then reproduce locally and fix the
 owning boundary.
 
-Scheduled CI, production-health, and signup reporters publish grouped findings
-to `#qa-agent-native`, with a run link and an artifact containing the complete
-report. Read the full artifact; the channel message is the discovery index, not
-a replacement for the occurrence ledger. Search the channel and open PRs/tasks
+Scheduled Beta, Design, production-health, and signup reporters publish
+grouped findings to `#qa-agent-native`, with a run link and an artifact
+containing the complete report. Read the full artifact; the channel message is
+the discovery index, not a replacement for the occurrence ledger. Search the channel and open PRs/tasks
 for each run ID, workflow, or fingerprint to find an active owner. A matching
 PR, task, or QA rollup covers only the exact failure-level evidence it names:
 a run-ID-only match owns only that occurrence, and a workflow name alone does

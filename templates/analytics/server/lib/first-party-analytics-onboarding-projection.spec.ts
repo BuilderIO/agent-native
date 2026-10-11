@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS,
+  ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS,
   FirstPartyAnalyticsUnsupportedSqlError,
   renderFirstPartyAnalyticsBigQueryRequestSql,
   renderFirstPartyAnalyticsBigQuerySql,
@@ -48,6 +49,10 @@ describe("onboarding journey event source projection", () => {
       {
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
       },
     );
     const rendered = renderFirstPartyAnalyticsBigQueryRequestSql(
@@ -58,9 +63,15 @@ describe("onboarding journey event source projection", () => {
         eventDateRange: request.eventDateRange,
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
       },
     );
     const projectedColumns = ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ");
+    const responseIdentityColumns =
+      ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ");
 
     expect(ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS).toHaveLength(14);
     expect(request).toMatchObject({ limit: 4_000, offset: 4_000 });
@@ -70,12 +81,19 @@ describe("onboarding journey event source projection", () => {
     });
     expect(
       rendered.match(/FROM `example-project\.analytics\.events`/g),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     expect(rendered).toContain(
       "SELECT " +
         projectedColumns +
         " FROM `example-project.analytics.events` WHERE",
     );
+    expect(rendered).toContain(
+      "SELECT " +
+        responseIdentityColumns +
+        " FROM `example-project.analytics.events` WHERE",
+    );
+    expect(rendered).toContain("event_name != 'http.response'");
+    expect(rendered).toContain("event_name = 'http.response'");
     expect(rendered).toContain(
       "(org_id = 'org_test' OR (org_id IS NULL AND owner_email = 'owner@example.test'))",
     );

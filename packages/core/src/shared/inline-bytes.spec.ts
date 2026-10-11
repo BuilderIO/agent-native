@@ -11,6 +11,17 @@ const PIXELS = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
 const DURABLE = "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fshot";
 
 describe("stripInlineBytes", () => {
+  it("preserves own JSON keys while stripping attachment bytes", () => {
+    const input = JSON.parse(
+      '{"__proto__":{"destination":"a"},"attachments":[{"type":"file","data":"QQ=="}]}',
+    );
+    const stored = stripInlineBytes(input, "placeholder");
+    expect(Object.hasOwn(stored, "__proto__")).toBe(true);
+    expect(JSON.parse(JSON.stringify(stored))["__proto__"]).toEqual({
+      destination: "a",
+    });
+    expect(JSON.stringify(stored)).not.toContain("QQ==");
+  });
   it("swaps inline bytes for the durable URL the part already carries", () => {
     const stored = stripInlineBytes(
       {

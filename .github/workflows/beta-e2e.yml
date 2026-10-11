@@ -83,6 +83,8 @@ on:
         required: false
       PAGERDUTY_ROUTING_KEY:
         required: false
+      QA_SLACK_BOT_TOKEN:
+        required: false
     outputs:
       signup_outcome:
         description: "Signup lane result: success, failure, or inconclusive."
@@ -94,7 +96,7 @@ on:
         required: false
         default: "all"
       lane:
-        description: "Which lanes to run"
+        description: "Which browser lanes to run"
         required: false
         default: "public+authed"
         type: choice
@@ -102,17 +104,6 @@ on:
           - public
           - authed
           - public+authed
-          - signup
-      signup_apps:
-        description: "Apps for the signup canary"
-        required: false
-        default: "all"
-        type: string
-      signup_environments:
-        description: "Environments for the signup canary"
-        required: false
-        default: "beta"
-        type: string
       key_source:
         description: "Which OpenAI credential the agent turns bill"
         required: false
@@ -570,3 +561,20 @@ jobs:
           path: e2e/signup/test-results/
           if-no-files-found: warn
           retention-days: 14
+
+  report:
+    name: Report directly dispatched beta E2E status
+    if: >-
+      ${{ always()
+      && github.event_name == 'workflow_dispatch'
+      && github.workflow == 'Beta E2E (browser)' }}
+    needs: [discover, gate, public, fleet, authed, advisory, signup]
+    uses: ./.github/workflows/beta-e2e-report.yml
+    with:
+      run_result: ${{ contains(join(needs.*.result, ','), 'failure') && 'failure' || contains(join(needs.*.result, ','), 'cancelled') && 'cancelled' || 'success' }}
+      update_baseline: ${{ inputs.apps == 'all' && inputs.lane == 'public+authed' && inputs.grep == '' }}
+    secrets:
+      QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+    permissions:
+      actions: read
+      contents: read

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec, isUniqueViolation, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { recordChange } from "../server/poll.js";
 import type {
   AgentRun,
@@ -35,7 +36,7 @@ function resolveProgressRunStaleMs(): number {
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS progress_runs (
           id TEXT PRIMARY KEY,
@@ -63,6 +64,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

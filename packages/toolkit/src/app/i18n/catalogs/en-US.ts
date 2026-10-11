@@ -130,7 +130,7 @@ const messages = {
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
   "onboarding.builderCreateAccount": "Use Builder.io",
-  "onboarding.builderSignInWithAccount": "Use Builder.io",
+  "onboarding.builderSignInWithAccount": "Sign in with a Builder.io account",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
@@ -166,6 +166,7 @@ const messages = {
   "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
     "Creating your Builder.io account and activating free credits.",
+  "onboarding.builderCancelPending": "Checking connection status…",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":

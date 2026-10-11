@@ -16,6 +16,7 @@ import {
   foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
@@ -362,6 +363,126 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it.each([
+    { input: ["first", "second"] },
+    { input: null },
+    { input: true },
+    { input: 17 },
+    { input: "truncated input" },
+  ])(
+    "preserves recorded non-object input $input in unknown-outcome replay",
+    ({ input }) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "unknown-input",
+              tool: "send-email",
+              input,
+            },
+          },
+        ],
+        "raw-input-run",
+      );
+      const replay = threadDataToEngineMessages(
+        JSON.stringify(upsertAssistantMessage({}, message!)),
+        { includeToolCalls: true },
+      );
+      expect(replay.flatMap(({ content }) => content)).toContainEqual({
+        type: "tool-call",
+        id: "unknown-input",
+        name: "send-email",
+        input: { rawInput: input },
+      });
+    },
+  );
+
+  it("keeps an explicitly unknown write outcome when the user stops", () => {
+    const result = "Interrupted before this tool returned a result.";
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "email",
+            tool: "send-email",
+            input: {},
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "email",
+            tool: "send-email",
+            result,
+            isError: true,
+            outcomeUnknown: true,
+          },
+        },
+        { seq: 2, event: { type: "done", reason: "user" } },
+      ],
+      "stopped-write",
+    );
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        result,
+        outcome: "unknown",
+      }),
+    );
+  });
+
+  it("keeps an unknown side-effect outcome through persistence and model replay", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "email-uncertain",
+            tool: "send-email",
+            input: { to: "customer@example.com" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "email-uncertain",
+            tool: "send-email",
+            result: "Error running send-email: connection reset",
+            isError: true,
+            outcomeUnknown: true,
+          },
+        },
+      ],
+      "uncertain-run",
+    );
+    const stored = JSON.stringify(upsertAssistantMessage({}, message!));
+    expect(JSON.parse(stored).messages[0].message.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        outcome: "unknown",
+        isError: true,
+      }),
+    );
+    const replay = threadDataToEngineMessages(stored, {
+      includeToolCalls: true,
+    });
+    const result = replay
+      .flatMap(({ content }) => content)
+      .find((part) => part.type === "tool-result");
+    expect(
+      result?.type === "tool-result" ? JSON.parse(result.content) : null,
+    ).toEqual({
+      outcome: "unknown",
+      result: "Error running send-email: connection reset",
+    });
+  });
   it("persists the resource scope used by the chat turn", () => {
     const message = buildAssistantMessage(
       [{ seq: 0, event: { type: "text", text: "Saved." } }],

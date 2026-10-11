@@ -563,6 +563,74 @@ describe("searchAnalyticsQueryCatalog", () => {
     );
   });
 
+  it("uses a user dictionary overlay over the organization copy", async () => {
+    state.listOrgSettings.mockResolvedValueOnce({
+      "data-dict-index-user-model": {
+        id: "index-user-model",
+        metric: "Organization model name",
+        definition: "Organization definition",
+        owner: "Data team",
+        grain: "one row per organization user",
+        approved: false,
+      },
+    });
+    state.userSettings = [
+      {
+        key: "u:alice@example.com:data-dict-index-user-model",
+        value: {
+          id: "index-user-model",
+          metric: "Personal model override",
+          definition: "User-reviewed definition",
+          owner: "Analytics team",
+          grain: " ",
+          approved: true,
+        },
+      },
+    ];
+    state.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {} as never,
+    });
+    state.sourceIndexDictionaryEntries.mockReturnValueOnce([
+      {
+        id: "index-user-model",
+        metric: "Generated model name",
+        definition: "Generated definition",
+        grain: "one row per user",
+        status: "active",
+        sourceIndex: true,
+        sourcePath: "models/users.sql",
+        sourceRevision: "abcdef1234567",
+        aiGenerated: true,
+      },
+    ]);
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "personal model override",
+      email: "alice@example.com",
+      orgId: "org-analytics",
+      limit: 6,
+    });
+    const entry = result.candidates.find(
+      (candidate) =>
+        candidate.kind === "data-dictionary" &&
+        candidate.id === "index-user-model",
+    );
+
+    expect(entry).toMatchObject({
+      kind: "data-dictionary",
+      origin: "source-index",
+      id: "index-user-model",
+      metric: "Personal model override",
+      definition: "User-reviewed definition",
+      owner: "Analytics team",
+      grain: "one row per organization user",
+      approved: true,
+      sourcePath: "models/users.sql",
+      sourceRevision: "abcdef1234567",
+    });
+  });
+
   it("keeps dictionary results when dashboard summaries fail", async () => {
     state.listDashboardSummaries.mockRejectedValueOnce(
       new Error("dashboard summaries unavailable"),

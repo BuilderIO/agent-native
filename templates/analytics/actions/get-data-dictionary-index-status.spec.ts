@@ -49,6 +49,7 @@ describe("get-data-dictionary-index-status", () => {
           { source: "dbt" },
           { source: "builder-internal" },
         ],
+        scanSummary: { unresolvedTrackingCallSites: 3 },
       },
     });
 
@@ -56,6 +57,7 @@ describe("get-data-dictionary-index-status", () => {
       status: "available",
       generatedAt: "2026-10-06T00:00:00.000Z",
       entryCount: 3,
+      unresolvedTrackingCallSites: 3,
       sources: [
         { id: "dbt", revision: "abcdef123456" },
         { id: "builder-internal", contentFingerprint: "a".repeat(64) },
@@ -77,6 +79,43 @@ describe("get-data-dictionary-index-status", () => {
     mocks.readSourceIndex.mockResolvedValueOnce({ status: "not-configured" });
 
     await expect(action.run()).resolves.toEqual({ status: "not-configured" });
+  });
+
+  it("reports missing legacy scan counts as unavailable", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [{ id: "dbt" }],
+        entries: [{ source: "dbt" }],
+      },
+    });
+
+    await expect(action.run()).resolves.toMatchObject({
+      status: "available",
+      unresolvedTrackingCallSites: null,
+    });
+  });
+
+  it("preserves older partial scan summaries without inventing a zero", async () => {
+    mocks.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {
+        generatedAt: "2026-10-06T00:00:00.000Z",
+        sources: [{ id: "dbt" }],
+        entries: [{ source: "dbt" }],
+        scanSummary: {
+          unsafeEntriesOmitted: 1,
+          unsafeFieldsOmitted: 2,
+          truncatedFields: 3,
+        },
+      },
+    });
+
+    await expect(action.run()).resolves.toMatchObject({
+      status: "available",
+      unresolvedTrackingCallSites: null,
+    });
   });
 
   it("requires an authenticated user before reading the organization index", async () => {

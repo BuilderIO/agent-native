@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import {
+  getOrCreateRequestDbPool,
+  getRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "../db/request-pool-context.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { assembleA2AFinalResponse } from "../server/agent-chat/action-filters-a2a.js";
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
@@ -201,6 +206,78 @@ describe("tool-call result ledger", () => {
       false,
       JSON.stringify(widgetResult),
     );
+  });
+
+  it("keeps the request pool alive through a late zombie ledger write", async () => {
+    let markActionStarted!: () => void;
+    const actionStarted = new Promise<void>((resolve) => {
+      markActionStarted = resolve;
+    });
+    let resolveAction!: (result: string) => void;
+    const actionResult = new Promise<string>((resolve) => {
+      resolveAction = resolve;
+    });
+    let markLedgerStarted!: () => void;
+    const ledgerStarted = new Promise<void>((resolve) => {
+      markLedgerStarted = resolve;
+    });
+    let releaseLedgerWrite!: () => void;
+    const ledgerWriteGate = new Promise<void>((resolve) => {
+      releaseLedgerWrite = resolve;
+    });
+    const requestPoolKey = "zombie-ledger-request";
+    const pool = {
+      query: vi.fn(async () => "pool-open"),
+      end: vi.fn(async () => {}),
+    };
+    let poolDuringLedgerWrite: unknown;
+    let ledgerQueryResult: unknown;
+    writeLedgerMock.mockImplementation(async () => {
+      poolDuringLedgerWrite = getRequestDbPool(requestPoolKey);
+      const activePool = getRequestDbPool(requestPoolKey) as
+        | typeof pool
+        | undefined;
+      ledgerQueryResult = await activePool?.query();
+      markLedgerStarted();
+      await ledgerWriteGate;
+    });
+
+    const action = makeWriteAction();
+    (action.run as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      markActionStarted();
+      return actionResult;
+    });
+    const controller = new AbortController();
+    const request = runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool(requestPoolKey, () => pool);
+      await runAgentLoop({
+        engine: singleToolEngine("save-data", { content: "slow" }),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "save this" }] },
+        ],
+        actions: { "save-data": action },
+        send: () => {},
+        signal: controller.signal,
+        threadId: "thread-zombie-pool-scope",
+      }).catch(() => {});
+    });
+
+    await actionStarted;
+    controller.abort();
+    await request;
+    expect(pool.end).not.toHaveBeenCalled();
+
+    resolveAction("write-result");
+    await ledgerStarted;
+    expect(poolDuringLedgerWrite).toBe(pool);
+    expect(ledgerQueryResult).toBe("pool-open");
+    expect(pool.end).not.toHaveBeenCalled();
+
+    releaseLedgerWrite();
+    await vi.waitFor(() => expect(pool.end).toHaveBeenCalledOnce());
   });
 
   it("does not write a ledger entry for resolved MCP error results", async () => {

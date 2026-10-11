@@ -10,6 +10,7 @@ import {
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
@@ -205,7 +206,7 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
     return;
   }
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const table = workspaceUserGroupsTable();
       const createSql = `
@@ -257,6 +258,7 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

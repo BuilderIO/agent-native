@@ -763,6 +763,36 @@ describe("writeCodexBlock", () => {
     expect(afterSecond.match(/\[mcp_servers\."plan"\]/g)).toHaveLength(1);
   });
 
+  it("escapes control characters so a name or value stays inside its TOML string", () => {
+    const block = buildCodexHttpBlock(
+      'plan"\n[mcp_servers.evil]',
+      PLAN_URL,
+      undefined,
+      { "X-Note": "one\ntwo\tthree\u0001" },
+    );
+    expect(block).toBe(
+      [
+        '[mcp_servers."plan\\"\\n[mcp_servers.evil]"]',
+        `url = "${PLAN_URL}"`,
+        'http_headers = { "X-Note" = "one\\ntwo\\tthree\\u0001" }',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("rewrites an entry whose name needs escapes instead of appending another", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    const name = "plan\nlocal";
+    writeCodexBlock(file, name, buildCodexHttpBlock(name, PLAN_URL, "old"));
+    writeCodexBlock(file, name, buildCodexHttpBlock(name, PLAN_URL, "new"));
+
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content.match(/\[mcp_servers\."plan\\nlocal"\]/g)).toHaveLength(1);
+    expect(content).not.toContain("old");
+    expect(codexHasBlock(file, name)).toBe(true);
+  });
+
   it("does not corrupt a neighbouring multi-line value when removing a block", () => {
     const dir = tmpDir();
     const file = path.join(dir, "config.toml");

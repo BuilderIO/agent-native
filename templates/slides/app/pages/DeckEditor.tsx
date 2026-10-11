@@ -119,6 +119,10 @@ import {
   SLIDES_GENERATION_STARTED_EVENT,
   useAgentGenerating,
 } from "@/hooks/use-agent-generating";
+import {
+  isCompactEditorLayout,
+  useCompactEditorLayout,
+} from "@/hooks/use-compact-editor-layout";
 import { useContrastAuditBridge } from "@/hooks/use-contrast-audit-bridge";
 import {
   useDeckAccessStatus,
@@ -720,8 +724,9 @@ export default function DeckEditor() {
   const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
   const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
   const directoryWidget = readOnlyWidget || writeWidget;
+  const compactLayout = useCompactEditorLayout();
   const [sidebarOpen, setSidebarOpen] = useState(
-    () => typeof window !== "undefined" && window.innerWidth >= 768,
+    () => !isCompactEditorLayout(),
   );
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   useEffect(() => {
@@ -2304,7 +2309,7 @@ export default function DeckEditor() {
   }, [generating, addSlideGenerating, endAddSlideGeneration]);
 
   useEffect(() => {
-    const onResize = () => setSidebarOpen(window.innerWidth >= 768);
+    const onResize = () => setSidebarOpen(!isCompactEditorLayout());
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -2704,10 +2709,18 @@ export default function DeckEditor() {
       setSelectedSlideIds(result.selectedSlideIds);
       setGeneratingSlideSelected(false);
       setActiveSlideId(slideId);
-      if (window.innerWidth < 768) setSidebarOpen(false);
+      if (isCompactEditorLayout()) setSidebarOpen(false);
     },
     [deck, selectedSlideIds],
   );
+
+  // Scrolling through the deck is navigation, not a selection the user made.
+  const followScrolledSlide = useCallback((slideId: string) => {
+    selectionAnchorSlideIdRef.current = slideId;
+    setSelectedSlideIds([slideId]);
+    setGeneratingSlideSelected(false);
+    setActiveSlideId(slideId);
+  }, []);
 
   const { undoSelection, clearUndoSelection } = useUndoSelection({
     deckId: id,
@@ -4488,7 +4501,7 @@ export default function DeckEditor() {
                   generatingSlideSelected={generatingSlideSelected}
                   onSelectGeneratingSlide={() => {
                     setGeneratingSlideSelected(true);
-                    if (window.innerWidth < 768) setSidebarOpen(false);
+                    if (isCompactEditorLayout()) setSidebarOpen(false);
                   }}
                   hasSlideClipboard={hasSlideClipboard}
                   onCutSlide={cutSlides}
@@ -4634,6 +4647,16 @@ export default function DeckEditor() {
             currentUserEmail={session?.email ?? null}
             comments={currentSlideThreads}
             onSelectCommentThread={selectCommentThread}
+            slideScroll={
+              compactLayout
+                ? {
+                    slides: deck.slides,
+                    onSelectSlide: handleSlideSelection,
+                    onFollowScroll: followScrolledSlide,
+                    following: !inlineEditActive,
+                  }
+                : undefined
+            }
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
             layersPanelSlot={layersPanelSlot}

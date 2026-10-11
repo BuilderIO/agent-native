@@ -43,10 +43,10 @@ import {
   nextZoomCursorFrom,
   normalizeZoomMeetingSummary,
   normalizeZoomRecording,
+  isApprovedZoomMeeting,
+  zoomApprovedMeetingIds,
+  zoomApprovedMeetingsKey,
   zoomExternalId,
-  zoomMeetingFilterFromConfig,
-  zoomMeetingFilterKey,
-  zoomMeetingMatchesFilter,
   zoomSummaryExternalId,
   zoomSummaryMatchesUsers,
   type ZoomMeetingSummary,
@@ -3130,10 +3130,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const dayMs = 24 * 60 * 60 * 1000;
   const to = utcDate(runStartedAt);
   const earliest = utcDate(runStartedAt - ZOOM_MAX_LOOKBACK_DAYS * dayMs);
-  const meetingFilter = zoomMeetingFilterFromConfig(objectValue(config.zoom));
-  const filterKey = zoomMeetingFilterKey(meetingFilter);
-  // A changed filter or a longer lookback can include meetings the cursor has
-  // already moved past.
+  const approvedMeetingIds = zoomApprovedMeetingIds(objectValue(config.zoom));
+  const filterKey = zoomApprovedMeetingsKey(approvedMeetingIds);
+  // A changed allowlist or a longer lookback can include meetings the cursor
+  // has already moved past.
   const filterChanged = (cursor.filterKey ?? null) !== filterKey;
   const lookbackIncreased =
     lookbackDays > (cursor.lookbackDays ?? ZOOM_DEFAULT_LOOKBACK_DAYS);
@@ -3157,6 +3157,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     from,
     to,
     recordingListsScanned: 0,
+    approvedMeetingSeries: approvedMeetingIds.size,
     meetingsSeen: 0,
     meetingsSkippedByFilter: 0,
     transcriptsWithoutDownloadUrl: 0,
@@ -3179,8 +3180,7 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
   const pendingMeetingStarts: string[] = [];
   const summaryFailures: Array<{ meetingId: string; error: string }> = [];
   stats.summaryFetchFailures = summaryFailures;
-  // Meeting IDs and file types (titles only for matched meetings) show why a
-  // meeting did or did not import.
+  // Only approved meetings are described; unapproved ones are just counted.
   const matchedMeetings: Array<{
     id: string;
     topic: string | null;
@@ -3188,11 +3188,14 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
     files: string[];
     filesOmitted?: number;
   }> = [];
-  const skippedMeetings: Array<{ id: string; start: string }> = [];
   stats.matchedMeetings = matchedMeetings;
-  stats.skippedMeetings = skippedMeetings;
 
   try {
+    if (approvedMeetingIds.size === 0) {
+      throw new Error(
+        "Zoom source has no approved meeting series. Add the recurring meeting IDs whose owners opted in; Brain reads nothing from Zoom until then.",
+      );
+    }
     const accountId = await requireConnectorCredential(
       "ZOOM_ACCOUNT_ID",
       "Zoom",
@@ -3234,19 +3237,10 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       stats.recordingListsScanned = Number(stats.recordingListsScanned) + 1;
       stats.meetingsSeen = Number(stats.meetingsSeen) + listed.length;
       const meetings = listed.filter((meeting) =>
-        zoomMeetingMatchesFilter(meeting, meetingFilter),
+        isApprovedZoomMeeting(meeting.id, approvedMeetingIds),
       );
       stats.meetingsSkippedByFilter =
         Number(stats.meetingsSkippedByFilter) + listed.length - meetings.length;
-      for (const meeting of listed) {
-        if (skippedMeetings.length >= ZOOM_DIAGNOSTIC_LIMIT) break;
-        if (!zoomMeetingMatchesFilter(meeting, meetingFilter)) {
-          skippedMeetings.push({
-            id: String(meeting.id),
-            start: meeting.start_time,
-          });
-        }
-      }
       const imported = await importedZoomExternalIds(
         source.id,
         meetings.map(zoomExternalId),
@@ -3291,7 +3285,9 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
             "/meetings/{meetingUuid}/recordings",
             () => getZoomMeetingRecordings(token, meeting.uuid),
           );
-          recordingFiles = detail.recording_files ?? [];
+          recordingFiles = isApprovedZoomMeeting(detail.id, approvedMeetingIds)
+            ? (detail.recording_files ?? [])
+            : [];
         }
         const transcripts = recordingFiles.filter(
           (file): file is typeof file & { download_url: string } =>
@@ -3342,11 +3338,8 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
       stats.summariesListed = listed.length;
       const summaries = listed.filter(
         (summary) =>
-          zoomSummaryMatchesUsers(summary, configuredUserIds) &&
-          zoomMeetingMatchesFilter(
-            { id: summary.meeting_id, topic: summary.meeting_topic },
-            meetingFilter,
-          ),
+          isApprovedZoomMeeting(summary.meeting_id, approvedMeetingIds) &&
+          zoomSummaryMatchesUsers(summary, configuredUserIds),
       );
       stats.summariesSkippedByFilter = listed.length - summaries.length;
       const imported = await importedZoomExternalIds(
@@ -3387,6 +3380,12 @@ async function syncZoom(source: SourceRow): Promise<ConnectorSyncResult> {
           continue;
         }
         stats.summariesFetched = Number(stats.summariesFetched) + 1;
+        if (
+          summary.meeting_id !== undefined &&
+          !isApprovedZoomMeeting(summary.meeting_id, approvedMeetingIds)
+        ) {
+          continue;
+        }
         const normalized = normalizeZoomMeetingSummary({
           ...listedSummary,
           ...summary,

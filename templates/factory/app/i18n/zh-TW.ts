@@ -429,7 +429,11 @@ const messages = {
     automationSourceGithubHint: "Issue 與拉取請求。",
     automationSourceSentryHint: "未解決的錯誤。",
     automationSlackChannel: "Slack 頻道 ID",
-    automationSlackChannelDescription: "此工作輪詢的頻道。以 C 開頭。",
+    automationSlackChannelDescription:
+      "此工作讀取或用來發布彙整調查結果的 Slack 頻道。以 C 開頭。",
+    automationFindingsSlackChannel: "Slack 調查結果頻道",
+    automationFindingsSlackChannelDescription:
+      "符合條件的 GitHub 與 Sentry 發現會彙整為一則訊息傳送至此頻道。",
     automationRepository: "GitHub 儲存庫",
     automationRepositoryDescription: "此工作輪詢的 owner/repo。",
     automationSentryOrg: "Sentry 組織",

@@ -7,6 +7,7 @@ import {
   getThread as readThread,
   getTeamInfo as readTeamInfo,
   getUserInfo as readUserInfo,
+  postChannelMessage as writeChannelMessage,
   postThreadReply as writeThreadReply,
   type ChannelHistoryResult,
   type SlackAuthTestResult,
@@ -149,6 +150,14 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         text,
         tokenResolver,
       );
+    },
+    async postChannelMessage(
+      workspace: Workspace,
+      channelId: string,
+      text: string,
+    ): Promise<SlackPostMessageResult> {
+      await verifyAgentNativeIdentity(workspace);
+      return writeChannelMessage(workspace, channelId, text, tokenResolver);
     },
     async hasReaction(
       workspace: Workspace,
