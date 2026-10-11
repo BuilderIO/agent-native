@@ -655,44 +655,13 @@ export async function handleRecordingChunk(
         : null;
 
     let rejectWithoutStorage: boolean | null = null;
+    let storageStatusUnavailable = false;
     if (activeUpload && !pendingProcessingState && !resumableSession) {
       try {
         rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage();
       } catch (error) {
         if (!(error instanceof VideoStorageStatusUnavailableError)) throw error;
-
-        const [current] = await db
-          .select({
-            uploadAttemptId: schema.recordings.uploadAttemptId,
-            uploadGenerationId: schema.recordings.uploadGenerationId,
-          })
-          .from(schema.recordings)
-          .where(
-            and(
-              eq(schema.recordings.id, recordingId),
-              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-            ),
-          );
-        if (
-          !current ||
-          (current.uploadAttemptId ?? null) !== attemptId ||
-          (current.uploadGenerationId ?? null) !== uploadGenerationId
-        ) {
-          setResponseStatus(event, 409);
-          return {
-            ok: false,
-            error: "A newer upload retry is already active.",
-            staleAttempt: true,
-          };
-        }
-
-        setResponseStatus(event, 503);
-        return {
-          ok: false,
-          errorCode: "video_storage_status_unavailable",
-          retryable: true,
-          storageSetupRequired: false,
-        };
+        storageStatusUnavailable = true;
       }
     }
 
@@ -700,7 +669,7 @@ export async function handleRecordingChunk(
       attemptId,
       generationId: uploadGenerationId,
       uploadProgress:
-        total > 0
+        !storageStatusUnavailable && total > 0
           ? Math.min(100, Math.round(((index + 1) / total) * 100))
           : undefined,
     });
@@ -740,6 +709,16 @@ export async function handleRecordingChunk(
       return failedUploadResponse(
         lease.failureReason ?? "Recording upload has already failed.",
       );
+    }
+
+    if (storageStatusUnavailable) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        errorCode: "video_storage_status_unavailable",
+        retryable: true,
+        storageSetupRequired: false,
+      };
     }
 
     const rejectIfLeaseLost = async () => {

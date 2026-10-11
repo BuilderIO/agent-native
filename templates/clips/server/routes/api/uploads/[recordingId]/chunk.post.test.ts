@@ -488,7 +488,15 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     });
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 503);
-    expect(mockRenewUploadLease).not.toHaveBeenCalled();
+    expect(mockRenewUploadLease).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({
+        attemptId: null,
+        generationId: null,
+        uploadProgress: undefined,
+      }),
+    );
     expect(mockWriteAppState).not.toHaveBeenCalled();
     expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
     expect(mockTrack).not.toHaveBeenCalledWith(
@@ -498,10 +506,14 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
   });
 
-  it("rejects a superseded attempt before returning a storage-status error", async () => {
+  it("returns a stale-attempt conflict when storage status is unavailable", async () => {
     mockShouldRejectVideoUploadWithoutStorage.mockRejectedValueOnce(
       new MockVideoStorageStatusUnavailableError(),
     );
+    mockRenewUploadLease.mockResolvedValueOnce({
+      held: false,
+      staleAttempt: true,
+    });
     mockSelectRows.rows[0] = {
       ...mockSelectRows.rows[0],
       uploadAttemptId: "current-attempt",
@@ -526,7 +538,14 @@ describe("/api/uploads/:recordingId/chunk route", () => {
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockShouldRejectVideoUploadWithoutStorage).toHaveBeenCalledOnce();
-    expect(mockRenewUploadLease).not.toHaveBeenCalled();
+    expect(mockRenewUploadLease).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).toHaveBeenCalledWith(
+      "rec-1",
+      expect.objectContaining({
+        attemptId: "stale-attempt",
+        generationId: "generation-1",
+      }),
+    );
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
