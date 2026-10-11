@@ -9,6 +9,7 @@ import {
   detectReplayFriction,
   emptyReplayFrictionDetectorState,
   parseReplayFrictionDetectorState,
+  countReplayRageClicks,
 } from "./session-friction-detector";
 
 const click = (timestamp: number, id = 7) => ({
@@ -105,6 +106,24 @@ describe("detectReplayFriction", () => {
 
     const dead = detectReplayFriction([mouseMove(2_500)], first.state);
     expect(dead.delta.deadClicks).toBe(1);
+  });
+
+  it("counts a rage-click cluster that crosses upload batches exactly once", () => {
+    const first = detectReplayFriction([click(1_000), click(1_200)], null);
+    expect(first.delta.rageClicks).toBe(0);
+
+    const second = detectReplayFriction([click(1_400)], first.state);
+    expect(second.delta.rageClicks).toBe(1);
+
+    const third = detectReplayFriction([click(1_500)], second.state);
+    expect(third.delta.rageClicks).toBe(0);
+    expect(third.state.rageClickCount).toBe(1);
+  });
+
+  it("uses the same cluster rules for a single replay batch", () => {
+    expect(
+      countReplayRageClicks([click(1_000), click(1_200), click(1_400)]),
+    ).toBe(1);
   });
 
   it("counts Sonner error toasts, including a toast turned into an error", () => {
@@ -309,12 +328,31 @@ describe("parseReplayFrictionDetectorState", () => {
     );
   });
 
+  it("migrates pre-rage-click state without discarding its detector progress", () => {
+    const { state } = detectReplayFriction([click(1_000)], null);
+    const {
+      rageClickCluster: _cluster,
+      rageClickCount: _count,
+      ...legacy
+    } = state;
+    const migrated = parseReplayFrictionDetectorState(
+      JSON.stringify({ ...legacy, v: 1 }),
+    );
+    expect(migrated).toMatchObject({
+      v: 2,
+      pendingClickAt: state.pendingClickAt,
+      lastEventAt: state.lastEventAt,
+      rageClickCluster: null,
+      rageClickCount: null,
+    });
+  });
+
   it("returns null for state it cannot continue from", () => {
     expect(parseReplayFrictionDetectorState("{")).toBeNull();
     expect(parseReplayFrictionDetectorState("{}")).toBeNull();
     expect(
       parseReplayFrictionDetectorState(
-        JSON.stringify({ ...emptyReplayFrictionDetectorState(), v: 2 }),
+        JSON.stringify({ ...emptyReplayFrictionDetectorState(), v: 3 }),
       ),
     ).toBeNull();
     expect(

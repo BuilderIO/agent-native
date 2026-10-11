@@ -1793,6 +1793,9 @@ export default {
     presetWeekdays: "工作日 06:00",
     presetWeekly: "每周一 06:00",
     status: "状态",
+    unresolvedTrackingCallSites: "未解析的跟踪调用",
+    dynamicTrackingCoverageCaveat:
+      "事件名称在运行时计算的调用不会纳入索引；别名或其他跟踪 API 可能无法检测。",
     overviewFailed: "无法加载构建状态。",
     build: "构建",
     building: "正在构建…",

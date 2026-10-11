@@ -24,7 +24,7 @@ exits with an error before running or scoring any case.
 
 ## Synthetic source and grain cases
 
-`production-source-cases.eval.ts` adds four synthetic questions. They ask for
+`production-source-cases.eval.ts` adds six synthetic questions. They ask for
 model selection and declared grain only; they do not use captured prompts,
 people, identifiers, event rows, or production result values. Their scorer
 rejects failed or aborted runs, email-shaped output, and calls outside the
@@ -33,10 +33,18 @@ production adapter and the shared production agent loop.
 
 The expected source contracts are:
 
-- Builder.io users by organization: `dbt_mart.dim_users_core` at user grain,
+- Builder.io user roster: `dbt_mart.dim_users_core` at user grain,
   `dbt_mart.dim_organizations` at organization grain, joined through
-  `dbt_intermediate.user_organization_role` or
-  `dbt_mapping.user_id_to_org_id` at membership grain.
+  `dbt_intermediate.user_organization_role` at user-organization membership
+  grain. The nonexistent `dbt_mapping.user_id_to_org_id` is not an accepted
+  alternative.
+- Builder.io current and historical counts: `dbt_mart.organization_user_count`
+  is one row per organization per date; `dbt_mart.aggregate_monthly_users_per_org`
+  is one row per organization per month.
+- Builder.io month-end employee split: `aggregate_monthly_users_per_org.user_count`
+  excludes `@builder.io` addresses and `internal_user_count` counts them. This
+  email-domain rule is specific to that historical model; it is not a generic
+  spam, employment, or active-user definition.
 - Builder.io product activity: `fact_builder_activity`, using its dbt-declared
   activity fact grain rather than a user or organization dimension.
 - Agent-Native accounts and telemetry: `dim_agent_native_users` for accounts

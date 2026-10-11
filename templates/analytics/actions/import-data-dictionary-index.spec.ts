@@ -36,6 +36,7 @@ function sourceIndexBundle(scanSummary?: {
   unsafeEntriesOmitted: number;
   unsafeFieldsOmitted: number;
   truncatedFields: number;
+  unresolvedTrackingCallSites?: number;
 }) {
   return {
     schemaVersion: 1,
@@ -67,6 +68,7 @@ describe("import-data-dictionary-index", () => {
     expect(result).toMatchObject({
       entryCount: 1,
       scanSummary: null,
+      unresolvedTrackingCallSites: 0,
       message: expect.stringContaining(
         "Scan quality counts are unavailable for this bundle",
       ),
@@ -81,6 +83,7 @@ describe("import-data-dictionary-index", () => {
           unsafeEntriesOmitted: 2,
           unsafeFieldsOmitted: 3,
           truncatedFields: 4,
+          unresolvedTrackingCallSites: 5,
         }),
       },
       {} as never,
@@ -91,8 +94,31 @@ describe("import-data-dictionary-index", () => {
         unsafeEntriesOmitted: 2,
         unsafeFieldsOmitted: 3,
         truncatedFields: 4,
+        unresolvedTrackingCallSites: 5,
       },
+      unresolvedTrackingCallSites: 5,
       message: expect.stringContaining("omitted 2 unsafe entries"),
+    });
+  });
+
+  it("defaults unresolved counts for bundles with older scan summaries", async () => {
+    const result = await action.run(
+      {
+        bundle: sourceIndexBundle({
+          unsafeEntriesOmitted: 2,
+          unsafeFieldsOmitted: 3,
+          truncatedFields: 4,
+        }),
+      },
+      {} as never,
+    );
+
+    expect(result).toMatchObject({
+      scanSummary: { unresolvedTrackingCallSites: 0 },
+      unresolvedTrackingCallSites: 0,
+      message: expect.stringContaining(
+        "found 0 tracking call sites with unresolved event names",
+      ),
     });
   });
 });

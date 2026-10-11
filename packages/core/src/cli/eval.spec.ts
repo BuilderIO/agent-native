@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fsMock = vi.hoisted(() => ({
@@ -5,7 +7,7 @@ const fsMock = vi.hoisted(() => ({
   writeFile: vi.fn(async () => undefined),
   rename: vi.fn(async () => undefined),
   rm: vi.fn(async () => undefined),
-  readFile: vi.fn(async () => {
+  readFile: vi.fn(async (..._args: unknown[]): Promise<string> => {
     throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
   }),
 }));
@@ -158,6 +160,25 @@ describe("parseEvalArgs", () => {
     });
   });
 
+  it("parses reviewed prompt and history file inputs", () => {
+    expect(
+      parseEvalArgs([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+        "--reviewed-history-file",
+        "reviewed-history.json",
+      ]),
+    ).toEqual({
+      command: "promote",
+      runId: "run-1",
+      reviewedPromptFile: "reviewed-prompt.txt",
+      reviewedHistoryFile: "reviewed-history.json",
+      json: false,
+    });
+  });
+
   it("refuses promote --write without a runId", () => {
     const exit = vi.spyOn(process, "exit").mockImplementation(((
       code?: number,
@@ -197,7 +218,31 @@ describe("parseEvalArgs", () => {
     ).toThrow("process.exit(2)");
     expect(exit).toHaveBeenCalledWith(2);
     expect(error).toHaveBeenCalledWith(
-      "eval promote: --reviewed-prompt is required and must not be empty",
+      "eval promote: provide exactly one of --reviewed-prompt or --reviewed-prompt-file",
+    );
+  });
+
+  it("requires exactly one reviewed prompt source", () => {
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((code?: number) => {
+        throw new Error(`process.exit(${code})`);
+      });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() =>
+      parseEvalArgs([
+        "promote",
+        "run-1",
+        "--reviewed-prompt",
+        "show active users daily",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+      ]),
+    ).toThrow("process.exit(2)");
+    expect(exit).toHaveBeenCalledWith(2);
+    expect(error).toHaveBeenCalledWith(
+      "eval promote: provide exactly one of --reviewed-prompt or --reviewed-prompt-file",
     );
   });
 
@@ -349,6 +394,75 @@ describe("runPromote", () => {
     });
     expect(String(fsMock.writeFile.mock.calls[0]?.[1])).not.toContain("run-1");
     expect(target).toMatch(/from-trace\.eval\.ts$/);
+  });
+
+  it("reads reviewed prompt and history files without logging their contents", async () => {
+    const history = [
+      { role: "user", text: "show recent active users" },
+      { role: "assistant", text: "I can review the user trend" },
+    ];
+    fsMock.readFile.mockImplementation(async (filePath) => {
+      if (String(filePath) === path.resolve("reviewed-prompt.txt")) {
+        return "show active users daily";
+      }
+      if (String(filePath) === path.resolve("reviewed-history.json")) {
+        return JSON.stringify(history);
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+        "--reviewed-history-file",
+        "reviewed-history.json",
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+
+    expect(promotion.loadTraceEvalPromotion).toHaveBeenCalledWith(
+      {
+        runId: "run-1",
+        reviewedPrompt: "show active users daily",
+        reviewedHistory: history,
+        mustContain: undefined,
+        datasetName: undefined,
+      },
+      { userId: "alice@example.com" },
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringContaining("show active users daily"),
+    );
+  });
+
+  it("rejects a malformed reviewed history file before promotion", async () => {
+    fsMock.readFile.mockImplementation(async (filePath) => {
+      if (String(filePath) === path.resolve("reviewed-prompt.txt")) {
+        return "show active users daily";
+      }
+      if (String(filePath) === path.resolve("reviewed-history.json")) {
+        return JSON.stringify([{ role: "system", text: "hidden" }]);
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    await expect(
+      runEval([
+        "promote",
+        "run-1",
+        "--reviewed-prompt-file",
+        "reviewed-prompt.txt",
+        "--reviewed-history-file",
+        "reviewed-history.json",
+      ]),
+    ).rejects.toThrow("process.exit(1)");
+    expect(promotion.loadTraceEvalPromotion).not.toHaveBeenCalled();
+    expect(promotion.persistPromotedEvalDataset).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("Reviewed history entries must have a"),
+    );
   });
 
   it("does not persist when --write fails", async () => {

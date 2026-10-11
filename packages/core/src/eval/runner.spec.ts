@@ -979,6 +979,41 @@ describe("runEvalSuite runner creation", () => {
     },
   );
 
+  it("reports an aborted production adapter run as a failed eval", async () => {
+    const evalCase = defineEval({
+      name: "aborted-production-adapter",
+      input: { prompt: "find active users" },
+      scorers: [contains("active users")],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async () => {
+      throw new Error("request aborted");
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+      results: [
+        {
+          status: "failed",
+          passed: false,
+          error: "request aborted",
+        },
+      ],
+    });
+  });
+
   it("persists eval results by default", async () => {
     const e = defineEval({
       name: "local-only",

@@ -42,9 +42,24 @@ export const ERROR_THEN_LEAVE_WINDOW_MS = 30_000;
 const XHR_ABORTED = "XMLHttpRequest aborted";
 const MAX_TRACKED_REQUEST_KEYS = 50;
 const MAX_TRACKED_TOAST_IDS = 50;
+const RAGE_CLICK_MIN_CLICKS = 3;
+const RAGE_CLICK_WINDOW_MS = 1_000;
+const RAGE_CLICK_RADIUS_PX = 30;
+
+interface ReplayClickPoint {
+  at: number;
+  x: number;
+  y: number;
+  target: number | null;
+}
+
+interface ReplayRageClickCluster extends ReplayClickPoint {
+  size: number;
+  counted: boolean;
+}
 
 export interface ReplayFrictionDetectorState {
-  v: 1;
+  v: 2;
   /**
    * Never counted when the recording ends with it still pending: the click
    * that ends a recording is usually the one that left the page.
@@ -55,10 +70,14 @@ export interface ReplayFrictionDetectorState {
   lastErrorAt: number | null;
   failures: Record<string, { n: number; at: number; counted: boolean }>;
   toastIds: number[];
+  rageClickCluster: ReplayRageClickCluster | null;
+  /** Null only when migrating state written before rage-click progress existed. */
+  rageClickCount: number | null;
 }
 
 export interface ReplayFrictionDelta {
   deadClicks: number;
+  rageClicks: number;
   errorToasts: number;
   retryLoops: number;
   stalledRequests: number;
@@ -75,13 +94,15 @@ export interface ReplayFrictionDelta {
 
 export function emptyReplayFrictionDetectorState(): ReplayFrictionDetectorState {
   return {
-    v: 1,
+    v: 2,
     pendingClickAt: null,
     lastFocus: null,
     lastEventAt: null,
     lastErrorAt: null,
     failures: {},
     toastIds: [],
+    rageClickCluster: null,
+    rageClickCount: 0,
   };
 }
 
@@ -122,7 +143,7 @@ export function parseReplayFrictionDetectorState(
     return null;
   }
   const state = record(parsed);
-  if (state.v !== 1) return null;
+  if (state.v !== 1 && state.v !== 2) return null;
   if (
     !nullableNumber(state.pendingClickAt) ||
     !nullableNumber(state.lastEventAt) ||
@@ -150,7 +171,121 @@ export function parseReplayFrictionDetectorState(
       return null;
     }
   }
-  return state as unknown as ReplayFrictionDetectorState;
+  let rageClickCluster: ReplayRageClickCluster | null = null;
+  let rageClickCount: number | null = null;
+  if (state.v === 2) {
+    const rawCluster = state.rageClickCluster;
+    if (rawCluster !== null) {
+      const cluster = record(rawCluster);
+      if (
+        finiteNumber(cluster.at) === null ||
+        finiteNumber(cluster.x) === null ||
+        finiteNumber(cluster.y) === null ||
+        !(cluster.target === null || finiteNumber(cluster.target) !== null) ||
+        !Number.isInteger(cluster.size) ||
+        Number(cluster.size) < 1 ||
+        Number(cluster.size) > RAGE_CLICK_MIN_CLICKS ||
+        typeof cluster.counted !== "boolean"
+      ) {
+        return null;
+      }
+      rageClickCluster = {
+        at: Number(cluster.at),
+        x: Number(cluster.x),
+        y: Number(cluster.y),
+        target: cluster.target as number | null,
+        size: Number(cluster.size),
+        counted: cluster.counted,
+      };
+    }
+    if (
+      finiteNumber(state.rageClickCount) === null ||
+      Number(state.rageClickCount) < 0 ||
+      !Number.isInteger(state.rageClickCount)
+    ) {
+      return null;
+    }
+    rageClickCount = Number(state.rageClickCount);
+  }
+  return {
+    v: 2,
+    pendingClickAt: state.pendingClickAt as number | null,
+    lastFocus: focus as { id: number; at: number } | null,
+    lastEventAt: state.lastEventAt as number | null,
+    lastErrorAt: state.lastErrorAt as number | null,
+    failures: failures as Record<
+      string,
+      { n: number; at: number; counted: boolean }
+    >,
+    toastIds: state.toastIds as number[],
+    rageClickCluster,
+    rageClickCount,
+  };
+}
+
+function replayClickPoint(
+  event: Record<string, unknown>,
+): ReplayClickPoint | null {
+  if (finiteNumber(event.type) !== RRWEB_INCREMENTAL_SNAPSHOT) return null;
+  const data = record(event.data);
+  if (!isClick(data)) return null;
+  const at = finiteNumber(event.timestamp);
+  if (at === null) return null;
+  return {
+    at,
+    x: finiteNumber(data.x) ?? 0,
+    y: finiteNumber(data.y) ?? 0,
+    target: finiteNumber(data.id),
+  };
+}
+
+function sameRageClickTarget(
+  cluster: ReplayClickPoint,
+  click: ReplayClickPoint,
+): boolean {
+  if (cluster.target !== null && click.target !== null) {
+    return cluster.target === click.target;
+  }
+  return (
+    Math.abs(cluster.x - click.x) <= RAGE_CLICK_RADIUS_PX &&
+    Math.abs(cluster.y - click.y) <= RAGE_CLICK_RADIUS_PX
+  );
+}
+
+function countRageClick(
+  state: ReplayFrictionDetectorState,
+  event: Record<string, unknown>,
+): boolean {
+  const click = replayClickPoint(event);
+  if (!click) return false;
+  const cluster = state.rageClickCluster;
+  if (
+    cluster &&
+    click.at - cluster.at <= RAGE_CLICK_WINDOW_MS &&
+    click.at >= cluster.at &&
+    sameRageClickTarget(cluster, click)
+  ) {
+    cluster.at = click.at;
+    if (!cluster.counted) cluster.size += 1;
+    if (!cluster.counted && cluster.size === RAGE_CLICK_MIN_CLICKS) {
+      cluster.counted = true;
+      state.rageClickCount = (state.rageClickCount ?? 0) + 1;
+      return true;
+    }
+    return false;
+  }
+  state.rageClickCluster = { ...click, size: 1, counted: false };
+  return false;
+}
+
+/** Counts completed rage-click clusters in one batch without prior state. */
+export function countReplayRageClicks(events: readonly unknown[]): number {
+  const state = emptyReplayFrictionDetectorState();
+  let count = 0;
+  for (const raw of events) {
+    if (countRageClick(state, record(raw))) count += 1;
+  }
+  return count;
 }
 
 function requestKey(method: unknown, url: unknown): string {
@@ -243,6 +378,7 @@ export function detectReplayFriction(
     : emptyReplayFrictionDetectorState();
   const delta: ReplayFrictionDelta = {
     deadClicks: 0,
+    rageClicks: 0,
     errorToasts: 0,
     retryLoops: 0,
     stalledRequests: 0,
@@ -258,6 +394,7 @@ export function detectReplayFriction(
     if (type === null || at === null) continue;
     const data = record(event.data);
     state.lastEventAt = Math.max(state.lastEventAt ?? at, at);
+    if (countRageClick(state, event)) delta.rageClicks += 1;
 
     if (
       state.pendingClickAt !== null &&
@@ -337,6 +474,8 @@ export function detectReplayFriction(
     }
     trimFailures(state);
   }
+
+  state.rageClickCount = (previous?.rageClickCount ?? 0) + delta.rageClicks;
 
   // The last event so far came soon after an error. That means the person
   // left only once the recording has ended; before that, it is just the

@@ -39,6 +39,31 @@ describe("sourceIndexFreshness", () => {
   });
 });
 
+describe("parseSourceIndexBundle scan summary compatibility", () => {
+  it("defaults unresolved call-site counts for earlier uploaded summaries", () => {
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-09T12:00:00.000Z",
+      sources: [{ id: "dbt", revision: "abcdef123456" }],
+      entries: [
+        {
+          id: "model-users",
+          metric: "model:users",
+          definition: "User profile records.",
+          source: "dbt",
+        },
+      ],
+      scanSummary: {
+        unsafeEntriesOmitted: 1,
+        unsafeFieldsOmitted: 2,
+        truncatedFields: 3,
+      },
+    });
+
+    expect(bundle.scanSummary?.unresolvedTrackingCallSites).toBe(0);
+  });
+});
+
 describe("sourceIndexDictionaryEntries", () => {
   it("leaves unknown scope unset so search can infer it from the source", () => {
     const bundle = parseSourceIndexBundle({

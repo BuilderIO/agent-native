@@ -3286,6 +3286,8 @@ describe("session replay ingest parsing", () => {
         newChunks: [{ seq: 1, inlineData: input.chunks[0]!.inlineData }],
         errorCount: 2,
         rageClickCount: 1,
+        rageClickDelta: 0,
+        rageClickCountOverridden: false,
         recordingEnded: false,
       }),
     );

@@ -72,6 +72,7 @@ import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
 } from "./session-event-index.js";
+import { countReplayRageClicks } from "./session-friction-detector.js";
 import {
   finalizeReplayFriction,
   getSessionFrictionCoverageStart,
@@ -1024,74 +1025,6 @@ function replayConsoleRepeat(payload: Record<string, unknown>): number {
 }
 
 const RRWEB_INCREMENTAL_SNAPSHOT = 3;
-const RRWEB_MOUSE_INTERACTION_SOURCE = 2;
-const RRWEB_MOUSE_CLICK = 2;
-const RAGE_CLICK_MIN_CLICKS = 3;
-const RAGE_CLICK_WINDOW_MS = 1_000;
-const RAGE_CLICK_RADIUS_PX = 30;
-
-interface ReplayClickPoint {
-  at: number;
-  x: number;
-  y: number;
-  target: number | null;
-}
-
-function replayClickPoint(event: unknown): ReplayClickPoint | null {
-  const record = replayRecord(event);
-  if (replayInteger(record.type) !== RRWEB_INCREMENTAL_SNAPSHOT) return null;
-  const data = replayRecord(record.data);
-  if (replayInteger(data.source) !== RRWEB_MOUSE_INTERACTION_SOURCE)
-    return null;
-  if (replayInteger(data.type) !== RRWEB_MOUSE_CLICK) return null;
-  const at = replayInteger(record.timestamp);
-  if (at === null) return null;
-  return {
-    at,
-    x: replayInteger(data.x) ?? 0,
-    y: replayInteger(data.y) ?? 0,
-    target: replayInteger(data.id),
-  };
-}
-
-function sameRageClickTarget(
-  cluster: ReplayClickPoint,
-  click: ReplayClickPoint,
-): boolean {
-  if (cluster.target !== null && click.target !== null) {
-    return cluster.target === click.target;
-  }
-  return (
-    Math.abs(cluster.x - click.x) <= RAGE_CLICK_RADIUS_PX &&
-    Math.abs(cluster.y - click.y) <= RAGE_CLICK_RADIUS_PX
-  );
-}
-
-function countRageClicks(events: unknown[]): number {
-  let rageClicks = 0;
-  let cluster: ReplayClickPoint | null = null;
-  let clusterSize = 0;
-  for (const event of events) {
-    const click = replayClickPoint(event);
-    if (!click) continue;
-    const active = cluster;
-    if (
-      active &&
-      click.at - active.at <= RAGE_CLICK_WINDOW_MS &&
-      click.at >= active.at &&
-      sameRageClickTarget(active, click)
-    ) {
-      clusterSize += 1;
-      active.at = click.at;
-      if (clusterSize === RAGE_CLICK_MIN_CLICKS) rageClicks += 1;
-      continue;
-    }
-    cluster = click;
-    clusterSize = 1;
-  }
-  return rageClicks;
-}
-
 function deriveReplaySignals({
   body,
   metadata,
@@ -1176,7 +1109,7 @@ function deriveReplaySignals({
         body.rageClicks,
         metadata.rageClickCount,
         metadata.rageClicks,
-      ) ?? countRageClicks(events),
+      ) ?? countReplayRageClicks(events),
     privacyMode:
       replayString(body.privacyMode) ||
       replayString(body.privacy_mode) ||
@@ -2126,6 +2059,11 @@ export async function recordSessionReplayChunks(
       .map((chunk) => ({ seq: chunk.seq, inlineData: chunk.inlineData })),
     errorCount,
     rageClickCount,
+    rageClickDelta:
+      signalOverrides.rageClickCount === undefined
+        ? signalDeltas.rageClickCount
+        : 0,
+    rageClickCountOverridden: signalOverrides.rageClickCount !== undefined,
     recordingEnded,
     readStoredChunks: storedReplayChunkReader(recording.id),
     ingestedAt,
