@@ -228,6 +228,49 @@ describe("onboarding plugin routes", () => {
     expect(result.body).toEqual({ error: "credential store unavailable" });
   });
 
+  it("propagates completion failures so callers can retry", async () => {
+    registerOnboardingStep({
+      id: "storage",
+      order: 10,
+      title: "Connect storage",
+      description: "Requires configured file storage.",
+      methods: [],
+      isComplete: () => {
+        throw new Error("storage status unavailable");
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "storage status unavailable" });
+  });
+
+  it("does not turn completion failures into incomplete dismissed status", async () => {
+    registerOnboardingStep({
+      id: "storage",
+      order: 10,
+      title: "Connect storage",
+      description: "Requires configured file storage.",
+      methods: [],
+      isComplete: () => {
+        throw new Error("storage status unavailable");
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/dismissed",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "storage status unavailable" });
+  });
+
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
     registerRequestContextProbeStep();
     appStateGetMock.mockImplementation(async (_sessionId, key) =>

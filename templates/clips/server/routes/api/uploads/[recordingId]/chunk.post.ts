@@ -58,6 +58,7 @@ import {
   allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
+  VideoStorageStatusUnavailableError,
 } from "../../../../lib/video-storage.js";
 
 const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECORDING_UPLOAD_BYTES / (1024 * 1024))} MB size limit. Please record a shorter clip.`;
@@ -794,7 +795,20 @@ export async function handleRecordingChunk(
       );
     }
 
-    if (await shouldRejectVideoUploadWithoutStorage()) {
+    let rejectWithoutStorage: boolean;
+    try {
+      rejectWithoutStorage = await shouldRejectVideoUploadWithoutStorage();
+    } catch (error) {
+      if (!(error instanceof VideoStorageStatusUnavailableError)) throw error;
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        errorCode: "video_storage_status_unavailable",
+        retryable: true,
+        storageSetupRequired: false,
+      };
+    }
+    if (rejectWithoutStorage) {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
       if (

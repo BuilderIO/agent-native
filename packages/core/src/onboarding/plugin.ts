@@ -98,11 +98,7 @@ async function serializeSteps(
       }
       let complete = false;
       if (!options.preview) {
-        try {
-          complete = (await step.isComplete(context)) === true;
-        } catch {
-          complete = false;
-        }
+        complete = (await step.isComplete(context)) === true;
         if (!complete) {
           complete = await hasOverride(context.sessionId, step.id);
         }
@@ -267,24 +263,21 @@ export function createOnboardingPlugin(
           return { error: "Method not allowed" };
         }
         const context = await resolveOnboardingContext(event);
-        try {
-          return await withOnboardingRequestContext(context, async () => {
-            const [value, statuses] = await Promise.all([
-              appStateGet(context.sessionId, DISMISSED_KEY),
-              serializeSteps(context),
-            ]);
-            const dismissed = !!(
+        return withOnboardingRequestContext(context, async () => {
+          const [statuses, value] = await Promise.all([
+            serializeSteps(context),
+            appStateGet(context.sessionId, DISMISSED_KEY).catch((error) => {
+              if (error instanceof CredentialStoreUnavailableError) throw error;
+              return null;
+            }),
+          ]);
+          return {
+            dismissed: !!(
               value && (value as { dismissed?: boolean }).dismissed
-            );
-            return {
-              dismissed,
-              allComplete: allRequiredComplete(statuses),
-            };
-          });
-        } catch (error) {
-          if (error instanceof CredentialStoreUnavailableError) throw error;
-          return { dismissed: false, allComplete: false };
-        }
+            ),
+            allComplete: allRequiredComplete(statuses),
+          };
+        });
       }),
     );
 
