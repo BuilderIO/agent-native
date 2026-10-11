@@ -1927,6 +1927,7 @@ export default {
     presetWeekly: "Semanal los lunes a las 06:00",
     status: "Estado",
     unresolvedTrackingCallSites: "Llamadas de seguimiento sin resolver",
+    unresolvedTrackingCallSitesUnavailable: "No disponible",
     dynamicTrackingCoverageCaveat:
       "Se excluyen las llamadas cuyos nombres de evento se calculan en tiempo de ejecución; es posible que no se detecten alias u otras API de seguimiento.",
     overviewFailed: "No se pudo cargar el estado de la compilación.",

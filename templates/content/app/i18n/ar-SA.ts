@@ -789,7 +789,6 @@ const editor = {
     linkToNotionPage: "رابط إلى صفحة الفكرة",
     localFile: "الملف المحلي",
     morePageActions: "المزيد من إجراءات الصفحة",
-    formatting: "التنسيق",
     noPagesFound: "لم يتم العثور على صفحات",
     notifications: "الإخطارات",
     notionSync: "مزامنة الفكرة",

@@ -1790,6 +1790,7 @@ export default {
     presetWeekly: "每週一 06:00",
     status: "狀態",
     unresolvedTrackingCallSites: "未解析的追蹤呼叫",
+    unresolvedTrackingCallSitesUnavailable: "無法使用",
     dynamicTrackingCoverageCaveat:
       "事件名稱在執行階段計算的呼叫不會納入索引；別名或其他追蹤 API 可能無法偵測。",
     overviewFailed: "無法載入建置狀態。",

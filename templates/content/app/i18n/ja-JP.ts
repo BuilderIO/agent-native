@@ -801,7 +801,6 @@ const editor = {
     linkToNotionPage: "Notionページへのリンク",
     localFile: "ローカルファイル",
     morePageActions: "その他のページアクション",
-    formatting: "書式",
     noPagesFound: "ページが見つかりませんでした",
     notifications: "通知",
     notionSync: "Notionの同期",

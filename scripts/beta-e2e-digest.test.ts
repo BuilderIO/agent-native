@@ -1602,10 +1602,118 @@ describe("full report and Slack rollup", () => {
 });
 
 describe("scheduled workflow state recovery", () => {
-  it("does not fall back after the latest completed run lacks a state artifact", () => {
+  it("serializes report state writers and marks only full-suite callers as baseline writers", () => {
+    const root = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+    );
+    const report = parse(
+      readFileSync(
+        path.join(root, ".github/workflows/beta-e2e-report.yml"),
+        "utf8",
+      ),
+    ) as {
+      jobs?: { report?: { concurrency?: { group?: string; queue?: string } } };
+    };
+    assert.deepEqual(report.jobs?.report?.concurrency, {
+      group: "beta-e2e-report-${{ github.repository }}",
+      queue: "max",
+    });
+
+    const scheduled = readFileSync(
+      path.join(root, ".github/workflows/beta-e2e-scheduled.yml"),
+      "utf8",
+    );
+    const direct = readFileSync(
+      path.join(root, ".github/workflows/beta-e2e.yml"),
+      "utf8",
+    );
+    const production = readFileSync(
+      path.join(root, ".github/workflows/deploy-production-sites-prebuilt.yml"),
+      "utf8",
+    );
+    const shipAndMonitor = readFileSync(
+      path.join(root, ".agents/skills/ship-and-monitor/SKILL.md"),
+      "utf8",
+    );
+    assert.match(scheduled, /update_baseline: true/);
+    assert.match(
+      direct,
+      /update_baseline: \$\{\{ inputs\.apps == 'all' && inputs\.lane == 'public\+authed' && inputs\.grep == '' \}\}/,
+    );
+    assert.match(production, /update_baseline: false/);
+    assert.match(shipAndMonitor, /workflow run signup-e2e-scheduled\.yml/);
+    assert.doesNotMatch(
+      shipAndMonitor,
+      /lane=signup|signup_apps|signup_environments/,
+    );
+  });
+
+  it("filters unrelated production jobs out of beta E2E report metadata", () => {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../.github/workflows/beta-e2e-scheduled.yml",
+      "../.github/workflows/beta-e2e-report.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const collectStep = workflow.jobs?.report?.steps?.find(
+      (step) =>
+        step.name ===
+        "Collect run data and restore the previous state artifact",
+    );
+    assert.ok(collectStep?.run);
+    const match = collectStep.run.match(
+      /jq -s '([\s\S]+?)'\s+"\$REPORT_DIR\/jobs\.ndjson"/,
+    );
+    assert.ok(match?.[1], "job collection must filter to beta E2E job names");
+
+    const jobs = [
+      {
+        id: 1,
+        name: "Resolve production source commit",
+        conclusion: "failure",
+      },
+      { id: 2, name: "Beta E2E pre-flight", conclusion: "failure" },
+      {
+        id: 3,
+        name: "Beta E2E pre-flight / slides public sweep",
+        conclusion: "success",
+      },
+      {
+        id: 4,
+        name: "Beta E2E pre-flight / Authenticated design",
+        conclusion: "failure",
+      },
+      {
+        id: 5,
+        name: "Report production Beta E2E pre-flight status",
+        conclusion: "failure",
+      },
+      { id: 6, name: "Discover production sites", conclusion: "failure" },
+      {
+        id: 7,
+        name: "slides production prebuilt deploy",
+        conclusion: "failure",
+      },
+    ];
+    const result = spawnSync("jq", ["-s", match[1]], {
+      encoding: "utf8",
+      input: jobs.map((job) => JSON.stringify(job)).join("\n"),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(
+      JSON.parse(result.stdout).jobs,
+      jobs.slice(1, 2).concat(jobs.slice(2, 4)),
+    );
+  });
+
+  it("does not fall back after the latest prior report run lacks a state artifact", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-report.yml",
     );
     const workflow = parse(readFileSync(workflowPath, "utf8")) as {
       jobs?: {
@@ -1639,8 +1747,23 @@ const args = process.argv.slice(2);
 fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + "\\n");
 if (args[0] === "api") {
   const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
-  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs?")) {
-    process.stdout.write("1999\\n1998\\n");
+  if (endpoint.includes("/workflows/deploy-production-sites-prebuilt.yml/runs")) {
+    process.stdout.write("2026-10-03T00:00:00Z\\t2001\\n");
+    process.exit(0);
+  }
+  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs")) {
+    process.stdout.write("2026-10-02T00:00:00Z\\t1999\\n2026-10-01T00:00:00Z\\t1998\\n");
+    process.exit(0);
+  }
+  if (endpoint.includes("/workflows/beta-e2e.yml/runs")) {
+    process.stdout.write("2026-10-02T12:00:00Z\\t2002\\n");
+    process.exit(0);
+  }
+  if (endpoint.includes("/runs/2001/jobs?per_page=100")) {
+    process.stdout.write(JSON.stringify({ name: "Report production Beta E2E pre-flight status", conclusion: "skipped" }));
+    process.exit(0);
+  }
+  if (endpoint.includes("/runs/2002/jobs?per_page=100")) {
     process.exit(0);
   }
   if (endpoint.includes("/runs/1999/artifacts?")) {
@@ -1675,6 +1798,7 @@ process.exit(2);
           REPORT_DIR: reportDir,
           RUN_ID: "2000",
           REPO: "acme/repo",
+          GITHUB_REF_NAME: "main",
           GITHUB_OUTPUT: outputPath,
           GH_CALL_LOG: callLog,
         },
@@ -1699,12 +1823,267 @@ process.exit(2);
       );
       assert.match(
         readFileSync(path.join(reportDir, "notes.txt"), "utf8"),
-        /latest prior completed run 1999 has no unexpired state artifact/,
+        /latest prior beta E2E report run 1999 has no unexpired state artifact/,
+      );
+      assert.ok(
+        readFileSync(callLog, "utf8").includes("/runs/2002/jobs?per_page=100"),
+      );
+      assert.ok(
+        !readFileSync(callLog, "utf8").includes("/runs/2002/artifacts?"),
+      );
+      assert.match(
+        readFileSync(callLog, "utf8"),
+        /\/runs\/2001\/jobs\?per_page=100/,
+      );
+      assert.doesNotMatch(
+        readFileSync(callLog, "utf8"),
+        /\/runs\/2001\/artifacts\?/,
       );
       assert.doesNotMatch(
         readFileSync(callLog, "utf8"),
         /\/runs\/1998\/artifacts/,
       );
+      const historyCalls = readFileSync(callLog, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as string[])
+        .filter((args) =>
+          args.some((arg) => arg.includes("/actions/workflows/")),
+        );
+      assert.ok(historyCalls.length > 0);
+      assert.ok(
+        historyCalls.every(
+          (args) =>
+            args.includes("--method") &&
+            args[args.indexOf("--method") + 1] === "GET",
+        ),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restores state from opted-in production pre-flight reports and skips pre-flights that did not run", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-report.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const collectStep = workflow.jobs?.report?.steps?.find(
+      (step) =>
+        step.name ===
+        "Collect run data and restore the previous state artifact",
+    );
+    assert.ok(collectStep?.run);
+    const recoveryStart = collectStep.run.indexOf("runs_file=");
+    assert.notEqual(recoveryStart, -1);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-production-state-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      writeFileSync(path.join(reportDir, "notes.txt"), "");
+      const bin = path.join(root, "bin");
+      mkdirSync(bin);
+      const callLog = path.join(root, "gh-calls.ndjson");
+      const ghPath = path.join(bin, "gh");
+      writeFileSync(
+        ghPath,
+        [
+          "#!/usr/bin/env node",
+          'const fs = require("node:fs");',
+          'const path = require("node:path");',
+          "const args = process.argv.slice(2);",
+          'fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + "\\n");',
+          'if (args[0] === "api") {',
+          '  const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";',
+          '  if (endpoint.includes("/workflows/deploy-production-sites-prebuilt.yml/runs")) {',
+          '    process.stdout.write("2026-10-03T00:00:00Z\\t2001\\n2026-10-02T00:00:00Z\\t2002\\n");',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs") || endpoint.includes("/workflows/beta-e2e.yml/runs")) process.exit(0);',
+          '  if (endpoint.includes("/runs/2001/jobs?per_page=100")) {',
+          '    process.stdout.write(JSON.stringify({ name: "Report production Beta E2E pre-flight status", conclusion: "skipped" }));',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/runs/2002/jobs?per_page=100")) {',
+          '    process.stdout.write(JSON.stringify({ name: "Report production Beta E2E pre-flight status", conclusion: "success" }));',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/runs/2002/artifacts?")) {',
+          '    process.stdout.write(JSON.stringify({ artifacts: [{ name: "beta-e2e-digest-2002-1", created_at: "2026-10-02T00:00:00Z", expired: false }] }));',
+          "    process.exit(0);",
+          "  }",
+          "}",
+          'if (args[0] === "run" && args[1] === "download") {',
+          '  const dir = args[args.indexOf("--dir") + 1];',
+          '  const artifactDir = path.join(dir, "artifact");',
+          "  fs.mkdirSync(artifactDir, { recursive: true });",
+          '  fs.writeFileSync(path.join(artifactDir, "state.json"), "production state");',
+          "  process.exit(0);",
+          "}",
+          'process.stderr.write("Unexpected fake gh command: " + JSON.stringify(args));',
+          "process.exit(2);",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(ghPath, 0o755);
+      const outputPath = path.join(root, "github-output.txt");
+      writeFileSync(outputPath, "");
+      const shell = [
+        "metadata_incomplete=false",
+        "current_data_incomplete=false",
+        "previous_state_artifact_missing=false",
+        'note() { echo "$1" >> "$REPORT_DIR/notes.txt"; }',
+        collectStep.run.slice(recoveryStart),
+      ].join("\n");
+      const result = spawnSync("bash", ["-euo", "pipefail", "-c", shell], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: bin + path.delimiter + (process.env.PATH ?? ""),
+          REPORT_DIR: reportDir,
+          RUN_ID: "2000",
+          REPO: "acme/repo",
+          GITHUB_REF_NAME: "main",
+          GITHUB_OUTPUT: outputPath,
+          GH_CALL_LOG: callLog,
+        },
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /metadata_incomplete=false/,
+      );
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /previous_state_artifact_missing=false/,
+      );
+      assert.equal(
+        readFileSync(path.join(reportDir, "previous/state.json"), "utf8"),
+        "production state",
+      );
+      const calls = readFileSync(callLog, "utf8");
+      assert.match(calls, /\/runs\/2001\/jobs\?per_page=100/);
+      assert.match(calls, /\/runs\/2002\/jobs\?per_page=100/);
+      assert.doesNotMatch(calls, /\/runs\/2001\/artifacts\?/);
+      assert.match(calls, /\/runs\/2002\/artifacts\?/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a historical direct run without a reporter and restores the scheduled state", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-report.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const collectStep = workflow.jobs?.report?.steps?.find(
+      (step) =>
+        step.name ===
+        "Collect run data and restore the previous state artifact",
+    );
+    assert.ok(collectStep?.run);
+    const recoveryStart = collectStep.run.indexOf("runs_file=");
+    assert.notEqual(recoveryStart, -1);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-direct-state-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      writeFileSync(path.join(reportDir, "notes.txt"), "");
+      const bin = path.join(root, "bin");
+      mkdirSync(bin);
+      const callLog = path.join(root, "gh-calls.ndjson");
+      const ghPath = path.join(bin, "gh");
+      writeFileSync(
+        ghPath,
+        [
+          "#!/usr/bin/env node",
+          'const fs = require("node:fs");',
+          'const path = require("node:path");',
+          "const args = process.argv.slice(2);",
+          'fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + "\\n");',
+          'if (args[0] === "api") {',
+          '  const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";',
+          '  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs")) {',
+          '    process.stdout.write("2026-10-02T00:00:00Z\\t1999\\n");',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/workflows/beta-e2e.yml/runs")) {',
+          '    process.stdout.write("2026-10-02T12:00:00Z\\t2002\\n");',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/workflows/deploy-production-sites-prebuilt.yml/runs")) process.exit(0);',
+          '  if (endpoint.includes("/runs/2002/jobs?per_page=100")) process.exit(0);',
+          '  if (endpoint.includes("/runs/1999/artifacts?")) {',
+          '    process.stdout.write(JSON.stringify({ artifacts: [{ name: "beta-e2e-digest-1999-1", created_at: "2026-10-02T00:00:00Z", expired: false }] }));',
+          "    process.exit(0);",
+          "  }",
+          "}",
+          'if (args[0] === "run" && args[1] === "download") {',
+          '  const dir = args[args.indexOf("--dir") + 1];',
+          '  const artifactDir = path.join(dir, "artifact");',
+          "  fs.mkdirSync(artifactDir, { recursive: true });",
+          '  fs.writeFileSync(path.join(artifactDir, "state.json"), "scheduled state");',
+          "  process.exit(0);",
+          "}",
+          'process.stderr.write("Unexpected fake gh command: " + JSON.stringify(args));',
+          "process.exit(2);",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(ghPath, 0o755);
+      const outputPath = path.join(root, "github-output.txt");
+      writeFileSync(outputPath, "");
+      const shell = [
+        "metadata_incomplete=false",
+        "current_data_incomplete=false",
+        "previous_state_artifact_missing=false",
+        'note() { echo "$1" >> "$REPORT_DIR/notes.txt"; }',
+        collectStep.run.slice(recoveryStart),
+      ].join("\n");
+      const result = spawnSync("bash", ["-euo", "pipefail", "-c", shell], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: bin + path.delimiter + (process.env.PATH ?? ""),
+          REPORT_DIR: reportDir,
+          RUN_ID: "2000",
+          REPO: "acme/repo",
+          GITHUB_REF_NAME: "main",
+          GITHUB_OUTPUT: outputPath,
+          GH_CALL_LOG: callLog,
+        },
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /metadata_incomplete=false/,
+      );
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /previous_state_artifact_missing=false/,
+      );
+      assert.equal(
+        readFileSync(path.join(reportDir, "previous/state.json"), "utf8"),
+        "scheduled state",
+      );
+      const calls = readFileSync(callLog, "utf8");
+      assert.ok(calls.includes("/runs/2002/jobs?per_page=100"));
+      assert.ok(!calls.includes("/runs/2002/artifacts?"));
+      assert.ok(calls.includes("/runs/1999/artifacts?"));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1713,7 +2092,7 @@ process.exit(2);
   it("includes recovered current findings in the degraded Slack payload", () => {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../.github/workflows/beta-e2e-scheduled.yml",
+      "../.github/workflows/beta-e2e-report.yml",
     );
     const workflow = parse(readFileSync(workflowPath, "utf8")) as {
       jobs?: {
@@ -1776,6 +2155,7 @@ process.exit(2);
             REPORT_DIR: reportDir,
             SLACK_CHANNEL: "C0000000000",
             SLACK_NOTE: "",
+            UPDATE_BASELINE: "true",
             METADATA_INCOMPLETE: "false",
             CURRENT_DATA_INCOMPLETE: "false",
             COLLECT_OUTCOME: "success",
@@ -1813,14 +2193,105 @@ process.exit(2);
     }
   });
 
+  it("does not infer recovery from a scoped green result", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-report.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const buildStep = workflow.jobs?.report?.steps?.find(
+      (step) => step.name === "Build the report",
+    );
+    assert.ok(buildStep?.run);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-scoped-green-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(path.join(reportDir, "results"), { recursive: true });
+      mkdirSync(path.join(reportDir, "logs"), { recursive: true });
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      mkdirSync(path.join(reportDir, "out"), { recursive: true });
+      writeFileSync(path.join(reportDir, "notes.txt"), "");
+      writeFileSync(
+        path.join(reportDir, "jobs.json"),
+        JSON.stringify({ jobs: [] }),
+      );
+      writeFileSync(
+        path.join(reportDir, "artifacts.json"),
+        JSON.stringify({ artifacts: [] }),
+      );
+      writeFileSync(
+        path.join(reportDir, "previous/state.json"),
+        JSON.stringify(redState()),
+      );
+      const outputPath = path.join(root, "github-output.txt");
+      const summaryPath = path.join(root, "step-summary.txt");
+      writeFileSync(outputPath, "");
+      writeFileSync(summaryPath, "");
+      const repoRoot = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+      );
+      const result = spawnSync(
+        "bash",
+        ["-euo", "pipefail", "-c", buildStep.run],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            REPORT_DIR: reportDir,
+            SLACK_CHANNEL: "C0000000000",
+            SLACK_NOTE: "",
+            UPDATE_BASELINE: "false",
+            METADATA_INCOMPLETE: "false",
+            CURRENT_DATA_INCOMPLETE: "false",
+            COLLECT_OUTCOME: "success",
+            PREVIOUS_STATE_ARTIFACT_MISSING: "false",
+            RUN_ID: "2000",
+            RUN_RESULT: "success",
+            REPO: "acme/repo",
+            GITHUB_SERVER_URL: "https://github.com",
+            GITHUB_SHA: "0123456789abcdef",
+            GITHUB_EVENT_NAME: "workflow_dispatch",
+            GITHUB_RUN_NUMBER: "2000",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_OUTPUT: outputPath,
+            GITHUB_STEP_SUMMARY: summaryPath,
+          },
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      const decision = JSON.parse(
+        readFileSync(path.join(reportDir, "out/decision.json"), "utf8"),
+      ) as { previousStateAvailable: boolean; status: string };
+      assert.equal(decision.previousStateAvailable, false);
+      assert.equal(decision.status, "green");
+      assert.match(readFileSync(outputPath, "utf8"), /should_notify=false/);
+      assert.doesNotMatch(
+        readFileSync(path.join(reportDir, "out/slack.txt"), "utf8"),
+        /recovered|FIXED/i,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   function runPreserveStep(options: {
     slackOutcome: string;
     slackOk: string;
     previousStateArtifactMissing?: boolean;
+    updateBaseline?: boolean;
+    priorState?: unknown;
   }): { outputState: unknown; summary: string } {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../.github/workflows/beta-e2e-scheduled.yml",
+      "../.github/workflows/beta-e2e-report.yml",
     );
     const workflow = parse(readFileSync(workflowPath, "utf8")) as {
       jobs?: {
@@ -1845,7 +2316,9 @@ process.exit(2);
       );
       writeFileSync(
         path.join(reportDir, "previous/state.json"),
-        JSON.stringify({ _betaE2EStateAvailability: "unknown" }),
+        JSON.stringify(
+          options.priorState ?? { _betaE2EStateAvailability: "unknown" },
+        ),
       );
       const currentState = redState({ run: 2000 });
       writeFileSync(
@@ -1861,6 +2334,7 @@ process.exit(2);
             ...process.env,
             REPORT_DIR: reportDir,
             SHOULD_NOTIFY: "true",
+            UPDATE_BASELINE: String(options.updateBaseline ?? true),
             METADATA_INCOMPLETE: "true",
             CURRENT_DATA_INCOMPLETE: "false",
             PREVIOUS_STATE_ARTIFACT_MISSING: String(
@@ -1907,6 +2381,22 @@ process.exit(2);
       _betaE2EStateAvailability: "unknown",
     });
     assert.match(summary, /state was marked unknown to avoid a false recovery/);
+  });
+
+  it("retains the shared full-suite state after a scoped report", () => {
+    const previous = redState({ run: 1900 });
+    const { outputState, summary } = runPreserveStep({
+      slackOutcome: "success",
+      slackOk: "true",
+      updateBaseline: false,
+      priorState: previous,
+    });
+
+    assert.deepEqual(outputState, previous);
+    assert.match(
+      summary,
+      /did not update the shared full-suite notification baseline/,
+    );
   });
 
   it("retains unknown state so failed Slack delivery retries recovery", () => {

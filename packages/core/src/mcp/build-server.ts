@@ -157,6 +157,10 @@ export interface MCPConfig {
   /** Unlisted from this MCP surface; editor mutations callable only by scoped widget grants. */
   widgetWriteActions?: Record<string, ActionEntry>;
   askAgent?: (message: string) => Promise<string>;
+  /** Server-only adapter for this app's durable tasks on authenticated HTTP MCP. */
+  createLocalAgentTaskClient?: (
+    event: import("h3").H3Event,
+  ) => import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   builtinCrossAppTools?: boolean;
   /**
    * `"app"` serves the app's own action registry flat. `"directory"` serves
@@ -351,6 +355,7 @@ function actionApprovalError(message: string): CallToolResult {
 }
 
 export interface MCPRequestMeta {
+  localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
   origin?: string;
   basePath?: string;
   target?: "browser" | "desktop" | "terminal";

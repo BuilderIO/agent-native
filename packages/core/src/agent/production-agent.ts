@@ -59,6 +59,7 @@ import {
   type CredentialProvenance,
 } from "../credentials/index.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
   describeAttachmentBytesVerdict,
@@ -8164,8 +8165,8 @@ export async function runAgentLoop(opts: {
               toolCall.name,
               toolCall.input,
             );
-            actionPromise
-              .then((zombieRaw: unknown) => {
+            const zombieLedgerPromise = actionPromise
+              .then(async (zombieRaw: unknown) => {
                 const zombieMcp = isMcpActionResult(zombieRaw)
                   ? zombieRaw
                   : null;
@@ -8195,7 +8196,7 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   false,
                 );
-                void writeLedgerEntry(
+                await writeLedgerEntry(
                   ledgerThreadId,
                   ledgerToolKey,
                   zombieStr,
@@ -8209,6 +8210,7 @@ export async function runAgentLoop(opts: {
               .catch(() => {
                 // Action errored in the zombie — no result to ledger.
               });
+            void retainRequestDbPoolScope(zombieLedgerPromise);
           }
 
           const raw = await Promise.race([
@@ -8750,7 +8752,9 @@ export async function runAgentLoop(opts: {
         : {}),
     });
     if (opts.threadId) {
-      void clearLedgerForThread(opts.threadId).catch(() => {});
+      void retainRequestDbPoolScope(
+        clearLedgerForThread(opts.threadId).catch(() => {}),
+      );
 
       // Observational Memory (producer): after a clean turn, run a best-effort
       // compaction pass so long threads accrue observations/reflections that the
@@ -8773,7 +8777,7 @@ export async function runAgentLoop(opts: {
         });
         const waitUntil = getRequestRunContext()?.waitUntil;
         if (waitUntil) waitUntil(compaction);
-        else void compaction;
+        else void retainRequestDbPoolScope(compaction);
       }
     }
   }
@@ -10639,10 +10643,12 @@ export function createProductionAgentHandler(
       : null;
     const workerStep = (s: string) => {
       if (bgRunId)
-        void recordRunDiagnostic(
-          bgRunId,
-          RUN_DIAG_STAGE.workerSetupStep,
-          `${s}=${Date.now() - setupT0}ms`,
+        void retainRequestDbPoolScope(
+          recordRunDiagnostic(
+            bgRunId,
+            RUN_DIAG_STAGE.workerSetupStep,
+            `${s}=${Date.now() - setupT0}ms`,
+          ).catch(() => {}),
         ).catch(() => {});
     };
     const runsInBackgroundFunction =
@@ -12618,13 +12624,15 @@ export function createProductionAgentHandler(
       const now = Date.now();
       if (now - lastTrackedProgressUpdateAt < 15_000) return;
       lastTrackedProgressUpdateAt = now;
-      void updateRunProgress(trackedProgressRunId, trackedProgressOwner, {
-        step,
-        metadata: {
-          ...(trackedProgressMetadata ?? {}),
-          runId,
-        },
-      }).catch(() => {});
+      void retainRequestDbPoolScope(
+        updateRunProgress(trackedProgressRunId, trackedProgressOwner, {
+          step,
+          metadata: {
+            ...(trackedProgressMetadata ?? {}),
+            runId,
+          },
+        }).catch(() => {}),
+      );
     };
 
     if (trackedProgressRunId && trackedProgressOwner && !internalContinuation) {
@@ -12852,10 +12860,12 @@ export function createProductionAgentHandler(
             setupDetail,
           ).catch(() => {});
         } else {
-          void recordRunDiagnostic(
-            runId,
-            RUN_DIAG_STAGE.setupTimings,
-            setupDetail,
+          void retainRequestDbPoolScope(
+            recordRunDiagnostic(
+              runId,
+              RUN_DIAG_STAGE.setupTimings,
+              setupDetail,
+            ).catch(() => {}),
           ).catch(() => {});
         }
 

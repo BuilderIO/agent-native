@@ -1588,9 +1588,7 @@ function useFirstPartyAnalyticsData() {
     | undefined;
   const healthStatus = healthQuery.isError ? "unavailable" : health?.status;
   const externalBackends = health?.externalBackends ?? [];
-  const externalBackendConfigured = externalBackends.some(
-    (backend) => backend.configured === true,
-  );
+  const externalBackendConfigured = health?.bigQuery.configured === true;
   const recommendsExternalBackend = healthStatus === "recommend_bigquery";
   const healthTitleKey = recommendsExternalBackend
     ? externalBackendConfigured

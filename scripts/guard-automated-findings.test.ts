@@ -282,7 +282,7 @@ test("unrelated 90-day artifacts do not satisfy full-report retention", () => {
   ].join("      - ");
   assert.match(
     inspectAutomatedFindingWorkflows(workflows).join("\n"),
-    /beta-e2e-scheduled\.yml must retain its complete report artifact for 90 days/,
+    /beta-e2e-report\.yml must retain its complete report artifact for 90 days/,
   );
 });
 
@@ -509,6 +509,27 @@ test("the degraded Beta fallback renders actual Slack line breaks", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.split("\n").length, 5);
   assert.doesNotMatch(result.stdout, /\\n/);
+});
+
+test("scheduled and direct Beta E2E callers use the shared Slack reporter", () => {
+  const workflows = currentWorkflows();
+  for (const workflowPath of supportingWorkflows) {
+    assert.match(
+      workflows[workflowPath]!,
+      /uses: \.\/\.github\/workflows\/beta-e2e-report\.yml/,
+    );
+  }
+
+  workflows[supportingWorkflows[0]] = workflows[
+    supportingWorkflows[0]
+  ]!.replace(
+    "uses: ./.github/workflows/beta-e2e-report.yml",
+    "uses: ./.github/workflows/missing-report.yml",
+  );
+  assert.match(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /beta-e2e-scheduled\.yml must delegate Beta E2E reporting to the shared Slack reporter/,
+  );
 });
 
 test("the Beta workflow persists explicit state availability markers", () => {

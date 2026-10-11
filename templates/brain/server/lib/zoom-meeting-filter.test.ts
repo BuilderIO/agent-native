@@ -1,69 +1,43 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  zoomMeetingFilterFromConfig,
-  zoomMeetingFilterKey,
-  zoomMeetingMatchesFilter,
-  type ZoomMeeting,
+  isApprovedZoomMeeting,
+  zoomApprovedMeetingIds,
+  zoomApprovedMeetingsKey,
 } from "./zoom.js";
 
-const meeting = (id: ZoomMeeting["id"], topic?: string) => ({ id, topic });
-
-describe("Zoom meeting filter", () => {
-  it("keeps every meeting when no filter is configured", () => {
-    expect(zoomMeetingFilterFromConfig({})).toBeNull();
+describe("Zoom approved meeting series", () => {
+  it("approves nothing when no series are listed", () => {
+    const approved = zoomApprovedMeetingIds({});
+    expect(approved.size).toBe(0);
+    expect(isApprovedZoomMeeting(12345678901, approved)).toBe(false);
     expect(
-      zoomMeetingFilterFromConfig({ meetingIds: [], meetingTopics: [" "] }),
-    ).toBeNull();
-    expect(zoomMeetingMatchesFilter(meeting(1, "Anything"), null)).toBe(true);
+      zoomApprovedMeetingIds({ meetingIds: [], meetingTopics: ["Sync"] }).size,
+    ).toBe(0);
   });
 
   it("matches meeting IDs as Zoom displays them", () => {
-    const filter = zoomMeetingFilterFromConfig({
+    const approved = zoomApprovedMeetingIds({
       meetingIds: ["123 4567 8901", 98765432101],
     });
-    expect(zoomMeetingMatchesFilter(meeting(12345678901), filter)).toBe(true);
-    expect(zoomMeetingMatchesFilter(meeting("98765432101"), filter)).toBe(true);
-    expect(zoomMeetingMatchesFilter(meeting(11111111111), filter)).toBe(false);
+    expect(isApprovedZoomMeeting(12345678901, approved)).toBe(true);
+    expect(isApprovedZoomMeeting("98765432101", approved)).toBe(true);
+    expect(isApprovedZoomMeeting(11111111111, approved)).toBe(false);
+    expect(isApprovedZoomMeeting(undefined, approved)).toBe(false);
   });
 
-  it("matches exact titles case-insensitively, not substrings", () => {
-    const filter = zoomMeetingFilterFromConfig({
-      meetingTopics: ["GTM Weekly  Sync"],
-    });
-    expect(
-      zoomMeetingMatchesFilter(meeting(1, " gtm weekly sync "), filter),
-    ).toBe(true);
-    expect(
-      zoomMeetingMatchesFilter(meeting(1, "GTM Weekly Sync prep"), filter),
-    ).toBe(false);
-    expect(zoomMeetingMatchesFilter(meeting(1), filter)).toBe(false);
-  });
-
-  it("keeps a meeting that matches either its ID or its title", () => {
-    const filter = zoomMeetingFilterFromConfig({
-      meetingIds: ["12345678901"],
+  it("ignores titles, even ones matching an approved meeting", () => {
+    const approved = zoomApprovedMeetingIds({
+      meetingIds: ["123 4567 8901"],
       meetingTopics: ["Marketing Standup"],
     });
-    expect(zoomMeetingMatchesFilter(meeting(12345678901, "x"), filter)).toBe(
-      true,
-    );
-    expect(
-      zoomMeetingMatchesFilter(meeting(2, "Marketing Standup"), filter),
-    ).toBe(true);
-    expect(zoomMeetingMatchesFilter(meeting(2, "Other"), filter)).toBe(false);
+    expect([...approved]).toEqual(["12345678901"]);
+    expect(isApprovedZoomMeeting("Marketing Standup", approved)).toBe(false);
   });
 
-  it("builds the same filter key regardless of entry order or spacing", () => {
-    const a = zoomMeetingFilterFromConfig({
-      meetingIds: ["123 4567 8901", "222222222"],
-      meetingTopics: ["B", "a"],
-    });
-    const b = zoomMeetingFilterFromConfig({
-      meetingIds: ["222222222", "12345678901"],
-      meetingTopics: ["A", " b "],
-    });
-    expect(zoomMeetingFilterKey(a)).toBe(zoomMeetingFilterKey(b));
-    expect(zoomMeetingFilterKey(null)).toBeNull();
+  it("keys the allowlist independent of order and formatting", () => {
+    const a = zoomApprovedMeetingIds({ meetingIds: ["222 222 2222", 111111] });
+    const b = zoomApprovedMeetingIds({ meetingIds: ["111111", "2222222222"] });
+    expect(zoomApprovedMeetingsKey(a)).toBe(zoomApprovedMeetingsKey(b));
   });
 });

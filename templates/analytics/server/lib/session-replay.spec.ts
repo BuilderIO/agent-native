@@ -101,6 +101,16 @@ function createBudgetDbMock(results: unknown[][]) {
   };
 }
 
+function replaySignalCountQuery(counts = { errorCount: 0, rageClickCount: 0 }) {
+  return {
+    returning: vi.fn(async () => [counts]),
+    then: (
+      resolve: (value: unknown) => unknown,
+      reject?: (reason: unknown) => unknown,
+    ) => Promise.resolve(undefined).then(resolve, reject),
+  };
+}
+
 function createReplayDbMock(
   results: unknown[][],
   associationResults: unknown[][] = [],
@@ -153,7 +163,7 @@ function createReplayDbMock(
     update: vi.fn((table: unknown) => ({
       set: vi.fn((values: unknown) => {
         updates.push({ table, values });
-        return { where: vi.fn(async () => undefined) };
+        return { where: vi.fn(() => replaySignalCountQuery()) };
       }),
     })),
     transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => {
@@ -2699,7 +2709,7 @@ describe("session replay ingest parsing", () => {
       [[]],
     );
     const update = vi.fn(() => ({
-      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...db, update });
     putPrivateBlobMock.mockResolvedValue(null);
@@ -2756,7 +2766,7 @@ describe("session replay ingest parsing", () => {
       [[]],
     );
     const retryUpdate = vi.fn(() => ({
-      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...retry.db, update: retryUpdate });
 
@@ -2818,7 +2828,7 @@ describe("session replay ingest parsing", () => {
       [[]],
     );
     const retryUpdate = vi.fn(() => ({
-      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...retry.db, update: retryUpdate });
 
@@ -2902,7 +2912,7 @@ describe("session replay ingest parsing", () => {
     const update = vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
         updateValues.push(values);
-        return { where: vi.fn(async () => undefined) };
+        return { where: vi.fn(() => replaySignalCountQuery()) };
       }),
     }));
     getDbMock.mockReturnValue({ ...db, update });
@@ -2934,7 +2944,7 @@ describe("session replay ingest parsing", () => {
       replayIngestKeyDbResults(null),
     );
     const update = vi.fn(() => ({
-      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...db, update });
     putPrivateBlobMock.mockResolvedValue(null);
@@ -2964,7 +2974,7 @@ describe("session replay ingest parsing", () => {
     const update = vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
         updateValues.push(values);
-        return { where: vi.fn(async () => undefined) };
+        return { where: vi.fn(() => replaySignalCountQuery()) };
       }),
     }));
     getDbMock.mockReturnValue({ ...db, update });
@@ -3054,7 +3064,7 @@ describe("session replay ingest parsing", () => {
     const update = vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
         updateValues.push(values);
-        return { where: vi.fn(async () => undefined) };
+        return { where: vi.fn(() => replaySignalCountQuery()) };
       }),
     }));
     getDbMock.mockReturnValue({ ...db, update });
@@ -3124,7 +3134,7 @@ describe("session replay ingest parsing", () => {
     putPrivateBlobMock.mockResolvedValue(null);
     const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
     const update = vi.fn(() => ({
-      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      set: vi.fn(() => ({ where: vi.fn(() => replaySignalCountQuery()) })),
     }));
     getDbMock.mockReturnValue({ ...db, update });
     await recordSessionReplayChunks(
@@ -3232,7 +3242,7 @@ describe("session replay ingest parsing", () => {
     );
   });
 
-  it("measures friction for exactly the chunks a batch stored, after the ones before it", async () => {
+  it("measures stored chunks with the atomically persisted signal counts", async () => {
     // Stored as a blob, the chunk row has no inline data; friction must still
     // read the events the upload carried.
     putPrivateBlobMock.mockResolvedValue({
@@ -3258,7 +3268,11 @@ describe("session replay ingest parsing", () => {
       [{ seq: 0, checksum: "earlier", eventCount: 1, byteLength: 10 }],
     ]);
     const update = vi.fn(() => ({
-      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      set: vi.fn(() => ({
+        where: vi.fn(() =>
+          replaySignalCountQuery({ errorCount: 11, rageClickCount: 7 }),
+        ),
+      })),
     }));
     getDbMock.mockReturnValue({ ...db, update });
     await recordSessionReplayChunks(input, {
@@ -3284,8 +3298,8 @@ describe("session replay ingest parsing", () => {
         orgId: null,
         priorChunkCount: 1,
         newChunks: [{ seq: 1, inlineData: input.chunks[0]!.inlineData }],
-        errorCount: 2,
-        rageClickCount: 1,
+        errorCount: 11,
+        rageClickCount: 7,
         rageClickDelta: 0,
         rageClickCountOverridden: false,
         recordingEnded: false,
@@ -3520,7 +3534,7 @@ describe("session replay ingest parsing", () => {
     }));
     (db as { update?: unknown }).update = vi.fn(() => ({
       set: vi.fn(() => ({
-        where: vi.fn(async () => undefined),
+        where: vi.fn(() => replaySignalCountQuery()),
       })),
     }));
     getDbMock.mockReturnValue(db);

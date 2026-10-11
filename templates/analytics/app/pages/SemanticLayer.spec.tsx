@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
   const state = {
     entries: [] as DictionaryEntry[],
     sourceIndexStatus: "available" as SourceIndexStatus,
+    unresolvedTrackingCallSites: 2 as number | null,
     canManageOrg: true,
     mutateAsync: vi.fn(async (_input: Record<string, unknown>) => ({
       success: true,
@@ -59,7 +60,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           status: "available",
           generatedAt: "2026-10-09T00:00:00.000Z",
           entryCount: mocks.entries.length,
-          unresolvedTrackingCallSites: 2,
+          unresolvedTrackingCallSites: mocks.unresolvedTrackingCallSites,
           sources: [{ id: "dbt" }],
           sourceCounts: [{ source: "dbt", entryCount: 1 }],
           ageDays: 1,
@@ -145,6 +146,7 @@ describe("SemanticLayer", () => {
 
   beforeEach(() => {
     mocks.sourceIndexStatus = "available";
+    mocks.unresolvedTrackingCallSites = 2;
     mocks.canManageOrg = true;
     mocks.entries = [
       {
@@ -244,6 +246,23 @@ describe("SemanticLayer", () => {
       "indexPanel.dynamicTrackingCoverageCaveat",
     );
     expect(container.textContent).toContain("2");
+  });
+
+  it("shows legacy unresolved tracking coverage as unavailable", async () => {
+    mocks.unresolvedTrackingCallSites = null;
+    await renderPage();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Manage semanticLayer.sourceIndex"]',
+        )
+        ?.click();
+    });
+
+    expect(container.textContent).toContain(
+      "indexPanel.unresolvedTrackingCallSitesUnavailable",
+    );
   });
 
   it.each(["unavailable", "invalid"] as const)(

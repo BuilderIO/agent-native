@@ -1946,6 +1946,7 @@ export default {
     presetWeekly: "Wöchentlich montags um 06:00",
     status: "Status",
     unresolvedTrackingCallSites: "Nicht aufgelöste Tracking-Aufrufe",
+    unresolvedTrackingCallSitesUnavailable: "Nicht verfügbar",
     dynamicTrackingCoverageCaveat:
       "Aufrufe mit zur Laufzeit berechneten Ereignisnamen sind ausgeschlossen; Aliase oder andere Tracking-APIs werden möglicherweise nicht erkannt.",
     overviewFailed: "Der Erstellungsstatus konnte nicht geladen werden.",

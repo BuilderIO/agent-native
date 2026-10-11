@@ -1940,11 +1940,11 @@ export async function recordSessionReplayChunks(
     clampedInput.viewport,
   );
   const signalOverrides = clampedInput.signalOverrides ?? {};
-  const errorCount =
+  let errorCount =
     signalOverrides.errorCount === undefined
       ? Number(recording.errorCount ?? 0) + signalDeltas.errorCount
       : Math.max(Number(recording.errorCount ?? 0), signalOverrides.errorCount);
-  const rageClickCount =
+  let rageClickCount =
     signalOverrides.rageClickCount === undefined
       ? Number(recording.rageClickCount ?? 0) + signalDeltas.rageClickCount
       : Math.max(
@@ -2037,10 +2037,29 @@ export async function recordSessionReplayChunks(
           )
           .onConflictDoNothing();
       }
-      await tx
+      const [updatedRecording] = await tx
         .update(schema.sessionRecordings)
         .set(recordingUpdate)
-        .where(eq(schema.sessionRecordings.id, recording.id));
+        .where(eq(schema.sessionRecordings.id, recording.id))
+        .returning({
+          errorCount: schema.sessionRecordings.errorCount,
+          rageClickCount: schema.sessionRecordings.rageClickCount,
+        });
+      if (!updatedRecording) {
+        throw new Error("Replay recording disappeared during ingest");
+      }
+      const persistedErrorCount = Number(updatedRecording.errorCount);
+      const persistedRageClickCount = Number(updatedRecording.rageClickCount);
+      if (
+        !Number.isSafeInteger(persistedErrorCount) ||
+        persistedErrorCount < 0 ||
+        !Number.isSafeInteger(persistedRageClickCount) ||
+        persistedRageClickCount < 0
+      ) {
+        throw new Error("Replay recording signal counts are invalid");
+      }
+      errorCount = persistedErrorCount;
+      rageClickCount = persistedRageClickCount;
     });
     uploadedBlobHandles.length = 0;
   } catch (error) {

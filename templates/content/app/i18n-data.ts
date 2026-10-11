@@ -849,7 +849,6 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
-  formatting: "Formatting",
   suggestEdits: "Suggest edits",
   suggesting: "Suggesting",
   stopSuggesting: "Stop suggesting",

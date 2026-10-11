@@ -116,7 +116,7 @@ type IndexStatusAvailable = {
   status: "available";
   generatedAt: string;
   entryCount: number;
-  unresolvedTrackingCallSites: number;
+  unresolvedTrackingCallSites: number | null;
   sources: Array<{ id: string; revision?: string }>;
   sourceCounts?: Array<{ source: string; entryCount: number }>;
   ageDays: number;
@@ -393,7 +393,11 @@ function StatusSection() {
         {available ? (
           <SettingRow label={t("indexPanel.unresolvedTrackingCallSites")}>
             <span className="text-sm tabular-nums text-muted-foreground">
-              {formatters.formatNumber(available.unresolvedTrackingCallSites)}
+              {available.unresolvedTrackingCallSites === null
+                ? t("indexPanel.unresolvedTrackingCallSitesUnavailable")
+                : formatters.formatNumber(
+                    available.unresolvedTrackingCallSites,
+                  )}
             </span>
           </SettingRow>
         ) : null}

@@ -1738,8 +1738,9 @@ export function renderSlack(digest: Digest): string {
 
   if (digest.status === "green") {
     const previous = input.previous;
+    const outcome = previous?.status === "red" ? "recovered" : "green";
     return [
-      ":white_check_mark: *Beta E2E recovered* in " + runLink,
+      `:white_check_mark: *Beta E2E ${outcome}* in ` + runLink,
       previous?.status === "red"
         ? "It was red for " +
           previous.consecutiveRed +
