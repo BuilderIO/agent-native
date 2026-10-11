@@ -1507,7 +1507,10 @@ describe("createAgentNativeChatRuntime", () => {
     const currentMessage: AgentChatRuntimeMessage = {
       id: "user-current",
       role: "user",
-      content: [{ type: "text", text: prompt }],
+      content: [
+        { type: "text", text: prompt },
+        { type: "data", data: { nested: { values: [1, "two"] } } },
+      ],
     };
     const turn = await (
       await runtime.createSession()
@@ -1534,7 +1537,7 @@ describe("createAgentNativeChatRuntime", () => {
         currentMessage,
         {
           ...currentMessage,
-          content: currentMessage.content.map((part) => ({ ...part })),
+          content: JSON.parse(JSON.stringify(currentMessage.content)),
         },
       ],
     });
@@ -1638,6 +1641,63 @@ describe("createAgentNativeChatRuntime", () => {
     expect(body.history[0].content).toContain(priorUrl);
     expect(JSON.stringify(body.structuredHistory)).toContain(priorUrl);
   });
+
+  it.each(["different", "cyclic", "deep"])(
+    "retains same-ID content when nested equivalence is not proven (%s)",
+    async (kind) => {
+      let priorData: Record<string, unknown> = { value: "prior" };
+      let currentData: Record<string, unknown> = { value: "current" };
+      if (kind === "cyclic") {
+        priorData.value = "same";
+        currentData.value = "same";
+        priorData.self = priorData;
+        currentData.self = currentData;
+      } else if (kind === "deep") {
+        priorData = { value: "same" };
+        currentData = { value: "same" };
+        for (let index = 0; index < 80; index++) {
+          priorData = { nested: priorData };
+          currentData = { nested: currentData };
+        }
+      }
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-nested-equivalence-boundary",
+        fetch: fetchMock as typeof fetch,
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Current question",
+        messages: [
+          {
+            id: "shared-id",
+            role: "user",
+            content: [
+              { type: "text", text: "Current question" },
+              { type: "data", data: priorData },
+            ],
+          },
+          {
+            id: "shared-id",
+            role: "user",
+            content: [
+              { type: "text", text: "Current question" },
+              { type: "data", data: currentData },
+            ],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.history).toEqual([
+        { role: "user", content: "Current question" },
+      ]);
+    },
+  );
 
   it.each([undefined, "", " "])(
     "preserves prior user turns without a stable ID (%s)",
