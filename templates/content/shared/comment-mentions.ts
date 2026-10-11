@@ -228,6 +228,17 @@ export function commentMentionsForText(
   return serializeStoredCommentMentions(present) ?? undefined;
 }
 
+/** Mentions whose `@name` the text doesn't contain as a whole token. */
+export function mentionsMissingFromText(
+  text: string,
+  mentions: readonly CommentMention[],
+): CommentMention[] {
+  const named = new Set(
+    findCommentMentions(text, mentions).map((match) => match.name),
+  );
+  return mentions.filter((mention) => !named.has(mention.name));
+}
+
 /**
  * The people a comment notifies. A name two people share renders as text, and
  * a draft keeps people whose chips were deleted, so it can't say which one is

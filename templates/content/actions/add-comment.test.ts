@@ -126,6 +126,33 @@ describe("add-comment reply boundary", () => {
     });
   });
 
+  it("rejects a mention whose @name is not in the text, before saving or notifying", async () => {
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Samuel check this?",
+        mentions: JSON.stringify([
+          { kind: "person", email: "sam@example.com", name: "Sam" },
+        ]),
+      }),
+    ).rejects.toThrow("@Sam");
+    expect(state.inserted).toHaveLength(0);
+    expect(notifyDocumentComment).not.toHaveBeenCalled();
+
+    await run({
+      documentId: "doc-1",
+      content: "Can @Sam check this?",
+      mentions: JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+      ]),
+    });
+    expect(notifyDocumentComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mentions: [{ kind: "person", email: "sam@example.com", name: "Sam" }],
+      }),
+    );
+  });
+
   it("derives authorship from the authenticated caller", async () => {
     await run({
       documentId: "doc-1",

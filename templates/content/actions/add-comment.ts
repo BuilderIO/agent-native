@@ -19,6 +19,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
+  mentionsMissingFromText,
   notifiedPeople,
   parseCommentMentions,
   readStoredCommentMentions,
@@ -157,6 +158,15 @@ export async function addCommentWithGuard(
   }
 
   const mentions = parseCommentMentions(args.mentions ?? []);
+  const missing = mentionsMissingFromText(content, mentions);
+  if (missing.length > 0) {
+    fail(
+      `Each mention's @name must appear in the comment text; not found: ${missing
+        .map((mention) => `@${mention.name}`)
+        .join(", ")}`,
+      { statusCode: 400 },
+    );
+  }
   const mentionsJson = serializeStoredCommentMentions(mentions);
   const submissionSource =
     ctx?.caller === "mcp" || ctx?.caller === "webmcp"
