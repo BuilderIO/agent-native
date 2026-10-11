@@ -134,8 +134,10 @@ jobs:
               fi
               if [ "$workflow_file" = "deploy-production-sites-prebuilt.yml" ]; then
                 workflow_source=production
+              elif [ "$workflow_file" = "beta-e2e.yml" ]; then
+                workflow_source=direct
               else
-                workflow_source=beta
+                workflow_source=scheduled
               fi
               while IFS=$'\t' read -r created_at previous_run; do
                 [ -n "$previous_run" ] || continue
@@ -156,18 +158,26 @@ jobs:
             while IFS=$'\t' read -r previous_run workflow_source; do
               [ -n "$previous_run" ] || continue
               [ "$previous_run" != "$RUN_ID" ] || continue
-              if [ "$workflow_source" = "production" ]; then
-                production_jobs_file="$REPORT_DIR/previous/jobs-$previous_run.ndjson"
+              if [ "$workflow_source" != "scheduled" ]; then
+                case "$workflow_source" in
+                  production)
+                    report_job_prefix="Report production Beta E2E pre-flight status"
+                    ;;
+                  direct)
+                    report_job_prefix="Report directly dispatched beta E2E status"
+                    ;;
+                esac
+                report_jobs_file="$REPORT_DIR/previous/jobs-$previous_run.ndjson"
                 if ! gh api --paginate \
                   "repos/$REPO/actions/runs/$previous_run/jobs?per_page=100" \
-                  --jq '.jobs[]' > "$production_jobs_file" 2> "$production_jobs_file.err"; then
-                  detail="$(tr '\r\n' ' ' < "$production_jobs_file.err" | cut -c 1-300)"
-                  note "Could not inspect the jobs for production run $previous_run; state comparison starts without a restored artifact. ${detail:-GitHub returned unreadable job data.}"
+                  --jq '.jobs[]' > "$report_jobs_file" 2> "$report_jobs_file.err"; then
+                  detail="$(tr '\r\n' ' ' < "$report_jobs_file.err" | cut -c 1-300)"
+                  note "Could not inspect the jobs for the $workflow_source beta E2E run $previous_run; state comparison starts without a restored artifact. ${detail:-GitHub returned unreadable job data.}"
                   metadata_incomplete=true
                   previous_state_artifact_missing=true
                   break
                 fi
-                report_job_result="$(jq -sr '[.[] | select((.name // "") | startswith("Report production Beta E2E pre-flight status")) | .conclusion][0] // empty' "$production_jobs_file")"
+                report_job_result="$(jq -sr --arg prefix "$report_job_prefix" '[.[] | select((.name // "") | startswith($prefix)) | .conclusion][0] // empty' "$report_jobs_file")"
                 if [ -z "$report_job_result" ] || [ "$report_job_result" = "skipped" ]; then
                   continue
                 fi

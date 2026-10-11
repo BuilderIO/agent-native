@@ -1648,10 +1648,14 @@ if (args[0] === "api") {
     process.exit(0);
   }
   if (endpoint.includes("/workflows/beta-e2e.yml/runs")) {
+    process.stdout.write("2026-10-02T12:00:00Z\\t2002\\n");
     process.exit(0);
   }
   if (endpoint.includes("/runs/2001/jobs?per_page=100")) {
     process.stdout.write(JSON.stringify({ name: "Report production Beta E2E pre-flight status", conclusion: "skipped" }));
+    process.exit(0);
+  }
+  if (endpoint.includes("/runs/2002/jobs?per_page=100")) {
     process.exit(0);
   }
   if (endpoint.includes("/runs/1999/artifacts?")) {
@@ -1712,6 +1716,12 @@ process.exit(2);
       assert.match(
         readFileSync(path.join(reportDir, "notes.txt"), "utf8"),
         /latest prior beta E2E report run 1999 has no unexpired state artifact/,
+      );
+      assert.ok(
+        readFileSync(callLog, "utf8").includes("/runs/2002/jobs?per_page=100"),
+      );
+      assert.ok(
+        !readFileSync(callLog, "utf8").includes("/runs/2002/artifacts?"),
       );
       assert.match(
         readFileSync(callLog, "utf8"),
@@ -1840,6 +1850,117 @@ process.exit(2);
       assert.match(calls, /\/runs\/2002\/jobs\?per_page=100/);
       assert.doesNotMatch(calls, /\/runs\/2001\/artifacts\?/);
       assert.match(calls, /\/runs\/2002\/artifacts\?/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a historical direct run without a reporter and restores the scheduled state", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-report.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const collectStep = workflow.jobs?.report?.steps?.find(
+      (step) =>
+        step.name ===
+        "Collect run data and restore the previous state artifact",
+    );
+    assert.ok(collectStep?.run);
+    const recoveryStart = collectStep.run.indexOf("runs_file=");
+    assert.notEqual(recoveryStart, -1);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-direct-state-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      writeFileSync(path.join(reportDir, "notes.txt"), "");
+      const bin = path.join(root, "bin");
+      mkdirSync(bin);
+      const callLog = path.join(root, "gh-calls.ndjson");
+      const ghPath = path.join(bin, "gh");
+      writeFileSync(
+        ghPath,
+        [
+          "#!/usr/bin/env node",
+          'const fs = require("node:fs");',
+          'const path = require("node:path");',
+          "const args = process.argv.slice(2);",
+          'fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + "\\n");',
+          'if (args[0] === "api") {',
+          '  const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";',
+          '  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs")) {',
+          '    process.stdout.write("2026-10-02T00:00:00Z\\t1999\\n");',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/workflows/beta-e2e.yml/runs")) {',
+          '    process.stdout.write("2026-10-02T12:00:00Z\\t2002\\n");',
+          "    process.exit(0);",
+          "  }",
+          '  if (endpoint.includes("/workflows/deploy-production-sites-prebuilt.yml/runs")) process.exit(0);',
+          '  if (endpoint.includes("/runs/2002/jobs?per_page=100")) process.exit(0);',
+          '  if (endpoint.includes("/runs/1999/artifacts?")) {',
+          '    process.stdout.write(JSON.stringify({ artifacts: [{ name: "beta-e2e-digest-1999-1", created_at: "2026-10-02T00:00:00Z", expired: false }] }));',
+          "    process.exit(0);",
+          "  }",
+          "}",
+          'if (args[0] === "run" && args[1] === "download") {',
+          '  const dir = args[args.indexOf("--dir") + 1];',
+          '  const artifactDir = path.join(dir, "artifact");',
+          "  fs.mkdirSync(artifactDir, { recursive: true });",
+          '  fs.writeFileSync(path.join(artifactDir, "state.json"), "scheduled state");',
+          "  process.exit(0);",
+          "}",
+          'process.stderr.write("Unexpected fake gh command: " + JSON.stringify(args));',
+          "process.exit(2);",
+          "",
+        ].join("\n"),
+      );
+      chmodSync(ghPath, 0o755);
+      const outputPath = path.join(root, "github-output.txt");
+      writeFileSync(outputPath, "");
+      const shell = [
+        "metadata_incomplete=false",
+        "current_data_incomplete=false",
+        "previous_state_artifact_missing=false",
+        'note() { echo "$1" >> "$REPORT_DIR/notes.txt"; }',
+        collectStep.run.slice(recoveryStart),
+      ].join("\n");
+      const result = spawnSync("bash", ["-euo", "pipefail", "-c", shell], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: bin + path.delimiter + (process.env.PATH ?? ""),
+          REPORT_DIR: reportDir,
+          RUN_ID: "2000",
+          REPO: "acme/repo",
+          GITHUB_REF_NAME: "main",
+          GITHUB_OUTPUT: outputPath,
+          GH_CALL_LOG: callLog,
+        },
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /metadata_incomplete=false/,
+      );
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /previous_state_artifact_missing=false/,
+      );
+      assert.equal(
+        readFileSync(path.join(reportDir, "previous/state.json"), "utf8"),
+        "scheduled state",
+      );
+      const calls = readFileSync(callLog, "utf8");
+      assert.ok(calls.includes("/runs/2002/jobs?per_page=100"));
+      assert.ok(!calls.includes("/runs/2002/artifacts?"));
+      assert.ok(calls.includes("/runs/1999/artifacts?"));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
