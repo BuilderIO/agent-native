@@ -81,7 +81,10 @@ async function designTraceDump(page: Page): Promise<unknown> {
   );
 }
 
-async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
+async function sampleXY(
+  page: Page,
+  options?: { besideScreens?: boolean },
+): Promise<{ x: number; y: number }> {
   const canvasBox = await page
     .locator("[data-design-canvas-container]")
     .boundingBox();
@@ -100,8 +103,21 @@ async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
   const rightEdge = rightPanelBox
     ? rightPanelBox.x
     : canvasBox.x + canvasBox.width;
-  const x = Math.round(leftEdge + (rightEdge - leftEdge) * 0.5);
+  let x = Math.round(leftEdge + (rightEdge - leftEdge) * 0.5);
   const y = Math.round(canvasBox.y + canvasBox.height * 0.5);
+  if (options?.besideScreens) {
+    // Leaving Interact refits the camera on the Screen, which then sits under
+    // the canvas centre; sample the canvas to its left instead.
+    const screenBox = await page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox();
+    if (!screenBox) throw new Error("no Screen card box to sample beside");
+    if (screenBox.x - leftEdge < 40) {
+      throw new Error("no empty canvas to the left of the Screen");
+    }
+    x = Math.round(leftEdge + (screenBox.x - leftEdge) / 2);
+  }
 
   const hitInfo = await page.evaluate(
     ({ px, py }) => {
@@ -134,9 +150,18 @@ async function drawFirstRectangle(page: Page): Promise<void> {
   await expect(
     page.locator('button[aria-label="Rectangle"]').first(),
   ).toHaveAttribute("aria-pressed", "true");
-  await page.mouse.move(800, 380);
+  // A rectangle drawn over a Screen nests into it instead of reaching the
+  // board, so start below any Screen the design opens with.
+  const screens = page.locator("[data-screen-card]");
+  let top = 380;
+  if ((await screens.count()) > 0) {
+    const screenBox = await screens.last().boundingBox();
+    if (!screenBox) throw new Error("the Screen card has no bounding box");
+    top = Math.max(top, screenBox.y + screenBox.height + 40);
+  }
+  await page.mouse.move(800, top);
   await page.mouse.down();
-  await page.mouse.move(1000, 520, { steps: 12 });
+  await page.mouse.move(1000, top + 140, { steps: 12 });
   await page.mouse.up();
   await expect(page.locator("[data-board-surface-layer]")).toBeVisible({
     timeout: 20_000,
@@ -400,7 +425,7 @@ test("dark: canvas background is unaffected by entering and exiting single-scree
     await enterDirectMode(page);
     await page.waitForTimeout(300);
 
-    const { x: x2, y: y2 } = await sampleXY(page);
+    const { x: x2, y: y2 } = await sampleXY(page, { besideScreens: true });
     const after = await pixelAt(page, x2, y2);
     expect(after).toBe("26,26,26");
   } finally {

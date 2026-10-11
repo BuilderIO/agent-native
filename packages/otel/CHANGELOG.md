@@ -1,5 +1,12 @@
 # @agent-native/otel
 
+## 0.1.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 9bb40f0: Document that on serverless, core exports metrics at most once every 10 seconds per process instead of after every response.
+
 ## 0.1.4
 
 ### Patch Changes

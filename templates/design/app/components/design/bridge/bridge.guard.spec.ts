@@ -16375,13 +16375,27 @@ it(
       await page.mouse.move(120, 120);
       await page.mouse.down();
       await page.mouse.move(150, 150, { steps: 3 });
-      await page.evaluate(() => {
-        window.postMessage(
-          { type: "agent-native:cross-screen-claim", claimed: true },
-          "*",
-        );
-      });
-      await page.waitForTimeout(0);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.source !== window ||
+                event.data?.type !== "agent-native:cross-screen-claim" ||
+                event.data.claimed !== true
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              { type: "agent-native:cross-screen-claim", claimed: true },
+              "*",
+            );
+          }),
+      );
       await page.mouse.up();
 
       const source = await page.locator("#target").evaluate((element) => {

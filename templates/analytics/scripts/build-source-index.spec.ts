@@ -133,7 +133,7 @@ describe("compileSourceIndex", () => {
     expect(semanticModel).toMatchObject({
       metric: "semantic_model:workspaces",
       owner: "Product Analytics",
-      grain: "Unique key: workspace_id",
+      grain: "Primary entity: workspace_id",
       primaryEntity: "workspace",
       timeDimension: "created_at",
       table: "dim_workspaces",
@@ -144,7 +144,7 @@ describe("compileSourceIndex", () => {
     expect(metric).toMatchObject({
       metric: "metric:active_workspaces",
       owner: "Product Analytics",
-      grain: "Unique key: workspace_id",
+      grain: "Primary entity: workspace_id",
       primaryEntity: "workspace",
       timeDimension: "created_at",
       semanticModel: "workspaces",
@@ -152,6 +152,231 @@ describe("compileSourceIndex", () => {
     expect(JSON.stringify([semanticModel, metric])).not.toContain(
       "private@example.com",
     );
+  });
+
+  it("adds sourced grain to ordinary dbt model entries without inventing owners", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: dim_users_core",
+        '    description: "A user dimension."',
+        "    columns:",
+        "      - name: user_id",
+        "        tests: [not_null, unique]",
+        "  - name: dim_organizations",
+        '    description: "Organization records. One row per organization (org_id)."',
+        "  - name: user_organization_role",
+        '    description: "One row per user_id; this is not the declared membership grain."',
+        "    meta:",
+        "      grain: user_id, organization_id",
+        "  - name: dim_only_unique",
+        "    columns:",
+        "      - name: candidate_id",
+        "        tests: [unique]",
+        "  - name: login_activity_t2w",
+        '    description: "Login activity grouped by user and subscription activity."',
+      ].join("\n"),
+    );
+    for (const model of [
+      "dim_users_core",
+      "dim_organizations",
+      "user_organization_role",
+      "dim_only_unique",
+      "login_activity_t2w",
+    ]) {
+      await writeFile(
+        path.join(dbtRoot, "models", `${model}.sql`),
+        model === "login_activity_t2w"
+          ? [
+              "{{ config(materialized='table', unique_key='user_id') }}",
+              "select user_id, subscription_activity",
+              "from login_events",
+              "group by user_id, subscription_activity",
+            ].join("\n")
+          : "select 1",
+      );
+    }
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const byMetric = new Map(
+      bundle.entries.map((entry) => [entry.metric, entry]),
+    );
+
+    expect(byMetric.get("model:dim_users_core")).toMatchObject({
+      grain: "Unique key: user_id",
+    });
+    expect(byMetric.get("model:dim_organizations")).toMatchObject({
+      grain: "One row per organization (org_id)",
+    });
+    expect(byMetric.get("model:user_organization_role")).toMatchObject({
+      grain: "user_id, organization_id",
+    });
+    expect(byMetric.get("model:user_organization_role")).not.toHaveProperty(
+      "owner",
+    );
+    expect(byMetric.get("model:dim_only_unique")).not.toHaveProperty("grain");
+    expect(byMetric.get("model:login_activity_t2w")).not.toHaveProperty(
+      "grain",
+    );
+    expect(byMetric.get("model:login_activity_t2w")).not.toHaveProperty(
+      "joinPattern",
+    );
+  });
+
+  it("derives membership grain from UNNEST and inherits it through a pass-through", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    const intermediate = path.join(dbtRoot, "models", "intermediate");
+    const mapping = path.join(dbtRoot, "models", "mapping");
+    await mkdir(intermediate, { recursive: true });
+    await mkdir(mapping, { recursive: true });
+    await writeFile(
+      path.join(intermediate, "user_organization_role.sql"),
+      [
+        '{{ config(schema="dbt_intermediate", materialized="table") }}',
+        "with exploded_users as (",
+        '  select * from {{ ref("users") }} users',
+        "  cross join unnest(users.organizations) as organization",
+        ")",
+        "select exploded_users.user_id,",
+        "  exploded_users.name,",
+        "  exploded_users.organization as organization_id,",
+        "  case when orgs.type = 'root' then true else false end as organization_is_root,",
+        '  coalesce(lookup_user_role(exploded_users.organization_roles, orgs.org_id), "missing") as organization_role,',
+        "  orgs.subscription",
+        "from exploded_users",
+        'left join {{ ref("organizations") }} orgs',
+        "  on exploded_users.organization = orgs.org_id",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_id_to_org_id.sql"),
+      [
+        '{{ config(schema="dbt_mapping", materialized="table") }}',
+        "{#",
+        "Maps each user to every organization they belong to, flagging the user's root org.",
+        "#}",
+        "select user_id, organization_id, organization_is_root as is_root_org",
+        'from {{ ref("user_organization_role") }}',
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_user_only.sql"),
+      'select user_id from {{ ref("user_organization_role") }}',
+    );
+    await writeFile(
+      path.join(mapping, "user_organization_count.sql"),
+      'select count(*) as membership_count from {{ ref("user_organization_role") }}',
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "customer_items.sql"),
+      "select customer_id, item from source cross join unnest(items) as item",
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_duplicate_source.sql"),
+      [
+        "select users.user_id, organization as organization_id",
+        "from users, duplicate_source",
+        "cross join unnest(users.organizations) as organization",
+      ].join("\n"),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-11T00:00:00.000Z",
+    });
+    const byMetric = new Map(
+      bundle.entries.map((entry) => [entry.metric, entry]),
+    );
+
+    expect(byMetric.get("model:user_organization_role")).toMatchObject({
+      grain:
+        "Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+    });
+    expect(byMetric.get("model:user_id_to_org_id")).toMatchObject({
+      grain:
+        "Same row grain as user_organization_role: Expanded grain: one row per user-organization array entry from UNNEST(organizations)",
+      dependencies: "ref:user_organization_role",
+    });
+    expect(byMetric.get("model:customer_items")).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_duplicate_source"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_user_only"),
+    ).not.toHaveProperty("grain");
+    expect(byMetric.get("model:user_organization_count")).not.toHaveProperty(
+      "grain",
+    );
+  });
+
+  it("does not infer membership grain through aggregates or grouped projections", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_grouped.sql"),
+      [
+        "with expanded as (",
+        "  select users.user_id, organization",
+        "  from users cross join unnest(users.organizations) as organization",
+        ")",
+        "select user_id from expanded group by user_id",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_aggregate.sql"),
+      [
+        "with expanded as (",
+        "  select users.user_id, organization",
+        "  from users cross join unnest(users.organizations) as organization",
+        ")",
+        "select count(*) as membership_count from expanded",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_computed_key.sql"),
+      [
+        "with expanded as (",
+        "  select users.user_id, organization",
+        "  from users cross join unnest(users.organizations) as organization",
+        ")",
+        "select user_id, case when organization is null then null else organization end as organization_id from expanded",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "user_organization_count_passthrough.sql"),
+      'select count(*) as membership_count from {{ ref("user_organization_role") }}',
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-11T00:00:00.000Z",
+    });
+    const byMetric = new Map(
+      bundle.entries.map((entry) => [entry.metric, entry]),
+    );
+
+    expect(byMetric.get("model:user_organization_grouped")).not.toHaveProperty(
+      "grain",
+    );
+    expect(
+      byMetric.get("model:user_organization_aggregate"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_computed_key"),
+    ).not.toHaveProperty("grain");
+    expect(
+      byMetric.get("model:user_organization_count_passthrough"),
+    ).not.toHaveProperty("grain");
   });
 
   it("resolves dbt doc references and fingerprints their source text", async () => {
@@ -843,6 +1068,7 @@ describe("compileSourceIndex", () => {
       sourceKind: "dbt",
       semanticScope: "unknown",
       dependencies: "ref:stg_orders; source:app.organizations",
+      grain: "Unique key: order_id, organization_id",
       joinPattern: "Unique grain: order_id, organization_id",
       sourcePath: "models/orders.sql",
     });

@@ -151,8 +151,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
   "onboarding.builderAccountExistsDescription":
     "계정을 사용하려면 로그인하세요.",
+  "onboarding.builderActivationChecking":
+    "새 계정 생성이 가능한지 확인하는 중입니다.",
+  "onboarding.builderActivationUnavailable":
+    "이 앱에서는 새 계정 생성이 활성화되어 있지 않습니다. 기존 계정은 연결할 수 있습니다.",
+  "onboarding.builderActivationUnavailableInMode":
+    "이 모드에서는 새 계정을 활성화할 수 없습니다. 기존 계정은 계속 연결할 수 있습니다.",
+  "onboarding.builderActivationCheckFailed":
+    "이 앱에서 새 계정을 만들 수 있는지 확인하지 못했습니다.",
+
   "onboarding.builderActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 만들거나 연결해 무료 크레딧을 받으세요.",
+    "새 계정을 만들어 무료 크레딧을 활성화하거나 기존 계정으로 계속하세요.",
   "onboarding.builderOrgActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
@@ -160,7 +169,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "서비스 약관",
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
-  "onboarding.builderExistingAccount": "Builder.io 사용",
+  "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
@@ -1231,6 +1240,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.clear": "선택 컨텍스트 지우기",
+  "setup.addKeyInSettings": "설정에서 키 추가",
+  "setup.addKeyInSettingsDescription": "개인 계정 또는 조직 계정에 추가합니다.",
+  "setup.setEnvironmentVariable": "환경 변수 설정",
+  "setup.setEnvironmentVariableDescription":
+    "이 앱의 모든 사용자가 하나의 제공자 키를 사용합니다.",
+
   "setup.addOwnKeys": "직접 키 추가",
   "setup.builderCredits":
     "Builder.io는 무료 크레딧을 제공하며, 직접 API 키를 사용할 수도 있습니다.",

@@ -1,5 +1,37 @@
 # @agent-native/dispatch
 
+## 0.40.20
+
+### Patch Changes
+
+- 5f419fe: Preserve Agent Teams parent context when opening runs from Dispatch navigation.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [3d09f9f]
+- Updated dependencies [128f43e]
+- Updated dependencies [dfcc0de]
+- Updated dependencies [eae7aa3]
+- Updated dependencies [43d0aa8]
+- Updated dependencies [a9c8414]
+- Updated dependencies [19cd58b]
+- Updated dependencies [aa34418]
+- Updated dependencies [18384b3]
+- Updated dependencies [ccddd3a]
+- Updated dependencies [2f52659]
+- Updated dependencies [5debd13]
+- Updated dependencies
+- Updated dependencies [e818cf9]
+- Updated dependencies [e818cf9]
+- Updated dependencies [ecfe037]
+- Updated dependencies [d7da131]
+- Updated dependencies [d44b119]
+- Updated dependencies [cdc66e3]
+- Updated dependencies [f8930b5]
+- Updated dependencies [d7da131]
+- Updated dependencies [d4854b8]
+- Updated dependencies [3451273]
+- Updated dependencies [70bf54c]
+  - @agent-native/toolkit@0.207.0
+
 ## 0.40.19
 
 ### Patch Changes
@@ -1208,12 +1240,5 @@
 
 - 6e56b98: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 - 6e56b98: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.13
-
-### Patch Changes
-
-- 6bdf1f7: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
-- 6bdf1f7: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

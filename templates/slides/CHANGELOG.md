@@ -3,15 +3,44 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-11
+
+### Fixed
+
+- Going back from a new Slides generation returns Home without refilling the submitted prompt.
+
+## 2026-10-10
+
+### Improved
+
+- In a narrow pane, such as the ChatGPT side panel, the editor scrolls through every slide in one column instead of needing the slide rail.
+- The Slides editor in ChatGPT and Codex now uses the same top bar, toolbar, slide rail and canvas as the app
+
+### Fixed
+
+- Deck links stay open while your workspace loads.
+- Home suggestions keep their slot stable through profile errors and generation.
+- Home suggestions stay stable and reflect your role
+- Presentation suggestions stay in place while loading and match your selected role.
+- Slides no longer treat a stray 'Pod 2 slide' or 'at least 10 slides' in a long prompt as a hard slide cap, and placeholder blank slides no longer count toward the requested count.
+
 ## 2026-10-09
 
 ### Improved
 
+- Previous steps back through each revealed paragraph before changing slides.
+- The Slides widget in ChatGPT and Codex now has the editor's deck title, Share button and slide style toolbar, and they fit narrow panels.
 - Slide text editing keeps formatting controls responsive while you type.
 - The Slides chat stays responsive while you type on a slide.
 
 ### Fixed
 
+- By-paragraph animations now work with native paragraphs and bullet lists.
+- By-paragraph animations reveal multiple paragraphs in a list item one at a time.
+- By-paragraph animations step through nested list items in order, preserving explicit paragraph effects and consistently prioritizing the first configured effect when targets overlap.
+- Fixed paragraph reveal order for nested lists and mixed list content
+- Slides keep generating when image search is unavailable.
+- Wrapped paragraphs in list items reveal one at a time
 - Crop animations respect active container-query styles
 - Crop edits preserve in-progress transitions and keep transforms aligned with animated font sizes.
 - Deck style tweaks save when edited from a ChatGPT widget.
@@ -32,6 +61,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Custom-key setup opens model settings after onboarding.
 - Slide slash menus keep opening when the browser updates the caret late.
 - Slides keeps prompts ready, shows one provider retry hint, and blocks generation until a provider is connected.
 - Typing / in a slide text box reliably opens the slash-command menu.

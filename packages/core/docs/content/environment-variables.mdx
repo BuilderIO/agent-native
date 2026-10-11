@@ -15,13 +15,11 @@ most apps need.
 For a normal app, start with the [Agent-Native app configuration guide](/docs/agent-native-config),
 then use [Deployment: Environment Variables](/docs/deployment-environment-variables)
 and [Authentication](/docs/authentication) for the deliberate environment-only
-parts. LLM provider keys in environment variables are shared as an app-wide
-fallback by self-hosted deployments, including those with a remote database.
-Production Hosted-workspace runtimes block deployment provider-key fallbacks.
-Any signed-in user without a scoped key can use the deployment provider
-account, and usage is billed to that account. Configure these keys only when
-app-wide access and billing are intended. Keep user-, organization-, and
-workspace-scoped credentials in the database-backed secret or connection store.
+parts. LLM provider keys can be app-wide fallbacks on self-hosted deployments;
+production Hosted-workspace runtimes block that fallback. See [LLM provider
+keys](#llm-provider-keys) for local setup, scoped keys, and deployment sharing
+and billing. Keep user-, organization-, and workspace-scoped credentials in the
+database-backed secret or connection store.
 
 For committed, non-secret app defaults, use `agent-native.config.ts` first. If a
 public config value must vary by deployment, use its deterministic
@@ -83,7 +81,7 @@ public app behavior, use the config paths above instead.
 | `SECRETS_ENCRYPTION_KEY`                       | Legacy app-local/shared encryption fallback.                                                                                                                                   | A stable encryption key; prefer the workspace key for new shared vaults.                                                |
 | `WORKSPACE_SECRETS_ENCRYPTION_KEY`             | Stable encryption key for a workspace-shared secrets vault.                                                                                                                    | The same stable key in every app that reads the vault.                                                                  |
 | `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`    | Previous workspace key during rotation.                                                                                                                                        | The old key only; remove it after migration.                                                                            |
-| `ANTHROPIC_API_KEY`                            | Shared fallback for self-hosted apps, including remote databases.                                                                                                              | An Anthropic API key; scoped user or organization keys take precedence.                                                 |
+| `ANTHROPIC_API_KEY`                            | Shared fallback for self-hosted apps, including remote databases.                                                                                                              | An Anthropic API key; saved personal, organization, or workspace-scoped keys take precedence.                           |
 | `AGENT_ENGINE`                                 | Explicitly selects the agent engine instead of auto-detecting from provider keys.                                                                                              | A registered engine name such as `anthropic`, `ai-sdk:openai`, `builder`, or `codex-cli`.                               |
 | `AGENT_BUILT_IN_ENGINES`                       | Restricts which built-in engines are registered at all, so the rest never appear in the model picker or resolve by name.                                                       | A comma-separated list of built-in engine names such as `ai-sdk:openai`; unset registers every built-in.                |
 | `AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD`       | Read-only source/search tool calls one turn may make before the agent is told to converge and answer from what it gathered.                                                    | A positive integer; defaults to 24. Raise it for research-shaped apps that legitimately inspect many records.           |
@@ -173,11 +171,38 @@ specific Google API integrations; they are not required for browser sign-in.
 
 ## Optional AI, search, and email fallbacks
 
-These are deploy-level fallbacks for self-hosted deployments. Any signed-in
-user or organization without a scoped key can use the deployment provider
-account, and usage is billed to that account. Configure these keys only when
-app-wide access and billing are intended. Production Hosted-workspace runtimes
-block deployment provider-key fallbacks.
+### LLM provider keys {#llm-provider-keys}
+
+For local development, put a supported provider key in the app's `.env` file
+before starting `pnpm dev`. For example:
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+For an app-wide fallback, set a supported provider key in the server-side
+environment of a self-hosted app. This also works with a remote PostgreSQL
+database. Any signed-in user without a personal, organization-scoped, or
+workspace-scoped provider key can use the deployment's provider account, and
+usage is billed to that account. Anonymous public runs and synthetic traffic do
+not receive this fallback. Personal, organization, and workspace-scoped keys
+take precedence. Setting a deployment key opts in to
+app-wide access and billing; no extra shared-key flag is needed. Production
+Hosted-workspace runtimes block deployment provider-key fallbacks.
+
+To keep a key scoped, select **Custom keys** in the app's LLM setup. In a
+PostgreSQL app, a personal key stays with its user; organization scope shares a
+key with the active organization and is available to admins. The app stores
+these saved keys in its encrypted database-backed credential store.
+
+To use Builder's managed provider, connect with **Use Builder.io** in the app's
+LLM setup. This uses the Builder connection instead of a provider API key from
+the table below.
+
+The table below lists optional deployment-level fallbacks for self-hosted apps.
+See the LLM guidance above for which users can use the deployment provider key
+and how usage is billed. Production Hosted-workspace runtimes block deployment
+provider-key fallbacks.
 
 Every provider key below selects its engine on its own: dropping one in is
 enough, and `AGENT_ENGINE` is only needed to pick between several.

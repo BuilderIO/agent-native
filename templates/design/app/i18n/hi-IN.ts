@@ -222,7 +222,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "डिज़ाइन",
+    home: "होम",
     templates: "टेम्पलेट",
     designSystems: "डिज़ाइन सिस्टम",
     setupDesignSystem: "डिज़ाइन सिस्टम सेट करें",
@@ -767,7 +767,7 @@ export default {
       needsConnectedApp: "सोर्स पर जाने के लिए कनेक्टेड ऐप आवश्यक है",
     },
     leftRail: {
-      file: "फ़ाइल",
+      layers: "परतें",
       agent: "एजेंट",
       assets: "एसेट",
       import: "आयात",
@@ -1066,7 +1066,7 @@ export default {
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     fileMenu: {
       pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
-      designs: "डिज़ाइन",
+      allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
@@ -1849,7 +1849,7 @@ export default {
     browseAllTemplates: "सभी ब्राउज़ करें",
     connectBuilderIo: "Builder.io इस्तेमाल करें",
     connectingBuilder: "Builder.io सेट अप हो रहा है…",
-    pageTitle: "Designs",
+    pageTitle: "होम",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
     newDesignLower: "नया डिज़ाइन",

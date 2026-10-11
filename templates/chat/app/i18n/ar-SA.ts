@@ -61,7 +61,7 @@ const messages = {
     editHint: "عدّل {{file}} واحفظه، ثم اسأل مجددًا لترى التحية الجديدة.",
     lead: "تتشارك واجهة تطبيقك ووكيله الإجراءات نفسها.",
     leadTry: "اطلب من الوكيل استدعاء الإجراء hello.",
-    llmSetupLink: "إعداد مفتاح LLM للتطبيق بالكامل",
+    llmSetupLink: "إعداد موفّر LLM",
     title: "ابدأ الآن",
   },
   navigation: {
