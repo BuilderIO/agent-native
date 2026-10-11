@@ -471,6 +471,17 @@ fn save_bubble_size_name(app: &AppHandle, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn persist_bubble_size_after_geometry(
+    geometry_result: &Result<(), String>,
+    persist: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if geometry_result.is_ok() {
+        persist()
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 struct BubblePositionPreference {
     x: i32,
@@ -2297,7 +2308,7 @@ mod tests {
         bubble_saved_window_size, bubble_scale_factor_for_monitors, bubble_size_for_name,
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
         clamp_popover_logical_size, legacy_bubble_window_size_for_scale,
-        migrate_legacy_bubble_position, overlay_labels_to_hide,
+        migrate_legacy_bubble_position, overlay_labels_to_hide, persist_bubble_size_after_geometry,
         strip_trailing_period_for_messaging, text_insertion_strategy, BubblePositionPreference,
         TextInsertionStrategy, BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
@@ -2307,6 +2318,28 @@ mod tests {
     fn offscreen_popover_requires_supported_background_throttling() {
         assert!(!crate::util::supports_disabled_background_throttling(13));
         assert!(crate::util::supports_disabled_background_throttling(14));
+    }
+
+    #[test]
+    fn bubble_size_preference_is_saved_only_after_geometry_succeeds() {
+        let mut persisted = false;
+        assert_eq!(
+            persist_bubble_size_after_geometry(&Err("resize failed".into()), || {
+                persisted = true;
+                Ok(())
+            }),
+            Ok(())
+        );
+        assert!(!persisted);
+
+        assert_eq!(
+            persist_bubble_size_after_geometry(&Ok(()), || {
+                persisted = true;
+                Err("preference write failed".into())
+            }),
+            Err("preference write failed".into())
+        );
+        assert!(persisted);
     }
 
     #[test]
@@ -2922,7 +2955,8 @@ pub async fn set_bubble_size(app: AppHandle, size: String) -> Result<(), String>
     } else {
         (Ok(()), Ok(()))
     };
-    let size_result = save_bubble_size_name(&app, name);
+    let size_result =
+        persist_bubble_size_after_geometry(&geometry_result, || save_bubble_size_name(&app, name));
     match (geometry_result, position_result, size_result) {
         (Ok(()), Ok(()), Ok(())) => Ok(()),
         (Ok(()), Err(position_error), Ok(())) => {
