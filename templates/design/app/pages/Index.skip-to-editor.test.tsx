@@ -670,6 +670,7 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
+    expect(mocks.promptProps?.showInlineSkip).toBe(true);
     expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
     let skipPromise: Promise<void> | undefined;
     await act(async () => {
@@ -706,6 +707,7 @@ describe("Index skip to editor", () => {
     await act(async () => {
       mocks.promptProps?.onTemplateChange("saved-template");
     });
+    expect(mocks.promptProps?.showInlineSkip).toBe(false);
 
     let shouldClose: boolean | void = undefined;
     await act(async () => {

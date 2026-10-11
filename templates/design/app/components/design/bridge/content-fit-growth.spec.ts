@@ -416,9 +416,8 @@ describe("auto-layout content-sized drop growth", () => {
   ])("$name remains constrained in each bridge", ({ expected, ...options }) => {
     for (const bridge of bridgeNames) {
       const { helper, container } = makeContainer(options, bridge);
-      const sourceWidth = "sourceWidth" in options ? options.sourceWidth : 81;
-      const sourceHeight =
-        "sourceHeight" in options ? options.sourceHeight : 80;
+      const sourceWidth = options.sourceWidth ?? 81;
+      const sourceHeight = options.sourceHeight ?? 80;
       expect(
         helper(container as unknown as Element, sourceWidth, sourceHeight),
       ).toBe(expected);

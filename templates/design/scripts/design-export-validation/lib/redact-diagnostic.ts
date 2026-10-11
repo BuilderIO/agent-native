@@ -209,6 +209,7 @@ function findStructuredJsonValueEnd(
         try {
           JSON.parse(value.slice(valueStart, valueEnd));
         } catch {
+          // coercion-ok: Invalid JSON must make the caller redact the entire sensitive tail.
           return null;
         }
         return valueEnd;
