@@ -168,8 +168,12 @@ export const sourceContracts = {
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
-const GRAIN_NEGATION_PREFIX =
+const CLAIM_NEGATION_PREFIX =
   /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+const MEANING_NEGATION_MARKER =
+  /\b(?:not|never|no|cannot|can['’]t|(?:do|does|did)(?:\s+not|n['’]t)|(?:is|are|was|were)(?:\s+not|n['’]t))\b/gi;
+const MEANING_NEGATION_SUFFIX =
+  /^\s*(?:[,;:]\s*)?(?:(?:but|which|however|this|it|that)\s+)*(?:(?:is|are|was|were|do|does|did|can|should|would)\s+)?(?:(?:a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*(?:not|never|cannot|can['’]t)\b/i;
 const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:(?:don|doesn|didn|isn|aren|wasn|weren)['’]t)|cannot|can['’]t)`;
 const GRAIN_NEGATION_ADVERBS = String.raw`(?:(?:actually|clearly|definitely|explicitly|likely|necessarily|perhaps|probably|really|truly)\s+)*`;
 const GRAIN_NEGATION_TARGET = String.raw`(?:(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)(?:\s+grain)?\b|(?:match(?:es)?|equal(?:s)?|represent(?:s)?|define(?:s)?|describe(?:s)?|reflect(?:s)?|correspond(?:s)?(?:\s+to)?)\s+(?:(?:a|an|the)\s+)?(?:(?:declared|expected|actual|correct|true|valid)\s+)?(?:grain|row unit)\b)`;
@@ -195,10 +199,50 @@ function isNegatedGrainClaim(line: string, index: number, phrase: string) {
   const prefix = line.slice(Math.max(0, index - 64), index);
   const suffix = line.slice(index + phrase.length, index + phrase.length + 112);
   return (
-    GRAIN_NEGATION_PREFIX.test(prefix) ||
+    CLAIM_NEGATION_PREFIX.test(prefix) ||
     GRAIN_NEGATION_SUFFIX.test(suffix) ||
     GRAIN_NEGATION_CLAUSE.test(suffix)
   );
+}
+
+function isNegatedMeaningClaim(line: string, index: number, phrase: string) {
+  const prefix = line.slice(Math.max(0, index - 72), index);
+  if (CLAIM_NEGATION_PREFIX.test(prefix)) return true;
+
+  const clausePrefix = prefix.split(/[,;:.!?]/u).at(-1) ?? prefix;
+  const negationMarkers = Array.from(
+    clausePrefix.matchAll(MEANING_NEGATION_MARKER),
+  );
+  const lastNegation = negationMarkers.at(-1);
+  if (lastNegation?.index !== undefined) {
+    const interveningText = clausePrefix.slice(
+      lastNegation.index + lastNegation[0].length,
+    );
+    if (
+      interveningText.length <= 56 &&
+      !/\b(?:but|however|instead|rather|yet|although|only)\b/i.test(
+        interveningText,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  const suffix = line.slice(index + phrase.length, index + phrase.length + 96);
+  return MEANING_NEGATION_SUFFIX.test(suffix);
+}
+
+function getMeaningClaimState(text: string, meanings: string[]) {
+  let affirmative = false;
+  let negated = false;
+  for (const meaning of meanings) {
+    const phrase = meaning.toLowerCase();
+    for (const index of findCompletePhraseIndexes(text, phrase)) {
+      if (isNegatedMeaningClaim(text, index, phrase)) negated = true;
+      else affirmative = true;
+    }
+  }
+  return { affirmative, negated };
 }
 
 function hasRelationGrainClaim(
@@ -244,16 +288,26 @@ function hasRelationGrainClaim(
 function hasRelationMeaningClaim(
   lines: string[],
   claim: RelationMeaningClaim,
+  allClaims: RelationMeaningClaim[],
 ): boolean {
   const relation = claim.relation.toLowerCase();
-  return lines.some(
-    (line) =>
-      findCompletePhraseIndexes(line, relation).length > 0 &&
-      claim.meanings.some(
-        (meaning) =>
-          findCompletePhraseIndexes(line, meaning.toLowerCase()).length > 0,
-      ),
-  );
+  return lines.some((line) => {
+    if (findCompletePhraseIndexes(line, relation).length === 0) return false;
+    const relationsOnLine = allClaims.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
+    );
+    if (relationsOnLine.length !== 1) return false;
+
+    const expected = getMeaningClaimState(line, claim.meanings);
+    if (!expected.affirmative || expected.negated) return false;
+    return !allClaims.some(
+      (candidate) =>
+        candidate.relation !== claim.relation &&
+        getMeaningClaimState(line, candidate.meanings).affirmative,
+    );
+  });
 }
 
 function hasFieldMeaningClaim(
@@ -283,11 +337,19 @@ function hasFieldMeaningClaim(
         ),
       );
       const assignment = line.slice(index + field.length, nextFieldIndex);
-      return claim.meanings.some(
-        (meaning) =>
-          findCompletePhraseIndexes(assignment, meaning.toLowerCase()).length >
-          0,
-      );
+      const expected = getMeaningClaimState(assignment, claim.meanings);
+      if (!expected.affirmative || expected.negated) return false;
+      const competing = allClaims
+        .filter(
+          (candidate) =>
+            candidate.relation === claim.relation &&
+            candidate.field !== claim.field,
+        )
+        .some(
+          (candidate) =>
+            getMeaningClaimState(assignment, candidate.meanings).affirmative,
+        );
+      return !competing;
     });
   });
 }
@@ -326,7 +388,13 @@ function sourceContractScorer(
       }
 
       for (const claim of contract.relationMeanings ?? []) {
-        if (!hasRelationMeaningClaim(lines, claim)) {
+        if (
+          !hasRelationMeaningClaim(
+            lines,
+            claim,
+            contract.relationMeanings ?? [],
+          )
+        ) {
           reasons.push(
             `${claim.relation} was not assigned to its expected ${claim.meanings[0]} time scope`,
           );

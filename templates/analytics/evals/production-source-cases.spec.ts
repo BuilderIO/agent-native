@@ -128,6 +128,44 @@ describe("Analytics synthetic production source evals", () => {
     );
   });
 
+  it("rejects negated and conflicting time-scope claims while accepting a clear scope", async () => {
+    const contract = sourceContracts.builderCurrentAndHistoricalUserCounts;
+    const relation = "dbt_mart.organization_user_count";
+    const monthlyRelation = "dbt_mart.aggregate_monthly_users_per_org";
+    const reportFor = (currentScope: string) =>
+      runEvals(
+        [cases[1]!],
+        runnerFor(
+          outputFor(contract, {
+            text: [
+              `${relation}: ${currentScope}; one row per organization per date`,
+              `${monthlyRelation}: historical month-end monthly trend; one row per organization per month`,
+              ...contract.concepts,
+            ].join("\n"),
+          }),
+        ),
+        { persist: false },
+      );
+
+    const affirmative = await reportFor(
+      "current daily (not the historical month-end scope)",
+    );
+    const negated = await reportFor("not current daily; historical month-end");
+    const conflicting = await reportFor(
+      "current daily and historical month-end",
+    );
+
+    expect(affirmative).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(negated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(conflicting).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(negated.results[0]?.scores[0]?.reason).toContain(
+      `${relation} was not assigned to its expected current time scope`,
+    );
+    expect(conflicting.results[0]?.scores[0]?.reason).toContain(
+      `${relation} was not assigned to its expected current time scope`,
+    );
+  });
+
   it("rejects reversed external and internal user-count field meanings", async () => {
     const contract = sourceContracts.builderExternalAndInternalUserCounts;
     const relation = "dbt_mart.aggregate_monthly_users_per_org";
@@ -154,6 +192,44 @@ describe("Analytics synthetic production source evals", () => {
     );
     expect(report.results[0]?.scores[0]?.reason).toContain(
       `${relation}.internal_user_count was not mapped to its expected population`,
+    );
+  });
+
+  it("rejects negated and conflicting population fields while accepting clear mappings", async () => {
+    const contract = sourceContracts.builderExternalAndInternalUserCounts;
+    const relation = "dbt_mart.aggregate_monthly_users_per_org";
+    const reportFor = (userCountMeaning: string) =>
+      runEvals(
+        [cases[2]!],
+        runnerFor(
+          outputFor(contract, {
+            text: [
+              `${relation}: one row per organization per month`,
+              `${relation}.user_count: ${userCountMeaning}`,
+              `${relation}.internal_user_count: internal Builder.io staff users`,
+              ...contract.concepts,
+            ].join("\n"),
+          }),
+        ),
+        { persist: false },
+      );
+
+    const affirmative = await reportFor("external Builder.io product users");
+    const negated = await reportFor(
+      "not external Builder.io product users; internal Builder.io staff users",
+    );
+    const conflicting = await reportFor(
+      "external Builder.io product users and internal Builder.io staff users",
+    );
+
+    expect(affirmative).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(negated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(conflicting).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(negated.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.user_count was not mapped to its expected population`,
+    );
+    expect(conflicting.results[0]?.scores[0]?.reason).toContain(
+      `${relation}.user_count was not mapped to its expected population`,
     );
   });
 

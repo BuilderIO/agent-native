@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  open,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -202,6 +209,99 @@ describe("compileSourceIndex", () => {
     expect(updatedBundle.sources[0]?.contentFingerprint).not.toBe(
       originalFingerprint,
     );
+  });
+
+  it("skips oversized Markdown without referenced dbt doc blocks", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await mkdir(path.join(dbtRoot, "docs"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: aggregate_monthly_users_per_org",
+        "    description: \"{{ doc('membership_counts') }}\"",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "docs", "membership.md"),
+      "{% docs membership_counts %}Membership snapshot definition.{% enddocs %}",
+    );
+    await writeFile(
+      path.join(dbtRoot, "README.md"),
+      "Unrelated project notes. ".repeat(100_000),
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-10T00:00:00.000Z",
+    });
+
+    expect(
+      bundle.entries.find(
+        (entry) => entry.metric === "model:aggregate_monthly_users_per_org",
+      )?.definition,
+    ).toContain("Membership snapshot definition.");
+  });
+
+  it("fails clearly when a referenced dbt doc block is in oversized Markdown", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await mkdir(path.join(dbtRoot, "docs"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: aggregate_monthly_users_per_org",
+        "    description: \"{{ doc('membership_counts') }}\"",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "docs", "membership.md"),
+      `{% docs membership_counts %}${"Large relevant documentation. ".repeat(100_000)}`,
+    );
+
+    await expect(
+      compileSourceIndex({
+        dbtRoots: [dbtRoot],
+        generatedAt: "2026-10-10T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      code: "file_limit_exceeded",
+      message:
+        "A referenced dbt documentation file exceeds the safe index size limit.",
+    });
+  });
+
+  it("enforces the source-root byte limit during Markdown doc discovery", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await mkdir(path.join(dbtRoot, "docs"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "schema.yml"),
+      [
+        "version: 2",
+        "models:",
+        "  - name: aggregate_monthly_users_per_org",
+        "    description: \"{{ doc('membership_counts') }}\"",
+      ].join("\n"),
+    );
+    const oversizedMarkdown = path.join(dbtRoot, "docs", "large.md");
+    const file = await open(oversizedMarkdown, "w");
+    await file.truncate(250_000_001);
+    await file.close();
+
+    await expect(
+      compileSourceIndex({
+        dbtRoots: [dbtRoot],
+        generatedAt: "2026-10-10T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "root_size_limit_exceeded" });
   });
 
   it("uses the primary entity name when primary_entity is omitted", async () => {
