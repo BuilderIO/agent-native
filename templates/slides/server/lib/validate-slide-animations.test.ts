@@ -293,14 +293,22 @@ describe("save-time reveal identity across a content edit", () => {
     expect(() => saveWith(box("<p>One</p><p>Two, revised</p>"))).not.toThrow();
   });
 
-  it("accepts a target whose tag changes in place", () => {
-    expect(() => saveWith(box("<p>One</p><h2>Two</h2>"))).not.toThrow();
+  it("refuses a target whose tag changes in place, since the structure changed", () => {
+    const error = refusalOf(() => saveWith(box("<p>One</p><h2>Two</h2>")));
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
   });
 
-  it("accepts a sibling appended after the target", () => {
-    expect(() =>
+  it("refuses a sibling appended after the target, since the slide structure changed", () => {
+    const error = refusalOf(() =>
       saveWith(box("<p>One</p><p>Two</p><p>Three</p>")),
-    ).not.toThrow();
+    );
+    expect(error).toMatchObject({
+      errorCode: "slide_animation_retargeted",
+      details: { animationId: "two" },
+    });
   });
 
   it("refuses a text edit to the target that also appends a sibling after it, since text cannot prove the pairing", () => {

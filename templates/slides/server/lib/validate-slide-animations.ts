@@ -4,7 +4,6 @@ import { parseHTML } from "linkedom/worker";
 import {
   animationElementKey,
   getElementPreview,
-  getPersistedChildren,
   resolveRevealSteps,
   type AnimationTarget,
   type RevealOutcome,
@@ -103,32 +102,12 @@ function unresolvedIdentities(baseline: SlideAnimationBaseline): Set<string> {
 }
 
 // Node.TEXT_NODE; the global Node is not defined where this validator runs.
-const TEXT_NODE = 3;
 
-function persistedDescendants(root: Element): Element[] {
-  const elements: Element[] = [];
-  const visit = (parent: Element) => {
-    for (const child of getPersistedChildren(parent)) {
-      elements.push(child);
-      visit(child);
-    }
-  };
-  visit(root);
-  return elements;
-}
-
-// Tag, class, and the element's own text. Text inside child elements is left out,
-// so an edit deep in a container does not change the container's identity.
-function elementSignature(element: Element): string {
-  const ownText = Array.from(element.childNodes)
-    .filter((node) => node.nodeType === TEXT_NODE)
-    .map((node) => node.textContent ?? "")
-    .join("");
-  return JSON.stringify([
-    element.tagName.toLowerCase(),
-    element.getAttribute("class") ?? "",
-    ownText.replace(/\s+/g, " ").trim(),
-  ]);
+/** Each element's tag and class in document order. Text is not part of it. */
+function structureOf(root: Element): string {
+  return [root, ...Array.from(root.querySelectorAll("*"))]
+    .map(tagAndClass)
+    .join("|");
 }
 
 function tagAndClass(element: Element): string {
@@ -139,108 +118,34 @@ function tagAndClass(element: Element): string {
 }
 
 /**
- * Pairs an unequal run only where the pairing is certain: a baseline element takes
- * the one unclaimed element of its tag and class, and only when that element is
- * unique. Text is not used. An inserted sibling can keep the target's text, and a
- * revised target can share its tag and class with an appended sibling, so text cannot
- * tell which element the target became. Anything ambiguous stays unpaired, and an
- * unpaired reveal is refused as a retarget instead of silently rebinding.
+ * Whether the target's old text now sits on another element of its tag and class. A
+ * swap of two same-tag siblings keeps the structure, and looks like two text edits,
+ * so the old text on another sibling is the signal that the target moved.
  */
-function pairUnequalRun(
-  before: Element[],
-  after: Element[],
-  identities: Map<Element, Element>,
-): void {
-  const claimed = new Set<Element>();
-  for (const element of before) {
-    const key = tagAndClass(element);
-    // Both sides must hold exactly one element of this tag and class. With two
-    // baseline siblings of one tag and class, a deleted one can look paired to the
-    // survivor, so the element stays unpaired.
-    if (before.filter((other) => tagAndClass(other) === key).length !== 1) {
-      continue;
-    }
-    const candidates = after.filter(
-      (candidate) => !claimed.has(candidate) && tagAndClass(candidate) === key,
-    );
-    if (candidates.length !== 1) continue;
-    identities.set(element, candidates[0]!);
-    claimed.add(candidates[0]!);
-  }
-}
-
-/**
- * Pairs each element of the baseline with the element it became after an edit,
- * or leaves it unpaired. Exact matches anchor a longest common subsequence in
- * document order. Between two anchors, elements pair up in order when both runs
- * hold the same number of elements; otherwise pairUnequalRun pairs only the
- * unambiguous tag-and-class matches. A text edit keeps its identity when the runs
- * are equal, while an inserted, removed, or reordered sibling breaks the pairing.
- * Identical siblings are interchangeable by content, so an insertion among them can
- * still pick the wrong match.
- */
-function elementIdentities(
-  baseline: Element,
-  post: Element,
-): Map<Element, Element> {
-  const before = persistedDescendants(baseline);
-  const after = persistedDescendants(post);
-  const beforeKeys = before.map(elementSignature);
-  const afterKeys = after.map(elementSignature);
-  const n = before.length;
-  const m = after.length;
-
-  // ponytail: quadratic in one slide's element count; slides are small. Upgrade to
-  // a diff library if a slide ever grows into thousands of elements.
-  // common[i][j]: longest common subsequence of beforeKeys[i..] and afterKeys[j..].
-  const common = Array.from({ length: n + 1 }, () =>
-    new Array<number>(m + 1).fill(0),
+function oldTextMovedElsewhere(
+  prior: Element,
+  current: Element,
+  root: Element,
+): boolean {
+  const text = prior.textContent ?? "";
+  if (text === (current.textContent ?? "")) return false;
+  const key = tagAndClass(prior);
+  return [root, ...Array.from(root.querySelectorAll("*"))].some(
+    (other) =>
+      other !== current &&
+      tagAndClass(other) === key &&
+      (other.textContent ?? "") === text,
   );
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      common[i]![j] =
-        beforeKeys[i] === afterKeys[j]
-          ? common[i + 1]![j + 1]! + 1
-          : Math.max(common[i + 1]![j]!, common[i]![j + 1]!);
-    }
-  }
-  const anchors: Array<[number, number]> = [];
-  for (let i = 0, j = 0; i < n && j < m; ) {
-    if (beforeKeys[i] === afterKeys[j]) {
-      anchors.push([i, j]);
-      i++;
-      j++;
-    } else if (common[i + 1]![j]! >= common[i]![j + 1]!) {
-      i++;
-    } else {
-      j++;
-    }
-  }
-
-  const identities = new Map<Element, Element>();
-  let fromBefore = 0;
-  let fromAfter = 0;
-  for (const [i, j] of [...anchors, [n, m] as [number, number]]) {
-    const gapBefore = before.slice(fromBefore, i);
-    const gapAfter = after.slice(fromAfter, j);
-    if (gapBefore.length === gapAfter.length) {
-      gapBefore.forEach((element, k) => identities.set(element, gapAfter[k]!));
-    } else {
-      pairUnequalRun(gapBefore, gapAfter, identities);
-    }
-    if (i < n) identities.set(before[i]!, after[j]!);
-    fromBefore = i + 1;
-    fromAfter = j + 1;
-  }
-  return identities;
 }
 
 /**
- * The index of the first kept reveal, or -1. A kept reveal has the same id, index,
- * and path as a baseline reveal. Its path can still resolve after a sibling moves in
- * front of the target, so the path alone cannot prove the target is the same element;
- * the alignment has to. A baseline reveal that did not resolve has no target to keep,
- * so once it resolves under the same path, the content has moved into that path.
+ * The index of the first kept reveal that may now target a different element, or -1.
+ * A kept reveal has the same id, index, and path as a baseline reveal. When every
+ * element keeps its tag and class in document order, a kept path resolves to the same
+ * element and only text changed, so identity holds exactly. Any change to that
+ * structure makes identity a guess (an inserted or removed sibling, a retag, a reorder),
+ * so every kept reveal on the slide is refused. A baseline reveal that did not resolve
+ * has no target to keep, so once it resolves under the same path, the content moved in.
  */
 function retargetedRevealIndex(
   baseline: SlideAnimationBaseline,
@@ -249,6 +154,8 @@ function retargetedRevealIndex(
 ): number {
   const baselineRoot = slideRootOf(baseline.content);
   if (!baselineRoot) return -1;
+  const baselineStructure = structureOf(baselineRoot);
+  const structureChanged = baselineStructure !== structureOf(root);
   // null marks a baseline reveal that did not resolve.
   const priorTargets = new Map<string, Element | null>();
   resolveRevealSteps(baselineRoot, baseline.animations).forEach(
@@ -259,31 +166,15 @@ function retargetedRevealIndex(
       );
     },
   );
-  const identities = elementIdentities(baselineRoot, root);
   return resolveRevealSteps(root, animations).findIndex((outcome, index) => {
     if (!outcome.ok) return false;
     const prior = priorTargets.get(revealIdentity(animations[index]!));
     if (prior === undefined) return false;
-    if (prior === null) return true;
-    if (identities.get(prior) !== outcome.element) return true;
-    // Identical siblings are interchangeable by content. Once the sibling count
-    // changed, a copy of the target's text can be the element the pairing picked, so
-    // the save is refused rather than guessed.
-    const parent = outcome.element.parentElement;
-    if (!parent) return false;
-    const signature = elementSignature(outcome.element);
-    const identical = Array.from(parent.children).filter(
-      (child) => elementSignature(child) === signature,
-    ).length;
-    return (
-      identical > 1 &&
-      prior.parentElement?.children.length !== parent.children.length
-    );
+    if (prior === null || structureChanged) return true;
+    return oldTextMovedElsewhere(prior, outcome.element, root);
   });
 }
 
-// The same resolver the editor and the runtime use, so a save rejects exactly
-// what playback would fail to resolve, including "By paragraph" expansion.
 export function summarizeSlideAnimationTargets(
   content: string,
   animations: readonly SlideAnimation[],
