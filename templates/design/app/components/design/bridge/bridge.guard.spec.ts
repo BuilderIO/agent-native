@@ -31,6 +31,15 @@ import {
 const PLATFORM_PRIMARY_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
 
+async function setAppleBrowserPlatform(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: "MacIntel",
+    });
+  });
+}
+
 declare global {
   interface Window {
     __bridgeMessages?: Array<{ type?: string; phase?: string }>;
@@ -16514,12 +16523,11 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
-  platformPrimary?: boolean;
 }> = [
   { name: "Cmd/Ctrl+Z undo", key: "z" },
   { name: "Cmd/Ctrl+Shift+Z redo", key: "z", shift: true },
   { name: "Cmd/Ctrl+Y redo", key: "y" },
-  { name: "Cmd/Ctrl+F find", key: "f", platformPrimary: true },
+  { name: "Cmd/Ctrl+F find", key: "f" },
   { name: "Cmd/Ctrl+A select all", key: "a" },
   { name: "Cmd/Ctrl+X cut", key: "x" },
   { name: "Cmd/Ctrl+Shift+X strikethrough", key: "x", shift: true },
@@ -16613,11 +16621,7 @@ it(
         await page.evaluate(() => {
           (window as any).__bridgeMessages = [];
         });
-        const modifier =
-          testCase.ctrlOnly ||
-          (testCase.platformPrimary && process.platform !== "darwin")
-            ? "Control"
-            : "Meta";
+        const modifier = testCase.ctrlOnly ? "Control" : PLATFORM_PRIMARY_KEY;
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");
@@ -17207,6 +17211,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent("<!doctype html><html><body></body></html>");
+      await setAppleBrowserPlatform(page);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await collectBridgeMessages(page);
 
@@ -17250,6 +17255,7 @@ it(
       await page.setContent(`<!doctype html><html><body>
         <div id="el" data-agent-native-node-id="el" style="position:absolute;left:40px;top:40px;width:80px;height:60px;background:#6366f1">El</div>
       </body></html>`);
+      await setAppleBrowserPlatform(page);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await page.mouse.click(80, 70);

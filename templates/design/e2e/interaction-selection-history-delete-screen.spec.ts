@@ -817,6 +817,7 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
       `[data-frame-id="${secondId}"] [data-frame-title]`,
     );
     await secondTitle.click({ modifiers: ["Shift"] });
+    await expect.poll(() => selectedScreenIds(page)).toHaveLength(2);
     await expect
       .poll(() => selectedScreenIds(page))
       .toEqual(expect.arrayContaining([homeId, secondId]));
@@ -1447,14 +1448,12 @@ test("deletes multiple selected Screens as one undoable operation", async ({
     await openEditor(page, id);
 
     await layerRow(page, "Home").click();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+A" : "Control+A",
-    );
+    await layerRow(page, "Second").click({ modifiers: ["Shift"] });
     await expect(
       page
         .getByRole("tree", { name: "Layers" })
         .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]'),
-    ).toHaveCount(3);
+    ).toHaveCount(2);
 
     await page.keyboard.press("Delete");
     await expect(layerRow(page, "Home")).toHaveCount(0);

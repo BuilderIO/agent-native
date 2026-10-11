@@ -26802,7 +26802,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       if (!shouldForwardDesignHotkey(e)) return;
-      var key = e.key;
       var normalized = normalizedHotkeyChar(e);
       var primary = isPlatformPrimaryChord(e);
       var plainPasteHotkey =

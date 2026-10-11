@@ -474,41 +474,33 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       metadata: { sourceType: "inline", width: 1280, height: 900 },
       geometry: { x: 0, y: 0, width: 1280, height: 900, z: 0 },
     });
+    const screenShell = page.locator(
+      `[data-screen-shell][data-frame-id="${fileId}"]`,
+    );
+
     let sourceReads = 0;
     page.on("request", (request) => {
-      const pathname = new URL(request.url()).pathname;
-      if (pathname.endsWith("/_agent-native/actions/read-source-file")) {
+      const url = new URL(request.url());
+      if (
+        url.pathname.endsWith("/_agent-native/actions/read-source-file") &&
+        url.searchParams.has("path")
+      ) {
         sourceReads += 1;
       }
     });
-    await gotoEditor(page, designId);
-    const iframeSelector =
-      '[data-screen-shell][data-frame-id="' +
-      fileId +
-      '"] iframe[data-screen-iframe-id="' +
-      fileId +
-      '"]';
-    const child = page
-      .frameLocator(iframeSelector)
-      .locator('[data-agent-native-node-id="child"]');
-    await expect(child).toBeVisible();
     const codeWorkbench = page.getByTestId("design-code-workbench");
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      if (new URL(page.url()).searchParams.get("panel") !== "code") {
-        await page.getByRole("button", { name: "Code", exact: true }).click();
-      }
+    const openCodeWorkbench = async () => {
+      await page.goto(appPath(`/design/${designId}?panel=code`), {
+        waitUntil: "domcontentloaded",
+      });
       const loadError = page.getByTestId("design-code-workbench-load-error");
       if (await loadError.isVisible().catch(() => false)) {
         await page.getByRole("button", { name: "Retry code editor" }).click();
       }
-      try {
-        await expect(codeWorkbench).toBeVisible({ timeout: 10_000 });
-        break;
-      } catch (error) {
-        if (attempt === 2) throw error;
-      }
-    }
-    await expect(codeWorkbench).toBeVisible();
+      await expect(codeWorkbench).toBeVisible({ timeout: 30_000 });
+    };
+    await openCodeWorkbench();
+    await expect(screenShell).toBeVisible();
     await page.evaluate(async (id) => {
       const workbench = (window as any).__designCodeWorkbench;
       const providerKey = "inline:" + id;
@@ -520,49 +512,34 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
     await expect.poll(() => sourceReads).toBeGreaterThan(0);
     const sourceReadsBeforeEdits = sourceReads;
 
-    await page.getByRole("button", { name: "File", exact: true }).click();
+    await page.getByRole("button", { name: "Layers", exact: true }).click();
     await expect(page.getByTestId("design-code-workbench")).toBeHidden();
-    const childBounds = await child.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      return {
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-      };
-    });
-    const iframeBounds = await page.locator(iframeSelector).boundingBox();
-    if (!iframeBounds) throw new Error("Canvas screen is not visible");
-    await page.mouse.click(
-      iframeBounds.x +
-        ((childBounds.left + childBounds.width / 2) * iframeBounds.width) /
-          childBounds.viewportWidth,
-      iframeBounds.y +
-        ((childBounds.top + childBounds.height / 2) * iframeBounds.height) /
-          childBounds.viewportHeight,
-    );
-    await expect(
-      page.getByRole("tree", { name: "Layers" }).getByRole("treeitem", {
-        name: /Child/,
-      }),
-    ).toHaveAttribute("aria-selected", "true");
-
+    const frameLabel = screenShell.locator("[data-frame-label]");
+    await expect(frameLabel).toBeVisible();
+    await frameLabel.click();
+    const readFrameX = async () =>
+      designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
+    const initialX = await readFrameX();
+    expect(initialX).toBe(0);
     for (let index = 0; index < 20; index += 1) {
       const writeResponse = page.waitForResponse((response) => {
         const pathname = new URL(response.url()).pathname;
         return (
-          pathname.endsWith("/_agent-native/actions/update-file") &&
+          pathname.endsWith("/_agent-native/actions/update-design") &&
           response.request().method() === "POST"
         );
       });
       await page.keyboard.press("ArrowRight");
-      expect((await writeResponse).ok()).toBe(true);
+      const response = await writeResponse;
+      expect(
+        response.ok(),
+        `canvas commit failed: ${response.status()} ${await response.text()}`,
+      ).toBe(true);
+      await expect.poll(readFrameX).toBe(initialX + index + 1);
     }
     expect(sourceReads).toBe(sourceReadsBeforeEdits);
 
-    await page.getByRole("button", { name: "Code", exact: true }).click();
+    await openCodeWorkbench();
     await expect
       .poll(() => sourceReads)
       .toBeGreaterThan(sourceReadsBeforeEdits);
@@ -1786,8 +1763,7 @@ test("K scales Screen contents and history as one root Frame edit", async ({
       throw new Error("Missing persisted Screen width for K scale");
     const scale = afterFrameWidth / beforeFrameWidth;
     const frameLabelChromeHeight =
-      (beforeShellBounds.height - beforeCardBounds.height) /
-      cameraBeforeGesture.scaleY;
+      beforeShellBounds.height - beforeCardBounds.height;
     const cardWidthBeforeInWorld =
       beforeCardBounds.width / cameraBeforeGesture.scaleX;
     const cardHeightBeforeInWorld =
@@ -1842,8 +1818,8 @@ test("K scales Screen contents and history as one root Frame edit", async ({
         `${phase} Screen card height in design coordinates`,
       ).toBeCloseTo(cardHeightBeforeInWorld * scale, 1);
       expect(
-        (outer.height - cardBounds.height) / currentCamera.scaleY,
-        `${phase} frame label chrome height in design coordinates`,
+        outer.height - cardBounds.height,
+        `${phase} frame label chrome height in viewport pixels`,
       ).toBeCloseTo(frameLabelChromeHeight, 1);
       const actual = await layout.evaluate((element) => {
         const layoutStyle = getComputedStyle(element);

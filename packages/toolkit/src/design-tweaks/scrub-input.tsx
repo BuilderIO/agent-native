@@ -379,6 +379,22 @@ export function VisualScrubInput({
   const handlePointerDown = (event: PointerEvent<HTMLElement>) => {
     if (disabled || event.button !== 0) return;
     const startedFromInput = event.target === inputRef.current;
+    const pendingCommit = pendingCommitRef.current;
+    const startValue =
+      pendingCommit &&
+      resolvePendingScrubCommit(pendingCommit, value, options) === "hold"
+        ? pendingCommit.value
+        : value;
+    const currentTextValue =
+      textValue ??
+      (mixed
+        ? resolvedMixedLabel
+        : formatScrubValue(value, { unit, precision }));
+    const pendingTextCommit = pendingTextCommitRef.current;
+    const startText =
+      pendingTextCommit && currentTextValue === pendingTextCommit.baseline
+        ? pendingTextCommit.value
+        : (textValue ?? formatScrubValue(startValue, { unit, precision }));
     event.preventDefault();
     dragRef.current = {
       pointerId: event.pointerId,
@@ -386,9 +402,9 @@ export function VisualScrubInput({
       startedFromInput,
       altKey: event.altKey,
     };
-    dragStartValueRef.current = value;
-    dragStartTextRef.current = textValue ?? formatScrubValue(value, options);
-    lastScrubValueRef.current = value;
+    dragStartValueRef.current = startValue;
+    dragStartTextRef.current = startText;
+    lastScrubValueRef.current = startValue;
     dragContainerRef.current?.setPointerCapture(event.pointerId);
     setDragging(true);
   };

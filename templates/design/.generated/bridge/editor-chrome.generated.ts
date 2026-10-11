@@ -20863,7 +20863,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         if (!shouldForwardDesignHotkey(e)) return;
-        var key = e.key;
         var normalized = normalizedHotkeyChar(e);
         var primary = isPlatformPrimaryChord(e);
         var plainPasteHotkey = primary && normalized === "v" && !e.altKey && !e.shiftKey;
