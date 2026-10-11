@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   commentMentionsForText,
   findCommentMentions,
-  notifiedPeople,
+  mentionsMissingFromText,
   parseCommentMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
+  type CommentMention,
 } from "./comment-mentions";
 
 describe("comment mentions", () => {
@@ -153,7 +154,7 @@ describe("comment mentions", () => {
     ).toBe(serializeStoredCommentMentions([one, two]));
   });
 
-  it("keeps a name two people share, but draws neither as theirs and notifies neither", () => {
+  it("gives each of two people who share a name their own pill, in text order", () => {
     const first = {
       kind: "person" as const,
       email: "a@example.com",
@@ -164,19 +165,28 @@ describe("comment mentions", () => {
       email: "b@example.com",
       name: "Sam",
     };
-    const priya = {
-      kind: "person" as const,
-      email: "priya@example.com",
-      name: "Priya",
-    };
+    const roundTrip = (text: string, chips: CommentMention[]) =>
+      findCommentMentions(
+        text,
+        readStoredCommentMentions(commentMentionsForText(text, chips) ?? null),
+      ).map(({ mention }) => mention);
 
-    expect(findCommentMentions("Hi @Sam", [first, second])).toEqual([
-      { start: 3, name: "Sam", mention: null },
+    expect(findCommentMentions("Hi @Sam and @Sam", [first, second])).toEqual([
+      { start: 3, name: "Sam", mention: first },
+      { start: 12, name: "Sam", mention: second },
     ]);
-    expect(commentMentionsForText("Hi @Sam", [first, second])).toBe(
-      serializeStoredCommentMentions([first, second]),
-    );
-    expect(notifiedPeople([first, second, priya])).toEqual([priya]);
+    expect(
+      commentMentionsForText("@Sam @Sam @Sam", [first, second, second]),
+    ).toBe(serializeStoredCommentMentions([first, second]));
+    for (const chips of [
+      [first, second],
+      [second, first],
+      [first, first, second],
+      [first, second, first],
+    ]) {
+      const text = chips.map(() => "@Sam").join(" and ");
+      expect(roundTrip(text, chips)).toEqual(chips);
+    }
   });
 
   it("never draws a shorter name inside a longer one two people share", () => {
@@ -190,7 +200,7 @@ describe("comment mentions", () => {
       email: "sam@example.com",
       name: "Sam",
     };
-    const text = "Hi @Sam Lee and @Sam";
+    const text = "Hi @Sam Lee and @Sam Lee and @Sam";
 
     const stored = readStoredCommentMentions(
       commentMentionsForText(text, [
@@ -201,10 +211,26 @@ describe("comment mentions", () => {
     );
 
     expect(findCommentMentions(text, stored)).toEqual([
-      { start: 3, name: "Sam Lee", mention: null },
-      { start: 16, name: "Sam", mention: sam },
+      { start: 3, name: "Sam Lee", mention: samLee("a@example.com") },
+      { start: 16, name: "Sam Lee", mention: samLee("b@example.com") },
+      { start: 29, name: "Sam", mention: sam },
     ]);
-    expect(notifiedPeople(stored)).toEqual([sam]);
+  });
+
+  it("names a mention no @name resolves to, including a second person sharing one @name", () => {
+    const first = {
+      kind: "person" as const,
+      email: "a@example.com",
+      name: "Sam",
+    };
+    const second = { ...first, email: "b@example.com" };
+    const repeat = { ...first, email: "A@example.com" };
+
+    expect(mentionsMissingFromText("Hi @Sam", [first, second])).toEqual([
+      second,
+    ]);
+    expect(mentionsMissingFromText("Hi @Sam", [first, repeat])).toEqual([]);
+    expect(mentionsMissingFromText("Hi @Samuel", [first])).toEqual([first]);
   });
 
   it("stores the same mentions the same way whatever order their keys came in", () => {

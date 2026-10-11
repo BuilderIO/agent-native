@@ -20,8 +20,8 @@ import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   mentionsMissingFromText,
-  notifiedPeople,
   parseCommentMentions,
+  personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
@@ -78,7 +78,7 @@ const commentSchema = z.object({
     .union([z.string(), z.array(z.unknown())])
     .optional()
     .describe(
-      'JSON-encoded mentions whose @name appears in the text. People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}',
+      'JSON-encoded mentions, one per @name in text order (one entry covers a person named again). People: {"email":"a@x.com","name":"A"}; agents: {"kind":"agent","model":"<model id>","name":"<label>"}',
     ),
 });
 
@@ -161,8 +161,11 @@ export async function addCommentWithGuard(
   const missing = mentionsMissingFromText(content, mentions);
   if (missing.length > 0) {
     fail(
-      `Each mention's @name must appear in the comment text; not found: ${missing
-        .map((mention) => `@${mention.name}`)
+      `Each mention needs its own @name in the comment text, listed in text order; unmatched: ${missing
+        .map(
+          (mention) =>
+            `@${mention.name} (${mention.kind === "agent" ? mention.model : mention.email})`,
+        )
         .join(", ")}`,
       { statusCode: 400 },
     );
@@ -317,7 +320,7 @@ export async function addCommentWithGuard(
     authorName: name,
     submissionSource,
     content,
-    mentions: notifiedPeople(mentions),
+    mentions: personMentions(mentions),
     isReply: Boolean(parentId ?? args.threadId),
   });
 

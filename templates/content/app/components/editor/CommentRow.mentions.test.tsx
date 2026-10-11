@@ -102,7 +102,7 @@ describe("sent comment mentions", () => {
     expect(spokenText(host)).toBe("Thanks @Sam, and @Claude too");
   });
 
-  it("leaves a name shared by two identities as text", () => {
+  it("draws each of two people who share a name as their own pill", () => {
     const pills = render(
       "@Sam Lee and @Sam Lee, plus @Priya",
       JSON.stringify([
@@ -111,8 +111,22 @@ describe("sent comment mentions", () => {
         { kind: "person", email: "priya@example.com", name: "Priya" },
       ]),
     );
+    const cardFor = (pill: HTMLElement) => {
+      act(() => pill.click());
+      const text = document.querySelector(
+        "[data-comment-identity-card]",
+      )?.textContent;
+      act(() => pill.click());
+      return text;
+    };
 
-    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Priya"]);
+    expect(pills.map((pill) => spokenText(pill))).toEqual([
+      "@Sam Lee",
+      "@Sam Lee",
+      "@Priya",
+    ]);
+    expect(cardFor(pills[0]!)).toContain("sam.lee@example.com");
+    expect(cardFor(pills[1]!)).toContain("sam.l@example.org");
     expect(spokenText(host)).toBe("@Sam Lee and @Sam Lee, plus @Priya");
   });
 

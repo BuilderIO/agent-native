@@ -31,7 +31,8 @@ describe("CommentComposer", () => {
           value: "A durable draft",
           onChange: vi.fn(),
           onSubmit: vi.fn(),
-          onMentionAdd: vi.fn(),
+          mentions: [],
+          onMentionsChange: vi.fn(),
           disabled,
         }),
       );
@@ -64,7 +65,8 @@ describe("CommentComposer", () => {
           value: "Make this more specific",
           onChange: vi.fn(),
           onSubmit: vi.fn(),
-          onMentionAdd: vi.fn(),
+          mentions: [],
+          onMentionsChange: vi.fn(),
           onCancel: vi.fn(),
           aiDraft: {
             selection: {

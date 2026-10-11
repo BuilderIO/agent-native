@@ -183,7 +183,12 @@ export interface TiptapComposerHandle {
    * triggers such as `@` open their menus as if the person typed them.
    */
   insertTextAtCursor?(text: string): void;
-  setText(text: string): void;
+  /**
+   * Replace the draft. Each reference becomes a chip in place of
+   * `text.slice(start, end)`; one that overlaps another or crosses a line
+   * break stays text.
+   */
+  setText(text: string, references?: readonly ComposerTextReference[]): void;
   /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
   submitWithText(text: string): Promise<boolean>;
   /** Submit the current draft as if the person pressed send. */
@@ -205,6 +210,13 @@ export interface ComposerTextSelection {
   start: number;
   end: number;
   direction: "forward" | "backward" | "none";
+}
+
+/** A chip standing for `text.slice(start, end)` of a draft's plain text. */
+export interface ComposerTextReference {
+  start: number;
+  end: number;
+  reference: AgentComposerReference;
 }
 
 export type ComposerSubmitIntent = "immediate" | "queued";
@@ -1066,6 +1078,8 @@ export interface TiptapComposerProps {
   initialText?: string;
   /** Stable key used to re-apply the seeded text. */
   initialTextKey?: string | number;
+  /** Chips placed into `initialText`, as `setText` takes them. */
+  initialReferences?: readonly ComposerTextReference[];
   /**
    * When provided, called instead of composerRuntime.send(). Used for queue
    * mode and standalone prompt popovers. Receives the live composer
@@ -1242,14 +1256,53 @@ export interface TiptapComposerProps {
   onAttachmentError?: (message: string) => void;
 }
 
-function plainTextToDoc(text: string) {
-  const lines = text.length > 0 ? text.split(/\r?\n/) : [""];
+interface TextChip {
+  start: number;
+  end: number;
+  attrs: ReturnType<typeof mentionReferenceAttrs>;
+}
+
+function plainTextToDoc(text: string, chips: readonly TextChip[] = []) {
+  const ordered = [...chips].sort((a, b) => a.start - b.start);
+  const lines: { start: number; end: number }[] = [];
+  let lineStart = 0;
+  for (const separator of text.matchAll(/\r?\n/g)) {
+    lines.push({ start: lineStart, end: separator.index });
+    lineStart = separator.index + separator[0].length;
+  }
+  lines.push({ start: lineStart, end: text.length });
   return {
     type: "doc",
-    content: lines.map((line) => ({
-      type: "paragraph",
-      content: line ? [{ type: "text", text: line }] : [],
-    })),
+    content: lines.map((line) => {
+      const content: Record<string, unknown>[] = [];
+      let cursor = line.start;
+      const addText = (end: number) => {
+        if (end > cursor) {
+          content.push({ type: "text", text: text.slice(cursor, end) });
+        }
+      };
+      for (const chip of ordered) {
+        if (
+          chip.start < cursor ||
+          line.end < chip.end ||
+          chip.end <= chip.start
+        )
+          continue;
+        addText(chip.start);
+        content.push({ type: "mentionReference", attrs: chip.attrs });
+        cursor = chip.end;
+      }
+      addText(line.end);
+      // Drafts are reported trimmed, so a chip that ends one lost the space
+      // picking it added; without it the next word typed joins the chip's text.
+      if (
+        cursor === text.length &&
+        content.at(-1)?.type === "mentionReference"
+      ) {
+        content.push({ type: "text", text: " " });
+      }
+      return { type: "paragraph", content };
+    }),
   };
 }
 
@@ -2782,6 +2835,7 @@ export function TiptapComposer({
   focusRef,
   initialText,
   initialTextKey,
+  initialReferences,
   onSubmit,
   onEmptySubmit,
   onBeforeSubmit,
@@ -2854,6 +2908,20 @@ export function TiptapComposer({
     !(attachmentsEnabled && attachButton);
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const initialReferencesRef = useRef(initialReferences);
+  initialReferencesRef.current = initialReferences;
+  const textChips = useCallback(
+    (references: readonly ComposerTextReference[] = []): TextChip[] =>
+      references.flatMap(({ start, end, reference }) => {
+        const normalized = adapters.agentChat!.normalizeReference!(
+          reference,
+        ) as AgentComposerReference | null;
+        return normalized
+          ? [{ start, end, attrs: mentionReferenceAttrs(normalized) }]
+          : [];
+      }),
+    [adapters],
+  );
   const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
     defaultValue: willQueue ? "Queue message" : "Send message",
   });
@@ -4045,7 +4113,11 @@ export function TiptapComposer({
         );
         if (from > 1 && before !== "" && !/\s/.test(before)) inserted = ` @`;
       }
+      // The popover anchors on the selection right after this insert, but an
+      // execCommand edit reaches the editor state only once ProseMirror reads
+      // the DOM back, so an @ goes through the editor directly.
       if (
+        mention ||
         typeof document.execCommand !== "function" ||
         !document.execCommand("insertText", false, inserted)
       ) {
@@ -4065,9 +4137,9 @@ export function TiptapComposer({
       popoverStateRef.current = state;
       setPopover(state);
     },
-    setText(text: string) {
+    setText(text: string, references?: readonly ComposerTextReference[]) {
       if (!isComposerEditorUsable(editor)) return;
-      editor.commands.setContent(plainTextToDoc(text));
+      editor.commands.setContent(plainTextToDoc(text, textChips(references)));
       editor.commands.focus("end");
       const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
       setEditorHasText(trimmed.length > 0);
@@ -5812,7 +5884,9 @@ export function TiptapComposer({
         return;
       } else if (initialTextKeyRef.current !== key) {
         initialTextKeyRef.current = key;
-        editor.commands.setContent(plainTextToDoc(initialText));
+        editor.commands.setContent(
+          plainTextToDoc(initialText, textChips(initialReferencesRef.current)),
+        );
       } else {
         return;
       }
@@ -5834,6 +5908,7 @@ export function TiptapComposer({
     initialText,
     initialTextKey,
     scheduleComposerDraftPersist,
+    textChips,
     updateSlotReferences,
   ]);
 

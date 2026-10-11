@@ -1356,10 +1356,9 @@ it("keeps replies and mentions across composer remounts and isolates documents a
     await show("document-one", "ordinary-thread");
     await act(async () => {
       drafts.setText("ordinary-thread", "Unsent @Example reply");
-      drafts.addMention("ordinary-thread", {
-        email: "example@example.test",
-        name: "Example",
-      });
+      drafts.setMentions("ordinary-thread", [
+        { email: "example@example.test", name: "Example" },
+      ]);
       drafts.setText("suggestion-thread", "Unsent suggestion reply");
     });
     await show("document-one", "ordinary-thread", false);

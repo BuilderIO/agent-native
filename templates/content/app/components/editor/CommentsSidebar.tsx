@@ -527,11 +527,8 @@ export function useCommentReplyDrafts(
         return;
       update(threadId, (draft) => ({ ...draft, text }));
     },
-    addMention: (threadId: string, mention: MentionEntry) =>
-      update(threadId, (draft) => ({
-        ...draft,
-        mentions: [...draft.mentions, mention],
-      })),
+    setMentions: (threadId: string, mentions: MentionEntry[]) =>
+      update(threadId, (draft) => ({ ...draft, mentions })),
     setAiDraft: (threadId: string, aiDraft: CommentAiDraft | null) =>
       update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
@@ -1685,6 +1682,7 @@ export function CommentsSidebar({
         }
         isReplySubmitting={replyDrafts.isSubmitting(thread.threadId)}
         replyText={replyDrafts.get(thread.threadId).text}
+        replyMentions={replyDrafts.get(thread.threadId).mentions}
         aiDraft={replyDrafts.get(thread.threadId).aiDraft}
         onHoverChange={(hovered) =>
           onHoveredThreadChange?.(hovered ? thread.threadId : null)
@@ -1703,8 +1701,8 @@ export function CommentsSidebar({
           onSelectedThreadChange?.(null);
         }}
         onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
-        onReplyMentionAdd={(mention) =>
-          replyDrafts.addMention(thread.threadId, mention)
+        onReplyMentionsChange={(mentions) =>
+          replyDrafts.setMentions(thread.threadId, mentions)
         }
         onAiDraftChange={(aiDraft) =>
           replyDrafts.setAiDraft(thread.threadId, aiDraft)
@@ -2177,9 +2175,10 @@ export function CommentsSidebar({
                     text,
                   }))
                 }
-                onMentionAdd={(mention) =>
-                  onPendingChange?.(displayedPendingComment.id, (draft) => ({
-                    mentions: [...draft.mentions, mention],
+                mentions={pendingMentions}
+                onMentionsChange={(mentions) =>
+                  onPendingChange?.(displayedPendingComment.id, () => ({
+                    mentions,
                   }))
                 }
                 onSubmit={() => void handlePendingSubmit()}
@@ -2624,6 +2623,7 @@ function DraftSuggestionThreadView({
         isSubmitting={isSaving}
         timeLabel={t("editor.toolbar.suggesting")}
         replyText=""
+        replyMentions={[]}
         onHoverChange={() => {}}
         onExpand={() => {
           onActivate();
@@ -2633,7 +2633,7 @@ function DraftSuggestionThreadView({
         }}
         onCollapse={() => {}}
         onReplyChange={() => {}}
-        onReplyMentionAdd={() => {}}
+        onReplyMentionsChange={() => {}}
         onHeightChange={onHeightChange}
         onSubmitReply={() => {}}
         onResolve={() => {}}
@@ -2847,6 +2847,7 @@ function SuggestionThreadView({
         isSubmitting={comments.isLoading}
         isReplySubmitting={reply.isPending}
         replyText={draft}
+        replyMentions={mentions}
         onHoverChange={() => {}}
         onExpand={() => {
           if (!canExpand) return;
@@ -2857,8 +2858,8 @@ function SuggestionThreadView({
         }}
         onCollapse={() => onExpansionChange(false)}
         onReplyChange={(text) => replyDrafts.setText(suggestion.threadId, text)}
-        onReplyMentionAdd={(entry) =>
-          replyDrafts.addMention(suggestion.threadId, entry)
+        onReplyMentionsChange={(entries) =>
+          replyDrafts.setMentions(suggestion.threadId, entries)
         }
         onHeightChange={onHeightChange}
         onSubmitReply={() => {
@@ -3091,12 +3092,13 @@ function ThreadView({
   isReplySubmitting = false,
   timeLabel,
   replyText,
+  replyMentions,
   aiDraft,
   onHoverChange,
   onExpand,
   onCollapse,
   onReplyChange,
-  onReplyMentionAdd,
+  onReplyMentionsChange,
   onAiDraftChange,
   onHeightChange,
   onSubmitReply,
@@ -3146,12 +3148,13 @@ function ThreadView({
   isReplySubmitting?: boolean;
   timeLabel?: string;
   replyText: string;
+  replyMentions: readonly MentionEntry[];
   aiDraft?: CommentAiDraft | null;
   onHoverChange: (hovered: boolean) => void;
   onExpand: () => void;
   onCollapse: () => void;
   onReplyChange: (text: string) => void;
-  onReplyMentionAdd: (entry: MentionEntry) => void;
+  onReplyMentionsChange: (mentions: MentionEntry[]) => void;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   onHeightChange: (threadId: string, height: number) => void;
   onSubmitReply: () => void;
@@ -3518,7 +3521,8 @@ function ThreadView({
             collapsible
             value={replyText}
             onChange={onReplyChange}
-            onMentionAdd={onReplyMentionAdd}
+            mentions={replyMentions}
+            onMentionsChange={onReplyMentionsChange}
             onSubmit={onSubmitReply}
             onAiSubmit={onAiSubmit}
             aiDraft={aiDraft}

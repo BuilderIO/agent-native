@@ -153,6 +153,31 @@ describe("add-comment reply boundary", () => {
     );
   });
 
+  it("saves and notifies both people who share a name, and rejects one no @name reaches", async () => {
+    const first = { kind: "person", email: "a@example.com", name: "Sam" };
+    const second = { kind: "person", email: "b@example.com", name: "Sam" };
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Sam check this?",
+        mentions: JSON.stringify([first, second]),
+      }),
+    ).rejects.toThrow("@Sam (b@example.com)");
+    expect(notifyDocumentComment).not.toHaveBeenCalled();
+
+    await run({
+      documentId: "doc-1",
+      content: "Can @Sam and @Sam check this?",
+      mentions: JSON.stringify([first, second]),
+    });
+    expect(state.inserted[0]?.mentionsJson).toBe(
+      JSON.stringify([first, second]),
+    );
+    expect(notifyDocumentComment).toHaveBeenCalledWith(
+      expect.objectContaining({ mentions: [first, second] }),
+    );
+  });
+
   it("derives authorship from the authenticated caller", async () => {
     await run({
       documentId: "doc-1",

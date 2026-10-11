@@ -142,8 +142,7 @@ export interface CommentMentionMatch {
   /** Offset of the `@` in the text. */
   start: number;
   name: string;
-  /** Null when two stored identities share the name: no position says which. */
-  mention: CommentMention | null;
+  mention: CommentMention;
 }
 
 const NAME_CHARACTER = /[\p{L}\p{N}_]/u;
@@ -152,37 +151,26 @@ function isNameCharacter(character: string | undefined): boolean {
   return character !== undefined && NAME_CHARACTER.test(character);
 }
 
-/** Each name's identity, or null when two identities share it. */
-function identitiesByName(
-  mentions: readonly CommentMention[],
-): Map<string, CommentMention | null> {
-  const byName = new Map<string, CommentMention | null>();
-  for (const mention of mentions) {
-    if (!mention.name) continue;
-    const known = byName.get(mention.name);
-    byName.set(
-      mention.name,
-      known === undefined ||
-        (known && commentMentionKey(known) === commentMentionKey(mention))
-        ? mention
-        : null,
-    );
-  }
-  return byName;
-}
-
 /**
  * Where stored mentions' `@name`s appear in the text. A name counts only as a
  * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
- * two names start at the same `@` the longer wins. Saving and rendering both
+ * two names start at the same `@` the longer wins. The k-th `@name` is the
+ * k-th mention listed under that name and later ones repeat the last, so two
+ * people who share a name each keep their own pill. Saving and rendering both
  * use this, so a pill is drawn exactly where a saved mention is.
  */
 export function findCommentMentions(
   text: string,
   mentions: readonly CommentMention[],
 ): CommentMentionMatch[] {
-  const byName = identitiesByName(mentions);
+  const byName = new Map<string, CommentMention[]>();
+  for (const mention of mentions) {
+    if (mention.name) {
+      byName.set(mention.name, [...(byName.get(mention.name) ?? []), mention]);
+    }
+  }
   const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  const seen = new Map<string, number>();
   const matches: CommentMentionMatch[] = [];
   let start = text.indexOf("@");
   while (start !== -1) {
@@ -200,56 +188,62 @@ export function findCommentMentions(
       start = text.indexOf("@", start + 1);
       continue;
     }
-    matches.push({ start, name, mention: byName.get(name) ?? null });
+    const listed = byName.get(name)!;
+    const index = seen.get(name) ?? 0;
+    seen.set(name, index + 1);
+    matches.push({
+      start,
+      name,
+      mention: listed[Math.min(index, listed.length - 1)]!,
+    });
     start = text.indexOf("@", start + 1 + name.length);
   }
   return matches;
 }
 
 /**
- * The mentions whose `@name` still appears in the text, once each, encoded
- * for an add or update. Undefined when nothing is mentioned. A name two
- * identities share is kept, so rendering never reads a shorter name inside it.
+ * The mentions each `@name` in the text resolves to, in text order, encoded
+ * for an add or update. A name stops listing once the rest of its `@name`s
+ * repeat one identity, so a person mentioned twice is stored once. Undefined
+ * when nothing is mentioned.
  */
 export function commentMentionsForText(
   text: string,
   mentions: readonly CommentMention[],
 ): string | undefined {
-  const named = new Set(
-    findCommentMentions(text, mentions).map((match) => match.name),
-  );
-  const seen = new Set<string>();
-  const present = mentions.filter((mention) => {
-    const key = commentMentionKey(mention);
-    if (seen.has(key) || !named.has(mention.name)) return false;
-    seen.add(key);
-    return true;
+  const matches = findCommentMentions(text, mentions);
+  const previousKey = new Map<string, string>();
+  // Per name, the match where its identity last changed; later ones repeat it.
+  const lastChange = new Map<string, number>();
+  matches.forEach((match, index) => {
+    const key = commentMentionKey(match.mention);
+    if (previousKey.get(match.name) !== key) lastChange.set(match.name, index);
+    previousKey.set(match.name, key);
   });
-  return serializeStoredCommentMentions(present) ?? undefined;
+  return (
+    serializeStoredCommentMentions(
+      matches
+        .filter((match, index) => index <= lastChange.get(match.name)!)
+        .map((match) => match.mention),
+    ) ?? undefined
+  );
 }
 
-/** Mentions whose `@name` the text doesn't contain as a whole token. */
+/**
+ * Mentions no `@name` in the text resolves to: their name isn't there as a
+ * whole token, or other mentions of that name already took every `@name`.
+ */
 export function mentionsMissingFromText(
   text: string,
   mentions: readonly CommentMention[],
 ): CommentMention[] {
-  const named = new Set(
-    findCommentMentions(text, mentions).map((match) => match.name),
+  const resolved = new Set(
+    findCommentMentions(text, mentions).map((match) =>
+      commentMentionKey(match.mention),
+    ),
   );
-  return mentions.filter((mention) => !named.has(mention.name));
-}
-
-/**
- * The people a comment notifies. A name two people share renders as text, and
- * a draft keeps people whose chips were deleted, so it can't say which one is
- * meant: it notifies neither.
- */
-export function notifiedPeople(
-  mentions: readonly CommentMention[],
-): CommentPersonMention[] {
-  const byName = identitiesByName(mentions);
-  return personMentions(mentions).filter(
-    (mention) => byName.get(mention.name) !== null,
+  return mentions.filter(
+    (mention) => !resolved.has(commentMentionKey(mention)),
   );
 }
 

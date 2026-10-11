@@ -197,7 +197,8 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
               <CommentComposer
                 value={text}
                 onChange={setText}
-                onMentionAdd={() => {}}
+                mentions={[]}
+                onMentionsChange={() => {}}
                 onSubmit={() => {}}
                 onEscape={() => {}}
               />

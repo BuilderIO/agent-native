@@ -456,9 +456,8 @@ export function CommentEntry({
             ariaLabel={t("comments.edit")}
             value={draft.draft.text}
             onChange={draft.setText}
-            onMentionAdd={(mention) =>
-              draft.setMentions((previous) => [...previous, mention])
-            }
+            mentions={draft.draft.mentions}
+            onMentionsChange={draft.setMentions}
             onSubmit={save}
             onEscape={close}
             autoFocus

@@ -31,17 +31,18 @@ export { CommentAvatar } from "./CommentAvatar";
 /**
  * Render a comment body. Each `@name` that matches one of the comment's
  * stored mentions becomes a pill for that person or agent; text that only
- * looks like a mention, or a name two stored identities share, stays text.
- * Raw HTML is never interpreted.
+ * looks like a mention stays text. Raw HTML is never interpreted.
  */
 export function renderCommentBody(
   content: string,
   mentions: readonly CommentMention[],
 ) {
-  const mentionAt = new Map<number, CommentMention>();
-  for (const { start, mention } of findCommentMentions(content, mentions)) {
-    if (mention) mentionAt.set(start, mention);
-  }
+  const mentionAt = new Map(
+    findCommentMentions(content, mentions).map(({ start, mention }) => [
+      start,
+      mention,
+    ]),
+  );
   return (
     <InlineMarkdown
       content={content}

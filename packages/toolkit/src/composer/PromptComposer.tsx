@@ -55,6 +55,7 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextReference,
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
@@ -188,6 +189,8 @@ export interface PromptComposerProps {
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
   initialTextKey?: string | number;
+  /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
+  initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
   /** Current agent execution mode shown in the shared composer toolbar. */
@@ -660,6 +663,7 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialReferences,
   modeControl,
   requireAgentEngine = false,
   execMode,
@@ -983,6 +987,7 @@ function PromptComposerInner({
           placeholder={placeholder}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}
           onBeforeSubmit={beforeSubmit}

@@ -59,6 +59,7 @@ export {
   type ComposerDraftSnapshot,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
+  type ComposerTextReference,
   type ComposerTextSelection,
   type TiptapComposerProps,
   type TiptapComposerSubmitOptions,
