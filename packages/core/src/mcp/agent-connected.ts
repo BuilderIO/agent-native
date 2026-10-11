@@ -21,7 +21,7 @@ export async function trackAgentConnected(input: {
   email: string;
   origin: string;
   appId?: string;
-  client: string | readonly string[] | null;
+  client: string | null;
   method: "mcp" | "oauth";
 }): Promise<"emitted" | "duplicate" | "disabled" | "failed"> {
   // Everything runs inside the try: the connection is already committed, so a
@@ -33,9 +33,12 @@ export async function trackAgentConnected(input: {
     )
       return "disabled";
     const app = connectionApp(input.origin, input.appId);
-    const raw = input.client;
+    const raw = input.client ?? "unknown";
+    // The connect CLI joins the client ids it configures with commas. Only a
+    // list of id-shaped parts is split, so "Example, Inc." stays one client.
+    const ids = raw.split(",");
     const clients = new Set(
-      (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map(
+      (ids.every((id) => /^[a-z0-9-]+$/.test(id)) ? ids : [raw]).map(
         (name) =>
           resolveMcpConnectHostId(name) ??
           detectVendorClient(name) ??

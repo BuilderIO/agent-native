@@ -108,7 +108,7 @@ describe("agent connection attribution", () => {
     });
     await trackAgentConnected({
       ...connection,
-      client: ["claude", "cursor", "cursor"],
+      client: "claude,cursor,cursor",
     });
     expect(trackMock).toHaveBeenCalledTimes(4);
     expect(trackMock.mock.calls.map((call) => call[1].client)).toEqual([
@@ -119,15 +119,18 @@ describe("agent connection attribution", () => {
     ]);
   });
 
-  it("keeps a comma in an OAuth client's name as one client", async () => {
-    await trackAgentConnected({
-      ...connection,
-      client: "Example, Inc.",
-      method: "oauth",
-    });
-    expect(trackMock).toHaveBeenCalledTimes(1);
-    expect(trackMock.mock.calls[0][1].client).toBe("example, inc.");
-  });
+  it.each(["oauth", "mcp"] as const)(
+    "keeps a comma in a %s client's name as one client",
+    async (method) => {
+      await trackAgentConnected({
+        ...connection,
+        client: "Example, Inc.",
+        method,
+      });
+      expect(trackMock).toHaveBeenCalledTimes(1);
+      expect(trackMock.mock.calls[0][1].client).toBe("example, inc.");
+    },
+  );
 
   it.each([
     ["claude", "Claude Desktop", "claude"],

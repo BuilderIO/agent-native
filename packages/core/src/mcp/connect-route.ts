@@ -1795,7 +1795,7 @@ export async function handleMcpConnect(
           email: row.ownerEmail,
           origin: issuer,
           appId: options.appId,
-          client: row.client?.split(",") ?? null,
+          client: row.client ?? null,
           method: "mcp",
         });
       }
