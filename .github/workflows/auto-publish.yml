@@ -504,7 +504,7 @@ jobs:
 
       - name: Create stable Release PR or publish to npm
         id: changesets
-        uses: changesets/action@3841a0683d3cfa6dae0f9bb335290003010fe3f0 # v1.9.0, compatible with Changesets CLI v2
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0, compatible with Changesets CLI v2
         with:
           publish: node scripts/changeset-publish-sequential.ts
           version: pnpm changeset:release-version
