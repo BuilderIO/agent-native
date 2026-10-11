@@ -32,9 +32,13 @@ export const CREATIVE_CONTEXT_ACCEPTANCE_CASES: readonly ContextAcceptanceCase[]
       id: "pricing-hero-frame",
       prompt: "Design a pricing hero for the website.",
       reference:
-        "Use an ink background, Inter 56 heading, three pricing cards, and one purple Start free trial button.",
-      expectedContextKeys: ["figma:brand-system-v2"],
-      requiredTerms: ["Inter 56", "three pricing cards", "Start free trial"],
+        "Use a pine background, IBM Plex Sans 52 heading, three pricing cards, and one clay Book a planning call button.",
+      expectedContextKeys: ["figma:juniper-studio-r2"],
+      requiredTerms: [
+        "IBM Plex Sans 52",
+        "three pricing cards",
+        "Book a planning call",
+      ],
       forbiddenTerms: forbidden,
       contextOff: {
         output: "A modern pricing hero with a headline, cards, and a button.",
@@ -42,10 +46,10 @@ export const CREATIVE_CONTEXT_ACCEPTANCE_CASES: readonly ContextAcceptanceCase[]
       },
       contextOn: {
         output:
-          "Use an ink background, Inter 56 heading, three pricing cards, and one purple Start free trial button.",
-        usedContextKeys: ["figma:brand-system-v2"],
+          "Use a pine background, IBM Plex Sans 52 heading, three pricing cards, and one clay Book a planning call button.",
+        usedContextKeys: ["figma:juniper-studio-r2"],
         contextPackId: "pack:pricing-hero",
-        provenanceKeys: ["figma:brand-system-v2"],
+        provenanceKeys: ["figma:juniper-studio-r2"],
       },
     },
     {
