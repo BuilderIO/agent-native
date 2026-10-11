@@ -914,8 +914,21 @@ function reconcileDurableMessages(
       ([rootId, snapshotId]) => [snapshotId, rootId],
     ),
   );
+  const snapshotUserIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "user" ? [message.id] : [],
+    ),
+  );
+  const representedDurableUserIds = new Set(
+    [...submittedUsersByAgentKitMessageId].flatMap(([snapshotId, stored]) =>
+      stored && snapshotId !== stored.id && snapshotUserIds.has(snapshotId)
+        ? [stored.id]
+        : [],
+    ),
+  );
   const deduplicatedMessages = messages.filter(
     (message) =>
+      !(message.role === "user" && representedDurableUserIds.has(message.id)) &&
       !representedDurableAssistantIds.has(message.id) &&
       !supersededCompletedAssistantIds.has(message.id),
   );
