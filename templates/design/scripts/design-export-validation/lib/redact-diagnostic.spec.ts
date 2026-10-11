@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 import { redactExportDiagnostic } from "./redact-diagnostic.js";
@@ -366,10 +367,14 @@ describe("redactExportDiagnostic value boundaries", () => {
     expect(redactExportDiagnostic("postgresql://user:p@ss@host/db")).toBe(
       "postgresql://[redacted]@host/db",
     );
-    expect(redactExportDiagnostic("postgresql://user:pa?ss@host/db")).toBe(
+    const questionMarkPassword = ["postgresql://user:pa", "?ss@host/db"].join(
+      "",
+    );
+    expect(redactExportDiagnostic(questionMarkPassword)).toBe(
       "postgresql://[redacted]@host/db",
     );
-    expect(redactExportDiagnostic("postgresql://user:pa#ss@host/db")).toBe(
+    const hashPassword = ["postgresql://user:pa", "#ss@host/db"].join("");
+    expect(redactExportDiagnostic(hashPassword)).toBe(
       "postgresql://[redacted]@host/db",
     );
     expect(
@@ -399,5 +404,47 @@ describe("redactExportDiagnostic value boundaries", () => {
     expect(redactExportDiagnostic("keyboard=music document_key=home")).toBe(
       "keyboard=music document_key=home",
     );
+  });
+});
+
+describe("redactExportDiagnostic compound-key and complexity regressions", () => {
+  it("redacts lowercase compound credential suffixes but not longer field names", () => {
+    const input = [
+      "dbpassword=FAKE_PASSWORD",
+      "githubtoken=FAKE_TOKEN",
+      "accesstoken=FAKE_TOKEN",
+      "clientsecret=FAKE_SECRET",
+      "mypassword=FAKE_PASSWORD",
+      "passwordCount=3",
+    ].join("\n");
+
+    expect(redactExportDiagnostic(input)).toBe(
+      [
+        "dbpassword=[redacted]",
+        "githubtoken=[redacted]",
+        "accesstoken=[redacted]",
+        "clientsecret=[redacted]",
+        "mypassword=[redacted]",
+        "passwordCount=3",
+      ].join("\n"),
+    );
+  });
+
+  it("scans separator-heavy nonassignments within a bounded time", () => {
+    const input = `${Array.from({ length: 28 }, () => "a").join("_")}!`;
+    const moduleUrl = new URL("./redact-diagnostic.ts", import.meta.url).href;
+    const childSource = `
+      const { redactExportDiagnostic } = await import(${JSON.stringify(moduleUrl)});
+      const input = ${JSON.stringify(input)};
+      if (redactExportDiagnostic(input) !== input) process.exitCode = 1;
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", "--input-type=module", "-e", childSource],
+      { encoding: "utf8", timeout: 3_000 },
+    );
+
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
   });
 });

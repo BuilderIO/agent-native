@@ -2,7 +2,7 @@ const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const URL_USERINFO_PATTERN =
   /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^\s,;)}\]"'<>]*@)/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
-  /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*(?:=>|[:=])\s*)/gi;
+  /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9$]*(?:[._ -]+[A-Za-z0-9$]+)*)\1(\s*(?:=>|[:=])\s*)/gi;
 const ASSIGNMENT_BARE_VALUE_PATTERN =
   /^(?:((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
@@ -15,8 +15,26 @@ function isSensitiveAssignmentKey(key: string): boolean {
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
   const lastWord = words[words.length - 1];
+  const compactKey = key.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+  const hasCredentialSuffix = [
+    "authorization",
+    "credentials",
+    "credential",
+    "passphrase",
+    "password",
+    "passwd",
+    "signature",
+    "token",
+    "secret",
+    "cookie",
+    "apikey",
+  ].some(
+    (suffix) =>
+      compactKey.length > suffix.length && compactKey.endsWith(suffix),
+  );
 
   return (
+    hasCredentialSuffix ||
     lastWord === "token" ||
     lastWord === "secret" ||
     lastWord === "signature" ||
