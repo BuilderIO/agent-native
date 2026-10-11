@@ -241,6 +241,53 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
     expect(onZoomIn).not.toHaveBeenCalled();
   });
 
+  it("prevents Cmd/Ctrl+- and Cmd/Ctrl+0 browser zoom from an inspector input", async () => {
+    const onZoomOut = vi.fn();
+    const onZoomReset = vi.fn();
+    const onOpacityChange = vi.fn();
+    const inspectorInput = document.createElement("input");
+    inspectorInput.setAttribute("data-design-inspector-section", "");
+    document.body.append(inspectorInput);
+    try {
+      await withHotkeys({ onZoomOut, onZoomReset, onOpacityChange }, () => {
+        const metaMinus = dispatchKey(
+          "-",
+          { metaKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        const metaZero = dispatchKey(
+          "0",
+          { metaKey: true, code: "Digit0" },
+          inspectorInput,
+        );
+        const ctrlMinus = dispatchKey(
+          "-",
+          { ctrlKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        expect(metaMinus.defaultPrevented).toBe(true);
+        expect(metaZero.defaultPrevented).toBe(true);
+        expect(ctrlMinus.defaultPrevented).toBe(true);
+
+        const plainMinus = dispatchKey("-", { code: "Minus" }, inspectorInput);
+        const plainZero = dispatchKey("0", { code: "Digit0" }, inspectorInput);
+        const ctrlAltMinus = dispatchKey(
+          "-",
+          { ctrlKey: true, altKey: true, code: "Minus" },
+          inspectorInput,
+        );
+        expect(plainMinus.defaultPrevented).toBe(false);
+        expect(plainZero.defaultPrevented).toBe(false);
+        expect(ctrlAltMinus.defaultPrevented).toBe(false);
+      });
+    } finally {
+      inspectorInput.remove();
+    }
+    expect(onZoomOut).not.toHaveBeenCalled();
+    expect(onZoomReset).not.toHaveBeenCalled();
+    expect(onOpacityChange).not.toHaveBeenCalled();
+  });
+
   it("routes history chords from marked design controls only", async () => {
     const onUndo = vi.fn();
     await withHotkeys({ onUndo }, () => {
@@ -354,6 +401,34 @@ describe("useDesignHotkeys — drawing tool bindings", () => {
       });
     });
     expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens keyboard shortcuts with Control+Shift+? on macOS", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onShowKeyboardShortcuts }, () => {
+        dispatchKey("?", {
+          code: "Slash",
+          ctrlKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens keyboard shortcuts with Command+Shift+? on macOS", async () => {
+    const onShowKeyboardShortcuts = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onShowKeyboardShortcuts }, () => {
+        dispatchKey("?", {
+          code: "Slash",
+          metaKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onShowKeyboardShortcuts).toHaveBeenCalledTimes(1);
   });
 
   it("keeps shortcut help global without routing editing keys from editable targets", async () => {

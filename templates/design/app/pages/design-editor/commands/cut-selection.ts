@@ -2,14 +2,17 @@ export interface CutSelectionArgs {
   copySelection: () => Promise<{ copied: boolean; written: boolean }>;
   deleteSelection: () => void;
   getSelectedLayerIds: () => readonly string[];
+  getSelectionContentKey: () => string;
 }
 
 export async function runCutSelection({
   copySelection,
   deleteSelection,
   getSelectedLayerIds,
+  getSelectionContentKey,
 }: CutSelectionArgs): Promise<boolean> {
   const selectedBefore = [...getSelectedLayerIds()];
+  const contentBefore = getSelectionContentKey();
   const result = await copySelection();
   if (!result.copied || !result.written) return false;
 
@@ -20,6 +23,7 @@ export async function runCutSelection({
   ) {
     return false;
   }
+  if (contentBefore !== getSelectionContentKey()) return false;
 
   deleteSelection();
   return true;

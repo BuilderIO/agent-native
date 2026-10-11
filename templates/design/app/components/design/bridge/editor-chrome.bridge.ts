@@ -13503,7 +13503,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function isShowShortcutsChord(e) {
-    if (!isPlatformPrimaryChord(e) || !e.shiftKey || e.altKey) return false;
+    if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return false;
     var key = normalizedHotkeyChar(e);
     return key === "?" || key === "/";
   }
@@ -13929,6 +13929,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     var previousSelectedEl = selectedEl;
     selectedEl = resolvedClickTarget;
+    if (
+      selectionContainerScope &&
+      selectedEl &&
+      !selectionContainerScope.contains(selectedEl)
+    )
+      selectionContainerScope = null;
     if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
       selectedEl = null;
       hideSelectionOverlay();
@@ -26281,6 +26287,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var previousSelectedEl = selectedEl;
       hostSelectedEl = null;
       selectedEl = target;
+      if (
+        selectionContainerScope &&
+        selectedEl &&
+        !selectionContainerScope.contains(selectedEl)
+      )
+        selectionContainerScope = null;
       positionOverlay(selectionOverlay, selectedEl);
       if (!ev?.shiftKey && passiveSelectionEls.length) {
         setPassiveSelectionElements([]);

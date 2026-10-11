@@ -1956,8 +1956,14 @@ export function runUndo({
       const preferred =
         historyOrderRef.current[historyOrderRef.current.length - 1];
       if (preferred === "clipboard-paste") {
+        const prunedBefore = prunedUndoHistory;
         didUndo = undoClipboardPaste();
-        if (didUndo || prunedUndoHistory === 0 || contentReplayRefused) break;
+        if (
+          didUndo ||
+          prunedUndoHistory === prunedBefore ||
+          contentReplayRefused
+        )
+          break;
         continue;
       }
       historyOrderRef.current.pop();

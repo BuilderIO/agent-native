@@ -287,6 +287,47 @@ describe("single-screen linked component history", () => {
     );
   });
 
+  it("stops after pruning a stale clipboard token when the next clipboard undo is refused in overview", () => {
+    const state = commandArgs();
+    state.args.viewModeRef.current = "overview";
+    state.content.set("file-a", "<main>a current</main>");
+    state.content.set("file-b", "<main>collab B</main>");
+    state.args.historyOrderRef.current = ["clipboard-paste", "clipboard-paste"];
+    state.args.clipboardPasteUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main>a before</main>",
+        after: "<main>a current</main>",
+      },
+      {
+        fileId: "file-b",
+        before: "<main>before B</main>",
+        after: "<main>after B</main>",
+      },
+    ];
+    const getFreshActiveContent = state.args.getFreshActiveContent;
+    let freshActiveContentReads = 0;
+    state.args.getFreshActiveContent = () => {
+      if (++freshActiveContentReads > 20) {
+        throw new Error("undo loop did not terminate");
+      }
+      return getFreshActiveContent();
+    };
+    shaderWrites.add("file-a");
+    try {
+      runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+      expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
+      expect(state.args.clipboardPasteUndoStackRef.current[0]?.fileId).toBe(
+        "file-a",
+      );
+      expect(state.args.historyOrderRef.current).toEqual(["clipboard-paste"]);
+      expect(state.content.get("file-a")).toBe("<main>a current</main>");
+    } finally {
+      shaderWrites.delete("file-a");
+    }
+  });
+
   it("undoes and redoes the group around the earlier local fallback edit", () => {
     const state = commandArgs();
     const entry = state.contentUndoStackRef.current[0]!;

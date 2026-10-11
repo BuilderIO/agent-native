@@ -3,10 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DESIGN_SHORTCUTS } from "@/components/design/keyboard-shortcuts";
-import {
-  isPlatformPrimaryModifier,
-  isShowKeyboardShortcutsHotkey,
-} from "@/hooks/useDesignHotkeys";
+import { isShowKeyboardShortcutsHotkey } from "@/hooks/useDesignHotkeys";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 
@@ -15,7 +12,7 @@ function keydown(init: KeyboardEventInit) {
 }
 
 function shouldForwardShowShortcutsChord(e: KeyboardEvent) {
-  if (!isPlatformPrimaryModifier(e) || !e.shiftKey || e.altKey) return false;
+  if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return false;
   return e.key === "?" || e.key === "/";
 }
 
@@ -49,6 +46,16 @@ describe("show-keyboard-shortcuts hotkey", () => {
 
   it("matches the Windows chord, which arrives as '?'", () => {
     withNavigatorPlatform("Win32", () => {
+      expect(
+        isShowKeyboardShortcutsHotkey(
+          keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("matches the macOS Control chord, which arrives as '?'", () => {
+    withNavigatorPlatform("MacIntel", () => {
       expect(
         isShowKeyboardShortcutsHotkey(
           keydown({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }),
@@ -148,6 +155,7 @@ describe("canvas iframe forwarding", () => {
       ["Win32", { key: "/", ctrlKey: true, shiftKey: true }],
       ["Win32", { key: "?", ctrlKey: true, shiftKey: true }],
       ["MacIntel", { key: "/", metaKey: true, shiftKey: true }],
+      ["MacIntel", { key: "?", ctrlKey: true, shiftKey: true }],
       ["Win32", { key: "/", ctrlKey: true }],
       ["Win32", { key: "/", ctrlKey: true, shiftKey: true, altKey: true }],
       ["Win32", { key: "/" }],

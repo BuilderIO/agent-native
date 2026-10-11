@@ -278,7 +278,7 @@ export function hasDocumentTextSelection() {
 }
 
 export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
-  if (!isPlatformPrimaryModifier(event) || !event.shiftKey || event.altKey) {
+  if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
     return false;
   }
   const key = normalizeDesignHotkeyKey(event);
@@ -395,7 +395,7 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
         isDesignHotkeyEditableTarget(event.target) &&
         isPlatformPrimaryModifier(event) &&
         !event.altKey &&
-        ["=", "+"].includes(normalizeDesignHotkeyKey(event))
+        ["=", "+", "-", "0"].includes(normalizeDesignHotkeyKey(event))
       ) {
         event.preventDefault();
         resetOpacitySequence();
@@ -477,6 +477,7 @@ export function handleDesignHotkey(
   const isSecondaryModifierHotkey =
     isLayoutGridControlChord ||
     isControlAltTidyChord ||
+    isShowKeyboardShortcutsHotkey(event) ||
     (event.ctrlKey &&
       !event.metaKey &&
       event.altKey &&

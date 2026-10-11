@@ -316,6 +316,31 @@ export function useEditorClipboard({
     ],
   );
 
+  // Cut reads this after an awaited clipboard write; the ref keeps it on the
+  // latest render instead of the closure captured when cut started.
+  const getSelectionContentKey = () => {
+    const layerSnapshots = getSelectedLayerSnapshots();
+    const screenIds =
+      layerSnapshots.length === 0 && viewModeRef.current === "overview"
+        ? overviewSelectedScreenIds
+        : [];
+    return JSON.stringify([
+      layerSnapshots.map((snapshot) => [
+        snapshot.rootNodeId,
+        snapshot.sourceFileId,
+        snapshot.html,
+      ]),
+      screenIds.map((screenId) => [
+        screenId,
+        getScreenContent(screenId),
+        liveScreenSnapshotsById[screenId]?.html,
+        runtimeLayerSnapshotsById[screenId]?.html,
+      ]),
+    ]);
+  };
+  const getSelectionContentKeyRef = useRef(getSelectionContentKey);
+  getSelectionContentKeyRef.current = getSelectionContentKey;
+
   const getCanvasClipboardEntries = useCallback(() => {
     return getDesignClipboardLayerEntries({
       copiedEntries: copiedLayerEntriesRef.current,
@@ -1412,6 +1437,7 @@ export function useEditorClipboard({
           (id) => `explicit-screen:${id}`,
         ),
       ],
+      getSelectionContentKey: () => getSelectionContentKeyRef.current(),
     });
   }, [
     explicitOverviewScreenSelectionRef,

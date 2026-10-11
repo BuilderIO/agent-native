@@ -84,6 +84,48 @@ const GENERATED_GROUP_FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const DRILL_SCOPE_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="screen-root" data-agent-native-layer-name="Screen"
+       data-an-primitive="frame"
+       style="position:absolute;left:0;top:0;width:520px;height:420px;background:#111827">
+    <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
+         data-an-primitive="frame"
+         style="position:absolute;left:20px;top:20px;width:300px;height:300px;background:#1f2937">
+      <div data-agent-native-node-id="kid" data-agent-native-layer-name="Kid"
+           data-an-primitive="frame"
+           style="position:absolute;left:20px;top:20px;width:200px;height:200px;background:#374151">
+        <div data-agent-native-node-id="leaf" data-agent-native-layer-name="Leaf"
+             style="position:absolute;left:20px;top:20px;width:80px;height:60px;background:#3b82f6"></div>
+      </div>
+    </div>
+    <div data-agent-native-node-id="solo" data-agent-native-layer-name="Solo"
+         style="position:absolute;left:360px;top:20px;width:120px;height:80px;background:#a855f7"></div>
+  </div>
+</body></html>`;
+
+const DRILL_SCOPE_SIBLING_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="screen-root" data-agent-native-layer-name="Screen"
+       data-an-primitive="frame"
+       style="position:absolute;left:0;top:0;width:520px;height:420px;background:#111827">
+    <div data-agent-native-node-id="card" data-agent-native-layer-name="Card"
+         data-an-primitive="frame"
+         style="position:absolute;left:20px;top:20px;width:300px;height:300px;background:#1f2937">
+      <div data-agent-native-node-id="kid" data-agent-native-layer-name="Kid"
+           data-an-primitive="frame"
+           style="position:absolute;left:20px;top:20px;width:200px;height:200px;background:#374151">
+        <div data-agent-native-node-id="leaf" data-agent-native-layer-name="Leaf"
+             style="position:absolute;left:20px;top:20px;width:80px;height:60px;background:#3b82f6"></div>
+      </div>
+    </div>
+    <div data-agent-native-node-id="panel" data-agent-native-layer-name="Panel"
+         data-an-primitive="frame"
+         style="position:absolute;left:360px;top:20px;width:120px;height:80px;background:#a855f7">
+      <div data-agent-native-node-id="panel-child" data-agent-native-layer-name="Panel child"
+           style="position:absolute;left:20px;top:20px;width:40px;height:40px;background:#fde68a"></div>
+    </div>
+  </div>
+</body></html>`;
+
 describe("container-first click selection", () => {
   it("clicking a child nested inside Card selects Card, not the child", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -420,6 +462,152 @@ describe("container-first click selection", () => {
       await vi.waitFor(() => expect(selections.length).toBeGreaterThan(0));
 
       expect(selections[selections.length - 1]).toEqual(["solo-a"]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("re-enters a drilled container at its outer level after a click outside it", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(DRILL_SCOPE_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        (window as any).__selectionIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectionIds.push(
+              event.data.payload?.sourceId ?? "",
+            );
+          }
+        });
+      });
+
+      const selectionCount = () =>
+        page.evaluate(() => (window as any).__selectionIds.length as number);
+      const clickAndAwaitSelection = async (x: number, y: number) => {
+        const before = await selectionCount();
+        await page.mouse.click(x, y);
+        await page.waitForFunction(
+          (before) => (window as any).__selectionIds.length > before,
+          before,
+        );
+      };
+
+      await clickAndAwaitSelection(100, 90);
+      const beforeDrill = await selectionCount();
+      await page.mouse.dblclick(100, 90);
+      await page.waitForFunction(
+        (before) => (window as any).__selectionIds.length > before,
+        beforeDrill,
+      );
+      await page.waitForTimeout(50);
+      await clickAndAwaitSelection(420, 60);
+      await clickAndAwaitSelection(100, 90);
+
+      const selectedIds = await page.evaluate(
+        () => (window as any).__selectionIds as string[],
+      );
+      expect(selectedIds[selectedIds.length - 1]).toBe("card");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps a click inside a drilled container at the child level", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(DRILL_SCOPE_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        (window as any).__selectionIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectionIds.push(
+              event.data.payload?.sourceId ?? "",
+            );
+          }
+        });
+      });
+
+      const selectionCount = () =>
+        page.evaluate(() => (window as any).__selectionIds.length as number);
+      const clickAndAwaitSelection = async (x: number, y: number) => {
+        const before = await selectionCount();
+        await page.mouse.click(x, y);
+        await page.waitForFunction(
+          (before) => (window as any).__selectionIds.length > before,
+          before,
+        );
+      };
+
+      await clickAndAwaitSelection(100, 90);
+      const beforeDrill = await selectionCount();
+      await page.mouse.dblclick(100, 90);
+      await page.waitForFunction(
+        (before) => (window as any).__selectionIds.length > before,
+        beforeDrill,
+      );
+      await page.waitForTimeout(50);
+      await clickAndAwaitSelection(100, 90);
+
+      const selectedIds = await page.evaluate(
+        () => (window as any).__selectionIds as string[],
+      );
+      expect(selectedIds[selectedIds.length - 1]).toBe("leaf");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("exits a drilled container when a plain click selects a sibling container background", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(DRILL_SCOPE_SIBLING_FIXTURE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        (window as any).__selectionIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectionIds.push(
+              event.data.payload?.sourceId ?? "",
+            );
+          }
+        });
+      });
+
+      const selectionCount = () =>
+        page.evaluate(() => (window as any).__selectionIds.length as number);
+      const clickAndAwaitSelection = async (x: number, y: number) => {
+        const before = await selectionCount();
+        await page.mouse.click(x, y);
+        await page.waitForFunction(
+          (before) => (window as any).__selectionIds.length > before,
+          before,
+        );
+      };
+
+      await clickAndAwaitSelection(100, 90);
+      const beforeDrill = await selectionCount();
+      await page.mouse.dblclick(100, 90);
+      await page.waitForFunction(
+        (before) => (window as any).__selectionIds.length > before,
+        beforeDrill,
+      );
+      await page.waitForTimeout(50);
+      // (470, 90) is Panel's background, outside the drilled Kid. This click
+      // commits through selectElementAtEvent, not selectTarget, so it needs
+      // its own scope check.
+      await clickAndAwaitSelection(470, 90);
+      await clickAndAwaitSelection(100, 90);
+
+      const selectedIds = await page.evaluate(
+        () => (window as any).__selectionIds as string[],
+      );
+      expect(selectedIds[selectedIds.length - 1]).toBe("card");
     } finally {
       await browser.close();
     }
