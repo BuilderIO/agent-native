@@ -147,6 +147,78 @@ describe("recordActionAudit attribution", () => {
     },
   );
 
+  it("keeps the principal, the reported client, the OAuth client and approval apart", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "delete-form",
+        caller: "mcp",
+        userEmail: "bob@x.com",
+        mcpClient: {
+          name: "  Claude Code ",
+          version: "2.1.0",
+          oauthClientId: "client-123",
+        },
+        mcpApproved: true,
+      },
+      status: "success",
+    });
+    expect(lastEvent()).toMatchObject({
+      caller: "mcp",
+      actorKind: "agent",
+      actorEmail: "bob@x.com",
+      reportedClientName: "Claude Code",
+      reportedClientVersion: "2.1.0",
+      oauthClientId: "client-123",
+      approval: "mcp-elicitation",
+    });
+  });
+
+  it("bounds the self-reported client name", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "update-form",
+        caller: "mcp",
+        userEmail: "bob@x.com",
+        mcpClient: { name: "x".repeat(5000), version: "   " },
+      },
+      status: "success",
+    });
+    expect(lastEvent().reportedClientName).toHaveLength(200);
+    expect(lastEvent().reportedClientVersion).toBeNull();
+  });
+
+  it("records agent-chat approval only for a call the person approved", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "send-email",
+        caller: "tool",
+        userEmail: "bob@x.com",
+        approvedToolCallKey: "send-email:abc",
+      },
+      status: "success",
+    });
+    expect(lastEvent().approval).toBe("agent-chat");
+
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: { actionName: "send-email", caller: "tool", userEmail: "bob@x.com" },
+      status: "success",
+    });
+    expect(lastEvent()).toMatchObject({
+      approval: null,
+      reportedClientName: null,
+      reportedClientVersion: null,
+      oauthClientId: null,
+    });
+  });
+
   it("classifies service identities separately and checks their organization", async () => {
     await recordActionAudit({
       config: undefined,

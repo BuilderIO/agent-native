@@ -142,6 +142,34 @@ describe("auditEventToOcsf", () => {
     });
   });
 
+  it("keeps the reported MCP client and approval under unmapped, not on the actor", () => {
+    const out = auditEventToOcsf(
+      event({
+        caller: "mcp",
+        actorKind: "agent",
+        reportedClientName: "Claude Code",
+        reportedClientVersion: "2.1.0",
+        oauthClientId: "client-123",
+        approval: "mcp-elicitation",
+      }),
+    );
+    expect(out.unmapped).toMatchObject({
+      reported_client_name: "Claude Code",
+      reported_client_version: "2.1.0",
+      oauth_client_id: "client-123",
+      approval: "mcp-elicitation",
+    });
+    expect(out.actor).toEqual({
+      user: {
+        uid: "alice@example.test",
+        name: "alice@example.test",
+        email_addr: "alice@example.test",
+        type_id: 1,
+        type: "User",
+      },
+    });
+  });
+
   it("removes URL credentials, queries, and fragments from exported lineage", () => {
     const out = auditEventToOcsf(
       event({
