@@ -6,6 +6,7 @@ import {
 import {
   IsRestoringProvider,
   useQueryClient,
+  type Query,
   type QueryClient,
 } from "@tanstack/react-query";
 import {
@@ -22,9 +23,10 @@ import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
-  isBrowserPersistableActionQuery,
+  isBrowserPersistableActionQueryForBinding,
   markRestoredBrowserPersistableActionQuery,
   revokeBrowserPersistableActionQuery,
+  setActionQueryCacheBindingToken,
 } from "./use-action.js";
 import { useSession } from "./use-session.js";
 
@@ -39,6 +41,16 @@ const WRITE_DELAY_MS = 1_000;
 // the app.
 const RESTORE_TIMEOUT_MS = 2_000;
 const ACTION_QUERY_KEY = ["action"];
+
+function isAccessDeniedActionQuery(query: Query): boolean {
+  if (query.queryKey[0] !== "action") return false;
+  const status = actionErrorStatus(query.state.error);
+  return status === 401 || status === 403 || status === 404;
+}
+
+function clearAccessDeniedActionQueryData(query: Query): void {
+  query.setState({ data: undefined, dataUpdatedAt: 0 });
+}
 
 export interface ActionQueryCacheStorage {
   get(key: string): Promise<PersistedClient | undefined>;
@@ -242,6 +254,7 @@ function scopedPersister(scope: string): ScopedPersister {
 
 interface Binding {
   client: QueryClient;
+  token: object;
   persister: ScopedPersister;
   unsubscribe: () => void;
 }
@@ -256,6 +269,7 @@ function closeBinding(): void {
   bindingGeneration += 1;
   const closing = binding;
   binding = undefined;
+  setActionQueryCacheBindingToken(undefined);
   if (!closing) return;
   closing.persister.close();
   closing.unsubscribe();
@@ -296,11 +310,13 @@ export async function bindActionQueryCache(
   closeBinding();
   const generation = bindingGeneration;
   const persister = scopedPersister(scope);
+  const token = {};
   let unsubscribePersist = () => {};
   let stopHydrationTracking = () => {};
   let unsubscribeRevoked = () => {};
   const currentBinding: Binding = {
     client,
+    token,
     persister,
     unsubscribe: () => {
       unsubscribePersist();
@@ -309,6 +325,7 @@ export async function bindActionQueryCache(
     },
   };
   binding = currentBinding;
+  setActionQueryCacheBindingToken(token);
   const isCurrentBinding = () =>
     binding === currentBinding && generation === bindingGeneration;
 
@@ -319,8 +336,21 @@ export async function bindActionQueryCache(
     if (status === 401 || status === 403 || status === 404) {
       revokeBrowserPersistableActionQuery(event.query);
       persister.discard();
+      clearAccessDeniedActionQueryData(event.query);
     }
   });
+
+  const deniedBeforeBind = client
+    .getQueryCache()
+    .getAll()
+    .filter(isAccessDeniedActionQuery);
+  if (deniedBeforeBind.length > 0) {
+    persister.discard();
+    for (const query of deniedBeforeBind) {
+      revokeBrowserPersistableActionQuery(query);
+      clearAccessDeniedActionQueryData(query);
+    }
+  }
 
   const cleanup = (async () => {
     await Promise.allSettled(earlierDeletes);
@@ -412,7 +442,8 @@ export async function bindActionQueryCache(
       maxAge: ACTION_QUERY_CACHE_MAX_AGE_MS,
       hydrateOptions,
       dehydrateOptions: {
-        shouldDehydrateQuery: isBrowserPersistableActionQuery,
+        shouldDehydrateQuery: (query) =>
+          isBrowserPersistableActionQueryForBinding(query, token),
         // A mutation replayed from disk would look like a write that succeeded.
         shouldDehydrateMutation: () => false,
       },
@@ -444,7 +475,7 @@ export async function bindActionQueryCache(
           source.dataUpdatedAt === deserialized?.dataUpdatedAt &&
           Object.is(query.state.data, deserialized?.data)
         ) {
-          markRestoredBrowserPersistableActionQuery(query);
+          markRestoredBrowserPersistableActionQuery(query, token);
         }
       }
     };

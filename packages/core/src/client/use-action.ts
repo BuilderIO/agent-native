@@ -1083,6 +1083,15 @@ function trackActionCircuitTrip(
 
 // Identical keys in another client or auth scope must earn their own permission.
 const browserPersistableActionQueries = new WeakSet<Query>();
+const browserPersistableActionQueryBindings = new WeakMap<Query, object>();
+let actionQueryCacheBindingToken: object | undefined;
+
+/** @internal set only by the scoped action-query cache binder. */
+export function setActionQueryCacheBindingToken(
+  token: object | undefined,
+): void {
+  actionQueryCacheBindingToken = token;
+}
 
 /** @internal read by the persisted query cache. */
 export function isBrowserPersistableActionQuery(query: Query): boolean {
@@ -1093,13 +1102,30 @@ export function isBrowserPersistableActionQuery(query: Query): boolean {
   );
 }
 
+/** @internal a response is persistable only in the binding active at fetch start. */
+export function isBrowserPersistableActionQueryForBinding(
+  query: Query,
+  token: object,
+): boolean {
+  return (
+    isBrowserPersistableActionQuery(query) &&
+    browserPersistableActionQueryBindings.get(query) === token
+  );
+}
+
 /** @internal used only after a persisted action result is accepted and hydrated. */
-export function markRestoredBrowserPersistableActionQuery(query: Query): void {
+export function markRestoredBrowserPersistableActionQuery(
+  query: Query,
+  token?: object,
+): void {
   browserPersistableActionQueries.add(query);
+  if (token) browserPersistableActionQueryBindings.set(query, token);
+  else browserPersistableActionQueryBindings.delete(query);
 }
 
 export function revokeBrowserPersistableActionQuery(query: Query): void {
   browserPersistableActionQueries.delete(query);
+  browserPersistableActionQueryBindings.delete(query);
 }
 
 export function useActionQuery<
@@ -1137,6 +1163,7 @@ export function useActionQuery<
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
       let browserPersist = false;
       const result = await actionFetch<R>(actionName, "GET", params, {
@@ -1149,8 +1176,22 @@ export function useActionQuery<
       });
       resetActionFailureCircuit(key);
       if (query && !signal.aborted) {
-        if (browserPersist) browserPersistableActionQueries.add(query);
-        else browserPersistableActionQueries.delete(query);
+        if (browserPersist) {
+          browserPersistableActionQueries.add(query);
+          if (
+            bindingTokenAtFetch !== undefined &&
+            actionQueryCacheBindingToken === bindingTokenAtFetch
+          ) {
+            browserPersistableActionQueryBindings.set(
+              query,
+              bindingTokenAtFetch,
+            );
+          } else {
+            browserPersistableActionQueryBindings.delete(query);
+          }
+        } else {
+          revokeBrowserPersistableActionQuery(query);
+        }
       }
       return result;
     },
