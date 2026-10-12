@@ -138,6 +138,7 @@ interface ScopedPersister extends Persister {
 // ponytail: one record holds every persisted result for the scope, with no size cap; split per query or cap bytes if restore shows up in traces.
 function scopedPersister(scope: string): ScopedPersister {
   let open = true;
+  let persistBlocked = false;
   let latest: PersistedClient | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let restored = new Map<string, number>();
@@ -145,6 +146,7 @@ function scopedPersister(scope: string): ScopedPersister {
   let restoreAccepted = false;
   let restoreBlocked = false;
   let restoreRevision = 0;
+  const writesInFlight = new Set<Promise<void>>();
 
   const clearRestoredState = () => {
     restoreAccepted = false;
@@ -156,17 +158,19 @@ function scopedPersister(scope: string): ScopedPersister {
     timer = undefined;
     const next = latest;
     latest = undefined;
-    if (!open || !next) return;
-    storage
+    if (!open || persistBlocked || !next) return;
+    const write = storage
       .set(scope, next)
       .catch((error) =>
         console.warn("Unable to save cached action results", error),
       );
+    writesInFlight.add(write);
+    void write.finally(() => writesInFlight.delete(write));
   };
 
   return {
     persistClient(client) {
-      if (!open) return;
+      if (!open || persistBlocked) return;
       latest = client;
       timer ??= setTimeout(flush, WRITE_DELAY_MS);
     },
@@ -226,6 +230,7 @@ function scopedPersister(scope: string): ScopedPersister {
       return storage.del(scope);
     },
     discard() {
+      persistBlocked = true;
       restoreBlocked = true;
       restoreRevision += 1;
       clearRestoredState();
@@ -234,11 +239,16 @@ function scopedPersister(scope: string): ScopedPersister {
       latest = undefined;
       clearTimeout(timer);
       timer = undefined;
-      storage
-        .del(scope)
+      const deletion = (async () => {
+        await Promise.all([...writesInFlight]);
+        await storage.del(scope);
+      })();
+      inFlightStorageDeletes.add(deletion);
+      void deletion
         .catch((error) =>
           console.warn("Unable to delete cached action results", error),
-        );
+        )
+        .finally(() => inFlightStorageDeletes.delete(deletion));
     },
     close() {
       open = false;
