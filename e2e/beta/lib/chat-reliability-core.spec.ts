@@ -5,6 +5,7 @@ import {
   checkTranscript,
   composerHoldsPrompt,
   countOccurrences,
+  describePersisted,
   describeState,
   exactReplyPrompt,
   inspectActiveRun,
@@ -490,6 +491,355 @@ test("reads a persisted thread and flags messages that never finished", () => {
   assert.equal(
     failedSend.kind === "ok" && failedSend.unsettled[0],
     "user:error",
+  );
+});
+
+test("summarizes bounded root-to-snapshot assistant relations without private values", () => {
+  const view = inspectPersistedThread({
+    title: "PRIVATE_TITLE_TOKEN",
+    threadData: JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "PRIVATE_ROOT_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_ROOT_RUN" },
+            content: [
+              { type: "text", text: "PRIVATE_ANSWER_" },
+              { type: "text", text: "TOKEN" },
+              { type: "tool-call", toolCallId: "PRIVATE_TOOL_ID" },
+              { type: "reasoning", text: "PRIVATE_REASONING_TOKEN" },
+            ],
+          },
+          parentId: "PRIVATE_PARENT_ID",
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "PRIVATE_EXACT_SNAPSHOT_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_ROOT_RUN" },
+            parts: [{ type: "text", text: "PRIVATE_ANSWER_TOKEN" }],
+          },
+          {
+            id: "PRIVATE_PREFIX_SNAPSHOT_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_ROOT_RUN" },
+            parts: [{ type: "text", text: "PRIVATE_ANSWER" }],
+          },
+          {
+            id: "PRIVATE_DIFFERENT_RUN_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_OTHER_RUN" },
+            parts: [{ type: "text", text: "PRIVATE_ANSWER_TOKEN" }],
+          },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(view.kind, "ok");
+  if (view.kind !== "ok") return;
+  assert.deepEqual(view.assistantRelations.relations, [
+    {
+      rootOrdinal: 1,
+      runIdPresent: true,
+      runIdAmbiguous: false,
+      sameRunSnapshotCandidateCount: 2,
+      exactTextMatchCount: 1,
+      prefixCompatibleTextMatchCount: 2,
+      rootToolPartCount: 1,
+      rootReasoningPresent: true,
+      rootContentTruncated: false,
+      rootPartsTruncated: false,
+      snapshotContentTruncatedCount: 0,
+      ambiguousSnapshotRunIdCount: 0,
+    },
+  ]);
+  assert.equal(view.assistantRelations.rootMessageCount, 1);
+  assert.equal(view.assistantRelations.snapshotMessageCount, 3);
+
+  const description = describePersisted(view);
+  assert.match(
+    description,
+    /^titleLength=19ch messageCount=(?:null|\d+) messages=\[/,
+  );
+  assert.doesNotMatch(
+    description,
+    /PRIVATE_(?:TITLE|ROOT|ANSWER|REASONING|TOOL|PARENT|EXACT|PREFIX|DIFFERENT|OTHER)/,
+  );
+  assert.doesNotMatch(description, /projector/i);
+});
+
+test("uses only unique bounded message events when explicit run metadata is missing", () => {
+  const view = inspectPersistedThread({
+    title: "PRIVATE_EVENT_TITLE",
+    threadData: JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "PRIVATE_ROOT_EVENT_ID",
+            role: "assistant",
+            content: [{ type: "text", text: "PRIVATE_EVENT_ANSWER" }],
+          },
+        },
+        {
+          message: {
+            id: "PRIVATE_AMBIGUOUS_ROOT_ID",
+            role: "assistant",
+            content: [{ type: "text", text: "PRIVATE_AMBIGUOUS_ANSWER" }],
+          },
+        },
+        {
+          message: {
+            id: "PRIVATE_UNATTRIBUTED_ROOT_ID",
+            role: "assistant",
+            content: [{ type: "text", text: "PRIVATE_UNATTRIBUTED_ANSWER" }],
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "PRIVATE_SNAPSHOT_EVENT_ID",
+            role: "assistant",
+            parts: [{ type: "text", text: "PRIVATE_EVENT_ANSWER" }],
+          },
+          {
+            id: "PRIVATE_AMBIGUOUS_SNAPSHOT_ID",
+            role: "assistant",
+            parts: [{ type: "text", text: "PRIVATE_AMBIGUOUS_ANSWER" }],
+          },
+          {
+            id: "PRIVATE_NO_EVENT_SNAPSHOT_ID",
+            role: "assistant",
+            parts: [{ type: "text", text: "PRIVATE_UNATTRIBUTED_ANSWER" }],
+          },
+        ],
+        events: [
+          {
+            type: "message.completed",
+            runId: "PRIVATE_EVENT_RUN",
+            message: { id: "PRIVATE_ROOT_EVENT_ID", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "PRIVATE_EVENT_RUN",
+            message: { id: "PRIVATE_SNAPSHOT_EVENT_ID", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "PRIVATE_AMBIGUOUS_RUN_A",
+            message: { id: "PRIVATE_AMBIGUOUS_ROOT_ID", role: "assistant" },
+          },
+          {
+            type: "message.completed",
+            runId: "PRIVATE_AMBIGUOUS_RUN_B",
+            message: { id: "PRIVATE_AMBIGUOUS_ROOT_ID", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "PRIVATE_AMBIGUOUS_RUN_A",
+            message: {
+              id: "PRIVATE_AMBIGUOUS_SNAPSHOT_ID",
+              role: "assistant",
+            },
+          },
+          {
+            type: "message.completed",
+            runId: "PRIVATE_AMBIGUOUS_RUN_B",
+            message: {
+              id: "PRIVATE_AMBIGUOUS_SNAPSHOT_ID",
+              role: "assistant",
+            },
+          },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(view.kind, "ok");
+  if (view.kind !== "ok") return;
+  assert.deepEqual(
+    view.assistantRelations.relations.map((relation) => ({
+      runIdPresent: relation.runIdPresent,
+      runIdAmbiguous: relation.runIdAmbiguous,
+      sameRunSnapshotCandidateCount: relation.sameRunSnapshotCandidateCount,
+      exactTextMatchCount: relation.exactTextMatchCount,
+      ambiguousSnapshotRunIdCount: relation.ambiguousSnapshotRunIdCount,
+    })),
+    [
+      {
+        runIdPresent: true,
+        runIdAmbiguous: false,
+        sameRunSnapshotCandidateCount: 1,
+        exactTextMatchCount: 1,
+        ambiguousSnapshotRunIdCount: 1,
+      },
+      {
+        runIdPresent: false,
+        runIdAmbiguous: true,
+        sameRunSnapshotCandidateCount: 0,
+        exactTextMatchCount: 0,
+        ambiguousSnapshotRunIdCount: 1,
+      },
+      {
+        runIdPresent: false,
+        runIdAmbiguous: false,
+        sameRunSnapshotCandidateCount: 0,
+        exactTextMatchCount: 0,
+        ambiguousSnapshotRunIdCount: 1,
+      },
+    ],
+  );
+});
+
+test("treats conflicting explicit and event run metadata as ambiguous", () => {
+  const view = inspectPersistedThread({
+    title: "PRIVATE_CONFLICT_TITLE",
+    threadData: JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "PRIVATE_CONFLICT_ROOT_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_EXPLICIT_RUN" },
+            content: [{ type: "text", text: "PRIVATE_CONFLICT_ANSWER" }],
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "PRIVATE_CONFLICT_SNAPSHOT_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_EXPLICIT_RUN" },
+            parts: [{ type: "text", text: "PRIVATE_CONFLICT_ANSWER" }],
+          },
+        ],
+        events: [
+          {
+            type: "message.completed",
+            runId: "PRIVATE_EVENT_CONFLICT_RUN",
+            message: {
+              id: "PRIVATE_CONFLICT_ROOT_ID",
+              role: "assistant",
+            },
+          },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(view.kind, "ok");
+  if (view.kind !== "ok") return;
+  assert.deepEqual(
+    {
+      runIdPresent: view.assistantRelations.relations[0]?.runIdPresent,
+      runIdAmbiguous: view.assistantRelations.relations[0]?.runIdAmbiguous,
+      sameRunSnapshotCandidateCount:
+        view.assistantRelations.relations[0]?.sameRunSnapshotCandidateCount,
+      exactTextMatchCount:
+        view.assistantRelations.relations[0]?.exactTextMatchCount,
+    },
+    {
+      runIdPresent: false,
+      runIdAmbiguous: true,
+      sameRunSnapshotCandidateCount: 0,
+      exactTextMatchCount: 0,
+    },
+  );
+  assert.doesNotMatch(describePersisted(view), /PRIVATE_/);
+});
+
+test("caps assistant relations, snapshot messages, events, and compared content", () => {
+  const longRootText = `${"R".repeat(16_384)}PRIVATE_ROOT_TAIL`;
+  const longSnapshotText = `${"R".repeat(16_384)}PRIVATE_SNAPSHOT_TAIL`;
+  const rootMessages = Array.from({ length: 35 }, (_, index) => ({
+    message: {
+      id: index === 1 ? "PRIVATE_LATE_EVENT_ROOT_ID" : `PRIVATE_ROOT_${index}`,
+      role: "assistant",
+      ...(index === 0
+        ? { metadata: { runId: "PRIVATE_LONG_RUN" } }
+        : index === 1
+          ? { metadata: { runId: "PRIVATE_LATE_EVENT_EXPLICIT_RUN" } }
+          : {}),
+      content: [
+        {
+          type: "text",
+          text: index === 0 ? longRootText : "PRIVATE_SHORT_ROOT",
+        },
+      ],
+    },
+  }));
+  const snapshotMessages = Array.from({ length: 257 }, (_, index) => ({
+    id: `PRIVATE_SNAPSHOT_${index}`,
+    role: "assistant",
+    metadata: {
+      runId: index === 0 ? "PRIVATE_LONG_RUN" : `PRIVATE_OTHER_RUN_${index}`,
+    },
+    parts: [
+      {
+        type: "text",
+        text: index === 0 ? longSnapshotText : "PRIVATE_SHORT_SNAPSHOT",
+      },
+    ],
+  }));
+  const events = [
+    {
+      type: "message.completed",
+      runId: "PRIVATE_OBSERVED_CONFLICT_RUN",
+      message: {
+        id: "PRIVATE_LATE_EVENT_ROOT_ID",
+        role: "assistant",
+      },
+    },
+    ...Array.from({ length: 1_024 }, () => ({ type: "run.started" })),
+    {
+      type: "message.completed",
+      runId: "PRIVATE_LATE_EVENT_RUN",
+      message: {
+        id: "PRIVATE_LATE_EVENT_ROOT_ID",
+        role: "assistant",
+      },
+    },
+  ];
+  const view = inspectPersistedThread({
+    title: "PRIVATE_BOUND_TITLE",
+    threadData: JSON.stringify({
+      messages: rootMessages,
+      agentKit: { messages: snapshotMessages, events },
+    }),
+  });
+
+  assert.equal(view.kind, "ok");
+  if (view.kind !== "ok") return;
+  const summary = view.assistantRelations;
+  assert.equal(summary.rootMessageCount, 35);
+  assert.equal(summary.rootMessagesScanned, 35);
+  assert.equal(summary.rootMessagesTruncated, false);
+  assert.equal(summary.rootAssistantCount, 32);
+  assert.equal(summary.rootAssistantsTruncated, true);
+  assert.equal(summary.snapshotMessageCount, 257);
+  assert.equal(summary.snapshotMessagesScanned, 256);
+  assert.equal(summary.snapshotMessagesTruncated, true);
+  assert.equal(summary.snapshotAssistantCount, 256);
+  assert.equal(summary.eventsCount, 1_026);
+  assert.equal(summary.eventsScanned, 1_024);
+  assert.equal(summary.eventsTruncated, true);
+  assert.equal(summary.relations[0]?.rootContentTruncated, true);
+  assert.equal(summary.relations[0]?.snapshotContentTruncatedCount, 1);
+  assert.equal(summary.relations[0]?.exactTextMatchCount, 0);
+  assert.equal(summary.relations[0]?.prefixCompatibleTextMatchCount, 0);
+  assert.equal(summary.relations[1]?.runIdPresent, false);
+  assert.equal(summary.relations[1]?.runIdAmbiguous, true);
+  assert.equal(summary.relations[2]?.runIdPresent, false);
+  assert.equal(summary.relations[2]?.runIdAmbiguous, true);
+
+  assert.doesNotMatch(
+    describePersisted(view),
+    /PRIVATE_(?:ROOT|SNAPSHOT|LATE|LONG|OTHER|SHORT|BOUND)/,
   );
 });
 
