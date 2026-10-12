@@ -213,7 +213,7 @@ const drafts: readonly Draft[] = [
     },
     helpers: () => `
 fn softHash(cell: vec2i, seed: u32) -> f32 {
-  var value = bitcast<u32>(cell.x) * 0x9e3779b9u ^ bitcast<u32>(cell.y) * 0x85ebca6bu ^ seed;
+  var value = (bitcast<u32>(cell.x) * 0x9e3779b9u) ^ (bitcast<u32>(cell.y) * 0x85ebca6bu) ^ seed;
   value = (value ^ (value >> 16u)) * 0x7feb352du;
   value = (value ^ (value >> 15u)) * 0x846ca68bu;
   return f32((value ^ (value >> 16u)) >> 8u) / 16777216.0;

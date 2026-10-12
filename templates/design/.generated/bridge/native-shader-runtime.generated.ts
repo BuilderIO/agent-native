@@ -6305,7 +6305,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
   let sampleHalfStep = 0.5 * extent / 8.0;
   let detection = u32(clamp(globals.params[0].x, 0.0, 2.0));
   let threshold = clamp(globals.params[1].x, 0.0, 1.0);
-  let target = globals.params[4].rgb;
+  let referenceColor = globals.params[4].rgb;
   var low = vec2f(1.0);
   var high = vec2f(0.0);
   var hits = 0.0;
@@ -6324,7 +6324,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
       } else if (detection == 1u) {
         detected = visible && dot(straight, vec3f(0.2126, 0.7152, 0.0722)) >= threshold;
       } else {
-        detected = visible && distance(straight, target) <= threshold;
+        detected = visible && distance(straight, referenceColor) <= threshold;
       }
       if (detected) {
         low = min(low, uv - vec2f(sampleHalfStep));
@@ -7656,7 +7656,7 @@ fn straight(sample: vec4f) -> vec3f {
   }
   let normalized = clamp((thermal - 0.5) * globals.params[3].x + globals.params[2].x, 0.0, 1.0);
   let ember = smoothstep(0.72, 1.0, normalized);
-  let rgb = mix(globals.params[6].rgb, globals.params[7].rgb, smoothstep(0.12, 0.85, normalized));
+  var rgb = mix(globals.params[6].rgb, globals.params[7].rgb, smoothstep(0.12, 0.85, normalized));
   rgb = mix(rgb, vec3f(1.0, 0.88, 0.58), ember * 0.72);
   return vec4f(rgb * alpha, alpha);
 }\`,
@@ -24215,7 +24215,7 @@ fn sourceAt(pixel: vec2f) -> vec4f {
       },
       helpers: () => \`
 fn softHash(cell: vec2i, seed: u32) -> f32 {
-  var value = bitcast<u32>(cell.x) * 0x9e3779b9u ^ bitcast<u32>(cell.y) * 0x85ebca6bu ^ seed;
+  var value = (bitcast<u32>(cell.x) * 0x9e3779b9u) ^ (bitcast<u32>(cell.y) * 0x85ebca6bu) ^ seed;
   value = (value ^ (value >> 16u)) * 0x7feb352du;
   value = (value ^ (value >> 15u)) * 0x846ca68bu;
   return f32((value ^ (value >> 16u)) >> 8u) / 16777216.0;

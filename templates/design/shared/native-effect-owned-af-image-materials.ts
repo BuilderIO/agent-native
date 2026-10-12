@@ -149,7 +149,7 @@ const materials: Material[] = [
   }
   let normalized = clamp((thermal - 0.5) * globals.params[3].x + globals.params[2].x, 0.0, 1.0);
   let ember = smoothstep(0.72, 1.0, normalized);
-  let rgb = mix(globals.params[6].rgb, globals.params[7].rgb, smoothstep(0.12, 0.85, normalized));
+  var rgb = mix(globals.params[6].rgb, globals.params[7].rgb, smoothstep(0.12, 0.85, normalized));
   rgb = mix(rgb, vec3f(1.0, 0.88, 0.58), ember * 0.72);
   return vec4f(rgb * alpha, alpha);
 }`,

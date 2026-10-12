@@ -17,7 +17,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
   let sampleHalfStep = 0.5 * extent / 8.0;
   let detection = u32(clamp(globals.params[0].x, 0.0, 2.0));
   let threshold = clamp(globals.params[1].x, 0.0, 1.0);
-  let target = globals.params[4].rgb;
+  let referenceColor = globals.params[4].rgb;
   var low = vec2f(1.0);
   var high = vec2f(0.0);
   var hits = 0.0;
@@ -36,7 +36,7 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
       } else if (detection == 1u) {
         detected = visible && dot(straight, vec3f(0.2126, 0.7152, 0.0722)) >= threshold;
       } else {
-        detected = visible && distance(straight, target) <= threshold;
+        detected = visible && distance(straight, referenceColor) <= threshold;
       }
       if (detected) {
         low = min(low, uv - vec2f(sampleHalfStep));
