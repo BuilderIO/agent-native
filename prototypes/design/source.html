@@ -368,7 +368,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .insp { grid-row: 2; grid-column: 4; border-left: 1px solid var(--color-border); display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--color-background); }
 .no-inspector .insp { border-left: 0; }
 .insp-tabs { height: 40px; padding: 8px 8px 0; flex: none; display: flex; align-items: center; }
-.insp-tabs .seg button { padding-inline: 6px; }
+.insp-tabs .kit-seg button { padding-inline: 6px; }
 .insp-scroll { flex: 1; min-height: 0; overflow: auto; }
 .g5 { display: grid; grid-template-columns: 88px 8px 88px 8px 32px; align-items: center; }
 .g5 > .c1 { grid-column: 1; } .g5 > .c3 { grid-column: 3; } .g5 > .c5 { grid-column: 5; justify-self: center; }
@@ -747,8 +747,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 
 /* Top bar test (2026-10-01): every control at the 24px design-system default, ui/control text 12/16.
    Edge padding follows the edge content: 8px beside text, 4px beside a 16px glyph ((24 - 16) / 2). */
-.topbar .seg { padding: 2px; border-radius: 8px; }
-.topbar .seg button { height: 20px; padding-inline: 8px; border-radius: 6px; font-size: 12px; line-height: 16px; }
+.topbar .kit-seg { padding: 2px; border-radius: 8px; }
+.topbar .kit-seg button { height: 20px; padding-inline: 8px; border-radius: 6px; font-size: 12px; line-height: 16px; }
 .topbar .select { height: 24px; min-height: 24px; padding: 0 4px 0 8px; gap: 4px; border-radius: 6px; font-size: 12px; line-height: 16px; }
 .topbar .select > svg.i:first-child { margin-left: -5px; }
 .topbar .select .chev { width: 16px; height: 16px; }
@@ -1461,7 +1461,7 @@ function renderTopbar() {
   const interact = S.mode === "interact";
   $("#topbar").innerHTML = `
     <div class="tb-zone tb-left">
-      <div class="seg" role="group" aria-label="Mode">
+      <div class="kit-seg" role="group" aria-label="Mode">
         <button data-mode="interact" aria-pressed="${interact}" title="Interact">Interact</button>
         <button data-mode="design" aria-pressed="${S.mode === "design"}" title="Design">Design</button>
         ${S.labsCode ? `<button data-mode="code" aria-pressed="${S.mode === "code"}" title="Code (Labs)">Code</button>` : ""}

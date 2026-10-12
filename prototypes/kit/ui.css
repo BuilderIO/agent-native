@@ -13,9 +13,9 @@
 .icon-btn:hover { background: var(--color-accent); }
 .icon-btn.sm { width: 22px; height: 22px; border-radius: 6px; }
 .icon-btn.xs { width: 24px; height: 24px; border-radius: 6px; }
-.seg { display: inline-flex; padding: 4px; border-radius: 14px; background: var(--color-muted); flex: none; }
-.seg button { height: 20px; padding-inline: 6px; border-radius: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--color-muted-foreground); }
-.seg button[aria-pressed="true"] { background: var(--color-background); color: var(--color-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 1px 1.5px rgb(0 0 0 / 10%); }
+.kit-seg { display: inline-flex; padding: 4px; border-radius: 14px; background: var(--color-muted); flex: none; }
+.kit-seg button { height: 20px; padding-inline: 6px; border-radius: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--color-muted-foreground); }
+.kit-seg button[aria-pressed="true"] { background: var(--color-background); color: var(--color-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 1px 1.5px rgb(0 0 0 / 10%); }
 .btn { height: 32px; padding-inline: 10px; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; white-space: nowrap; }
 .btn.secondary { background: var(--color-muted); }
 .btn.secondary:hover { background: var(--color-border); }

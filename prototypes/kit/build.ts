@@ -49,11 +49,14 @@ function loadChanges(): Change[] {
 // (and `:root` inside `@supports`) are read, and only their custom properties. `.dark` becomes the prototype's dark selectors, since a prototype follows the
 // viewer's color scheme or the review strip's Theme switch instead of a class.
 const repo = join(kit, "../..");
-const TOKEN_SOURCES = (template: string) => [
+// A prototype adds sources beyond the template's global.css with "tokens" in prototype.json (Clips desktop
+// reads its renderer's own CSS).
+const TOKEN_SOURCES = (template: string, extra: string[] = []) => [
   "packages/toolkit/src/app/styles/tokens/agent-kit.css",
   "packages/toolkit/src/app/styles/agent-native.css",
   "packages/toolkit/src/app/agentkit/react/styles.css",
   `templates/${template}/app/global.css`,
+  ...extra,
 ];
 
 function topLevelRules(css: string): { selector: string; body: string }[] {
@@ -90,11 +93,11 @@ const customProperties = (body: string) =>
     .map((decl) => decl.trim().replace(/\s+/g, " "))
     .filter((decl) => decl.startsWith("--"));
 
-function tokensCss(template: string): string {
+function tokensCss(template: string, extra: string[] = []): string {
   const light: string[] = [];
   const dark: string[] = [];
   const supports: string[] = [];
-  for (const source of TOKEN_SOURCES(template)) {
+  for (const source of TOKEN_SOURCES(template, extra)) {
     const css = read(join(repo, source)).replace(/\/\*[\s\S]*?\*\//g, "");
     const root: string[] = [];
     const lightOnly: string[] = [];
@@ -135,7 +138,7 @@ function tokensCss(template: string): string {
     throw new Error(`No :root tokens found for template "${template}"`);
   const block = (decls: string[]) => decls.map((d) => `  ${d};`).join("\n");
   return [
-    `/* Generated from ${TOKEN_SOURCES(template).join(" and ")} by kit/build.ts. */`,
+    `/* Generated from ${TOKEN_SOURCES(template, extra).join(", ")} by kit/build.ts. */`,
     `:root {\n${block(light)}\n}`,
     ...supports,
     `@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {\n${block(dark)}\n  color-scheme: dark;\n  }\n}`,
@@ -200,7 +203,7 @@ const icons = {
 const fills: [string, string][] = [
   [
     "__KIT_HEAD__",
-    `${FONTS}\n<style>\n${tokensCss(config.template)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}\n${read(join(kit, "settings.css"))}</style>`,
+    `${FONTS}\n<style>\n${tokensCss(config.template, config.tokens)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}\n${read(join(kit, "settings.css"))}</style>`,
   ],
   [
     "__KIT_SCRIPT__",

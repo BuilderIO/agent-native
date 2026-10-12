@@ -15,7 +15,7 @@ body { margin: 0; background: var(--color-background); color: var(--color-foregr
 * { box-sizing: border-box; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }
-button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--design-editor-accent-color); outline-offset: 1px; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--kit-accent); outline-offset: 1px; }
 svg.i { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 svg.i.s12 { width: 12px; height: 12px; }
 svg.i.s14 { width: 14px; height: 14px; }
@@ -24,7 +24,7 @@ svg.i.s14 { width: 14px; height: 14px; }
 /* Changes drawer: the prototype's change log, newest first. Opened from the review strip's Changes button,
    which carries a dot when there are entries since this viewer last opened it. */
 .kit-changes-btn { position: relative; }
-.kit-changes-btn[data-new]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--design-editor-accent-color); }
+.kit-changes-btn[data-new]::after { content: ""; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--kit-accent); }
 .kit-changes { position: fixed; top: 36px; right: 0; bottom: 0; width: min(400px, 100%); background: var(--color-background); border-left: 1px solid var(--color-border); z-index: 70; display: flex; flex-direction: column; box-shadow: var(--agent-kit-overlay-elevation); }
 .kit-changes-h { height: 48px; flex: none; display: flex; align-items: center; justify-content: space-between; padding-inline: 16px 8px; border-bottom: 1px solid var(--color-border); font-size: 13px; font-weight: 600; }
 .kit-changes-h button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: var(--color-muted-foreground); }
@@ -34,4 +34,4 @@ svg.i.s14 { width: 14px; height: 14px; }
 .kit-changes-b ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .kit-changes-b li { display: grid; grid-template-columns: 8px 1fr; gap: 8px; }
 .kit-changes-b li::before { content: ""; width: 4px; height: 4px; margin: 7px 0 0 2px; border-radius: 50%; background: var(--color-border); }
-.kit-changes-b li.new::before { background: var(--design-editor-accent-color); }
+.kit-changes-b li.new::before { background: var(--kit-accent); }

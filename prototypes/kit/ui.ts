@@ -10,7 +10,7 @@ const $ = (s, r = document) => r.querySelector(s);
 
 // Menus
 let closeMenu = null;
-// items: "-" | {label} | {search} | {field} | {t, icon, k, run, toast, danger, disabled, toggle:bool (checkbox: stays open), radio:bool (one choice: closes), on:bool, sub:[items]}
+// items: "-" | {label} | {search} | {field} | {t, icon, k, title (tooltip), run, toast, danger, disabled, toggle:bool (checkbox: stays open), radio:bool (one choice: closes), on:bool, sub:[items]}
 function menuEl(items, depth) {
   const m = document.createElement("div");
   m.className = "menu";
@@ -27,7 +27,7 @@ function menuEl(items, depth) {
             ? `<label class="search">${ic("search", "s14")}<input placeholder="${it.search}" aria-label="${it.search}"><span class="kbd" style="padding:0">${it.k || ""}</span></label>`
             : it.field
               ? `<div class="field-row"><input value="${it.field}" aria-label="Zoom level"></div>`
-              : `<button role="${it.toggle ? "menuitemcheckbox" : it.radio ? "menuitemradio" : "menuitem"}" ${it.toggle || it.radio ? `aria-checked="${!!it.on}"` : ""} class="${it.danger ? "danger" : ""} ${it.desc ? "two" : ""}" data-i="${i}" ${it.disabled ? "disabled" : ""} ${it.sub ? 'aria-haspopup="menu"' : ""}>${hasCk ? `<span class="ck">${it.on ? ic("check", "s14") : ""}</span>` : ""}${it.img ? `<img class="mi-img" src="${it.img}" alt="">` : it.icon ? ic(it.icon) : ""}${it.desc ? `<span class="tt"><span>${it.t}</span><small>${it.desc}</small></span>` : `<span>${it.t}</span>`}${it.sub ? `<span class="sub">${ic(it.subIcon || "chevron-right", "s14")}</span>` : it.k ? `<span class="kbd">${it.k}</span>` : ""}</button>`,
+              : `<button role="${it.toggle ? "menuitemcheckbox" : it.radio ? "menuitemradio" : "menuitem"}" ${it.toggle || it.radio ? `aria-checked="${!!it.on}"` : ""} class="${it.danger ? "danger" : ""} ${it.desc ? "two" : ""}" ${it.title ? `title="${it.title}"` : ""} data-i="${i}" ${it.disabled ? "disabled" : ""} ${it.sub ? 'aria-haspopup="menu"' : ""}>${hasCk ? `<span class="ck">${it.on ? ic("check", "s14") : ""}</span>` : ""}${it.img ? `<img class="mi-img" src="${it.img}" alt="">` : it.icon ? ic(it.icon) : ""}${it.desc ? `<span class="tt"><span>${it.t}</span><small>${it.desc}</small></span>` : `<span>${it.t}</span>`}${it.sub ? `<span class="sub">${ic(it.subIcon || "chevron-right", "s14")}</span>` : it.k ? `<span class="kbd">${it.k}</span>` : ""}</button>`,
     )
     .join("");
   return m;
