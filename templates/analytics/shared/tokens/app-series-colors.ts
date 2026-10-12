@@ -22,14 +22,26 @@ export const APP_SERIES_COLORS: Readonly<Record<string, string>> = {
   slides: "#cd2e73",
 };
 
+/** `unknown`, the app key of events that carry no app, in a chart split by app. */
+export const UNKNOWN_APP_COLOR = "#8a94a6";
+
 /**
- * Series in a chart split by app that are not an app (`unknown`, `docs`):
- * gray, so none of them reads as an app.
+ * The other series of a chart split by app (`docs`), by slot, so none reads as
+ * an app. Grays that keep 3:1 on both cards cannot get further apart, so a
+ * third such series repeats the first.
  */
-export const NON_APP_SERIES_COLORS: readonly string[] = ["#8a94a6", "#6b7280"];
+export const NON_APP_SERIES_COLORS: readonly string[] = ["#6b7280", "#9c8f84"];
+
+function appKey(key: string): string {
+  return key.trim().toLowerCase();
+}
 
 const APP_COLOR_BY_KEY = new Map(Object.entries(APP_SERIES_COLORS));
 
 export function appSeriesColor(key: string): string | undefined {
-  return APP_COLOR_BY_KEY.get(key.trim().toLowerCase());
+  return APP_COLOR_BY_KEY.get(appKey(key));
+}
+
+export function isUnknownApp(key: string): boolean {
+  return appKey(key) === "unknown";
 }

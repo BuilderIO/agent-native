@@ -21,6 +21,7 @@ import {
 import {
   APP_SERIES_COLORS,
   NON_APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
 } from "./tokens/app-series-colors";
 
 const wideRows = [
@@ -878,14 +879,16 @@ describe("resolveSeriesColors", () => {
 
   it("draws every other series of an app chart gray, never a palette color", () => {
     const rows = [
+      { day: "2026-10-01", template: "website", visitors: 4 },
       { day: "2026-10-01", template: "unknown", visitors: 3 },
       { day: "2026-10-01", template: "forms", visitors: 9 },
       { day: "2026-10-01", template: "docs", visitors: 2 },
     ];
     const expected = [
       ["forms", APP_SERIES_COLORS.forms],
+      ["website", NON_APP_SERIES_COLORS[0]],
       ["docs", NON_APP_SERIES_COLORS[1]],
-      ["unknown", NON_APP_SERIES_COLORS[0]],
+      ["unknown", UNKNOWN_APP_COLOR],
     ];
 
     expect(colorsByKey(rows, byApp)).toEqual(expected);

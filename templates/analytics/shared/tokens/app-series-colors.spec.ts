@@ -4,7 +4,9 @@ import { FIRST_PARTY_TEMPLATE_NAMES } from "../../server/lib/first-party-metric-
 import {
   APP_SERIES_COLORS,
   NON_APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
   appSeriesColor,
+  isUnknownApp,
 } from "./app-series-colors";
 
 function contrast(a: string, b: string): number {
@@ -20,7 +22,11 @@ function contrast(a: string, b: string): number {
 }
 
 describe("APP_SERIES_COLORS", () => {
-  const all = [...Object.values(APP_SERIES_COLORS), ...NON_APP_SERIES_COLORS];
+  const all = [
+    ...Object.values(APP_SERIES_COLORS),
+    UNKNOWN_APP_COLOR,
+    ...NON_APP_SERIES_COLORS,
+  ];
 
   it("gives every first-party app its own color, apart from the grays", () => {
     for (const app of FIRST_PARTY_TEMPLATE_NAMES) {
@@ -39,6 +45,7 @@ describe("APP_SERIES_COLORS", () => {
   it("matches app keys however they are cased or padded", () => {
     expect(appSeriesColor(" Mail ")).toBe(APP_SERIES_COLORS.mail);
     expect(appSeriesColor("unknown")).toBeUndefined();
+    expect(isUnknownApp(" Unknown")).toBe(true);
     expect(appSeriesColor("constructor")).toBeUndefined();
   });
 });

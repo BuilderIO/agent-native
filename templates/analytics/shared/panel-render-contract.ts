@@ -13,7 +13,9 @@ import {
 } from "./dashboard-funnel";
 import {
   NON_APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
   appSeriesColor,
+  isUnknownApp,
 } from "./tokens/app-series-colors";
 
 export { PANEL_CHART_TYPES };
@@ -751,10 +753,13 @@ export function resolveSeriesColors(
   ) {
     return slots.map((slot) => palette[slot % palette.length]);
   }
-  const otherSlots = slots.filter((_, index) => !appColors[index]);
-  return orderedKeys.map((_, index) => {
+  const otherSlots = slots.filter(
+    (_, index) => !appColors[index] && !isUnknownApp(orderedKeys[index]),
+  );
+  return orderedKeys.map((key, index) => {
     const app = appColors[index];
     if (app) return app;
+    if (isUnknownApp(key)) return UNKNOWN_APP_COLOR;
     const rank = otherSlots.filter((slot) => slot < slots[index]).length;
     return NON_APP_SERIES_COLORS[rank % NON_APP_SERIES_COLORS.length];
   });
