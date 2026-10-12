@@ -25,6 +25,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
+import { readMotionTextDocument } from "../shared/motion-text-code.js";
+
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -420,6 +423,52 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(currentFileRef().content).toContain(
       'data-agent-native-motion-text-runtime="v1"',
     );
+  });
+
+  it("renders native TextStagger while reading authored text tracks separately", async () => {
+    const baseStyle = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "node-caption",
+    });
+    const nativeStyle = {
+      ...baseStyle,
+      props: {
+        ...baseStyle.props,
+        textDelayGrouping: "WORD",
+        presetStaggerOverlap: 92,
+        blurEnabled: true,
+      },
+    };
+    const saved = await action.run({
+      designId: DESIGN_ID,
+      fileId: FILE_ID,
+      tracks: [],
+      textDocument: captionTextDocument,
+      nativeStyles: [nativeStyle],
+      durationMs: 600,
+    } as never);
+    const sourceText = readMotionTextDocument(currentFileRef().content);
+    const readback = await getMotionTimeline.run({
+      designId: DESIGN_ID,
+      sourceRef: FILE_ID,
+    } as never);
+
+    expect(saved).toMatchObject({
+      textAnimationCount: 1,
+      sourcePatched: false,
+      persisted: true,
+    });
+    expect(sourceText.status).toBe("valid");
+    if (sourceText.status === "valid") {
+      expect(sourceText.document.animations).toHaveLength(3);
+      expect(
+        sourceText.document.animations.map(({ property }) => property),
+      ).toEqual(["opacity", "filter", "translate"]);
+    }
+    expect(readback.timelines[0]).toMatchObject({
+      textDocument: captionTextDocument,
+      nativeStyles: [nativeStyle],
+    });
   });
 
   it("source-backs audio clips, preserves them when omitted, and clears them explicitly", async () => {

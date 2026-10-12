@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { parse } from "@babel/parser";
 import MagicString from "magic-string";
+import { parse as parseHtml } from "parse5";
 import type { Plugin, ResolvedConfig } from "vite";
 
 import {
@@ -14,6 +15,7 @@ import {
 const NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 const SOURCE_FILE_ATTRIBUTE = "data-agent-native-motion-source-file";
 const SOURCE_HASH_ATTRIBUTE = "data-agent-native-motion-source-hash";
+const HTML_NODE_ID_ATTRIBUTE = "data-agent-native-node-id";
 
 type BabelNode = {
   end?: number;
@@ -23,6 +25,126 @@ type BabelNode = {
   value?: unknown;
   [key: string]: unknown;
 };
+
+type HtmlNode = {
+  tagName?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  childNodes?: HtmlNode[];
+  sourceCodeLocation?: {
+    startTag?: {
+      startOffset: number;
+      endOffset: number;
+      attrs?: Record<string, { startOffset: number; endOffset: number }>;
+    };
+  };
+};
+
+type SourceEdit = { start: number; end: number; text: string };
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function instrumentMotionHtmlProvenance(args: {
+  html: string;
+  modulePath: string;
+  moduleVersionHash: string;
+}): string | null {
+  const parseErrors: unknown[] = [];
+  const document = parseHtml(args.html, {
+    sourceCodeLocationInfo: true,
+    onParseError(error) {
+      parseErrors.push(error);
+    },
+  }) as unknown as HtmlNode;
+  if (parseErrors.length > 0) return null;
+
+  const hostNodes: Array<{ node: HtmlNode; ordinal: number }> = [];
+  const visit = (node: HtmlNode) => {
+    if (node.tagName && isMotionSourceHostElementTag(node.tagName)) {
+      hostNodes.push({ node, ordinal: hostNodes.length });
+    }
+    for (const child of node.childNodes ?? []) visit(child);
+  };
+  visit(document);
+
+  const nodeIds = hostNodes.map(({ node, ordinal }) => {
+    const matches = (node.attrs ?? []).filter(
+      (attribute) => attribute.name === HTML_NODE_ID_ATTRIBUTE,
+    );
+    if (matches.length > 1) return null;
+    const authoredId = matches[0]?.value;
+    const nodeId =
+      authoredId ?? generatedMotionNodeId(args.modulePath, ordinal);
+    return /^[A-Za-z0-9_-]+$/.test(nodeId) ? nodeId : null;
+  });
+  const counts = new Map<string, number>();
+  for (const nodeId of nodeIds) {
+    if (nodeId) counts.set(nodeId, (counts.get(nodeId) ?? 0) + 1);
+  }
+
+  const edits: SourceEdit[] = [];
+  for (const [index, { node }] of hostNodes.entries()) {
+    const nodeId = nodeIds[index];
+    const tag = node.sourceCodeLocation?.startTag;
+    if (!nodeId || counts.get(nodeId) !== 1 || !tag) continue;
+
+    const attrs = new Map(
+      (node.attrs ?? []).map((attribute) => [attribute.name, attribute.value]),
+    );
+    const values: Array<[string, string]> = [
+      [HTML_NODE_ID_ATTRIBUTE, nodeId],
+      [SOURCE_FILE_ATTRIBUTE, args.modulePath],
+      [SOURCE_HASH_ATTRIBUTE, args.moduleVersionHash],
+    ];
+    const additions: string[] = [];
+    for (const [name, value] of values) {
+      const existingValue = attrs.get(name);
+      if (existingValue === value) continue;
+      const location = tag.attrs?.[name];
+      const attribute = `${name}="${escapeHtmlAttribute(value)}"`;
+      if (location) {
+        edits.push({
+          start: location.startOffset,
+          end: location.endOffset,
+          text: attribute,
+        });
+      } else {
+        if (
+          name === HTML_NODE_ID_ATTRIBUTE &&
+          node.attrs?.some((entry) => entry.name === HTML_NODE_ID_ATTRIBUTE)
+        ) {
+          continue;
+        }
+        additions.push(attribute);
+      }
+    }
+    if (additions.length === 0) continue;
+
+    const tagEnd =
+      args.html[tag.endOffset - 2] === "/"
+        ? tag.endOffset - 2
+        : tag.endOffset - 1;
+    edits.push({ start: tagEnd, end: tagEnd, text: ` ${additions.join(" ")}` });
+  }
+
+  if (edits.length === 0) return null;
+  const ordered = [...edits].sort(
+    (left, right) => right.start - left.start || right.end - left.end,
+  );
+  let result = args.html;
+  let previousStart = args.html.length + 1;
+  for (const edit of ordered) {
+    if (edit.end > previousStart || edit.end > args.html.length) return null;
+    result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
+    previousStart = edit.start;
+  }
+  return result;
+}
 
 /** Adds dev-only JSX identity evidence so source edits follow rendered nodes. */
 export function motionSourceProvenancePlugin(): Plugin {
@@ -35,6 +157,54 @@ export function motionSourceProvenancePlugin(): Plugin {
     configResolved(config) {
       root = path.resolve(config.root);
       command = config.command;
+    },
+    transformIndexHtml: {
+      order: "pre",
+      handler(html, context) {
+        if (command !== "serve" || !context.filename) return;
+        const absolutePath = path.resolve(context.filename);
+        const modulePath = path
+          .relative(root, absolutePath)
+          .split(path.sep)
+          .join("/");
+        const extension = path.extname(modulePath).toLowerCase();
+        if (
+          !modulePath ||
+          path.isAbsolute(modulePath) ||
+          modulePath === ".." ||
+          modulePath.startsWith("../") ||
+          ![".html", ".htm"].includes(extension) ||
+          modulePath
+            .split("/")
+            .some((segment) =>
+              ["node_modules", ".vite", "dist", "build"].includes(segment),
+            )
+        ) {
+          return;
+        }
+
+        let diskSource: string;
+        try {
+          diskSource = readFileSync(absolutePath, "utf8");
+        } catch (error) {
+          throw new Error(
+            `Unable to read the Motion HTML source at ${absolutePath}.`,
+            { cause: error },
+          );
+        }
+        if (diskSource !== html) return;
+
+        const moduleVersionHash = createHash("sha256")
+          .update(diskSource)
+          .digest("hex");
+        return (
+          instrumentMotionHtmlProvenance({
+            html,
+            modulePath,
+            moduleVersionHash,
+          }) ?? undefined
+        );
+      },
     },
     transform(code, id) {
       if (command !== "serve" || !id || id.startsWith("\0")) return null;

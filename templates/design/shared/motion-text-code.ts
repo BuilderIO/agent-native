@@ -22,7 +22,12 @@ export const MOTION_TEXT_UNITS = [
 
 export type MotionTextUnit = (typeof MOTION_TEXT_UNITS)[number];
 export type MotionTextDirection = "forward" | "reverse";
-export type MotionTextProperty = "opacity" | "translate" | "scale" | "rotate";
+export type MotionTextProperty =
+  | "opacity"
+  | "translate"
+  | "scale"
+  | "rotate"
+  | "filter";
 
 export interface MotionTextKeyframe {
   t: number;
@@ -121,6 +126,7 @@ const TEXT_PROPERTY_ALLOWLIST = new Set<MotionTextProperty>([
   "translate",
   "scale",
   "rotate",
+  "filter",
 ]);
 
 type HtmlNode = {
@@ -205,7 +211,15 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
     );
   }
 
-  const seenTargets = new Set<string>();
+  const targetTracks = new Map<
+    string,
+    {
+      unit: MotionTextUnit;
+      direction: MotionTextDirection;
+      staggerMs: number;
+      properties: Set<MotionTextProperty>;
+    }
+  >();
   const animations = value.animations.map((raw, animationIndex) => {
     const field = `animations[${animationIndex}]`;
     if (!isRecord(raw)) {
@@ -230,14 +244,6 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       raw.targetNodeId,
       `${field}.targetNodeId`,
     );
-    if (seenTargets.has(targetNodeId)) {
-      sourceError(
-        "invalid-document",
-        `Only one Text animation may target node "${targetNodeId}".`,
-      );
-    }
-    seenTargets.add(targetNodeId);
-
     if (!MOTION_TEXT_UNITS.includes(raw.unit as MotionTextUnit)) {
       sourceError(
         "invalid-document",
@@ -257,12 +263,42 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       );
     }
 
+    const unit = raw.unit as MotionTextUnit;
+    const direction = raw.direction as MotionTextDirection;
+    const property = raw.property as MotionTextProperty;
     const staggerMs = finiteNumber(raw.staggerMs, `${field}.staggerMs`);
     if (staggerMs < 0 || staggerMs > MAX_TEXT_STAGGER_MS) {
       sourceError(
         "invalid-document",
         `${field}.staggerMs must be between 0 and ${MAX_TEXT_STAGGER_MS}.`,
       );
+    }
+    const targetTrack = targetTracks.get(targetNodeId);
+    if (targetTrack) {
+      if (
+        targetTrack.unit !== unit ||
+        targetTrack.direction !== direction ||
+        targetTrack.staggerMs !== staggerMs
+      ) {
+        sourceError(
+          "invalid-document",
+          `Text animations for node "${targetNodeId}" must use the same unit, direction, and stagger.`,
+        );
+      }
+      if (targetTrack.properties.has(property)) {
+        sourceError(
+          "invalid-document",
+          `Text animation property "${property}" is duplicated for node "${targetNodeId}".`,
+        );
+      }
+      targetTrack.properties.add(property);
+    } else {
+      targetTracks.set(targetNodeId, {
+        unit,
+        direction,
+        staggerMs,
+        properties: new Set([property]),
+      });
     }
     const delayMs =
       raw.delayMs === undefined
@@ -340,13 +376,12 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       );
     }
 
-    const property = raw.property as MotionTextProperty;
     assertSafeMotionCssProperty(property, `${field}.property`);
 
     return {
       targetNodeId,
-      unit: raw.unit as MotionTextUnit,
-      direction: raw.direction as MotionTextDirection,
+      unit,
+      direction,
       staggerMs,
       delayMs,
       property,
@@ -850,9 +885,16 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     if (spring) return springToLinear(Number(spring[1]), Number(spring[2] || 1));
     return resolved;
   }
+  var targetGroups = [];
   animations.forEach(function (animation) {
-    var matches = allTargets.filter(function (candidate) { return candidate.getAttribute("data-agent-native-node-id") === animation.targetNodeId; });
-    if (matches.length !== 1) throw new Error("Motion text target " + animation.targetNodeId + " resolved to " + matches.length + " elements.");
+    var group = targetGroups.find(function (candidate) { return candidate.targetNodeId === animation.targetNodeId; });
+    if (!group) { group = { targetNodeId: animation.targetNodeId, animations: [] }; targetGroups.push(group); }
+    group.animations.push(animation);
+  });
+  targetGroups.forEach(function (targetGroup) {
+    var animation = targetGroup.animations[0];
+    var matches = allTargets.filter(function (candidate) { return candidate.getAttribute("data-agent-native-node-id") === targetGroup.targetNodeId; });
+    if (matches.length !== 1) throw new Error("Motion text target " + targetGroup.targetNodeId + " resolved to " + matches.length + " elements.");
     var target = matches[0];
     var entries;
     if (animation.unit === "paragraph") {
@@ -866,26 +908,28 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
     if ((groupCount - 1) * animation.staggerMs > 120000) throw new Error("Motion text stagger exceeds the 120000ms runtime limit.");
-    entries.forEach(function (entry) {
-      if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
-      var delayIndex = animation.direction === "reverse" ? groupCount - 1 - entry.index : entry.index;
-      var keyframes = animation.keyframes.map(function (keyframe) {
-        var frame = { offset: keyframe.t, easing: motionEaseForWebAnimations(keyframe.ease || "ease", entry.unit) };
-        frame[animation.property] = keyframe.value;
-        return frame;
+    targetGroup.animations.forEach(function (track) {
+      entries.forEach(function (entry) {
+        if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
+        var delayIndex = track.direction === "reverse" ? groupCount - 1 - entry.index : entry.index;
+        var keyframes = track.keyframes.map(function (keyframe) {
+          var frame = { offset: keyframe.t, easing: motionEaseForWebAnimations(keyframe.ease || "ease", entry.unit) };
+          frame[track.property] = keyframe.value;
+          return frame;
+        });
+        var delay = track.delayMs + delayIndex * track.staggerMs;
+        var options = { duration: track.durationMs, delay: delay, fill: "both" };
+        if (!previewBridge && playbackMode !== "once") {
+          options.iterations = Infinity;
+          if (playbackMode === "ping-pong") options.direction = "alternate";
+        }
+        var runningAnimation = entry.unit.animate(keyframes, options);
+        if (previewBridge) {
+          runningAnimation.pause();
+          runningAnimation.currentTime = 0;
+          previewAnimations.push({ animation: runningAnimation, delay: delay, duration: track.durationMs });
+        }
       });
-      var delay = animation.delayMs + delayIndex * animation.staggerMs;
-      var options = { duration: animation.durationMs, delay: delay, fill: "both" };
-      if (!previewBridge && playbackMode !== "once") {
-        options.iterations = Infinity;
-        if (playbackMode === "ping-pong") options.direction = "alternate";
-      }
-      var runningAnimation = entry.unit.animate(keyframes, options);
-      if (previewBridge) {
-        runningAnimation.pause();
-        runningAnimation.currentTime = 0;
-        previewAnimations.push({ animation: runningAnimation, delay: delay, duration: animation.durationMs });
-      }
     });
   });
   if (previewBridge && typeof window.addEventListener === "function") {

@@ -2,13 +2,15 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readMotionHtmlSource } from "../shared/motion-html-source.js";
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
 import {
   applyMotionReactSourceEdit,
   readMotionReactSource,
 } from "../shared/motion-react-source.js";
 
 const mocks = vi.hoisted(() => {
-  const designData = JSON.stringify({
+  let designData = JSON.stringify({
     sourceType: "localhost",
     connectionId: "connection-1",
     screenMetadata: {
@@ -93,6 +95,9 @@ const mocks = vi.hoisted(() => {
     setTimelineRows: (rows: Array<Record<string, unknown>>) => {
       timelineRows = rows;
     },
+    setDesignData: (value: string) => {
+      designData = value;
+    },
   };
 });
 
@@ -117,7 +122,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: mocks.and,
   desc: mocks.desc,
   eq: mocks.eq,
@@ -265,6 +271,8 @@ describe("apply-motion-edit localhost React source", () => {
     vi.clearAllMocks();
     mocks.setTimelineRows([]);
     mocks.insertedRows.length = 0;
+    mocks.readLocal.mockReset();
+    mocks.readLocal.mockResolvedValueOnce({ reachable: true });
     mocks.readLocal.mockResolvedValue({
       content: source,
       versionHash: bridgeVersionHash,
@@ -318,6 +326,92 @@ describe("apply-motion-edit localhost React source", () => {
     });
   });
 
+  it("writes versioned Motion source to the linked HTML route", async () => {
+    const htmlSourcePath = "pages/home.html";
+    const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+    const htmlVersionHash = createHash("sha256")
+      .update(htmlSource)
+      .digest("hex");
+    mocks.setDesignData(
+      JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: htmlSourcePath,
+            path: "/home",
+            url: "http://localhost:5173/home",
+          },
+        },
+        localhostScreens: {},
+      }),
+    );
+    mocks.fileChain.limit.mockResolvedValueOnce([
+      {
+        id: "screen-1",
+        designId: "design-1",
+        filename: "localhost-home.html",
+        fileType: "html",
+        content: "http://localhost:5173/home",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+        designData: JSON.stringify({
+          sourceType: "localhost",
+          connectionId: "connection-1",
+          screenMetadata: {
+            "screen-1": {
+              sourceType: "localhost",
+              connectionId: "connection-1",
+              sourceFile: htmlSourcePath,
+              path: "/home",
+              url: "http://localhost:5173/home",
+            },
+          },
+          localhostScreens: {},
+        }),
+      },
+    ]);
+    mocks.readLocal.mockResolvedValue({
+      content: htmlSource,
+      versionHash: htmlVersionHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        modulePath: htmlSourcePath,
+        moduleVersionHash: htmlVersionHash,
+      },
+    });
+
+    const writtenSource = mocks.writeLocal.mock.calls[0]![0].content as string;
+    expect(mocks.writeLocal).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      relPath: htmlSourcePath,
+      content: expect.stringContaining("data-agent-native-motion"),
+      expectedVersionHash: htmlVersionHash,
+      requireExpectedVersionHash: true,
+    });
+    expect(writtenSource).toContain('<script src="./app.js"></script>');
+    expect(writtenSource).toContain(
+      '<button data-agent-native-node-id="hero">Hello</button>',
+    );
+    expect(readMotionHtmlSource(writtenSource)).toMatchObject({
+      status: "valid",
+      targetNodeIds: ["hero"],
+      document: { tracks: request.tracks },
+    });
+    expect(result).toMatchObject({
+      filePath: htmlSourcePath,
+      versionHash: changedVersionHash,
+      persisted: true,
+      sourcePatched: true,
+    });
+  });
+
   it("writes audio clip metadata into the managed React source", async () => {
     const audioClips = [
       {
@@ -342,6 +436,51 @@ describe("apply-motion-edit localhost React source", () => {
       status: "valid",
       document: { audioClips, durationMs: 1500 },
     });
+  });
+
+  it("persists pathLength for an enabled native Path style in React source", async () => {
+    const pathSource = `function Home() {
+  return (
+    <main>
+      <svg>
+        <path data-agent-native-node-id="trim-target" d="M0 0L10 10" />
+      </svg>
+    </main>
+  );
+}
+`;
+    const pathSourceHash = createHash("sha256")
+      .update(pathSource)
+      .digest("hex");
+    const nativePathStyle = createMotionNativeStyleInstance({
+      styleKey: "Path",
+      targetNodeId: "trim-target",
+    });
+    mocks.readLocal.mockResolvedValue({
+      content: pathSource,
+      versionHash: pathSourceHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: pathSourceHash,
+      },
+      tracks: [],
+      nativeStyles: [nativePathStyle],
+    });
+
+    const writtenSource = mocks.writeLocal.mock.calls[0][0].content as string;
+    expect(writtenSource).toContain("pathLength={100}");
+    expect(writtenSource).toContain(
+      'data-agent-native-motion-path-length="v1:tsx:absent"',
+    );
+    expect(readMotionReactSource(writtenSource)).toMatchObject({
+      status: "valid",
+      document: { nativeStyles: [nativePathStyle] },
+    });
+    expect(result).toMatchObject({ persisted: true, sourcePatched: true });
   });
 
   it("keeps the source style library when all applied React tracks are cleared", async () => {

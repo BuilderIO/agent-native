@@ -16,6 +16,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 import type { ElementInfo } from "../types";
+import { MotionOriginControl } from "./motion-inspector-properties";
 import { PositionLayoutProperties } from "./position-layout-properties";
 
 describe("PositionLayoutProperties interactions", () => {
@@ -162,6 +163,122 @@ describe("PositionLayoutProperties interactions", () => {
         'button[aria-label="editPanel.labels.flipHorizontal"]',
       ),
     ).toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("opens the anchor target with Alt+R and writes its dragged position", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStyleChange = vi.fn();
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: { "transform-origin": "50% 50%" },
+      inlineStyles: { "transform-origin": "50% 50%" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <MotionOriginControl element={element} onStyleChange={onStyleChange} />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.origin"]',
+    );
+    expect(trigger?.getAttribute("aria-keyshortcuts")).toBe("Alt+R");
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyR",
+          key: "r",
+          altKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+
+    const surface = document.querySelector<HTMLDivElement>(
+      "[data-motion-origin-surface]",
+    );
+    const handle = document.querySelector<HTMLButtonElement>(
+      "[data-motion-origin-handle]",
+    );
+    expect(surface).not.toBeNull();
+    expect(handle).not.toBeNull();
+    if (!surface || !handle) throw new Error("Anchor target did not open.");
+    surface.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        width: 100,
+        height: 100,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    await act(async () => {
+      handle.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          button: 0,
+          clientX: 50,
+          clientY: 50,
+        }),
+      );
+      handle.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          button: 0,
+          clientX: 72,
+          clientY: 25,
+        }),
+      );
+      handle.dispatchEvent(
+        new PointerEvent("pointerup", {
+          bubbles: true,
+          cancelable: true,
+          pointerId: 1,
+          button: 0,
+        }),
+      );
+    });
+    expect(onStyleChange).toHaveBeenLastCalledWith(
+      "transform-origin",
+      "72% 25%",
+      undefined,
+    );
+    expect(
+      document.querySelectorAll(
+        '[role="radio"][aria-label^="editPanel.scale."]',
+      ),
+    ).toHaveLength(9);
+    expect(
+      document.querySelector(
+        'input[aria-label="designEditor.motion.origin X"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.querySelector(
+        'input[aria-label="designEditor.motion.origin Y"]',
+      ),
+    ).not.toBeNull();
 
     await act(async () => root.unmount());
     container.remove();

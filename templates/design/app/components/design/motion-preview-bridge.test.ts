@@ -10,9 +10,15 @@ import {
 
 interface FakeElement {
   style: Record<string, string>;
+  attributes: Map<string, string>;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
   getBoundingClientRect(): {
     left: number;
     top: number;
+    right: number;
+    bottom: number;
     width: number;
     height: number;
   };
@@ -221,7 +227,10 @@ function loadBridge(): {
       windowListeners.set(type, registered);
     },
     getComputedStyle(element: FakeElement) {
-      return { translate: element.style.translate || "none" };
+      return {
+        translate: element.style.translate || "none",
+        transformOrigin: "20px 10px",
+      };
     },
   };
   const fakeDocument = {
@@ -256,11 +265,38 @@ function loadBridge(): {
       for (const fn of listeners) fn({ source: parentSentinel, data });
     },
     addElement: (nodeId: string) => {
+      const style: Record<string, string> = {};
+      Object.assign(style, {
+        getPropertyValue(name: string): string {
+          return style[name] ?? "";
+        },
+        getPropertyPriority(): string {
+          return "";
+        },
+        setProperty(name: string, value: string) {
+          style[name] = value;
+        },
+        removeProperty(name: string) {
+          delete style[name];
+        },
+      });
       const el: FakeElement = {
-        style: {},
+        style,
+        attributes: new Map(),
+        getAttribute(name) {
+          return this.attributes.get(name) ?? null;
+        },
+        setAttribute(name, value) {
+          this.attributes.set(name, value);
+        },
+        removeAttribute(name) {
+          this.attributes.delete(name);
+        },
         getBoundingClientRect: () => ({
           left: 100,
           top: 50,
+          right: 140,
+          bottom: 70,
           width: 40,
           height: 20,
         }),
@@ -516,6 +552,77 @@ describe("motion-preview bridge spatial cubic interpolation", () => {
         ?.getAttribute("fill"),
     ).toBe("var(--design-editor-accent-color, Highlight)");
     expect(fresh.findSvg("data-motion-path-handle", "control2")).not.toBeNull();
+  });
+
+  it("shows a draggable transform-origin marker on the selected element", () => {
+    const fresh = loadBridge();
+    fresh.addElement("motion-origin-node");
+    fresh.sendMessage({
+      type: "motion-origin-editing",
+      enabled: true,
+      targetNodeId: "motion-origin-node",
+    });
+
+    expect(fresh.findSvg("data-motion-origin-overlay")).not.toBeNull();
+    expect(
+      fresh.findSvg("data-motion-origin-marker")?.getAttribute("transform"),
+    ).toBe("translate(120 60)");
+    fresh.sendMessage({ type: "motion-origin-editing", enabled: false });
+    expect(fresh.findSvg("data-motion-origin-overlay")).toBeNull();
+  });
+
+  it("accepts a parent-relayed origin drag and commits its style", () => {
+    const fresh = loadBridge();
+    const element = fresh.addElement("motion-origin-node");
+    fresh.sendMessage({
+      type: "motion-origin-editing",
+      enabled: true,
+      targetNodeId: "motion-origin-node",
+    });
+    expect(fresh.parentMessages).toContainEqual(
+      expect.objectContaining({
+        type: "motion-origin-marker-position",
+        visible: true,
+        targetNodeId: "motion-origin-node",
+        x: 120,
+        y: 60,
+        viewportWidth: 800,
+        viewportHeight: 600,
+      }),
+    );
+
+    fresh.sendMessage({
+      type: "motion-origin-pointer",
+      phase: "down",
+      pointerId: 7,
+      x: 120,
+      y: 60,
+    });
+    fresh.sendMessage({
+      type: "motion-origin-pointer",
+      phase: "move",
+      pointerId: 7,
+      x: 130,
+      y: 65,
+    });
+    fresh.sendMessage({
+      type: "motion-origin-pointer",
+      phase: "up",
+      pointerId: 7,
+      x: 130,
+      y: 65,
+    });
+
+    expect(element.style["transform-origin"]).toBe("75% 75%");
+    expect(fresh.parentMessages).toContainEqual(
+      expect.objectContaining({
+        type: "visual-style-change",
+        selector: '[data-agent-native-node-id="motion-origin-node"]',
+        styles: { "transform-origin": "75% 75%" },
+        phase: "commit",
+        preserveSelection: true,
+      }),
+    );
   });
 
   it("renders an editable path lowered from a native Position style", () => {
@@ -924,6 +1031,41 @@ describe("motion-preview bridge per-track offsets (span timing)", () => {
     expect(el.style.translate).toBe("0px 8px");
     expect(el.style.rotate).toBe("45deg");
     expect(el.style.scale).toBe("0.9");
+  });
+});
+
+describe("motion-preview bridge native Path trim", () => {
+  it("scrubs normalized SVG dash values and restores authored pathLength and styles", () => {
+    const fresh = loadBridge();
+    const path = fresh.addElement("path-1");
+    path.setAttribute("pathLength", "24");
+    path.style.strokeDasharray = "5 7";
+    path.style.strokeDashoffset = "3";
+
+    fresh.sendMessage({
+      type: "motion-load-tracks",
+      durationMs: 1000,
+      tracks: [
+        {
+          targetNodeId: "path-1",
+          property: "path-trim",
+          keyframes: [
+            { t: 0, value: "100% 20%", ease: "linear" },
+            { t: 1, value: "0% 100%", ease: "linear" },
+          ],
+        },
+      ],
+    });
+    fresh.sendMessage({ type: "motion-preview", t: 0.5, durationMs: 1000 });
+
+    expect(path.getAttribute("pathLength")).toBe("100");
+    expect(path.style.strokeDasharray).toBe("10 90");
+    expect(path.style.strokeDashoffset).toBe("-50");
+
+    fresh.sendMessage({ type: "motion-preview-clear" });
+    expect(path.getAttribute("pathLength")).toBe("24");
+    expect(path.style.strokeDasharray).toBe("5 7");
+    expect(path.style.strokeDashoffset).toBe("3");
   });
 });
 

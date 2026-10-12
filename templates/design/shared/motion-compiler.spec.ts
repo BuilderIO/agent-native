@@ -728,6 +728,30 @@ describe("compile — spatial cubic Position paths", () => {
   });
 });
 
+describe("compile — normalized SVG Path trim", () => {
+  it("compiles a semantic trim pair to native stroke dashes and parses it losslessly", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "100% 20%", ease: "ease-out" },
+      { t: 1, value: "0% 100%", ease: "ease" },
+    ];
+
+    const css = compile(timeline).css;
+    expect(css).toContain("--an-motion-path-trim: 100% 20%;");
+    expect(css).toContain("stroke-dasharray: 20 80;");
+    expect(css).toContain("stroke-dashoffset: -100;");
+    expect(css).toContain("stroke-dasharray: 100 0;");
+    expect(css).toContain("stroke-dashoffset: 0;");
+    expect(parse(css)[0]?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
+  it("rejects malformed semantic trim values", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes[1]!.value = "101% 0%";
+    expect(() => compile(timeline)).toThrow(/percentages between 0 and 100/);
+  });
+});
+
 const MAX_MOTION_TRACKS = 64;
 const MAX_MOTION_KEYFRAMES_PER_TRACK = 128;
 const MAX_MOTION_DURATION_MS = 120_000;

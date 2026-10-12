@@ -34,6 +34,7 @@ import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { motionNativeStylesToTracks } from "@shared/motion-native-style-runtime";
 import type { MotionTextDocument } from "@shared/motion-text-code";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
+import { MOTION_TIMELINE_DEFAULT_DURATION_MS } from "@shared/motion-timeline";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
 import {
@@ -227,7 +228,9 @@ export function useEditorLiveEditsAndPresence({
   >([]);
   const [motionTextDocument, setMotionTextDocument] =
     useState<MotionTextDocument | null>(null);
-  const [motionDurationMs, setMotionDurationMs] = useState(1000);
+  const [motionDurationMs, setMotionDurationMs] = useState(
+    MOTION_TIMELINE_DEFAULT_DURATION_MS,
+  );
   const [motionPlaybackMode, setMotionPlaybackMode] =
     useState<MotionPlaybackMode>("once");
   const [motionDefaultEase, setMotionDefaultEase] = useState<string>("ease");
@@ -971,7 +974,7 @@ export function useEditorLiveEditsAndPresence({
     setMotionAudioClips([]);
     setMotionEasingVariables([]);
     setMotionTextDocument(null);
-    setMotionDurationMs(1000);
+    setMotionDurationMs(MOTION_TIMELINE_DEFAULT_DURATION_MS);
     setMotionPlaybackMode("once");
     setMotionDefaultEase("ease");
     setMotionPlayhead(0);
@@ -1000,7 +1003,9 @@ export function useEditorLiveEditsAndPresence({
     setMotionAudioClips(activeMotionTimeline?.audioClips ?? []);
     setMotionEasingVariables(activeMotionTimeline?.easingVariables ?? []);
     setMotionTextDocument(activeMotionTimeline?.textDocument ?? null);
-    setMotionDurationMs(activeMotionTimeline?.durationMs ?? 1000);
+    setMotionDurationMs(
+      activeMotionTimeline?.durationMs ?? MOTION_TIMELINE_DEFAULT_DURATION_MS,
+    );
     setMotionPlaybackMode(activeMotionTimeline?.playbackMode ?? "once");
     setMotionDefaultEase(activeMotionTimeline?.defaultEase ?? "ease");
     setMotionHydrationFingerprint(activeMotionHydrationFingerprint);
@@ -1258,6 +1263,7 @@ export function useEditorLiveEditsAndPresence({
     nodeId: string;
     label: string;
     isText: boolean;
+    isPath: boolean;
   } | null>(() => {
     if (!selectedCodeLayerNode) return null;
     const nodeId =
@@ -1277,13 +1283,20 @@ export function useEditorLiveEditsAndPresence({
             (animation) => animation.targetNodeId === nodeId,
           ),
         ),
+      isPath: selectedCodeLayerNode.tag.toLowerCase() === "path",
     };
   }, [motionTextDocument, selectedCodeLayerNode, selectedElement?.tagName]);
+  const [motionOriginEditing, setMotionOriginEditing] = useState(false);
 
   const motionTracksWire = useMemo<MotionTrackWire[]>(() => {
     if (!motionDockOpen) return [];
-    const nativePositionTracks = motionNativeStyles.flatMap((style, index) => {
-      if (style.styleKey !== "Position" || style.enabled === false) return [];
+    const nativePreviewTracks = motionNativeStyles.flatMap((style, index) => {
+      if (
+        (style.styleKey !== "Position" && style.styleKey !== "Path") ||
+        style.enabled === false
+      ) {
+        return [];
+      }
       return motionNativeStylesToTracks([style]).map((track) => ({
         ...track,
         nativeStyleIndex: index,
@@ -1292,7 +1305,7 @@ export function useEditorLiveEditsAndPresence({
     const authoredTracks = motionTracks.map(
       ({ label: _label, ...track }) => track,
     );
-    return [...authoredTracks, ...nativePositionTracks];
+    return [...authoredTracks, ...nativePreviewTracks];
   }, [motionDockOpen, motionNativeStyles, motionTracks]);
 
   const syncLiveScreenSnapshotPreview = useCallback(
@@ -1524,6 +1537,8 @@ export function useEditorLiveEditsAndPresence({
     componentDetailsReady,
     selectedComponentHasLocalOverrides,
     motionSelectedTarget,
+    motionOriginEditing,
+    setMotionOriginEditing,
     motionTracksWire,
     replacePreviewContent,
     syncLiveScreenSnapshotPreview,

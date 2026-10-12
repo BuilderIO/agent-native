@@ -4,10 +4,16 @@ import type {
   MotionTextProperty,
   MotionTextUnit,
 } from "@shared/motion-text-code";
-import { IconX } from "@tabler/icons-react";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import { useId, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,50 +33,103 @@ const TEXT_PROPERTIES: MotionTextProperty[] = [
   "translate",
   "scale",
   "rotate",
+  "filter",
 ];
 
 const FIELD_CLASS =
   "h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]";
 
 export interface MotionTextAnimationEditorProps {
-  animation: MotionTextAnimation;
-  onChange: (animation: MotionTextAnimation) => void;
-  onRemove: () => void;
+  animations: MotionTextAnimation[];
+  onChange: (animations: MotionTextAnimation[]) => void;
   disabled?: boolean;
   t: (key: string) => string;
 }
 
 export function MotionTextAnimationEditor({
-  animation,
+  animations,
   onChange,
-  onRemove,
   disabled = false,
   t,
 }: MotionTextAnimationEditorProps) {
   const id = useId();
+  const shared = animations[0];
+  if (!shared) return null;
+  const usedProperties = new Set(animations.map(({ property }) => property));
+  const availableProperties = TEXT_PROPERTIES.filter(
+    (property) => !usedProperties.has(property),
+  );
 
-  function updateKeyframe(
-    index: number,
-    update: Partial<MotionTextAnimation["keyframes"][number]>,
+  function updateShared(
+    update: Partial<
+      Pick<MotionTextAnimation, "unit" | "direction" | "staggerMs">
+    >,
   ) {
-    onChange({
-      ...animation,
-      keyframes: animation.keyframes.map((keyframe, keyframeIndex) =>
-        keyframeIndex === index ? { ...keyframe, ...update } : keyframe,
-      ),
-    });
+    onChange(animations.map((animation) => ({ ...animation, ...update })));
   }
 
-  function updateNumber(field: "staggerMs" | "durationMs", rawValue: string) {
+  function updateTrack(
+    property: MotionTextProperty,
+    update: Partial<MotionTextAnimation>,
+  ) {
+    onChange(
+      animations.map((animation) =>
+        animation.property === property
+          ? { ...animation, ...update }
+          : animation,
+      ),
+    );
+  }
+
+  function updateNumber(
+    rawValue: string,
+    onValue: (value: number) => void,
+    min: number,
+    max: number,
+  ) {
     if (rawValue.trim() === "") return;
     const parsed = Number(rawValue);
     if (!Number.isFinite(parsed)) return;
+    onValue(Math.min(max, Math.max(min, parsed)));
+  }
 
-    const value =
-      field === "staggerMs"
-        ? Math.min(5_000, Math.max(0, parsed))
-        : Math.min(120_000, Math.max(1, parsed));
-    onChange({ ...animation, [field]: value });
+  function addProperty(property: MotionTextProperty) {
+    if (usedProperties.has(property)) return;
+    const keyframes: MotionTextAnimation["keyframes"] =
+      property === "opacity"
+        ? [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ]
+        : property === "translate"
+          ? [
+              { t: 0, value: "0px", ease: "ease-out" },
+              { t: 1, value: "16px" },
+            ]
+          : property === "scale"
+            ? [
+                { t: 0, value: "0.8", ease: "ease-out" },
+                { t: 1, value: "1" },
+              ]
+            : property === "rotate"
+              ? [
+                  { t: 0, value: "-8deg", ease: "ease-out" },
+                  { t: 1, value: "0deg" },
+                ]
+              : [
+                  { t: 0, value: "blur(12px)", ease: "ease-out" },
+                  { t: 1, value: "blur(0px)" },
+                ];
+    onChange([
+      ...animations,
+      {
+        ...shared,
+        property,
+        delayMs: shared.delayMs ?? 0,
+        durationMs: shared.durationMs,
+        keyframes,
+      },
+    ]);
   }
 
   return (
@@ -79,16 +138,32 @@ export function MotionTextAnimationEditor({
         <h3 className="min-w-0 truncate !text-[11px] font-medium">
           {t("designEditor.motion.textAnimation.title")}
         </h3>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label={t("designEditor.motion.textAnimation.remove")}
-          disabled={disabled}
-          onClick={onRemove}
-        >
-          <IconX aria-hidden="true" className="size-3.5" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              aria-label={t(
+                "designEditor.motion.textAnimation.addPropertyTrack",
+              )}
+              disabled={disabled || availableProperties.length === 0}
+            >
+              <IconPlus aria-hidden="true" className="size-3.5" />
+              {t("designEditor.motion.textAnimation.addPropertyTrack")}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {availableProperties.map((property) => (
+              <DropdownMenuItem
+                key={property}
+                onSelect={() => addProperty(property)}
+              >
+                {t(`designEditor.motion.textAnimation.properties.${property}`)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
       <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
@@ -97,10 +172,10 @@ export function MotionTextAnimationEditor({
           label={t("designEditor.motion.textAnimation.unit")}
         >
           <Select
-            value={animation.unit}
+            value={shared.unit}
             disabled={disabled}
             onValueChange={(unit) =>
-              onChange({ ...animation, unit: unit as MotionTextUnit })
+              updateShared({ unit: unit as MotionTextUnit })
             }
           >
             <SelectTrigger
@@ -125,13 +200,10 @@ export function MotionTextAnimationEditor({
           label={t("designEditor.motion.textAnimation.direction")}
         >
           <Select
-            value={animation.direction}
+            value={shared.direction}
             disabled={disabled}
             onValueChange={(direction) =>
-              onChange({
-                ...animation,
-                direction: direction as MotionTextDirection,
-              })
+              updateShared({ direction: direction as MotionTextDirection })
             }
           >
             <SelectTrigger
@@ -153,96 +225,168 @@ export function MotionTextAnimationEditor({
           </Select>
         </Field>
 
-        <Field
-          id={`${id}-property`}
-          label={t("designEditor.motion.textAnimation.property")}
-        >
-          <Select
-            value={animation.property}
-            disabled={disabled}
-            onValueChange={(property) =>
-              onChange({
-                ...animation,
-                property: property as MotionTextProperty,
-              })
-            }
-          >
-            <SelectTrigger
-              id={`${id}-property`}
-              aria-label={t("designEditor.motion.textAnimation.property")}
-              className={FIELD_CLASS}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TEXT_PROPERTIES.map((property) => (
-                <SelectItem key={property} value={property}>
-                  {t(
-                    `designEditor.motion.textAnimation.properties.${property}`,
-                  )}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-
         <NumberField
           id={`${id}-stagger`}
           label={t("designEditor.motion.textAnimation.stagger")}
-          value={animation.staggerMs}
+          value={shared.staggerMs}
           min={0}
           max={5_000}
           disabled={disabled}
-          onChange={(value) => updateNumber("staggerMs", value)}
-        />
-
-        <NumberField
-          id={`${id}-duration`}
-          label={t("designEditor.motion.textAnimation.duration")}
-          value={animation.durationMs}
-          min={1}
-          max={120_000}
-          disabled={disabled}
-          onChange={(value) => updateNumber("durationMs", value)}
+          onChange={(value) =>
+            updateNumber(
+              value,
+              (staggerMs) => updateShared({ staggerMs }),
+              0,
+              5_000,
+            )
+          }
         />
       </div>
 
       <div className="space-y-1.5">
-        {animation.keyframes.map((keyframe, index) => (
-          <div
-            key={`${keyframe.t}-${index}`}
-            className="grid grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,0.8fr)] items-center gap-1"
-          >
-            <span className="text-right !text-[10px] tabular-nums text-muted-foreground">
-              {Math.round(keyframe.t * 100)}%
-            </span>
-            <Input
-              type="text"
-              aria-label={`${t("designEditor.motion.textAnimation.keyframeValue")} ${index + 1}`}
-              value={keyframe.value}
-              disabled={disabled}
-              className={FIELD_CLASS}
-              onChange={(event) =>
-                updateKeyframe(index, { value: event.currentTarget.value })
-              }
-            />
-            <Input
-              type="text"
-              aria-label={`${t("designEditor.motion.textAnimation.keyframeEase")} ${index + 1}`}
-              placeholder={t(
-                "designEditor.motion.textAnimation.easePlaceholder",
-              )}
-              value={keyframe.ease ?? ""}
-              disabled={disabled}
-              className={FIELD_CLASS}
-              onChange={(event) =>
-                updateKeyframe(index, {
-                  ease: event.currentTarget.value || undefined,
-                })
-              }
-            />
-          </div>
-        ))}
+        {animations.map((animation, animationIndex) => {
+          const propertyId = `${id}-${animation.property}-property`;
+          const durationId = `${id}-${animation.property}-duration`;
+          return (
+            <section
+              key={animation.property}
+              className="space-y-1.5 rounded-md border border-border/70 p-2"
+            >
+              <header className="flex min-w-0 items-center gap-2">
+                <Field
+                  id={propertyId}
+                  label={t("designEditor.motion.textAnimation.property")}
+                >
+                  <Select
+                    value={animation.property}
+                    disabled={disabled}
+                    onValueChange={(property) =>
+                      updateTrack(animation.property, {
+                        property: property as MotionTextProperty,
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      id={propertyId}
+                      aria-label={t(
+                        "designEditor.motion.textAnimation.property",
+                      )}
+                      className={FIELD_CLASS}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TEXT_PROPERTIES.filter(
+                        (property) =>
+                          property === animation.property ||
+                          !usedProperties.has(property),
+                      ).map((property) => (
+                        <SelectItem key={property} value={property}>
+                          {t(
+                            `designEditor.motion.textAnimation.properties.${property}`,
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="mt-3.5"
+                  aria-label={`${t("designEditor.motion.textAnimation.removePropertyTrack")}: ${t(`designEditor.motion.textAnimation.properties.${animation.property}`)}`}
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange(
+                      animations.filter(
+                        (candidate) =>
+                          candidate.property !== animation.property,
+                      ),
+                    )
+                  }
+                >
+                  <IconX aria-hidden="true" className="size-3.5" />
+                </Button>
+              </header>
+
+              <NumberField
+                id={durationId}
+                label={t("designEditor.motion.textAnimation.duration")}
+                value={animation.durationMs}
+                min={1}
+                max={120_000}
+                disabled={disabled}
+                onChange={(value) =>
+                  updateNumber(
+                    value,
+                    (durationMs) =>
+                      updateTrack(animation.property, { durationMs }),
+                    1,
+                    120_000,
+                  )
+                }
+              />
+
+              <div className="space-y-1.5">
+                {animation.keyframes.map((keyframe, keyframeIndex) => (
+                  <div
+                    key={`${keyframe.t}-${keyframeIndex}`}
+                    className="grid grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,0.8fr)] items-center gap-1"
+                  >
+                    <span className="text-right !text-[10px] tabular-nums text-muted-foreground">
+                      {Math.round(keyframe.t * 100)}%
+                    </span>
+                    <Input
+                      type="text"
+                      aria-label={`${t("designEditor.motion.textAnimation.keyframeValue")} ${animationIndex + 1}.${keyframeIndex + 1}`}
+                      value={keyframe.value}
+                      disabled={disabled}
+                      className={FIELD_CLASS}
+                      onChange={(event) =>
+                        updateTrack(animation.property, {
+                          keyframes: animation.keyframes.map(
+                            (candidate, candidateIndex) =>
+                              candidateIndex === keyframeIndex
+                                ? {
+                                    ...candidate,
+                                    value: event.currentTarget.value,
+                                  }
+                                : candidate,
+                          ),
+                        })
+                      }
+                    />
+                    <Input
+                      type="text"
+                      aria-label={`${t("designEditor.motion.textAnimation.keyframeEase")} ${animationIndex + 1}.${keyframeIndex + 1}`}
+                      placeholder={t(
+                        "designEditor.motion.textAnimation.easePlaceholder",
+                      )}
+                      value={keyframe.ease ?? ""}
+                      disabled={disabled}
+                      className={FIELD_CLASS}
+                      onChange={(event) =>
+                        updateTrack(animation.property, {
+                          keyframes: animation.keyframes.map(
+                            (candidate, candidateIndex) =>
+                              candidateIndex === keyframeIndex
+                                ? {
+                                    ...candidate,
+                                    ease:
+                                      event.currentTarget.value || undefined,
+                                  }
+                                : candidate,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </section>
   );
@@ -258,7 +402,7 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="min-w-0 space-y-0.5">
+    <div className="min-w-0 flex-1 space-y-0.5">
       <Label htmlFor={id} className="!text-[10px] text-muted-foreground">
         {label}
       </Label>

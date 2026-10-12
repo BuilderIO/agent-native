@@ -94,14 +94,21 @@ export function compile(
     const name = animationName(targetNodeId, property);
     const spatialPath = compileSpatialPath(property, sortedKeyframes);
     kfBlocks.push(
-      keyframesBlock(
-        name,
-        spatialPath ? "offset-distance" : property,
-        sortedKeyframes,
-        defaultEase,
-        spatialPath?.keyframeValues,
-        easingVariables,
-      ),
+      property === "path-trim"
+        ? pathTrimKeyframesBlock(
+            name,
+            sortedKeyframes,
+            defaultEase,
+            easingVariables,
+          )
+        : keyframesBlock(
+            name,
+            spatialPath ? "offset-distance" : property,
+            sortedKeyframes,
+            defaultEase,
+            spatialPath?.keyframeValues,
+            easingVariables,
+          ),
     );
 
     const timing = getMotionTrackTiming(track, durationMs);
@@ -199,7 +206,9 @@ export function parse(css: string): MotionTrack[] {
     const keyframes =
       decoded.property === "translate" && info?.offsetPath
         ? parseSpatialPathKeyframes(body, info)
-        : parseKeyframeBody(body, decoded.property);
+        : decoded.property === "path-trim"
+          ? parsePathTrimKeyframeBody(body)
+          : parseKeyframeBody(body, decoded.property);
     if (!keyframes) {
       throw new Error(
         `Motion CSS for "${decoded.targetNodeId}" contains a path animation that cannot be read losslessly.`,
@@ -366,6 +375,81 @@ function keyframesBlock(
     );
   });
   return `@keyframes ${name} {\n${stops.join("\n")}\n}`;
+}
+
+function pathTrimKeyframesBlock(
+  name: string,
+  keyframes: MotionKeyframe[],
+  defaultEase: MotionEase,
+  easingVariables: readonly MotionEasingVariable[],
+): string {
+  const sorted = [...keyframes].sort((a, b) => a.t - b.t);
+  const stops = sorted.map((keyframe) => {
+    const value = parsePathTrimValue(keyframe.value);
+    if (!value) {
+      throw new Error(
+        'Motion Path trim values must be two percentages between 0 and 100, formatted as "start% end%".',
+      );
+    }
+    const pct = formatPercent(keyframe.t);
+    const ease = keyframe.ease ?? defaultEase;
+    assertSafeMotionCssToken(keyframe.value, "Path trim keyframe value");
+    assertSafeMotionCssToken(ease, "keyframe ease");
+    assertMotionEase(ease, "keyframe ease", easingVariables);
+    const length =
+      value.end >= value.start
+        ? value.end - value.start
+        : 100 - value.start + value.end;
+    return (
+      `  ${pct} {\n` +
+      `    --an-motion-path-trim: ${keyframe.value};\n` +
+      `    stroke-dasharray: ${formatPathTrimNumber(length)} ${formatPathTrimNumber(100 - length)};\n` +
+      `    stroke-dashoffset: ${formatPathTrimNumber(-value.start)};\n` +
+      `    animation-timing-function: ${cssEase(ease, easingVariables)};\n` +
+      `  }`
+    );
+  });
+  return `@keyframes ${name} {\n${stops.join("\n")}\n}`;
+}
+
+function parsePathTrimKeyframeBody(body: string): MotionKeyframe[] | null {
+  const frames: MotionKeyframe[] = [];
+  const stopRe = /([\d.]+%|from|to)\s*\{([^}]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = stopRe.exec(body)) !== null) {
+    const content = match[2];
+    const valueMatch = /^\s*--an-motion-path-trim\s*:\s*([^;]+)\s*;/m.exec(
+      content,
+    );
+    if (!valueMatch || !parsePathTrimValue(valueMatch[1]!.trim())) return null;
+    const pct = match[1];
+    const t = pct === "from" ? 0 : pct === "to" ? 1 : parseFloat(pct) / 100;
+    const easeMatch = content.match(/animation-timing-function\s*:\s*([^;]+)/);
+    frames.push({
+      t,
+      value: valueMatch[1]!.trim(),
+      ...(easeMatch ? { ease: easeMatch[1]!.trim() as MotionEase } : {}),
+    });
+  }
+  return frames.length > 0 ? frames : null;
+}
+
+function parsePathTrimValue(
+  value: string,
+): { start: number; end: number } | null {
+  const match =
+    /^\s*((?:\d+(?:\.\d*)?|\.\d+))%\s+((?:\d+(?:\.\d*)?|\.\d+))%\s*$/.exec(
+      value,
+    );
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (start < 0 || start > 100 || end < 0 || end > 100) return null;
+  return { start, end };
+}
+
+function formatPathTrimNumber(value: number): string {
+  return String(Math.round(value * 1000) / 1000);
 }
 
 function cssEase(

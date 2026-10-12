@@ -47,6 +47,9 @@
  *   { type: 'motion-path-editing', enabled, targetNodeId }
  *     Show editable Position path geometry for the selected target.
  *
+ *   { type: 'motion-origin-editing', enabled, targetNodeId }
+ *     Show and drag the selected element's CSS transform-origin on the canvas.
+ *
  * Iframe → parent: { type: 'motion-path-edit', targetNodeId, edits }
  *   Each edit identifies a Position keyframe and/or its outgoing segment.
  *   Endpoint values and changed cubic control offsets share one atomic gesture.
@@ -110,6 +113,25 @@
     startClientY: number;
     keyframes: PreviewKeyframe[];
   };
+  type MotionPoint = { x: number; y: number };
+  type MotionOriginBox = {
+    origin: MotionPoint;
+    corners: [MotionPoint, MotionPoint, MotionPoint, MotionPoint];
+    width: number;
+    height: number;
+  };
+  type OriginDrag = {
+    pointerId: number;
+    targetNodeId: string;
+    element: HTMLElement;
+    corners: MotionOriginBox["corners"];
+    originalValue: string;
+    originalPriority: string;
+    depth: string;
+    value: string;
+    pointer: MotionPoint;
+    startPointer: MotionPoint;
+  };
   var loadedTracks: PreviewTrack[] = [];
   var loadedAudioClips: LoadedAudioClip[] = [];
   var audioPlaybackActive = false;
@@ -118,11 +140,19 @@
   var loadedTimelineDurationMs: number | null = null;
   var touchedProps: Record<string, string[]> = {};
   var originalInlineValues: Record<string, Record<string, string>> = {};
+  var touchedAttributes: Record<string, string[]> = {};
+  var originalAttributes: Record<string, Record<string, string | null>> = {};
   var elementCache: Record<string, HTMLElement | null> = {};
   var pathEditingEnabled = false;
   var pathEditingTargetNodeId: string | null = null;
   var pathOverlay: SVGSVGElement | null = null;
   var activePathDrag: PathDrag | null = null;
+  var originEditingEnabled = false;
+  var originEditingTargetNodeId: string | null = null;
+  var originOverlay: SVGSVGElement | null = null;
+  var activeOriginDrag: OriginDrag | null = null;
+  var originPointerListenersInstalled = false;
+  var lastOriginMarkerPositionSignature: string | null = "hidden";
   var pathOverlayNs = "http://www.w3.org/2000/svg";
   var pathOverlayAccentColor = "var(--design-editor-accent-color, Highlight)";
   var pathOverlaySurfaceColor = "Canvas";
@@ -1015,6 +1045,402 @@
     pathOverlay = null;
   }
 
+  function originBoxForElement(element: HTMLElement): MotionOriginBox | null {
+    var rect = element.getBoundingClientRect();
+    var width = element.offsetWidth || rect.width;
+    var height = element.offsetHeight || rect.height;
+    if (!(width > 0) || !(height > 0)) return null;
+    var corners: MotionOriginBox["corners"] = [
+      { x: rect.left, y: rect.top },
+      { x: rect.right, y: rect.top },
+      { x: rect.right, y: rect.bottom },
+      { x: rect.left, y: rect.bottom },
+    ];
+    var getBoxQuads = (
+      element as unknown as {
+        getBoxQuads?: () => Array<{
+          p1: MotionPoint;
+          p2: MotionPoint;
+          p3: MotionPoint;
+          p4: MotionPoint;
+        }>;
+      }
+    ).getBoxQuads;
+    if (typeof getBoxQuads === "function") {
+      var quads = getBoxQuads.call(element);
+      var quad = quads && quads[0];
+      if (quad) corners = [quad.p1, quad.p2, quad.p3, quad.p4];
+    }
+
+    var tokens = (
+      window.getComputedStyle(element).transformOrigin || "50% 50%"
+    ).split(/\s+/);
+    var coordinate = function (token: string | undefined, size: number) {
+      var value = String(token ?? "center").toLowerCase();
+      if (value === "left" || value === "top") return 0;
+      if (value === "right" || value === "bottom") return size;
+      if (value === "center") return size / 2;
+      var parsed = Number.parseFloat(value);
+      if (!Number.isFinite(parsed)) return size / 2;
+      return value.endsWith("%") ? (parsed / 100) * size : parsed;
+    };
+    return {
+      origin: {
+        x: coordinate(tokens[0], width),
+        y: coordinate(tokens[1], height),
+      },
+      corners,
+      width,
+      height,
+    };
+  }
+
+  function originScreenPoint(
+    box: MotionOriginBox,
+    x: number,
+    y: number,
+  ): MotionPoint {
+    var horizontal = x / box.width;
+    var vertical = y / box.height;
+    var topLeft = box.corners[0];
+    var topRight = box.corners[1];
+    var bottomLeft = box.corners[3];
+    return {
+      x:
+        topLeft.x +
+        (topRight.x - topLeft.x) * horizontal +
+        (bottomLeft.x - topLeft.x) * vertical,
+      y:
+        topLeft.y +
+        (topRight.y - topLeft.y) * horizontal +
+        (bottomLeft.y - topLeft.y) * vertical,
+    };
+  }
+
+  function originPercentAtPoint(
+    corners: MotionOriginBox["corners"],
+    point: MotionPoint,
+  ): MotionPoint | null {
+    var topLeft = corners[0];
+    var horizontal = {
+      x: corners[1].x - topLeft.x,
+      y: corners[1].y - topLeft.y,
+    };
+    var vertical = {
+      x: corners[3].x - topLeft.x,
+      y: corners[3].y - topLeft.y,
+    };
+    var relative = { x: point.x - topLeft.x, y: point.y - topLeft.y };
+    var determinant = horizontal.x * vertical.y - horizontal.y * vertical.x;
+    if (Math.abs(determinant) < 0.0001) return null;
+    var localX =
+      (relative.x * vertical.y - relative.y * vertical.x) / determinant;
+    var localY =
+      (horizontal.x * relative.y - horizontal.y * relative.x) / determinant;
+    return {
+      x: Math.max(0, Math.min(100, localX * 100)),
+      y: Math.max(0, Math.min(100, localY * 100)),
+    };
+  }
+
+  function ensureOriginOverlay(): SVGSVGElement | null {
+    if (originOverlay && document.contains(originOverlay)) return originOverlay;
+    if (!document.body || typeof document.createElementNS !== "function") {
+      return null;
+    }
+    originOverlay = svgElement("svg");
+    originOverlay.setAttribute("data-motion-origin-overlay", "");
+    originOverlay.setAttribute("aria-hidden", "true");
+    originOverlay.style.position = "fixed";
+    originOverlay.style.inset = "0";
+    originOverlay.style.width = "100vw";
+    originOverlay.style.height = "100vh";
+    originOverlay.style.overflow = "visible";
+    originOverlay.style.pointerEvents = "none";
+    originOverlay.style.zIndex = "2147483647";
+    originOverlay.style.userSelect = "none";
+    originOverlay.style.touchAction = "none";
+    document.body.appendChild(originOverlay);
+    if (!originPointerListenersInstalled) {
+      window.addEventListener("pointerdown", onOriginPointerDown, true);
+      window.addEventListener("pointermove", onOriginPointerMove, true);
+      window.addEventListener("pointerup", finishOriginPointer, true);
+      window.addEventListener("pointercancel", cancelOriginPointer, true);
+      window.addEventListener("scroll", renderOriginOverlay, true);
+      window.addEventListener("resize", renderOriginOverlay);
+      originPointerListenersInstalled = true;
+    }
+    return originOverlay;
+  }
+
+  function removeOriginOverlay(): void {
+    if (originOverlay?.parentNode)
+      originOverlay.parentNode.removeChild(originOverlay);
+    originOverlay = null;
+  }
+
+  function publishOriginMarkerPosition(
+    targetNodeId: string | null,
+    point?: MotionPoint,
+  ): void {
+    var visible = Boolean(targetNodeId && point);
+    var signature = visible
+      ? [
+          targetNodeId,
+          point!.x,
+          point!.y,
+          window.innerWidth,
+          window.innerHeight,
+        ].join(":")
+      : "hidden";
+    if (signature === lastOriginMarkerPositionSignature) return;
+    lastOriginMarkerPositionSignature = signature;
+    window.parent.postMessage(
+      {
+        type: "motion-origin-marker-position",
+        visible,
+        targetNodeId,
+        x: visible ? point!.x : null,
+        y: visible ? point!.y : null,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      },
+      "*",
+    );
+  }
+
+  function renderOriginOverlay(): void {
+    if (!originEditingEnabled || !originEditingTargetNodeId) {
+      publishOriginMarkerPosition(null);
+      if (!originEditingEnabled) removeOriginOverlay();
+      return;
+    }
+    if (activeOriginDrag) {
+      var dragOverlay = ensureOriginOverlay();
+      if (!dragOverlay) return;
+      publishOriginMarkerPosition(
+        originEditingTargetNodeId,
+        activeOriginDrag.pointer,
+      );
+      dragOverlay.setAttribute(
+        "data-motion-origin-target",
+        originEditingTargetNodeId,
+      );
+      dragOverlay.setAttribute(
+        "viewBox",
+        "0 0 " + window.innerWidth + " " + window.innerHeight,
+      );
+      while (dragOverlay.firstChild)
+        dragOverlay.removeChild(dragOverlay.firstChild);
+      appendOriginMarker(dragOverlay, activeOriginDrag.pointer);
+      return;
+    }
+    var element = resolveTrackElement(originEditingTargetNodeId);
+    var box = element ? originBoxForElement(element) : null;
+    if (!element || !box) {
+      publishOriginMarkerPosition(null);
+      removeOriginOverlay();
+      return;
+    }
+    var point = originScreenPoint(box, box.origin.x, box.origin.y);
+    var svg = ensureOriginOverlay();
+    if (!svg) return;
+    publishOriginMarkerPosition(originEditingTargetNodeId, point);
+    svg.setAttribute("data-motion-origin-target", originEditingTargetNodeId);
+    svg.setAttribute(
+      "viewBox",
+      "0 0 " + window.innerWidth + " " + window.innerHeight,
+    );
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    appendOriginMarker(svg, point);
+  }
+
+  function appendOriginMarker(svg: SVGSVGElement, point: MotionPoint): void {
+    var marker = svgElement("g");
+    marker.setAttribute("data-motion-origin-marker", "");
+    marker.setAttribute(
+      "transform",
+      "translate(" + formatNum(point.x) + " " + formatNum(point.y) + ")",
+    );
+    marker.setAttribute("pointer-events", "all");
+    marker.style.cursor = "move";
+    marker.style.touchAction = "none";
+    var ring = svgElement("circle");
+    ring.setAttribute("r", "7");
+    ring.setAttribute("fill", pathOverlaySurfaceColor);
+    ring.setAttribute("stroke", pathOverlayAccentColor);
+    ring.setAttribute("stroke-width", "2");
+    var center = svgElement("circle");
+    center.setAttribute("r", "2");
+    center.setAttribute("fill", pathOverlayAccentColor);
+    var horizontal = svgElement("line");
+    horizontal.setAttribute("x1", "-4");
+    horizontal.setAttribute("x2", "4");
+    horizontal.setAttribute("y1", "0");
+    horizontal.setAttribute("y2", "0");
+    horizontal.setAttribute("stroke", pathOverlayAccentColor);
+    var vertical = svgElement("line");
+    vertical.setAttribute("x1", "0");
+    vertical.setAttribute("x2", "0");
+    vertical.setAttribute("y1", "-4");
+    vertical.setAttribute("y2", "4");
+    vertical.setAttribute("stroke", pathOverlayAccentColor);
+    [ring, center, horizontal, vertical].forEach(function (shape) {
+      shape.setAttribute("pointer-events", "none");
+      marker.appendChild(shape);
+    });
+    svg.appendChild(marker);
+  }
+
+  function originMarkerAtPoint(clientX: number, clientY: number): boolean {
+    var marker = originOverlay?.querySelector<SVGElement>(
+      "[data-motion-origin-marker]",
+    );
+    var rect = marker?.getBoundingClientRect();
+    if (!rect) return false;
+    var centerX = (rect.left + rect.right) / 2;
+    var centerY = (rect.top + rect.bottom) / 2;
+    return (clientX - centerX) ** 2 + (clientY - centerY) ** 2 <= 144;
+  }
+
+  function originValue(x: number, y: number, depth: string): string {
+    var horizontal = formatNum(x) + "%";
+    var vertical = formatNum(y) + "%";
+    return [horizontal, vertical, depth].filter(Boolean).join(" ");
+  }
+
+  function setOriginInlineStyle(
+    element: HTMLElement,
+    value: string,
+    priority: string,
+  ): void {
+    element.style.setProperty("transform-origin", value, priority);
+  }
+
+  function restoreOriginInlineStyle(drag: OriginDrag): void {
+    if (drag.originalValue) {
+      setOriginInlineStyle(
+        drag.element,
+        drag.originalValue,
+        drag.originalPriority,
+      );
+    } else {
+      drag.element.style.removeProperty("transform-origin");
+    }
+  }
+
+  function beginOriginDrag(
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+  ): void {
+    if (!originEditingEnabled || !originEditingTargetNodeId) return;
+    var element = resolveTrackElement(originEditingTargetNodeId);
+    var box = element ? originBoxForElement(element) : null;
+    if (!element || !box) return;
+    var tokens = (
+      window.getComputedStyle(element).transformOrigin || "50% 50%"
+    ).split(/\s+/);
+    activeOriginDrag = {
+      pointerId,
+      targetNodeId: originEditingTargetNodeId,
+      element,
+      corners: box.corners,
+      originalValue: element.style.getPropertyValue("transform-origin"),
+      originalPriority: element.style.getPropertyPriority("transform-origin"),
+      depth: tokens[2] ?? "",
+      value: "",
+      pointer: { x: clientX, y: clientY },
+      startPointer: { x: clientX, y: clientY },
+    };
+  }
+
+  function onOriginPointerDown(event: PointerEvent): void {
+    if (
+      event.button !== 0 ||
+      !originMarkerAtPoint(event.clientX, event.clientY)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    beginOriginDrag(event.pointerId, event.clientX, event.clientY);
+  }
+
+  function moveOriginDrag(
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+  ): void {
+    var drag = activeOriginDrag;
+    if (!drag || drag.pointerId !== pointerId) return;
+    var percent = originPercentAtPoint(drag.corners, {
+      x: clientX,
+      y: clientY,
+    });
+    if (!percent) return;
+    drag.pointer = { x: clientX, y: clientY };
+    drag.value = originValue(percent.x, percent.y, drag.depth);
+    setOriginInlineStyle(drag.element, drag.value, drag.originalPriority);
+    renderOriginOverlay();
+  }
+
+  function onOriginPointerMove(event: PointerEvent): void {
+    moveOriginDrag(event.pointerId, event.clientX, event.clientY);
+  }
+
+  function finishOriginDrag(
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+  ): void {
+    var drag = activeOriginDrag;
+    if (!drag || drag.pointerId !== pointerId) return;
+    moveOriginDrag(pointerId, clientX, clientY);
+    drag = activeOriginDrag;
+    if (!drag) return;
+    activeOriginDrag = null;
+    var moved =
+      Math.abs(drag.pointer.x - drag.startPointer.x) > 0.5 ||
+      Math.abs(drag.pointer.y - drag.startPointer.y) > 0.5;
+    if (!moved || !drag.value) {
+      restoreOriginInlineStyle(drag);
+      renderOriginOverlay();
+      return;
+    }
+    window.parent.postMessage(
+      {
+        type: "visual-style-change",
+        selector:
+          '[data-agent-native-node-id="' +
+          drag.targetNodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') +
+          '"]',
+        styles: { "transform-origin": drag.value },
+        originalStyles: { "transform-origin": drag.originalValue },
+        phase: "commit",
+        preserveSelection: true,
+      },
+      "*",
+    );
+    renderOriginOverlay();
+  }
+
+  function finishOriginPointer(event: PointerEvent): void {
+    finishOriginDrag(event.pointerId, event.clientX, event.clientY);
+  }
+
+  function cancelOriginDrag(pointerId: number): void {
+    var drag = activeOriginDrag;
+    if (!drag || drag.pointerId !== pointerId) return;
+    activeOriginDrag = null;
+    restoreOriginInlineStyle(drag);
+    renderOriginOverlay();
+  }
+
+  function cancelOriginPointer(event: PointerEvent): void {
+    cancelOriginDrag(event.pointerId);
+  }
+
   function renderPathOverlay(): void {
     if (!pathEditingEnabled || !pathEditingTargetNodeId || activePathDrag) {
       if (!pathEditingEnabled) removePathOverlay();
@@ -1475,12 +1901,14 @@
     applyLocalPathEdits(currentTrack, edits);
     pathMessage(drag.targetNodeId, edits);
     if (lastPreviewT !== null) applyPreview(lastPreviewT);
+    renderOriginOverlay();
   }
 
   function finishPathPointer(event: PointerEvent): void {
     if (!activePathDrag || activePathDrag.pointerId !== event.pointerId) return;
     activePathDrag = null;
     renderPathOverlay();
+    renderOriginOverlay();
   }
 
   function writePreviewStyle(
@@ -1506,6 +1934,28 @@
     }
   }
 
+  function writePreviewAttribute(
+    targetNodeId: string,
+    element: HTMLElement,
+    attribute: string,
+    value: string,
+  ): void {
+    if (!originalAttributes[targetNodeId]) {
+      originalAttributes[targetNodeId] = {};
+    }
+    if (!(attribute in originalAttributes[targetNodeId]!)) {
+      originalAttributes[targetNodeId] = {
+        ...originalAttributes[targetNodeId],
+        [attribute]: element.getAttribute(attribute),
+      };
+    }
+    element.setAttribute(attribute, value);
+    if (!touchedAttributes[targetNodeId]) touchedAttributes[targetNodeId] = [];
+    if (touchedAttributes[targetNodeId]!.indexOf(attribute) === -1) {
+      touchedAttributes[targetNodeId]!.push(attribute);
+    }
+  }
+
   function applyPreview(t: number): void {
     for (var i = 0; i < loadedTracks.length; i++) {
       var track = loadedTracks[i];
@@ -1514,6 +1964,30 @@
       if (!el) continue;
       var value = interpolate(track.keyframes, trackLocalT(track, t));
       if (value === "") continue;
+      if (track.property === "path-trim") {
+        var trim = parsePathTrimValue(value);
+        if (!trim) continue;
+        var dashLength =
+          trim.end >= trim.start
+            ? trim.end - trim.start
+            : 100 - trim.start + trim.end;
+        writePreviewAttribute(track.targetNodeId, el, "pathLength", "100");
+        writePreviewStyle(
+          track.targetNodeId,
+          el,
+          "strokeDasharray",
+          formatPathTrimNumber(dashLength) +
+            " " +
+            formatPathTrimNumber(100 - dashLength),
+        );
+        writePreviewStyle(
+          track.targetNodeId,
+          el,
+          "strokeDashoffset",
+          formatPathTrimNumber(-trim.start),
+        );
+        continue;
+      }
       var prop = camelizeProp(track.property);
       if (
         track.property === "translate" &&
@@ -1526,6 +2000,7 @@
       writePreviewStyle(track.targetNodeId, el, prop, value);
     }
     renderPathOverlay();
+    renderOriginOverlay();
   }
 
   function postAudioPlaybackError(clipId: string): void {
@@ -1706,8 +2181,27 @@
             : "";
       }
     }
+    var attributeNodeIds = Object.keys(touchedAttributes);
+    for (var i = 0; i < attributeNodeIds.length; i++) {
+      var attributeNodeId = attributeNodeIds[i]!;
+      var attributeElement = resolveTrackElement(attributeNodeId);
+      if (!attributeElement) continue;
+      var attributes = touchedAttributes[attributeNodeId];
+      var original = originalAttributes[attributeNodeId] || {};
+      for (var j = 0; j < attributes.length; j++) {
+        var attributeName = attributes[j]!;
+        var originalValue = original[attributeName];
+        if (originalValue === null || originalValue === undefined) {
+          attributeElement.removeAttribute(attributeName);
+        } else {
+          attributeElement.setAttribute(attributeName, originalValue);
+        }
+      }
+    }
     touchedProps = {};
     originalInlineValues = {};
+    touchedAttributes = {};
+    originalAttributes = {};
     loadedTracks = [];
     loadedEasingVariables = [];
     loadedDefaultEase = "ease";
@@ -1715,11 +2209,61 @@
     elementCache = {};
   }
 
+  function parsePathTrimValue(
+    value: string,
+  ): { start: number; end: number } | null {
+    var match =
+      /^\s*((?:\d+(?:\.\d*)?|\.\d+))%\s+((?:\d+(?:\.\d*)?|\.\d+))%\s*$/.exec(
+        value,
+      );
+    if (!match) return null;
+    var start = Number(match[1]);
+    var end = Number(match[2]);
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start < 0 ||
+      start > 100 || // i18n-ignore: numeric Path trim bounds are not UI copy.
+      end < 0 ||
+      end > 100
+    ) {
+      return null;
+    }
+    return { start: start, end: end };
+  }
+
+  function formatPathTrimNumber(value: number): string {
+    return String(Math.round(value * 1000) / 1000);
+  }
+
   var lastPreviewT: number | null = null;
 
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
     if (!e.data || typeof e.data.type !== "string") return;
+    if (e.data.type === "motion-origin-pointer") {
+      var phase = e.data.phase;
+      var pointerId = Number(e.data.pointerId);
+      var clientX = Number(e.data.x);
+      var clientY = Number(e.data.y);
+      if (
+        !Number.isSafeInteger(pointerId) ||
+        !Number.isFinite(clientX) ||
+        !Number.isFinite(clientY)
+      ) {
+        return;
+      }
+      if (phase === "down") {
+        beginOriginDrag(pointerId, clientX, clientY);
+      } else if (phase === "move") {
+        moveOriginDrag(pointerId, clientX, clientY);
+      } else if (phase === "up") {
+        finishOriginDrag(pointerId, clientX, clientY);
+      } else if (phase === "cancel") {
+        cancelOriginDrag(pointerId);
+      }
+      return;
+    }
     if (e.data.type === "motion-audio-load") {
       loadAudioClips(e.data.clips);
       return;
@@ -1760,6 +2304,7 @@
         applyPreview(lastPreviewT);
       } else {
         renderPathOverlay();
+        renderOriginOverlay();
       }
       return;
     }
@@ -1785,6 +2330,24 @@
       renderPathOverlay();
       return;
     }
+    if (e.data.type === "motion-origin-editing") {
+      var enabled = e.data.enabled === true;
+      var targetNodeId =
+        enabled && typeof e.data.targetNodeId === "string"
+          ? e.data.targetNodeId
+          : null;
+      if (
+        activeOriginDrag &&
+        (!enabled || targetNodeId !== activeOriginDrag.targetNodeId)
+      ) {
+        restoreOriginInlineStyle(activeOriginDrag);
+        activeOriginDrag = null;
+      }
+      originEditingEnabled = enabled;
+      originEditingTargetNodeId = targetNodeId;
+      renderOriginOverlay();
+      return;
+    }
     if (e.data.type === "motion-preview-clear") {
       clearPreview();
       clearAudioClips();
@@ -1792,7 +2355,12 @@
       pathEditingEnabled = false;
       pathEditingTargetNodeId = null;
       activePathDrag = null;
+      if (activeOriginDrag) restoreOriginInlineStyle(activeOriginDrag);
+      originEditingEnabled = false;
+      originEditingTargetNodeId = null;
+      activeOriginDrag = null;
       removePathOverlay();
+      removeOriginOverlay();
       return;
     }
   });

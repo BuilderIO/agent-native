@@ -6,20 +6,7 @@ const mocks = vi.hoisted(() => {
   let timelineRows: Array<Record<string, unknown>> = [];
   let screenRows: Array<Record<string, unknown>> = [{ id: "screen-1" }];
   let accessRole = "editor";
-  const designData = JSON.stringify({
-    sourceType: "localhost",
-    connectionId: "connection-1",
-    screenMetadata: {
-      "screen-1": {
-        sourceType: "localhost",
-        connectionId: "connection-1",
-        sourceFile: "app/routes/home.tsx",
-        path: "/home",
-        url: "http://localhost:5173/home",
-      },
-    },
-    localhostScreens: {},
-  });
+  let designData = "";
 
   const timelineChain = {
     from: vi.fn(),
@@ -62,6 +49,8 @@ const mocks = vi.hoisted(() => {
     eq: vi.fn((left, right) => ({ left, right })),
     and: vi.fn((...args) => ({ and: args })),
     desc: vi.fn((value) => ({ desc: value })),
+    lt: vi.fn((left, right) => ({ left, right })),
+    sql: vi.fn((strings, ...values) => ({ strings, values })),
     setTimelineRows: (rows: Array<Record<string, unknown>>) => {
       timelineRows = rows;
     },
@@ -70,6 +59,22 @@ const mocks = vi.hoisted(() => {
     },
     setAccessRole: (role: string) => {
       accessRole = role;
+    },
+    setDesignSourceFile: (sourceFile: string) => {
+      designData = JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile,
+            path: "/home",
+            url: "http://localhost:5173/home",
+          },
+        },
+        localhostScreens: {},
+      });
     },
   };
 });
@@ -89,6 +94,8 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   desc: mocks.desc,
   eq: mocks.eq,
+  lt: mocks.lt,
+  sql: mocks.sql,
 }));
 
 vi.mock("../server/source-workspace.js", () => ({
@@ -125,9 +132,15 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("./read-local-file.js", () => ({
-  default: { run: mocks.readLocal },
+  default: {
+    run: (args: Record<string, unknown>) =>
+      typeof args.motionScreenId === "string"
+        ? Promise.resolve({ reachable: true })
+        : mocks.readLocal(args),
+  },
 }));
 
+import { applyMotionHtmlSourceEdit } from "../shared/motion-html-source.js";
 import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
 import { applyMotionReactSourceEdit } from "../shared/motion-react-source.js";
 import type { MotionTimeline } from "../shared/motion-timeline.js";
@@ -262,9 +275,57 @@ describe("get-motion-timeline localhost React source", () => {
     mocks.setAccessRole("editor");
     mocks.setTimelineRows([]);
     mocks.setScreenRows([{ id: "screen-1" }]);
+    mocks.setDesignSourceFile("app/routes/home.tsx");
     mocks.readLocal.mockResolvedValue({
       content: managedSource,
       versionHash: bridgeVersionHash,
+    });
+  });
+
+  it("recovers Motion source and write capability from the linked HTML route", async () => {
+    const htmlPath = "pages/home.html";
+    const html = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><h1 data-agent-native-node-id="hero">Hello</h1></main></body></html>`;
+    const htmlHash = sourceHash(html);
+    const managedHtml = applyMotionHtmlSourceEdit({
+      currentSource: html,
+      expectedSource: html,
+      preview: { sourceHash: htmlHash },
+      sourceFilePath: htmlPath,
+      timeline: { ...timeline, filePath: htmlPath },
+    }).source;
+    const managedHtmlHash = sourceHash(managedHtml);
+    mocks.setDesignSourceFile(htmlPath);
+    mocks.readLocal.mockResolvedValue({
+      content: managedHtml,
+      versionHash: managedHtmlHash,
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      sourceRef: "screen-1",
+      targetNodeIds: ["hero"],
+      previewModulePath: htmlPath,
+      previewModuleVersionHash: managedHtmlHash,
+    });
+
+    expect(result.timelines[0]).toMatchObject({
+      source: "recovered-html",
+      sourceRef: "screen-1",
+      filePath: htmlPath,
+      sourceVersionHash: managedHtmlHash,
+      tracks: timeline.tracks,
+      durationMs: 800,
+    });
+    expect(result.sourceWriteCapability).toEqual({
+      status: "supported",
+      modulePath: htmlPath,
+      moduleVersionHash: managedHtmlHash,
+      targetNodeIds: ["hero"],
+    });
+    expect(mocks.readLocal).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      path: htmlPath,
     });
   });
 
@@ -640,7 +701,7 @@ describe("get-motion-timeline localhost React source", () => {
       source: "stored-local-unverified",
       tracks: timeline.tracks,
       textDocument,
-      filePath: "app/routes/home.tsx",
+      filePath: null,
       sourceVersionHash: null,
       cssHash: null,
     });

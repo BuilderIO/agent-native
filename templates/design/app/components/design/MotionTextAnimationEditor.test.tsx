@@ -9,7 +9,7 @@ import { MotionTextAnimationEditor } from "./MotionTextAnimationEditor";
 
 vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
 
-const animation: MotionTextAnimation = {
+const opacityAnimation: MotionTextAnimation = {
   targetNodeId: "title-1",
   unit: "word",
   direction: "forward",
@@ -19,6 +19,17 @@ const animation: MotionTextAnimation = {
   keyframes: [
     { t: 0, value: "0", ease: "ease-out" },
     { t: 1, value: "1" },
+  ],
+};
+
+const translateAnimation: MotionTextAnimation = {
+  ...opacityAnimation,
+  property: "translate",
+  delayMs: 20,
+  durationMs: 300,
+  keyframes: [
+    { t: 0, value: "0px", ease: "ease-out" },
+    { t: 1, value: "12px" },
   ],
 };
 
@@ -40,18 +51,16 @@ describe("MotionTextAnimationEditor", () => {
 
   async function render(
     overrides: Partial<{
-      animation: MotionTextAnimation;
-      onChange: (next: MotionTextAnimation) => void;
-      onRemove: () => void;
+      animations: MotionTextAnimation[];
+      onChange: (next: MotionTextAnimation[]) => void;
       disabled: boolean;
     }> = {},
   ) {
     await act(async () => {
       root.render(
         <MotionTextAnimationEditor
-          animation={animation}
+          animations={[opacityAnimation]}
           onChange={vi.fn()}
-          onRemove={vi.fn()}
           t={(key) => key}
           {...overrides}
         />,
@@ -69,8 +78,8 @@ describe("MotionTextAnimationEditor", () => {
     });
   }
 
-  it("renders localized controls for text timing, unit, direction, property, and keyframes", async () => {
-    await render();
+  it("renders shared text controls and per-property tracks", async () => {
+    await render({ animations: [opacityAnimation, translateAnimation] });
 
     expect(
       container.querySelector(
@@ -82,103 +91,150 @@ describe("MotionTextAnimationEditor", () => {
         '[aria-label="designEditor.motion.textAnimation.direction"]',
       ),
     ).not.toBeNull();
-    expect(
-      container.querySelector(
-        '[aria-label="designEditor.motion.textAnimation.property"]',
-      ),
-    ).not.toBeNull();
     expect(container.textContent).toContain(
       "designEditor.motion.textAnimation.stagger",
     );
-    expect(container.textContent).toContain(
-      "designEditor.motion.textAnimation.duration",
-    );
     expect(
-      container.querySelector(
-        'input[aria-label="designEditor.motion.textAnimation.keyframeValue 1"]',
+      container.querySelectorAll(
+        '[aria-label="designEditor.motion.textAnimation.property"]',
       ),
-    ).not.toBeNull();
+    ).toHaveLength(2);
     expect(
-      container.querySelector(
-        'input[aria-label="designEditor.motion.textAnimation.keyframeEase 1"]',
+      container.querySelectorAll(
+        'input[aria-label^="designEditor.motion.textAnimation.keyframeValue"]',
       ),
-    ).not.toBeNull();
+    ).toHaveLength(4);
+    expect(
+      container.querySelectorAll(
+        'input[aria-label^="designEditor.motion.textAnimation.keyframeEase"]',
+      ),
+    ).toHaveLength(4);
   });
 
-  it("reports immutable edits to duration, stagger, values, and easing", async () => {
+  it("applies shared edits to every track and keyframe edits to their track", async () => {
     const onChange = vi.fn();
-    await render({ onChange });
+    await render({
+      animations: [opacityAnimation, translateAnimation],
+      onChange,
+    });
 
     const numberInputs = container.querySelectorAll<HTMLInputElement>(
       'input[type="number"]',
     );
     await enterValue(numberInputs[0]!, "125");
-    expect(onChange).toHaveBeenLastCalledWith({ ...animation, staggerMs: 125 });
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, staggerMs: 125 },
+      { ...translateAnimation, staggerMs: 125 },
+    ]);
 
     await enterValue(numberInputs[1]!, "900");
-    expect(onChange).toHaveBeenLastCalledWith({
-      ...animation,
-      durationMs: 900,
-    });
+    expect(onChange).toHaveBeenLastCalledWith([
+      { ...opacityAnimation, durationMs: 900 },
+      translateAnimation,
+    ]);
 
     await enterValue(
       container.querySelector<HTMLInputElement>(
-        'input[aria-label="designEditor.motion.textAnimation.keyframeValue 1"]',
+        'input[aria-label="designEditor.motion.textAnimation.keyframeValue 1.1"]',
       )!,
       "0.25",
     );
-    expect(onChange).toHaveBeenLastCalledWith({
-      ...animation,
-      keyframes: [
-        { t: 0, value: "0.25", ease: "ease-out" },
-        animation.keyframes[1],
-      ],
-    });
+    expect(onChange).toHaveBeenLastCalledWith([
+      {
+        ...opacityAnimation,
+        keyframes: [
+          { t: 0, value: "0.25", ease: "ease-out" },
+          opacityAnimation.keyframes[1],
+        ],
+      },
+      translateAnimation,
+    ]);
 
     await enterValue(
       container.querySelector<HTMLInputElement>(
-        'input[aria-label="designEditor.motion.textAnimation.keyframeEase 2"]',
+        'input[aria-label="designEditor.motion.textAnimation.keyframeEase 2.2"]',
       )!,
       "linear",
     );
-    expect(onChange).toHaveBeenLastCalledWith({
-      ...animation,
-      keyframes: [animation.keyframes[0], { t: 1, value: "1", ease: "linear" }],
-    });
-    expect(animation).toEqual({
-      targetNodeId: "title-1",
-      unit: "word",
-      direction: "forward",
-      staggerMs: 40,
-      property: "opacity",
-      durationMs: 600,
-      keyframes: [
-        { t: 0, value: "0", ease: "ease-out" },
-        { t: 1, value: "1" },
-      ],
-    });
+    expect(onChange).toHaveBeenLastCalledWith([
+      opacityAnimation,
+      {
+        ...translateAnimation,
+        keyframes: [
+          translateAnimation.keyframes[0],
+          { t: 1, value: "12px", ease: "linear" },
+        ],
+      },
+    ]);
   });
 
-  it("removes the animation through the accessible action", async () => {
-    const onRemove = vi.fn();
-    await render({ onRemove });
+  it("adds unused property tracks and removes only the selected track", async () => {
+    const onChange = vi.fn();
+    await render({ onChange });
 
-    const button = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="designEditor.motion.textAnimation.remove"]',
+    const addButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.textAnimation.addPropertyTrack"]',
     );
-    expect(button).not.toBeNull();
-    await act(async () => button!.click());
-    expect(onRemove).toHaveBeenCalledOnce();
+    expect(addButton).not.toBeNull();
+    await act(async () =>
+      addButton!.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      ),
+    );
+    const translateMenuItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) =>
+      item.textContent?.includes(
+        "designEditor.motion.textAnimation.properties.translate",
+      ),
+    );
+    expect(translateMenuItem).toBeDefined();
+    await act(async () => {
+      translateMenuItem!.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+      translateMenuItem!.click();
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith([
+      opacityAnimation,
+      {
+        ...opacityAnimation,
+        property: "translate",
+        delayMs: 0,
+        keyframes: [
+          { t: 0, value: "0px", ease: "ease-out" },
+          { t: 1, value: "16px" },
+        ],
+      },
+    ]);
+
+    await render({
+      animations: [opacityAnimation, translateAnimation],
+      onChange,
+    });
+    const removeTranslateButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.textAnimation.removePropertyTrack: designEditor.motion.textAnimation.properties.translate"]',
+    );
+    expect(removeTranslateButton).not.toBeNull();
+    await act(async () => removeTranslateButton!.click());
+    expect(onChange).toHaveBeenLastCalledWith([opacityAnimation]);
   });
 
   it("disables controls while a source update is unavailable", async () => {
-    await render({ disabled: true });
+    await render({
+      animations: [opacityAnimation, translateAnimation],
+      disabled: true,
+    });
 
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        'button[aria-label="designEditor.motion.textAnimation.remove"]',
-      )?.disabled,
-    ).toBe(true);
     expect(
       Array.from(container.querySelectorAll<HTMLInputElement>("input")).every(
         (input) => input.disabled,

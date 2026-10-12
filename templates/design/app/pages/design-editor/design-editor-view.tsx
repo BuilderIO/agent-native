@@ -146,6 +146,21 @@ import { VisualEditWebMcp } from "./VisualEditWebMcp";
 // DOM — already accounts for it; see chromeInsetLeft below.
 const DESIGN_CHROME_RAIL_WIDTH_PX = 56;
 
+export function createMotionNativeStyleInstancesForTargets(args: {
+  styleKey: MotionNativeStyleKey;
+  targetNodeIds: readonly string[];
+  timelineOffset: number;
+}): MotionNativeStyleInstance[] {
+  return args.targetNodeIds.map((targetNodeId) => {
+    const instance = createMotionNativeStyleInstance({
+      styleKey: args.styleKey,
+      targetNodeId,
+    });
+    instance.timelineOffset = args.timelineOffset;
+    return instance;
+  });
+}
+
 function motionDimensionValue(
   selectedElement: {
     computedStyles: Record<string, string>;
@@ -347,6 +362,7 @@ export function renderDesignEditorView({
     motionPlayhead,
     motionDefaultEase,
     motionSelectedTarget,
+    setMotionOriginEditing,
     motionKeyframeState,
     sourceCapabilities,
     selectedComponentNodeId,
@@ -364,7 +380,7 @@ export function renderDesignEditorView({
     handleMotionAudioClipsChange,
     markMotionTracksDirty,
     handleMotionAnimationStyleSaved,
-    handleMotionTextAnimationChange,
+    handleMotionTextAnimationsChange,
     handleMotionDurationChange,
     inspectCodeData,
     handleCreateComponent,
@@ -1427,20 +1443,21 @@ export function renderDesignEditorView({
     motionSelectedTarget: editorLiveEditsAndPresence.motionLabEnabled
       ? motionTargetForInspector
       : null,
-    motionTextAnimation: motionSelectedTarget?.isText
-      ? (motionTextDocument?.animations.find(
+    onMotionOriginEditingChange: setMotionOriginEditing,
+    motionTextAnimations: motionSelectedTarget?.isText
+      ? (motionTextDocument?.animations.filter(
           (animation) => animation.targetNodeId === motionSelectedTarget.nodeId,
-        ) ?? null)
-      : null,
-    onMotionTextAnimationChange:
+        ) ?? [])
+      : [],
+    onMotionTextAnimationsChange:
       editorLiveEditsAndPresence.motionLabEnabled &&
       canEditActiveVisualScreen &&
       canWriteMotion &&
       motionSelectedTarget?.isText
-        ? (animation: MotionTextAnimation | null) =>
-            handleMotionTextAnimationChange(
+        ? (animations: MotionTextAnimation[]) =>
+            handleMotionTextAnimationsChange(
               motionSelectedTarget.nodeId,
-              animation,
+              animations,
             )
         : undefined,
     onCreateMotionTextAnimation:
@@ -1469,19 +1486,21 @@ export function renderDesignEditorView({
             if (nextTimelineDurationMs !== motionDurationMs) {
               handleMotionDurationChange(nextTimelineDurationMs);
             }
-            handleMotionTextAnimationChange(motionSelectedTarget.nodeId, {
-              targetNodeId: motionSelectedTarget.nodeId,
-              unit: "character",
-              direction: "forward",
-              staggerMs: 30,
-              delayMs: startTimeMs,
-              property: "opacity",
-              durationMs: animationDurationMs,
-              keyframes: [
-                { t: 0, value: "0", ease: "ease-out" },
-                { t: 1, value: "1" },
-              ],
-            });
+            handleMotionTextAnimationsChange(motionSelectedTarget.nodeId, [
+              {
+                targetNodeId: motionSelectedTarget.nodeId,
+                unit: "character",
+                direction: "forward",
+                staggerMs: 30,
+                delayMs: startTimeMs,
+                property: "opacity",
+                durationMs: animationDurationMs,
+                keyframes: [
+                  { t: 0, value: "0", ease: "ease-out" },
+                  { t: 1, value: "1" },
+                ],
+              },
+            ]);
             setActiveInspectorTab("motion");
             setMotionDockOpenAnimated(true);
           }
@@ -1555,17 +1574,19 @@ export function renderDesignEditorView({
       canWriteMotion &&
       motionTargetForInspector
         ? (styleKey: MotionNativeStyleKey) => {
-            const instance = createMotionNativeStyleInstance({
+            const targetNodeIds = hasCompleteSelectedMotionTargets
+              ? uniqueSelectedMotionTargets.map(({ nodeId }) => nodeId)
+              : [motionTargetForInspector.nodeId];
+            const instances = createMotionNativeStyleInstancesForTargets({
               styleKey,
-              targetNodeId: motionTargetForInspector.nodeId,
+              targetNodeIds,
+              timelineOffset: (motionPlayhead * motionDurationMs) / 1000,
             });
-            instance.timelineOffset =
-              (motionPlayhead * motionDurationMs) / 1000;
             const nextDurationMs = Math.max(
               motionDurationMs,
-              motionNativeStyleEndTimeMs(instance),
+              ...instances.map(motionNativeStyleEndTimeMs),
             );
-            setMotionNativeStyles((current) => [...current, instance]);
+            setMotionNativeStyles((current) => [...current, ...instances]);
             if (nextDurationMs !== motionDurationMs) {
               handleMotionDurationChange(nextDurationMs);
             } else {

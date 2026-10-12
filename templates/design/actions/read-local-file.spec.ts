@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn().mockResolvedValue(undefined),
   fetch: vi.fn(),
+  getDb: vi.fn(),
+  verifyReceipt: vi.fn().mockResolvedValue(true),
+  issueChallenge: vi.fn().mockReturnValue("server-challenge"),
   resolveScope: vi.fn().mockResolvedValue({
     ownerEmail: "motion-test@example.invalid",
     orgId: null,
@@ -15,6 +18,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (message: string) => {
+    throw new Error(message);
+  },
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -33,12 +39,23 @@ vi.mock("../server/lib/localhost-connection.js", () => ({
   resolveLocalhostConnectionScope: mocks.resolveScope,
 }));
 
+vi.mock("../server/db/index.js", () => ({
+  getDb: mocks.getDb,
+  schema: { designs: { data: "design.data", id: "design.id" } },
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: (...args: unknown[]) => args,
+}));
+
 vi.mock("./motion-localhost-relay.js", () => ({
   localhostBridgeRelayStep: vi.fn(),
+  verifyLocalhostBridgeReceipt: mocks.verifyReceipt,
 }));
 
 vi.mock("./visual-edit-browser-request.js", () => ({
-  createLocalhostBridgeRelay: vi.fn(),
+  createLocalhostBridgeRelay: (relay: unknown) => relay,
+  issueLocalhostBridgeChallenge: mocks.issueChallenge,
   isLocalhostBridgeRelayRequest: () => false,
 }));
 
@@ -63,6 +80,31 @@ describe("read-local-file bridge response contract", () => {
         versionHash: "a".repeat(64),
       }),
     });
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () =>
+              Promise.resolve([
+                {
+                  data: {
+                    sourceType: "localhost",
+                    connectionId: "connection-test",
+                    screenMetadata: {
+                      "screen-test": {
+                        sourceType: "localhost",
+                        connectionId: "connection-test",
+                        sourceFile: "app/routes/home.tsx",
+                      },
+                    },
+                  },
+                },
+              ]),
+          }),
+        }),
+      }),
+    });
+    mocks.verifyReceipt.mockResolvedValue(true);
   });
 
   it("returns complete source content and its bridge version hash", async () => {
@@ -118,5 +160,64 @@ describe("read-local-file bridge response contract", () => {
     ).rejects.toThrow(
       /invalid response; expected string content and versionHash/,
     );
+  });
+
+  it("roots module verification in saved screen metadata and returns no source", async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+        reachable: true,
+        operationReceipt: "a".repeat(64),
+      }),
+    });
+
+    await expect(
+      action.run({
+        designId: "design-test",
+        connectionId: "connection-test",
+        path: "app/components/Card.tsx",
+        motionScreenId: "screen-test",
+      }),
+    ).resolves.toEqual({
+      designId: "design-test",
+      connectionId: "connection-test",
+      routePath: "app/routes/home.tsx",
+      modulePath: "app/components/Card.tsx",
+      reachable: true,
+      operationReceipt: "a".repeat(64),
+    });
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "verify-module-provenance",
+        body: {
+          routePath: "app/routes/home.tsx",
+          modulePath: "app/components/Card.tsx",
+          motionRelayChallenge: "server-challenge",
+        },
+      }),
+    );
+  });
+
+  it("rejects a persisted path when the bridge graph says it is unrelated", async () => {
+    mocks.fetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/other/Unrelated.tsx",
+        reachable: false,
+        operationReceipt: "a".repeat(64),
+      }),
+    });
+
+    await expect(
+      action.run({
+        designId: "design-test",
+        connectionId: "connection-test",
+        path: "app/other/Unrelated.tsx",
+        motionScreenId: "screen-test",
+      }),
+    ).rejects.toThrow(/not imported by the selected screen/);
   });
 });

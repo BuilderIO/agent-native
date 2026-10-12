@@ -206,6 +206,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
 import action from "./remove-motion-timeline.js";
 
 function setFile(
@@ -287,6 +288,31 @@ describe("remove-motion-timeline", () => {
       '<h1 data-agent-native-node-id="node-1">Hello</h1>',
     );
     expect(mocks.deleteChain.where).toHaveBeenCalled();
+  });
+
+  it("restores authored pathLength after removing an inline Path trim timeline", async () => {
+    setTimeline("timeline-1");
+    const original =
+      '<svg><path data-agent-native-node-id="trim-target" d="M0 0L10 10" pathLength="24" /></svg>';
+    const pathTrimSource = applyMotionPathTrimSource(
+      original,
+      ["trim-target"],
+      "html",
+    );
+    setFile(
+      `<html><body><style data-agent-native-motion>.a{}</style>\n${pathTrimSource}</body></html>`,
+    );
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(result.htmlPatched).toBe(true);
+    expect(lastSavedContent()).toBe(`<html><body>${original}</body></html>`);
+    expect(lastSavedContent()).not.toContain(
+      "data-agent-native-motion-path-length",
+    );
   });
 
   it("cleans only the linked secondary HTML file", async () => {

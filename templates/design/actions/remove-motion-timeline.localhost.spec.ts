@@ -4,19 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   let timelineRows: Array<Record<string, unknown>> = [];
-  const designData = JSON.stringify({
-    sourceType: "localhost",
-    connectionId: "connection-1",
-    screenMetadata: {
-      "screen-1": {
-        sourceType: "localhost",
-        connectionId: "connection-1",
-        sourceFile: "app/routes/home.tsx",
-        path: "/home",
-        url: "http://localhost:5173/home",
-      },
-    },
-  });
+  let designData = "";
 
   const timelineChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
   timelineChain.from.mockReturnValue(timelineChain);
@@ -26,7 +14,9 @@ const mocks = vi.hoisted(() => {
   const designChain = { from: vi.fn(), where: vi.fn(), limit: vi.fn() };
   designChain.from.mockReturnValue(designChain);
   designChain.where.mockReturnValue(designChain);
-  designChain.limit.mockResolvedValue([{ data: designData }]);
+  designChain.limit.mockImplementation(() =>
+    Promise.resolve([{ data: designData }]),
+  );
 
   const deleteChain = { where: vi.fn() };
   deleteChain.where.mockResolvedValue(undefined);
@@ -50,6 +40,21 @@ const mocks = vi.hoisted(() => {
     setTimelineRows: (rows: Array<Record<string, unknown>>) => {
       timelineRows = rows;
     },
+    setDesignSourceFile: (sourceFile: string) => {
+      designData = JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile,
+            path: "/home",
+            url: "http://localhost:5173/home",
+          },
+        },
+      });
+    },
   };
 });
 
@@ -70,7 +75,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: mocks.and,
   eq: mocks.eq,
 }));
@@ -113,6 +119,9 @@ vi.mock("./write-local-file.js", () => ({
   default: { run: mocks.writeLocal },
 }));
 
+import { applyMotionHtmlSourceEdit } from "../shared/motion-html-source.js";
+import { createMotionNativeStyleInstance } from "../shared/motion-native-style-runtime.js";
+import { applyMotionPathTrimSource } from "../shared/motion-path-trim-source.js";
 import { applyMotionReactSourceEdit } from "../shared/motion-react-source.js";
 import type { MotionTimeline } from "../shared/motion-timeline.js";
 import action from "./remove-motion-timeline.js";
@@ -182,6 +191,43 @@ const managedTextOnlySource = applyMotionReactSourceEdit({
   timeline: { ...timeline, tracks: [] },
   textDocument,
 }).source;
+const pathSource = `function Home() {
+  return (
+    <main>
+      <svg>
+        <path data-agent-native-node-id="trim-target" d="M0 0L10 10" pathLength={24} />
+      </svg>
+    </main>
+  );
+}
+`;
+const nativePathStyle = createMotionNativeStyleInstance({
+  styleKey: "Path",
+  targetNodeId: "trim-target",
+});
+const managedPathSource = applyMotionPathTrimSource(
+  applyMotionReactSourceEdit({
+    currentSource: pathSource,
+    expectedSource: pathSource,
+    preview: { sourceHash: sourceHash(pathSource) },
+    timeline: {
+      ...timeline,
+      tracks: [],
+      nativeStyles: [nativePathStyle],
+    },
+  }).source,
+  ["trim-target"],
+  "tsx",
+);
+const htmlSourcePath = "pages/home.html";
+const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+const managedHtmlSource = applyMotionHtmlSourceEdit({
+  currentSource: htmlSource,
+  expectedSource: htmlSource,
+  preview: { sourceHash: sourceHash(htmlSource) },
+  sourceFilePath: htmlSourcePath,
+  timeline: { ...timeline, filePath: htmlSourcePath },
+}).source;
 
 describe("remove-motion-timeline localhost React source", () => {
   beforeEach(() => {
@@ -195,7 +241,11 @@ describe("remove-motion-timeline localhost React source", () => {
         filePath: "app/routes/home.tsx",
       },
     ]);
+    mocks.setDesignSourceFile("app/routes/home.tsx");
     mocks.readLocal
+      .mockResolvedValueOnce({
+        reachable: true,
+      })
       .mockResolvedValueOnce({
         content: managedSource,
         versionHash: beforeHash,
@@ -217,6 +267,12 @@ describe("remove-motion-timeline localhost React source", () => {
       designId: "design-1",
       connectionId: "connection-1",
       path: "app/routes/home.tsx",
+      motionScreenId: "screen-1",
+    });
+    expect(mocks.readLocal).toHaveBeenNthCalledWith(2, {
+      designId: "design-1",
+      connectionId: "connection-1",
+      path: "app/routes/home.tsx",
     });
     expect(mocks.writeLocal).toHaveBeenCalledWith({
       designId: "design-1",
@@ -226,7 +282,7 @@ describe("remove-motion-timeline localhost React source", () => {
       expectedVersionHash: beforeHash,
       requireExpectedVersionHash: true,
     });
-    expect(mocks.readLocal).toHaveBeenNthCalledWith(2, {
+    expect(mocks.readLocal).toHaveBeenNthCalledWith(3, {
       designId: "design-1",
       connectionId: "connection-1",
       path: "app/routes/home.tsx",
@@ -240,9 +296,51 @@ describe("remove-motion-timeline localhost React source", () => {
     });
   });
 
+  it("removes managed Motion source from the linked HTML route before deleting the row", async () => {
+    mocks.setDesignSourceFile(htmlSourcePath);
+    mocks.setTimelineRows([
+      {
+        id: "timeline-1",
+        sourceRef: "screen-1",
+        filePath: htmlSourcePath,
+      },
+    ]);
+    mocks.readLocal
+      .mockReset()
+      .mockResolvedValueOnce({ reachable: true })
+      .mockResolvedValueOnce({
+        content: managedHtmlSource,
+        versionHash: beforeHash,
+      })
+      .mockResolvedValueOnce({ content: htmlSource, versionHash: afterHash });
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(mocks.writeLocal).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      relPath: htmlSourcePath,
+      content: htmlSource,
+      expectedVersionHash: beforeHash,
+      requireExpectedVersionHash: true,
+    });
+    expect(mocks.db.delete).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      filePath: htmlSourcePath,
+      sourcePatched: true,
+      versionHash: afterHash,
+      deleted: true,
+      bytesAfter: htmlSource.length,
+    });
+  });
+
   it("preserves the timeline row when the bridge cannot verify cleanup", async () => {
     mocks.readLocal.mockReset();
     mocks.readLocal
+      .mockResolvedValueOnce({ reachable: true })
       .mockResolvedValueOnce({
         content: managedSource,
         versionHash: beforeHash,
@@ -261,7 +359,10 @@ describe("remove-motion-timeline localhost React source", () => {
   });
 
   it("preserves the timeline row when the bridge version hash is unavailable", async () => {
-    mocks.readLocal.mockReset().mockResolvedValue({ content: managedSource });
+    mocks.readLocal
+      .mockReset()
+      .mockResolvedValueOnce({ reachable: true })
+      .mockResolvedValueOnce({ content: managedSource });
 
     await expect(
       action.run({ designId: "design-1", timelineId: "timeline-1" }),
@@ -272,7 +373,10 @@ describe("remove-motion-timeline localhost React source", () => {
   });
 
   it("preserves the timeline row when the bridge omits source content", async () => {
-    mocks.readLocal.mockReset().mockResolvedValue({ versionHash: beforeHash });
+    mocks.readLocal
+      .mockReset()
+      .mockResolvedValueOnce({ reachable: true })
+      .mockResolvedValueOnce({ versionHash: beforeHash });
 
     await expect(
       action.run({ designId: "design-1", timelineId: "timeline-1" }),
@@ -288,6 +392,7 @@ describe("remove-motion-timeline localhost React source", () => {
   it("removes a text-only React timeline without removing its static text", async () => {
     mocks.readLocal
       .mockReset()
+      .mockResolvedValueOnce({ reachable: true })
       .mockResolvedValueOnce({
         content: managedTextOnlySource,
         versionHash: beforeHash,
@@ -308,5 +413,58 @@ describe("remove-motion-timeline localhost React source", () => {
       deleted: true,
       bytesAfter: source.length,
     });
+  });
+
+  it("restores authored pathLength when removing a native Path timeline", async () => {
+    mocks.readLocal
+      .mockReset()
+      .mockResolvedValueOnce({ reachable: true })
+      .mockResolvedValueOnce({
+        content: managedPathSource,
+        versionHash: beforeHash,
+      })
+      .mockResolvedValueOnce({ content: pathSource, versionHash: afterHash });
+
+    const result = await action.run({
+      designId: "design-1",
+      timelineId: "timeline-1",
+    });
+
+    expect(mocks.writeLocal).toHaveBeenCalledWith(
+      expect.objectContaining({ content: pathSource }),
+    );
+    expect(mocks.db.delete).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      sourcePatched: true,
+      deleted: true,
+      bytesAfter: pathSource.length,
+    });
+  });
+
+  it("preserves a persisted timeline path outside the saved screen import graph", async () => {
+    mocks.setTimelineRows([
+      {
+        id: "timeline-1",
+        sourceRef: "screen-1",
+        filePath: "app/components/Unrelated.tsx",
+      },
+    ]);
+    mocks.readLocal.mockReset().mockResolvedValue({ reachable: false });
+
+    await expect(
+      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_local_source_module_not_imported",
+      statusCode: 422,
+    });
+
+    expect(mocks.readLocal).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      path: "app/components/Unrelated.tsx",
+      motionScreenId: "screen-1",
+    });
+    expect(mocks.writeLocal).not.toHaveBeenCalled();
+    expect(mocks.db.delete).not.toHaveBeenCalled();
   });
 });

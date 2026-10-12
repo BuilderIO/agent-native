@@ -159,8 +159,10 @@ interface ManagedStyle {
 interface ManagedTextAnimation {
   element: TypeScript.JsxElement;
   child: TypeScript.JsxElement;
-  animation: MotionTextAnimation;
+  targetNodeId: string;
+  animations: MotionTextAnimation[];
   attribute: TypeScript.JsxAttribute;
+  attributeName: "animation" | "animations";
   playbackMode: MotionPlaybackMode | null;
   playbackModeAttribute?: TypeScript.JsxAttribute;
   componentName: string;
@@ -263,13 +265,13 @@ export function applyMotionReactSourceEdit(
   const managedText = findManagedTextAnimations(sourceFile, componentNames);
   const managedTextByTarget = new Set<string>();
   for (const existing of managedText) {
-    if (managedTextByTarget.has(existing.animation.targetNodeId)) {
+    if (managedTextByTarget.has(existing.targetNodeId)) {
       throw new MotionReactSourceError(
         "ambiguous-node",
-        `React source contains more than one Text animation for target "${existing.animation.targetNodeId}".`,
+        `React source contains more than one Motion Text wrapper for target "${existing.targetNodeId}".`,
       );
     }
-    managedTextByTarget.add(existing.animation.targetNodeId);
+    managedTextByTarget.add(existing.targetNodeId);
   }
 
   const edits: Array<{ start: number; end: number; text: string }> = [];
@@ -303,19 +305,23 @@ export function applyMotionReactSourceEdit(
     });
   }
 
-  const incomingText = new Map(
-    (textDocument?.animations ?? []).map((animation) => [
-      animation.targetNodeId,
-      animation,
-    ]),
-  );
+  const incomingText = new Map<string, MotionTextAnimation[]>();
+  for (const animation of textDocument?.animations ?? []) {
+    const targetAnimations = incomingText.get(animation.targetNodeId) ?? [];
+    targetAnimations.push(animation);
+    incomingText.set(animation.targetNodeId, targetAnimations);
+  }
   for (const existing of managedText) {
-    const next = incomingText.get(existing.animation.targetNodeId);
+    const next = incomingText.get(existing.targetNodeId);
     if (next) {
+      const useArray =
+        existing.attributeName === "animations" || next.length > 1;
       edits.push({
-        start: existing.attribute.initializer!.getStart(sourceFile),
-        end: existing.attribute.initializer!.end,
-        text: `{${JSON.stringify(next)}}`,
+        start: existing.attribute.getStart(sourceFile),
+        end: existing.attribute.end,
+        text: `${useArray ? "animations" : "animation"}={${JSON.stringify(
+          useArray ? next : next[0],
+        )}}`,
       });
       if (existing.playbackModeAttribute?.initializer) {
         edits.push({
@@ -331,7 +337,7 @@ export function applyMotionReactSourceEdit(
           text: ` playbackMode=${JSON.stringify(playbackMode)}`,
         });
       }
-      incomingText.delete(existing.animation.targetNodeId);
+      incomingText.delete(existing.targetNodeId);
     } else {
       edits.push({
         start: existing.element.getStart(sourceFile),
@@ -358,7 +364,7 @@ export function applyMotionReactSourceEdit(
       "React Motion could not add the AgentNativeMotionText component import safely.",
     );
   }
-  for (const [targetNodeId, animation] of incomingText) {
+  for (const [targetNodeId, animations] of incomingText) {
     const target = targets.find(
       (candidate) => candidate.nodeId === targetNodeId,
     );
@@ -372,7 +378,7 @@ export function applyMotionReactSourceEdit(
     edits.push({
       start: target.element.getStart(sourceFile),
       end: target.element.getStart(sourceFile),
-      text: `<${componentName} playbackMode=${JSON.stringify(playbackMode)} animation={${JSON.stringify(animation)}}>`,
+      text: `<${componentName} playbackMode=${JSON.stringify(playbackMode)} ${animations.length > 1 ? "animations" : "animation"}={${JSON.stringify(animations.length > 1 ? animations : animations[0])}}>`,
     });
     edits.push({
       start: target.element.end,
@@ -443,7 +449,7 @@ export function readMotionReactSource(
       managedText.length > 0
         ? normalizeReactMotionTextDocument({
             version: MOTION_TEXT_SOURCE_VERSION,
-            animations: managedText.map((entry) => entry.animation),
+            animations: managedText.flatMap((entry) => entry.animations),
           })
         : null;
     const document = metadata.status === "valid" ? metadata.document : null;
@@ -1029,7 +1035,8 @@ function findManagedTextAnimations(
       const animationAttributes = attributes.filter(
         (attribute): attribute is TypeScript.JsxAttribute =>
           ts.isJsxAttribute(attribute) &&
-          attribute.name.getText(sourceFile) === "animation",
+          (attribute.name.getText(sourceFile) === "animation" ||
+            attribute.name.getText(sourceFile) === "animations"),
       );
       const playbackModeAttributes = attributes.filter(
         (attribute): attribute is TypeScript.JsxAttribute =>
@@ -1047,33 +1054,53 @@ function findManagedTextAnimations(
       ) {
         throw new MotionReactSourceError(
           "invalid-motion-text",
-          "AgentNativeMotionText requires one static animation object and at most one static playbackMode prop.",
+          "AgentNativeMotionText requires one static animation or animations prop and at most one static playbackMode prop.",
         );
       }
+      const attributeName = animationAttributes[0].name.getText(sourceFile);
       const animationValue = evaluateStaticExpression(
         animationAttributes[0].initializer.expression,
       );
+      const animationValues =
+        attributeName === "animation"
+          ? [animationValue]
+          : Array.isArray(animationValue)
+            ? animationValue
+            : null;
+      if (!animationValues || animationValues.length === 0) {
+        throw new MotionReactSourceError(
+          "invalid-motion-text",
+          "AgentNativeMotionText animations must be a non-empty static array.",
+        );
+      }
       const decoded = normalizeReactMotionTextDocument({
         version: MOTION_TEXT_SOURCE_VERSION,
-        animations: [animationValue],
+        animations: animationValues,
       });
-      const animation = decoded!.animations[0];
+      const animations = decoded!.animations;
+      const targetNodeId = animations[0]!.targetNodeId;
+      if (
+        animations.some((animation) => animation.targetNodeId !== targetNodeId)
+      ) {
+        throw new MotionReactSourceError(
+          "invalid-motion-text",
+          "One AgentNativeMotionText wrapper cannot target multiple nodes.",
+        );
+      }
       const playbackModeAttribute = attributes.find(
         (attribute): attribute is TypeScript.JsxAttribute =>
           ts.isJsxAttribute(attribute) &&
           attribute.name.getText(sourceFile) === "playbackMode",
       );
       const playbackMode = readManagedTextPlaybackMode(playbackModeAttribute);
-      const child = findSoleStaticTextChild(
-        sourceFile,
-        node,
-        animation.targetNodeId,
-      );
+      const child = findSoleStaticTextChild(sourceFile, node, targetNodeId);
       managed.push({
         element: node,
         child,
-        animation,
+        targetNodeId,
+        animations,
         attribute: animationAttributes[0],
+        attributeName: attributeName as "animation" | "animations",
         playbackMode,
         ...(playbackModeAttribute ? { playbackModeAttribute } : {}),
         componentName: node.openingElement.tagName.text,

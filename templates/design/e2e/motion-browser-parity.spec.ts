@@ -215,7 +215,8 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   page,
   request,
 }) => {
-  await page.setViewportSize({ width: 1728, height: 997 });
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
@@ -358,7 +359,9 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   const referenceDock = page
     .getByRole("region", { name: "Motion dock" })
     .first();
-  await expect(referenceDock.getByLabel("Duration")).toHaveValue("3601");
+  await expect(
+    referenceDock.getByRole("textbox", { name: "Duration" }),
+  ).toHaveValue("3601");
   const referencePlayhead = referenceDock.getByLabel("Current time");
   await referencePlayhead.fill("3601");
   await referencePlayhead.press("Tab");
@@ -628,15 +631,31 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
       width: rect.width,
     };
   });
-  expect(initialPositionSpan.endMs).toBe(500);
+  expect(initialPositionSpan.endMs).toBe(1000);
   const targetPositionDurationMs = 901;
   const positionSpanEndHandle = positionSpan.locator(
     '[data-motion-native-style-span-handle="end"]',
   );
+  const timelineViewport = dock.locator("[data-motion-timeline-viewport]");
+  const durationViewportBounds = await timelineViewport.boundingBox();
+  if (!durationViewportBounds)
+    throw new Error("The timeline viewport is missing.");
+  await timelineViewport.evaluate((element) => {
+    element.scrollLeft = Math.min(
+      64,
+      element.scrollWidth - element.clientWidth,
+    );
+  });
+  await expect
+    .poll(() => timelineViewport.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
   const positionSpanEndHandleBox = await positionSpanEndHandle.boundingBox();
   if (!positionSpanEndHandleBox) {
     throw new Error("The Position duration handle is not rendered.");
   }
+  expect(
+    positionSpanEndHandleBox.x + positionSpanEndHandleBox.width / 2,
+  ).toBeLessThan(durationViewportBounds.x + durationViewportBounds.width);
   const positionDurationSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -660,6 +679,9 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     steps: 8,
   });
   await page.mouse.up();
+  await expect
+    .poll(() => positionSpan.getAttribute("aria-valuetext"))
+    .toBe("0ms – 901ms");
   const savedPositionDuration = await positionDurationSave;
   expect(savedPositionDuration.ok(), await savedPositionDuration.text()).toBe(
     true,
@@ -864,7 +886,9 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   await expect(timeFormat).toHaveText("ms");
   await timeFormat.click();
   await expect(timeFormat).toHaveText("s");
-  await expect(dock.getByLabel("Duration")).toHaveValue("1");
+  await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
+    "2",
+  );
   await timeFormat.click();
   await expect(timeFormat).toHaveText("ms");
 
@@ -920,7 +944,6 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   await expect(zoom).toHaveAttribute("aria-valuenow", initialZoom ?? "");
 
   const timelineHeader = dock.locator("[data-motion-timeline-header]");
-  const timelineViewport = dock.locator("[data-motion-timeline-viewport]");
   const timelineHeaderBox = await timelineHeader.boundingBox();
   if (!timelineHeaderBox)
     throw new Error("The Motion timeline header is missing.");
@@ -1017,7 +1040,7 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     dock.locator('[data-motion-native-style-row="Scale"]'),
   ).toBeVisible();
   await expect(dock.getByLabel("Keyframe at 0ms")).toHaveCount(4);
-  await expect(dock.getByLabel("Keyframe at 1000ms")).toHaveCount(4);
+  await expect(dock.getByLabel("Keyframe at 2000ms")).toHaveCount(4);
   const timelineTrackRows = dock.locator("[data-motion-track-row]");
   await expect(timelineTrackRows).toHaveCount(4);
   const positionTimelineRow = timelineTrackRows.nth(3);
@@ -1030,7 +1053,7 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     )
     .toContain(`agent-native-motion-source:v${MOTION_CODE_METADATA_VERSION}`);
 
-  const duration = dock.getByLabel("Duration");
+  const duration = dock.getByRole("textbox", { name: "Duration" });
   const durationSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
@@ -1272,7 +1295,9 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   await page.getByRole("tab", { name: "Design", exact: true }).click();
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
-  await expect(dock.getByLabel("Duration")).toHaveValue("3601");
+  await expect(dock.getByRole("textbox", { name: "Duration" })).toHaveValue(
+    "3601",
+  );
   await expect(
     positionTimelineRow.getByLabel("Keyframe at 3601ms"),
   ).toBeVisible();

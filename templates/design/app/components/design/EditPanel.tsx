@@ -485,7 +485,9 @@ interface EditPanelProps {
     nodeId: string;
     label: string;
     isText?: boolean;
+    isPath?: boolean;
   } | null;
+  onMotionOriginEditingChange?: (open: boolean) => void;
   onCreateMotionTrack?: (preset: MotionPropertyPreset) => void;
   onCreateMotionStyle?: (style: MotionAnimationStyle) => void;
   motionNativeStyles?: MotionNativeStyleInstance[];
@@ -505,8 +507,8 @@ interface EditPanelProps {
     tracks: MotionAnimationStyleTrackDefinition[],
   ) => void;
   onCreateMotionTextAnimation?: () => void;
-  motionTextAnimation?: MotionTextAnimation | null;
-  onMotionTextAnimationChange?: (animation: MotionTextAnimation | null) => void;
+  motionTextAnimations?: MotionTextAnimation[];
+  onMotionTextAnimationsChange?: (animations: MotionTextAnimation[]) => void;
   motionAudioClips?: MotionAudioClip[];
   onMotionAudioClipsChange?: (clips: MotionAudioClip[]) => void;
   motionAudioPlayheadMs?: number;
@@ -2442,6 +2444,7 @@ export const EditPanel = memo(function EditPanel({
   motionKeyframeState,
   onToggleMotionKeyframe,
   motionSelectedTarget,
+  onMotionOriginEditingChange,
   onCreateMotionTrack,
   onCreateMotionStyle,
   motionNativeStyles = [],
@@ -2455,8 +2458,8 @@ export const EditPanel = memo(function EditPanel({
   onApplyMotionAnimationStyle,
   onSaveMotionAnimationStyle,
   onCreateMotionTextAnimation,
-  motionTextAnimation,
-  onMotionTextAnimationChange,
+  motionTextAnimations,
+  onMotionTextAnimationsChange,
   motionAudioClips,
   onMotionAudioClipsChange,
   motionAudioPlayheadMs = 0,
@@ -3360,13 +3363,12 @@ export const EditPanel = memo(function EditPanel({
                   ) : null}
                   {selectedCount === 1 &&
                   motionSelectedTarget?.isText &&
-                  motionTextAnimation ? (
+                  (motionTextAnimations?.length ?? 0) > 0 ? (
                     <MotionTextAnimationEditor
-                      animation={motionTextAnimation}
-                      onChange={(animation) =>
-                        onMotionTextAnimationChange?.(animation)
+                      animations={motionTextAnimations ?? []}
+                      onChange={(animations) =>
+                        onMotionTextAnimationsChange?.(animations)
                       }
-                      onRemove={() => onMotionTextAnimationChange?.(null)}
                       disabled={motionWriteUnavailable}
                       t={t}
                     />
@@ -3381,6 +3383,7 @@ export const EditPanel = memo(function EditPanel({
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                     motionInspector={resolvedActiveTab === "motion"}
+                    onMotionOriginEditingChange={onMotionOriginEditingChange}
                   />
                   {resolvedActiveTab !== "motion" &&
                   activeTool === "scale" &&

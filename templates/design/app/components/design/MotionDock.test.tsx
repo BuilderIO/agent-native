@@ -2,7 +2,10 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { MotionAudioClip } from "@shared/motion-code";
-import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import type {
+  MotionNativeStyleInstance,
+  MotionNativeStyleKey,
+} from "@shared/motion-native-style";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -107,6 +110,7 @@ const CATALOG_MESSAGES = {
         size: "Size",
         opacity: "Opacity",
       },
+      nativeTextStagger: { create: "Text Stagger" },
       autoKeyframe: "Auto-keyframe",
       savingMotion: "Saving motion",
       emptyStateAnimate: "Animate",
@@ -114,6 +118,7 @@ const CATALOG_MESSAGES = {
       emptyStateNoSelection:
         "Select an element on the canvas, then add a track to animate it.",
       addMotion: "Add animation",
+      tabLabel: "Motion",
       text: "Text",
       size: "Size",
       selectElementFirst: "Select an element on the canvas first",
@@ -393,6 +398,8 @@ describe("Motion animation style menu", () => {
     isText: boolean,
     onCreateText = vi.fn(),
     onCreateStyle = vi.fn(),
+    onCreateNativeStyle?: (styleKey: MotionNativeStyleKey) => void,
+    isPath = false,
   ) {
     await act(async () => {
       root.render(
@@ -404,9 +411,15 @@ describe("Motion animation style menu", () => {
         >
           <TooltipProvider>
             {createElement(AddTrackMenu, {
-              selectedTarget: { nodeId: "heading", label: "Heading", isText },
+              selectedTarget: {
+                nodeId: isPath ? "path-1" : "heading",
+                label: isPath ? "Path" : "Heading",
+                isText,
+                isPath,
+              },
               onCreateTrack: vi.fn(),
               onCreateStyle,
+              onCreateNativeStyle,
               onCreateText,
             })}
           </TooltipProvider>
@@ -416,12 +429,11 @@ describe("Motion animation style menu", () => {
     return onCreateText;
   }
 
-  it("matches Figma's animation choices and order for text layers", async () => {
-    await renderMenu(true);
-    const trigger = Array.from(
-      container.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.trim() === "Add animation");
-    expect(trigger).toBeDefined();
+  async function openMenu(label: string) {
+    const trigger = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
+    expect(trigger).not.toBeNull();
     await act(async () =>
       trigger!.dispatchEvent(
         new MouseEvent("pointerdown", {
@@ -431,12 +443,39 @@ describe("Motion animation style menu", () => {
         }),
       ),
     );
+  }
+
+  function menuItemLabels() {
+    return Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).map((item) => item.textContent?.trim());
+  }
+
+  async function selectMenuItem(label: string) {
+    const item = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((candidate) => candidate.textContent?.trim() === label);
+    expect(item).toBeDefined();
+    await act(async () => {
+      item!.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+      item!.click();
+    });
+  }
+
+  it("matches Figma's animation choices and order for text layers", async () => {
+    await renderMenu(true);
+    await openMenu("Add animation");
 
     const menuItems = Array.from(
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     );
     expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      "Text",
       "Position",
       "Scale",
       "Rotation",
@@ -507,6 +546,7 @@ describe("Motion animation style menu", () => {
               selectedTarget: {
                 nodeId: "rectangle",
                 label: "Rectangle",
+                isText: false,
               },
               onCreateNativeStyle,
               onCreateTrack: vi.fn(),
@@ -531,6 +571,11 @@ describe("Motion animation style menu", () => {
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.trim() === "Position");
     expect(positionItem).toBeDefined();
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.trim() === "Text Stagger"),
+    ).toBe(false);
     await act(async () => {
       positionItem!.dispatchEvent(
         new MouseEvent("pointerdown", {
@@ -544,52 +589,107 @@ describe("Motion animation style menu", () => {
     expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Position");
   });
 
+  it("keeps native Text Stagger out of Add animation and exposes it in More Motion", async () => {
+    const onCreateNativeStyle = vi.fn();
+    await renderMenu(true, vi.fn(), vi.fn(), onCreateNativeStyle);
+    await openMenu("Add animation");
+    expect(menuItemLabels()).toEqual([
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
+
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await openMenu("More Motion");
+    expect(menuItemLabels()).toEqual(["Text", "Text Stagger"]);
+    await selectMenuItem("Text Stagger");
+    expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("TextStagger");
+  });
+
+  it("offers Path trim only for SVG path targets", async () => {
+    const onCreateNativeStyle = vi.fn();
+    await renderMenu(false, vi.fn(), vi.fn(), onCreateNativeStyle, true);
+    await openMenu("Add animation");
+    expect(menuItemLabels()).toEqual([
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await openMenu("More Motion");
+    expect(menuItemLabels()).toEqual(["Path"]);
+    await selectMenuItem("Path");
+    expect(onCreateNativeStyle).toHaveBeenCalledExactlyOnceWith("Path");
+  });
+
   it("offers and creates Text animation only for text layers", async () => {
     const onCreateText = vi.fn();
     await renderMenu(true, onCreateText);
-    const openMenu = async () => {
-      const trigger = Array.from(
-        container.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((button) => button.textContent?.trim() === "Add animation");
-      expect(trigger).toBeDefined();
-      await act(async () =>
-        trigger!.dispatchEvent(
-          new MouseEvent("pointerdown", {
-            bubbles: true,
-            button: 0,
-            ctrlKey: false,
-          }),
-        ),
-      );
-    };
-    await openMenu();
-    const textItem = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "Text");
-    expect(textItem).toBeDefined();
+    await openMenu("Add animation");
+    expect(menuItemLabels()).toEqual([
+      "Position",
+      "Scale",
+      "Rotation",
+      "Size",
+      "Opacity",
+    ]);
     await act(async () => {
-      textItem!.dispatchEvent(
-        new MouseEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          ctrlKey: false,
-        }),
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
-      textItem!.click();
     });
+    await openMenu("More Motion");
+    expect(menuItemLabels()).toEqual(["Text"]);
+    await selectMenuItem("Text");
     expect(onCreateText).toHaveBeenCalledOnce();
 
     await renderMenu(false);
-    await openMenu();
-    expect(
-      Array.from(
-        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).some((item) => item.textContent === "Text"),
-    ).toBe(false);
+    expect(container.querySelector('button[aria-label="More Motion"]')).toBe(
+      null,
+    );
   });
 });
 
 describe("MotionDock toolbar layout", () => {
+  it("uses the red playhead while auto-keyframing is enabled", async () => {
+    await renderInteractive({ tracks: sampleTracks });
+    const autoKeyframeToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Toggle auto-keyframing"]',
+    )!;
+    const playheads = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-playhead]"),
+    );
+    expect(playheads).toHaveLength(2);
+    expect(
+      playheads.every(
+        (playhead) => !playhead.hasAttribute("data-motion-auto-keyframe"),
+      ),
+    ).toBe(true);
+
+    await act(async () => autoKeyframeToggle.click());
+
+    expect(autoKeyframeToggle.getAttribute("aria-checked")).toBe("true");
+    expect(
+      playheads.every(
+        (playhead) =>
+          playhead.hasAttribute("data-motion-auto-keyframe") &&
+          playhead.classList.contains("bg-destructive"),
+      ),
+    ).toBe(true);
+  });
+
   it("keeps animation creation in the inspector and orders timeline controls", () => {
     const markup = render({ tracks: sampleTracks });
     expect(markup).toContain('aria-label="Play"');
@@ -816,6 +916,68 @@ describe("MotionDock time units and Size preset", () => {
     expect(Number(zoom?.getAttribute("aria-valuenow"))).toBeCloseTo(0.62);
   });
 
+  it("resizes the global timeline duration from its right-edge handle", async () => {
+    const onDurationChange = vi.fn();
+    await renderInteractive({ durationMs: 2000, onDurationChange });
+
+    const handle = container.querySelector<HTMLButtonElement>(
+      "[data-motion-timeline-duration-handle]",
+    )!;
+    expect(handle.getAttribute("role")).toBe("slider");
+    expect(handle.getAttribute("aria-valuenow")).toBe("2000");
+    expect(handle.getAttribute("aria-valuemin")).toBe("50");
+    expect(handle.style.left).toBe("2866.6px");
+
+    await dispatchPointer(handle, "pointerdown", {
+      clientX: 400,
+      clientY: 12,
+    });
+    await dispatchPointer(handle, "pointermove", {
+      clientX: 500,
+      clientY: 12,
+    });
+    await dispatchPointer(handle, "pointerup", {
+      clientX: 500,
+      clientY: 12,
+    });
+
+    expect(onDurationChange).toHaveBeenCalledExactlyOnceWith(2070);
+  });
+
+  it("supports keyboard duration adjustment and clamps to timeline limits", async () => {
+    const onDurationChange = vi.fn();
+    await renderInteractive({ durationMs: 2000, onDurationChange });
+    const handle = container.querySelector<HTMLButtonElement>(
+      "[data-motion-timeline-duration-handle]",
+    )!;
+
+    await act(async () => {
+      handle.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+      handle.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "ArrowLeft",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+      handle.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+      );
+      handle.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+      );
+    });
+
+    expect(onDurationChange.mock.calls).toEqual([
+      [2010],
+      [1000],
+      [50],
+      [120000],
+    ]);
+  });
+
   it("round-trips millisecond and second inputs without changing stored time", () => {
     expect(formatMotionTimeValue(1250, "ms")).toBe("1250");
     expect(formatMotionTimeValue(1250, "s")).toBe("1.25");
@@ -989,16 +1151,16 @@ describe("MotionDock — timeline body anatomy", () => {
     expect(onNativeStyleRemove).toHaveBeenCalledWith(sampleNativeStyle, 0);
   });
 
-  it("drags a native style timing span and leaves unsupported styles without a runnable bar", async () => {
+  it("drags native style timing spans and renders Path as a runnable bar", async () => {
     const onNativeStyleSpanChange = vi.fn();
-    const unsupportedStyle: MotionNativeStyleInstance = {
+    const pathStyle: MotionNativeStyleInstance = {
       ...sampleNativeStyle,
       styleKey: "Path",
       nameKey: "designEditor.motion.animationStyles.path",
       targetNodeId: "path-layer",
     };
     await renderInteractive({
-      nativeStyles: [sampleNativeStyle, unsupportedStyle],
+      nativeStyles: [sampleNativeStyle, pathStyle],
       layerLabels: new Map([
         ["hero", "Hero"],
         ["path-layer", "Path layer"],
@@ -1023,7 +1185,7 @@ describe("MotionDock — timeline body anatomy", () => {
     );
     expect(
       container.querySelector('[data-motion-native-style-span="Path"]'),
-    ).toBeNull();
+    ).not.toBeNull();
     expect(
       container.querySelector('[data-motion-native-style-row="Path"]'),
     ).not.toBeNull();
@@ -1170,6 +1332,72 @@ describe("MotionDock keyframe selection and deletion", () => {
       selectedTrackId: "hero\u001ftranslate",
       selectedKeyframeIds: [JSON.stringify(["hero\u001ftranslate", 0])],
     });
+  });
+
+  it("uses the latest playback mode in an active animation frame", async () => {
+    let nextFrameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = ++nextFrameId;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      frames.delete(id);
+    });
+
+    await renderInteractive({ playbackMode: "loop" });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Play"]')!
+        .click();
+    });
+    const [frameId, frame] = frames.entries().next().value!;
+
+    await renderInteractive({ playbackMode: "ping-pong" });
+    frames.delete(frameId);
+    await act(async () => frame(2500));
+
+    expect(
+      container
+        .querySelector("[data-motion-scrubber]")
+        ?.getAttribute("aria-valuenow"),
+    ).toBe("1500000");
+  });
+
+  it("stops playback when the dock closes", async () => {
+    let nextFrameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    const cancelAnimationFrame = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation((id) => {
+        frames.delete(id);
+      });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = ++nextFrameId;
+      frames.set(id, callback);
+      return id;
+    });
+    const onLiveStateChange = vi.fn();
+
+    await renderInteractive({ playbackMode: "loop", onLiveStateChange });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Play"]')!
+        .click();
+    });
+    const [frameId] = frames.keys();
+
+    await renderInteractive({
+      playbackMode: "loop",
+      onLiveStateChange,
+      open: false,
+    });
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(frameId);
+    expect(frames.size).toBe(0);
+    expect(onLiveStateChange.mock.lastCall?.[0].previewing).toBe(false);
   });
 
   it("disables previous-keyframe navigation before the first keyframe", async () => {

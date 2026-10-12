@@ -47,7 +47,14 @@ import {
   type MotionEasingVariable,
 } from "../shared/motion-easing.js";
 import {
+  applyMotionHtmlSourceEdit,
+  MotionHtmlSourceError,
+  readMotionHtmlSource,
+} from "../shared/motion-html-source.js";
+import {
   motionNativeStyleEndTimeMs,
+  motionTextDocumentWithNativeStyles,
+  motionTextDocumentWithoutNativeStyles,
   MotionNativeStyleRuntimeError,
 } from "../shared/motion-native-style-runtime.js";
 import {
@@ -55,6 +62,10 @@ import {
   MotionNativeStyleInstanceError,
   type MotionNativeStyleInstance,
 } from "../shared/motion-native-style.js";
+import {
+  applyMotionPathTrimSource,
+  MotionPathTrimSourceError,
+} from "../shared/motion-path-trim-source.js";
 import {
   applyMotionReactSourceEdit,
   MotionReactSourceError,
@@ -79,6 +90,7 @@ import {
   readTimelinePlaybackMode,
   motionTimelineDurationForContent,
   MOTION_PATH_MAX_CONTROL_OFFSET_PX,
+  MOTION_TIMELINE_DEFAULT_DURATION_MS,
   MOTION_TIMELINE_MAX_DURATION_MS,
   parseMotionPosition,
   withTimelinePlaybackMode,
@@ -91,6 +103,7 @@ import {
 import {
   isLocalhostBridgeRelay,
   runLocalhostBridgeStep,
+  withMotionLocalhostRelayIdentity,
 } from "./motion-localhost-relay.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
@@ -225,6 +238,16 @@ function failMotionTextSourceError(error: MotionTextSourceError): never {
 function failMotionReactSourceError(error: MotionReactSourceError): never {
   return fail(error.message, {
     errorCode: `motion_react_source_${error.code.replace(/-/g, "_")}`,
+    statusCode:
+      error.code === "stale-source" || error.code === "stale-preview"
+        ? 409
+        : 422,
+  });
+}
+
+function failMotionHtmlSourceError(error: MotionHtmlSourceError): never {
+  return fail(error.message, {
+    errorCode: `motion_html_source_${error.code.replace(/-/g, "_")}`,
     statusCode:
       error.code === "stale-source" || error.code === "stale-preview"
         ? 409
@@ -560,11 +583,11 @@ export default defineAction({
       .strict()
       .optional()
       .describe(
-        "Local React source snapshot from the Vite dev preview. The source " +
+        "Local React/JSX or linked HTML source snapshot from the Vite dev preview. The source " +
           "module path and SHA-256 hash are checked against the selected " +
           "localhost file before writeback. renderedNodeIds is an optional " +
           "legacy hint and is not used to authorize targets; target identity " +
-          "is resolved from the live JSX source.",
+          "is resolved from the live React or HTML source.",
       ),
     tracks: z
       .preprocess(
@@ -585,7 +608,7 @@ export default defineAction({
       )
       .optional()
       .describe(
-        "Versioned Text animation source for static inline HTML or React JSX. " +
+        "Versioned Text animation source for static inline or linked HTML, or React JSX. " +
           "Omit to preserve existing text animations, provide a document to " +
           "replace them, or provide null to remove them. React targets must " +
           "have static JSX text children.",
@@ -647,7 +670,7 @@ export default defineAction({
       // Keep in sync with the MotionDock default (DesignEditor
       // motionDurationMs) and get-motion-timeline's CSS-recovery fallback so
       // an omitted duration means the same thing on every surface.
-      .default(1000)
+      .default(MOTION_TIMELINE_DEFAULT_DURATION_MS)
       .describe(
         "Total animation duration in milliseconds. " +
           `Capped at ${MAX_MOTION_DURATION_MS}ms (${
@@ -696,8 +719,13 @@ export default defineAction({
           "Required when currentContent is supplied.",
       ),
   }),
-  run: async (
-    {
+  run: async (args, context) => {
+    context = withMotionLocalhostRelayIdentity(
+      context,
+      "apply-motion-edit",
+      args,
+    );
+    const {
       designId,
       fileId: fileIdInput,
       timelineId,
@@ -715,9 +743,7 @@ export default defineAction({
       includeContent,
       currentContent: currentContentInput,
       revision,
-    },
-    context,
-  ) => {
+    } = args;
     const access = await assertAccess("design", designId, "editor");
 
     const db = getDb();
@@ -725,7 +751,7 @@ export default defineAction({
 
     if (localSourceInput && !sourceRef) {
       fail(
-        "Local React Motion edits require the selected localhost screen as sourceRef.",
+        "Local Motion source edits require the selected localhost screen as sourceRef.",
         { errorCode: "motion_local_source_screen_required", statusCode: 422 },
       );
     }
@@ -810,7 +836,7 @@ export default defineAction({
     if (localSourceInput) {
       if (currentContentInput !== undefined || revision !== undefined) {
         fail(
-          "Local React Motion edits read the current source through the localhost bridge; currentContent and revision are not accepted.",
+          "Local Motion source edits read the current source through the localhost bridge; currentContent and revision are not accepted.",
           {
             errorCode: "motion_local_source_inline_snapshot_unsupported",
             statusCode: 422,
@@ -831,6 +857,27 @@ export default defineAction({
           failMotionLocalSourceError(error);
         }
         throw error;
+      }
+      const provenance = await runLocalhostBridgeStep({
+        action: readLocalFileAction,
+        actionArgs: {
+          designId,
+          connectionId: localSourceLocation.connectionId,
+          path: localSourceLocation.filePath,
+          motionScreenId: resolvedSourceRef,
+        },
+        context,
+        step: "source-provenance",
+      });
+      if (isLocalhostBridgeRelay(provenance)) return provenance;
+      if (provenance.reachable !== true) {
+        fail(
+          "The React Motion module is not in the selected screen's saved import graph.",
+          {
+            errorCode: "motion_local_source_module_not_imported",
+            statusCode: 422,
+          },
+        );
       }
       const live = await runLocalhostBridgeStep({
         action: readLocalFileAction,
@@ -854,7 +901,7 @@ export default defineAction({
       }
       if (localSourceInput.moduleVersionHash !== live.versionHash) {
         fail(
-          "The React preview or source changed after the target identities were captured. Refresh the preview and retry.",
+          "The localhost preview or source changed after the target identities were captured. Refresh the preview and retry.",
           { errorCode: "motion_local_source_stale_preview", statusCode: 409 },
         );
       }
@@ -879,11 +926,21 @@ export default defineAction({
       baseVersionHash = prepared.expectedVersionHash;
     }
 
-    const currentReactRead = localSourceLocation
-      ? readMotionReactSource(currentContent)
-      : null;
+    const isLocalHtmlSource = Boolean(
+      localSourceLocation && /\.html?$/i.test(localSourceLocation.filePath),
+    );
+    const currentReactRead =
+      localSourceLocation && !isLocalHtmlSource
+        ? readMotionReactSource(currentContent)
+        : null;
     if (currentReactRead?.status === "invalid") {
       failMotionReactSourceError(currentReactRead.error);
+    }
+    const currentHtmlRead = isLocalHtmlSource
+      ? readMotionHtmlSource(currentContent)
+      : null;
+    if (currentHtmlRead?.status === "invalid") {
+      failMotionHtmlSourceError(currentHtmlRead.error);
     }
     const currentTextRead = isInlineHtml
       ? readMotionTextDocument(currentContent)
@@ -891,13 +948,15 @@ export default defineAction({
     if (currentTextRead.status === "invalid") {
       failMotionTextSourceError(currentTextRead.error);
     }
-    const textDocument: MotionTextDocument | null =
+    const sourceTextDocument: MotionTextDocument | null =
       textDocumentInput === undefined
         ? currentReactRead?.status === "valid"
           ? currentReactRead.textDocument
-          : currentTextRead.status === "valid"
-            ? currentTextRead.document
-            : null
+          : currentHtmlRead?.status === "valid"
+            ? currentHtmlRead.textDocument
+            : currentTextRead.status === "valid"
+              ? currentTextRead.document
+              : null
         : textDocumentInput;
 
     const inlineMotionCss = isInlineHtml
@@ -915,27 +974,53 @@ export default defineAction({
     const existingAnimationStyles =
       currentReactRead?.status === "valid"
         ? (currentReactRead.document?.animationStyles ?? [])
-        : inlineMotionMetadata?.status === "valid"
-          ? (inlineMotionMetadata.document.animationStyles ?? [])
-          : [];
+        : currentHtmlRead?.status === "valid"
+          ? (currentHtmlRead.document?.animationStyles ?? [])
+          : inlineMotionMetadata?.status === "valid"
+            ? (inlineMotionMetadata.document.animationStyles ?? [])
+            : [];
     const existingNativeStyles =
       currentReactRead?.status === "valid"
         ? (currentReactRead.document?.nativeStyles ?? [])
-        : inlineMotionMetadata?.status === "valid"
-          ? (inlineMotionMetadata.document.nativeStyles ?? [])
-          : [];
+        : currentHtmlRead?.status === "valid"
+          ? (currentHtmlRead.document?.nativeStyles ?? [])
+          : inlineMotionMetadata?.status === "valid"
+            ? (inlineMotionMetadata.document.nativeStyles ?? [])
+            : [];
+    let textDocument: MotionTextDocument | null =
+      textDocumentInput === undefined ? sourceTextDocument : textDocumentInput;
+    if (textDocumentInput === undefined) {
+      try {
+        textDocument = motionTextDocumentWithoutNativeStyles(
+          sourceTextDocument,
+          existingNativeStyles,
+        );
+      } catch (error) {
+        if (error instanceof MotionNativeStyleRuntimeError) {
+          fail(error.message, {
+            errorCode: `motion_native_style_${error.code.replace(/-/g, "_")}`,
+            statusCode: 422,
+          });
+        }
+        throw error;
+      }
+    }
     const existingEasingVariables =
       currentReactRead?.status === "valid"
         ? (currentReactRead.document?.easingVariables ?? [])
-        : inlineMotionMetadata?.status === "valid"
-          ? (inlineMotionMetadata.document.easingVariables ?? [])
-          : [];
+        : currentHtmlRead?.status === "valid"
+          ? (currentHtmlRead.document?.easingVariables ?? [])
+          : inlineMotionMetadata?.status === "valid"
+            ? (inlineMotionMetadata.document.easingVariables ?? [])
+            : [];
     const existingMotionDocument =
       currentReactRead?.status === "valid"
         ? currentReactRead.document
-        : inlineMotionMetadata?.status === "valid"
-          ? inlineMotionMetadata.document
-          : undefined;
+        : currentHtmlRead?.status === "valid"
+          ? (currentHtmlRead.document ?? undefined)
+          : inlineMotionMetadata?.status === "valid"
+            ? inlineMotionMetadata.document
+            : undefined;
     const existingAudioClips = existingMotionDocument?.audioClips ?? [];
     const audioClips: MotionAudioClip[] =
       audioClipsInput === undefined
@@ -985,6 +1070,21 @@ export default defineAction({
           statusCode: 422,
         },
       );
+    }
+    let runtimeTextDocument: MotionTextDocument | null;
+    try {
+      runtimeTextDocument = motionTextDocumentWithNativeStyles(
+        textDocument,
+        nativeStyles,
+      );
+    } catch (error) {
+      if (error instanceof MotionNativeStyleRuntimeError) {
+        fail(error.message, {
+          errorCode: `motion_native_style_${error.code.replace(/-/g, "_")}`,
+          statusCode: 422,
+        });
+      }
+      throw error;
     }
     const animationStyles: MotionAnimationStyleDefinition[] =
       animationStylesInput ?? existingAnimationStyles;
@@ -1112,26 +1212,44 @@ export default defineAction({
 
     let reactSourceEdit: ReturnType<typeof applyMotionReactSourceEdit> | null =
       null;
+    let htmlSourceEdit: ReturnType<typeof applyMotionHtmlSourceEdit> | null =
+      null;
     let compiled: ReturnType<typeof compileMotionCode>;
     if (localSourceLocation && localSourceInput) {
       try {
-        reactSourceEdit = applyMotionReactSourceEdit({
-          currentSource: currentContent,
-          expectedSource: currentContent,
-          // The bridge SHA-256 checks above authorize the snapshot and CAS base.
-          // This helper hash is only an internal consistency check.
-          preview: {
-            sourceHash: localSourceInput.moduleVersionHash,
-          },
-          modulePath: localSourceLocation.filePath,
-          timeline: sourceTimeline,
-          textDocument,
-          easingVariables,
-          audioClips: sourceAudioClips,
-        });
+        if (isLocalHtmlSource) {
+          htmlSourceEdit = applyMotionHtmlSourceEdit({
+            currentSource: currentContent,
+            expectedSource: currentContent,
+            preview: { sourceHash: localSourceInput.moduleVersionHash },
+            sourceFilePath: localSourceLocation.filePath,
+            timeline: sourceTimeline,
+            textDocument: runtimeTextDocument,
+            easingVariables,
+            audioClips: sourceAudioClips,
+          });
+        } else {
+          reactSourceEdit = applyMotionReactSourceEdit({
+            currentSource: currentContent,
+            expectedSource: currentContent,
+            // The bridge SHA-256 checks above authorize the snapshot and CAS base.
+            // This helper hash is only an internal consistency check.
+            preview: {
+              sourceHash: localSourceInput.moduleVersionHash,
+            },
+            modulePath: localSourceLocation.filePath,
+            timeline: sourceTimeline,
+            textDocument: runtimeTextDocument,
+            easingVariables,
+            audioClips: sourceAudioClips,
+          });
+        }
       } catch (error) {
         if (error instanceof MotionReactSourceError) {
           failMotionReactSourceError(error);
+        }
+        if (error instanceof MotionHtmlSourceError) {
+          failMotionHtmlSourceError(error);
         }
         if (error instanceof MotionNativeStyleRuntimeError) {
           fail(error.message, {
@@ -1141,7 +1259,12 @@ export default defineAction({
         }
         throw error;
       }
-      compiled = { css: reactSourceEdit.css, hash: reactSourceEdit.hash };
+      const sourceEdit = htmlSourceEdit ?? reactSourceEdit;
+      if (!sourceEdit) {
+        // guard:allow-bare-error — invariant: the validated source extension selects exactly one adapter above.
+        throw new Error("Motion source adapter did not return an edit.");
+      }
+      compiled = { css: sourceEdit.css, hash: sourceEdit.hash };
     } else {
       try {
         compiled = compileMotionCode(sourceTimeline, {
@@ -1162,7 +1285,11 @@ export default defineAction({
     }
     const { css, hash } = compiled;
 
-    if (!reactSourceEdit && !canPatchManagedMotionCss(currentContent)) {
+    if (
+      !reactSourceEdit &&
+      !htmlSourceEdit &&
+      !canPatchManagedMotionCss(currentContent)
+    ) {
       fail(
         `${MOTION_SOURCE_WRITE_UNAVAILABLE}: Motion code writes currently work only in inline HTML designs.`,
         {
@@ -1174,13 +1301,15 @@ export default defineAction({
     const contentPatched = true;
     let patchedContent = reactSourceEdit
       ? reactSourceEdit.source
-      : injectManagedMotionCss(currentContent, css);
-    if (!localSourceLocation) {
+      : htmlSourceEdit
+        ? htmlSourceEdit.source
+        : injectManagedMotionCss(currentContent, css);
+    if (!localSourceLocation && !htmlSourceEdit) {
       try {
-        if (textDocument) {
+        if (runtimeTextDocument) {
           patchedContent = injectMotionTextRuntime(
             patchedContent,
-            textDocument,
+            runtimeTextDocument,
             resolvedPlaybackMode,
           );
         } else if (
@@ -1195,6 +1324,33 @@ export default defineAction({
         }
         throw error;
       }
+    }
+    try {
+      const pathTrimTargetNodeIds = [
+        ...typedTracks
+          .filter((track) => track.property === "path-trim")
+          .map((track) => track.targetNodeId),
+        ...nativeStyles
+          .filter(
+            (style) => style.styleKey === "Path" && style.enabled !== false,
+          )
+          .map((style) => style.targetNodeId),
+      ];
+      if (!htmlSourceEdit) {
+        patchedContent = applyMotionPathTrimSource(
+          patchedContent,
+          [...new Set(pathTrimTargetNodeIds)],
+          localSourceLocation ? "tsx" : "html",
+        );
+      }
+    } catch (error) {
+      if (error instanceof MotionPathTrimSourceError) {
+        fail(error.message, {
+          errorCode: `motion_path_trim_source_${error.code.replace(/-/g, "_")}`,
+          statusCode: 422,
+        });
+      }
+      throw error;
     }
     const bytesBefore = currentContent.length;
     const bytesAfter = patchedContent.length;

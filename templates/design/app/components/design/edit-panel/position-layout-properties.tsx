@@ -432,6 +432,7 @@ export function PositionLayoutProperties({
   motionKeyframeContext,
   breakpointOverrideContext,
   motionInspector = false,
+  onMotionOriginEditingChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
@@ -443,6 +444,7 @@ export function PositionLayoutProperties({
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   motionInspector?: boolean;
+  onMotionOriginEditingChange?: (open: boolean) => void;
 }) {
   const t = useT();
   const applePlatform = useApplePlatform();
@@ -514,6 +516,7 @@ export function PositionLayoutProperties({
             element={element}
             onStyleChange={onStyleChange}
             onStylesChange={onStylesChange}
+            onEditingChange={onMotionOriginEditingChange}
           />
         ) : (
           <SectionIconToggle

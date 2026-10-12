@@ -526,6 +526,56 @@ describe("React Motion source adapter", () => {
     });
   });
 
+  it("round-trips multiple compatible Text properties through one React wrapper", () => {
+    const composite: MotionTextDocument = {
+      ...textDocument,
+      animations: [
+        textDocument.animations[0]!,
+        {
+          ...textDocument.animations[0]!,
+          property: "translate",
+          delayMs: 25,
+          durationMs: 160,
+          keyframes: [
+            { t: 0, value: "0px", ease: "ease-out" },
+            { t: 1, value: "12px" },
+          ],
+        },
+      ],
+    };
+    const edit = applyMotionReactSourceEdit({
+      currentSource: source,
+      expectedSource: source,
+      preview: previewFor(source),
+      timeline: makeTimeline(),
+      textDocument: composite,
+    });
+
+    expect(edit.source).toContain(
+      '<AgentNativeMotionTextForMotion playbackMode="once" animations={[{"targetNodeId":"hero-title"',
+    );
+    expect(
+      edit.source.match(/AgentNativeMotionTextForMotion playbackMode=/g),
+    ).toHaveLength(1);
+    expect(readMotionReactSource(edit.source)).toMatchObject({
+      status: "valid",
+      textDocument: composite,
+    });
+
+    const reduced = applyMotionReactSourceEdit({
+      currentSource: edit.source,
+      expectedSource: edit.source,
+      preview: previewFor(edit.source),
+      timeline: makeTimeline(),
+      textDocument: { ...composite, animations: [composite.animations[0]!] },
+    });
+    expect(reduced.source).toContain(" animations={[{");
+    expect(readMotionReactSource(reduced.source)).toMatchObject({
+      status: "valid",
+      textDocument: { animations: [composite.animations[0]] },
+    });
+  });
+
   it.each(["loop", "once", "ping-pong"] as const)(
     "round-trips %s playback mode for a text-only React timeline",
     (playbackMode) => {

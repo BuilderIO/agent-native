@@ -147,6 +147,29 @@ export const designLocalhostConnections = table(
   },
 );
 
+export const designMotionBridgeReceiptChallenges = table(
+  "design_motion_bridge_receipt_challenges",
+  {
+    nonce: text("nonce").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    chainId: text("chain_id"),
+    receiptHash: text("receipt_hash"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
+export const designMotionBridgeRelayChains = table(
+  "design_motion_bridge_relay_chains",
+  {
+    chainId: text("chain_id").primaryKey(),
+    actionName: text("action_name").notNull(),
+    inputHash: text("input_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    completedAt: text("completed_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+);
+
 // ---------------------------------------------------------------------------
 // New tables — additive only; never alter existing tables.
 // All ownable tables are read/written through accessFilter / assertAccess.

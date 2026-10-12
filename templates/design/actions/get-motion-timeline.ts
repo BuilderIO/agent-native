@@ -4,7 +4,7 @@ import {
   type ActionRunContext,
 } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -28,6 +28,12 @@ import {
   parseTimelineSpanMs,
 } from "../shared/motion-compiler.js";
 import type { MotionEasingVariable } from "../shared/motion-easing.js";
+import {
+  inspectMotionHtmlSourceWriteCapability,
+  readMotionHtmlSource,
+  type MotionHtmlSourceWriteCapability,
+} from "../shared/motion-html-source.js";
+import { motionTextDocumentWithoutNativeStyles } from "../shared/motion-native-style-runtime.js";
 import type { MotionNativeStyleInstance } from "../shared/motion-native-style.js";
 import {
   inspectMotionReactSourceWriteCapability,
@@ -45,6 +51,7 @@ import type {
 } from "../shared/motion-timeline.js";
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
+  MOTION_TIMELINE_DEFAULT_DURATION_MS,
   motionTimelineDurationForContent,
   readTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
@@ -57,6 +64,7 @@ import {
 import {
   isLocalhostBridgeRelay,
   runLocalhostBridgeStep,
+  withMotionLocalhostRelayIdentity,
 } from "./motion-localhost-relay.js";
 import readLocalFileAction from "./read-local-file.js";
 
@@ -66,6 +74,8 @@ type TimelineSource =
   | "stored-css-drift"
   | "recovered-react"
   | "stored-react-drift"
+  | "recovered-html"
+  | "stored-html-drift"
   | "stored-local-unverified";
 
 interface TimelineResult {
@@ -150,8 +160,10 @@ type ManagedCssSource = {
   defaultEase: string | null;
   filePath?: string | null;
   sourceVersionHash?: string | null;
-  source?: "react";
+  source?: "react" | "html";
 };
+
+const INLINE_SOURCE_PAGE_SIZE = 50;
 
 async function readManagedCssFromFile(
   file: SourceWorkspaceFile,
@@ -206,13 +218,21 @@ async function readManagedCssFromFile(
       : [];
   const nativeStyles =
     metadata.status === "valid" ? (metadata.document.nativeStyles ?? []) : [];
+  const authoredTextDocument = motionTextDocumentWithoutNativeStyles(
+    textDocument,
+    nativeStyles,
+  );
   const easingVariables =
     metadata.status === "valid"
       ? (metadata.document.easingVariables ?? [])
       : [];
   const audioClips =
     metadata.status === "valid" ? (metadata.document.audioClips ?? []) : [];
-  if (tracks.length === 0 && !textDocument && metadata.status !== "valid") {
+  if (
+    tracks.length === 0 &&
+    !authoredTextDocument &&
+    metadata.status !== "valid"
+  ) {
     fail(
       "Managed inline Motion CSS is missing its versioned source document.",
       { errorCode: "motion_source_metadata_missing", statusCode: 422 },
@@ -227,7 +247,7 @@ async function readManagedCssFromFile(
     nativeStyles,
     easingVariables,
     audioClips,
-    textDocument,
+    textDocument: authoredTextDocument,
     durationMs:
       metadata.status === "valid"
         ? metadata.document.durationMs
@@ -278,33 +298,46 @@ async function readUnindexedManagedInlineSources(args: {
   designId: string;
   indexedSourceRefs: ReadonlySet<string>;
 }): Promise<Array<{ sourceRef: string; managedCss: ManagedCssSource }>> {
-  const files = await getDb()
-    .select({
-      id: schema.designFiles.id,
-      designId: schema.designFiles.designId,
-      filename: schema.designFiles.filename,
-      fileType: schema.designFiles.fileType,
-      content: schema.designFiles.content,
-      createdAt: schema.designFiles.createdAt,
-      updatedAt: schema.designFiles.updatedAt,
-    })
-    .from(schema.designFiles)
-    .where(
-      and(
-        eq(schema.designFiles.designId, args.designId),
-        eq(schema.designFiles.fileType, "html"),
-      ),
-    );
-
   const recovered: Array<{
     sourceRef: string;
     managedCss: ManagedCssSource;
   }> = [];
-  for (const file of files) {
-    if (args.indexedSourceRefs.has(file.id)) continue;
-    const managedCss = await readManagedCssFromFile(file);
-    if (managedCss) recovered.push({ sourceRef: file.id, managedCss });
+
+  let afterId: string | undefined;
+  while (true) {
+    const conditions = [
+      eq(schema.designFiles.designId, args.designId),
+      eq(schema.designFiles.fileType, "html"),
+    ];
+    if (afterId) conditions.push(gt(schema.designFiles.id, afterId));
+
+    const files = await getDb()
+      .select({
+        id: schema.designFiles.id,
+        designId: schema.designFiles.designId,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
+        content: schema.designFiles.content,
+        createdAt: schema.designFiles.createdAt,
+        updatedAt: schema.designFiles.updatedAt,
+      })
+      .from(schema.designFiles)
+      .where(and(...conditions))
+      .orderBy(asc(schema.designFiles.id))
+      .limit(INLINE_SOURCE_PAGE_SIZE);
+
+    if (files.length === 0) break;
+    afterId = files[files.length - 1]!.id;
+
+    for (const file of files) {
+      if (args.indexedSourceRefs.has(file.id)) continue;
+      const managedCss = await readManagedCssFromFile(file);
+      if (managedCss) recovered.push({ sourceRef: file.id, managedCss });
+    }
+
+    if (files.length < INLINE_SOURCE_PAGE_SIZE) break;
   }
+
   return recovered;
 }
 
@@ -383,6 +416,7 @@ async function readManagedReactForSource(args: {
         textDocument: MotionTextDocument | null;
         filePath: string;
         versionHash: string;
+        source: "react";
       } | null;
       writeCapability: MotionReactSourceWriteCapability | null;
     }
@@ -400,6 +434,12 @@ async function readManagedReactForSource(args: {
     step: "source-read",
   });
   if (isLocalhostBridgeRelay(live)) return live;
+  if (typeof live.content !== "string") {
+    fail("The localhost bridge did not return source content.", {
+      errorCode: "motion_local_source_read_invalid",
+      statusCode: 502,
+    });
+  }
   if (!isBridgeSha256VersionHash(live.versionHash)) {
     fail("The localhost bridge did not return a SHA-256 source version hash.", {
       errorCode: "motion_local_source_version_unavailable",
@@ -455,9 +495,128 @@ async function readManagedReactForSource(args: {
       hash: hashCss(read.css),
       tracks: read.document?.tracks ?? [],
       document: read.document,
-      textDocument: read.textDocument,
+      textDocument: motionTextDocumentWithoutNativeStyles(
+        read.textDocument,
+        read.document?.nativeStyles ?? [],
+      ),
       filePath: args.location.filePath,
       versionHash: live.versionHash,
+      source: "react",
+    },
+    writeCapability,
+  };
+}
+
+async function readManagedHtmlForSource(args: {
+  designId: string;
+  location: ReturnType<typeof resolveMotionLocalSourceLocation>;
+  context?: ActionRunContext;
+  targetNodeIds: readonly string[];
+  previewModuleVersionHash?: string;
+}): Promise<
+  | {
+      managed: ManagedCssSource | null;
+      writeCapability:
+        | (MotionHtmlSourceWriteCapability & {
+            modulePath: string;
+            moduleVersionHash: string;
+          })
+        | null;
+    }
+  | null
+  | import("../shared/visual-edit-bridge-relay.js").LocalhostBridgeRelay
+> {
+  const live = await runLocalhostBridgeStep({
+    action: readLocalFileAction,
+    actionArgs: {
+      designId: args.designId,
+      connectionId: args.location.connectionId,
+      path: args.location.filePath,
+    },
+    context: args.context,
+    step: "source-read",
+  });
+  if (isLocalhostBridgeRelay(live)) return live;
+  if (typeof live.content !== "string") {
+    fail("The localhost bridge did not return HTML source content.", {
+      errorCode: "motion_local_source_read_invalid",
+      statusCode: 502,
+    });
+  }
+  if (!isBridgeSha256VersionHash(live.versionHash)) {
+    fail("The localhost bridge did not return a SHA-256 source version hash.", {
+      errorCode: "motion_local_source_version_unavailable",
+      statusCode: 502,
+    });
+  }
+
+  const read = readMotionHtmlSource(live.content);
+  if (read.status === "invalid") {
+    const stale =
+      read.error.code === "stale-source" || read.error.code === "stale-preview";
+    fail(read.error.message, {
+      errorCode: `motion_html_source_${read.error.code.replace(/-/g, "_")}`,
+      statusCode: stale ? 409 : 422,
+    });
+  }
+
+  const document = read.status === "valid" ? read.document : null;
+  const sourceTargetNodeIds = read.status === "valid" ? read.targetNodeIds : [];
+  const capabilityTargetNodeIds = [
+    ...new Set([...args.targetNodeIds, ...sourceTargetNodeIds]),
+  ];
+  const canEditMetadataWithoutTarget =
+    document !== null &&
+    ((document.animationStyles?.length ?? 0) > 0 ||
+      document.audioClips !== undefined);
+  const shouldCheckWriteCapability =
+    capabilityTargetNodeIds.length > 0 || canEditMetadataWithoutTarget;
+  const writeCapability = shouldCheckWriteCapability
+    ? args.previewModuleVersionHash &&
+      args.previewModuleVersionHash !== live.versionHash
+      ? {
+          status: "unsupported" as const,
+          modulePath: args.location.filePath,
+          moduleVersionHash: live.versionHash,
+          targetNodeIds: capabilityTargetNodeIds,
+          code: "stale-preview" as const,
+          reason:
+            "The rendered HTML source version changed before Motion capability could be verified.",
+        }
+      : {
+          ...inspectMotionHtmlSourceWriteCapability({
+            source: live.content,
+            targetNodeIds: capabilityTargetNodeIds,
+            sourceFilePath: args.location.filePath,
+          }),
+          modulePath: args.location.filePath,
+          moduleVersionHash: live.versionHash,
+        }
+    : null;
+
+  if (read.status === "absent") {
+    return { managed: null, writeCapability };
+  }
+
+  return {
+    managed: {
+      css: read.css,
+      hash: hashCss(read.css),
+      tracks: document?.tracks ?? [],
+      animationStyles: document?.animationStyles ?? [],
+      nativeStyles: document?.nativeStyles ?? [],
+      easingVariables: document?.easingVariables ?? [],
+      audioClips: document?.audioClips ?? [],
+      textDocument: motionTextDocumentWithoutNativeStyles(
+        read.textDocument,
+        document?.nativeStyles ?? [],
+      ),
+      durationMs: document?.durationMs ?? null,
+      playbackMode: read.playbackMode,
+      defaultEase: document?.defaultEase ?? null,
+      filePath: args.location.filePath,
+      sourceVersionHash: live.versionHash,
+      source: "html",
     },
     writeCapability,
   };
@@ -466,8 +625,8 @@ async function readManagedReactForSource(args: {
 export default defineAction({
   description:
     "Read one or all motion timelines for a design. " +
-    "Reads managed CSS from inline HTML or the verified live JSX module for " +
-    "an editable localhost screen; viewers receive stored React source marked " +
+    "Reads managed CSS from inline HTML or the verified live React/HTML source " +
+    "for an editable localhost screen; viewers receive stored source marked " +
     "unverified. Returns timeline metadata (id, sourceRef, filePath, durationMs, " +
     "playbackMode [loop|once|ping-pong], defaultEase, compiledHash) and the " +
     "full tracks array (each track has targetNodeId, property, keyframes " +
@@ -480,7 +639,7 @@ export default defineAction({
     "audioClips containing hosted URLs and clip timing. Versioned source metadata is " +
     "read losslessly; legacy CSS remains parseable. Invalid managed source " +
     "data is returned as an error rather than an empty timeline. Editors read " +
-    "live localhost JSX; viewers receive the stored localhost index marked " +
+    "live localhost React/HTML source; viewers receive stored source marked " +
     "unverified. Read-only.",
   readOnly: true,
   http: { method: "GET" },
@@ -505,31 +664,36 @@ export default defineAction({
       .max(100)
       .optional()
       .describe(
-        "Optional rendered React node IDs to check for safe Motion source writes.",
+        "Optional rendered node IDs to check for safe Motion source writes.",
       ),
     previewModuleVersionHash: z
       .string()
       .regex(/^[a-f0-9]{64}$/i)
       .optional()
-      .describe("Source version hash witnessed by the current React preview."),
+      .describe("Source version hash witnessed by the current local preview."),
     previewModulePath: z
       .string()
       .min(1)
       .max(1024)
       .optional()
-      .describe("Project-relative React module path witnessed by the preview."),
+      .describe(
+        "Project-relative React module or HTML path witnessed by the preview.",
+      ),
   }),
-  run: async (
-    {
+  run: async (args, context) => {
+    context = withMotionLocalhostRelayIdentity(
+      context,
+      "get-motion-timeline",
+      args,
+    );
+    const {
       designId,
       timelineId,
       sourceRef,
       targetNodeIds,
       previewModuleVersionHash,
       previewModulePath,
-    },
-    context,
-  ) => {
+    } = args;
     const access = await assertAccess("design", designId, "viewer");
 
     const db = getDb();
@@ -602,7 +766,7 @@ export default defineAction({
       });
     }
     const sourceType = designSourceTypeFromData(design.data);
-    const useLocalReactSource =
+    const useLocalSource =
       sourceType === "localhost" || Boolean(timelines[0]?.filePath);
     const inlineManagedSourceCache = new Map<
       string,
@@ -656,7 +820,8 @@ export default defineAction({
           nativeStyles: managedCss.nativeStyles,
           easingVariables: managedCss.easingVariables,
           audioClips: managedCss.audioClips,
-          durationMs: managedCss.durationMs ?? 1000,
+          durationMs:
+            managedCss.durationMs ?? MOTION_TIMELINE_DEFAULT_DURATION_MS,
           playbackMode: managedCss.playbackMode ?? MOTION_DEFAULT_PLAYBACK_MODE,
           defaultEase: managedCss.defaultEase ?? "ease",
           compiledHash: managedCss.hash,
@@ -669,7 +834,7 @@ export default defineAction({
         });
       }
     }
-    if (sourceType === "inline" && !useLocalReactSource) {
+    if (sourceType === "inline" && !useLocalSource) {
       for (const timeline of timelines) {
         const managedCss = timeline.sourceRef
           ? await readInlineManagedSource(timeline.sourceRef)
@@ -682,14 +847,14 @@ export default defineAction({
         }
       }
     }
-    if (useLocalReactSource && timelines[0] && !managedSourceRef) {
+    if (useLocalSource && timelines[0] && !managedSourceRef) {
       fail(
-        "The stored React Motion timeline has no localhost screen reference.",
+        "The stored local Motion timeline has no localhost screen reference.",
         { errorCode: "motion_local_source_screen_not_found", statusCode: 422 },
       );
     }
     const localSourceLocation =
-      useLocalReactSource && managedSourceRef
+      useLocalSource && managedSourceRef
         ? await resolveManagedReactLocation({
             designId,
             designData: design.data,
@@ -698,72 +863,123 @@ export default defineAction({
             previewModulePath,
           })
         : null;
-    const reactSourceResult =
-      useLocalReactSource && canReadLocalSource && localSourceLocation
-        ? await readManagedReactForSource({
-            designId,
-            location: localSourceLocation,
-            context,
-            targetNodeIds: [...new Set(targetNodeIds ?? [])],
-            previewModuleVersionHash,
-          })
+    const isLocalHtmlSource = Boolean(
+      localSourceLocation && /\.html?$/i.test(localSourceLocation.filePath),
+    );
+    if (useLocalSource && canReadLocalSource && localSourceLocation) {
+      const provenance = await runLocalhostBridgeStep({
+        action: readLocalFileAction,
+        actionArgs: {
+          designId,
+          connectionId: localSourceLocation.connectionId,
+          path: localSourceLocation.filePath,
+          motionScreenId: managedSourceRef!,
+        },
+        context,
+        step: "source-provenance",
+      });
+      if (isLocalhostBridgeRelay(provenance)) return provenance;
+      if (provenance.reachable !== true) {
+        fail(
+          "The Motion source is not in the selected screen's verified source graph.",
+          {
+            errorCode: "motion_local_source_module_not_imported",
+            statusCode: 422,
+          },
+        );
+      }
+    }
+    const localSourceResult =
+      useLocalSource && canReadLocalSource && localSourceLocation
+        ? isLocalHtmlSource
+          ? await readManagedHtmlForSource({
+              designId,
+              location: localSourceLocation,
+              context,
+              targetNodeIds: [...new Set(targetNodeIds ?? [])],
+              previewModuleVersionHash,
+            })
+          : await readManagedReactForSource({
+              designId,
+              location: localSourceLocation,
+              context,
+              targetNodeIds: [...new Set(targetNodeIds ?? [])],
+              previewModuleVersionHash,
+            })
         : null;
-    if (isLocalhostBridgeRelay(reactSourceResult)) return reactSourceResult;
-    const reactSource = reactSourceResult?.managed ?? null;
-    const sourceWriteCapability = reactSourceResult?.writeCapability ?? null;
-    if (
-      useLocalReactSource &&
-      canReadLocalSource &&
-      !reactSource &&
-      timelines[0]
-    ) {
+    if (isLocalhostBridgeRelay(localSourceResult)) return localSourceResult;
+    const localSource = localSourceResult?.managed ?? null;
+    const sourceWriteCapability = localSourceResult?.writeCapability ?? null;
+    if (useLocalSource && canReadLocalSource && !localSource && timelines[0]) {
       fail(
-        "The stored React Motion timeline is missing its canonical managed source.",
-        { errorCode: "motion_react_source_missing", statusCode: 422 },
+        `The stored local Motion timeline is missing its canonical managed source for ${isLocalHtmlSource ? "HTML" : "React"}.`,
+        {
+          errorCode: isLocalHtmlSource
+            ? "motion_html_source_missing"
+            : "motion_react_source_missing",
+          statusCode: 422,
+        },
       );
     }
-    if (useLocalReactSource && !canReadLocalSource && timelines[0]) {
+    if (useLocalSource && !canReadLocalSource && timelines[0]) {
       timelines[0] = {
         ...timelines[0],
-        filePath: localSourceLocation?.filePath ?? timelines[0].filePath,
+        filePath: null,
         textDocument: parseStoredMotionTextDocument(rows[0]?.textDocument),
         cssHash: null,
         sourceVersionHash: null,
         source: "stored-local-unverified",
       };
     }
-    const managedReactCss = reactSource
+    const localSourceDocument =
+      localSource && "document" in localSource ? localSource.document : null;
+    const managedLocalCss = localSource
       ? {
-          css: reactSource.css,
-          hash: reactSource.hash,
-          tracks: reactSource.tracks,
-          animationStyles: reactSource.document?.animationStyles ?? [],
-          nativeStyles: reactSource.document?.nativeStyles ?? [],
-          easingVariables: reactSource.document?.easingVariables ?? [],
-          audioClips: reactSource.document?.audioClips ?? [],
-          textDocument: reactSource.textDocument,
+          ...localSource,
+          animationStyles:
+            "animationStyles" in localSource
+              ? localSource.animationStyles
+              : (localSourceDocument?.animationStyles ?? []),
+          nativeStyles:
+            "nativeStyles" in localSource
+              ? localSource.nativeStyles
+              : (localSourceDocument?.nativeStyles ?? []),
+          easingVariables:
+            "easingVariables" in localSource
+              ? localSource.easingVariables
+              : (localSourceDocument?.easingVariables ?? []),
+          audioClips:
+            "audioClips" in localSource
+              ? localSource.audioClips
+              : (localSourceDocument?.audioClips ?? []),
           durationMs:
-            reactSource.document?.durationMs ??
+            localSourceDocument?.durationMs ??
+            ("durationMs" in localSource ? localSource.durationMs : null) ??
             motionTimelineDurationForContent(
-              1000,
-              reactSource.tracks,
-              reactSource.textDocument?.animations ?? [],
+              MOTION_TIMELINE_DEFAULT_DURATION_MS,
+              localSource.tracks,
+              localSource.textDocument?.animations ?? [],
             ),
           playbackMode:
-            reactSource.document?.playbackMode ??
-            readTimelinePlaybackMode(reactSource.tracks) ??
+            localSourceDocument?.playbackMode ??
+            ("playbackMode" in localSource ? localSource.playbackMode : null) ??
+            readTimelinePlaybackMode(localSource.tracks) ??
             MOTION_DEFAULT_PLAYBACK_MODE,
-          defaultEase: reactSource.document?.defaultEase ?? "ease",
-          filePath: reactSource.filePath,
-          sourceVersionHash: reactSource.versionHash,
-          source: "react" as const,
+          defaultEase:
+            localSourceDocument?.defaultEase ??
+            ("defaultEase" in localSource ? localSource.defaultEase : null) ??
+            "ease",
+          sourceVersionHash:
+            "versionHash" in localSource
+              ? localSource.versionHash
+              : (localSource.sourceVersionHash ?? null),
         }
       : null;
     const managedCss =
-      useLocalReactSource && !canReadLocalSource
+      useLocalSource && !canReadLocalSource
         ? null
-        : reactSourceResult
-          ? managedReactCss
+        : localSourceResult
+          ? managedLocalCss
           : sourceType === "inline" && managedSourceRef
             ? await readInlineManagedSource(managedSourceRef)
             : await readManagedCssForSource({
@@ -785,7 +1001,8 @@ export default defineAction({
           nativeStyles: managedCss.nativeStyles,
           easingVariables: managedCss.easingVariables,
           audioClips: managedCss.audioClips,
-          durationMs: managedCss.durationMs ?? 1000,
+          durationMs:
+            managedCss.durationMs ?? MOTION_TIMELINE_DEFAULT_DURATION_MS,
           playbackMode: managedCss.playbackMode ?? MOTION_DEFAULT_PLAYBACK_MODE,
           defaultEase: managedCss.defaultEase ?? "ease",
           compiledHash: managedCss.hash,
@@ -796,9 +1013,11 @@ export default defineAction({
               ? managedCss.sourceVersionHash
               : null,
           source:
-            "source" in managedCss && managedCss.source === "react"
+            managedCss.source === "react"
               ? "recovered-react"
-              : "recovered-css",
+              : managedCss.source === "html"
+                ? "recovered-html"
+                : "recovered-css",
           createdAt: null,
           updatedAt: null,
         });
@@ -823,9 +1042,11 @@ export default defineAction({
               ? managedCss.sourceVersionHash
               : first.sourceVersionHash,
           source:
-            "source" in managedCss && managedCss.source === "react"
+            managedCss.source === "react"
               ? "stored-react-drift"
-              : "stored-css-drift",
+              : managedCss.source === "html"
+                ? "stored-html-drift"
+                : "stored-css-drift",
         };
       } else {
         timelines[0] = {

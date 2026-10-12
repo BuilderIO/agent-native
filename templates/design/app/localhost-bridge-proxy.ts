@@ -1,12 +1,12 @@
 import {
   LOCALHOST_BRIDGE_RELAY_HEADER,
+  LOCALHOST_BRIDGE_RELAY_CHAIN_HEADER,
   LOCALHOST_BRIDGE_RELAY_MARKER,
   type LocalhostBridgeRelay,
   type LocalhostBridgeRelayResponse,
   type MotionLocalhostRelayAction,
 } from "../shared/visual-edit-bridge-relay.js";
 
-const LOCALHOST_BRIDGE_TOKEN_HEADER = "X-Bridge-Token";
 const LOCALHOST_BRIDGE_STORAGE_KEY = "agent-native:visual-edit-bridge-v1";
 const ACTION_NAMES = new Set([
   "list-local-files",
@@ -25,7 +25,6 @@ export interface LocalhostBridgeTransport {
   designId: string;
   connectionId: string;
   bridgeUrl: string;
-  bridgeToken: string;
 }
 
 type FetchImplementation = (
@@ -36,6 +35,7 @@ type FetchImplementation = (
 interface CreateProxyOptions {
   onBridgeTokenRejected?: () => void;
   origin?: string;
+  createMotionRelayChainId?: () => string;
 }
 
 interface RelayRequest {
@@ -100,6 +100,14 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function createMotionRelayChainId(): string {
+  const bytes = new Uint8Array(24);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 function malformedBridgeResponse(): Response {
@@ -172,9 +180,22 @@ async function readActionInput(
   url: URL,
 ): Promise<ActionInputResult> {
   if (requestMethod(input, init) === "GET") {
+    const value: Record<string, unknown> = {};
+    for (const [rawKey, entry] of url.searchParams.entries()) {
+      const isArray = rawKey.endsWith("[]");
+      const key = isArray ? rawKey.slice(0, -2) : rawKey;
+      const existing = value[key];
+      if (existing === undefined) {
+        value[key] = isArray ? [entry] : entry;
+      } else if (Array.isArray(existing)) {
+        existing.push(entry);
+      } else {
+        value[key] = [existing, entry];
+      }
+    }
     return {
       kind: "input",
-      value: Object.fromEntries(url.searchParams.entries()),
+      value,
     };
   }
   const raw = await requestBody(input, init);
@@ -231,12 +252,23 @@ function relayMatchesMotionContext(
     relay.designId !== context.designId ||
     relay.connectionId !== context.connectionId ||
     typeof relay.step !== "string" ||
-    !relay.step
+    !relay.step ||
+    typeof relay.challenge !== "string" ||
+    relay.challenge.length < 20 ||
+    relay.challenge.length > 4096
   ) {
     return false;
   }
   if (relay.operation === "read-file") {
     return typeof relay.path === "string" && relay.path.length > 0;
+  }
+  if (relay.operation === "verify-module-provenance") {
+    return (
+      typeof relay.path === "string" &&
+      relay.path.length > 0 &&
+      typeof relay.relPath === "string" &&
+      relay.relPath.length > 0
+    );
   }
   if (relay.operation === "write-file" || relay.operation === "apply-edit") {
     return (
@@ -250,34 +282,9 @@ function relayMatchesMotionContext(
 
 function bridgePayload(
   relay: LocalhostBridgeRelay,
-  request: RelayRequest,
+  _request: RelayRequest,
 ): Record<string, unknown> {
-  if (relay.operation === "read-file") {
-    return { relPath: relay.path ?? request.path };
-  }
-  if (relay.operation === "list-files") return {};
-  const source = relay.payload ?? request;
-  const {
-    designId: _designId,
-    connectionId: _connectionId,
-    path: _path,
-    patch: _patch,
-    ...payload
-  } = source;
-  if (relay.operation === "apply-edit" && source.patch) {
-    const patch = source.patch;
-    if (typeof patch === "object" && patch !== null && !Array.isArray(patch)) {
-      const patchPayload = patch as Record<string, unknown>;
-      return {
-        relPath: request.relPath,
-        search: patchPayload.search,
-        replace: patchPayload.replace,
-        expectedVersionHash: request.expectedVersionHash,
-        requireExpectedVersionHash: request.requireExpectedVersionHash,
-      };
-    }
-  }
-  return payload;
+  return relay.bridgeRequest ?? {};
 }
 
 async function bridgeResponse(
@@ -302,15 +309,25 @@ async function bridgeResponse(
   }
 
   let response: Response;
+  if (
+    !isRecord(relay.bridgeRequest) ||
+    typeof relay.bridgeOperationCapability !== "string" ||
+    !relay.bridgeOperationCapability
+  ) {
+    return jsonResponse(
+      { error: "The local visual-edit bridge capability is missing." },
+      502,
+    );
+  }
   try {
     response = await fetchImpl(`${bridgeUrl}/${relay.operation}`, {
       method: "POST",
       redirect: "manual",
-      headers: {
-        "Content-Type": "application/json",
-        [LOCALHOST_BRIDGE_TOKEN_HEADER]: context.bridgeToken,
-      },
-      body: JSON.stringify(bridgePayload(relay, request)),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...bridgePayload(relay, request),
+        bridgeOperationCapability: relay.bridgeOperationCapability,
+      }),
     });
   } catch {
     return jsonResponse(
@@ -356,7 +373,10 @@ async function bridgeResponse(
   if (relay.operation === "read-file") {
     if (
       typeof body.content !== "string" ||
-      typeof body.versionHash !== "string"
+      typeof body.versionHash !== "string" ||
+      (relay.step &&
+        (typeof body.operationReceipt !== "string" ||
+          !/^[a-f0-9]{64}$/i.test(body.operationReceipt)))
     ) {
       return malformedBridgeResponse();
     }
@@ -367,6 +387,26 @@ async function bridgeResponse(
       content: body.content,
       versionHash: body.versionHash,
       readonly: false,
+      ...(relay.step ? { operationReceipt: body.operationReceipt } : {}),
+    });
+  }
+  if (relay.operation === "verify-module-provenance") {
+    if (
+      typeof body.routePath !== "string" ||
+      typeof body.modulePath !== "string" ||
+      typeof body.reachable !== "boolean" ||
+      typeof body.operationReceipt !== "string" ||
+      !/^[a-f0-9]{64}$/i.test(body.operationReceipt)
+    ) {
+      return malformedBridgeResponse();
+    }
+    return jsonResponse({
+      designId: context.designId,
+      connectionId: context.connectionId,
+      routePath: body.routePath,
+      modulePath: body.modulePath,
+      reachable: body.reachable,
+      operationReceipt: body.operationReceipt,
     });
   }
   if (relay.operation === "list-files") {
@@ -380,7 +420,12 @@ async function bridgeResponse(
       truncated: body.truncated === true,
     });
   }
-  if (typeof body.versionHash !== "string") {
+  if (
+    typeof body.versionHash !== "string" ||
+    (relay.step &&
+      (typeof body.operationReceipt !== "string" ||
+        !/^[a-f0-9]{64}$/i.test(body.operationReceipt)))
+  ) {
     return malformedBridgeResponse();
   }
   return jsonResponse({
@@ -389,6 +434,7 @@ async function bridgeResponse(
     operation: relay.operation === "write-file" ? "write" : "patch",
     written: true,
     versionHash: body.versionHash,
+    ...(relay.step ? { operationReceipt: body.operationReceipt } : {}),
   });
 }
 
@@ -396,6 +442,7 @@ async function continueMotionLocalhostRelay(args: {
   fetchImpl: FetchImplementation;
   context: LocalhostBridgeTransport;
   actionName: MotionLocalhostRelayAction;
+  chainId: string;
   actionInput: Record<string, unknown>;
   origin: string;
   input: RequestInfo | URL;
@@ -420,7 +467,15 @@ async function continueMotionLocalhostRelay(args: {
     }
 
     const relay = body as unknown as LocalhostBridgeRelay;
-    if (!relayMatchesMotionContext(relay, args.context)) {
+    if (
+      !relayMatchesMotionContext(relay, args.context) ||
+      relay.chainId !== args.chainId ||
+      !MOTION_ACTION_NAMES.has(
+        relay.actionName as MotionLocalhostRelayAction,
+      ) ||
+      typeof relay.inputHash !== "string" ||
+      !/^[a-f0-9]{64}$/i.test(relay.inputHash)
+    ) {
       return jsonResponse(
         { error: "The Motion source relay does not match this design." },
         403,
@@ -450,6 +505,7 @@ async function continueMotionLocalhostRelay(args: {
       args.init?.headers ?? request?.headers ?? undefined,
     );
     headers.set(LOCALHOST_BRIDGE_RELAY_HEADER, "1");
+    headers.set(LOCALHOST_BRIDGE_RELAY_CHAIN_HEADER, args.chainId);
     headers.set("Content-Type", "application/json");
     currentResponse = await args.fetchImpl(
       `${args.origin}/_agent-native/actions/${MOTION_RELAY_CONTINUATION_ACTION}`,
@@ -460,6 +516,7 @@ async function continueMotionLocalhostRelay(args: {
           action: args.actionName,
           input: args.actionInput,
           responses,
+          chainId: args.chainId,
         }),
         ...((args.init?.credentials ?? request?.credentials)
           ? { credentials: args.init?.credentials ?? request?.credentials }
@@ -515,6 +572,13 @@ export function createLocalhostBridgeFetchProxy(
           : undefined),
     );
     headers.set(LOCALHOST_BRIDGE_RELAY_HEADER, "1");
+    const motionAction = MOTION_ACTION_NAMES.has(
+      actionName as MotionLocalhostRelayAction,
+    );
+    const chainId = motionAction
+      ? (options?.createMotionRelayChainId?.() ?? createMotionRelayChainId())
+      : undefined;
+    if (chainId) headers.set(LOCALHOST_BRIDGE_RELAY_CHAIN_HEADER, chainId);
     const serverResponse = await fetchImpl(input, { ...init, headers });
     if (!serverResponse.ok) return serverResponse;
 
@@ -529,7 +593,7 @@ export function createLocalhostBridgeFetchProxy(
       return serverResponse;
     }
 
-    if (MOTION_ACTION_NAMES.has(actionName as MotionLocalhostRelayAction)) {
+    if (motionAction && chainId) {
       const actionInput = await readActionInput(input, init, url);
       if (actionInput.kind !== "input") {
         const message =
@@ -544,6 +608,7 @@ export function createLocalhostBridgeFetchProxy(
         fetchImpl,
         context,
         actionName: actionName as MotionLocalhostRelayAction,
+        chainId,
         actionInput: actionInput.value,
         origin: url.origin,
         input,
@@ -584,8 +649,7 @@ function invalidatePersistedLocalhostBridgeTransport(
   if (
     !persisted ||
     persisted.designId !== context.designId ||
-    persisted.connectionId !== context.connectionId ||
-    persisted.bridgeToken !== context.bridgeToken
+    persisted.connectionId !== context.connectionId
   ) {
     return;
   }
@@ -593,7 +657,7 @@ function invalidatePersistedLocalhostBridgeTransport(
     window.sessionStorage.removeItem(LOCALHOST_BRIDGE_STORAGE_KEY);
   } catch (error) {
     console.warn(
-      "The visual-edit bridge token could not be cleared from session storage.",
+      "The visual-edit bridge transport could not be cleared from session storage.",
       error,
     );
   }
@@ -646,17 +710,23 @@ export function readPersistedLocalhostBridgeTransport():
   try {
     const raw = window.sessionStorage.getItem(LOCALHOST_BRIDGE_STORAGE_KEY);
     if (!raw) return undefined;
-    const value = JSON.parse(raw) as Partial<LocalhostBridgeTransport>;
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof value.bridgeToken === "string") {
+      window.sessionStorage.removeItem(LOCALHOST_BRIDGE_STORAGE_KEY);
+      return undefined;
+    }
     if (
       typeof value.designId !== "string" ||
       typeof value.connectionId !== "string" ||
-      typeof value.bridgeUrl !== "string" ||
-      typeof value.bridgeToken !== "string" ||
-      !value.bridgeToken
+      typeof value.bridgeUrl !== "string"
     ) {
       return undefined;
     }
-    return value as LocalhostBridgeTransport;
+    return {
+      designId: value.designId,
+      connectionId: value.connectionId,
+      bridgeUrl: value.bridgeUrl,
+    };
   } catch {
     // coercion-ok: unavailable or malformed session state is absent.
     return undefined;

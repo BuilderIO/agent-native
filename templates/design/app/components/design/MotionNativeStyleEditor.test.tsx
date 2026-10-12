@@ -2,6 +2,7 @@
 
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import { createMotionNativeStyleInstance } from "@shared/motion-native-style-runtime";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -315,6 +316,70 @@ describe("MotionNativeStyleEditor", () => {
     expect(
       curveGroup?.querySelectorAll('[data-curve-handle][role="button"]'),
     ).toHaveLength(2);
+  });
+
+  it("edits native TextStagger controls without discarding source props", async () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "target-1",
+    });
+    const style = {
+      ...base,
+      sourceInstanceId: "figma-text-instance",
+      props: { ...base.props, futureTextProp: { keep: true } },
+    };
+    const onChange = vi.fn();
+    await render({ styles: [style], onChange });
+    await openStyleDetails();
+
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.nativeTextStagger.animationDirection"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector(
+        'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+      ),
+    ).not.toBeNull();
+
+    const positionSwitch = document.body.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="designEditor.motion.nativeTextStagger.effects.position"]',
+    );
+    expect(positionSwitch).not.toBeNull();
+    await act(async () => positionSwitch!.click());
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceInstanceId: "figma-text-instance",
+        props: expect.objectContaining({
+          positionEnabled: false,
+          futureTextProp: { keep: true },
+        }),
+      }),
+      expect.objectContaining({
+        styleKey: "TextStagger",
+        targetNodeId: "target-1",
+        index: 0,
+      }),
+    );
+
+    const groupingTrigger = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.nativeTextStagger.grouping"]',
+    )!;
+    await selectOption(
+      groupingTrigger,
+      "designEditor.motion.textAnimation.units.word",
+    );
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sourceInstanceId: "figma-text-instance",
+        props: expect.objectContaining({
+          textDelayGrouping: "WORD",
+          futureTextProp: { keep: true },
+        }),
+      }),
+      expect.objectContaining({ styleKey: "TextStagger", index: 0 }),
+    );
   });
 
   it("keeps unknown native properties while editing known fields", async () => {
@@ -961,22 +1026,44 @@ describe("MotionNativeStyleEditor", () => {
     });
   });
 
-  it("keeps unsupported native styles in the list without runnable controls", async () => {
-    await render({
-      styles: [
-        {
-          ...positionStyle,
+  it("edits native Path trim endpoints while preserving opaque source props", async () => {
+    const onChange = vi.fn();
+    const pathStyle = {
+      ...createMotionNativeStyleInstance({
+        styleKey: "Path",
+        targetNodeId: "target-1",
+      }),
+      props: {
+        ...createMotionNativeStyleInstance({
           styleKey: "Path",
-          nameKey: "motion.preset_name.path",
-        },
-      ],
-    });
+          targetNodeId: "target-1",
+        }).props,
+        futurePathField: { keep: true },
+      },
+    };
+    await render({ styles: [pathStyle], onChange });
+    await openStyleDetails();
 
-    expect(container.textContent).toContain(
-      "designEditor.motion.animationStyles.path",
+    expect(document.body.textContent).toContain(
+      "designEditor.motion.nativePathTrim.startAtBeginning",
     );
-    expect(
-      container.querySelector('[aria-label="designEditor.motion.type"]'),
-    ).toBeNull();
+    expect(document.body.querySelectorAll('input[type="number"]')).toHaveLength(
+      6,
+    );
+    await setInputValue(
+      document.body.querySelector<HTMLInputElement>('input[type="number"]')!,
+      "75",
+    );
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      {
+        ...pathStyle,
+        props: {
+          ...pathStyle.props,
+          pathStartStartFrame: 75,
+        },
+      },
+      expect.objectContaining({ styleKey: "Path", index: 0 }),
+    );
   });
 });

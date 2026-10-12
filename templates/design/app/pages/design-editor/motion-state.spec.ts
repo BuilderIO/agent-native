@@ -1,12 +1,17 @@
+import { buildCodeLayerProjection } from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
 import {
   applyMotionAnimationStyleToTargets,
   hasMotionTimelineContent,
   motionAnimationStyleDefinitionFromTracks,
-  motionReactPreviewProofForTargets,
-  motionReactSourceWriteCapabilityAllowsTargets,
+  motionSourcePreviewProofForTargets,
+  motionSourceWriteCapabilityAllowsTargets,
   motionTimelineFingerprint,
+  motionTextDocumentAsDockTracks,
+  motionTextDockProperty,
+  motionTextAnimationsFromDockTracks,
+  motionTextPropertyFromDockTrack,
   resolveSelectedMotionTargets,
 } from "./motion-state";
 
@@ -290,6 +295,119 @@ describe("source-backed animation style helpers", () => {
   });
 });
 
+describe("Motion Text timeline track identities", () => {
+  it("keeps each text property as a separate dock track for its target", () => {
+    const projection = buildCodeLayerProjection(
+      '<h1 data-agent-native-node-id="title-1">Hello</h1>',
+    );
+    const tracks = motionTextDocumentAsDockTracks(
+      {
+        version: 1,
+        animations: [
+          {
+            targetNodeId: "title-1",
+            unit: "word",
+            direction: "forward",
+            staggerMs: 40,
+            property: "opacity",
+            durationMs: 400,
+            keyframes: [
+              { t: 0, value: "0" },
+              { t: 1, value: "1" },
+            ],
+          },
+          {
+            targetNodeId: "title-1",
+            unit: "word",
+            direction: "forward",
+            staggerMs: 40,
+            property: "translate",
+            durationMs: 300,
+            keyframes: [
+              { t: 0, value: "0px" },
+              { t: 1, value: "12px" },
+            ],
+          },
+        ],
+      },
+      projection,
+    );
+
+    expect(
+      tracks.map(({ targetNodeId, property, isTextAnimation }) => [
+        targetNodeId,
+        property,
+        isTextAnimation,
+      ]),
+    ).toEqual([
+      ["title-1", motionTextDockProperty("opacity"), true],
+      ["title-1", motionTextDockProperty("translate"), true],
+    ]);
+    expect(motionTextPropertyFromDockTrack("text:rotate")).toBe("rotate");
+    expect(motionTextPropertyFromDockTrack("text:fill")).toBeNull();
+  });
+
+  it("writes dock edits back to the matching property track", () => {
+    const projection = buildCodeLayerProjection(
+      '<h1 data-agent-native-node-id="title-1">Hello</h1>',
+    );
+    const document = {
+      version: 1 as const,
+      animations: [
+        {
+          targetNodeId: "title-1",
+          unit: "word" as const,
+          direction: "forward" as const,
+          staggerMs: 40,
+          property: "opacity" as const,
+          durationMs: 400,
+          keyframes: [
+            { t: 0, value: "0" },
+            { t: 1, value: "1" },
+          ],
+        },
+        {
+          targetNodeId: "title-1",
+          unit: "word" as const,
+          direction: "forward" as const,
+          staggerMs: 40,
+          property: "translate" as const,
+          durationMs: 300,
+          keyframes: [
+            { t: 0, value: "0px" },
+            { t: 1, value: "12px" },
+          ],
+        },
+      ],
+    };
+    const tracks = motionTextDocumentAsDockTracks(document, projection);
+    const [opacityTrack, translateTrack] = tracks;
+    const updated = motionTextAnimationsFromDockTracks(document, [
+      { ...opacityTrack!, delayMs: 25, durationMs: 450 },
+      translateTrack!,
+    ]);
+
+    expect(updated).toHaveLength(2);
+    expect(updated[0]).toMatchObject({
+      property: "opacity",
+      delayMs: 25,
+      durationMs: 450,
+    });
+    expect(updated[1]).toMatchObject({
+      property: "translate",
+      delayMs: 0,
+      durationMs: 300,
+      keyframes: [
+        { t: 0, value: "0px" },
+        { t: 1, value: "12px" },
+      ],
+    });
+    expect(
+      motionTextAnimationsFromDockTracks(document, [translateTrack!]),
+    ).toMatchObject([{ property: "translate" }]);
+  });
+});
+
 describe("resolveSelectedMotionTargets", () => {
   it("resolves inspector identities to durable source node IDs", () => {
     const element = {
@@ -354,7 +472,7 @@ describe("resolveSelectedMotionTargets", () => {
   });
 });
 
-describe("motionReactPreviewProofForTargets", () => {
+describe("motionSourcePreviewProofForTargets", () => {
   const modulePath = "src/components/Card.tsx";
   const moduleVersionHash = "a".repeat(64);
   const projection = (nodes: Array<Record<string, unknown>>) =>
@@ -371,7 +489,7 @@ describe("motionReactPreviewProofForTargets", () => {
 
   it("returns only targets from one witnessed module version", () => {
     expect(
-      motionReactPreviewProofForTargets(
+      motionSourcePreviewProofForTargets(
         projection([node("hero"), node("label")]),
         ["hero"],
       ),
@@ -384,27 +502,46 @@ describe("motionReactPreviewProofForTargets", () => {
 
   it("rejects duplicate, mixed-module, and malformed proofs", () => {
     expect(
-      motionReactPreviewProofForTargets(
+      motionSourcePreviewProofForTargets(
         projection([node("hero"), node("hero")]),
         ["hero"],
       ),
     ).toBeNull();
     expect(
-      motionReactPreviewProofForTargets(
+      motionSourcePreviewProofForTargets(
         projection([node("hero"), node("label", "src/Other.tsx")]),
         ["hero", "label"],
       ),
     ).toBeNull();
     expect(
-      motionReactPreviewProofForTargets(
+      motionSourcePreviewProofForTargets(
         projection([node("hero", "../outside.tsx")]),
+        ["hero"],
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts only the linked React or HTML entry source types", () => {
+    expect(
+      motionSourcePreviewProofForTargets(
+        projection([node("hero", "pages/index.htm")]),
+        ["hero"],
+      ),
+    ).toEqual({
+      modulePath: "pages/index.htm",
+      moduleVersionHash,
+      renderedNodeIds: ["hero"],
+    });
+    expect(
+      motionSourcePreviewProofForTargets(
+        projection([node("hero", "pages/index.js")]),
         ["hero"],
       ),
     ).toBeNull();
   });
 });
 
-describe("motionReactSourceWriteCapabilityAllowsTargets", () => {
+describe("motionSourceWriteCapabilityAllowsTargets", () => {
   const proof = {
     modulePath: "src/components/Card.tsx",
     moduleVersionHash: "a".repeat(64),
@@ -413,7 +550,7 @@ describe("motionReactSourceWriteCapabilityAllowsTargets", () => {
 
   it("requires a supported capability for the same source version and targets", () => {
     expect(
-      motionReactSourceWriteCapabilityAllowsTargets(
+      motionSourceWriteCapabilityAllowsTargets(
         {
           status: "supported",
           modulePath: proof.modulePath,
@@ -426,7 +563,7 @@ describe("motionReactSourceWriteCapabilityAllowsTargets", () => {
     ).toBe(true);
 
     expect(
-      motionReactSourceWriteCapabilityAllowsTargets(
+      motionSourceWriteCapabilityAllowsTargets(
         {
           status: "unsupported",
           modulePath: proof.modulePath,
@@ -443,7 +580,7 @@ describe("motionReactSourceWriteCapabilityAllowsTargets", () => {
 
   it("rejects capabilities for stale source versions or incomplete target sets", () => {
     expect(
-      motionReactSourceWriteCapabilityAllowsTargets(
+      motionSourceWriteCapabilityAllowsTargets(
         {
           status: "supported",
           modulePath: proof.modulePath,
@@ -455,7 +592,7 @@ describe("motionReactSourceWriteCapabilityAllowsTargets", () => {
       ),
     ).toBe(false);
     expect(
-      motionReactSourceWriteCapabilityAllowsTargets(
+      motionSourceWriteCapabilityAllowsTargets(
         {
           status: "supported",
           modulePath: proof.modulePath,

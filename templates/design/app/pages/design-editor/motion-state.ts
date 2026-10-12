@@ -3,8 +3,11 @@ import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-st
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
-import type { MotionReactSourceWriteCapability } from "@shared/motion-react-source";
-import type { MotionTextDocument } from "@shared/motion-text-code";
+import type {
+  MotionTextAnimation,
+  MotionTextDocument,
+  MotionTextProperty,
+} from "@shared/motion-text-code";
 import {
   applyMotionAutoKeyframe,
   type MotionEase,
@@ -70,10 +73,19 @@ export interface SelectedMotionTarget {
   isText: boolean;
 }
 
-export interface MotionReactPreviewProof {
+export interface MotionSourcePreviewProof {
   modulePath: string;
   moduleVersionHash: string;
   renderedNodeIds: string[];
+}
+
+export interface MotionSourceWriteCapabilitySnapshot {
+  status: "supported" | "unsupported";
+  modulePath: string;
+  moduleVersionHash: string;
+  targetNodeIds: string[];
+  code?: string;
+  reason?: string;
 }
 
 interface MotionTargetInspectorElement {
@@ -131,13 +143,13 @@ export function resolveSelectedMotionTargets<
   });
 }
 
-export function motionReactPreviewProofForTargets(
+export function motionSourcePreviewProofForTargets(
   projection: CodeLayerProjection,
   targetNodeIds: readonly string[],
-): MotionReactPreviewProof | null {
+): MotionSourcePreviewProof | null {
   if (targetNodeIds.length === 0) return null;
   const targets = [...new Set(targetNodeIds)];
-  const nodesByMotionId = new Map<string, MotionReactPreviewProof>();
+  const nodesByMotionId = new Map<string, MotionSourcePreviewProof>();
   for (const node of projection.nodes) {
     const nodeId = node.dataAttributes["data-agent-native-node-id"]?.trim();
     const modulePath =
@@ -147,7 +159,7 @@ export function motionReactPreviewProofForTargets(
     if (
       !nodeId ||
       !modulePath ||
-      !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+\.(?:tsx|jsx)$/i.test(
+      !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+\.(?:tsx|jsx|html?)$/i.test(
         modulePath,
       ) ||
       !moduleVersionHash ||
@@ -170,7 +182,7 @@ export function motionReactPreviewProofForTargets(
     }
   }
 
-  let selectedProof: MotionReactPreviewProof | null = null;
+  let selectedProof: MotionSourcePreviewProof | null = null;
   for (const targetNodeId of targets) {
     const target = nodesByMotionId.get(targetNodeId);
     if (!target || target.renderedNodeIds.length !== 1) return null;
@@ -200,9 +212,9 @@ export function motionReactPreviewProofForTargets(
   return { ...selectedProof, renderedNodeIds };
 }
 
-export function motionReactSourceWriteCapabilityAllowsTargets(
-  capability: MotionReactSourceWriteCapability | null | undefined,
-  previewProof: MotionReactPreviewProof | null,
+export function motionSourceWriteCapabilityAllowsTargets(
+  capability: MotionSourceWriteCapabilitySnapshot | null | undefined,
+  previewProof: MotionSourcePreviewProof | null,
   targetNodeIds: readonly string[],
 ): boolean {
   return (
@@ -256,26 +268,77 @@ export function hydrateMotionDockTracks(
   }));
 }
 
+const MOTION_TEXT_DOCK_PROPERTY_PREFIX = "text:";
+const MOTION_TEXT_PROPERTIES = new Set<MotionTextProperty>([
+  "opacity",
+  "translate",
+  "scale",
+  "rotate",
+]);
+
+export function motionTextDockProperty(property: MotionTextProperty): string {
+  return `${MOTION_TEXT_DOCK_PROPERTY_PREFIX}${property}`;
+}
+
+export function motionTextPropertyFromDockTrack(
+  property: string,
+): MotionTextProperty | null {
+  if (!property.startsWith(MOTION_TEXT_DOCK_PROPERTY_PREFIX)) return null;
+  const candidate = property.slice(MOTION_TEXT_DOCK_PROPERTY_PREFIX.length);
+  return MOTION_TEXT_PROPERTIES.has(candidate as MotionTextProperty)
+    ? (candidate as MotionTextProperty)
+    : null;
+}
+
 export function motionTextDocumentAsDockTracks(
   document: MotionTextDocument | null | undefined,
   projection: CodeLayerProjection,
 ): MotionDockTrack[] {
   return (document?.animations ?? []).map((animation) => ({
     targetNodeId: animation.targetNodeId,
-    property: "Text",
+    property: motionTextDockProperty(animation.property),
     keyframes: animation.keyframes,
     delayMs: animation.delayMs ?? 0,
     durationMs: animation.durationMs,
     label: labelForMotionTrack(
       {
         targetNodeId: animation.targetNodeId,
-        property: "Text",
+        property: motionTextDockProperty(animation.property),
         keyframes: animation.keyframes,
       },
       projection,
     ),
     isTextAnimation: true,
   }));
+}
+
+export function motionTextAnimationsFromDockTracks(
+  document: MotionTextDocument | null | undefined,
+  tracks: readonly MotionDockTrack[],
+): MotionTextAnimation[] {
+  const existingAnimations = new Map(
+    (document?.animations ?? []).map((animation) => [
+      `${animation.targetNodeId}\u001f${motionTextDockProperty(animation.property)}`,
+      animation,
+    ]),
+  );
+  return tracks.flatMap((track) => {
+    if (!track.isTextAnimation) return [];
+    const property = motionTextPropertyFromDockTrack(track.property);
+    if (!property) return [];
+    const existing = existingAnimations.get(
+      `${track.targetNodeId}\u001f${motionTextDockProperty(property)}`,
+    );
+    if (!existing) return [];
+    return [
+      {
+        ...existing,
+        delayMs: track.delayMs ?? 0,
+        durationMs: track.durationMs ?? existing.durationMs,
+        keyframes: track.keyframes,
+      },
+    ];
+  });
 }
 
 export const MOTION_KEYFRAME_TIME_EPSILON = 0.002;

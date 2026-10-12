@@ -164,6 +164,7 @@ export function renderSingleScreenCanvas({
     designFusionUrl,
     motionTracksWire,
     motionSelectedTarget,
+    motionOriginEditing,
     motionDefaultEase,
     motionDurationMs,
     selectedCanvasSelector,
@@ -433,6 +434,10 @@ export function renderSingleScreenCanvas({
         motionDurationMs={motionDurationMs}
         motionPathEditingEnabled={motionDockOpen && canEditActiveVisualScreen}
         motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+        motionOriginEditingEnabled={
+          motionDockOpen && motionOriginEditing && canEditActiveVisualScreen
+        }
+        motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
         onMotionPathTracksChange={
           canEditActiveVisualScreen
             ? handleMotionCanvasPathTracksChange

@@ -16,6 +16,14 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import {
+  MotionHtmlSourceError,
+  removeMotionHtmlSource,
+} from "../shared/motion-html-source.js";
+import {
+  MotionPathTrimSourceError,
+  restoreMotionPathTrimSource,
+} from "../shared/motion-path-trim-source.js";
+import {
   MotionReactSourceError,
   removeMotionReactSource,
 } from "../shared/motion-react-source.js";
@@ -32,6 +40,7 @@ import {
 import {
   isLocalhostBridgeRelay,
   runLocalhostBridgeStep,
+  withMotionLocalhostRelayIdentity,
 } from "./motion-localhost-relay.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
@@ -68,9 +77,9 @@ function removeMotionStyleBlock(html: string): string {
 export default defineAction({
   description:
     "Delete a motion timeline and remove its managed CSS/Text source from the " +
-    "linked inline HTML or verified localhost React/TSX module. This is the " +
+    "linked inline HTML or verified localhost React/HTML source. This is the " +
     "inverse of apply-motion-edit. Inline HTML is persisted through the Yjs " +
-    "collaboration path; React source uses version-checked file writeback.",
+    "collaboration path; localhost source uses version-checked file writeback.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     timelineId: z.string().describe("motion_timeline.id to delete."),
@@ -82,7 +91,13 @@ export default defineAction({
           "Legacy timelines without a sourceRef use this id, or index.html.",
       ),
   }),
-  run: async ({ designId, timelineId, fileId: fileIdInput }, context) => {
+  run: async (args, context) => {
+    context = withMotionLocalhostRelayIdentity(
+      context,
+      "remove-motion-timeline",
+      args,
+    );
+    const { designId, timelineId, fileId: fileIdInput } = args;
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
@@ -179,8 +194,30 @@ export default defineAction({
       }
       if (timeline.filePath && timeline.filePath !== location.filePath) {
         fail(
-          "The saved React Motion source file no longer matches the selected localhost screen.",
+          "The saved Motion source file no longer matches the selected localhost screen.",
           { errorCode: "motion_local_source_stale_source", statusCode: 409 },
+        );
+      }
+
+      const provenance = await runLocalhostBridgeStep({
+        action: readLocalFileAction,
+        actionArgs: {
+          designId,
+          connectionId: location.connectionId,
+          path: location.filePath,
+          motionScreenId: timeline.sourceRef,
+        },
+        context,
+        step: "source-provenance",
+      });
+      if (isLocalhostBridgeRelay(provenance)) return provenance;
+      if (provenance.reachable !== true) {
+        fail(
+          "The Motion source is not in the linked screen's verified source graph; the timeline row was preserved.",
+          {
+            errorCode: "motion_local_source_module_not_imported",
+            statusCode: 422,
+          },
         );
       }
 
@@ -214,30 +251,55 @@ export default defineAction({
           },
         );
       }
-      let removal: ReturnType<typeof removeMotionReactSource>;
-      try {
-        removal = removeMotionReactSource(live.content);
-      } catch (error) {
-        if (error instanceof MotionReactSourceError) {
-          fail(error.message, {
-            errorCode: `motion_react_source_${error.code.replace(/-/g, "_")}`,
-            statusCode:
-              error.code === "stale-source" || error.code === "stale-preview"
-                ? 409
-                : 422,
-          });
+      let cleanedSource: string;
+      if (/\.html?$/i.test(location.filePath)) {
+        try {
+          cleanedSource = removeMotionHtmlSource(live.content).source;
+        } catch (error) {
+          if (error instanceof MotionHtmlSourceError) {
+            fail(error.message, {
+              errorCode: `motion_html_source_${error.code.replace(/-/g, "_")}`,
+              statusCode:
+                error.code === "stale-source" || error.code === "stale-preview"
+                  ? 409
+                  : 422,
+            });
+          }
+          throw error;
         }
-        throw error;
+      } else {
+        try {
+          const removal = removeMotionReactSource(live.content);
+          cleanedSource = restoreMotionPathTrimSource(removal.source, "tsx");
+        } catch (error) {
+          if (error instanceof MotionReactSourceError) {
+            fail(error.message, {
+              errorCode: `motion_react_source_${error.code.replace(/-/g, "_")}`,
+              statusCode:
+                error.code === "stale-source" || error.code === "stale-preview"
+                  ? 409
+                  : 422,
+            });
+          }
+          if (error instanceof MotionPathTrimSourceError) {
+            fail(error.message, {
+              errorCode: `motion_path_trim_source_${error.code.replace(/-/g, "_")}`,
+              statusCode: 422,
+            });
+          }
+          throw error;
+        }
       }
       let versionHash = live.versionHash;
-      if (removal.changed) {
+      const sourceChanged = cleanedSource !== live.content;
+      if (sourceChanged) {
         const write = await runLocalhostBridgeStep({
           action: writeLocalFileAction,
           actionArgs: {
             designId,
             connectionId: location.connectionId,
             relPath: location.filePath,
-            content: removal.source,
+            content: cleanedSource,
             expectedVersionHash: live.versionHash,
             requireExpectedVersionHash: true,
           },
@@ -247,7 +309,7 @@ export default defineAction({
         if (isLocalhostBridgeRelay(write)) return write;
         if (!write.written || !isBridgeSha256VersionHash(write.versionHash)) {
           fail(
-            "The localhost bridge did not confirm the React Motion source cleanup; the timeline row was preserved.",
+            "The localhost bridge did not confirm the Motion source cleanup; the timeline row was preserved.",
             {
               errorCode: "motion_local_source_write_unconfirmed",
               statusCode: 502,
@@ -266,11 +328,11 @@ export default defineAction({
         });
         if (isLocalhostBridgeRelay(persisted)) return persisted;
         if (
-          persisted.content !== removal.source ||
+          persisted.content !== cleanedSource ||
           persisted.versionHash !== write.versionHash
         ) {
           fail(
-            "React Motion source cleanup could not be confirmed in the live file; the timeline row was preserved.",
+            "Motion source cleanup could not be confirmed in the live file; the timeline row was preserved.",
             {
               errorCode: "motion_local_source_write_unconfirmed",
               statusCode: 502,
@@ -293,10 +355,10 @@ export default defineAction({
         versionHash,
         deleted: true,
         htmlPatched: false,
-        sourcePatched: removal.changed,
+        sourcePatched: sourceChanged,
         bytesBefore: live.content.length,
-        bytesAfter: removal.source.length,
-        bytesDelta: removal.source.length - live.content.length,
+        bytesAfter: cleanedSource.length,
+        bytesDelta: cleanedSource.length - live.content.length,
       };
     }
 
@@ -360,10 +422,17 @@ export default defineAction({
       cleanedContent = removeMotionTextRuntime(
         removeMotionStyleBlock(currentContent),
       );
+      cleanedContent = restoreMotionPathTrimSource(cleanedContent, "html");
     } catch (error) {
       if (error instanceof MotionTextSourceError) {
         fail(error.message, {
           errorCode: `motion_text_source_${error.code.replace(/-/g, "_")}`,
+          statusCode: 422,
+        });
+      }
+      if (error instanceof MotionPathTrimSourceError) {
+        fail(error.message, {
+          errorCode: `motion_path_trim_source_${error.code.replace(/-/g, "_")}`,
           statusCode: 422,
         });
       }

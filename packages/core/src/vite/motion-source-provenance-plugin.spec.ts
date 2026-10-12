@@ -33,6 +33,34 @@ function transform(
   }
 }
 
+async function transformHtml(
+  source: string,
+  fileName: string,
+  command = "serve",
+  servedSource = source,
+) {
+  mkdirSync(path.join(process.cwd(), ".tmp"), { recursive: true });
+  const root = mkdtempSync(
+    path.join(process.cwd(), ".tmp", "motion-html-provenance-"),
+  );
+  const absolutePath = path.join(root, fileName);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, source);
+  const plugin = motionSourceProvenancePlugin();
+  plugin.configResolved?.({ root, command } as never);
+  try {
+    const hook = plugin.transformIndexHtml as {
+      handler: (
+        html: string,
+        context: { filename: string },
+      ) => string | undefined | Promise<string | undefined>;
+    };
+    return await hook.handler(servedSource, { filename: absolutePath });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe("motionSourceProvenancePlugin", () => {
   it("binds rendered host JSX IDs to their original module path and SHA-256", () => {
     const source = `type Props = { label: string }; export function Card({ label }: Props) { return <section><button>{label}</button><style>{"p { margin: 0 }"}</style><script>{"window.ready = true"}</script></section>; }`;
@@ -101,5 +129,43 @@ describe("motionSourceProvenancePlugin", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("binds served HTML host elements to stable source IDs and a raw file hash", async () => {
+    const source = `<!doctype html><html><head><script src="/app.js"></script></head><body><main><div data-agent-native-node-id="authored">Card</div><button>Go</button><script>window.ready = true</script><style>p { margin: 0 }</style></main></body></html>`;
+    const modulePath = "pages/index.html";
+    const result = await transformHtml(source, modulePath);
+    const hash = createHash("sha256").update(source).digest("hex");
+
+    expect(result).toContain(
+      `data-agent-native-motion-source-file="${modulePath}"`,
+    );
+    expect(result).toContain(`data-agent-native-motion-source-hash="${hash}"`);
+    expect(result).toContain(
+      `data-agent-native-node-id="${generatedMotionNodeId(modulePath, 0)}"`,
+    );
+    expect(result).toContain(`data-agent-native-node-id="authored"`);
+    expect(result).toContain(
+      `data-agent-native-node-id="${generatedMotionNodeId(modulePath, 5)}"`,
+    );
+    expect(
+      result?.match(/data-agent-native-motion-source-file=/g),
+    ).toHaveLength(6);
+    expect(result).toContain(`<script>window.ready = true</script>`);
+    expect(result).toContain(`<style>p { margin: 0 }</style>`);
+  });
+
+  it("skips HTML provenance for stale, malformed, and production source", async () => {
+    const source = `<!doctype html><html><body><button>Go</button></body></html>`;
+    expect(
+      await transformHtml(source, "index.html", "serve", `${source}\n`),
+    ).toBeUndefined();
+    expect(await transformHtml(source, "index.html", "build")).toBeUndefined();
+    expect(
+      await transformHtml(
+        `<!doctype html><html><body><button data-agent-native-node-id="a" data-agent-native-node-id="b">Go</button></body></html>`,
+        "index.html",
+      ),
+    ).toBeUndefined();
   });
 });

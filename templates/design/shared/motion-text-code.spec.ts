@@ -228,6 +228,51 @@ describe("Motion Text source and runtime", () => {
     });
   });
 
+  it("accepts compatible property tracks for one text target", () => {
+    const composite: MotionTextDocument = {
+      ...document,
+      animations: [
+        document.animations[0]!,
+        {
+          ...document.animations[0]!,
+          property: "translate",
+          delayMs: 25,
+          durationMs: 160,
+          keyframes: [
+            { t: 0, value: "0px", ease: "ease-out" },
+            { t: 1, value: "12px" },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      decodeMotionTextDocument(encodeMotionTextDocument(composite)),
+    ).toEqual({ status: "valid", document: composite });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          ...composite,
+          animations: [
+            composite.animations[0],
+            { ...composite.animations[1], property: "opacity" },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+    expect(
+      decodeMotionTextDocument(
+        JSON.stringify({
+          ...composite,
+          animations: [
+            composite.animations[0],
+            { ...composite.animations[1], unit: "character" },
+          ],
+        }),
+      ),
+    ).toMatchObject({ status: "invalid", error: { code: "invalid-document" } });
+  });
+
   it.each([
     "cubic-bezier(0, 0.9971093535, 1, 1)",
     "spring(0.674)",
@@ -345,6 +390,68 @@ describe("Motion Text source and runtime", () => {
     expect(units[0]?.animations[0]?.keyframes).toEqual([
       { offset: 0, easing: "ease-out", opacity: "0" },
       { offset: 1, easing: "ease-in", opacity: "1" },
+    ]);
+  });
+
+  it("runs compatible property tracks on the same segmented text units", () => {
+    const composite: MotionTextDocument = {
+      ...document,
+      animations: [
+        document.animations[0]!,
+        {
+          ...document.animations[0]!,
+          property: "translate",
+          delayMs: 25,
+          durationMs: 160,
+          keyframes: [
+            { t: 0, value: "0px", ease: "ease-out" },
+            { t: 1, value: "12px" },
+          ],
+        },
+      ],
+    };
+    const target = textTarget("Hello, world!");
+    const preview = executeRuntime(
+      compileMotionTextRuntime(composite),
+      target,
+      true,
+    );
+    const units = target.children.filter(
+      (child) =>
+        child.getAttribute("data-agent-native-motion-text-unit") !== null,
+    );
+
+    expect(
+      units.map((unit) => unit.animations.map((entry) => entry.options)),
+    ).toEqual([
+      [
+        { duration: 320, delay: 40, fill: "both" },
+        { duration: 160, delay: 65, fill: "both" },
+      ],
+      [
+        { duration: 320, delay: 0, fill: "both" },
+        { duration: 160, delay: 25, fill: "both" },
+      ],
+    ]);
+    expect(units[0]?.animations.map((entry) => entry.keyframes)).toEqual([
+      [
+        { offset: 0, easing: "ease-out", opacity: "0" },
+        { offset: 1, easing: "ease-in", opacity: "1" },
+      ],
+      [
+        { offset: 0, easing: "ease-out", translate: "0px" },
+        { offset: 1, easing: "ease", translate: "12px" },
+      ],
+    ]);
+
+    preview.sendMessage({ type: "motion-preview", t: 0.2, durationMs: 1000 });
+    expect(
+      units.map((unit) =>
+        unit.animations.map((entry) => entry.handle.currentTime),
+      ),
+    ).toEqual([
+      [160, 135],
+      [200, 160],
     ]);
   });
 

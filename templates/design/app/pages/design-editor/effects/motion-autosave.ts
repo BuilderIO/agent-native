@@ -31,7 +31,7 @@ import {
   type LocalhostWriteConsentRequestOutcome,
 } from "@/pages/design-editor/localhost-consent-request";
 import {
-  motionReactPreviewProofForTargets,
+  motionSourcePreviewProofForTargets,
   motionTimelineFingerprint,
 } from "@/pages/design-editor/motion-state";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -346,7 +346,7 @@ export function runMotionAutosave({
     ).css;
     const isLocalReactSource = activeCanvasSourceType === "localhost";
     const localSourceProof = isLocalReactSource
-      ? motionReactPreviewProofForTargets(activeCodeLayerProjection, [
+      ? motionSourcePreviewProofForTargets(activeCodeLayerProjection, [
           ...tracksForSave.map((track) => track.targetNodeId),
           ...(motionTextDocument?.animations.map(
             (animation) => animation.targetNodeId,

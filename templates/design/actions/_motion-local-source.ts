@@ -18,6 +18,12 @@ export interface MotionLocalSourceLocation {
   filePath: string;
 }
 
+export interface MotionLocalSourceRoute {
+  screenId: string;
+  connectionId: string;
+  sourceFile: string;
+}
+
 export interface MotionLocalSourceDeclaration {
   connectionId?: string;
   filePath: string;
@@ -53,16 +59,16 @@ function parseDesignData(value: unknown): Record<string, unknown> {
 }
 
 /** Resolves a screen only through its saved sourceFile metadata, never its route URL. */
-export function resolveMotionLocalSourceLocation(args: {
+export function resolveMotionLocalSourceRoute(args: {
   designData: unknown;
   screenId: string;
-  declaration?: MotionLocalSourceDeclaration;
-}): MotionLocalSourceLocation {
+  declarationConnectionId?: string;
+}): MotionLocalSourceRoute {
   const data = parseDesignData(args.designData);
   if (designSourceTypeFromData(data) !== "localhost") {
     throw new MotionLocalSourceError(
       "not-localhost-source",
-      "React Motion source writeback requires a connected localhost Design source.",
+      "Motion source writeback requires a connected localhost Design source.",
     );
   }
 
@@ -103,10 +109,10 @@ export function resolveMotionLocalSourceLocation(args: {
     );
   }
   const filePath = [...filePaths][0].trim();
-  if (!/\.(?:tsx|jsx)$/i.test(filePath)) {
+  if (!/\.(?:tsx|jsx|html?)$/i.test(filePath)) {
     throw new MotionLocalSourceError(
       "unsupported-source-file",
-      "React Motion writeback currently supports .tsx and .jsx source files only.",
+      "Motion source writeback supports .tsx, .jsx, .html, and .htm files only.",
     );
   }
 
@@ -133,8 +139,8 @@ export function resolveMotionLocalSourceLocation(args: {
   }
 
   if (
-    args.declaration?.connectionId &&
-    args.declaration.connectionId !== connectionId
+    args.declarationConnectionId &&
+    args.declarationConnectionId !== connectionId
   ) {
     throw new MotionLocalSourceError(
       "source-metadata-mismatch",
@@ -142,18 +148,44 @@ export function resolveMotionLocalSourceLocation(args: {
     );
   }
 
-  const requestedFilePath = args.declaration?.filePath ?? filePath;
-  if (!isSafeRelativeJsxPath(requestedFilePath)) {
+  if (!isSafeRelativeMotionSourcePath(filePath)) {
     throw new MotionLocalSourceError(
       "unsupported-source-file",
-      "React Motion writeback requires a project-relative .tsx or .jsx module path.",
+      "Motion source writeback requires a project-relative .tsx/.jsx module or .html/.htm page.",
     );
   }
 
-  return { screenId: args.screenId, connectionId, filePath: requestedFilePath };
+  return { screenId: args.screenId, connectionId, sourceFile: filePath };
 }
 
-function isSafeRelativeJsxPath(value: string): boolean {
+/** Resolves the requested module candidate; bridge graph verification proves membership. */
+export function resolveMotionLocalSourceLocation(args: {
+  designData: unknown;
+  screenId: string;
+  declaration?: MotionLocalSourceDeclaration;
+}): MotionLocalSourceLocation {
+  const route = resolveMotionLocalSourceRoute({
+    designData: args.designData,
+    screenId: args.screenId,
+    declarationConnectionId: args.declaration?.connectionId,
+  });
+
+  const requestedFilePath = args.declaration?.filePath ?? route.sourceFile;
+  if (!isSafeRelativeMotionSourcePath(requestedFilePath)) {
+    throw new MotionLocalSourceError(
+      "unsupported-source-file",
+      "Motion source writeback requires a project-relative .tsx/.jsx module or .html/.htm page path.",
+    );
+  }
+
+  return {
+    screenId: args.screenId,
+    connectionId: route.connectionId,
+    filePath: requestedFilePath,
+  };
+}
+
+function isSafeRelativeMotionSourcePath(value: string): boolean {
   const path = value.trim();
   if (
     !path ||
@@ -163,7 +195,7 @@ function isSafeRelativeJsxPath(value: string): boolean {
     path.includes("?") ||
     path.includes("#") ||
     /[\u0000-\u001f]/.test(path) ||
-    !/\.(?:tsx|jsx)$/i.test(path)
+    !/\.(?:tsx|jsx|html?)$/i.test(path)
   ) {
     return false;
   }

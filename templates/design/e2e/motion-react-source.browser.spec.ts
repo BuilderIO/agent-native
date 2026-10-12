@@ -366,7 +366,7 @@ test.describe.serial("React Motion source browser writeback", () => {
       page.getByRole("button", { name: "Add animation", exact: true }),
     ).toBeEnabled();
     const firstTextKeyframeValue = page.getByRole("textbox", {
-      name: "Keyframe value 1",
+      name: "Keyframe value 1.1",
       exact: true,
     });
     await expect(firstTextKeyframeValue).toHaveValue("0");

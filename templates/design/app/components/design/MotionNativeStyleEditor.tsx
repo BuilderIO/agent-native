@@ -55,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const STYLE_LABEL_KEYS: Record<MotionNativeStyleKey, string> = {
@@ -76,11 +77,13 @@ const DEFAULT_TYPES: Partial<Record<MotionNativeStyleKey, string>> = {
 };
 
 const MOTION_STYLE_OPTIONS = [
+  { value: "TextStagger", labelKey: "text" },
   { value: "Position", labelKey: "position" },
   { value: "Scale", labelKey: "scale" },
   { value: "Rotation", labelKey: "rotation" },
   { value: "Size", labelKey: "size" },
   { value: "Opacity", labelKey: "opacity" },
+  { value: "Path", labelKey: "path" },
 ] satisfies { value: MotionNativeStyleKey; labelKey: string }[];
 
 const TYPE_OPTIONS: Partial<
@@ -131,6 +134,83 @@ const DIRECTION_OPTIONS: Partial<
     { value: "counterclockwise", labelKey: "counterclockwise" },
   ],
 };
+
+const TEXT_STAGGER_GROUPING_OPTIONS = [
+  { value: "CHARACTER", labelKey: "character" },
+  { value: "WORD", labelKey: "word" },
+  { value: "LINE", labelKey: "line" },
+  { value: "PARAGRAPH", labelKey: "paragraph" },
+];
+
+const TEXT_STAGGER_ORDER_OPTIONS = [
+  { value: "LEFT_RIGHT", labelKey: "forward" },
+  { value: "RIGHT_LEFT", labelKey: "reverse" },
+  { value: "TOP_BOTTOM", labelKey: "forward" },
+  { value: "BOTTOM_TOP", labelKey: "reverse" },
+];
+
+const TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS = [
+  { value: "in", labelKey: "enter" },
+  { value: "out", labelKey: "exit" },
+];
+
+const TEXT_STAGGER_EFFECTS = [
+  {
+    enabledKey: "positionEnabled",
+    labelKey: "position",
+    amountKey: "distance",
+    amountLabelKey: "distance",
+    unit: "px",
+    min: 0,
+    max: 100_000,
+    amountDefault: 40,
+    enabledByDefault: true,
+  },
+  {
+    enabledKey: "rotationEnabled",
+    labelKey: "rotation",
+    amountKey: "rotationAmount",
+    amountLabelKey: "amount",
+    unit: "°",
+    min: 0,
+    max: 360,
+    amountDefault: 180,
+    enabledByDefault: false,
+  },
+  {
+    enabledKey: "scaleEnabled",
+    labelKey: "scale",
+    amountKey: "scaleAmount",
+    amountLabelKey: "amount",
+    unit: "%",
+    min: 0,
+    max: 1000,
+    amountDefault: 120,
+    enabledByDefault: false,
+  },
+  {
+    enabledKey: "opacityEnabled",
+    labelKey: "opacity",
+    amountKey: "opacityAmount",
+    amountLabelKey: "amount",
+    unit: "%",
+    min: 0,
+    max: 100,
+    amountDefault: 0,
+    enabledByDefault: false,
+  },
+  {
+    enabledKey: "blurEnabled",
+    labelKey: "blur",
+    amountKey: "blurAmount",
+    amountLabelKey: "amount",
+    unit: "px",
+    min: 0,
+    max: 1000,
+    amountDefault: 20,
+    enabledByDefault: false,
+  },
+] as const;
 
 const EASING_LABEL_KEYS: Record<string, string> = {
   Hold: "hold",
@@ -333,6 +413,12 @@ export function MotionNativeStyleEditor({
             const selectedRow = selected?.identity.key === identity.key;
             const enabled = instance.enabled !== false;
             const label = styleLabel(instance);
+            const styleOptions =
+              instance.styleKey === "Path"
+                ? MOTION_STYLE_OPTIONS
+                : MOTION_STYLE_OPTIONS.filter(
+                    (option) => option.value !== "Path",
+                  );
 
             return (
               <Popover
@@ -405,7 +491,7 @@ export function MotionNativeStyleEditor({
                               )}
                               value={instance.styleKey}
                               disabled={disabled}
-                              options={MOTION_STYLE_OPTIONS}
+                              options={styleOptions}
                               onChange={(value) =>
                                 changeStyleKey(
                                   instance,
@@ -540,6 +626,38 @@ function NativeStyleDetails({
     const parsed = Number(rawValue);
     if (!Number.isFinite(parsed)) return;
     onUpdateProp(instance, identity, key, parsed / factor);
+  }
+
+  if (instance.styleKey === "TextStagger") {
+    return (
+      <NativeTextStaggerDetails
+        id={id}
+        instance={instance}
+        identity={identity}
+        disabled={disabled}
+        easingVariables={easingVariables}
+        onEasingVariablesChange={onEasingVariablesChange}
+        onUpdateTopLevel={onUpdateTopLevel}
+        onUpdateProp={onUpdateProp}
+        t={t}
+      />
+    );
+  }
+
+  if (instance.styleKey === "Path") {
+    return (
+      <NativePathTrimDetails
+        id={id}
+        instance={instance}
+        identity={identity}
+        disabled={disabled}
+        easingVariables={easingVariables}
+        onEasingVariablesChange={onEasingVariablesChange}
+        onUpdateTopLevel={onUpdateTopLevel}
+        onUpdateProp={onUpdateProp}
+        t={t}
+      />
+    );
   }
 
   return (
@@ -682,6 +800,485 @@ function NativeStyleDetails({
           t={t}
         />
       </div>
+    </div>
+  );
+}
+
+function NativePathTrimDetails({
+  id,
+  instance,
+  identity,
+  disabled,
+  easingVariables,
+  onEasingVariablesChange,
+  onUpdateTopLevel,
+  onUpdateProp,
+  t,
+}: {
+  id: string;
+  instance: MotionNativeStyleInstance;
+  identity: MotionNativeStyleIdentity;
+  disabled: boolean;
+  easingVariables: MotionEasingVariable[];
+  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
+  onUpdateTopLevel: (
+    instance: MotionNativeStyleInstance,
+    identity: MotionNativeStyleIdentity,
+    update: Partial<MotionNativeStyleInstance>,
+  ) => void;
+  onUpdateProp: (
+    instance: MotionNativeStyleInstance,
+    identity: MotionNativeStyleIdentity,
+    key: string,
+    value: MotionNativeStyleJsonValue,
+  ) => void;
+  t: (key: string) => string;
+}) {
+  const delayId = `${id}-delay`;
+  const durationId = `${id}-duration`;
+  const easingId = `${id}-easing`;
+  const easingValue = easingToken(instance.props.easing);
+  const easingVariableId = motionEaseVariableId(easingValue);
+  const easingVariable = easingVariables.find(
+    (candidate) => candidate.id === easingVariableId,
+  );
+  const updatePercent = (key: string, rawValue: string) => {
+    if (!rawValue.trim()) return;
+    const parsed = Number(rawValue);
+    if (Number.isFinite(parsed)) {
+      onUpdateProp(instance, identity, key, Math.min(100, Math.max(0, parsed)));
+    }
+  };
+  const updateEasing = (value: string) => {
+    if (easingVariable && onEasingVariablesChange) {
+      onEasingVariablesChange(
+        easingVariables.map((candidate) =>
+          candidate.id === easingVariable.id
+            ? { ...candidate, value }
+            : candidate,
+        ),
+      );
+      return;
+    }
+    if (!easingVariableId) onUpdateProp(instance, identity, "easing", value);
+  };
+
+  return (
+    <div className="flex flex-col gap-1 px-2.5 py-2" id={id}>
+      <NumberField
+        id={`${id}-start-from`}
+        label={t("designEditor.motion.nativePathTrim.startAtBeginning")}
+        value={numberValue(instance.props.pathStartStartFrame, 100)}
+        min={0}
+        max={100}
+        disabled={disabled}
+        unit="%"
+        onChange={(value) => updatePercent("pathStartStartFrame", value)}
+      />
+      <NumberField
+        id={`${id}-end-from`}
+        label={t("designEditor.motion.nativePathTrim.endAtBeginning")}
+        value={numberValue(instance.props.pathEndStartWithoutDivider, 20)}
+        min={0}
+        max={100}
+        disabled={disabled}
+        unit="%"
+        onChange={(value) => updatePercent("pathEndStartWithoutDivider", value)}
+      />
+      <NumberField
+        id={`${id}-start-to`}
+        label={t("designEditor.motion.nativePathTrim.startAtEnd")}
+        value={numberValue(instance.props.pathStartEndWithoutDivider, 0)}
+        min={0}
+        max={100}
+        disabled={disabled}
+        unit="%"
+        onChange={(value) => updatePercent("pathStartEndWithoutDivider", value)}
+      />
+      <NumberField
+        id={`${id}-end-to`}
+        label={t("designEditor.motion.nativePathTrim.endAtEnd")}
+        value={numberValue(instance.props.pathEndEndFrame, 100)}
+        min={0}
+        max={100}
+        disabled={disabled}
+        unit="%"
+        onChange={(value) => updatePercent("pathEndEndFrame", value)}
+      />
+      <NumberField
+        id={delayId}
+        label={t("designEditor.motion.animationStyles.delay")}
+        value={Math.round(numberValue(instance.props.delay, 0) * 1000)}
+        min={0}
+        max={120_000}
+        disabled={disabled}
+        unit="ms"
+        onChange={(value) => {
+          if (!value.trim()) return;
+          const parsed = Number(value);
+          if (Number.isFinite(parsed)) {
+            onUpdateProp(instance, identity, "delay", parsed / 1000);
+          }
+        }}
+      />
+      <NumberField
+        id={durationId}
+        label={t("designEditor.motion.duration")}
+        value={Math.round(instance.duration * 1000)}
+        min={1}
+        max={120_000}
+        disabled={disabled}
+        unit="ms"
+        onChange={(value) => {
+          if (!value.trim()) return;
+          const parsed = Number(value);
+          if (Number.isFinite(parsed)) {
+            onUpdateTopLevel(instance, identity, {
+              duration: Math.min(120_000, Math.max(1, parsed)) / 1000,
+            });
+          }
+        }}
+      />
+      <Field
+        id={easingId}
+        label={t("designEditor.motion.animationStyles.easing")}
+      >
+        <MotionEasingPicker
+          value={easingVariable?.value ?? easingValue}
+          easingVariables={easingVariables}
+          onEasingVariablesChange={onEasingVariablesChange}
+          onChange={updateEasing}
+          disabled={disabled}
+          t={t}
+        />
+      </Field>
+    </div>
+  );
+}
+
+function NativeTextStaggerDetails({
+  id,
+  instance,
+  identity,
+  disabled,
+  easingVariables,
+  onEasingVariablesChange,
+  onUpdateTopLevel,
+  onUpdateProp,
+  t,
+}: {
+  id: string;
+  instance: MotionNativeStyleInstance;
+  identity: MotionNativeStyleIdentity;
+  disabled: boolean;
+  easingVariables: MotionEasingVariable[];
+  onEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
+  onUpdateTopLevel: (
+    instance: MotionNativeStyleInstance,
+    identity: MotionNativeStyleIdentity,
+    update: Partial<MotionNativeStyleInstance>,
+  ) => void;
+  onUpdateProp: (
+    instance: MotionNativeStyleInstance,
+    identity: MotionNativeStyleIdentity,
+    key: string,
+    value: MotionNativeStyleJsonValue,
+  ) => void;
+  t: (key: string) => string;
+}) {
+  const grouping = stringValue(instance.props.textDelayGrouping, "CHARACTER");
+  const groupOptions = TEXT_STAGGER_GROUPING_OPTIONS.map((option) => ({
+    value: option.value,
+    labelKey: option.labelKey,
+  }));
+  const orderOptions = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
+    grouping === "LINE" || grouping === "PARAGRAPH"
+      ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
+      : option.value === "LEFT_RIGHT" || option.value === "RIGHT_LEFT",
+  );
+  const order = stringValue(
+    instance.props.textDelayOrder,
+    orderOptions[0]?.value ?? "LEFT_RIGHT",
+  );
+  const animationDirection = stringValue(
+    instance.props.animationDirection,
+    "in",
+  );
+  const delayId = `${id}-delay`;
+  const durationId = `${id}-duration`;
+  const directionId = `${id}-animation-direction`;
+  const groupingId = `${id}-grouping`;
+  const orderId = `${id}-order`;
+  const easingId = `${id}-easing`;
+  const easingValue = easingToken(instance.props.easing);
+
+  function updateNumberProp(key: string, value: string, factor = 1) {
+    if (!value.trim()) return;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    onUpdateProp(instance, identity, key, parsed / factor);
+  }
+
+  return (
+    <div className="flex flex-col gap-1 px-2.5 py-2" id={id}>
+      <Field
+        id={directionId}
+        label={t("designEditor.motion.nativeTextStagger.animationDirection")}
+      >
+        <SelectControl
+          id={directionId}
+          label={t("designEditor.motion.nativeTextStagger.animationDirection")}
+          value={animationDirection}
+          disabled={disabled}
+          options={TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS}
+          labelBase="designEditor.motion.nativeTextStagger"
+          t={t}
+          onChange={(value) =>
+            onUpdateProp(instance, identity, "animationDirection", value)
+          }
+        />
+      </Field>
+
+      <Field
+        id={groupingId}
+        label={t("designEditor.motion.nativeTextStagger.grouping")}
+      >
+        <SelectControl
+          id={groupingId}
+          label={t("designEditor.motion.nativeTextStagger.grouping")}
+          value={grouping}
+          disabled={disabled}
+          options={groupOptions}
+          labelBase="designEditor.motion.textAnimation.units"
+          t={t}
+          onChange={(value) => {
+            const nextGrouping = value;
+            const nextOrders = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
+              nextGrouping === "LINE" || nextGrouping === "PARAGRAPH"
+                ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
+                : option.value === "LEFT_RIGHT" ||
+                  option.value === "RIGHT_LEFT",
+            );
+            const currentOrderIsValid = nextOrders.some(
+              (option) => option.value === order,
+            );
+            onUpdateProp(instance, identity, "textDelayGrouping", value);
+            if (!currentOrderIsValid && nextOrders[0]) {
+              onUpdateProp(
+                instance,
+                identity,
+                "textDelayOrder",
+                nextOrders[0].value,
+              );
+            }
+          }}
+        />
+      </Field>
+
+      <Field
+        id={orderId}
+        label={t("designEditor.motion.nativeTextStagger.order")}
+      >
+        <SelectControl
+          id={orderId}
+          label={t("designEditor.motion.nativeTextStagger.order")}
+          value={order}
+          disabled={disabled}
+          options={orderOptions}
+          labelBase="designEditor.motion.nativeTextStagger.orderOptions"
+          t={t}
+          onChange={(value) =>
+            onUpdateProp(instance, identity, "textDelayOrder", value)
+          }
+        />
+      </Field>
+
+      <NumberField
+        id={`${id}-overlap`}
+        label={t("designEditor.motion.nativeTextStagger.overlap")}
+        value={numberValue(instance.props.presetStaggerOverlap, 50)}
+        min={0}
+        max={100}
+        disabled={disabled}
+        unit="%"
+        onChange={(value) => updateNumberProp("presetStaggerOverlap", value)}
+      />
+
+      <div className="space-y-1 border-t border-border pt-1">
+        {TEXT_STAGGER_EFFECTS.map((effect) => {
+          const enabled = booleanValue(
+            instance.props[effect.enabledKey],
+            effect.enabledByDefault,
+          );
+          const effectId = `${id}-${effect.enabledKey}`;
+          const amountId = `${id}-${effect.amountKey}`;
+          const amount = numberValue(
+            instance.props[effect.amountKey],
+            effect.amountDefault,
+          );
+
+          return (
+            <div key={effect.enabledKey} className="space-y-0.5">
+              <div className="flex min-h-6 items-center justify-between gap-2">
+                <Label
+                  htmlFor={effectId}
+                  className="!text-[10px] text-muted-foreground"
+                >
+                  {t(
+                    `designEditor.motion.nativeTextStagger.effects.${effect.labelKey}`,
+                  )}
+                </Label>
+                <Switch
+                  id={effectId}
+                  aria-label={t(
+                    `designEditor.motion.nativeTextStagger.effects.${effect.labelKey}`,
+                  )}
+                  checked={enabled}
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    onUpdateProp(instance, identity, effect.enabledKey, checked)
+                  }
+                />
+              </div>
+              {enabled ? (
+                <div className="grid grid-cols-[58px_minmax(0,1fr)] items-center gap-2">
+                  {effect.enabledKey === "positionEnabled" ? (
+                    <>
+                      <Label
+                        htmlFor={`${id}-position-direction`}
+                        className="!text-[10px] text-muted-foreground"
+                      >
+                        {t(
+                          "designEditor.motion.nativeTextStagger.positionDirection",
+                        )}
+                      </Label>
+                      <SelectControl
+                        id={`${id}-position-direction`}
+                        label={t(
+                          "designEditor.motion.nativeTextStagger.positionDirection",
+                        )}
+                        value={stringValue(instance.props.direction, "top")}
+                        disabled={disabled}
+                        options={DIRECTION_OPTIONS.Position ?? []}
+                        t={t}
+                        onChange={(value) =>
+                          onUpdateProp(instance, identity, "direction", value)
+                        }
+                      />
+                    </>
+                  ) : effect.enabledKey === "rotationEnabled" ? (
+                    <>
+                      <Label
+                        htmlFor={`${id}-rotation-direction`}
+                        className="!text-[10px] text-muted-foreground"
+                      >
+                        {t(
+                          "designEditor.motion.nativeTextStagger.rotationDirection",
+                        )}
+                      </Label>
+                      <SelectControl
+                        id={`${id}-rotation-direction`}
+                        label={t(
+                          "designEditor.motion.nativeTextStagger.rotationDirection",
+                        )}
+                        value={stringValue(
+                          instance.props.rotationDirection,
+                          "clockwise",
+                        )}
+                        disabled={disabled}
+                        options={DIRECTION_OPTIONS.Rotation ?? []}
+                        t={t}
+                        onChange={(value) =>
+                          onUpdateProp(
+                            instance,
+                            identity,
+                            "rotationDirection",
+                            value,
+                          )
+                        }
+                      />
+                    </>
+                  ) : null}
+                  <Label
+                    htmlFor={amountId}
+                    className="!text-[10px] text-muted-foreground"
+                  >
+                    {t(
+                      `designEditor.motion.nativeTextStagger.effects.${effect.amountLabelKey}`,
+                    )}
+                  </Label>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <Input
+                      id={amountId}
+                      type="number"
+                      min={effect.min}
+                      max={effect.max}
+                      value={amount}
+                      disabled={disabled}
+                      className={CONTROL_CLASS}
+                      onChange={(event) =>
+                        updateNumberProp(
+                          effect.amountKey,
+                          event.currentTarget.value,
+                        )
+                      }
+                    />
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {effect.unit}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      <NumberField
+        id={delayId}
+        label={t("designEditor.motion.animationStyles.delay")}
+        value={Math.round(numberValue(instance.props.delay, 0) * 1000)}
+        min={0}
+        max={120_000}
+        disabled={disabled}
+        showClock
+        unit="ms"
+        onChange={(value) => updateNumberProp("delay", value, 1000)}
+      />
+
+      <NumberField
+        id={durationId}
+        label={t("designEditor.motion.duration")}
+        value={Math.round(instance.duration * 1000)}
+        min={1}
+        max={120_000}
+        disabled={disabled}
+        showClock
+        unit="ms"
+        onChange={(value) => {
+          const parsed = Number(value);
+          if (!value.trim() || !Number.isFinite(parsed)) return;
+          onUpdateTopLevel(instance, identity, {
+            duration: Math.min(120_000, Math.max(1, parsed)) / 1000,
+          });
+        }}
+      />
+
+      <Field
+        id={easingId}
+        label={t("designEditor.motion.animationStyles.easing")}
+      >
+        <MotionEasingPicker
+          value={easingValue}
+          easingVariables={easingVariables}
+          onEasingVariablesChange={onEasingVariablesChange}
+          onChange={(value) =>
+            onUpdateProp(instance, identity, "easing", value)
+          }
+          disabled={disabled}
+          t={t}
+        />
+      </Field>
     </div>
   );
 }
@@ -1138,6 +1735,7 @@ function SelectControl({
   value,
   disabled,
   options,
+  labelBase = "designEditor.motion.animationStyles",
   t,
   onChange,
 }: {
@@ -1146,6 +1744,7 @@ function SelectControl({
   value: string;
   disabled: boolean;
   options: { value: string; labelKey: string }[];
+  labelBase?: string;
   t: (key: string) => string;
   onChange: (value: string) => void;
 }) {
@@ -1155,9 +1754,7 @@ function SelectControl({
       <SelectTrigger id={id} aria-label={label} className={CONTROL_CLASS}>
         {selectedOption ? (
           <span className="truncate">
-            {t(
-              `designEditor.motion.animationStyles.${selectedOption.labelKey}`,
-            )}
+            {t(`${labelBase}.${selectedOption.labelKey}`)}
           </span>
         ) : (
           <span className="truncate">{value}</span>
@@ -1166,7 +1763,7 @@ function SelectControl({
       <SelectContent>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
-            {t(`designEditor.motion.animationStyles.${option.labelKey}`)}
+            {t(`${labelBase}.${option.labelKey}`)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -1745,7 +2342,9 @@ function isRunnableStyle(styleKey: MotionNativeStyleKey): boolean {
     styleKey === "Scale" ||
     styleKey === "Rotation" ||
     styleKey === "Size" ||
-    styleKey === "Opacity"
+    styleKey === "Opacity" ||
+    styleKey === "TextStagger" ||
+    styleKey === "Path"
   );
 }
 
@@ -1778,6 +2377,10 @@ function numberValue(
   fallback: number,
 ) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function defaultAmount(styleKey: MotionNativeStyleKey): number {

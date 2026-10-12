@@ -585,6 +585,7 @@ export async function selectByText(
     screenId?: string;
     clearPreviousSelection?: boolean;
     deep?: boolean;
+    additive?: boolean;
   },
 ): Promise<any> {
   const screenId = options?.screenId ?? activeScreenTargetFromUrl(page);
@@ -622,9 +623,14 @@ export async function selectByText(
   }
   await page.evaluate(() => ((window as any).__bridge = []));
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  const modifiers: Array<"Shift" | "Meta" | "Control"> = options?.additive
+    ? ["Shift"]
+    : options?.deep === false
+      ? []
+      : [modifier];
   await target.click({
     force: true,
-    ...(options?.deep === false ? {} : { modifiers: [modifier] }),
+    ...(modifiers.length > 0 ? { modifiers } : {}),
   });
   let selectionHandle;
   try {

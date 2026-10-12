@@ -7,10 +7,15 @@ import {
   MotionNativeStyleRuntimeError,
   createMotionNativeStyleInstance,
   motionNativeStyleEndTimeMs,
+  motionNativeStyleWithPathTrimTrack,
   motionNativeStyleWithPositionTrack,
   motionNativeStylesToTracks,
+  motionNativeStylesToTextAnimations,
+  motionTextDocumentWithNativeStyles,
+  motionTextDocumentWithoutNativeStyles,
   switchMotionNativeStyleKey,
 } from "./motion-native-style-runtime";
+import type { MotionTextDocument } from "./motion-text-code";
 import type { MotionPathSegmentV1, MotionTimeline } from "./motion-timeline";
 
 function compileTracks(tracks: MotionTimeline["tracks"]): string {
@@ -56,6 +61,297 @@ function expectRuntimeError(
 }
 
 describe("native Figma Motion runtime adapter", () => {
+  it("derives default TextStagger as an editable text property track", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+
+    expect(motionNativeStylesToTracks([style])).toEqual([]);
+    expect(motionNativeStylesToTextAnimations([style])).toEqual([
+      {
+        targetNodeId: "hero",
+        unit: "character",
+        direction: "forward",
+        staggerMs: 250,
+        delayMs: 0,
+        property: "translate",
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0px -40px", ease: "ease-out" },
+          { t: 1, value: "0px 0px" },
+        ],
+      },
+    ]);
+  });
+
+  it("projects native Path trim endpoints and preserves opaque source props on edits", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "Path",
+      targetNodeId: "path-1",
+    });
+    const track = motionNativeStylesToTracks([style])[0]!;
+
+    expect(track).toMatchObject({
+      targetNodeId: "path-1",
+      property: "path-trim",
+      delayMs: 0,
+      durationMs: 1000,
+      keyframes: [
+        { t: 0, value: "100% 20%", ease: "ease-out" },
+        { t: 1, value: "0% 100%" },
+      ],
+    });
+
+    const authored = {
+      ...style,
+      props: { ...style.props, extensionField: { untouched: true } },
+    };
+    const editedTrack = {
+      ...track,
+      keyframes: [
+        { t: 0, value: "85% 15%", ease: "ease-out" },
+        { t: 1, value: "10% 90%" },
+      ],
+    };
+    const edited = motionNativeStyleWithPathTrimTrack(authored, editedTrack);
+
+    expect(edited.props).toMatchObject({
+      type: "custom",
+      pathStartStartFrame: 85,
+      pathEndStartWithoutDivider: 15,
+      pathStartEndWithoutDivider: 10,
+      pathEndEndFrame: 90,
+      extensionField: { untouched: true },
+    });
+    expect(motionNativeStylesToTracks([edited])[0]).toMatchObject({
+      property: "path-trim",
+      keyframes: [
+        { t: 0, value: "85% 15%" },
+        { t: 1, value: "10% 90%" },
+      ],
+    });
+  });
+
+  it("keeps disabled native Path styles inert and rejects unsupported types or percentages", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "Path",
+      targetNodeId: "path-1",
+    });
+    expect(motionNativeStylesToTracks([{ ...style, enabled: false }])).toEqual(
+      [],
+    );
+    expectRuntimeError(
+      () =>
+        motionNativeStylesToTracks([
+          { ...style, props: { ...style.props, type: "spiral" } },
+        ]),
+      "unsupported-style",
+    );
+    expectRuntimeError(
+      () =>
+        motionNativeStylesToTracks([
+          {
+            ...style,
+            props: { ...style.props, pathStartStartFrame: 101 },
+          },
+        ]),
+      "invalid-style-props",
+    );
+  });
+
+  it("lowers all enabled TextStagger properties with shared grouping and timing", () => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      duration: 0.5,
+      timelineOffset: 0.2,
+      props: {
+        ...base.props,
+        animationDirection: "out",
+        textDelayGrouping: "WORD",
+        textDelayOrder: "RIGHT_LEFT",
+        presetStaggerOverlap: 20,
+        delay: 0.125,
+        direction: "left",
+        positionEnabled: true,
+        rotationEnabled: true,
+        scaleEnabled: true,
+        opacityEnabled: true,
+        blurEnabled: true,
+      },
+    };
+
+    expect(motionNativeStylesToTextAnimations([style])).toEqual([
+      {
+        targetNodeId: "hero",
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 400,
+        delayMs: 325,
+        property: "filter",
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "blur(0px)", ease: "ease-out" },
+          { t: 1, value: "blur(20px)" },
+        ],
+      },
+      {
+        targetNodeId: "hero",
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 400,
+        delayMs: 325,
+        property: "translate",
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "ease-out" },
+          { t: 1, value: "-40px 0px" },
+        ],
+      },
+      {
+        targetNodeId: "hero",
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 400,
+        delayMs: 325,
+        property: "rotate",
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "0deg", ease: "ease-out" },
+          { t: 1, value: "180deg" },
+        ],
+      },
+      {
+        targetNodeId: "hero",
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 400,
+        delayMs: 325,
+        property: "scale",
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "1", ease: "ease-out" },
+          { t: 1, value: "1.2" },
+        ],
+      },
+      {
+        targetNodeId: "hero",
+        unit: "word",
+        direction: "reverse",
+        staggerMs: 400,
+        delayMs: 325,
+        property: "opacity",
+        durationMs: 500,
+        keyframes: [
+          { t: 0, value: "1", ease: "ease-out" },
+          { t: 1, value: "0" },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps derived TextStagger separate from authored text tracks in metadata", () => {
+    const style = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const authored: MotionTextDocument = {
+      version: 1,
+      animations: [
+        {
+          targetNodeId: "subtitle",
+          unit: "word",
+          direction: "forward",
+          staggerMs: 20,
+          property: "opacity",
+          durationMs: 250,
+          keyframes: [
+            { t: 0, value: "0", ease: "ease-out" },
+            { t: 1, value: "1" },
+          ],
+        },
+      ],
+    };
+    const combined = motionTextDocumentWithNativeStyles(authored, [style]);
+
+    expect(combined?.animations).toHaveLength(2);
+    expect(motionTextDocumentWithoutNativeStyles(combined, [style])).toEqual(
+      authored,
+    );
+    const css = compileMotionCode({
+      id: "timeline",
+      designId: "design",
+      sourceRef: null,
+      filePath: null,
+      tracks: [],
+      durationMs: 1000,
+      defaultEase: "ease",
+      compiledHash: null,
+      nativeStyles: [style],
+      createdAt: "2026-10-11T00:00:00.000Z",
+      updatedAt: "2026-10-11T00:00:00.000Z",
+    }).css;
+    const metadata = decodeMotionCodeMetadata(css);
+    expect(metadata.status).toBe("valid");
+    if (metadata.status === "valid") {
+      expect(metadata.document.nativeStyles).toEqual([style]);
+      expect(metadata.document.tracks).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["CENTER_OUT", "textDelayOrder"],
+    ["OUTSIDE_IN", "textDelayOrder"],
+  ])("reports unsupported TextStagger order %s explicitly", (order, prop) => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      props: { ...base.props, textDelayOrder: order },
+    };
+    expectRuntimeError(
+      () => motionNativeStylesToTextAnimations([style]),
+      "unsupported-style",
+    );
+    try {
+      motionNativeStylesToTextAnimations([style]);
+    } catch (error) {
+      expect(error).toMatchObject({ message: expect.stringContaining(prop) });
+    }
+  });
+
+  it.each([
+    ["clipContent", true],
+    ["elementTransformOriginMode", "CUSTOM"],
+    ["futureTextProperty", "preserve-me"],
+  ])("reports unsupported TextStagger prop %s explicitly", (key, value) => {
+    const base = createMotionNativeStyleInstance({
+      styleKey: "TextStagger",
+      targetNodeId: "hero",
+    });
+    const style = {
+      ...base,
+      props: { ...base.props, [key]: value },
+    };
+    let error: unknown;
+    try {
+      motionNativeStylesToTextAnimations([style]);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(MotionNativeStyleRuntimeError);
+    expect(error).toMatchObject({
+      code: "unsupported-style",
+      message: expect.stringContaining(key),
+    });
+  });
+
   it("creates the same default Position instance shape as Figma", () => {
     expect(
       createMotionNativeStyleInstance({
@@ -66,7 +362,7 @@ describe("native Figma Motion runtime adapter", () => {
       type: "FIGMA",
       styleKey: "Position",
       nameKey: "motion.preset_name.position",
-      duration: 0.5,
+      duration: 1,
       timelineOffset: 0,
       targetNodeId: "hero",
       enabled: true,
@@ -141,7 +437,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "0px 0px" },
         ],
         delayMs: 0,
-        durationMs: 500,
+        durationMs: 1000,
       },
     ]);
   });
@@ -251,7 +547,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "1 1" },
         ],
         delayMs: 0,
-        durationMs: 500,
+        durationMs: 1000,
       },
       {
         targetNodeId: "hero",
@@ -261,7 +557,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "0deg" },
         ],
         delayMs: 0,
-        durationMs: 500,
+        durationMs: 1000,
       },
       {
         targetNodeId: "hero",
@@ -271,7 +567,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "1" },
         ],
         delayMs: 0,
-        durationMs: 500,
+        durationMs: 1000,
       },
       {
         targetNodeId: "hero",
@@ -281,7 +577,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "calc(100% + -50px)" },
         ],
         delayMs: 0,
-        durationMs: 500,
+        durationMs: 1000,
       },
       {
         targetNodeId: "hero",
@@ -291,7 +587,7 @@ describe("native Figma Motion runtime adapter", () => {
           { t: 1, value: "calc(100% + -50px)" },
         ],
         delayMs: 0,
-        durationMs: 500,
+        durationMs: 1000,
       },
     ]);
   });

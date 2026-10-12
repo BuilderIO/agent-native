@@ -20,7 +20,12 @@ import {
 
 export type MotionTextUnit = "character" | "word" | "line" | "paragraph";
 export type MotionTextDirection = "forward" | "reverse";
-export type MotionTextProperty = "opacity" | "translate" | "scale" | "rotate";
+export type MotionTextProperty =
+  | "opacity"
+  | "translate"
+  | "scale"
+  | "rotate"
+  | "filter";
 export type MotionTextPlaybackMode = "loop" | "once" | "ping-pong";
 
 export interface MotionTextKeyframe {
@@ -41,7 +46,8 @@ export interface MotionTextAnimation {
 }
 
 export interface AgentNativeMotionTextProps {
-  animation: MotionTextAnimation;
+  animation?: MotionTextAnimation;
+  animations?: MotionTextAnimation[];
   playbackMode?: MotionTextPlaybackMode;
   children: ReactElement;
 }
@@ -76,6 +82,7 @@ const MOTION_TEXT_PROPERTIES = new Set<MotionTextProperty>([
   "translate",
   "scale",
   "rotate",
+  "filter",
 ]);
 const MOTION_TEXT_PLAYBACK_MODES = new Set<MotionTextPlaybackMode>([
   "loop",
@@ -128,16 +135,24 @@ const PREVIEW_MESSAGE_TYPES = new Set([
 ]);
 
 /**
- * Applies one static text animation to a single intrinsic JSX host element.
+ * Applies static text property animations to a single intrinsic JSX host element.
  * Importing this entry includes the package stylesheet; the same asset is
  * available as `@agent-native/core/client/motion-text.css` for CSS-only setups.
  */
 export function AgentNativeMotionText({
   animation,
+  animations: animationList,
   playbackMode = "once",
   children,
 }: AgentNativeMotionTextProps) {
-  validateAnimation(animation);
+  if (animation && animationList) {
+    throw new Error(
+      "AgentNativeMotionText accepts animation or animations, not both.",
+    );
+  }
+  const animations = animationList ?? (animation ? [animation] : []);
+  validateAnimations(animations);
+  const primaryAnimation = animations[0]!;
   validatePlaybackMode(playbackMode);
 
   const child = Children.only(children);
@@ -148,7 +163,9 @@ export function AgentNativeMotionText({
   }
 
   const host = child as ReactElement<MotionTextHostProps>;
-  if (host.props["data-agent-native-node-id"] !== animation.targetNodeId) {
+  if (
+    host.props["data-agent-native-node-id"] !== primaryAnimation.targetNodeId
+  ) {
     throw new Error(
       "AgentNativeMotionText animation.targetNodeId must match the child’s static data-agent-native-node-id.",
     );
@@ -200,7 +217,7 @@ export function AgentNativeMotionText({
     const hostElement = hostRef.current;
     if (!hostElement) return;
 
-    const elements = resolveMotionUnits(hostElement, animation);
+    const elements = resolveMotionUnits(hostElement, primaryAnimation);
     if (elements.length === 0) {
       throw new Error("AgentNativeMotionText found no animatable text units.");
     }
@@ -213,67 +230,65 @@ export function AgentNativeMotionText({
         `AgentNativeMotionText supports at most ${MAX_TEXT_UNITS} animated units.`,
       );
     }
-    if ((groupCount - 1) * animation.staggerMs > 120_000) {
+    if ((groupCount - 1) * primaryAnimation.staggerMs > 120_000) {
       throw new Error(
         "AgentNativeMotionText stagger exceeds the 120000ms runtime limit.",
       );
     }
 
-    const runningAnimations: Animation[] = [];
+    const previewAnimations: Array<{
+      animation: Animation;
+      delay: number;
+      durationMs: number;
+    }> = [];
     try {
-      for (const entry of elements) {
-        if (typeof entry.element.animate !== "function") {
-          throw new Error(
-            "AgentNativeMotionText requires the Web Animations API.",
-          );
+      for (const track of animations) {
+        for (const entry of elements) {
+          if (typeof entry.element.animate !== "function") {
+            throw new Error(
+              "AgentNativeMotionText requires the Web Animations API.",
+            );
+          }
+          const delayIndex =
+            track.direction === "reverse"
+              ? groupCount - 1 - entry.index
+              : entry.index;
+          const easingStyle = track.keyframes.some((keyframe) =>
+            isMotionEaseVariableReference(keyframe.ease ?? ""),
+          )
+            ? window.getComputedStyle(entry.element)
+            : null;
+          const keyframes = track.keyframes.map((keyframe) => ({
+            offset: keyframe.t,
+            easing: resolveMotionEaseForWebAnimations(
+              keyframe.ease ?? "ease",
+              (name) => easingStyle?.getPropertyValue(name) ?? "",
+            ),
+            [track.property]: keyframe.value,
+          })) as Keyframe[];
+          const delay = (track.delayMs ?? 0) + delayIndex * track.staggerMs;
+          const runningAnimation = entry.element.animate(keyframes, {
+            duration: track.durationMs,
+            delay,
+            iterations: playbackMode === "once" ? 1 : Infinity,
+            direction: playbackMode === "ping-pong" ? "alternate" : "normal",
+            fill: "both",
+          });
+          previewAnimations.push({
+            animation: runningAnimation,
+            delay,
+            durationMs: track.durationMs,
+          });
         }
-        const delayIndex =
-          animation.direction === "reverse"
-            ? groupCount - 1 - entry.index
-            : entry.index;
-        const easingStyle = animation.keyframes.some((keyframe) =>
-          isMotionEaseVariableReference(keyframe.ease ?? ""),
-        )
-          ? window.getComputedStyle(entry.element)
-          : null;
-        const keyframes = animation.keyframes.map((keyframe) => ({
-          offset: keyframe.t,
-          easing: resolveMotionEaseForWebAnimations(
-            keyframe.ease ?? "ease",
-            (name) => easingStyle?.getPropertyValue(name) ?? "",
-          ),
-          [animation.property]: keyframe.value,
-        })) as Keyframe[];
-        const delay =
-          (animation.delayMs ?? 0) + delayIndex * animation.staggerMs;
-        const runningAnimation = entry.element.animate(keyframes, {
-          duration: animation.durationMs,
-          delay,
-          iterations: playbackMode === "once" ? 1 : Infinity,
-          direction: playbackMode === "ping-pong" ? "alternate" : "normal",
-          fill: "both",
-        });
-        runningAnimations.push(runningAnimation);
       }
     } catch (error) {
-      for (const runningAnimation of runningAnimations) {
-        runningAnimation.cancel();
+      for (const entry of previewAnimations) {
+        entry.animation.cancel();
       }
       throw error;
     }
 
     let isPreviewing = false;
-    const previewAnimations = runningAnimations.map(
-      (runningAnimation, index) => {
-        const delayIndex =
-          animation.direction === "reverse"
-            ? groupCount - 1 - elements[index]!.index
-            : elements[index]!.index;
-        const delay =
-          (animation.delayMs ?? 0) + delayIndex * animation.staggerMs;
-        return { animation: runningAnimation, delay };
-      },
-    );
 
     const handlePreviewMessage = (event: MessageEvent<unknown>) => {
       if (
@@ -305,7 +320,7 @@ export function AgentNativeMotionText({
         const elapsed = Math.max(0, timelineTime - entry.delay);
         entry.animation.currentTime =
           playbackMode === "once"
-            ? Math.min(animation.durationMs, elapsed)
+            ? Math.min(entry.durationMs, elapsed)
             : elapsed;
       }
     };
@@ -313,17 +328,17 @@ export function AgentNativeMotionText({
 
     return () => {
       window.removeEventListener("message", handlePreviewMessage);
-      for (const runningAnimation of runningAnimations) {
-        runningAnimation.cancel();
+      for (const entry of previewAnimations) {
+        entry.animation.cancel();
       }
     };
-  }, [animation, motionAllowed, playbackMode]);
+  }, [animations, motionAllowed, playbackMode, primaryAnimation]);
 
   const nextUnitIndex = { current: 0 };
   const outputChildren = motionAllowed
-    ? animation.unit === "paragraph"
+    ? primaryAnimation.unit === "paragraph"
       ? renderParagraphs(host.props.children, nextUnitIndex)
-      : renderTextNodes(host.props.children, animation, nextUnitIndex)
+      : renderTextNodes(host.props.children, primaryAnimation, nextUnitIndex)
     : host.props.children;
 
   return cloneElement(host, { ref: setHostRef, children: outputChildren });
@@ -332,6 +347,33 @@ export function AgentNativeMotionText({
 function validatePlaybackMode(mode: MotionTextPlaybackMode): void {
   if (!MOTION_TEXT_PLAYBACK_MODES.has(mode)) {
     throw new Error("AgentNativeMotionText playbackMode is unsupported.");
+  }
+}
+
+function validateAnimations(animations: MotionTextAnimation[]): void {
+  if (!Array.isArray(animations) || animations.length === 0) {
+    throw new Error("AgentNativeMotionText requires at least one animation.");
+  }
+  const first = animations[0]!;
+  const properties = new Set<MotionTextProperty>();
+  for (const animation of animations) {
+    validateAnimation(animation);
+    if (
+      animation.targetNodeId !== first.targetNodeId ||
+      animation.unit !== first.unit ||
+      animation.direction !== first.direction ||
+      animation.staggerMs !== first.staggerMs
+    ) {
+      throw new Error(
+        "AgentNativeMotionText animations for one target must share target, unit, direction, and stagger.",
+      );
+    }
+    if (properties.has(animation.property)) {
+      throw new Error(
+        `AgentNativeMotionText property "${animation.property}" is duplicated.`,
+      );
+    }
+    properties.add(animation.property);
   }
 }
 

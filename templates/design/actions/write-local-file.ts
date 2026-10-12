@@ -265,30 +265,52 @@ export default defineAction({
 
     if (isLocalhostBridgeRelayRequest(ctx)) {
       const step = localhostBridgeRelayStep(ctx);
-      return createLocalhostBridgeRelay({
-        operation: content !== undefined ? "write-file" : "apply-edit",
-        designId,
-        connectionId,
-        relPath,
-        ...(step
+      const operation = content !== undefined ? "write-file" : "apply-edit";
+      const bridgeRequest =
+        content !== undefined
           ? {
-              step,
-              payload:
-                content !== undefined
-                  ? {
-                      relPath,
-                      content,
-                      expectedVersionHash,
-                      requireExpectedVersionHash,
-                    }
-                  : {
-                      relPath,
-                      patch,
-                      expectedVersionHash,
-                      requireExpectedVersionHash,
-                    },
+              relPath,
+              content,
+              expectedVersionHash,
+              requireExpectedVersionHash,
             }
-          : {}),
+          : {
+              relPath,
+              search: patch!.search,
+              replace: patch!.replace,
+              expectedVersionHash,
+              requireExpectedVersionHash,
+            };
+      return createLocalhostBridgeRelay({
+        relay: {
+          operation,
+          designId,
+          connectionId,
+          relPath,
+          ...(step
+            ? {
+                step,
+                payload:
+                  content !== undefined
+                    ? {
+                        relPath,
+                        content,
+                        expectedVersionHash,
+                        requireExpectedVersionHash,
+                      }
+                    : {
+                        relPath,
+                        patch,
+                        expectedVersionHash,
+                        requireExpectedVersionHash,
+                      },
+              }
+            : {}),
+        },
+        context: ctx,
+        bridgeToken,
+        rootPath: connection.rootPath,
+        bridgeRequest,
       });
     }
 

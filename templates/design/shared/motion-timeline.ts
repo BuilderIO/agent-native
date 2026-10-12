@@ -39,6 +39,7 @@ export const MOTION_PATH_MAX_POSITION_PX = 1_000_000;
 const MOTION_PATH_LENGTH_STEPS = 512;
 
 export const MOTION_DEFAULT_PLAYBACK_MODE: MotionPlaybackMode = "once";
+export const MOTION_TIMELINE_DEFAULT_DURATION_MS = 2_000;
 export const MOTION_TIMELINE_MAX_DURATION_MS = 120_000;
 
 export interface MotionKeyframe {

@@ -283,6 +283,70 @@ describe("AgentNativeMotionText", () => {
     ).toBe(true);
   });
 
+  it("plays multiple compatible properties on the same text units", async () => {
+    const translateAnimation: MotionTextAnimation = {
+      ...animation,
+      property: "translate",
+      delayMs: 25,
+      durationMs: 120,
+      keyframes: [
+        { t: 0, value: "0px", ease: "ease-out" },
+        { t: 1, value: "12px" },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <AgentNativeMotionText animations={[animation, translateAnimation]}>
+          <h1 data-agent-native-node-id="headline">Hello world</h1>
+        </AgentNativeMotionText>,
+      );
+    });
+
+    expect(
+      container.querySelectorAll("span.agent-native-motion-text-unit"),
+    ).toHaveLength(2);
+    expect(
+      mockedAnimations.map(({ options }) => [options.duration, options.delay]),
+    ).toEqual([
+      [200, 0],
+      [200, 40],
+      [120, 25],
+      [120, 65],
+    ]);
+    expect(mockedAnimations.map(({ keyframes }) => keyframes[0])).toEqual([
+      { offset: 0, easing: "ease-out", opacity: "0" },
+      { offset: 0, easing: "ease-out", opacity: "0" },
+      { offset: 0, easing: "ease-out", translate: "0px" },
+      { offset: 0, easing: "ease-out", translate: "0px" },
+    ]);
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: window,
+        data: { type: "motion-preview", t: 0.2, durationMs: 1000 },
+      }),
+    );
+    expect(
+      mockedAnimations.map(({ animation: handle }) => handle.currentTime),
+    ).toEqual([200, 160, 120, 120]);
+  });
+
+  it("rejects composite tracks with incompatible tokenization", () => {
+    expect(() =>
+      renderToString(
+        <AgentNativeMotionText
+          animations={[
+            animation,
+            { ...animation, property: "translate", unit: "character" },
+          ]}
+        >
+          <h1 data-agent-native-node-id="headline">Hello world</h1>
+        </AgentNativeMotionText>,
+      ),
+    ).toThrow(/must share target, unit, direction, and stagger/);
+  });
+
   it.each([
     { mode: "loop", iterations: Infinity, direction: "normal" },
     { mode: "once", iterations: 1, direction: "normal" },

@@ -106,23 +106,44 @@ describe("resolveMotionLocalSourceLocation", () => {
     ).toThrow(/project-relative/);
   });
 
-  it("rejects non-JSX source files and missing screen metadata", () => {
-    expect(() =>
-      resolveMotionLocalSourceLocation({
-        designData: {
-          ...designData,
-          screenMetadata: {
-            "screen-1": {
-              sourceType: "localhost",
-              connectionId: "connection-1",
-              sourceFile: "app/routes/home.html",
-            },
-          },
-          localhostScreens: {},
+  it("resolves a linked HTML entrypoint and rejects unsupported source files", () => {
+    const htmlDesignData = {
+      ...designData,
+      screenMetadata: {
+        "screen-1": {
+          sourceType: "localhost",
+          connectionId: "connection-1",
+          sourceFile: "pages/home.html",
         },
+      },
+      localhostScreens: {},
+    };
+    expect(
+      resolveMotionLocalSourceLocation({
+        designData: htmlDesignData,
         screenId: "screen-1",
       }),
-    ).toThrow(/supports .tsx and .jsx/);
+    ).toEqual({
+      screenId: "screen-1",
+      connectionId: "connection-1",
+      filePath: "pages/home.html",
+    });
+
+    expect(() =>
+      resolveMotionLocalSourceLocation({
+        designData: htmlDesignData,
+        screenId: "screen-1",
+        declaration: { filePath: "pages/site.css" },
+      }),
+    ).toThrow(/project-relative/);
+
+    expect(() =>
+      resolveMotionLocalSourceLocation({
+        designData: htmlDesignData,
+        screenId: "screen-1",
+        declaration: { filePath: "pages/site.js" },
+      }),
+    ).toThrow(/project-relative/);
 
     expect(() =>
       resolveMotionLocalSourceLocation({ designData, screenId: "missing" }),

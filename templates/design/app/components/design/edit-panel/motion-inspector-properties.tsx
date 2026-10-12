@@ -1,14 +1,25 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLink, IconTarget, IconUnlink } from "@tabler/icons-react";
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import type { ElementInfo } from "../types";
@@ -150,35 +161,171 @@ export function MotionOriginControl({
   element,
   onStyleChange,
   onStylesChange,
+  onEditingChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  onEditingChange?: (open: boolean) => void;
 }) {
   const t = useT();
   const origin = currentMotionOrigin(element);
+  const applePlatform = useApplePlatform();
+  const [open, setOpen] = useState(false);
+  const originSurfaceRef = useRef<HTMLDivElement>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
   const apply = (next: MotionOrigin) =>
     commitStylePatch(
       { "transform-origin": formatOriginValue(next) },
       onStyleChange,
       onStylesChange,
     );
+  const updateFromPointer = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const bounds = originSurfaceRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0 || !origin) return;
+    const x =
+      Math.round(
+        Math.max(
+          0,
+          Math.min(100, ((event.clientX - bounds.left) / bounds.width) * 100),
+        ) * 100,
+      ) / 100;
+    const y =
+      Math.round(
+        Math.max(
+          0,
+          Math.min(100, ((event.clientY - bounds.top) / bounds.height) * 100),
+        ) * 100,
+      ) / 100;
+    apply({ x, y, z: origin.z });
+  };
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    onEditingChange?.(next);
+  };
+
+  useEffect(() => {
+    return () => onEditingChange?.(false);
+  }, [onEditingChange]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        !event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        (event.code !== "KeyR" && event.key.toLowerCase() !== "r")
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      handleOpenChange(!open);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onEditingChange, open]);
+
+  const moveWithArrowKey = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!origin) return;
+    const step = event.shiftKey ? 10 : 1;
+    const next = { x: origin.x, y: origin.y, z: origin.z };
+    if (event.key === "ArrowLeft") next.x = Math.max(0, next.x - step);
+    else if (event.key === "ArrowRight") next.x = Math.min(100, next.x + step);
+    else if (event.key === "ArrowUp") next.y = Math.max(0, next.y - step);
+    else if (event.key === "ArrowDown") next.y = Math.min(100, next.y + step);
+    else return;
+    event.preventDefault();
+    apply(next);
+  };
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={t("designEditor.motion.origin")}
-          className="size-6 text-muted-foreground hover:text-foreground"
-        >
-          <IconTarget className="size-3.5" />
-        </Button>
-      </PopoverTrigger>
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("designEditor.motion.origin")}
+              aria-keyshortcuts="Alt+R"
+              className="size-6 text-muted-foreground hover:text-foreground"
+            >
+              <IconTarget className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {t("designEditor.motion.origin")}{" "}
+          {formatShortcutLabel("alt+r", applePlatform)}
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" side="bottom" className="w-52 p-2">
         <div className="space-y-2">
+          <div
+            ref={originSurfaceRef}
+            role="group"
+            aria-label={t("editPanel.scale.anchor")}
+            data-motion-origin-surface
+            className="relative h-16 w-full touch-none select-none overflow-hidden rounded-sm border border-dashed border-muted-foreground/40 bg-muted/20"
+          >
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-1/2 w-px bg-border"
+            />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-border"
+            />
+            <button
+              type="button"
+              aria-label={`${t("editPanel.scale.anchor")}: ${origin?.x ?? 50}%, ${origin?.y ?? 50}%`}
+              aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown"
+              disabled={!origin}
+              data-motion-origin-handle
+              onPointerDown={(event) => {
+                if (event.button !== 0 || !origin) return;
+                event.preventDefault();
+                dragPointerIdRef.current = event.pointerId;
+                event.currentTarget.setPointerCapture?.(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                if (dragPointerIdRef.current === event.pointerId) {
+                  updateFromPointer(event);
+                }
+              }}
+              onPointerUp={(event) => {
+                if (dragPointerIdRef.current !== event.pointerId) return;
+                dragPointerIdRef.current = null;
+                if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+              }}
+              onPointerCancel={() => {
+                dragPointerIdRef.current = null;
+              }}
+              onKeyDown={moveWithArrowKey}
+              style={{
+                left: `${origin?.x ?? 50}%`,
+                top: `${origin?.y ?? 50}%`,
+              }}
+              className="absolute z-10 flex size-5 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none items-center justify-center rounded-full border border-[var(--design-editor-accent-color)] bg-background text-[var(--design-editor-accent-color)] shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default disabled:opacity-50"
+            >
+              <IconTarget className="size-3.5" />
+            </button>
+          </div>
           <div
             role="radiogroup"
             aria-label={t("editPanel.scale.anchor")}

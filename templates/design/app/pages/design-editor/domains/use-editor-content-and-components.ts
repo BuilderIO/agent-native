@@ -15,7 +15,6 @@ import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-st
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
 import { motionNativeStyleWithPositionTrack } from "@shared/motion-native-style-runtime";
-import type { MotionReactSourceWriteCapability } from "@shared/motion-react-source";
 import type {
   MotionTextAnimation,
   MotionTextDocument,
@@ -90,8 +89,10 @@ import {
 } from "../localhost-consent-request";
 import {
   applyMotionStyleKeyframeEdit,
-  motionReactSourceWriteCapabilityAllowsTargets,
-  motionReactPreviewProofForTargets,
+  motionSourceWriteCapabilityAllowsTargets,
+  type MotionSourceWriteCapabilitySnapshot,
+  motionSourcePreviewProofForTargets,
+  motionTextAnimationsFromDockTracks,
 } from "../motion-state";
 import { projectRelativeSourcePath } from "../pending-edits";
 import { isScreenRootElementInfo } from "../selection-state";
@@ -303,13 +304,13 @@ export function useEditorContentAndComponents({
     activeRuntimeCodeLayerProjection ?? activeCodeLayerProjection;
   const localhostMotionProof =
     activeCanvasSourceType === "localhost"
-      ? motionReactPreviewProofForTargets(
+      ? motionSourcePreviewProofForTargets(
           motionPreviewProjection,
           motionProofTargetNodeIds,
         )
       : null;
   const { data: motionSourceCapabilityResult } = useActionQuery<{
-    sourceWriteCapability?: MotionReactSourceWriteCapability | null;
+    sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
   }>(
     "get-motion-timeline",
     {
@@ -338,7 +339,7 @@ export function useEditorContentAndComponents({
   );
   const motionSourceTargetsWritable =
     activeCanvasSourceType !== "localhost" ||
-    motionReactSourceWriteCapabilityAllowsTargets(
+    motionSourceWriteCapabilityAllowsTargets(
       motionSourceCapabilityResult?.sourceWriteCapability,
       localhostMotionProof,
       motionProofTargetNodeIds,
@@ -603,27 +604,12 @@ export function useEditorContentAndComponents({
     (tracks: MotionDockTrack[]) => {
       if (!writeMotionAvailable) return;
       const cssTracks = tracks.filter((track) => !track.isTextAnimation);
-      const textTracks = tracks.filter((track) => track.isTextAnimation);
       setMotionTracks(cssTracks);
 
-      const existingAnimations = new Map(
-        (motionTextDocument?.animations ?? []).map((animation) => [
-          animation.targetNodeId,
-          animation,
-        ]),
+      const nextAnimations = motionTextAnimationsFromDockTracks(
+        motionTextDocument,
+        tracks,
       );
-      const nextAnimations = textTracks.flatMap((track) => {
-        const existing = existingAnimations.get(track.targetNodeId);
-        if (!existing) return [];
-        return [
-          {
-            ...existing,
-            delayMs: track.delayMs ?? 0,
-            durationMs: track.durationMs ?? existing.durationMs,
-            keyframes: track.keyframes,
-          },
-        ];
-      });
       const nextDocument =
         nextAnimations.length > 0
           ? { version: 1 as const, animations: nextAnimations }
@@ -781,14 +767,23 @@ export function useEditorContentAndComponents({
     [markMotionTracksDirty, setMotionTextDocument, writeMotionAvailable],
   );
 
-  const handleMotionTextAnimationChange = useCallback(
-    (targetNodeId: string, animation: MotionTextAnimation | null) => {
+  const handleMotionTextAnimationsChange = useCallback(
+    (targetNodeId: string, targetAnimations: MotionTextAnimation[]) => {
       if (!writeMotionAvailable) return;
       const animations = motionTextDocument?.animations ?? [];
-      const nextAnimations = animations.filter(
-        (candidate) => candidate.targetNodeId !== targetNodeId,
-      );
-      if (animation) nextAnimations.push(animation);
+      const nextAnimations: MotionTextAnimation[] = [];
+      let inserted = false;
+      for (const animation of animations) {
+        if (animation.targetNodeId !== targetNodeId) {
+          nextAnimations.push(animation);
+          continue;
+        }
+        if (!inserted) {
+          nextAnimations.push(...targetAnimations);
+          inserted = true;
+        }
+      }
+      if (!inserted) nextAnimations.push(...targetAnimations);
       handleMotionTextDocumentChange(
         nextAnimations.length > 0
           ? { version: 1, animations: nextAnimations }
@@ -1799,7 +1794,7 @@ export function useEditorContentAndComponents({
     handleMotionAnimationStyleSaved,
     handleMotionAnimationStyleRemoved,
     handleMotionTextDocumentChange,
-    handleMotionTextAnimationChange,
+    handleMotionTextAnimationsChange,
     handleMotionDurationChange,
     upsertMotionKeyframesFromStyles,
     handleToggleMotionKeyframe,

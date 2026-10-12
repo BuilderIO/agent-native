@@ -62,6 +62,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -901,6 +902,8 @@ interface DesignCanvasProps {
   motionDurationMs?: number;
   motionPathEditingEnabled?: boolean;
   motionPathTargetNodeId?: string | null;
+  motionOriginEditingEnabled?: boolean;
+  motionOriginTargetNodeId?: string | null;
   onMotionPathTracksChange?: (
     tracks: MotionTrackWire[],
     targetNodeId: string,
@@ -1523,6 +1526,8 @@ export function DesignCanvas({
   motionDurationMs,
   motionPathEditingEnabled = false,
   motionPathTargetNodeId = null,
+  motionOriginEditingEnabled = false,
+  motionOriginTargetNodeId = null,
   onMotionPathTracksChange,
   previewWidthPx,
   previewHeightPx,
@@ -3637,6 +3642,30 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const [motionOriginMarkerPosition, setMotionOriginMarkerPosition] = useState<{
+    targetNodeId: string;
+    x: number;
+    y: number;
+    viewportWidth: number;
+    viewportHeight: number;
+  } | null>(null);
+  const motionOriginPointerIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!motionOriginEditingEnabled) {
+      setMotionOriginMarkerPosition(null);
+      return;
+    }
+    const refreshPortalPosition = () =>
+      setMotionOriginMarkerPosition((current) =>
+        current ? { ...current } : current,
+      );
+    window.addEventListener("scroll", refreshPortalPosition, true);
+    window.addEventListener("resize", refreshPortalPosition);
+    return () => {
+      window.removeEventListener("scroll", refreshPortalPosition, true);
+      window.removeEventListener("resize", refreshPortalPosition);
+    };
+  }, [motionOriginEditingEnabled]);
   const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
     useState<string | null>(null);
   const loadedPreviewDocumentIdentityRef = useRef(
@@ -3807,6 +3836,44 @@ export function DesignCanvas({
       }
       if (
         trustedCurrentFrame &&
+        e.data?.type === "motion-origin-marker-position"
+      ) {
+        if (e.data.visible !== true) {
+          setMotionOriginMarkerPosition(null);
+          return;
+        }
+        const targetNodeId = e.data.targetNodeId;
+        const x = Number(e.data.x);
+        const y = Number(e.data.y);
+        const viewportWidth = Number(e.data.viewportWidth);
+        const viewportHeight = Number(e.data.viewportHeight);
+        if (
+          !motionOriginEditingEnabled ||
+          typeof targetNodeId !== "string" ||
+          targetNodeId !== motionOriginTargetNodeId ||
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          !(viewportWidth > 0) ||
+          !(viewportHeight > 0)
+        ) {
+          return;
+        }
+        setMotionOriginMarkerPosition((current) => {
+          if (
+            current?.targetNodeId === targetNodeId &&
+            current.x === x &&
+            current.y === y &&
+            current.viewportWidth === viewportWidth &&
+            current.viewportHeight === viewportHeight
+          ) {
+            return current;
+          }
+          return { targetNodeId, x, y, viewportWidth, viewportHeight };
+        });
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
         e.data?.type === "motion-path-edit" &&
         motionPathEditingEnabled &&
         !readOnly &&
@@ -3854,6 +3921,19 @@ export function DesignCanvas({
                 !interactMode &&
                 typeof motionPathTargetNodeId === "string",
               targetNodeId: motionPathTargetNodeId ?? null,
+            },
+            "*",
+          );
+          iframeWindow?.postMessage(
+            {
+              type: "motion-origin-editing",
+              enabled:
+                motionOriginEditingEnabled &&
+                !readOnly &&
+                editMode &&
+                !interactMode &&
+                typeof motionOriginTargetNodeId === "string",
+              targetNodeId: motionOriginTargetNodeId ?? null,
             },
             "*",
           );
@@ -5597,6 +5677,8 @@ export function DesignCanvas({
     onComponentSourceJump,
     motionPathEditingEnabled,
     motionPathTargetNodeId,
+    motionOriginEditingEnabled,
+    motionOriginTargetNodeId,
     motionTracks,
     motionEasingVariables,
     motionDefaultEase,
@@ -5654,6 +5736,28 @@ export function DesignCanvas({
     interactMode,
     motionPathEditingEnabled,
     motionPathTargetNodeId,
+    readOnly,
+  ]);
+
+  const sendMotionOriginEditingState = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "motion-origin-editing",
+        enabled:
+          motionOriginEditingEnabled &&
+          !readOnly &&
+          editMode &&
+          !interactMode &&
+          typeof motionOriginTargetNodeId === "string",
+        targetNodeId: motionOriginTargetNodeId ?? null,
+      },
+      "*",
+    );
+  }, [
+    editMode,
+    interactMode,
+    motionOriginEditingEnabled,
+    motionOriginTargetNodeId,
     readOnly,
   ]);
 
@@ -5785,6 +5889,7 @@ export function DesignCanvas({
       iframe.contentWindow?.postMessage({ type: "motion-preview-clear" }, "*");
     }
     sendMotionPathEditingState();
+    sendMotionOriginEditingState();
     if (shaderFillPreview) {
       iframe.contentWindow?.postMessage(
         {
@@ -5826,6 +5931,7 @@ export function DesignCanvas({
     motionDefaultEase,
     motionDurationMs,
     sendMotionPathEditingState,
+    sendMotionOriginEditingState,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -5941,12 +6047,14 @@ export function DesignCanvas({
       );
     }
     sendMotionPathEditingState();
+    sendMotionOriginEditingState();
   }, [
     motionTracks,
     motionEasingVariables,
     motionDefaultEase,
     motionDurationMs,
     sendMotionPathEditingState,
+    sendMotionOriginEditingState,
   ]);
 
   useEffect(() => {
@@ -7721,6 +7829,130 @@ export function DesignCanvas({
     [content],
   );
 
+  const dispatchMotionOriginPointer = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    phase: "down" | "move" | "up" | "cancel",
+  ) => {
+    const frame = iframeRef.current;
+    const frameWindow = frame?.contentWindow;
+    const frameRect = frame?.getBoundingClientRect();
+    if (
+      !frameWindow ||
+      !frameRect ||
+      frameRect.width <= 0 ||
+      frameRect.height <= 0
+    ) {
+      return;
+    }
+    frameWindow.postMessage(
+      {
+        type: "motion-origin-pointer",
+        phase,
+        pointerId: event.pointerId,
+        x:
+          ((event.clientX - frameRect.left) / frameRect.width) *
+          frameWindow.innerWidth,
+        y:
+          ((event.clientY - frameRect.top) / frameRect.height) *
+          frameWindow.innerHeight,
+      },
+      "*",
+    );
+  };
+
+  const handleMotionOriginPointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0 || !motionOriginEditingEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    motionOriginPointerIdRef.current = event.pointerId;
+    dispatchMotionOriginPointer(event, "down");
+  };
+
+  const handleMotionOriginPointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (motionOriginPointerIdRef.current !== event.pointerId) return;
+    dispatchMotionOriginPointer(event, "move");
+  };
+
+  const finishMotionOriginPointer = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    phase: "up" | "cancel",
+  ) => {
+    if (motionOriginPointerIdRef.current !== event.pointerId) return;
+    dispatchMotionOriginPointer(event, phase);
+    motionOriginPointerIdRef.current = null;
+  };
+
+  const motionOriginFrameRect = iframeRef.current?.getBoundingClientRect();
+  const motionOriginProxy =
+    motionOriginEditingEnabled &&
+    !readOnly &&
+    editMode &&
+    !interactMode &&
+    typeof document !== "undefined" &&
+    document.body &&
+    motionOriginFrameRect &&
+    motionOriginFrameRect.width > 0 &&
+    motionOriginFrameRect.height > 0 &&
+    motionOriginMarkerPosition?.targetNodeId === motionOriginTargetNodeId
+      ? createPortal(
+          <button
+            type="button"
+            data-motion-origin-proxy
+            aria-hidden="true"
+            tabIndex={-1}
+            onPointerDown={handleMotionOriginPointerDown}
+            onPointerMove={handleMotionOriginPointerMove}
+            onPointerUp={(event) => finishMotionOriginPointer(event, "up")}
+            onPointerCancel={(event) =>
+              finishMotionOriginPointer(event, "cancel")
+            }
+            onLostPointerCapture={(event) => {
+              if (motionOriginPointerIdRef.current === event.pointerId) {
+                finishMotionOriginPointer(event, "cancel");
+              }
+            }}
+            className="fixed z-[2147483647] grid size-4 -translate-x-1/2 -translate-y-1/2 cursor-move place-items-center rounded-full border-2 border-[var(--design-editor-accent-color,Highlight)] bg-[Canvas] p-0 touch-none"
+            style={{
+              left:
+                motionOriginFrameRect.left +
+                (motionOriginMarkerPosition.x /
+                  motionOriginMarkerPosition.viewportWidth) *
+                  motionOriginFrameRect.width,
+              top:
+                motionOriginFrameRect.top +
+                (motionOriginMarkerPosition.y /
+                  motionOriginMarkerPosition.viewportHeight) *
+                  motionOriginFrameRect.height,
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 size-full overflow-visible"
+              viewBox="0 0 16 16"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="2"
+                fill="var(--design-editor-accent-color,Highlight)"
+              />
+              <path
+                d="M4 8h8M8 4v8"
+                fill="none"
+                stroke="var(--design-editor-accent-color,Highlight)"
+                strokeWidth="1"
+              />
+            </svg>
+          </button>,
+          document.body,
+        )
+      : null;
+
   const iframeElement = (
     <div
       data-review-canvas-id={reviewCanvasId}
@@ -7902,6 +8134,7 @@ export function DesignCanvas({
           title={t("designEditor.designPreview")}
         />
       )}
+      {motionOriginProxy}
       {externalPreviewUrl &&
       !previewFrameLoaded &&
       !liveEditConnectionFailed ? (

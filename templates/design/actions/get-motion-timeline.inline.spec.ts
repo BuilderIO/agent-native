@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => {
   let fileRows: Array<Record<string, unknown>> = [];
   let liveContents: Record<string, string> = {};
   let designData = JSON.stringify({ sourceType: "inline" });
+  let fileCondition: unknown;
 
   const timelineChain = {
     from: vi.fn(),
@@ -27,18 +28,41 @@ const mocks = vi.hoisted(() => {
   const fileChain = {
     from: vi.fn(),
     where: vi.fn(),
+    orderBy: vi.fn(),
     limit: vi.fn(),
-    then: vi.fn(
-      (
-        resolve: (value: Array<Record<string, unknown>>) => unknown,
-        reject?: (reason: unknown) => unknown,
-      ) => Promise.resolve(fileRows).then(resolve, reject),
-    ),
   };
   fileChain.from.mockReturnValue(fileChain);
-  fileChain.where.mockReturnValue(fileChain);
+  fileChain.where.mockImplementation((condition: unknown) => {
+    fileCondition = condition;
+    return fileChain;
+  });
+  fileChain.orderBy.mockReturnValue(fileChain);
   fileChain.limit.mockImplementation((limit: number) =>
-    Promise.resolve(fileRows.slice(0, limit)),
+    Promise.resolve(
+      fileRows
+        .filter((row) => {
+          const conditions =
+            (fileCondition as { and?: Array<Record<string, unknown>> } | null)
+              ?.and ?? [];
+          return conditions.every((condition) => {
+            if (condition.op === "eq" && condition.left === "designFiles.id") {
+              return row.id === condition.right;
+            }
+            if (
+              condition.op === "eq" &&
+              condition.left === "designFiles.fileType"
+            ) {
+              return row.fileType === condition.right;
+            }
+            if (condition.op === "gt" && condition.left === "designFiles.id") {
+              return String(row.id) > String(condition.right);
+            }
+            return true;
+          });
+        })
+        .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+        .slice(0, limit),
+    ),
   );
 
   const db = {
@@ -62,7 +86,9 @@ const mocks = vi.hoisted(() => {
     })),
     readLocal: vi.fn(),
     assertAccess: vi.fn(async () => ({ role: "editor", resource: {} })),
-    eq: vi.fn((left, right) => ({ left, right })),
+    eq: vi.fn((left, right) => ({ op: "eq", left, right })),
+    gt: vi.fn((left, right) => ({ op: "gt", left, right })),
+    asc: vi.fn((value) => ({ asc: value })),
     and: vi.fn((...args) => ({ and: args })),
     desc: vi.fn((value) => ({ desc: value })),
     setTimelineRows: (rows: Array<Record<string, unknown>>) => {
@@ -91,10 +117,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: mocks.and,
+  asc: mocks.asc,
   desc: mocks.desc,
   eq: mocks.eq,
+  gt: mocks.gt,
 }));
 
 vi.mock("../server/source-workspace.js", () => ({
@@ -257,6 +286,28 @@ describe("get-motion-timeline inline source recovery", () => {
       tracks: timeline.tracks,
     });
     expect(mocks.readLiveSourceFile).toHaveBeenCalledWith(fileRow("file-2"));
+  });
+
+  it("continues recovery across bounded source-file pages", async () => {
+    const rows = Array.from({ length: 51 }, (_, index) => {
+      const id = `file-${String(index + 1).padStart(3, "0")}`;
+      return fileRow(id);
+    });
+    mocks.setFileRows(rows);
+    mocks.setLiveContents({ "file-051": managedContent });
+
+    const result = await action.run({ designId: "design-1" });
+
+    expect(result.timelines).toHaveLength(1);
+    expect(result.timelines[0]).toMatchObject({
+      sourceRef: "file-051",
+      source: "recovered-css",
+      tracks: timeline.tracks,
+    });
+    expect(mocks.fileChain.limit).toHaveBeenCalledTimes(2);
+    expect(mocks.fileChain.limit).toHaveBeenNthCalledWith(1, 50);
+    expect(mocks.fileChain.limit).toHaveBeenNthCalledWith(2, 50);
+    expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(51);
   });
 
   it("reads playback mode from the canonical source when a matching stored timeline has no tracks", async () => {
@@ -442,5 +493,54 @@ describe("get-motion-timeline inline source recovery", () => {
     expect(mocks.fileChain.where).not.toHaveBeenCalled();
     expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
     expect(mocks.readLocal).not.toHaveBeenCalled();
+  });
+
+  it("revalidates a persisted React module path against its saved screen graph", async () => {
+    mocks.setDesignData(
+      JSON.stringify({
+        sourceType: "localhost",
+        connectionId: "connection-1",
+        screenMetadata: {
+          "screen-1": {
+            sourceType: "localhost",
+            connectionId: "connection-1",
+            sourceFile: "app/routes/home.tsx",
+          },
+        },
+      }),
+    );
+    mocks.setTimelineRows([
+      {
+        id: "timeline-1",
+        designId: "design-1",
+        sourceRef: "screen-1",
+        filePath: "app/components/Unrelated.tsx",
+        tracks: JSON.stringify(timeline.tracks),
+        durationMs: timeline.durationMs,
+        defaultEase: timeline.defaultEase,
+        compiledHash: null,
+        createdAt: null,
+        updatedAt: null,
+      },
+    ]);
+    mocks.setFileRows([fileRow("screen-1")]);
+    mocks.readLocal.mockResolvedValue({
+      routePath: "app/routes/home.tsx",
+      modulePath: "app/components/Unrelated.tsx",
+      reachable: false,
+    });
+
+    await expect(
+      action.run({ designId: "design-1", timelineId: "timeline-1" }),
+    ).rejects.toMatchObject({
+      errorCode: "motion_local_source_module_not_imported",
+      statusCode: 422,
+    });
+    expect(mocks.readLocal).toHaveBeenCalledWith({
+      designId: "design-1",
+      connectionId: "connection-1",
+      path: "app/components/Unrelated.tsx",
+      motionScreenId: "screen-1",
+    });
   });
 });

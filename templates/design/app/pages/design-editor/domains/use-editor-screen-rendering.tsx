@@ -261,6 +261,7 @@ export function useEditorScreenRendering({
     designFusionUrl,
     motionTracksWire,
     motionSelectedTarget,
+    motionOriginEditing,
   } = editorLiveEditsAndPresence;
   const {
     hoveredCanvasSelectorCandidates,
@@ -931,6 +932,13 @@ export function useEditorScreenRendering({
             (canEditDesign || canEditLiveScreen(screen.id))
           }
           motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          motionOriginEditingEnabled={
+            screenIsActive &&
+            motionOriginEditing &&
+            motionDockOpen &&
+            (canEditDesign || canEditLiveScreen(screen.id))
+          }
+          motionOriginTargetNodeId={motionSelectedTarget?.nodeId ?? null}
           onMotionPathTracksChange={
             screenIsActive && (canEditDesign || canEditLiveScreen(screen.id))
               ? handleMotionCanvasPathTracksChange
@@ -1148,6 +1156,7 @@ export function useEditorScreenRendering({
       handleComponentSourceJump,
       motionTracksWire,
       motionSelectedTarget,
+      motionOriginEditing,
       motionDockOpen,
       handleMotionCanvasPathTracksChange,
       motionDefaultEase,

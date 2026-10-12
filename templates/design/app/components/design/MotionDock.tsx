@@ -24,6 +24,7 @@ import type {
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
   MOTION_KEYFRAME_TIME_EPSILON,
+  MOTION_TIMELINE_MAX_DURATION_MS,
   MOTION_PROPERTY_PRESETS,
   getMotionTrackTiming,
   hasPreviousMotionKeyframe,
@@ -43,6 +44,7 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconDots,
   IconPlus,
   IconRepeat,
   IconRepeatOnce,
@@ -55,6 +57,7 @@ import {
   IconRotate,
   IconScale,
   IconTypography,
+  IconVectorBezier2,
   IconEye,
   IconEyeOff,
   IconAdjustmentsHorizontal,
@@ -220,7 +223,14 @@ function keyframeSelectionKey(track: MotionTrack, t: number): string {
 function motionTrackDisplayLabel(
   property: string,
   t: (key: string) => string,
+  isTextAnimation = false,
 ): string {
+  if (isTextAnimation) {
+    const textProperty = property.startsWith("text:")
+      ? property.slice("text:".length)
+      : property;
+    return `${t("designEditor.motion.text")} · ${t(`designEditor.motion.textAnimation.properties.${textProperty}`)}`;
+  }
   switch (property) {
     case "translate":
       return t("editPanel.labels.position");
@@ -290,7 +300,7 @@ function nativeStyleTiming(
 }
 
 function isRunnableNativeStyle(styleKey: MotionNativeStyleKey): boolean {
-  return styleKey !== "TextStagger" && styleKey !== "Path";
+  return true;
 }
 
 export function formatMotionRulerTick(ms: number): string {
@@ -476,6 +486,10 @@ export function MotionDock({
     readTimelinePlaybackMode(tracks) ??
     playbackModeInternal ??
     MOTION_DEFAULT_PLAYBACK_MODE;
+  const playbackModeRef = useRef(playbackMode);
+  useLayoutEffect(() => {
+    playbackModeRef.current = playbackMode;
+  }, [playbackMode]);
   const cyclePlaybackMode = useCallback(() => {
     if (readOnly) return;
     const index = PLAYBACK_MODES.findIndex((m) => m.mode === playbackMode);
@@ -509,6 +523,32 @@ export function MotionDock({
     );
     if (addedTrack) setSelectedTrackKey(trackKey(addedTrack));
   }, [tracks]);
+  const previousNativeStyleKeysRef = useRef(
+    new Set(
+      nativeStyles.map((instance, index) =>
+        nativeStyleIdentityKey(instance, index),
+      ),
+    ),
+  );
+  useEffect(() => {
+    const previousKeys = previousNativeStyleKeysRef.current;
+    const entries = nativeStyles.map((instance, index) => ({
+      key: nativeStyleIdentityKey(instance, index),
+    }));
+    const nextKeys = new Set(entries.map(({ key }) => key));
+    let addedKey: string | null = null;
+    for (const { key } of entries) {
+      if (!previousKeys.has(key)) addedKey = key;
+    }
+    previousNativeStyleKeysRef.current = nextKeys;
+    if (addedKey) {
+      setSelectedNativeStyleKey(addedKey);
+    } else {
+      setSelectedNativeStyleKey((selected) =>
+        selected && nextKeys.has(selected) ? selected : null,
+      );
+    }
+  }, [nativeStyles]);
   const selectedTrack =
     tracks.find((track) => trackKey(track) === selectedTrackKey) ?? null;
   useEffect(() => {
@@ -730,6 +770,13 @@ export function MotionDock({
   const trackRowsRef = useRef<HTMLDivElement>(null);
   const [timelineViewportWidth, setTimelineViewportWidth] = useState(0);
   const [timelineScrollLeft, setTimelineScrollLeft] = useState(0);
+  const timelineDurationDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startDurationMs: number;
+    lastDurationMs: number;
+    pixelsPerMs: number;
+  } | null>(null);
   useEffect(() => {
     const viewport = timelineViewportRef.current;
     if (!viewport) return;
@@ -794,6 +841,80 @@ export function MotionDock({
       ? Math.max(durationMs, timelineContentWidthPx / timelinePixelsPerMs)
       : durationMs;
   const timelineWidthStyle = `${timelineContentWidthPx}px`;
+
+  const handleTimelineDurationPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (readOnly || !onDurationChange || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      timelineDurationDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startDurationMs: durationMs,
+        lastDurationMs: durationMs,
+        pixelsPerMs: timelinePixelsPerMs,
+      };
+      if (event.nativeEvent.isTrusted) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+    },
+    [durationMs, onDurationChange, readOnly, timelinePixelsPerMs],
+  );
+  const handleTimelineDurationPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = timelineDurationDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const nextDurationMs = Math.max(
+        50,
+        Math.min(
+          MOTION_TIMELINE_MAX_DURATION_MS,
+          Math.round(
+            drag.startDurationMs +
+              (event.clientX - drag.startX) / drag.pixelsPerMs,
+          ),
+        ),
+      );
+      if (nextDurationMs === drag.lastDurationMs) return;
+      drag.lastDurationMs = nextDurationMs;
+      onDurationChange?.(nextDurationMs);
+    },
+    [onDurationChange],
+  );
+  const handleTimelineDurationPointerEnd = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (timelineDurationDragRef.current?.pointerId !== event.pointerId) {
+        return;
+      }
+      event.stopPropagation();
+      timelineDurationDragRef.current = null;
+    },
+    [],
+  );
+  const handleTimelineDurationKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+      if (readOnly || !onDurationChange) return;
+      const stepMs = event.shiftKey ? 1000 : 10;
+      let nextDurationMs: number | null = null;
+      if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+        nextDurationMs = durationMs - stepMs;
+      } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+        nextDurationMs = durationMs + stepMs;
+      } else if (event.key === "Home") {
+        nextDurationMs = 50;
+      } else if (event.key === "End") {
+        nextDurationMs = MOTION_TIMELINE_MAX_DURATION_MS;
+      }
+      if (nextDurationMs === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDurationChange(
+        Math.max(50, Math.min(MOTION_TIMELINE_MAX_DURATION_MS, nextDurationMs)),
+      );
+    },
+    [durationMs, onDurationChange, readOnly],
+  );
 
   useLayoutEffect(() => {
     const anchor = timelineZoomAnchorRef.current;
@@ -925,6 +1046,11 @@ export function MotionDock({
     commitPlayhead();
   }, [commitPlayhead, durationMs, sendAudioState]);
 
+  useLayoutEffect(() => {
+    if (isOpen || !playing) return;
+    stopPlayback();
+  }, [isOpen, playing, stopPlayback]);
+
   const startPlayback = useCallback(() => {
     stopPlayback();
     const startT = playhead >= 1 ? 0 : playhead;
@@ -940,9 +1066,9 @@ export function MotionDock({
       const progressed = playStartRef.current.startT + elapsed / durationMs;
       let t: number;
       let done = false;
-      if (playbackMode === "loop") {
+      if (playbackModeRef.current === "loop") {
         t = progressed % 1;
-      } else if (playbackMode === "ping-pong") {
+      } else if (playbackModeRef.current === "ping-pong") {
         const phase = progressed % 2;
         t = phase <= 1 ? phase : 2 - phase;
       } else {
@@ -958,14 +1084,7 @@ export function MotionDock({
       }
     };
     playRafRef.current = requestAnimationFrame(tick);
-  }, [
-    durationMs,
-    playbackMode,
-    playhead,
-    sendPreview,
-    setPlayheadLocal,
-    stopPlayback,
-  ]);
+  }, [durationMs, playhead, sendPreview, setPlayheadLocal, stopPlayback]);
 
   useEffect(() => {
     return () => {
@@ -2064,7 +2183,37 @@ export function MotionDock({
                 t={(playhead * durationMs) / timelineScaleDurationMs}
                 height={RULER_HEIGHT}
                 inRuler
+                autoKeyframe={autoKeyframe}
               />
+              <button
+                type="button"
+                role="slider"
+                data-motion-timeline-duration-handle
+                aria-label={t("designEditor.motion.duration")}
+                aria-orientation="horizontal"
+                aria-valuemin={50}
+                aria-valuemax={MOTION_TIMELINE_MAX_DURATION_MS}
+                aria-valuenow={durationMs}
+                aria-valuetext={`${formatMotionTimeValue(durationMs, timeUnit)} ${t(timeUnit === "ms" ? "designEditor.motion.milliseconds" : "designEditor.motion.seconds").toLocaleLowerCase()}`}
+                aria-disabled={readOnly || !onDurationChange}
+                disabled={readOnly || !onDurationChange}
+                className="group absolute top-0 z-10 flex h-full w-3 -translate-x-1/2 cursor-ew-resize items-start justify-center bg-transparent p-0 outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] disabled:cursor-default"
+                style={{ left: timelineTrackWidthPx }}
+                onPointerDown={handleTimelineDurationPointerDown}
+                onPointerMove={handleTimelineDurationPointerMove}
+                onPointerUp={handleTimelineDurationPointerEnd}
+                onPointerCancel={handleTimelineDurationPointerEnd}
+                onKeyDown={handleTimelineDurationKeyDown}
+              >
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--design-editor-accent-color)]/70 group-hover:bg-[var(--design-editor-accent-color)]"
+                />
+                <span
+                  aria-hidden="true"
+                  className="relative mt-2 h-3 w-1.5 rounded-full border border-background bg-[var(--design-editor-accent-color)] shadow-sm transition-[width] group-hover:w-2"
+                />
+              </button>
             </div>
 
             <div
@@ -2319,6 +2468,7 @@ export function MotionDock({
                 {/* Playhead across track rows */}
                 <PlayheadLine
                   t={playhead}
+                  autoKeyframe={autoKeyframe}
                   height={
                     8 +
                     audioClips.length * ROW_HEIGHT +
@@ -2344,7 +2494,12 @@ export function MotionDock({
 }
 
 interface AddTrackMenuProps {
-  selectedTarget: { nodeId: string; label: string; isText?: boolean } | null;
+  selectedTarget: {
+    nodeId: string;
+    label: string;
+    isText?: boolean;
+    isPath?: boolean;
+  } | null;
   onCreateTrack?: (preset: MotionPropertyPreset) => void;
   onCreateStyle?: (style: MotionAnimationStyle) => void;
   onCreateNativeStyle?: (styleKey: MotionNativeStyleKey) => void;
@@ -2425,22 +2580,143 @@ export function AddTrackMenu({
       Icon: IconCircleHalf,
     },
   ];
+  const productMotionOptions: Array<{
+    key: string;
+    labelKey: string;
+    Icon: typeof IconTypography;
+    onSelect: () => void;
+  }> = [
+    ...(selectedTarget.isText && onCreateText
+      ? [
+          {
+            key: "Text",
+            labelKey: "designEditor.motion.text",
+            Icon: IconTypography,
+            onSelect: onCreateText,
+          },
+        ]
+      : []),
+    ...(selectedTarget.isText && onCreateNativeStyle
+      ? [
+          {
+            key: "TextStagger",
+            labelKey: "designEditor.motion.nativeTextStagger.create",
+            Icon: IconTypography,
+            onSelect: () => onCreateNativeStyle("TextStagger"),
+          },
+        ]
+      : []),
+    ...(selectedTarget.isPath && onCreateNativeStyle
+      ? [
+          {
+            key: "Path",
+            labelKey: "designEditor.motion.animationStyles.path",
+            Icon: IconVectorBezier2,
+            onSelect: () => onCreateNativeStyle("Path"),
+          },
+        ]
+      : []),
+  ];
+  const moreMotionLabel = `${t("designEditor.motion.more")} ${t("designEditor.motion.tabLabel")}`;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-32 p-1">
-        <DropdownMenuLabel className="sr-only">
-          {t("designEditor.motion.animateLayer", {
-            label: selectedTarget.label,
-          })}
-        </DropdownMenuLabel>
-        {onCreateNativeStyle
-          ? nativeStyleOptions.map(({ styleKey, labelKey, Icon }) => (
+    <div className="flex items-center gap-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-32 p-1">
+          <DropdownMenuLabel className="sr-only">
+            {t("designEditor.motion.animateLayer", {
+              label: selectedTarget.label,
+            })}
+          </DropdownMenuLabel>
+          {onCreateNativeStyle
+            ? nativeStyleOptions.map(({ styleKey, labelKey, Icon }) => (
+                <DropdownMenuItem
+                  key={styleKey}
+                  className="h-6 gap-2 px-2 text-[12px] leading-none"
+                  onSelect={() => onCreateNativeStyle(styleKey)}
+                >
+                  <Icon
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  {t(labelKey)}
+                </DropdownMenuItem>
+              ))
+            : null}
+          {!onCreateNativeStyle
+            ? primaryStyles.map((style) => (
+                <DropdownMenuItem
+                  key={`${style.preset.property}-${style.label}`}
+                  className="h-6 gap-2 px-2 text-[12px] leading-none"
+                  disabled={
+                    style.preset.additionalProperties
+                      ? style.preset.additionalProperties.every((property) =>
+                          disabledProperties.includes(property),
+                        )
+                      : disabledProperties.includes(style.preset.property)
+                  }
+                  onSelect={() => {
+                    if (onCreateStyle) onCreateStyle(style);
+                    else onCreateTrack?.(style.preset);
+                  }}
+                >
+                  {style.preset.property === "translate" ? (
+                    <IconArrowsMove
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  ) : style.preset.property === "scale" ? (
+                    <IconScale
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  ) : style.preset.property === "rotate" ? (
+                    <IconRotate
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  ) : style.preset.property === "size" ? (
+                    <IconResize
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <IconCircleHalf
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {style.label}
+                </DropdownMenuItem>
+              ))
+            : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {productMotionOptions.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 px-0"
+              disabled={disabled}
+              aria-label={moreMotionLabel}
+              title={moreMotionLabel}
+            >
+              <IconDots className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-36 p-1">
+            <DropdownMenuLabel className="sr-only">
+              {moreMotionLabel}
+            </DropdownMenuLabel>
+            {productMotionOptions.map(({ key, labelKey, Icon, onSelect }) => (
               <DropdownMenuItem
-                key={styleKey}
+                key={key}
                 className="h-6 gap-2 px-2 text-[12px] leading-none"
-                onSelect={() => onCreateNativeStyle(styleKey)}
+                onSelect={onSelect}
               >
                 <Icon
                   className="size-3.5 shrink-0 text-muted-foreground"
@@ -2448,69 +2724,11 @@ export function AddTrackMenu({
                 />
                 {t(labelKey)}
               </DropdownMenuItem>
-            ))
-          : null}
-        {selectedTarget.isText && onCreateText ? (
-          <DropdownMenuItem
-            className="h-6 gap-2 px-2 text-[12px] leading-none"
-            onSelect={onCreateText}
-          >
-            <IconTypography
-              className="size-3.5 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            {t("designEditor.motion.text")}
-          </DropdownMenuItem>
-        ) : null}
-        {!onCreateNativeStyle
-          ? primaryStyles.map((style) => (
-              <DropdownMenuItem
-                key={`${style.preset.property}-${style.label}`}
-                className="h-6 gap-2 px-2 text-[12px] leading-none"
-                disabled={
-                  style.preset.additionalProperties
-                    ? style.preset.additionalProperties.every((property) =>
-                        disabledProperties.includes(property),
-                      )
-                    : disabledProperties.includes(style.preset.property)
-                }
-                onSelect={() => {
-                  if (onCreateStyle) onCreateStyle(style);
-                  else onCreateTrack?.(style.preset);
-                }}
-              >
-                {style.preset.property === "translate" ? (
-                  <IconArrowsMove
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                ) : style.preset.property === "scale" ? (
-                  <IconScale
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                ) : style.preset.property === "rotate" ? (
-                  <IconRotate
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                ) : style.preset.property === "size" ? (
-                  <IconResize
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <IconCircleHalf
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                )}
-                {style.label}
-              </DropdownMenuItem>
-            ))
-          : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
   );
 }
 
@@ -2518,14 +2736,26 @@ interface PlayheadLineProps {
   t: number;
   height: number;
   inRuler?: boolean;
+  autoKeyframe?: boolean;
 }
 
-function PlayheadLine({ t, height, inRuler }: PlayheadLineProps) {
+function PlayheadLine({
+  t,
+  height,
+  inRuler,
+  autoKeyframe = false,
+}: PlayheadLineProps) {
   return (
     <div
+      data-motion-playhead
+      data-motion-auto-keyframe={autoKeyframe ? "" : undefined}
       className={cn(
         "absolute top-0 pointer-events-none z-10",
-        inRuler ? "bg-primary/80" : "bg-primary/60",
+        autoKeyframe
+          ? "bg-destructive"
+          : inRuler
+            ? "bg-primary/80"
+            : "bg-primary/60",
       )}
       style={{
         left: `${t * 100}%`,
@@ -2535,7 +2765,12 @@ function PlayheadLine({ t, height, inRuler }: PlayheadLineProps) {
       }}
     >
       {inRuler && (
-        <div className="absolute -top-0 left-1/2 -translate-x-1/2 size-2 rounded-sm bg-primary" />
+        <div
+          className={cn(
+            "absolute -top-0 left-1/2 -translate-x-1/2 size-2 rounded-sm",
+            autoKeyframe ? "bg-destructive" : "bg-primary",
+          )}
+        />
       )}
     </div>
   );
@@ -2751,7 +2986,11 @@ function LayerGroup({
                     !animationEnabled && "opacity-50",
                   )}
                 >
-                  {motionTrackDisplayLabel(track.property, t)}
+                  {motionTrackDisplayLabel(
+                    track.property,
+                    t,
+                    track.isTextAnimation,
+                  )}
                 </span>
                 {trackKey(track) === selectedTrackKey ? (
                   <MotionTrackSettingsButton
@@ -2841,7 +3080,8 @@ function LayerGroup({
               data-motion-native-style-key={key}
               className={cn(
                 "group relative flex shrink-0 items-center cursor-pointer hover:bg-accent/20",
-                selectedNativeStyle && "bg-accent/40",
+                selectedNativeStyle &&
+                  "bg-[var(--design-editor-accent-color)]/15",
                 !enabled && "text-muted-foreground/60",
               )}
               style={{
@@ -2863,7 +3103,11 @@ function LayerGroup({
               <button
                 type="button"
                 data-motion-select-native-style
-                className="absolute left-[34px] right-[61px] truncate text-left text-[11px] leading-4 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className={cn(
+                  "absolute left-[34px] right-[61px] truncate text-left text-[11px] leading-4 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  selectedNativeStyle &&
+                    "text-[var(--design-editor-accent-color)]",
+                )}
                 title={label}
                 aria-pressed={selectedNativeStyle}
                 onClick={() => onSelectNativeStyle(key)}
@@ -3035,7 +3279,7 @@ function MotionTrackSettingsButton({
             {t("designEditor.motion.type")}
           </span>
           <span className="truncate text-[11px] font-medium">
-            {motionTrackDisplayLabel(track.property, t)}
+            {motionTrackDisplayLabel(track.property, t, track.isTextAnimation)}
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -3407,7 +3651,8 @@ function NativeStyleSpanBar({
       data-motion-native-style-key={entry.key}
       className={cn(
         "group absolute top-1/2 h-4 -translate-y-1/2 rounded-sm border border-primary/40 bg-primary/20",
-        selected && "border-primary bg-primary/30",
+        selected &&
+          "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]",
         entry.instance.enabled === false && "opacity-50",
         disabled
           ? "cursor-default"
