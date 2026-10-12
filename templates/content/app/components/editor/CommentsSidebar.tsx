@@ -185,6 +185,23 @@ export type CommentThreadPosition = {
   layoutTop: number | null;
 };
 
+function anchorPosition(
+  top: number,
+  scrollContainer: HTMLElement,
+  layoutContainer: HTMLElement | null,
+): CommentThreadPosition {
+  const documentContent =
+    (scrollContainer.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement | null) ?? scrollContainer;
+  return {
+    documentTop: top - documentContent.getBoundingClientRect().top,
+    layoutTop: layoutContainer
+      ? top - layoutContainer.getBoundingClientRect().top
+      : null,
+  };
+}
+
 export function findThreadPosition(
   threadId: string,
   quotedText: string | null,
@@ -195,23 +212,15 @@ export function findThreadPosition(
     | "data-suggestion-id" = "data-comment-thread",
 ): CommentThreadPosition | null {
   if (!scrollContainer) return null;
-  const documentContent =
-    (scrollContainer.querySelector(
-      "[data-document-scroll-content]",
-    ) as HTMLElement | null) ?? scrollContainer;
-  const documentRect = documentContent.getBoundingClientRect();
-
   const marked = scrollContainer.querySelector(
     `${anchorAttribute === "data-suggestion-id" ? ".ProseMirror " : ""}[${anchorAttribute}="${cssEscape(threadId)}"]`,
   ) as HTMLElement | null;
   if (marked) {
-    const rect = marked.getBoundingClientRect();
-    return {
-      documentTop: rect.top - documentRect.top,
-      layoutTop: layoutContainer
-        ? rect.top - layoutContainer.getBoundingClientRect().top
-        : null,
-    };
+    return anchorPosition(
+      marked.getBoundingClientRect().top,
+      scrollContainer,
+      layoutContainer,
+    );
   }
 
   if (!quotedText) return null;
@@ -228,32 +237,30 @@ export function findThreadPosition(
     if (node.textContent && node.textContent.includes(searchStr)) {
       const range = window.document.createRange();
       range.selectNode(node);
-      const rect = range.getBoundingClientRect();
-      return {
-        documentTop: rect.top - documentRect.top,
-        layoutTop: layoutContainer
-          ? rect.top - layoutContainer.getBoundingClientRect().top
-          : null,
-      };
+      return anchorPosition(
+        range.getBoundingClientRect().top,
+        scrollContainer,
+        layoutContainer,
+      );
     }
   }
   return null;
 }
 
-export function findPendingCommentOffset(
+export function findPendingCommentPosition(
   scrollContainer: HTMLElement | null,
-  positionContainer: HTMLElement | null = scrollContainer,
-): number | null {
+  layoutContainer: HTMLElement | null,
+): CommentThreadPosition | null {
   if (!scrollContainer) return null;
   const pending = scrollContainer.querySelector(
     ".comment-highlight--pending",
   ) as HTMLElement | null;
   if (!pending) return null;
-  const containerRect = (
-    positionContainer ?? scrollContainer
-  ).getBoundingClientRect();
-  const rect = pending.getBoundingClientRect();
-  return rect.top - containerRect.top;
+  return anchorPosition(
+    pending.getBoundingClientRect().top,
+    scrollContainer,
+    layoutContainer,
+  );
 }
 
 type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
@@ -265,6 +272,13 @@ const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
   return 80 + Math.max(0, thread.comments.length - 1) * 44;
 }
+
+/**
+ * The new-comment composer's slot in the rail layout. It takes the selected
+ * slot, so the threads around it move aside instead of sitting under it.
+ */
+export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
+const PENDING_COMMENT_CARD_ESTIMATE = 112;
 
 type CommentLayoutItem<T extends ThreadLayoutIdentity> = {
   thread: T;
@@ -1287,7 +1301,12 @@ export function CommentsSidebar({
   const [threadCardHeights, setThreadCardHeights] = useState<
     Map<string, number>
   >(new Map());
-  const [pendingOffset, setPendingOffset] = useState<number | null>(null);
+  const [pendingPosition, setPendingPosition] =
+    useState<CommentThreadPosition | null>(null);
+  const [pendingCardHeight, setPendingCardHeight] = useState<number | null>(
+    null,
+  );
+  const pendingCardRef = useRef<HTMLDivElement>(null);
   const inlineProposalLeaders = useMemo(() => {
     const leaders = new Map<string, string>();
     for (const proposalId of inlineProposalMembers.keys()) {
@@ -1346,18 +1365,21 @@ export function CommentsSidebar({
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     setThreadPositionsMeasured(!!container);
+    const layoutContainer = alignToAnchors ? sidebarRef.current : null;
+    const nextPendingPosition =
+      hasPendingComment && alignToAnchors
+        ? findPendingCommentPosition(container, layoutContainer)
+        : null;
+    setPendingPosition((prev) =>
+      prev?.documentTop === nextPendingPosition?.documentTop &&
+      prev?.layoutTop === nextPendingPosition?.layoutTop
+        ? prev
+        : nextPendingPosition,
+    );
     if (!container || inlineThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
-      setPendingOffset((prev) => {
-        const next =
-          hasPendingComment && alignToAnchors
-            ? findPendingCommentOffset(container, sidebarRef.current)
-            : null;
-        return prev === next ? prev : next;
-      });
       return;
     }
-    const layoutContainer = alignToAnchors ? sidebarRef.current : null;
     const positions = new Map<string, CommentThreadPosition>();
     for (const thread of inlineThreads) {
       const position = findThreadPosition(
@@ -1369,10 +1391,6 @@ export function CommentsSidebar({
       );
       if (position) positions.set(thread.threadId, position);
     }
-    const nextPendingOffset =
-      hasPendingComment && alignToAnchors
-        ? findPendingCommentOffset(container, layoutContainer)
-        : null;
     setThreadPositions((prev) => {
       if (
         prev.size === positions.size &&
@@ -1388,9 +1406,6 @@ export function CommentsSidebar({
       }
       return positions;
     });
-    setPendingOffset((prev) =>
-      prev === nextPendingOffset ? prev : nextPendingOffset,
-    );
   }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
 
   // Measured before paint, so a card under a new id never paints unplaced.
@@ -1427,6 +1442,22 @@ export function CommentsSidebar({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThreadKey, hasPendingComment, recomputeOffsets]);
+
+  const pendingCommentId = displayedPendingComment?.id;
+  useLayoutEffect(() => {
+    const element = pendingCardRef.current;
+    if (!element) {
+      setPendingCardHeight(null);
+      return;
+    }
+    const measure = () =>
+      setPendingCardHeight(element.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [pendingCommentId, alignToAnchors]);
 
   useEffect(() => {
     const openIds = new Set(inlineThreads.map((thread) => thread.threadId));
@@ -1480,11 +1511,38 @@ export function CommentsSidebar({
   const restingItemsById = new Map(
     restingItems.map((item) => [item.thread.threadId, item]),
   );
-  const items = layoutCommentThreads(
-    layoutThreads,
-    threadPositions,
-    threadCardHeights,
-    selectedLayoutThreadId,
+  type LayoutThread = (typeof layoutThreads)[number];
+  const pendingLayout: ThreadLayoutIdentity | null =
+    displayedPendingComment && alignToAnchors
+      ? { threadId: PENDING_COMMENT_LAYOUT_ID, comments: [] }
+      : null;
+  const pendingAnchorTop =
+    pendingPosition?.layoutTop ?? displayedPendingComment?.offsetTop ?? 0;
+  const selectedItems = pendingLayout
+    ? layoutCommentThreads<LayoutThread | ThreadLayoutIdentity>(
+        [...layoutThreads, pendingLayout],
+        new Map(threadPositions).set(PENDING_COMMENT_LAYOUT_ID, {
+          documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
+          layoutTop: pendingAnchorTop,
+        }),
+        new Map(threadCardHeights).set(
+          PENDING_COMMENT_LAYOUT_ID,
+          pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
+        ),
+        PENDING_COMMENT_LAYOUT_ID,
+      )
+    : layoutCommentThreads(
+        layoutThreads,
+        threadPositions,
+        threadCardHeights,
+        selectedLayoutThreadId,
+      );
+  const pendingTop =
+    selectedItems.find((item) => item.thread === pendingLayout)?.top ??
+    pendingAnchorTop;
+  const items = selectedItems.filter(
+    (item): item is CommentLayoutItem<LayoutThread> =>
+      item.thread !== pendingLayout,
   );
 
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
@@ -2122,6 +2180,7 @@ export function CommentsSidebar({
       {/* Pending new comment — positioned at the selection Y offset */}
       {displayedPendingComment && (
         <div
+          ref={pendingCardRef}
           className={cn(
             "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
             alignToAnchors
@@ -2130,11 +2189,7 @@ export function CommentsSidebar({
                 ? "relative"
                 : "relative mx-2 mt-3",
           )}
-          style={
-            alignToAnchors
-              ? { top: pendingOffset ?? displayedPendingComment.offsetTop }
-              : undefined
-          }
+          style={alignToAnchors ? { top: pendingTop } : undefined}
           data-comment-pending
         >
           {surface === "popover" ? (

@@ -182,6 +182,7 @@ function SidebarOwner({
     activeSuggestionId?: string;
     unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
     alignToAnchors?: boolean;
+    scrollContainer?: HTMLDivElement;
     onDecideSuggestionProposal?: (
       proposalId: string,
       decision: "accepted" | "rejected",
@@ -217,6 +218,11 @@ function SidebarOwner({
       canResolve
       canDecideSuggestions
       alignToAnchors={options.alignToAnchors ?? !!options.suggestions}
+      scrollContainerRef={
+        options.scrollContainer
+          ? { current: options.scrollContainer }
+          : undefined
+      }
       onDecideSuggestionProposal={options.onDecideSuggestionProposal}
       forceVisible
       presentation={presentation}
@@ -269,6 +275,7 @@ describe("comment review interactions", () => {
       activeSuggestionId?: string;
       unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
       alignToAnchors?: boolean;
+      scrollContainer?: HTMLDivElement;
       onDecideSuggestionProposal?: (
         proposalId: string,
         decision: "accepted" | "rejected",
@@ -833,5 +840,54 @@ describe("comment review interactions", () => {
     render(null, [thread("one", true), thread("two", true)]);
     expect(container.querySelector('[data-thread-card="one"]')).toBeNull();
     expect(panel.historyStatus).toBe("open");
+  });
+
+  it("moves an earlier thread above the new-comment composer instead of under it", () => {
+    const scroll = document.createElement("div");
+    scroll.innerHTML =
+      '<div class="ProseMirror"><p><mark data-comment-thread="one">first</mark></p><p><mark class="comment-highlight--pending">second</mark></p></div>';
+    document.body.append(scroll);
+    const box = (top: number, height: number) =>
+      ({
+        top,
+        bottom: top + height,
+        height,
+        left: 0,
+        right: 100,
+        width: 100,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.matches('[data-comment-thread="one"]')) return box(100, 20);
+        if (this.matches(".comment-highlight--pending")) return box(140, 20);
+        if (this.matches('[data-thread-card="one"]')) return box(0, 100);
+        if (this.matches("[data-comment-pending]")) return box(0, 120);
+        return box(0, 0);
+      });
+    try {
+      render(null, [thread("one")], "inline", {
+        pending: true,
+        alignToAnchors: true,
+        scrollContainer: scroll,
+      });
+      const composer = container.querySelector<HTMLElement>(
+        "[data-comment-pending]",
+      )!;
+      const earlier = container.querySelector<HTMLElement>(
+        '[data-comment-layout-thread="one"]',
+      )!;
+      // The thread rests at its anchor (100) and lifts to end 12px above the
+      // composer, which keeps its own anchor (140).
+      expect(composer.style.top).toBe("140px");
+      expect(earlier.style.marginTop).toBe("100px");
+      expect(earlier.style.transform).toBe("translateY(-72px)");
+    } finally {
+      rects.mockRestore();
+      scroll.remove();
+    }
   });
 });
