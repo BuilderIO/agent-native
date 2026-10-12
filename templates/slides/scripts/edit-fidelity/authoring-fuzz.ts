@@ -244,6 +244,7 @@ type WatchedRequestNavigationCandidate = {
   settledAgeMs?: number;
   requestWasPendingAtNavigation?: boolean;
   competingRequestStartedAfterNavigation?: boolean;
+  competingClaimStartedAfterNavigation?: boolean;
 };
 
 function isExpectedWatchedRequestNavigationAbort(
@@ -374,6 +375,9 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   return (
     message ===
       "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    !candidates.some(
+      (candidate) => candidate.competingClaimStartedAfterNavigation === true,
+    ) &&
     hasExactlyOneExpectedBrowserSessionAbort(candidates, [
       browserSessionClaimRequestRule,
     ])

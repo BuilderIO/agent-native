@@ -5405,6 +5405,7 @@ async function runAuthoringFuzzQa(
     >();
     let cleanupNavigationStarted = false;
     let cleanupNavigationCompetingClaimStarted = false;
+    const cleanupNavigationCompetingClaimUrls = new Set<string>();
     const isBrowserSessionClaimRequest = (request: any) =>
       request.method() === "POST" &&
       /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/.test(
@@ -5422,6 +5423,7 @@ async function runAuthoringFuzzQa(
       const onRequest = (request: any) => {
         if (cleanupNavigationStarted && isBrowserSessionClaimRequest(request)) {
           cleanupNavigationCompetingClaimStarted = true;
+          cleanupNavigationCompetingClaimUrls.add(request.url());
         }
         cleanupRequestStartTimes.set(request, {
           page: target,
@@ -5645,6 +5647,8 @@ async function runAuthoringFuzzQa(
             ...candidate,
             ageMs: now - startedAt,
             competingRequestStartedAfterNavigation:
+              cleanupNavigationCompetingClaimUrls.has(candidate.url),
+            competingClaimStartedAfterNavigation:
               cleanupNavigationCompetingClaimStarted,
           }),
         );

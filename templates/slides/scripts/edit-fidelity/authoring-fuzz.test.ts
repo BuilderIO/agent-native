@@ -1274,6 +1274,16 @@ it("ignores only an in-flight browser-session claim canceled by cleanup navigati
     ]),
   ).toBe(true);
   expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, competingClaimStartedAfterNavigation: true },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, competingRequestStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
     isExpectedWatchedRequestCorsError(message, "step 12", [candidate]),
   ).toBe(false);
   expect(
@@ -1324,6 +1334,11 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [candidate]),
   ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, competingClaimStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
   expect(
     isExpectedCleanupBrowserSessionPollConsoleError(warning, [
       { ...candidate, requestWasPendingAtNavigation: false },
