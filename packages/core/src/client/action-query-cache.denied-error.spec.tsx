@@ -54,6 +54,7 @@ vi.mock("./use-session.js", async () => {
 });
 vi.mock("./analytics.js", () => ({ trackEvent: vi.fn() }));
 
+import { resetActionFailureCircuits } from "./action-failure-circuit.js";
 import {
   ActionQueryCacheGate,
   actionQueryCacheScope,
@@ -63,11 +64,18 @@ import {
   type ActionQueryCacheStorage,
 } from "./action-query-cache.js";
 import { clientBuildId } from "./build-compatibility.js";
-import { resetActionFailureCircuits } from "./action-failure-circuit.js";
 import { useActionQuery } from "./use-action.js";
 
-const USER_A = { email: "a@example.test", userId: "scope-user-a", orgId: "org-a" };
-const USER_B = { email: "b@example.test", userId: "scope-user-b", orgId: "org-b" };
+const USER_A = {
+  email: "a@example.test",
+  userId: "scope-user-a",
+  orgId: "org-a",
+};
+const USER_B = {
+  email: "b@example.test",
+  userId: "scope-user-b",
+  orgId: "org-b",
+};
 const SCOPE_A = actionQueryCacheScope(USER_A, clientBuildId());
 const SCOPE_B = actionQueryCacheScope(USER_B, clientBuildId());
 const DENIED_KEY = ["action", "get-private-data", undefined] as const;
@@ -119,7 +127,11 @@ function memoryStorage(seed: Array<[string, PersistedClient]> = []) {
   return { records, reads, storage };
 }
 
-function singleActionResponse(action: string, denyPrivate: boolean, denialMessage: string) {
+function singleActionResponse(
+  action: string,
+  denyPrivate: boolean,
+  denialMessage: string,
+) {
   if (action === "get-private-data" && denyPrivate) {
     return new Response(JSON.stringify({ error: denialMessage }), {
       status: 403,
@@ -132,23 +144,36 @@ function singleActionResponse(action: string, denyPrivate: boolean, denialMessag
       headers: { "Content-Type": "application/json" },
     });
   }
-  return new Response(JSON.stringify({ designs: [{ title: "saved for Bob" }] }), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-Browser-Persist": "allow",
+  return new Response(
+    JSON.stringify({ designs: [{ title: "saved for Bob" }] }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Agent-Native-Browser-Persist": "allow",
+      },
     },
-  });
+  );
 }
 
-const roots: Array<{ root: Root; container: HTMLDivElement; client: QueryClient }> = [];
+const roots: Array<{
+  root: Root;
+  container: HTMLDivElement;
+  client: QueryClient;
+}> = [];
 function BobHeldRecord() {
-  const held = useActionQuery<{ designs: Array<{ title: string }> }>("list-designs" as never, undefined, {
-    retry: false,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  });
-  return <span data-testid="held">{held.data?.designs[0]?.title ?? "pending"}</span>;
+  const held = useActionQuery<{ designs: Array<{ title: string }> }>(
+    "list-designs" as never,
+    undefined,
+    {
+      retry: false,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+    },
+  );
+  return (
+    <span data-testid="held">{held.data?.designs[0]?.title ?? "pending"}</span>
+  );
 }
 
 function Probe({ onSnapshot }: { onSnapshot: (snapshot: Snapshot) => void }) {
@@ -157,11 +182,15 @@ function Probe({ onSnapshot }: { onSnapshot: (snapshot: Snapshot) => void }) {
     sessionState.read,
     () => null,
   );
-  const denied = useActionQuery<{ value: string }>("get-private-data" as never, undefined, {
-    retry: false,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-  });
+  const denied = useActionQuery<{ value: string }>(
+    "get-private-data" as never,
+    undefined,
+    {
+      retry: false,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+    },
+  );
   const error = denied.error as (Error & { status?: number }) | null;
   onSnapshot({
     userId: session?.userId,
@@ -179,7 +208,11 @@ function Probe({ onSnapshot }: { onSnapshot: (snapshot: Snapshot) => void }) {
   );
 }
 
-async function mount(client: QueryClient, gate: boolean, snapshots: Snapshot[]) {
+async function mount(
+  client: QueryClient,
+  gate: boolean,
+  snapshots: Snapshot[],
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -222,34 +255,62 @@ it("clears a previous scope's denied UI state while preserving the next scope re
   const nextBobFetch = deferred<Response>();
   let privateRequestCount = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const action = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
+    const action =
+      new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
+      "";
     if (action === "get-private-data") {
       privateRequestCount += 1;
-      if (privateRequestCount === 1) return singleActionResponse(action, true, "Alice private data denied");
+      if (privateRequestCount === 1)
+        return singleActionResponse(action, true, "Alice private data denied");
       return nextBobFetch.promise;
     }
     return singleActionResponse(action, false, "");
   });
   vi.stubGlobal("fetch", fetchMock);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   await bindActionQueryCache(client, SCOPE_A);
   const snapshots: Snapshot[] = [];
   await mount(client, false, snapshots);
-  await expect.poll(() => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status).toBe("error");
-  expect(client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error).toMatchObject({ status: 403 });
+  await expect
+    .poll(
+      () => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status,
+    )
+    .toBe("error");
+  expect(
+    client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error,
+  ).toMatchObject({ status: 403 });
 
-  records.set(SCOPE_B, cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }));
+  records.set(
+    SCOPE_B,
+    cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }),
+  );
   await act(async () => bindActionQueryCache(client, SCOPE_B));
   expect(records.has(SCOPE_B)).toBe(true);
-  expect(client.getQueryData(HELD_KEY)).toEqual({ designs: [{ title: "saved for Bob" }] });
+  expect(client.getQueryData(HELD_KEY)).toEqual({
+    designs: [{ title: "saved for Bob" }],
+  });
 
   const container = roots.at(-1)?.container;
   const bobStart = snapshots.length;
   await act(async () => sessionState.set(USER_B, false));
-  await expect.poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId)).toBe(true);
-  const bobBeforeFetch = snapshots.slice(bobStart).filter((snapshot) => snapshot.userId === USER_B.userId);
-  expect(bobBeforeFetch.some((snapshot) => snapshot.errorMessage === "Action get-private-data failed: Alice private data denied")).toBe(false);
-  expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe("saved for Bob");
+  await expect
+    .poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId))
+    .toBe(true);
+  const bobBeforeFetch = snapshots
+    .slice(bobStart)
+    .filter((snapshot) => snapshot.userId === USER_B.userId);
+  expect(
+    bobBeforeFetch.some(
+      (snapshot) =>
+        snapshot.errorMessage ===
+        "Action get-private-data failed: Alice private data denied",
+    ),
+  ).toBe(false);
+  expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
+    "saved for Bob",
+  );
 
   const bobFetchStart = snapshots.length;
   await act(async () => {
@@ -257,11 +318,23 @@ it("clears a previous scope's denied UI state while preserving the next scope re
     await Promise.resolve();
   });
   await expect.poll(() => privateRequestCount).toBe(2);
-  const bobDuringFetch = snapshots.slice(bobFetchStart).filter((snapshot) => snapshot.userId === USER_B.userId);
-  expect(bobDuringFetch.some((snapshot) => snapshot.errorMessage === "Action get-private-data failed: Alice private data denied")).toBe(false);
+  const bobDuringFetch = snapshots
+    .slice(bobFetchStart)
+    .filter((snapshot) => snapshot.userId === USER_B.userId);
+  expect(
+    bobDuringFetch.some(
+      (snapshot) =>
+        snapshot.errorMessage ===
+        "Action get-private-data failed: Alice private data denied",
+    ),
+  ).toBe(false);
 
-  await act(async () => nextBobFetch.resolve(singleActionResponse("get-private-data", false, "")));
-  await expect.poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value).toBe("bob-private");
+  await act(async () =>
+    nextBobFetch.resolve(singleActionResponse("get-private-data", false, "")),
+  );
+  await expect
+    .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
+    .toBe("bob-private");
   expect(records.has(SCOPE_B)).toBe(true);
 });
 
@@ -273,20 +346,37 @@ it("keeps same-scope denial evidence fail-closed", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
-      const action = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
-      return singleActionResponse(action, action === "get-private-data", "Alice private data denied");
+      const action =
+        new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
+        "";
+      return singleActionResponse(
+        action,
+        action === "get-private-data",
+        "Alice private data denied",
+      );
     }),
   );
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   await bindActionQueryCache(client, SCOPE_A);
   const snapshots: Snapshot[] = [];
   await mount(client, false, snapshots);
-  await expect.poll(() => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status).toBe("error");
+  await expect
+    .poll(
+      () => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status,
+    )
+    .toBe("error");
 
-  records.set(SCOPE_A, cacheRecord(HELD_KEY, { designs: [{ title: "Alice prior result" }] }));
+  records.set(
+    SCOPE_A,
+    cacheRecord(HELD_KEY, { designs: [{ title: "Alice prior result" }] }),
+  );
   await act(async () => bindActionQueryCache(client, SCOPE_A));
   await expect.poll(() => records.has(SCOPE_A)).toBe(false);
-  expect(client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error).toMatchObject({ status: 403 });
+  expect(
+    client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error,
+  ).toMatchObject({ status: 403 });
   expect(client.getQueryData(HELD_KEY)).toBeUndefined();
 });
 
@@ -296,20 +386,39 @@ it("keeps unknown pre-bind denial evidence fail-closed", async () => {
   const { records, storage } = memoryStorage();
   setActionQueryCacheStorage(storage);
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const action = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
-    return singleActionResponse(action, action === "get-private-data", "Unknown pre-bind denial");
+    const action =
+      new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
+      "";
+    return singleActionResponse(
+      action,
+      action === "get-private-data",
+      "Unknown pre-bind denial",
+    );
   });
   vi.stubGlobal("fetch", fetchMock);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const snapshots: Snapshot[] = [];
   await mount(client, false, snapshots);
-  await expect.poll(() => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status).toBe("error");
-  expect(client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error).toMatchObject({ status: 403 });
+  await expect
+    .poll(
+      () => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status,
+    )
+    .toBe("error");
+  expect(
+    client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error,
+  ).toMatchObject({ status: 403 });
 
-  records.set(SCOPE_B, cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }));
+  records.set(
+    SCOPE_B,
+    cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }),
+  );
   await act(async () => bindActionQueryCache(client, SCOPE_B));
   await expect.poll(() => records.has(SCOPE_B)).toBe(false);
-  expect(client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error).toMatchObject({ status: 403 });
+  expect(
+    client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.error,
+  ).toMatchObject({ status: 403 });
   expect(client.getQueryData(HELD_KEY)).toBeUndefined();
 });
 
@@ -321,29 +430,57 @@ it("characterizes Gate scope changes separately from direct binding", async () =
   const bobFetch = deferred<Response>();
   let privateRequestCount = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const action = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
+    const action =
+      new URL(String(input), "http://localhost").pathname.split("/").at(-1) ??
+      "";
     const denied = action === "get-private-data";
     if (denied) {
       privateRequestCount += 1;
-      if (privateRequestCount === 1) return singleActionResponse(action, true, "Alice private data denied");
+      if (privateRequestCount === 1)
+        return singleActionResponse(action, true, "Alice private data denied");
       return bobFetch.promise;
     }
     return singleActionResponse(action, false, "");
   });
   vi.stubGlobal("fetch", fetchMock);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   const snapshots: Snapshot[] = [];
   await mount(client, true, snapshots);
-  await expect.poll(() => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status).toBe("error");
+  await expect
+    .poll(
+      () => client.getQueryCache().find({ queryKey: DENIED_KEY })?.state.status,
+    )
+    .toBe("error");
 
-  records.set(SCOPE_B, cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }));
+  records.set(
+    SCOPE_B,
+    cacheRecord(HELD_KEY, { designs: [{ title: "saved for Bob" }] }),
+  );
   const container = roots.at(-1)?.container;
   const bobStart = snapshots.length;
   await act(async () => sessionState.set(USER_B, false));
-  await expect.poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId)).toBe(true);
-  const bobSnapshots = snapshots.slice(bobStart).filter((snapshot) => snapshot.userId === USER_B.userId);
-  expect(bobSnapshots.some((snapshot) => snapshot.errorMessage === "Action get-private-data failed: Alice private data denied")).toBe(false);
-  expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe("saved for Bob");
-  await act(async () => bobFetch.resolve(singleActionResponse("get-private-data", false, "")));
-  await expect.poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value).toBe("bob-private");
+  await expect
+    .poll(() => snapshots.some((snapshot) => snapshot.userId === USER_B.userId))
+    .toBe(true);
+  const bobSnapshots = snapshots
+    .slice(bobStart)
+    .filter((snapshot) => snapshot.userId === USER_B.userId);
+  expect(
+    bobSnapshots.some(
+      (snapshot) =>
+        snapshot.errorMessage ===
+        "Action get-private-data failed: Alice private data denied",
+    ),
+  ).toBe(false);
+  expect(container?.querySelector('[data-testid="held"]')?.textContent).toBe(
+    "saved for Bob",
+  );
+  await act(async () =>
+    bobFetch.resolve(singleActionResponse("get-private-data", false, "")),
+  );
+  await expect
+    .poll(() => client.getQueryData<{ value: string }>(DENIED_KEY)?.value)
+    .toBe("bob-private");
 });
