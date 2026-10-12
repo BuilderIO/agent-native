@@ -170,6 +170,11 @@ function dbExecForDrizzleTransaction(
 
 const _designTransactionExecs = new WeakMap<object, DbExec>();
 
+export interface DesignSourceMutationTransactionOutcome {
+  callbackCompleted: boolean;
+  rollbackConfirmed: boolean;
+}
+
 export function getDesignSourceMutationExec(transaction: object): DbExec {
   const exec = _designTransactionExecs.get(transaction);
   if (!exec) {
@@ -183,19 +188,46 @@ export function getDesignSourceMutationExec(transaction: object): DbExec {
 export function withDesignSourceMutationTransaction<T>(
   designId: string,
   callback: (tx: DesignSourceMutationTransaction) => Promise<T>,
+  outcome?: DesignSourceMutationTransactionOutcome,
 ): Promise<T> {
-  return getDb().transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
-    );
-    const transactionExec = dbExecForDrizzleTransaction(tx);
-    _designTransactionExecs.set(tx, transactionExec);
-    try {
-      return await callback(tx);
-    } finally {
-      _designTransactionExecs.delete(tx);
-    }
-  });
+  if (outcome) {
+    outcome.callbackCompleted = false;
+    outcome.rollbackConfirmed = false;
+  }
+  let callbackError: unknown;
+  let callbackThrew = false;
+  return getDb()
+    .transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(designId)}, 0::bigint))`,
+      );
+      const transactionExec = dbExecForDrizzleTransaction(tx);
+      _designTransactionExecs.set(tx, transactionExec);
+      try {
+        try {
+          const result = await callback(tx);
+          if (outcome) outcome.callbackCompleted = true;
+          return result;
+        } catch (error) {
+          callbackThrew = true;
+          callbackError = error;
+          throw error;
+        }
+      } finally {
+        _designTransactionExecs.delete(tx);
+      }
+    })
+    .catch((error: unknown) => {
+      if (
+        outcome &&
+        callbackThrew &&
+        !outcome.callbackCompleted &&
+        callbackError === error
+      ) {
+        outcome.rollbackConfirmed = true;
+      }
+      throw error;
+    });
 }
 
 export function withDesignSourceReadTransaction<T>(
