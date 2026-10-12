@@ -359,13 +359,18 @@ function rejectParameterSchema(
   ) {
     return "has a tool schema whose properties are not an object";
   }
+  // Both request budgets are charged for the work done, accepted or not, so
+  // entries that each fail late cannot each spend a full per-schema budget.
   const limit = Math.min(MAX_SCHEMA_JSON_CHARS, schemaBudget.remaining);
-  const size = measureSchema(parameters, limit);
-  if (size === "not-json") return "has a tool schema that is not JSON";
-  if (size === "too-deep") {
+  const measured = measureSchema(parameters, limit);
+  schemaBudget.remaining -= measured.size;
+  if (measured.failure === "not-json") {
+    return "has a tool schema that is not JSON";
+  }
+  if (measured.failure === "too-deep") {
     return `has a tool schema nested deeper than ${MAX_SCHEMA_DEPTH} levels`;
   }
-  if (size === "too-large") {
+  if (measured.failure === "too-large") {
     return limit < MAX_SCHEMA_JSON_CHARS
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_JSON_CHARS}-character budget shared by this request's schemas`
       : `has a tool schema larger than ${MAX_SCHEMA_JSON_CHARS} characters`;
@@ -376,15 +381,13 @@ function rejectParameterSchema(
     refStack: new Set([parameters]),
   };
   const rejection = rejectSchemaKeywords(parameters, parameters, walk);
+  schemaBudget.expandedRemaining -= walk.expanded;
   if (rejection === "too-expanded") {
     return walk.limit < MAX_SCHEMA_EXPANDED_NODES
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_EXPANDED_NODES}-subschema budget shared by this request's schemas`
       : `has a tool schema that expands to more than ${MAX_SCHEMA_EXPANDED_NODES} subschemas through $ref`;
   }
-  if (rejection) return rejection;
-  schemaBudget.remaining -= size;
-  schemaBudget.expandedRemaining -= walk.expanded;
-  return null;
+  return rejection;
 }
 
 interface SchemaBudget {
@@ -407,7 +410,7 @@ interface SchemaWalk {
 function measureSchema(
   value: unknown,
   limit: number,
-): number | "too-large" | "too-deep" | "not-json" {
+): { size: number; failure: "too-large" | "too-deep" | "not-json" | null } {
   let size = 0;
   const visit = (
     node: unknown,
@@ -433,7 +436,8 @@ function measureSchema(
     }
     return size > limit ? "too-large" : null;
   };
-  return visit(value, 0) ?? size;
+  const failure = visit(value, 0);
+  return { size, failure };
 }
 
 /**

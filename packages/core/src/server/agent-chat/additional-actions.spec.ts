@@ -408,6 +408,37 @@ describe("resolveAppAdditionalActions", () => {
         {},
       );
       expect(Object.keys(expanded)).toHaveLength(4);
+
+      // Rejected schemas draw from the same budget as accepted ones.
+      const rejectedLate = (i: number) =>
+        entry("x", {
+          tool: {
+            description: "x",
+            parameters: {
+              type: "object",
+              properties: {
+                [`p${i}`]: { type: "string", description: "y".repeat(60_000) },
+                last: { type: "string", pattern: "x" },
+              },
+            },
+          },
+        });
+      const drained = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            ...Object.fromEntries(
+              Array.from({ length: 9 }, (_, i) => [
+                `rejected-${i}`,
+                rejectedLate(i),
+              ]),
+            ),
+            "after-rejected": entry("x"),
+          }),
+        }),
+        alice,
+        {},
+      );
+      expect(drained).toEqual({});
     });
 
     it("keeps a bounded record of reported skips", async () => {
