@@ -2007,6 +2007,32 @@ it("pairs retired-session reload errors in either event order and retains late e
   ).toEqual({ matched: true, errors: [] });
   expect(pollWarningAfterNavigationGrace.nextExpiryDelay(2_010)).toBe(null);
 
+  const pollWarningBeforeNavigationCutoff = makeCorrelator();
+  expect(
+    pollWarningBeforeNavigationCutoff.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_990,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pollWarningBeforeNavigationCutoff.onPageError(
+      pageError,
+      "save/reload",
+      2_010,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningBeforeNavigationCutoff.nextExpiryDelay(2_010)).toBe(null);
+
+  const unpairedLatePageError = makeCorrelator();
+  expect(
+    unpairedLatePageError.onPageError(pageError, "save/reload", 2_010, false),
+  ).toEqual({ matched: false, errors: [] });
+  expect(unpairedLatePageError.nextExpiryDelay(2_010)).toBe(null);
+
   const newSessionWarning = makeCorrelator();
   expect(
     newSessionWarning.onPollWarning(

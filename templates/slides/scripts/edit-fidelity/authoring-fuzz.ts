@@ -562,7 +562,7 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
   );
 }
 
-export function isExpectedSaveReloadRetiredBrowserSessionCorsError(
+function matchesRetiredBrowserSessionCorsClaimError(
   message: string,
   activePhase: string,
   sessionIdAtNavigation: string | null,
@@ -576,8 +576,7 @@ export function isExpectedSaveReloadRetiredBrowserSessionCorsError(
     !sessionIdAtNavigation ||
     navigationStartedAt === null ||
     competingClaimStartedAfterNavigation ||
-    now < navigationStartedAt ||
-    now - navigationStartedAt >= reloadNavigationConsoleGraceMs
+    now < navigationStartedAt
   ) {
     return false;
   }
@@ -591,6 +590,30 @@ export function isExpectedSaveReloadRetiredBrowserSessionCorsError(
   return (
     url.origin === authoringPageOrigin &&
     browserSessionClaimId(url.pathname) === sessionIdAtNavigation
+  );
+}
+
+export function isExpectedSaveReloadRetiredBrowserSessionCorsError(
+  message: string,
+  activePhase: string,
+  sessionIdAtNavigation: string | null,
+  authoringPageOrigin: string,
+  navigationStartedAt: number | null,
+  now: number,
+  competingClaimStartedAfterNavigation: boolean,
+) {
+  return (
+    navigationStartedAt !== null &&
+    now - navigationStartedAt < reloadNavigationConsoleGraceMs &&
+    matchesRetiredBrowserSessionCorsClaimError(
+      message,
+      activePhase,
+      sessionIdAtNavigation,
+      authoringPageOrigin,
+      navigationStartedAt,
+      now,
+      competingClaimStartedAfterNavigation,
+    )
   );
 }
 
@@ -669,7 +692,7 @@ export function createRetiredBrowserSessionErrorCorrelator() {
       const errors = takeExpired(now);
       if (
         !authoringPageOrigin ||
-        !isExpectedSaveReloadRetiredBrowserSessionCorsError(
+        !matchesRetiredBrowserSessionCorsClaimError(
           message,
           activePhase,
           sessionIdAtNavigation,
@@ -695,13 +718,28 @@ export function createRetiredBrowserSessionErrorCorrelator() {
       );
       if (pollWarningIndex >= 0) {
         pendingPollWarnings.splice(pollWarningIndex, 1);
-      } else {
-        pendingPageErrors.push({
-          message,
-          at: now,
-          sessionId: sessionIdAtNavigation,
-        });
+        return { matched: true, errors };
       }
+
+      if (
+        !isExpectedSaveReloadRetiredBrowserSessionCorsError(
+          message,
+          activePhase,
+          sessionIdAtNavigation,
+          authoringPageOrigin,
+          navigationStartedAt,
+          now,
+          competingClaimStartedAfterNavigation,
+        )
+      ) {
+        return { matched: false, errors };
+      }
+
+      pendingPageErrors.push({
+        message,
+        at: now,
+        sessionId: sessionIdAtNavigation,
+      });
       return { matched: true, errors };
     },
     onPollWarning(
