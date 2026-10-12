@@ -321,9 +321,11 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   requestAgeMs = Number.POSITIVE_INFINITY,
   requestStartedDuringNavigation = false,
   competingClaimStartedAfterNavigation = false,
+  requestSameOrigin = false,
 ) {
   return (
     activePhase === "save/reload" &&
+    requestSameOrigin &&
     requestWasPendingAtReloadNavigation &&
     !requestStartedDuringNavigation &&
     !competingClaimStartedAfterNavigation &&
@@ -371,6 +373,7 @@ function isExpectedWatchedRequestNavigationAbort(
     candidate.requestWasPendingAtNavigation === true &&
     candidate.requestStartedDuringNavigation !== true &&
     candidate.competingRequestStartedAfterNavigation !== true &&
+    candidate.sameOrigin === true &&
     (!rejectCompetingClaim ||
       candidate.competingClaimStartedAfterNavigation !== true) &&
     (candidate.requestFinishedSuccessfully !== true ||
@@ -613,6 +616,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     ageMs: number;
     settledAgeMs?: number;
     responseStatus?: number;
+    sameOrigin?: boolean;
     requestWasPendingAtReloadNavigation?: boolean;
     requestStartedDuringNavigation?: boolean;
     requestFinishedSuccessfully?: boolean;
@@ -1434,7 +1438,8 @@ export async function runAuthoringFuzz(
     watchedRequests.delete(request);
     inFlightBrowserSessionClaims.delete(request);
     const url = request.url();
-    const pathname = new URL(url).pathname;
+    const requestUrl = new URL(url);
+    const pathname = requestUrl.pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled || isBrowserSessionPath(pathname)) {
       console.log(
@@ -1453,6 +1458,7 @@ export async function runAuthoringFuzz(
           : Date.now() - requestStartedAt,
         navigationCandidate?.requestStartedDuringNavigation === true,
         competingClaimStartedAfterNavigation,
+        requestUrl.origin === authoringPageOrigin,
       )
     ) {
       const candidate = navigationCandidate;

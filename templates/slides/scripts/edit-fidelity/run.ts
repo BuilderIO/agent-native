@@ -5657,6 +5657,7 @@ async function runAuthoringFuzzQa(
         pathname: string;
         method: string;
         startedAt: number;
+        sameOrigin: boolean;
         requestWasPendingAtNavigation: true;
       }> = [];
       let recoveryPage: Page | null = stableCleanupPage;
@@ -5912,22 +5913,24 @@ async function runAuthoringFuzzQa(
           }
           try {
             const cleanupPage = await getCleanupPage();
+            const cleanupUrl = new URL(cleanupPage.url());
             cleanupNavigationCandidates = [
               ...cleanupRequestStartTimes.entries(),
             ]
               .filter(([, request]) => request.page === cleanupPage)
               .map(([request, { startedAt }]) => {
                 const url = request.url();
+                const requestUrl = new URL(url);
                 return {
                   request,
                   url,
-                  pathname: new URL(url).pathname,
+                  pathname: requestUrl.pathname,
                   method: request.method(),
                   startedAt,
+                  sameOrigin: requestUrl.origin === cleanupUrl.origin,
                   requestWasPendingAtNavigation: true as const,
                 };
               });
-            const cleanupUrl = new URL(cleanupPage.url());
             const homeUrl = new URL(`${base}/home`);
             if (
               cleanupUrl.origin !== homeUrl.origin ||
