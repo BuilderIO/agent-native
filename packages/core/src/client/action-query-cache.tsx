@@ -42,6 +42,7 @@ const WRITE_DELAY_MS = 1_000;
 // Restoring holds every query, so a store that never answers must not hold
 // the app.
 const RESTORE_TIMEOUT_MS = 2_000;
+const INITIAL_CLEAR_TIMEOUT_MS = 2_000;
 const ACTION_QUERY_KEY = ["action"];
 
 function isAccessDeniedActionQuery(query: Query): boolean {
@@ -78,6 +79,7 @@ let storage: ActionQueryCacheStorage = indexedDbStorage;
 let storageClearGeneration = 0;
 let storageClearInFlight: Promise<void> | undefined;
 let storageClearRequired = false;
+let bindAttemptGeneration = 0;
 const inFlightStorageWrites = new Set<Promise<void>>();
 const inFlightStorageDeletes = new Set<Promise<void>>();
 const failedStorageDeleteScopes = new Set<string>();
@@ -99,14 +101,64 @@ function trackStorageDelete(deletion: Promise<void>): Promise<void> {
   return deletion;
 }
 
+function beginStorageClear(): Promise<void> {
+  if (storageClearInFlight) return storageClearInFlight;
+  storageClearRequired = true;
+  const generation = ++storageClearGeneration;
+  let clear!: Promise<void>;
+  clear = (async () => {
+    await waitForStorageOperations();
+    await storage.clear();
+    failedStorageDeleteScopes.clear();
+    storageClearRequired = false;
+  })().finally(() => {
+    if (
+      storageClearInFlight === clear &&
+      storageClearGeneration === generation
+    ) {
+      storageClearInFlight = undefined;
+    }
+  });
+  storageClearInFlight = clear;
+  return clear;
+}
+
 async function waitForStorageClear(): Promise<void> {
   while (storageClearInFlight) {
     const clear = storageClearInFlight;
     await clear;
   }
   if (storageClearRequired) {
-    await clearActionQueryCache();
+    await beginStorageClear();
   }
+}
+
+async function waitForStorageClearWithinBound(): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), INITIAL_CLEAR_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([
+      waitForStorageClear().then(() => true),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function releaseWithoutCache(client: QueryClient, attempt: number): void {
+  closeBinding();
+  client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+  registerActionQueryCacheRevoker(client, () => {
+    if (attempt !== bindAttemptGeneration || binding !== undefined) {
+      return;
+    }
+    void clearActionQueryCache().catch((error) =>
+      console.warn("Unable to clear cached action results", error),
+    );
+  });
 }
 
 async function waitForStorageOperations(): Promise<void> {
@@ -376,13 +428,14 @@ function closeBinding(): void {
   }
 }
 
-async function waitForCleanup(cleanup: Promise<void>): Promise<boolean> {
+async function waitForCleanup(
+  cleanup: Promise<void>,
+  timeoutMessage = "Cached action results could not be prepared in time; loading without them.",
+): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<boolean>((resolve) => {
     timer = setTimeout(() => {
-      console.warn(
-        "Cached action results could not be prepared in time; loading without them.",
-      );
+      console.warn(timeoutMessage);
       resolve(false);
     }, RESTORE_TIMEOUT_MS);
   });
@@ -424,8 +477,24 @@ export async function bindActionQueryCache(
   scope: string,
   options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
+  const attempt = ++bindAttemptGeneration;
   if (storageClearInFlight || storageClearRequired) {
-    await waitForStorageClear();
+    let clearFinished: boolean;
+    try {
+      clearFinished = await waitForStorageClearWithinBound();
+    } catch (error) {
+      if (attempt === bindAttemptGeneration) {
+        releaseWithoutCache(client, attempt);
+      }
+      throw error;
+    }
+    if (attempt !== bindAttemptGeneration) {
+      return;
+    }
+    if (!clearFinished) {
+      releaseWithoutCache(client, attempt);
+      return;
+    }
   }
   const trustPrebindResults = options.trustPrebindResults === true;
   const previousBinding = binding;
@@ -685,28 +754,11 @@ export async function bindActionQueryCache(
  * record. */
 export async function clearActionQueryCache(): Promise<void> {
   closeBinding();
-  if (storageClearInFlight) {
-    await storageClearInFlight;
-    return;
-  }
-  storageClearRequired = true;
-  const generation = ++storageClearGeneration;
-  let clear!: Promise<void>;
-  clear = (async () => {
-    await waitForStorageOperations();
-    await storage.clear();
-    failedStorageDeleteScopes.clear();
-    storageClearRequired = false;
-  })().finally(() => {
-    if (
-      storageClearInFlight === clear &&
-      storageClearGeneration === generation
-    ) {
-      storageClearInFlight = undefined;
-    }
-  });
-  storageClearInFlight = clear;
-  await clear;
+  const clear = beginStorageClear();
+  await waitForCleanup(
+    clear,
+    "Cached action results could not be cleared in time; cleanup remains required.",
+  );
 }
 
 /**
@@ -755,6 +807,7 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
     });
     return () => {
       current = false;
+      bindAttemptGeneration += 1;
       closeBinding();
     };
   }, [bindAttempt, queryClient, scope, terminalUnauthenticated]);
