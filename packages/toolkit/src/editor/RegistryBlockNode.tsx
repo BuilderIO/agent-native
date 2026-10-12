@@ -298,6 +298,22 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
   );
 }
 
+export function RegistryBlockLoadErrorView({
+  message,
+  rawSource,
+}: {
+  message: string;
+  rawSource?: string;
+}) {
+  return (
+    <BlockRenderErrorFallback
+      message={message}
+      rawSource={rawSource}
+      interactive
+    />
+  );
+}
+
 export function LegacyJsonEditSurface({
   block,
   blockType,
