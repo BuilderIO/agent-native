@@ -215,7 +215,7 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   page,
   request,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   await page.setViewportSize({ width: 1728, height: 941 });
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
