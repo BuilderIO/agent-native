@@ -1273,66 +1273,97 @@ test.describe("auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("text, shape, image, and component children all flow-insert into the same container", async ({
+  const assertFlowInsertCell = async (
+    page: Page,
+    request: APIRequestContext,
+    cell: { source: string; tag: string },
+  ) => {
+    test.setTimeout(150_000);
+    const design = await createDesign(request);
+    try {
+      await gotoEditor(page, design.id);
+      const result = await dragHeld(
+        page,
+        design.primaryId,
+        cell.source,
+        "mixed-target",
+      );
+      expect(result.during.display).toBe("block");
+      await expect
+        .poll(() => parentId(page, design.primaryId, cell.source))
+        .toBe("mixed-target");
+      const details = await designFrame(page, design.primaryId)
+        .locator(`[data-agent-native-node-id="${cell.source}"]`)
+        .evaluate((node) => ({
+          tag: node.tagName,
+          position: getComputedStyle(node).position,
+          component: node.getAttribute("data-agent-native-component"),
+          image:
+            node instanceof HTMLImageElement
+              ? {
+                  complete: node.complete,
+                  naturalWidth: node.naturalWidth,
+                  naturalHeight: node.naturalHeight,
+                }
+              : null,
+        }));
+      expect(details.tag).toBe(cell.tag);
+      expect(details.position).not.toBe("absolute");
+      if (cell.source === "free-component")
+        expect(details.component).toBe("Card");
+      if (cell.source === "free-image")
+        expect(details.image).toEqual({
+          complete: true,
+          naturalWidth: 80,
+          naturalHeight: 48,
+        });
+      await settleReload(page, design.primaryId);
+      await expect
+        .poll(() => parentId(page, design.primaryId, cell.source))
+        .toBe("mixed-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  };
+
+  test("free text children flow-insert into the same container", async ({
     page,
     request,
   }) => {
-    test.setTimeout(150_000);
-    const cells = [
-      { source: "free-text", name: "Free text", tag: "P" },
-      { source: "free-shape", name: "Free shape", tag: "DIV" },
-      { source: "free-image", name: "Free image", tag: "IMG" },
-      { source: "free-component", name: "Free component", tag: "BUTTON" },
-    ];
-    for (const cell of cells) {
-      await test.step(cell.name, async () => {
-        const design = await createDesign(request);
-        try {
-          await gotoEditor(page, design.id);
-          const result = await dragHeld(
-            page,
-            design.primaryId,
-            cell.source,
-            "mixed-target",
-          );
-          expect(result.during.display).toBe("block");
-          await expect
-            .poll(() => parentId(page, design.primaryId, cell.source))
-            .toBe("mixed-target");
-          const details = await designFrame(page, design.primaryId)
-            .locator(`[data-agent-native-node-id="${cell.source}"]`)
-            .evaluate((node) => ({
-              tag: node.tagName,
-              position: getComputedStyle(node).position,
-              component: node.getAttribute("data-agent-native-component"),
-              image:
-                node instanceof HTMLImageElement
-                  ? {
-                      complete: node.complete,
-                      naturalWidth: node.naturalWidth,
-                      naturalHeight: node.naturalHeight,
-                    }
-                  : null,
-            }));
-          expect(details.tag).toBe(cell.tag);
-          expect(details.position).not.toBe("absolute");
-          if (cell.source === "free-component")
-            expect(details.component).toBe("Card");
-          if (cell.source === "free-image")
-            expect(details.image).toEqual({
-              complete: true,
-              naturalWidth: 80,
-              naturalHeight: 48,
-            });
-          await settleReload(page, design.primaryId);
-          await expect
-            .poll(() => parentId(page, design.primaryId, cell.source))
-            .toBe("mixed-target");
-        } finally {
-          await deleteDesign(request, design.id);
-        }
-      });
-    }
+    await assertFlowInsertCell(page, request, {
+      source: "free-text",
+      tag: "P",
+    });
+  });
+
+  test("free shape children flow-insert into the same container", async ({
+    page,
+    request,
+  }) => {
+    await assertFlowInsertCell(page, request, {
+      source: "free-shape",
+      tag: "DIV",
+    });
+  });
+
+  test("free image children flow-insert into the same container", async ({
+    page,
+    request,
+  }) => {
+    await assertFlowInsertCell(page, request, {
+      source: "free-image",
+      tag: "IMG",
+    });
+  });
+
+  test("free component children flow-insert into the same container", async ({
+    page,
+    request,
+  }) => {
+    await assertFlowInsertCell(page, request, {
+      source: "free-component",
+      tag: "BUTTON",
+    });
   });
 
   test("cross-container flow preview keeps the source in the held Layers tree", async ({

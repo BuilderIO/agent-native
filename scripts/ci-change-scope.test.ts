@@ -781,8 +781,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const aiSidebarLoopback = step("Run AI sidebar loopback image regressions");
   const musicAppWorkflow = step("Run long music-app workflow regression");
   const musicAppDiagnostics = step("Upload music-app workflow diagnostics");
+  const broadRetryDiagnostics = step("Detect retried Design test failures");
+  const broadWorkflowArtifacts = step("Upload Design E2E artifacts");
+  const landingPageWorkflow = step(
+    "Run landing-page build workflow regression",
+  );
   const homeSystemSelection = step(
     "Run Home design-system selection regressions",
+  );
+  const verticalAutoLayoutWorkflow = step(
+    "Run vertical auto-layout held-guide regression",
   );
   const changedSpecRegressions = step("Run changed Design E2E specs");
   const screenSelectionRegressions = step(
@@ -800,9 +808,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      "--grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'",
+      "--grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$|vertical center and trailing insertion keep held guides and exact reload geometry$'",
     ),
-    "the long music-app workflow must run only in its dedicated interaction shard",
+    "the long music-app and vertical auto-layout tests must run only in dedicated lanes",
   );
   assert.match(
     musicAppWorkflow,
@@ -847,6 +855,52 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "the failure artifact must retain the dedicated Playwright trace output",
   );
+  assert.match(
+    landingPageWorkflow,
+    /^        if: \$\{\{ matrix\.shard == 'landing-page-build' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/interaction-landing-page-build\.spec\.ts'\) \}\}$/m,
+    "the landing-page workflow must use an exact changed-spec selector gate",
+  );
+  assert.match(
+    landingPageWorkflow,
+    /^        timeout-minutes: 23$/m,
+    "the complete landing-page workflow needs a bounded dedicated step",
+  );
+  assert.ok(
+    landingPageWorkflow.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+    ) &&
+      landingPageWorkflow.includes('DESIGN_CANVAS_LANDING_PAGE_WORKFLOW: "1"'),
+    "the landing-page workflow must resolve the same exact changed-path selector",
+  );
+  assert.ok(
+    landingPageWorkflow.includes(
+      "landing_page_spec='e2e/interaction-landing-page-build.spec.ts'",
+    ) &&
+      landingPageWorkflow.includes(
+        'if [[ ! -f "$landing_page_spec" ]]; then',
+      ) &&
+      landingPageWorkflow.includes(
+        'printf \'%s\\n\' "${existing_changed_specs[@]}" | grep -Fqx "$landing_page_spec"',
+      ),
+    "the landing-page lane must preflight that the selected full-file spec exists and resolves",
+  );
+  assert.ok(
+    landingPageWorkflow.includes(
+      'pnpm exec playwright test "$landing_page_spec" --workers=1 --retries=0 --trace on',
+    ) && !landingPageWorkflow.includes("--grep"),
+    "the dedicated lane must run the complete serial file once with traces",
+  );
+  assert.match(
+    broadWorkflowArtifacts,
+    /^        if: \$\{\{ always\(\) && matrix\.shard != 'music-app-workflow' && \(failure\(\) \|\| cancelled\(\) \|\| steps\.retry-artifacts\.outputs\.found == 'true'\) \}\}$/m,
+    "the broad workflow artifacts must upload on failure, cancellation, or a retried test",
+  );
+  assert.ok(
+    broadWorkflowArtifacts.includes(
+      "templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**",
+    ),
+    "the landing-page matrix cell must retain its Design E2E traces and results",
+  );
   assert.equal(
     homeSystemSelection.match(/^        if: (.+)$/m)?.[1],
     "matrix.shard == 'home-system-selection'",
@@ -868,24 +922,61 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     homeSystemSelection.includes(
-      "pnpm exec playwright test e2e/templates.spec.ts --grep 'home composer persists a (selected|cleared) design system on a blank design' --workers=1 --retries=0 --trace on",
+      "pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on",
     ),
-    "the Home lane must run only the selected/cleared system cases serially with traces",
+    "the Home lane must run the dedicated Home project serially with traces",
   );
-  const homeSystemSpec = readFileSync(
-    "templates/design/e2e/templates.spec.ts",
-    "utf8",
+  assert.doesNotMatch(
+    homeSystemSelection,
+    /vertical auto-layout|autolayout-drag/,
+    "Home selection must not carry the slow auto-layout regression",
   );
-  for (const title of [
-    "home composer persists a selected design system on a blank design",
-    "home composer persists a cleared design system on a blank design",
-  ]) {
-    assert.equal(
-      homeSystemSpec.split(title).length - 1,
-      1,
-      `Home system-selection case must exist exactly once: ${title}`,
-    );
-  }
+  assert.match(
+    verticalAutoLayoutWorkflow,
+    /^        if: \$\{\{ matrix\.shard == 'autolayout-vertical-center-trailing' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/autolayout-drag-drop-matrix\.spec\.ts'\) \}\}$/m,
+    "the vertical auto-layout test must run only when its exact changed spec is selected",
+  );
+  assert.match(
+    verticalAutoLayoutWorkflow,
+    /^        timeout-minutes: 7$/m,
+    "the vertical auto-layout test must retain the seven-minute diagnostic cap",
+  );
+  assert.ok(
+    verticalAutoLayoutWorkflow.includes(
+      "vertical_test='vertical center and trailing insertion keep held guides and exact reload geometry'",
+    ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'if [[ ! -f "$vertical_spec" ]]; then',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'printf \'%s\\n\' "${existing_changed_specs[@]}" | grep -Fqx "$vertical_spec"',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'if [[ "$matching_tests" != "1" ]]; then',
+      ) &&
+      verticalAutoLayoutWorkflow.includes(
+        'pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --workers=1 --trace on',
+      ),
+    "the dedicated lane must fail closed on a missing or duplicate title and run only that test",
+  );
+  assert.ok(
+    verticalAutoLayoutWorkflow.includes(
+      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    ),
+    "the dedicated vertical auto-layout lane must keep its artifacts and database isolated",
+  );
+  assert.ok(
+    broadRetryDiagnostics.includes(
+      "test-results/$run_id/retry-failure.marker",
+    ) &&
+      broadWorkflowArtifacts.includes(
+        "templates/design/test-results/design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/**",
+      ),
+    "the dedicated lane must use the standard matrix run ID for retry detection and artifacts",
+  );
   assert.match(
     screenSelectionRegressions,
     /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
@@ -1053,8 +1144,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     broadJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| 20 \}\}$/m,
-    "the broad job must preserve its 20-minute AI and 25-minute Music caps",
+    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 25 \|\| matrix\.shard == 'autolayout-vertical-center-trailing' && 9 \|\| 20 \}\}$/m,
+    "the broad job must give the auto-layout lane nine minutes and preserve other caps",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -1114,11 +1205,16 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   ]);
   const broadMatrix = broadJob.match(/shard:\s*\[([^\]]+)\]/)?.[1];
   assert.ok(broadMatrix, "broad workflow matrix must declare its shard list");
-  const broadShardEntries = broadMatrix.split(",").map((shard) => shard.trim());
+  const broadShardEntries = broadMatrix
+    .split(",")
+    .map((shard) => shard.trim())
+    .filter(Boolean);
   assert.deepEqual(broadShardEntries, [
     "ai-sidebar-loopback",
     "music-app-workflow",
     "home-system-selection",
+    "autolayout-vertical-center-trailing",
+    "landing-page-build",
   ]);
   assert.doesNotMatch(
     regressionCases,
@@ -1847,8 +1943,35 @@ test("a non-empty selector with only deleted specs resolves to a no-op", () => {
     {
       existingSpecs: [],
       removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
+      filteredSpecs: [],
     },
   );
+});
+
+test("filters loopback-only Home specs from default changed-spec selection", () => {
+  const home = "templates/design/e2e/home-system-selection.spec.ts";
+  const regular = "templates/design/e2e/interaction-selection.spec.ts";
+  const selector = JSON.stringify([home, regular]);
+  const resolve = (includeLoopbackOnlySpecs: boolean) =>
+    resolveDesignE2ESpecs(selector, {
+      isFile: () => true,
+      readFile: () => "",
+      includeLoopbackOnlySpecs,
+    });
+
+  assert.deepEqual(resolve(false), {
+    existingSpecs: ["e2e/interaction-selection.spec.ts"],
+    removedSpecs: [],
+    filteredSpecs: ["e2e/home-system-selection.spec.ts"],
+  });
+  assert.deepEqual(resolve(true), {
+    existingSpecs: [
+      "e2e/home-system-selection.spec.ts",
+      "e2e/interaction-selection.spec.ts",
+    ],
+    removedSpecs: [],
+    filteredSpecs: [],
+  });
 });
 
 test("keeps runnable specs while excluding deleted paths from the same selector", () => {
@@ -1877,7 +2000,111 @@ test("keeps runnable specs while excluding deleted paths from the same selector"
         "e2e/interaction-support.spec.tsx",
       ],
       removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
+      filteredSpecs: [],
     },
+  );
+});
+
+test("routes the serial landing-page workflow from its exact changed spec path", () => {
+  const landingPagePath =
+    "templates/design/e2e/interaction-landing-page-build.spec.ts";
+  const landingPageTitles = [
+    "step 1: Screen tool draws the root Landing Page frame at 1440x1024 with the default top-level frame fill and clip",
+    "the secondary button is built and both hero buttons are grouped in HeroCTAGroup",
+    "final structure: mobile screen layer tree (names + order + nesting) matches the adapted design",
+  ];
+  const landingPageSource = landingPageTitles
+    .map((title) => "test(" + JSON.stringify(title) + ", async () => {});")
+    .join("\n");
+  const changedPathScope = classifyChangedPaths([landingPagePath]);
+  assert.deepEqual(changedPathScope.designCanvasE2eSpecs, [landingPagePath]);
+  assert.equal(changedPathScope.checks.design_canvas_broad_workflows, true);
+
+  const isLandingPageSpec = (specPath: string) =>
+    specPath === "e2e/interaction-landing-page-build.spec.ts";
+  const genericSelection = resolveDesignE2ESpecs(
+    JSON.stringify([landingPagePath]),
+    {
+      isFile: isLandingPageSpec,
+      readFile: () => landingPageSource,
+      includeLandingPageWorkflowSpec: false,
+    },
+  );
+  assert.deepEqual(genericSelection, {
+    existingSpecs: [],
+    removedSpecs: [],
+    filteredSpecs: ["e2e/interaction-landing-page-build.spec.ts"],
+  });
+  assert.deepEqual(
+    resolveDesignE2ESpecs(
+      JSON.stringify([
+        landingPagePath,
+        "templates/design/e2e/interaction-selection.spec.ts",
+      ]),
+      {
+        isFile: (specPath) =>
+          specPath === "e2e/interaction-landing-page-build.spec.ts" ||
+          specPath === "e2e/interaction-selection.spec.ts",
+        readFile: (specPath) =>
+          specPath === "e2e/interaction-landing-page-build.spec.ts"
+            ? landingPageSource
+            : "",
+        includeLandingPageWorkflowSpec: false,
+      },
+    ),
+    {
+      existingSpecs: ["e2e/interaction-selection.spec.ts"],
+      removedSpecs: [],
+      filteredSpecs: ["e2e/interaction-landing-page-build.spec.ts"],
+    },
+    "filtering the serial suite must leave unrelated changed specs in the generic shards",
+  );
+
+  const dedicatedSelection = resolveDesignE2ESpecs(
+    JSON.stringify([landingPagePath]),
+    {
+      isFile: isLandingPageSpec,
+      readFile: () => landingPageSource,
+      includeLandingPageWorkflowSpec: true,
+    },
+  );
+  assert.deepEqual(dedicatedSelection, {
+    existingSpecs: ["e2e/interaction-landing-page-build.spec.ts"],
+    removedSpecs: [],
+    filteredSpecs: [],
+  });
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([landingPagePath]), {
+        isFile: () => false,
+      }),
+    /selected landing-page workflow spec is missing/,
+  );
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(
+        JSON.stringify([
+          "templates/design/e2e/interaction-landing-page-build-renamed.spec.ts",
+        ]),
+        { isFile: () => true, readFile: () => landingPageSource },
+      ),
+    /long landing-page workflow tests must remain in e2e\/interaction-landing-page-build\.spec\.ts/,
+  );
+
+  const incompleteSource = landingPageSource.replace(
+    "test(" + JSON.stringify(landingPageTitles[2]) + ", async () => {});",
+    "",
+  );
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([landingPagePath]), {
+        isFile: isLandingPageSpec,
+        readFile: () => incompleteSource,
+        includeLandingPageWorkflowSpec: true,
+      }),
+    /long landing-page workflow tests are missing from e2e\/interaction-landing-page-build\.spec\.ts: final structure: mobile screen layer tree \(names \+ order \+ nesting\) matches the adapted design/,
   );
 });
 
@@ -1902,6 +2129,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
   assert.deepEqual(selectedMusicApp, {
     existingSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
     removedSpecs: [],
+    filteredSpecs: [],
   });
 
   const unrelatedSelection = resolveDesignE2ESpecs(
@@ -1911,6 +2139,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
   assert.deepEqual(unrelatedSelection, {
     existingSpecs: ["e2e/interaction-selection.spec.ts"],
     removedSpecs: [],
+    filteredSpecs: [],
   });
   assert.ok(
     !unrelatedSelection.existingSpecs.includes(
@@ -1947,6 +2176,7 @@ test("fails closed if the long music-app title moves away from its routed spec",
     {
       existingSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
       removedSpecs: [],
+      filteredSpecs: [],
     },
     "the selector must keep the canonical spec selected so its short cases remain in changed-spec coverage",
   );

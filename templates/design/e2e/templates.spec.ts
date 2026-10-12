@@ -127,51 +127,6 @@ function watchBrowserErrors(page: Page) {
   return { consoleErrors, pageErrors, failedResponses, failedRequests };
 }
 
-async function openHomeDesignSystemPicker(page: Page) {
-  await page
-    .locator("[data-design-home-composer]")
-    .getByRole("button", { name: "Add context", exact: true })
-    .click();
-  const addContext = page.getByRole("menuitem", {
-    name: "Add context",
-    exact: true,
-  });
-  await expect(addContext).toBeVisible();
-  await addContext.press("ArrowRight");
-  const design = page.getByRole("menuitem", { name: "Design", exact: true });
-  await expect(design).toBeVisible();
-  await design.press("ArrowRight");
-  const useDesignSystem = page.getByRole("menuitem", {
-    name: "Use a design system",
-    exact: true,
-  });
-  await expect(useDesignSystem).toBeVisible({ timeout: 30_000 });
-  await useDesignSystem.click();
-
-  const dialog = page.getByRole("dialog", {
-    name: "Use a design system",
-    exact: true,
-  });
-  await expect(dialog).toBeVisible();
-  return dialog;
-}
-
-async function configureHomeComposerLoopback(page: Page) {
-  await page.context().addInitScript(() => {
-    if (location.origin === "null") return;
-    const selection = JSON.stringify({
-      model: "agentkit-loopback",
-      engine: "ai-sdk:openai",
-      effort: "medium",
-    });
-    localStorage.setItem(
-      "agent-native:chat-models:selection:design",
-      selection,
-    );
-    localStorage.setItem("agent-native:chat-models:selection", selection);
-  });
-}
-
 test("built-in template preserves its dimensions and locks and can be saved again", async ({
   page,
   request,
@@ -243,11 +198,40 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       copiedScreen.content.match(/data-agent-native-locked="true"/g),
     ).toHaveLength(2);
 
-    const savedTemplate = await postAction(request, "save-design-as-template", {
+    await page.getByRole("button", { name: "More", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Save as template…", exact: true })
+      .click();
+
+    const saveDialog = page.getByRole("dialog", {
+      name: "Save as template…",
+      exact: true,
+    });
+    await saveDialog
+      .getByRole("textbox", { name: "Template name" })
+      .fill(savedTitle);
+    await saveDialog.getByRole("combobox").click();
+    await page.getByRole("option", { name: "Social", exact: true }).click();
+
+    const saveTemplateResponse = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .endsWith("/_agent-native/actions/save-design-as-template") &&
+        response.request().method() === "POST",
+    );
+    await saveDialog
+      .getByRole("button", { name: "Save template", exact: true })
+      .click();
+    const saveTemplateResponseResult = await saveTemplateResponse;
+    expect(saveTemplateResponseResult.ok()).toBe(true);
+    expect(saveTemplateResponseResult.request().postDataJSON()).toMatchObject({
       designId: createdDesignId,
       title: savedTitle,
       category: "social",
     });
+
+    const savedTemplate = await saveTemplateResponseResult.json();
     savedTemplateId = savedTemplate.id ?? savedTemplate.data?.id;
     expect(savedTemplateId).toBeTruthy();
     expect(savedTemplate).toMatchObject({
@@ -257,10 +241,58 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     });
     expect(savedTemplate.fileCount).toBeGreaterThanOrEqual(1);
 
-    await page.goto(
-      appPath(`/templates?search=${encodeURIComponent(savedTitle)}`),
-      { waitUntil: "domcontentloaded" },
+    const persistedDesign = await getAction(request, "get-design", {
+      id: createdDesignId!,
+    });
+    const persistedScreen = persistedDesign.files.find(
+      (file: { filename?: string }) => file.filename === "event-story.html",
     );
+    expect(persistedScreen).toBeTruthy();
+    expect(persistedScreen.content).toContain(
+      'data-agent-native-layer-name="Background"',
+    );
+    expect(persistedScreen.content).toContain(
+      'data-agent-native-layer-name="Logo"',
+    );
+    expect(
+      persistedScreen.content.match(/data-agent-native-locked="true"/g),
+    ).toHaveLength(2);
+
+    const persistedTemplate = await getAction(request, "get-design-template", {
+      templateId: savedTemplateId!,
+    });
+    expect(persistedTemplate).toMatchObject({
+      templateId: savedTemplateId,
+      title: savedTitle,
+      category: "social",
+      fileCount: savedTemplate.fileCount,
+    });
+    const persistedTemplateScreen = persistedTemplate.files.find(
+      (file: { filename?: string }) => file.filename === "event-story.html",
+    );
+    expect(persistedTemplateScreen).toMatchObject({
+      width: 1080,
+      height: 1920,
+    });
+    expect(persistedTemplateScreen.lockedLayers).toHaveLength(2);
+
+    await page.goto(appPath(`/templates?templateId=${savedTemplateId}`), {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("load");
+    await expect(page).toHaveURL(/\/templates\?templateId=/);
+    const selectedTemplatePreview = page.getByRole("dialog", {
+      name: savedTitle,
+      exact: true,
+    });
+    await expect(selectedTemplatePreview).toBeVisible({ timeout: 15_000 });
+    await expect(selectedTemplatePreview).toContainText(savedTitle);
+    await page.keyboard.press("Escape");
+    await expect(selectedTemplatePreview).toBeHidden({ timeout: 15_000 });
+    await expect(page).not.toHaveURL(/(?:\?|&)templateId=/);
+    await page
+      .getByRole("textbox", { name: "Search templates...", exact: true })
+      .fill(savedTitle);
     await expect(
       page.getByRole("button", { name: savedTitle, exact: true }),
     ).toBeVisible();
@@ -336,189 +368,6 @@ test("home Templates tab opens a built-in template design", async ({
         () => {},
       );
     }
-  }
-});
-
-test("home composer persists a selected design system on a blank design", async ({
-  page,
-  request,
-}) => {
-  test.skip(
-    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
-    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
-  );
-  test.setTimeout(120_000);
-  await configureHomeComposerLoopback(page);
-  let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
-  let designSystemId: string | undefined;
-  let designId: string | undefined;
-  const systemTitle = `E2E selected home system ${Date.now()}`;
-
-  try {
-    restoreDesignSystemWorkflows =
-      await enableDesignSystemWorkflowsAndRestore(page);
-    const system = await postAction(request, "create-design-system", {
-      templateId: "material-3",
-      title: systemTitle,
-    });
-    designSystemId = system.id ?? system.data?.id;
-    expect(designSystemId).toBeTruthy();
-
-    await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
-    await page.waitForLoadState("load");
-    await expect(
-      page.getByRole("button", { name: "Skip prompt", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    const picker = await openHomeDesignSystemPicker(page);
-    await picker.getByRole("radio", { name: systemTitle, exact: true }).click();
-    await expect(picker).toBeHidden();
-
-    const createResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith("/_agent-native/actions/create-design") &&
-        response.request().method() === "POST",
-    );
-    await page
-      .getByRole("button", { name: "Skip prompt", exact: true })
-      .click();
-    const response = await createResponse;
-    expect(response.ok()).toBe(true);
-    expect(response.request().postDataJSON()).toHaveProperty(
-      "designSystemId",
-      designSystemId,
-    );
-
-    const created = await response.json();
-    designId = created.id ?? created.data?.id ?? created.design?.id;
-    expect(designId).toBeTruthy();
-    const editorUrl = new RegExp(`/design/${designId}(?:[?#].*)?$`);
-    await expect(page).toHaveURL(editorUrl, { timeout: 30_000 });
-    await expect(
-      page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    expect(
-      (await getAction(request, "get-design", { id: designId! }))
-        .designSystemId,
-    ).toBe(designSystemId);
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(editorUrl);
-    await expect(
-      page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-    expect(
-      (await getAction(request, "get-design", { id: designId! }))
-        .designSystemId,
-    ).toBe(designSystemId);
-  } finally {
-    if (designId) {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
-    if (designSystemId) {
-      await postAction(request, "delete-design-system", {
-        id: designSystemId,
-      }).catch(() => {});
-    }
-    await restoreDesignSystemWorkflows?.();
-  }
-});
-
-test("home composer persists a cleared design system on a blank design", async ({
-  page,
-  request,
-}) => {
-  test.skip(
-    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
-    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
-  );
-  test.setTimeout(120_000);
-  await configureHomeComposerLoopback(page);
-  let restoreDesignSystemWorkflows: (() => Promise<void>) | undefined;
-  let designSystemId: string | undefined;
-  let designId: string | undefined;
-  const systemTitle = `E2E cleared home system ${Date.now()}`;
-
-  try {
-    restoreDesignSystemWorkflows =
-      await enableDesignSystemWorkflowsAndRestore(page);
-    const system = await postAction(request, "create-design-system", {
-      templateId: "material-3",
-      title: systemTitle,
-    });
-    designSystemId = system.id ?? system.data?.id;
-    expect(designSystemId).toBeTruthy();
-
-    await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
-    await page.waitForLoadState("load");
-    await expect(
-      page.getByRole("button", { name: "Skip prompt", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    let picker = await openHomeDesignSystemPicker(page);
-    await picker.getByRole("radio", { name: systemTitle, exact: true }).click();
-    await expect(picker).toBeHidden();
-
-    picker = await openHomeDesignSystemPicker(page);
-    await expect(
-      picker.getByRole("button", { name: "None", exact: true }),
-    ).toBeVisible();
-    await picker.getByRole("button", { name: "None", exact: true }).click();
-    await expect(picker).toBeHidden();
-
-    const createResponse = page.waitForResponse(
-      (response) =>
-        response.url().endsWith("/_agent-native/actions/create-design") &&
-        response.request().method() === "POST",
-    );
-    await page
-      .getByRole("button", { name: "Skip prompt", exact: true })
-      .click();
-    const response = await createResponse;
-    expect(response.ok()).toBe(true);
-    expect(response.request().postDataJSON()).toHaveProperty(
-      "designSystemId",
-      null,
-    );
-
-    const created = await response.json();
-    designId = created.id ?? created.data?.id ?? created.design?.id;
-    expect(designId).toBeTruthy();
-    const editorUrl = new RegExp(`/design/${designId}(?:[?#].*)?$`);
-    await expect(page).toHaveURL(editorUrl, { timeout: 30_000 });
-    await expect(
-      page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-
-    expect(
-      (await getAction(request, "get-design", { id: designId! }))
-        .designSystemId ?? null,
-    ).toBeNull();
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(editorUrl);
-    await expect(
-      page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
-    expect(
-      (await getAction(request, "get-design", { id: designId! }))
-        .designSystemId ?? null,
-    ).toBeNull();
-  } finally {
-    if (designId) {
-      await postAction(request, "delete-design", { id: designId }).catch(
-        () => {},
-      );
-    }
-    if (designSystemId) {
-      await postAction(request, "delete-design-system", {
-        id: designSystemId,
-      }).catch(() => {});
-    }
-    await restoreDesignSystemWorkflows?.();
   }
 });
 

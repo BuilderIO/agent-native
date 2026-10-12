@@ -1280,6 +1280,35 @@ describe("PromptPopover draft isolation", () => {
     );
     expect(composer?.getAttribute("data-draft-scope")).toBe("New design:none");
   });
+
+  it("keeps the inline composer disabled until its organization draft scope settles", async () => {
+    mockOrgPending.current = true;
+    mockActiveOrg.current = undefined;
+    await renderPopover({ title: "New design", inline: true });
+    expect(mockComposer.current?.disabled).toBe(true);
+
+    mockOrgPending.current = false;
+    mockActiveOrg.current = { orgId: "org-a" };
+    await act(async () => {
+      root!.render(
+        <PromptPopover
+          open
+          inline
+          onOpenChange={() => {}}
+          title="New design"
+          onSubmit={() => {}}
+        />,
+      );
+    });
+    expect(mockComposer.current?.disabled).toBe(false);
+    expect(mockComposer.current?.draftScope).toBe("New design:org-a");
+  });
+
+  it("does not block an anonymous inline composer on the organization query", async () => {
+    mockOrgPending.current = true;
+    await renderPopover({ inline: true, scopeDraftsToOrg: false });
+    expect(mockComposer.current?.disabled).toBe(false);
+  });
 });
 
 describe("PromptPopover submit failure recovery", () => {

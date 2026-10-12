@@ -695,7 +695,12 @@ export default function PromptPopover({
       attachmentAdapter={attachmentAdapter}
       inlineTextAttachments={false}
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-      disabled={disabled || loading || submitting}
+      disabled={
+        disabled ||
+        loading ||
+        submitting ||
+        (inline && scopeDraftsToOrg && orgPending)
+      }
       submissionDisabled={submissionDisabled}
       submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}

@@ -69,6 +69,15 @@ type ActionBatchRequestEntry = {
 };
 
 type ActionRequest = Pick<Request, "url" | "method" | "postDataJSON">;
+type VisualEditSnapshotRequestEntry = {
+  fileId: string;
+  batchIndex: number | null;
+};
+type VisualEditSnapshotResponseEntry = {
+  fileId: string;
+  status: number;
+  body: unknown;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -122,6 +131,81 @@ function actionBatchRequests(
     entries.push({ action: entry.action, query: entry.query });
   }
   return entries;
+}
+
+function visualEditSnapshotRequestEntries(
+  request: ActionRequest,
+): VisualEditSnapshotRequestEntry[] {
+  const url = new URL(request.url());
+  if (
+    request.method() === "GET" &&
+    url.pathname.endsWith("/get-visual-edit-snapshot")
+  ) {
+    const fileId = url.searchParams.get("fileId");
+    return fileId ? [{ fileId, batchIndex: null }] : [];
+  }
+
+  const batchRequests = actionBatchRequests(request);
+  if (!batchRequests) return [];
+  return batchRequests.flatMap((entry, batchIndex) => {
+    if (entry.action !== "get-visual-edit-snapshot") return [];
+    const fileId = new URLSearchParams(entry.query).get("fileId");
+    return fileId ? [{ fileId, batchIndex }] : [];
+  });
+}
+
+function visualEditSnapshotResponseEntries(
+  request: ActionRequest,
+  status: number,
+  payload: unknown,
+): VisualEditSnapshotResponseEntry[] {
+  const requests = visualEditSnapshotRequestEntries(request);
+  if (requests.length === 0) return [];
+  if (requests[0]?.batchIndex === null) {
+    const directRequest = requests[0];
+    return directRequest
+      ? [{ fileId: directRequest.fileId, status, body: payload }]
+      : [];
+  }
+  if (status < 200 || status >= 300 || !isRecord(payload)) return [];
+  const results = payload.results;
+  if (!Array.isArray(results)) return [];
+
+  return requests.flatMap((requestEntry) => {
+    if (requestEntry.batchIndex === null) return [];
+    const result: unknown = results[requestEntry.batchIndex];
+    if (!isRecord(result) || typeof result.status !== "number") return [];
+    return [
+      {
+        fileId: requestEntry.fileId,
+        status: result.status,
+        body: result.body,
+      },
+    ];
+  });
+}
+
+function fullVisualEditSnapshotHtml(
+  response: VisualEditSnapshotResponseEntry,
+): string | null {
+  if (
+    response.status < 200 ||
+    response.status >= 300 ||
+    !isRecord(response.body) ||
+    response.body.fileId !== response.fileId ||
+    typeof response.body.html !== "string"
+  ) {
+    return null;
+  }
+  return response.body.html;
+}
+
+function rememberFullVisualEditSnapshotHtml(
+  snapshots: Map<string, string>,
+  response: VisualEditSnapshotResponseEntry,
+): void {
+  const html = fullVisualEditSnapshotHtml(response);
+  if (html !== null) snapshots.set(response.fileId, html);
 }
 
 function actionBatchIncludesAction(
@@ -252,6 +336,74 @@ test("public action request observer distinguishes read-only batches", () => {
       "refresh-localhost-preview-token",
     ),
   ).toBe(true);
+});
+
+test("visual-edit snapshot observer reads direct and batched responses", () => {
+  const directRequest = fakeActionRequest({
+    path: "/_agent-native/actions/get-visual-edit-snapshot?designId=design-1&fileId=file-1",
+    method: "GET",
+  });
+  expect(visualEditSnapshotRequestEntries(directRequest)).toEqual([
+    { fileId: "file-1", batchIndex: null },
+  ]);
+  const directResponse = visualEditSnapshotResponseEntries(directRequest, 200, {
+    fileId: "file-1",
+    html: "<h1>Local visual edit</h1>",
+    unchanged: false,
+  });
+  expect(fullVisualEditSnapshotHtml(directResponse[0]!)).toBe(
+    "<h1>Local visual edit</h1>",
+  );
+
+  const batchRequest = fakeActionRequest({
+    path: ACTION_BATCH_PATH_SUFFIX,
+    method: "POST",
+    payload: {
+      requests: [
+        { action: "get-design", query: "designId=design-1" },
+        {
+          action: "get-visual-edit-snapshot",
+          query: "designId=design-1&fileId=file-1",
+        },
+        {
+          action: "get-visual-edit-snapshot",
+          query: "designId=design-1&fileId=file-2",
+        },
+      ],
+    },
+  });
+  const batchResponses = visualEditSnapshotResponseEntries(batchRequest, 200, {
+    results: [
+      { status: 200, body: { id: "design-1" } },
+      {
+        status: 200,
+        body: {
+          fileId: "file-1",
+          html: "<h1>Local visual edit</h1>",
+          unchanged: false,
+        },
+      },
+      {
+        status: 200,
+        body: { fileId: "file-2", html: null, unchanged: true },
+      },
+    ],
+  });
+  expect(batchResponses.map(({ fileId }) => fileId)).toEqual([
+    "file-1",
+    "file-2",
+  ]);
+  expect(fullVisualEditSnapshotHtml(batchResponses[0]!)).toBe(
+    "<h1>Local visual edit</h1>",
+  );
+  expect(fullVisualEditSnapshotHtml(batchResponses[1]!)).toBeNull();
+  const snapshotHtmlByFile = new Map([
+    ["file-2", "<h1>Previously hydrated</h1>"],
+  ]);
+  for (const response of batchResponses) {
+    rememberFullVisualEditSnapshotHtml(snapshotHtmlByFile, response);
+  }
+  expect(snapshotHtmlByFile.get("file-2")).toBe("<h1>Previously hydrated</h1>");
 });
 
 function ownScreenFrame(page: Page) {
@@ -1354,17 +1506,14 @@ test.describe.serial("public visual edit", () => {
       appReturnPath(`/design/${collaborationDesignId}?intent=share`),
     );
 
-    const guestSnapshotReads: string[] = [];
+    const guestSnapshotHtmlByFile = new Map<string, string>();
     const guestSnapshotRequestCounts = new Map<string, number>();
     const guest = await openSignedOutPage(
       browser,
       `/visual-edit/${collaborationDesignId}?share=1&editorView=overview&screen=${encodeURIComponent(collaborationScreenId)}`,
       (guestPage) => {
         guestPage.on("request", (request) => {
-          const url = new URL(request.url());
-          if (!url.pathname.endsWith("/get-visual-edit-snapshot")) return;
-          const fileId = url.searchParams.get("fileId");
-          if (fileId) {
+          for (const { fileId } of visualEditSnapshotRequestEntries(request)) {
             guestSnapshotRequestCounts.set(
               fileId,
               (guestSnapshotRequestCounts.get(fileId) ?? 0) + 1,
@@ -1372,9 +1521,22 @@ test.describe.serial("public visual edit", () => {
           }
         });
         guestPage.on("response", async (response) => {
-          if (response.url().includes("/get-visual-edit-snapshot")) {
-            guestSnapshotReads.push(
-              `${response.status()}: ${await response.text()}`,
+          if (visualEditSnapshotRequestEntries(response.request()).length === 0)
+            return;
+          let payload: unknown;
+          try {
+            payload = await response.json();
+          } catch {
+            return;
+          }
+          for (const snapshotResponse of visualEditSnapshotResponseEntries(
+            response.request(),
+            response.status(),
+            payload,
+          )) {
+            rememberFullVisualEditSnapshotHtml(
+              guestSnapshotHtmlByFile,
+              snapshotResponse,
             );
           }
         });
@@ -1383,12 +1545,17 @@ test.describe.serial("public visual edit", () => {
     try {
       const guestFrame = designFrame(guest.page, collaborationScreenId);
       await expect
-        .poll(() => guestSnapshotReads, { timeout: 15_000 })
-        .toEqual(
-          expect.arrayContaining([
-            expect.stringContaining("Local visual edit"),
-          ]),
-        );
+        .poll(
+          () =>
+            [collaborationScreenId, collaborationSecondScreenId].map(
+              (fileId) =>
+                guestSnapshotHtmlByFile
+                  .get(fileId)
+                  ?.includes("Local visual edit") ?? false,
+            ),
+          { timeout: 15_000 },
+        )
+        .toEqual([true, true]);
       await expect(
         guestFrame.getByRole("heading", { name: "Local visual edit" }),
       ).toBeVisible({ timeout: 30_000 });
