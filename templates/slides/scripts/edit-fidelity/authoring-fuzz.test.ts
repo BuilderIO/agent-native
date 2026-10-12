@@ -6,6 +6,7 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  createRetiredBrowserSessionErrorCorrelator,
   authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
   authoringFuzzLineNavigationKeys,
@@ -1792,6 +1793,17 @@ it("correlates WebKit's retired browser-session claim error to the reload window
   ).toBe(false);
   expect(
     isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error.replace(`${origin}/_agent-native`, "http://[invalid/_agent-native"),
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
       error,
       "step 17",
       sessionId,
@@ -1867,6 +1879,92 @@ it("correlates WebKit's retired browser-session claim error to the reload window
       1_024,
     ),
   ).toBe(false);
+});
+
+it("pairs retired-session reload errors in either event order and retains late errors", () => {
+  const origin = "http://localhost:65362";
+  const sessionId = "4ffee127-e336-48bf-b3e8-e9ca9f5640e8";
+  const pageError = `Fetch API cannot load ${origin}/_agent-native/browser-sessions/${sessionId}/requests/claim due to access control checks.`;
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const makeCorrelator = () => {
+    const correlator = createRetiredBrowserSessionErrorCorrelator();
+    correlator.beginNavigation(sessionId, origin, 1_000);
+    return correlator;
+  };
+
+  const pageErrorFirst = makeCorrelator();
+  expect(pageErrorFirst.finishNavigation(1_010)).toBe(990);
+  expect(
+    pageErrorFirst.onPageError(pageError, "save/reload", 1_017, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pageErrorFirst.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_024,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pageErrorFirst.nextExpiryDelay(1_024)).toBe(null);
+  expect(pageErrorFirst.clear()).toEqual([]);
+
+  const pollWarningFirst = makeCorrelator();
+  expect(
+    pollWarningFirst.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(
+    pollWarningFirst.onPageError(pageError, "save/reload", 1_024, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningFirst.nextExpiryDelay(1_024)).toBe(null);
+
+  const newSessionWarning = makeCorrelator();
+  expect(
+    newSessionWarning.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      "new-session",
+      false,
+    ),
+  ).toEqual({ matched: false, errors: [] });
+  expect(
+    newSessionWarning.onPageError(pageError, "save/reload", 1_024, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(newSessionWarning.flushExpired(1_275)).toEqual([pageError]);
+
+  const pageErrorWithoutPoll = makeCorrelator();
+  expect(
+    pageErrorWithoutPoll.onPageError(pageError, "save/reload", 1_017, false),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pageErrorWithoutPoll.flushExpired(1_268)).toEqual([pageError]);
+
+  const pollWarningWithoutPageError = makeCorrelator();
+  expect(
+    pollWarningWithoutPageError.onPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      sessionId,
+      false,
+    ),
+  ).toEqual({ matched: true, errors: [] });
+  expect(pollWarningWithoutPageError.flushExpired(1_268)).toEqual([
+    pollWarning,
+  ]);
+
+  const latePageError = makeCorrelator();
+  latePageError.finishNavigation(1_010);
+  expect(
+    latePageError.onPageError(pageError, "save/reload", 2_000, false),
+  ).toEqual({ matched: false, errors: [] });
 });
 
 it("correlates a poll error to one successful claim that finished just before reload", () => {

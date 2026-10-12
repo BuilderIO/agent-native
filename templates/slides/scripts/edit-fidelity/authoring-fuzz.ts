@@ -549,17 +549,12 @@ export function isExpectedSaveReloadRetiredBrowserSessionCorsError(
     /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.$/.exec(
       message,
     );
-  if (!match) return false;
-
-  try {
-    const url = new URL(match[1]);
-    return (
-      url.origin === authoringPageOrigin &&
-      browserSessionClaimId(url.pathname) === sessionIdAtNavigation
-    );
-  } catch {
-    return false;
-  }
+  if (!match || !URL.canParse(match[1])) return false;
+  const url = new URL(match[1]);
+  return (
+    url.origin === authoringPageOrigin &&
+    browserSessionClaimId(url.pathname) === sessionIdAtNavigation
+  );
 }
 
 export function isExpectedSaveReloadRetiredBrowserSessionPollWarning(
@@ -576,6 +571,172 @@ export function isExpectedSaveReloadRetiredBrowserSessionPollWarning(
     now >= correlatedPageErrorAt &&
     now - correlatedPageErrorAt <= retiredBrowserSessionPollConsoleGraceMs
   );
+}
+
+type RetiredBrowserSessionErrorEventResult = {
+  matched: boolean;
+  errors: string[];
+};
+
+type RetiredBrowserSessionErrorCandidate = {
+  message: string;
+  at: number;
+  sessionId: string;
+};
+
+export function createRetiredBrowserSessionErrorCorrelator() {
+  let sessionIdAtNavigation: string | null = null;
+  let authoringPageOrigin: string | null = null;
+  let navigationStartedAt: number | null = null;
+  const pendingPageErrors: RetiredBrowserSessionErrorCandidate[] = [];
+  const pendingPollWarnings: RetiredBrowserSessionErrorCandidate[] = [];
+
+  const takeExpired = (now: number) => {
+    const errors: string[] = [];
+    for (const candidates of [pendingPageErrors, pendingPollWarnings]) {
+      for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        const candidate = candidates[index];
+        if (now - candidate.at <= retiredBrowserSessionPollConsoleGraceMs) {
+          continue;
+        }
+        errors.unshift(candidate.message);
+        candidates.splice(index, 1);
+      }
+    }
+    return errors;
+  };
+
+  return {
+    beginNavigation(
+      sessionId: string | null,
+      origin: string,
+      startedAt: number,
+    ) {
+      sessionIdAtNavigation = sessionId;
+      authoringPageOrigin = origin;
+      navigationStartedAt = startedAt;
+    },
+    finishNavigation(now: number) {
+      if (navigationStartedAt === null) return 0;
+      return Math.max(
+        0,
+        navigationStartedAt + reloadNavigationConsoleGraceMs - now,
+      );
+    },
+    onPageError(
+      message: string,
+      activePhase: string,
+      now: number,
+      competingClaimStartedAfterNavigation: boolean,
+    ): RetiredBrowserSessionErrorEventResult {
+      const errors = takeExpired(now);
+      if (
+        !authoringPageOrigin ||
+        !isExpectedSaveReloadRetiredBrowserSessionCorsError(
+          message,
+          activePhase,
+          sessionIdAtNavigation,
+          authoringPageOrigin,
+          navigationStartedAt,
+          now,
+          competingClaimStartedAfterNavigation,
+        ) ||
+        !sessionIdAtNavigation
+      ) {
+        return { matched: false, errors };
+      }
+
+      const pollWarningIndex = pendingPollWarnings.findIndex(
+        (candidate) =>
+          candidate.sessionId === sessionIdAtNavigation &&
+          isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+            "[Agent-Native browser session] poll failed: TypeError: Load failed",
+            activePhase,
+            candidate.at,
+            now,
+          ),
+      );
+      if (pollWarningIndex >= 0) {
+        pendingPollWarnings.splice(pollWarningIndex, 1);
+      } else {
+        pendingPageErrors.push({
+          message,
+          at: now,
+          sessionId: sessionIdAtNavigation,
+        });
+      }
+      return { matched: true, errors };
+    },
+    onPollWarning(
+      message: string,
+      activePhase: string,
+      now: number,
+      currentSessionId: string | null,
+      competingClaimStartedAfterNavigation: boolean,
+    ): RetiredBrowserSessionErrorEventResult {
+      const errors = takeExpired(now);
+      if (
+        message !==
+          "[Agent-Native browser session] poll failed: TypeError: Load failed" ||
+        activePhase !== "save/reload" ||
+        navigationStartedAt === null ||
+        now < navigationStartedAt ||
+        now - navigationStartedAt >= reloadNavigationConsoleGraceMs ||
+        !sessionIdAtNavigation ||
+        currentSessionId !== sessionIdAtNavigation ||
+        competingClaimStartedAfterNavigation
+      ) {
+        return { matched: false, errors };
+      }
+
+      const pageErrorIndex = pendingPageErrors.findIndex(
+        (candidate) =>
+          candidate.sessionId === sessionIdAtNavigation &&
+          isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+            message,
+            activePhase,
+            candidate.at,
+            now,
+          ),
+      );
+      if (pageErrorIndex >= 0) {
+        pendingPageErrors.splice(pageErrorIndex, 1);
+      } else {
+        pendingPollWarnings.push({
+          message,
+          at: now,
+          sessionId: sessionIdAtNavigation,
+        });
+      }
+      return { matched: true, errors };
+    },
+    nextExpiryDelay(now: number) {
+      const nextExpiryAt = Math.min(
+        ...[...pendingPageErrors, ...pendingPollWarnings].map(
+          (candidate) =>
+            candidate.at + retiredBrowserSessionPollConsoleGraceMs + 1,
+        ),
+      );
+      return Number.isFinite(nextExpiryAt)
+        ? Math.max(1, nextExpiryAt - now)
+        : null;
+    },
+    flushExpired(now: number) {
+      return takeExpired(now);
+    },
+    clear() {
+      const errors = [
+        ...pendingPageErrors.map(({ message }) => message),
+        ...pendingPollWarnings.map(({ message }) => message),
+      ];
+      pendingPageErrors.length = 0;
+      pendingPollWarnings.length = 0;
+      sessionIdAtNavigation = null;
+      authoringPageOrigin = null;
+      navigationStartedAt = null;
+      return errors;
+    },
+  };
 }
 
 export function isFirefoxBrowserSessionConsoleError(message: string) {
@@ -1294,6 +1455,8 @@ export async function runAuthoringFuzz(
   const editor: Locator = page.locator(editorSelector);
   const slideContent: Locator = page.locator(slideContentSelector);
   const authoringPageOrigin = new URL(page.url()).origin;
+  const retiredSessionErrorCorrelator =
+    createRetiredBrowserSessionErrorCorrelator();
   const pageErrors: string[] = [];
   const pendingRequests = new Map<
     any,
@@ -1325,7 +1488,6 @@ export async function runAuthoringFuzz(
   let lastReloadStartedAt: number | null = null;
   let currentBrowserSessionId: string | null = null;
   let browserSessionIdAtReload: string | null = null;
-  let correlatedRetiredSessionPageErrorAt: number | null = null;
   const hasCompetingClaimStartedAfterNavigation = (request: any) => {
     const url = new URL(request.url());
     if (!isBrowserSessionClaimRequest(request.method(), url.pathname))
@@ -1468,15 +1630,16 @@ export async function runAuthoringFuzz(
       })),
     };
     const recordUnlessExpected = (text: string) => {
-      if (
-        isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      const retiredSessionPollResult =
+        retiredSessionErrorCorrelator.onPollWarning(
           text,
           consolePhase,
-          correlatedRetiredSessionPageErrorAt,
           now,
-        )
-      ) {
-        correlatedRetiredSessionPageErrorAt = null;
+          currentBrowserSessionId,
+          hasTrackedClaimStartedAfterNavigation(browserSessionIdAtReload),
+        );
+      pageErrors.push(...retiredSessionPollResult.errors);
+      if (retiredSessionPollResult.matched) {
         return;
       }
       if (
@@ -1514,24 +1677,18 @@ export async function runAuthoringFuzz(
     const now = Date.now();
     // WebKit keeps the failed fetch URL on the stack's first line, not Error.message.
     const pageErrorText = (error.stack ?? error.message).split("\n", 1)[0];
-    const competingClaim = hasTrackedClaimStartedAfterNavigation(
-      browserSessionIdAtReload,
-    );
-    const expectedRetiredSessionError =
-      isExpectedSaveReloadRetiredBrowserSessionCorsError(
+    const retiredSessionPageErrorResult =
+      retiredSessionErrorCorrelator.onPageError(
         pageErrorText,
         activePhase,
-        browserSessionIdAtReload,
-        authoringPageOrigin,
-        reloadNavigationStartedAt,
         now,
-        competingClaim,
+        hasTrackedClaimStartedAfterNavigation(browserSessionIdAtReload),
       );
-    if (expectedRetiredSessionError) {
-      correlatedRetiredSessionPageErrorAt = now;
+    pageErrors.push(...retiredSessionPageErrorResult.errors);
+    if (retiredSessionPageErrorResult.matched) {
       if (traceEnabled) {
         console.log(
-          `[edit-fidelity] ignored WebKit page error from the retired browser-session claim during reload (${browserSessionIdAtReload})`,
+          `[edit-fidelity] correlated WebKit page error from the retired browser-session claim during reload (${browserSessionIdAtReload})`,
         );
       }
       return;
@@ -1817,11 +1974,22 @@ export async function runAuthoringFuzz(
       }, 15_000)
     : null;
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
+  const drainRetiredSessionErrors = async () => {
+    while (true) {
+      const waitMs = retiredSessionErrorCorrelator.nextExpiryDelay(Date.now());
+      if (waitMs === null) return;
+      await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+      pageErrors.push(
+        ...retiredSessionErrorCorrelator.flushExpired(Date.now()),
+      );
+    }
+  };
   const checkPageErrors = async () => {
     await Promise.all(pendingSaveConflicts.splice(0));
     while (pendingConsoleInspections.size) {
       await Promise.all([...pendingConsoleInspections]);
     }
+    await drainRetiredSessionErrors();
     if (pageErrors.length)
       throw new Error(
         `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
@@ -5441,9 +5609,13 @@ export async function runAuthoringFuzz(
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
       browserSessionIdAtReload = currentBrowserSessionId;
-      correlatedRetiredSessionPageErrorAt = null;
       reloadNavigationStartedAt = Date.now();
       lastReloadStartedAt = reloadNavigationStartedAt;
+      retiredSessionErrorCorrelator.beginNavigation(
+        browserSessionIdAtReload,
+        authoringPageOrigin,
+        reloadNavigationStartedAt,
+      );
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, {
           startedAt,
@@ -5487,9 +5659,18 @@ export async function runAuthoringFuzz(
       }
       recentlyCompletedBrowserSessionClaims.clear();
     });
+    const retiredSessionGraceWaitMs =
+      retiredSessionErrorCorrelator.finishNavigation(Date.now());
+    if (retiredSessionGraceWaitMs > 0) {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, retiredSessionGraceWaitMs),
+      );
+    }
+    assertAuthoringPersistence(persistence);
+    await checkPageErrors();
+    pageErrors.push(...retiredSessionErrorCorrelator.clear());
     reloadNavigationStartedAt = null;
     browserSessionIdAtReload = null;
-    assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [
       ...new Set(
