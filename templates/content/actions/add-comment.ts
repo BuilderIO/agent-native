@@ -16,11 +16,13 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertMentionsInText,
+  submittedCommentMentions,
+} from "../server/lib/comment-mention-input.js";
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
-  mentionsMissingFromText,
-  parseCommentMentions,
   personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
@@ -157,19 +159,8 @@ export async function addCommentWithGuard(
     name = derived || "AI Agent";
   }
 
-  const mentions = parseCommentMentions(args.mentions ?? []);
-  const missing = mentionsMissingFromText(content, mentions);
-  if (missing.length > 0) {
-    fail(
-      `Each mention needs its own @name in the comment text, listed in text order; unmatched: ${missing
-        .map(
-          (mention) =>
-            `@${mention.name} (${mention.kind === "agent" ? mention.model : mention.email})`,
-        )
-        .join(", ")}`,
-      { statusCode: 400 },
-    );
-  }
+  const mentions = submittedCommentMentions(args.mentions ?? []);
+  assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
   const submissionSource =
     ctx?.caller === "mcp" || ctx?.caller === "webmcp"

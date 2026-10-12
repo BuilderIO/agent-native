@@ -57,6 +57,7 @@ vi.mock("../server/db/index.js", () => {
       threadId: col("threadId"),
       parentId: col("parentId"),
       content: col("content"),
+      mentionsJson: col("mentionsJson"),
       authorEmail: col("authorEmail"),
       resolved: col("resolved"),
       updatedAt: col("updatedAt"),
@@ -316,10 +317,50 @@ describe("update-comment (action) — reopen permission", () => {
 
     await expect(
       run({ id: "c-1", content: "Broken", mentions: "{not-json" }),
-    ).rejects.toThrow("Comment mentions metadata is not valid JSON");
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Comment mentions metadata is not valid JSON",
+    });
     expect(state.rows[0]).toMatchObject({
       content: "Original text",
       mentionsJson: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
+  });
+
+  it("rejects an edit that leaves a mention without its @name in the final text", async () => {
+    const stored = JSON.stringify([
+      { kind: "person", email: "a@example.com", name: "Sam" },
+      { kind: "person", email: "b@example.com", name: "Sam" },
+    ]);
+    state.rows[0].content = "@Sam and @Sam";
+    state.rows[0].mentionsJson = stored;
+
+    await expect(
+      run({ id: "c-1", content: "Just @Sam" }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("@Sam (b@example.com)"),
+    });
+    await expect(
+      run({
+        id: "c-1",
+        mentions: JSON.stringify([
+          { kind: "person", email: "c@example.com", name: "Cy" },
+        ]),
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining("@Cy (c@example.com)"),
+    });
+    expect(state.rows[0]).toMatchObject({
+      content: "@Sam and @Sam",
+      mentionsJson: stored,
+    });
+
+    await run({ id: "c-1", content: "@Sam, then @Sam again" });
+    expect(state.rows[0]).toMatchObject({
+      content: "@Sam, then @Sam again",
+      mentionsJson: stored,
     });
   });
 });

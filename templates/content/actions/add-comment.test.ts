@@ -153,6 +153,20 @@ describe("add-comment reply boundary", () => {
     );
   });
 
+  it("rejects malformed mention metadata as the caller's error", async () => {
+    await expect(
+      run({
+        documentId: "doc-1",
+        content: "Can @Sam check this?",
+        mentions: JSON.stringify([{ kind: "person", name: "Sam" }]),
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Comment mention email is required",
+    });
+    expect(state.inserted).toHaveLength(0);
+  });
+
   it("saves and notifies both people who share a name, and rejects one no @name reaches", async () => {
     const first = { kind: "person", email: "a@example.com", name: "Sam" };
     const second = { kind: "person", email: "b@example.com", name: "Sam" };

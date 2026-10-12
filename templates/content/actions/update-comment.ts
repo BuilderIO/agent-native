@@ -6,9 +6,13 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertMentionsInText,
+  submittedCommentMentions,
+} from "../server/lib/comment-mention-input.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
-  parseCommentMentions,
+  readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
 
@@ -24,7 +28,7 @@ export default defineAction({
       .union([z.string(), z.array(z.unknown())])
       .optional()
       .describe(
-        'JSON-encoded mentions whose @name appears in the text. People: {"email","name"}; agents: {"kind":"agent","model","name"}',
+        'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}',
       ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
@@ -45,6 +49,8 @@ export default defineAction({
         documentId: schema.documentComments.documentId,
         threadId: schema.documentComments.threadId,
         authorEmail: schema.documentComments.authorEmail,
+        content: schema.documentComments.content,
+        mentionsJson: schema.documentComments.mentionsJson,
       })
       .from(schema.documentComments)
       .where(eq(schema.documentComments.id, args.id))
@@ -72,7 +78,13 @@ export default defineAction({
     const mentions =
       args.mentions === undefined
         ? undefined
-        : parseCommentMentions(args.mentions);
+        : submittedCommentMentions(args.mentions);
+    if (args.content !== undefined || mentions !== undefined) {
+      assertMentionsInText(
+        args.content ?? comment.content,
+        mentions ?? readStoredCommentMentions(comment.mentionsJson),
+      );
+    }
     const contentUpdates: Partial<typeof schema.documentComments.$inferInsert> =
       {
         updatedAt,
