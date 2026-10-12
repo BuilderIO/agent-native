@@ -492,6 +492,8 @@ test("vector stroke gradient is visible, persisted, undoable, and reloadable", a
       })
       .toContain("data-an-vector-stroke-gradient");
 
+    await page.keyboard.press("Escape");
+    await expect(page.locator(`[id="${strokePopoverId}"]`)).toHaveCount(0);
     await page.evaluate(() => {
       (document.activeElement as HTMLElement | null)?.blur();
     });
