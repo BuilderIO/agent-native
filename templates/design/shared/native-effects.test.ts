@@ -27,6 +27,60 @@ const html =
   '<html><body><div data-agent-native-node-id="hero">Editable text</div><script type="application/x-agent-native-shader" data-shader-id="legacy">legacy GLSL</script></body></html>';
 
 describe("native effect document", () => {
+  it("requires pointer interaction to reference bounded live vec2 and bool properties", () => {
+    const definition = {
+      ...GRAIN_GRADIENT_EFFECT,
+      interaction: {
+        positionProperty: "pointerPosition",
+        activeProperty: "pointerActive",
+      },
+      properties: {
+        ...GRAIN_GRADIENT_EFFECT.properties,
+        pointerPosition: {
+          type: "vec2" as const,
+          label: "Pointer position",
+          default: [0.5, 0.5] as [number, number],
+          min: 0,
+          max: 1,
+        },
+        pointerActive: {
+          type: "bool" as const,
+          label: "Pointer active",
+          default: false,
+        },
+      },
+    };
+    const check = (candidate: typeof definition) =>
+      validateEffectDocument({
+        schemaVersion: 2,
+        definitions: [candidate],
+        instances: [],
+      }).errors;
+    expect(check(definition)).toEqual([]);
+    expect(
+      check({
+        ...definition,
+        interaction: { ...definition.interaction, activeProperty: "missing" },
+      }),
+    ).toContain(
+      "definition[0].interaction needs existing vec2 position and bool active properties",
+    );
+    expect(
+      check({
+        ...definition,
+        properties: {
+          ...definition.properties,
+          pointerPosition: {
+            ...definition.properties.pointerPosition,
+            min: 0.2,
+          },
+        },
+      }),
+    ).toContain(
+      "definition[0].interaction needs existing vec2 position and bool active properties",
+    );
+  });
+
   it("distinguishes readable retired image metadata from new executable definitions", () => {
     expect(usesRetiredNativeImageAbi(OWNED_RENDERED_SURFACE_TEST_EFFECT)).toBe(
       true,

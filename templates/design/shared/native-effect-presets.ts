@@ -151,6 +151,10 @@ import {
   NATIVE_PERIMETER_FOCAL_DEFINITIONS,
   NATIVE_PERIMETER_FOCAL_PRESETS,
 } from "./native-effect-perimeter-focal";
+import {
+  POINTER_EFFECT_DEFINITIONS,
+  POINTER_EFFECT_PRESETS,
+} from "./native-effect-pointer-catalog";
 import { NATIVE_RENDER_GLOBALS as globals } from "./native-effect-wgsl";
 import { createWideColorGrainEffect } from "./native-effect-wide-color";
 import type { EffectDefinition, EffectPreset } from "./native-effects";
@@ -522,6 +526,7 @@ export const NATIVE_EFFECT_LATEST_DEFINITIONS: readonly EffectDefinition[] = [
   ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
   LUMA_DCT_EIGHT_EFFECT,
   ...OWNED_V_FIELD_DEFINITIONS,
+  ...POINTER_EFFECT_DEFINITIONS,
 ];
 
 export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
@@ -547,6 +552,7 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
   LUMA_DCT_EIGHT_EFFECT,
   ...OWNED_V_FIELD_DEFINITIONS,
+  ...POINTER_EFFECT_DEFINITIONS,
 ];
 
 const PINNED_V2_PRESETS: readonly EffectPreset[] = [
@@ -669,4 +675,5 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...OWNED_NEXT_TWELVE_U_PRESETS,
   ...LUMA_DCT_EIGHT_PRESETS,
   ...OWNED_V_FIELD_PRESETS,
+  ...POINTER_EFFECT_PRESETS,
 ];

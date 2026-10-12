@@ -232,6 +232,10 @@ export interface EffectDefinition {
   kind: "generator" | "processor" | "simulation";
   placements: ("fill" | "layer" | "backdrop")[];
   properties: Record<string, EffectProperty>;
+  interaction?: {
+    positionProperty: string;
+    activeProperty: string;
+  };
   parameterConstraints?: EffectParameterConstraint[];
   passes: EffectPass[];
   inputs?: Record<string, EffectPortSpec>;
@@ -1415,6 +1419,49 @@ function validateDefinition(
       errors.push(`${prefix}.feedback is invalid or unbounded`);
   }
   validateProperties(value.properties, prefix, errors);
+  if (value.interaction !== undefined) {
+    const interaction = value.interaction;
+    const properties = record(value.properties) ? value.properties : {};
+    const position =
+      record(interaction) && typeof interaction.positionProperty === "string"
+        ? properties[interaction.positionProperty]
+        : undefined;
+    const active =
+      record(interaction) && typeof interaction.activeProperty === "string"
+        ? properties[interaction.activeProperty]
+        : undefined;
+    if (
+      !record(interaction) ||
+      Object.keys(interaction).length !== 2 ||
+      value.kind === "simulation" ||
+      value.feedback !== undefined ||
+      typeof interaction.positionProperty !== "string" ||
+      typeof interaction.activeProperty !== "string" ||
+      !PROPERTY_RE.test(interaction.positionProperty) ||
+      !PROPERTY_RE.test(interaction.activeProperty) ||
+      !Object.prototype.hasOwnProperty.call(
+        properties,
+        interaction.positionProperty,
+      ) ||
+      !Object.prototype.hasOwnProperty.call(
+        properties,
+        interaction.activeProperty,
+      ) ||
+      !record(position) ||
+      position.type !== "vec2" ||
+      position.rebuild === true ||
+      (position.min !== undefined &&
+        (typeof position.min !== "number" || position.min > 0)) ||
+      (position.max !== undefined &&
+        (typeof position.max !== "number" || position.max < 1)) ||
+      !record(active) ||
+      active.type !== "bool" ||
+      active.rebuild === true
+    )
+      errors.push(
+        `${prefix}.interaction needs existing vec2 position and bool active properties`,
+      );
+  }
   errors.push(
     ...validateParameterConstraintDefinitions(
       value.parameterConstraints,

@@ -122,6 +122,16 @@ one count slot plus its bounded colors. `displayScale` changes inspector
 presentation only: displayed value/bounds/step are stored values multiplied
 by the positive scale, and commits divide by it.
 
+A generator or processor can opt into live pointer uniforms with
+`interaction:{positionProperty:"pointerPosition",activeProperty:"pointerActive"}`.
+Declare those names as ordinary `vec2` and `bool` properties, respectively;
+each occupies one vec4 slot in property insertion order. `pointerPosition` is
+normalized effect UV after the instance transform and capture extent; the
+active value becomes false outside that UV or after pointer leave. Ordinary
+parameters hold the authored idle state used by validation, thumbnails, and
+deterministic export. Live pointer motion changes only mounted preview uniforms
+and does not persist a parameter edit.
+
 A `position` property has an explicit `basis: "source" | "viewport"` and
 accepts an anchor keyword or `{x,y}`. Each axis is a normalized number, an
 axis keyword, or `{value,unit:"uv"|"percent"|"px"}`. It occupies one vec4

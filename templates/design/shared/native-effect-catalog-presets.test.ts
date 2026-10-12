@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  nativeCatalogDefinitionKey,
+  nativeCatalogPresetKey,
+  nativeCatalogPropertyKey,
+} from "../app/components/design/inspector/native-catalog-display";
 import { planEffectGraph } from "./effect-graph";
 import {
   createCatalogEffectPresets,
   NativeCatalogPresetRecipeError,
 } from "./native-effect-catalog-presets";
 import { editNativeEffectHtml } from "./native-effect-edits";
+import {
+  POINTER_EFFECT_DEFINITIONS,
+  POINTER_EFFECT_PRESETS,
+} from "./native-effect-pointer-catalog";
 import {
   NATIVE_EFFECT_DEFINITION_CATALOG,
   NATIVE_EFFECT_DEFINITIONS,
@@ -17,14 +26,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(297);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(291);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
+    ).toBe(297);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(343);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(688);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      676,
+      688,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");
@@ -45,6 +54,55 @@ describe("Design-owned catalog", () => {
         }).errors,
         definition.id,
       ).toEqual([]);
+    }
+  });
+
+  it("registers localized pointer effects with two authored recipes each", () => {
+    expect(POINTER_EFFECT_DEFINITIONS).toHaveLength(6);
+    expect(POINTER_EFFECT_PRESETS).toHaveLength(12);
+    expect(
+      new Set(
+        POINTER_EFFECT_DEFINITIONS.map((definition) =>
+          definition.passes.map((pass) => pass.wgsl).join("\n"),
+        ),
+      ).size,
+    ).toBe(6);
+
+    for (const definition of POINTER_EFFECT_DEFINITIONS) {
+      expect(
+        nativeCatalogDefinitionKey(structuredClone(definition)),
+      ).not.toBeNull();
+      expect(definition.interaction).toEqual({
+        positionProperty: "pointerPosition",
+        activeProperty: "pointerActive",
+      });
+      expect(definition.properties.pointerPosition).toMatchObject({
+        type: "vec2",
+        default: [0.5, 0.5],
+      });
+      expect(definition.properties.pointerActive).toMatchObject({
+        type: "bool",
+        default: true,
+      });
+      for (const property of Object.values(definition.properties)) {
+        expect(
+          nativeCatalogPropertyKey(structuredClone(definition), property.label),
+          `${definition.id}: ${property.label}`,
+        ).not.toBeNull();
+      }
+
+      const presets = POINTER_EFFECT_PRESETS.filter(
+        (preset) => preset.definitionId === definition.id,
+      );
+      expect(presets).toHaveLength(2);
+      expect(presets[0]?.params).not.toEqual(presets[1]?.params);
+      for (const preset of presets) {
+        expect(nativeCatalogPresetKey(structuredClone(preset))).not.toBeNull();
+        expect(preset.params).toMatchObject({
+          pointerPosition: [0.5, 0.5],
+          pointerActive: true,
+        });
+      }
     }
   });
 

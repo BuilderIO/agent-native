@@ -52,6 +52,9 @@ function summarizeNativeDefinition(definition: EffectDefinition) {
     animationCapability: nativeEffectAnimationCapability(definition),
     placements: definition.placements,
     properties: definition.properties,
+    ...(definition.interaction === undefined
+      ? {}
+      : { interaction: definition.interaction }),
     inputs: definition.inputs ?? null,
     outputs: definition.outputs ?? null,
     resources: definition.resources ?? null,

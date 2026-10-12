@@ -95,7 +95,7 @@ describe("get-shader native-v2", () => {
         expect.objectContaining({ id: GRAIN_GRADIENT_EFFECT.id, version: 2 }),
       ]),
     );
-    expect(result.definitions).toHaveLength(337);
+    expect(result.definitions).toHaveLength(343);
     expect(result.definitions).toEqual(
       expect.arrayContaining(
         [
@@ -417,7 +417,7 @@ describe("get-shader native-v2", () => {
         }),
       ]),
     );
-    expect(result.presets).toHaveLength(676);
+    expect(result.presets).toHaveLength(688);
     expect(result.presets).toEqual(NATIVE_EFFECT_PRESETS);
     expect(result.definitions).toEqual(
       expect.arrayContaining([
@@ -540,6 +540,22 @@ describe("get-shader native-v2", () => {
       advanced: true,
       group: "Motion",
     };
+    definition.properties.pointerPosition = {
+      type: "vec2",
+      label: "Pointer position",
+      default: [0.5, 0.5],
+      min: 0,
+      max: 1,
+    };
+    definition.properties.pointerActive = {
+      type: "bool",
+      label: "Pointer active",
+      default: false,
+    };
+    definition.interaction = {
+      positionProperty: "pointerPosition",
+      activeProperty: "pointerActive",
+    };
     const saved = applyNativeEffectToHtml(
       '<html><body><div data-agent-native-node-id="hero">Text</div></body></html>',
       { nodeId: "hero", definition, placement: "fill" },
@@ -586,6 +602,16 @@ describe("get-shader native-v2", () => {
       advanced: true,
       group: "Motion",
     });
+    expect(result.document?.definitions[0].interaction).toEqual(
+      definition.interaction,
+    );
+    expect(
+      result.definitions.find(
+        (candidate) =>
+          candidate.id === definition.id &&
+          candidate.version === definition.version,
+      )?.interaction,
+    ).toEqual(definition.interaction);
     expect(JSON.stringify(result.document)).not.toContain("@fragment fn fs");
     expect(JSON.stringify(result.definitions)).not.toContain("@fragment fn fs");
   });

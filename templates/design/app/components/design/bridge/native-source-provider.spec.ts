@@ -1734,7 +1734,7 @@ describe("native cached source captures", () => {
 });
 
 describe("processed native layer source geometry", () => {
-  it("composes a grid of bordered text cards with runtime native fills in CSS paint order", async () => {
+  it("keeps nested sibling paint order with fewer ancestor style reads", async () => {
     globalThis.ResizeObserver = class {
       observe() {}
       disconnect() {}
@@ -1802,80 +1802,90 @@ describe("processed native layer source geometry", () => {
       },
     );
     let secondLabelZIndex = "1";
-    vi.spyOn(window, "getComputedStyle").mockImplementation(
-      (element) =>
-        ({
-          imageRendering: "auto",
-          display: element === grid ? "grid" : "block",
-          visibility: "visible",
-          opacity: element === card || element === secondCard ? "0.6" : "1",
-          position:
-            element === canvas || element === secondCanvas
-              ? "absolute"
-              : element === label || element === secondLabel
-                ? "relative"
-                : "static",
-          transform: "none",
-          transformOrigin: "0px 0px",
-          translate: "none",
-          perspective: "none",
-          transformStyle: "flat",
-          rotate: "none",
-          scale: "none",
-          isolation:
-            element === card || element === secondCard ? "isolate" : "auto",
-          zIndex:
-            element === canvas || element === secondCanvas
-              ? "-1"
-              : element === label
-                ? "1"
-                : element === secondLabel
-                  ? secondLabelZIndex
-                  : "auto",
-          mixBlendMode: "normal",
-          filter: "none",
-          backdropFilter: "none",
-          backgroundImage: "none",
-          // guard:allow-raw-color — the fixture's authored grid paint must sit behind native cards.
-          backgroundColor:
-            element === board ? "rgb(23, 27, 38)" : "transparent",
-          boxShadow: "none",
-          outlineStyle: "none",
-          clipPath: "none",
-          maskImage: "none",
-          overflowX:
-            element === card || element === secondCard ? "hidden" : "visible",
-          overflowY:
-            element === card || element === secondCard ? "hidden" : "visible",
-          borderTopWidth:
-            element === card || element === secondCard ? "1px" : "0px",
-          borderRightWidth:
-            element === card || element === secondCard ? "1px" : "0px",
-          borderBottomWidth:
-            element === card || element === secondCard ? "1px" : "0px",
-          borderLeftWidth:
-            element === card || element === secondCard ? "1px" : "0px",
-          borderTopLeftRadius:
-            element === card || element === secondCard ? "8px" : "0px",
-          borderTopRightRadius:
-            element === card || element === secondCard ? "8px" : "0px",
-          borderBottomRightRadius:
-            element === card || element === secondCard ? "8px" : "0px",
-          borderBottomLeftRadius:
-            element === card || element === secondCard ? "8px" : "0px",
-          paddingTop: "0px",
-          paddingRight: "0px",
-          paddingBottom: "0px",
-          paddingLeft: "0px",
-          getPropertyValue: () => "0px",
-        }) as unknown as CSSStyleDeclaration,
-    );
-    vi.spyOn(CachedLeaf.prototype, "read").mockResolvedValue(
-      document.createElement("canvas"),
+    let cardStyleReads = 0;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      if (element === card) cardStyleReads += 1;
+      return {
+        imageRendering: "auto",
+        display: element === grid ? "grid" : "block",
+        visibility: "visible",
+        opacity: element === card || element === secondCard ? "0.6" : "1",
+        position:
+          element === canvas || element === secondCanvas
+            ? "absolute"
+            : element === label || element === secondLabel
+              ? "relative"
+              : "static",
+        transform: "none",
+        transformOrigin: "0px 0px",
+        translate: "none",
+        perspective: "none",
+        transformStyle: "flat",
+        rotate: "none",
+        scale: "none",
+        isolation:
+          element === card || element === secondCard ? "isolate" : "auto",
+        zIndex:
+          element === canvas || element === secondCanvas
+            ? "-1"
+            : element === label
+              ? "1"
+              : element === secondLabel
+                ? secondLabelZIndex
+                : "auto",
+        mixBlendMode: "normal",
+        filter: "none",
+        backdropFilter: "none",
+        backgroundImage: "none",
+        // guard:allow-raw-color — the fixture's authored grid paint must sit behind native cards.
+        backgroundColor: element === board ? "rgb(23, 27, 38)" : "transparent",
+        boxShadow: "none",
+        outlineStyle: "none",
+        clipPath: "none",
+        maskImage: "none",
+        overflowX:
+          element === card || element === secondCard ? "hidden" : "visible",
+        overflowY:
+          element === card || element === secondCard ? "hidden" : "visible",
+        borderTopWidth:
+          element === card || element === secondCard ? "1px" : "0px",
+        borderRightWidth:
+          element === card || element === secondCard ? "1px" : "0px",
+        borderBottomWidth:
+          element === card || element === secondCard ? "1px" : "0px",
+        borderLeftWidth:
+          element === card || element === secondCard ? "1px" : "0px",
+        borderTopLeftRadius:
+          element === card || element === secondCard ? "8px" : "0px",
+        borderTopRightRadius:
+          element === card || element === secondCard ? "8px" : "0px",
+        borderBottomRightRadius:
+          element === card || element === secondCard ? "8px" : "0px",
+        borderBottomLeftRadius:
+          element === card || element === secondCard ? "8px" : "0px",
+        paddingTop: "0px",
+        paddingRight: "0px",
+        paddingBottom: "0px",
+        paddingLeft: "0px",
+        getPropertyValue: () => "0px",
+      } as unknown as CSSStyleDeclaration;
+    });
+    let mutateSecondLabelDuringCapture = false;
+    vi.spyOn(CachedLeaf.prototype, "read").mockImplementation(
+      function (this: CachedLeaf) {
+        const source = document.createElement("canvas");
+        if (mutateSecondLabelDuringCapture && this.element === secondLabel)
+          return Promise.resolve().then(() => {
+            secondLabelZIndex = "-2";
+            return source;
+          });
+        return source;
+      },
     );
     const provider = createNativeSceneProvider(board, "layer");
     try {
       const records = await provider!.readScene();
+      expect(cardStyleReads).toBeLessThan(29);
       expect(provider!.diagnosticSnapshot()).toMatchObject({
         readSceneCalls: 1,
         activeLeaves: 5,
@@ -1963,7 +1973,7 @@ describe("processed native layer source geometry", () => {
           ],
         },
       ]);
-      secondLabelZIndex = "-2";
+      mutateSecondLabelDuringCapture = true;
       await expect(provider!.readScene()).rejects.toMatchObject({
         code: "source-stacking-order",
       });

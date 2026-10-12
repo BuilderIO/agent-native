@@ -51,6 +51,11 @@ import {
 } from "../../../../shared/native-instance-preview-contract";
 import { NativePipelineCache } from "../../../../shared/native-pipeline-cache";
 import {
+  mapNativePointerInput,
+  packNativePointerProperties,
+  type NativePointerState,
+} from "../../../../shared/native-pointer-input";
+import {
   NativePresentationFaultLatch,
   type NativePresentationFaultGrant,
 } from "../../../../shared/native-presentation-fault-gate";
@@ -174,6 +179,7 @@ import { planNativeSourceCoordinateScale } from "./native-source-coordinate-scal
 import {
   createNativeSceneProvider,
   cloneNativeTextFlow,
+  nativeClientToTargetAffine,
   nativeDocumentOrigin,
   nativePresentationVisible,
   nativeTargetOverflowInsets,
@@ -451,6 +457,7 @@ type Mount = {
   } | null;
   pointerListener: ((event: PointerEvent) => void) | null;
   pointerLeaveListener: (() => void) | null;
+  pointerState: NativePointerState | null;
   simulationCaughtUp: boolean;
   feedback: {
     executor: NativeTextureFeedbackExecutor;
@@ -4067,15 +4074,20 @@ class NativeShaderRuntime {
               (next.seekRevision ?? 0),
           );
         }
-        if (existing.definitionHash !== entry.hash)
+        if (existing.definitionHash !== entry.hash) {
           existing.animationCapability = nativeEffectAnimationCapability(
             entry.definition,
           );
+          existing.pointerState = null;
+        }
         existing.instance = entry.instance;
         existing.definition = entry.definition;
         existing.definitionHash = entry.hash;
-        if (entry.definition.simulation) this.attachSimulationPointer(existing);
-        else if (existing.simulation) this.releaseSimulation(existing);
+        if (entry.definition.simulation || entry.definition.interaction)
+          this.attachPointer(existing);
+        else this.detachPointer(existing);
+        if (!entry.definition.simulation && existing.simulation)
+          this.releaseSimulation(existing);
         existing.previousLayerId = entry.previousLayerId;
         existing.previousFillId = entry.previousFillId;
         continue;
@@ -4310,55 +4322,58 @@ class NativeShaderRuntime {
       simulation: null,
       pointerListener: null,
       pointerLeaveListener: null,
+      pointerState: null,
       simulationCaughtUp: true,
       feedback: null,
       feedbackFrame: null,
     };
-    if (definition.simulation) this.attachSimulationPointer(mounted);
+    if (definition.simulation || definition.interaction)
+      this.attachPointer(mounted);
     return mounted;
   }
 
-  private attachSimulationPointer(mount: Mount): void {
+  private attachPointer(mount: Mount): void {
     if (mount.pointerListener) return;
     const pointer = (event: PointerEvent): void => {
-      const rect = mount.target.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0 || !mount.width || !mount.height)
+      if (!mount.width || !mount.height) return;
+      let clientToTarget: NativeAffine2D;
+      try {
+        clientToTarget = nativeClientToTargetAffine(mount.target);
+      } catch (error) {
+        this.issue(
+          error instanceof NativeSourceError ? error.code : "source-transform",
+          error instanceof Error ? error.message : String(error),
+          mount.instance.id,
+        );
+        if (mount.simulation) mount.simulation.pointer.active = false;
+        this.clearInteractionPointer(mount);
         return;
-      const extent = mount.outputExtent;
+      }
       const previewInstance =
         this.instancePreview?.instanceId === mount.instance.id
           ? this.instancePreview.instance
           : mount.instance;
-      const plan = planNativeEffectTransform(previewInstance.transform, {
+      const mapped = mapNativePointerInput({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        clientToTarget,
+        targetSize: {
+          width: mount.target.offsetWidth,
+          height: mount.target.offsetHeight,
+        },
         width: mount.width,
         height: mount.height,
         pixelRatio: mount.pixelRatio,
-        target: {
-          x: extent?.left ?? 0,
-          y: extent?.top ?? 0,
-          width: extent?.sourceWidth ?? mount.width,
-          height: extent?.sourceHeight ?? mount.height,
-        },
+        extent: mount.outputExtent,
+        transform: previewInstance.transform,
       });
-      if (!plan.ok) {
-        this.issue(plan.code, plan.detail, mount.instance.id);
+      if (!mapped.ok) {
+        this.issue(mapped.code, mapped.detail, mount.instance.id);
         if (mount.simulation) mount.simulation.pointer.active = false;
+        this.clearInteractionPointer(mount);
         return;
       }
-      const targetX = (event.clientX - rect.left) / rect.width;
-      const targetY = (event.clientY - rect.top) / rect.height;
-      const outputX =
-        ((extent?.left ?? 0) + targetX * (extent?.sourceWidth ?? mount.width)) /
-        mount.width;
-      const outputY =
-        ((extent?.top ?? 0) +
-          targetY * (extent?.sourceHeight ?? mount.height)) /
-        mount.height;
-      const x =
-        plan.rows[0][0] * outputX + plan.rows[0][1] * outputY + plan.rows[0][2];
-      const y =
-        plan.rows[1][0] * outputX + plan.rows[1][1] * outputY + plan.rows[1][2];
-      const active = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+      const { x, y, active } = mapped.pointer;
       const prior = mount.simulation?.pointer;
       if (mount.simulation)
         mount.simulation.pointer = {
@@ -4368,14 +4383,55 @@ class NativeShaderRuntime {
           vy: prior ? y - prior.y : 0,
           active,
         };
+      if (mount.definition.interaction) {
+        const previous = mount.pointerState;
+        mount.pointerState = mapped.pointer;
+        if (
+          !previous ||
+          previous.x !== x ||
+          previous.y !== y ||
+          previous.active !== active
+        )
+          this.requestSourceFrame();
+      }
     };
     const leave = (): void => {
       if (mount.simulation) mount.simulation.pointer.active = false;
+      this.clearInteractionPointer(mount);
     };
     mount.target.addEventListener("pointermove", pointer, { passive: true });
     mount.target.addEventListener("pointerleave", leave);
     mount.pointerListener = pointer;
     mount.pointerLeaveListener = leave;
+  }
+
+  private clearInteractionPointer(mount: Mount): void {
+    const interaction = mount.definition.interaction;
+    if (!interaction || (mount.pointerState && !mount.pointerState.active))
+      return;
+    const authoredPosition = (mount.instance.params[
+      interaction.positionProperty
+    ] ?? mount.definition.properties[interaction.positionProperty].default) as [
+      number,
+      number,
+    ];
+    mount.pointerState = mount.pointerState
+      ? { ...mount.pointerState, active: false }
+      : { x: authoredPosition[0], y: authoredPosition[1], active: false };
+    this.requestSourceFrame();
+  }
+
+  private detachPointer(mount: Mount): void {
+    if (mount.pointerListener)
+      mount.target.removeEventListener("pointermove", mount.pointerListener);
+    if (mount.pointerLeaveListener)
+      mount.target.removeEventListener(
+        "pointerleave",
+        mount.pointerLeaveListener,
+      );
+    mount.pointerListener = null;
+    mount.pointerLeaveListener = null;
+    mount.pointerState = null;
   }
 
   private fillGroup(target: HTMLElement): Mount[] {
@@ -4596,13 +4652,7 @@ class NativeShaderRuntime {
       )
     )
       this.releaseScenePresentation();
-    if (mount.pointerListener)
-      mount.target.removeEventListener("pointermove", mount.pointerListener);
-    if (mount.pointerLeaveListener)
-      mount.target.removeEventListener(
-        "pointerleave",
-        mount.pointerLeaveListener,
-      );
+    this.detachPointer(mount);
     const survivors = [...this.mounts.values()].filter(
       (other) => other !== mount && other.target === mount.target,
     );
@@ -7283,6 +7333,7 @@ class NativeShaderRuntime {
     encoder: GPUCommandEncoder,
     definition: EffectDefinition,
     instance: EffectInstance,
+    deterministic: boolean,
   ): Promise<GPUTexture> {
     try {
       const spec = definition.statelessCompute;
@@ -7422,7 +7473,15 @@ class NativeShaderRuntime {
         }),
         4,
       );
-      data.set(packNativeProperties(definition, instance.params), 8);
+      data.set(
+        packNativePointerProperties(
+          definition,
+          instance.params,
+          mount.pointerState,
+          deterministic,
+        ),
+        8,
+      );
       inputTextures.add(output!);
       const releaseTextures = this.retainStatelessTextures(
         device,
@@ -7576,6 +7635,7 @@ class NativeShaderRuntime {
         encoder,
         definition,
         instance,
+        deterministic,
       );
     if (definition.simulation)
       return this.simulationPasses(
@@ -7729,7 +7789,15 @@ class NativeShaderRuntime {
         packNativeUniformClock({ time, seed: instance.seed, pixelRatio: dpr }),
         4,
       );
-      data.set(packNativeProperties(definition, instance.params), 8);
+      data.set(
+        packNativePointerProperties(
+          definition,
+          instance.params,
+          mount.pointerState,
+          deterministic,
+        ),
+        8,
+      );
       const bind = this.bind(
         mount,
         `pass:${pass.id}`,

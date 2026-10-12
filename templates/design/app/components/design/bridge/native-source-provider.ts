@@ -1261,6 +1261,12 @@ function viewportToTargetAffine(
   return inverted.matrix;
 }
 
+export function nativeClientToTargetAffine(
+  target: HTMLElement,
+): NativeAffine2D {
+  return viewportToTargetAffine(target);
+}
+
 function relativeAffine(
   element: Element,
   target: Element,
@@ -1902,14 +1908,25 @@ function sourceStackingOrder(
 function orderAutoStackingSiblingPaint(
   parent: Element,
   groups: readonly (readonly NativeSourceRecord[])[],
+  memo?: SourceGeometryMemo,
 ): (readonly NativeSourceRecord[])[] {
-  if (isFlexOrGridDisplay(getComputedStyle(parent).display)) return [...groups];
+  const readStyle: SourceStyleReader = memo
+    ? (element) => {
+        let style = memo.styles.get(element);
+        if (!style) {
+          style = getComputedStyle(element);
+          memo.styles.set(element, style);
+        }
+        return style;
+      }
+    : getComputedStyle;
+  if (isFlexOrGridDisplay(readStyle(parent).display)) return [...groups];
   const phases = groups.map((records) => {
-    const first = sourceStackingOrder(records[0].node, parent);
+    const first = sourceStackingOrder(records[0].node, parent, readStyle);
     if (
       first.rank !== 0 ||
       records.some((record) => {
-        const order = sourceStackingOrder(record.node, parent);
+        const order = sourceStackingOrder(record.node, parent, readStyle);
         return order.rank !== 0 || order.phase !== first.phase;
       })
     )
@@ -4795,7 +4812,11 @@ class SceneProvider implements NativeSceneProvider {
           crossedAsyncBoundary = true;
         if (records.length) childGroups.push(records);
       }
-    for (const records of orderAutoStackingSiblingPaint(element, childGroups))
+    for (const records of orderAutoStackingSiblingPaint(
+      element,
+      childGroups,
+      memo,
+    ))
       out.push(...records);
     if (element.lastElementChild)
       assertDomSiblingOrder(element, element.lastElementChild, element, out);

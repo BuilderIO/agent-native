@@ -55,6 +55,9 @@ export function nativeEffectExecutionPayload(definition: EffectDefinition) {
     resources: definition.resources ?? null,
     output: definition.output ?? null,
     ...(definition.extent === undefined ? {} : { extent: definition.extent }),
+    ...(definition.interaction === undefined
+      ? {}
+      : { interaction: definition.interaction }),
     ...(definition.sourceSizing === undefined
       ? {}
       : { sourceSizing: definition.sourceSizing }),

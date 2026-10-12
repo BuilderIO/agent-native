@@ -2516,6 +2516,22 @@ struct VertexOutput {
         errors.push(\`\${prefix}.feedback is invalid or unbounded\`);
     }
     validateProperties(value.properties, prefix, errors);
+    if (value.interaction !== void 0) {
+      const interaction = value.interaction;
+      const properties4 = record2(value.properties) ? value.properties : {};
+      const position = record2(interaction) && typeof interaction.positionProperty === "string" ? properties4[interaction.positionProperty] : void 0;
+      const active = record2(interaction) && typeof interaction.activeProperty === "string" ? properties4[interaction.activeProperty] : void 0;
+      if (!record2(interaction) || Object.keys(interaction).length !== 2 || value.kind === "simulation" || value.feedback !== void 0 || typeof interaction.positionProperty !== "string" || typeof interaction.activeProperty !== "string" || !PROPERTY_RE.test(interaction.positionProperty) || !PROPERTY_RE.test(interaction.activeProperty) || !Object.prototype.hasOwnProperty.call(
+        properties4,
+        interaction.positionProperty
+      ) || !Object.prototype.hasOwnProperty.call(
+        properties4,
+        interaction.activeProperty
+      ) || !record2(position) || position.type !== "vec2" || position.rebuild === true || position.min !== void 0 && (typeof position.min !== "number" || position.min > 0) || position.max !== void 0 && (typeof position.max !== "number" || position.max < 1) || !record2(active) || active.type !== "bool" || active.rebuild === true)
+        errors.push(
+          \`\${prefix}.interaction needs existing vec2 position and bool active properties\`
+        );
+    }
     errors.push(
       ...validateParameterConstraintDefinitions(
         value.parameterConstraints,
@@ -2817,11 +2833,11 @@ struct VertexOutput {
       }
     const presetIds = /* @__PURE__ */ new Set();
     if (Array.isArray(value.presets))
-      for (const [index, preset] of value.presets.entries()) {
-        if (validatePreset(preset, index, definitions, errors)) {
-          if (presetIds.has(preset.id))
-            errors.push(\`duplicate preset id "\${preset.id}"\`);
-          presetIds.add(preset.id);
+      for (const [index, preset2] of value.presets.entries()) {
+        if (validatePreset(preset2, index, definitions, errors)) {
+          if (presetIds.has(preset2.id))
+            errors.push(\`duplicate preset id "\${preset2.id}"\`);
+          presetIds.add(preset2.id);
         }
       }
     if (!errors.length) {
@@ -7890,13 +7906,13 @@ return paletteAt(clamp(field,0.0,1.0));
   if (DESIGN_OWNED_STATIC_V3_DEFINITIONS.length !== STATIC_V3_IDS.length)
     throw new Error("Static v3 generator inventory changed");
   var DESIGN_OWNED_STATIC_V3_PRESETS = DESIGN_OWNED_GENERATOR_PRESETS.filter(
-    (preset) => idSet.has(preset.definitionId)
-  ).map((preset) => ({
-    ...preset,
-    name: STATIC_V3_PRESET_DISPLAY_NAMES.get(preset.id) ?? preset.name,
+    (preset2) => idSet.has(preset2.definitionId)
+  ).map((preset2) => ({
+    ...preset2,
+    name: STATIC_V3_PRESET_DISPLAY_NAMES.get(preset2.id) ?? preset2.name,
     definitionVersion: 3,
     params: Object.fromEntries(
-      Object.entries(preset.params).filter(([name]) => name !== "motion")
+      Object.entries(preset2.params).filter(([name]) => name !== "motion")
     )
   }));
 
@@ -8628,13 +8644,13 @@ fn sampleSource(uv: vec2f) -> vec4f { return sampleEdgeTexture(sourceTexture, uv
   });
   var OWNED_NEXT_CONSOLIDATED_PRESETS = [
     ...OWNED_NEXT_PROCESSOR_PRESETS.filter(
-      (preset) => OWNED_NEXT_CONSOLIDATED_DEFINITIONS.some(
-        (definition3) => definition3.id === preset.definitionId
+      (preset2) => OWNED_NEXT_CONSOLIDATED_DEFINITIONS.some(
+        (definition3) => definition3.id === preset2.definitionId
       )
     ),
     ...OWNED_NEXT_PROCESSOR_PRESETS2.filter(
-      (preset) => OWNED_NEXT_CONSOLIDATED_DEFINITIONS.some(
-        (definition3) => definition3.id === preset.definitionId
+      (preset2) => OWNED_NEXT_CONSOLIDATED_DEFINITIONS.some(
+        (definition3) => definition3.id === preset2.definitionId
       )
     )
   ];
@@ -9373,7 +9389,7 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
   });
   var OWNED_NEXT_SIX_PRESETS = OWNED_NEXT_SIX_DRAFTS.flatMap((draft) => {
     const [firstName, firstParams, secondName, secondParams] = draft.looks;
-    const preset = (variant, name, params) => ({
+    const preset2 = (variant, name, params) => ({
       id: \`an-preset-\${draft.id}-\${variant}\`,
       name,
       definitionId: \`an-native-\${draft.id}\`,
@@ -9384,8 +9400,8 @@ fn torusSdf(p: vec3f, major: f32, tube: f32, tilt: f32) -> f32 {
       provenance: { origin: "design-original" }
     });
     return [
-      preset("subtle", firstName, firstParams),
-      preset("expressive", secondName, secondParams)
+      preset2("subtle", firstName, firstParams),
+      preset2("expressive", secondName, secondParams)
     ];
   });
 
@@ -10905,7 +10921,7 @@ fn distanceAt(pixel: vec2i) -> f32 {
     (definition3) => definition3.id === alphaId ? optimized : definition3
   );
   var OWNED_NEXT_SIX_K_V2_PRESETS = OWNED_NEXT_SIX_K_PRESETS.map(
-    (preset) => preset.definitionId === alphaId ? { ...preset, definitionVersion: 2 } : preset
+    (preset2) => preset2.definitionId === alphaId ? { ...preset2, definitionVersion: 2 } : preset2
   );
 
   // shared/native-effect-owned-next-six-k-v3.ts
@@ -10927,7 +10943,7 @@ fn distanceAt(pixel: vec2i) -> f32 {
     (definition3) => definition3.id === hilbertId ? boundedHilbert : definition3
   );
   var OWNED_NEXT_SIX_K_V3_PRESETS = OWNED_NEXT_SIX_K_V2_PRESETS.map(
-    (preset) => preset.definitionId === hilbertId ? { ...preset, definitionVersion: 2 } : preset
+    (preset2) => preset2.definitionId === hilbertId ? { ...preset2, definitionVersion: 2 } : preset2
   );
 
   // shared/native-effect-owned-next-six-k-v4.ts
@@ -10956,7 +10972,7 @@ fn distanceAt(pixel: vec2i) -> f32 {
     (definition3) => definition3.id === gamutId ? boundedGamut : definition3
   );
   var OWNED_NEXT_SIX_K_V4_PRESETS = OWNED_NEXT_SIX_K_V3_PRESETS.map(
-    (preset) => preset.definitionId === gamutId ? { ...preset, definitionVersion: 2 } : preset
+    (preset2) => preset2.definitionId === gamutId ? { ...preset2, definitionVersion: 2 } : preset2
   );
 
   // shared/native-effect-owned-next-six-l.ts
@@ -13908,16 +13924,16 @@ fn uField(q:vec2f)->f32{
     }))
   };
   var edgeLightLeakV1Presets = OWNED_O_EDGE_GLASS_PRESETS.filter(
-    (preset) => preset.definitionId === edgeId
+    (preset2) => preset2.definitionId === edgeId
   );
-  var OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS = edgeLightLeakV1Presets.map((preset, index) => ({
-    ...structuredClone(preset),
+  var OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS = edgeLightLeakV1Presets.map((preset2, index) => ({
+    ...structuredClone(preset2),
     id: \`an-preset-owned-o-edge-light-leak-v2-\${index + 1}\`,
     definitionVersion: OWNED_O_EDGE_LIGHT_LEAK_V2.version
   }));
   var OWNED_O_EDGE_LIGHT_LEAK_V2_PRESET_LABEL_SOURCE_IDS = Object.fromEntries(
-    OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS.map((preset, index) => [
-      preset.id,
+    OWNED_O_EDGE_LIGHT_LEAK_V2_PRESETS.map((preset2, index) => [
+      preset2.id,
       edgeLightLeakV1Presets[index].id
     ])
   );
@@ -17735,7 +17751,7 @@ fn sourceAt(pixel: vec2f) -> vec4f {
     }
   ];
   var STATEFUL_NINE_PRESET_LABEL_SOURCE_IDS = Object.fromEntries(
-    STATEFUL_NINE_PRESETS.map((preset) => [preset.id, preset.id])
+    STATEFUL_NINE_PRESETS.map((preset2) => [preset2.id, preset2.id])
   );
 
   // shared/native-effect-owned-v-fields.ts
@@ -18953,6 +18969,276 @@ fn focalPalette(position: f32) -> vec4f {
     )
   ];
 
+  // shared/native-effect-pointer-catalog.ts
+  var pointerProperties = {
+    pointerPosition: {
+      type: "vec2",
+      label: "Pointer Position",
+      default: [0.5, 0.5],
+      min: 0,
+      max: 1,
+      step: 1e-3
+    },
+    pointerActive: { type: "bool", label: "Pointer Active", default: true }
+  };
+  var pixelSpace = (p2) => \`
+  let uv = input.uv;
+  let pointer = \${p2("pointerPosition")}.xy;
+  let delta = (uv - pointer) * globals.viewport.xy;
+  let distance = length(delta);
+  let pointerEnabled = \${p2("pointerActive")}.x;
+\`;
+  var specs5 = [
+    {
+      id: "pointer-ripples",
+      name: "Pointer Ripples",
+      kind: "processor",
+      backdrop: true,
+      properties: {
+        ...pointerProperties,
+        radius: catalogFloat("Radius", 150, 24, 480, 1),
+        wavelength: catalogFloat("Wavelength", 34, 4, 120, 1),
+        strength: catalogFloat("Strength", 12, 0, 48, 0.25),
+        speed: catalogFloat("Speed", 1.2, 0, 4, 0.01),
+        softness: catalogFloat("Softness", 0.58, 0.05, 1, 0.01),
+        edge: structuredClone(CATALOG_EDGE)
+      },
+      fragment: (p2) => pixelSpace(p2) + \`
+  let radius = max(\${p2("radius")}.x * globals.clock.z, 1.0);
+  let envelope = exp(-pow(distance / radius, 2.0) * 4.0) * pointerEnabled;
+  let wave = sin(distance / max(\${p2("wavelength")}.x * globals.clock.z, 1.0) * 6.2831853 - globals.clock.x * \${p2("speed")}.x * 5.0);
+  let displacement = normalize(delta + vec2f(0.0001)) * wave * \${p2("strength")}.x * globals.clock.z * envelope;
+  let original = sampleSource(uv);
+  let warped = sampleSource(uv + displacement * globals.viewport.zw);
+  let blend = envelope * (1.0 - \${p2("softness")}.x * 0.35);
+  return mix(original, warped, blend);
+\`
+    },
+    {
+      id: "pointer-magnifier",
+      name: "Pointer Magnifier",
+      kind: "processor",
+      backdrop: true,
+      properties: {
+        ...pointerProperties,
+        radius: catalogFloat("Radius", 125, 28, 420, 1),
+        zoom: catalogFloat("Zoom", 1.65, 1, 3.5, 0.01),
+        refraction: catalogFloat("Refraction", 3, 0, 16, 0.1),
+        softness: catalogFloat("Softness", 0.18, 0.01, 0.6, 0.01),
+        edge: structuredClone(CATALOG_EDGE)
+      },
+      fragment: (p2) => pixelSpace(p2) + \`
+  let radius = max(\${p2("radius")}.x * globals.clock.z, 1.0);
+  let mask = (1.0 - smoothstep(radius * (1.0 - \${p2("softness")}.x), radius, distance)) * pointerEnabled;
+  let zoom = max(\${p2("zoom")}.x, 1.0);
+  let refractiveRim = exp(-pow((distance / radius - 0.82) * 9.0, 2.0)) * \${p2("refraction")}.x * globals.clock.z;
+  let sampleDelta = delta * (1.0 / zoom - 1.0) + normalize(delta + vec2f(0.0001)) * refractiveRim;
+  let original = sampleSource(uv);
+  let magnified = sampleSource(uv + sampleDelta * globals.viewport.zw);
+  return mix(original, magnified, mask);
+\`
+    },
+    {
+      id: "pointer-vortex",
+      name: "Pointer Vortex",
+      kind: "processor",
+      backdrop: true,
+      properties: {
+        ...pointerProperties,
+        radius: catalogFloat("Radius", 180, 32, 520, 1),
+        strength: catalogFloat("Strength", 2.1, -6, 6, 0.01),
+        falloff: catalogFloat("Falloff", 2.4, 0.5, 8, 0.01),
+        softness: catalogFloat("Softness", 0.42, 0.05, 1, 0.01),
+        edge: structuredClone(CATALOG_EDGE)
+      },
+      fragment: (p2) => pixelSpace(p2) + \`
+  let radius = max(\${p2("radius")}.x * globals.clock.z, 1.0);
+  let radial = clamp(distance / radius, 0.0, 1.0);
+  let weight = pow(1.0 - smoothstep(0.0, 1.0, radial), \${p2("falloff")}.x) * pointerEnabled;
+  let angle = \${p2("strength")}.x * weight * (1.0 - \${p2("softness")}.x * radial);
+  let c = cos(angle);
+  let s = sin(angle);
+  let rotated = vec2f(c * delta.x - s * delta.y, s * delta.x + c * delta.y);
+  return sampleSource(uv + (rotated - delta) * globals.viewport.zw);
+\`
+    },
+    {
+      id: "pointer-spotlight",
+      name: "Pointer Spotlight",
+      kind: "processor",
+      backdrop: true,
+      properties: {
+        ...pointerProperties,
+        radius: catalogFloat("Radius", 210, 24, 620, 1),
+        intensity: catalogFloat("Intensity", 0.8, 0, 2, 0.01),
+        falloff: catalogFloat("Falloff", 2.2, 0.5, 6, 0.01),
+        softness: catalogFloat("Softness", 0.48, 0.02, 1, 0.01),
+        edge: structuredClone(CATALOG_EDGE)
+      },
+      fragment: (p2) => pixelSpace(p2) + \`
+  let radius = max(\${p2("radius")}.x * globals.clock.z, 1.0);
+  let normalized = distance / radius;
+  let edge = mix(0.72, 1.0, \${p2("softness")}.x);
+  let light = pow(max(1.0 - smoothstep(0.0, edge, normalized), 0.0), \${p2("falloff")}.x) * pointerEnabled;
+  let original = sampleSource(uv);
+  let rgb = straight(original);
+  let lit = rgb + vec3f(1.0, 0.88, 0.68) * light * \${p2("intensity")}.x;
+  return premultiply(lit, original.a);
+\`
+    },
+    {
+      id: "pointer-prism",
+      name: "Pointer Prism",
+      kind: "processor",
+      backdrop: true,
+      properties: {
+        ...pointerProperties,
+        radius: catalogFloat("Radius", 170, 24, 520, 1),
+        dispersion: catalogFloat("Dispersion", 8, 0, 32, 0.1),
+        refraction: catalogFloat("Refraction", 0.7, 0, 2, 0.01),
+        softness: catalogFloat("Softness", 0.68, 0.05, 1, 0.01),
+        edge: structuredClone(CATALOG_EDGE)
+      },
+      fragment: (p2) => pixelSpace(p2) + \`
+  let radius = max(\${p2("radius")}.x * globals.clock.z, 1.0);
+  let envelope = (1.0 - smoothstep(radius * \${p2("softness")}.x, radius, distance)) * pointerEnabled;
+  let radial = normalize(delta + vec2f(0.0001));
+  let separation = \${p2("dispersion")}.x * globals.clock.z * envelope * \${p2("refraction")}.x;
+  let redSample = sampleSource(uv + radial * separation * globals.viewport.zw);
+  let centerSample = sampleSource(uv);
+  let blueSample = sampleSource(uv - radial * separation * globals.viewport.zw);
+  let separated = vec3f(straight(redSample).r, straight(centerSample).g, straight(blueSample).b);
+  let rgb = mix(straight(centerSample), separated, envelope);
+  return premultiply(rgb, centerSample.a);
+\`
+    },
+    {
+      id: "pointer-iridescence",
+      name: "Pointer Iridescence",
+      kind: "generator",
+      properties: {
+        ...pointerProperties,
+        scale: catalogFloat("Scale", 0.018, 2e-3, 0.08, 1e-3),
+        wavelength: catalogFloat("Wavelength", 0.55, 0.05, 2, 0.01),
+        movement: catalogFloat("Movement", 0.12, 0, 0.8, 0.01),
+        intensity: catalogFloat("Intensity", 0.75, 0, 1, 0.01)
+      },
+      fragment: (p2) => pixelSpace(p2) + \`
+  let angle = atan2(delta.y, delta.x);
+  let cssDistance = distance / max(globals.clock.z, 0.0001);
+  let phaseRadius = cssDistance * \${p2("scale")}.x;
+  let filmThickness = \${p2("wavelength")}.x * (0.85 + 0.25 * sin(phaseRadius - globals.clock.x * \${p2("movement")}.x * 5.0) + 0.12 * cos(angle * 3.0 + phaseRadius * 0.35));
+  let viewCosine = clamp(0.62 + 0.28 * cos(angle - 0.7) / (1.0 + cssDistance * 0.001), 0.08, 0.98);
+  let opticalPath = filmThickness / viewCosine;
+  let spectral = 0.5 + 0.5 * cos(6.2831853 * opticalPath * vec3f(1.0, 1.22, 1.48));
+  let fresnel = 0.2 + 0.8 * pow(1.0 - viewCosine, 3.0);
+  let cssViewportHeight = max(globals.viewport.y / max(globals.clock.z, 0.0001), 1.0);
+  let cursorField = mix(0.68, 1.0, exp(-pow(cssDistance / (cssViewportHeight * 0.65), 2.0)) * pointerEnabled);
+  let rgb = mix(vec3f(0.025, 0.035, 0.07), spectral * fresnel * cursorField, \${p2("intensity")}.x);
+  return vec4f(rgb, 1.0);
+\`
+    }
+  ];
+  var POINTER_EFFECT_DEFINITIONS = specs5.map((spec) => ({
+    ...catalogShader(spec),
+    interaction: {
+      positionProperty: "pointerPosition",
+      activeProperty: "pointerActive"
+    }
+  }));
+  function preset(definition3, id, name, params) {
+    return {
+      id,
+      name,
+      definitionId: definition3.id,
+      definitionVersion: definition3.version,
+      placement: definition3.kind === "generator" ? "fill" : definition3.placements.includes("backdrop") ? "backdrop" : "layer",
+      params: { pointerPosition: [0.5, 0.5], pointerActive: true, ...params },
+      clip: "bounds",
+      provenance: { origin: "design-original" }
+    };
+  }
+  var definitionsBySlug = new Map(
+    POINTER_EFFECT_DEFINITIONS.map((definition3) => [
+      definition3.id.replace("an-native-pointer-", ""),
+      definition3
+    ])
+  );
+  var POINTER_EFFECT_PRESETS = [
+    preset(
+      definitionsBySlug.get("ripples"),
+      "an-preset-pointer-ripples-1",
+      "Ripple Pool",
+      { radius: 182, wavelength: 42, strength: 14, softness: 0.64 }
+    ),
+    preset(
+      definitionsBySlug.get("ripples"),
+      "an-preset-pointer-ripples-2",
+      "Interference Rings",
+      { radius: 118, wavelength: 19, strength: 24, speed: 1.9, softness: 0.28 }
+    ),
+    preset(
+      definitionsBySlug.get("magnifier"),
+      "an-preset-pointer-magnifier-1",
+      "Glass Dome",
+      { radius: 138, zoom: 1.8, refraction: 5, softness: 0.24 }
+    ),
+    preset(
+      definitionsBySlug.get("magnifier"),
+      "an-preset-pointer-magnifier-2",
+      "Wide Lens",
+      { radius: 245, zoom: 1.28, refraction: 1.5, softness: 0.42 }
+    ),
+    preset(
+      definitionsBySlug.get("vortex"),
+      "an-preset-pointer-vortex-1",
+      "Tidal Twist",
+      { radius: 205, strength: 1.5, falloff: 1.6, softness: 0.58 }
+    ),
+    preset(
+      definitionsBySlug.get("vortex"),
+      "an-preset-pointer-vortex-2",
+      "Tight Vortex",
+      { radius: 110, strength: 4.2, falloff: 4.8, softness: 0.2 }
+    ),
+    preset(
+      definitionsBySlug.get("spotlight"),
+      "an-preset-pointer-spotlight-1",
+      "Soft Lantern",
+      { radius: 290, intensity: 0.62, falloff: 1.3, softness: 0.82 }
+    ),
+    preset(
+      definitionsBySlug.get("spotlight"),
+      "an-preset-pointer-spotlight-2",
+      "Hard Spotlight",
+      { radius: 150, intensity: 1.35, falloff: 3.8, softness: 0.2 }
+    ),
+    preset(
+      definitionsBySlug.get("prism"),
+      "an-preset-pointer-prism-1",
+      "Chromatic Edge",
+      { radius: 190, dispersion: 13, refraction: 0.9, softness: 0.7 }
+    ),
+    preset(
+      definitionsBySlug.get("prism"),
+      "an-preset-pointer-prism-2",
+      "Split Spectrum",
+      { radius: 116, dispersion: 26, refraction: 1.4, softness: 0.36 }
+    ),
+    preset(
+      definitionsBySlug.get("iridescence"),
+      "an-preset-pointer-iridescence-1",
+      "Oil Slick",
+      { scale: 0.026, wavelength: 0.72, movement: 0.18, intensity: 0.84 }
+    ),
+    preset(
+      definitionsBySlug.get("iridescence"),
+      "an-preset-pointer-iridescence-2",
+      "Peacock Film",
+      { scale: 0.045, wavelength: 1.12, movement: 0.05, intensity: 0.68 }
+    )
+  ];
+
   // shared/native-effect-wide-color.ts
   function createWideColorGrainEffect(grainV2) {
     return {
@@ -19351,7 +19637,8 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
     ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
     LUMA_DCT_EIGHT_EFFECT,
-    ...OWNED_V_FIELD_DEFINITIONS
+    ...OWNED_V_FIELD_DEFINITIONS,
+    ...POINTER_EFFECT_DEFINITIONS
   ];
   var NATIVE_EFFECT_DEFINITION_CATALOG = [
     ...NATIVE_EFFECT_DEFINITIONS_V1,
@@ -19375,7 +19662,8 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_NEXT_TWELVE_T_DEFINITIONS,
     ...OWNED_NEXT_TWELVE_U_DEFINITIONS,
     LUMA_DCT_EIGHT_EFFECT,
-    ...OWNED_V_FIELD_DEFINITIONS
+    ...OWNED_V_FIELD_DEFINITIONS,
+    ...POINTER_EFFECT_DEFINITIONS
   ];
   var PINNED_V2_PRESETS = [
     {
@@ -19417,7 +19705,7 @@ fn hash(pixel: vec2f) -> f32 {
     BLOOM_EFFECT,
     PARTICLE_FLOW_EFFECT
   ]);
-  var pinnedPresetIds = new Set(PINNED_V2_PRESETS.map((preset) => preset.id));
+  var pinnedPresetIds = new Set(PINNED_V2_PRESETS.map((preset2) => preset2.id));
   var v3LabelSourceIds = {};
   var v3Recipes = NATIVE_EFFECT_V3_DEFINITIONS.flatMap(
     (definition3) => createCatalogEffectPresets([definition3]).map((source3, index) => {
@@ -19430,9 +19718,9 @@ fn hash(pixel: vec2f) -> f32 {
   var NATIVE_V3_PRESET_LABEL_SOURCE_IDS = v3LabelSourceIds;
   var PRE_COORDINATE_RANDOM_PRESETS = [
     ...PINNED_V2_PRESETS,
-    ...reviewedRecipes.filter((preset) => !pinnedPresetIds.has(preset.id)),
+    ...reviewedRecipes.filter((preset2) => !pinnedPresetIds.has(preset2.id)),
     ...DESIGN_OWNED_GENERATOR_PRESETS.filter(
-      (preset) => !STATIC_V3_ID_SET.has(preset.definitionId)
+      (preset2) => !STATIC_V3_ID_SET.has(preset2.definitionId)
     ),
     ...DESIGN_OWNED_STATIC_V3_PRESETS,
     ...OWNED_GENERATOR_C_PRESETS,
@@ -19486,7 +19774,8 @@ fn hash(pixel: vec2f) -> f32 {
     ...OWNED_NEXT_TWELVE_T_PRESETS,
     ...OWNED_NEXT_TWELVE_U_PRESETS,
     ...LUMA_DCT_EIGHT_PRESETS,
-    ...OWNED_V_FIELD_PRESETS
+    ...OWNED_V_FIELD_PRESETS,
+    ...POINTER_EFFECT_PRESETS
   ];
 
   // shared/native-effect-trust.ts
@@ -19522,6 +19811,7 @@ fn hash(pixel: vec2f) -> f32 {
       resources: definition3.resources ?? null,
       output: definition3.output ?? null,
       ...definition3.extent === void 0 ? {} : { extent: definition3.extent },
+      ...definition3.interaction === void 0 ? {} : { interaction: definition3.interaction },
       ...definition3.sourceSizing === void 0 ? {} : { sourceSizing: definition3.sourceSizing },
       ...definition3.optionalImage === void 0 ? {} : { optionalImage: definition3.optionalImage },
       ...definition3.feedback === void 0 ? {} : { feedback: definition3.feedback },
@@ -20393,6 +20683,74 @@ fn hash(pixel: vec2f) -> f32 {
       this.entries.clear();
     }
   };
+
+  // shared/native-pointer-input.ts
+  var NativePointerInputError = class extends Error {
+    constructor() {
+      super(
+        "Native pointer coordinates must be finite GPU-representable numbers."
+      );
+      __publicField(this, "code", "native-pointer-invalid");
+      this.name = "NativePointerInputError";
+    }
+  };
+  function finiteGpuNumber(value) {
+    return typeof value === "number" && Number.isFinite(Math.fround(value));
+  }
+  function mapNativePointerInput(options) {
+    const { width, height, extent: extent2, clientToTarget, targetSize } = options;
+    const plan = planNativeEffectTransform(options.transform, {
+      width,
+      height,
+      pixelRatio: options.pixelRatio,
+      target: {
+        x: extent2?.left ?? 0,
+        y: extent2?.top ?? 0,
+        width: extent2?.sourceWidth ?? width,
+        height: extent2?.sourceHeight ?? height
+      }
+    });
+    if (!plan.ok) return plan;
+    if (!Number.isFinite(options.clientX) || !Number.isFinite(options.clientY) || !Object.values(clientToTarget).every(finiteGpuNumber) || !Number.isFinite(targetSize.width) || !Number.isFinite(targetSize.height) || targetSize.width <= 0 || targetSize.height <= 0)
+      return {
+        ok: false,
+        code: "effect-transform-invalid",
+        detail: "Pointer target geometry is outside its bounds."
+      };
+    const targetX = (clientToTarget.a * options.clientX + clientToTarget.c * options.clientY + clientToTarget.e) / targetSize.width;
+    const targetY = (clientToTarget.b * options.clientX + clientToTarget.d * options.clientY + clientToTarget.f) / targetSize.height;
+    const outputX = ((extent2?.left ?? 0) + targetX * (extent2?.sourceWidth ?? width)) / width;
+    const outputY = ((extent2?.top ?? 0) + targetY * (extent2?.sourceHeight ?? height)) / height;
+    const x = plan.rows[0][0] * outputX + plan.rows[0][1] * outputY + plan.rows[0][2];
+    const y = plan.rows[1][0] * outputX + plan.rows[1][1] * outputY + plan.rows[1][2];
+    if (!finiteGpuNumber(x) || !finiteGpuNumber(y))
+      return {
+        ok: false,
+        code: "effect-transform-invalid",
+        detail: "Pointer coordinates cannot be represented by GPU float uniforms."
+      };
+    return {
+      ok: true,
+      pointer: { x, y, active: x >= 0 && x <= 1 && y >= 0 && y <= 1 }
+    };
+  }
+  function packNativePointerProperties(definition3, params, pointer, deterministic) {
+    const packed = packNativeProperties(definition3, params);
+    if (!definition3.interaction || !pointer || deterministic) return packed;
+    if (!finiteGpuNumber(pointer.x) || !finiteGpuNumber(pointer.y) || typeof pointer.active !== "boolean")
+      throw new NativePointerInputError();
+    let slot = 0;
+    for (const [name, property] of Object.entries(definition3.properties)) {
+      if (name === definition3.interaction.positionProperty) {
+        packed[slot * 4] = Math.max(0, Math.min(1, pointer.x));
+        packed[slot * 4 + 1] = Math.max(0, Math.min(1, pointer.y));
+      }
+      if (name === definition3.interaction.activeProperty)
+        packed[slot * 4] = pointer.active ? 1 : 0;
+      slot += propertySlots(property);
+    }
+    return packed;
+  }
 
   // shared/native-presentation-fault-gate.ts
   var sha = /^[a-f0-9]{64}$/;
@@ -22666,6 +23024,9 @@ fn hash(pixel: vec2f) -> f32 {
       throw new NativeSourceError("source-transform", "source-transform");
     return inverted.matrix;
   }
+  function nativeClientToTargetAffine(target) {
+    return viewportToTargetAffine(target);
+  }
   function relativeAffine(element, target, space, localBox, readStyle = getComputedStyle, measuredSize, memo) {
     if (!(element instanceof HTMLElement) || !(target instanceof HTMLElement))
       throw new NativeSourceError(
@@ -23115,12 +23476,20 @@ fn hash(pixel: vec2f) -> f32 {
     }
     return { rank: 0, phase };
   }
-  function orderAutoStackingSiblingPaint(parent, groups) {
-    if (isFlexOrGridDisplay(getComputedStyle(parent).display)) return [...groups];
+  function orderAutoStackingSiblingPaint(parent, groups, memo) {
+    const readStyle = memo ? (element) => {
+      let style = memo.styles.get(element);
+      if (!style) {
+        style = getComputedStyle(element);
+        memo.styles.set(element, style);
+      }
+      return style;
+    } : getComputedStyle;
+    if (isFlexOrGridDisplay(readStyle(parent).display)) return [...groups];
     const phases = groups.map((records) => {
-      const first = sourceStackingOrder(records[0].node, parent);
+      const first = sourceStackingOrder(records[0].node, parent, readStyle);
       if (first.rank !== 0 || records.some((record4) => {
-        const order = sourceStackingOrder(record4.node, parent);
+        const order = sourceStackingOrder(record4.node, parent, readStyle);
         return order.rank !== 0 || order.phase !== first.phase;
       }))
         return null;
@@ -25331,7 +25700,11 @@ fn hash(pixel: vec2f) -> f32 {
             crossedAsyncBoundary = true;
           if (records.length) childGroups.push(records);
         }
-      for (const records of orderAutoStackingSiblingPaint(element, childGroups))
+      for (const records of orderAutoStackingSiblingPaint(
+        element,
+        childGroups,
+        memo
+      ))
         out.push(...records);
       if (element.lastElementChild)
         assertDomSiblingOrder(element, element.lastElementChild, element, out);
@@ -30923,15 +31296,20 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 (existing.instance.timing.seekRevision ?? 0) !== (next.seekRevision ?? 0)
               );
             }
-            if (existing.definitionHash !== entry.hash)
+            if (existing.definitionHash !== entry.hash) {
               existing.animationCapability = nativeEffectAnimationCapability(
                 entry.definition
               );
+              existing.pointerState = null;
+            }
             existing.instance = entry.instance;
             existing.definition = entry.definition;
             existing.definitionHash = entry.hash;
-            if (entry.definition.simulation) this.attachSimulationPointer(existing);
-            else if (existing.simulation) this.releaseSimulation(existing);
+            if (entry.definition.simulation || entry.definition.interaction)
+              this.attachPointer(existing);
+            else this.detachPointer(existing);
+            if (!entry.definition.simulation && existing.simulation)
+              this.releaseSimulation(existing);
             existing.previousLayerId = entry.previousLayerId;
             existing.previousFillId = entry.previousFillId;
             continue;
@@ -33964,44 +34342,54 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         simulation: null,
         pointerListener: null,
         pointerLeaveListener: null,
+        pointerState: null,
         simulationCaughtUp: true,
         feedback: null,
         feedbackFrame: null
       };
-      if (definition3.simulation) this.attachSimulationPointer(mounted);
+      if (definition3.simulation || definition3.interaction)
+        this.attachPointer(mounted);
       return mounted;
     }
-    attachSimulationPointer(mount) {
+    attachPointer(mount) {
       if (mount.pointerListener) return;
       const pointer = (event) => {
-        const rect = mount.target.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0 || !mount.width || !mount.height)
+        if (!mount.width || !mount.height) return;
+        let clientToTarget;
+        try {
+          clientToTarget = nativeClientToTargetAffine(mount.target);
+        } catch (error) {
+          this.issue(
+            error instanceof NativeSourceError ? error.code : "source-transform",
+            error instanceof Error ? error.message : String(error),
+            mount.instance.id
+          );
+          if (mount.simulation) mount.simulation.pointer.active = false;
+          this.clearInteractionPointer(mount);
           return;
-        const extent2 = mount.outputExtent;
+        }
         const previewInstance = this.instancePreview?.instanceId === mount.instance.id ? this.instancePreview.instance : mount.instance;
-        const plan = planNativeEffectTransform(previewInstance.transform, {
+        const mapped = mapNativePointerInput({
+          clientX: event.clientX,
+          clientY: event.clientY,
+          clientToTarget,
+          targetSize: {
+            width: mount.target.offsetWidth,
+            height: mount.target.offsetHeight
+          },
           width: mount.width,
           height: mount.height,
           pixelRatio: mount.pixelRatio,
-          target: {
-            x: extent2?.left ?? 0,
-            y: extent2?.top ?? 0,
-            width: extent2?.sourceWidth ?? mount.width,
-            height: extent2?.sourceHeight ?? mount.height
-          }
+          extent: mount.outputExtent,
+          transform: previewInstance.transform
         });
-        if (!plan.ok) {
-          this.issue(plan.code, plan.detail, mount.instance.id);
+        if (!mapped.ok) {
+          this.issue(mapped.code, mapped.detail, mount.instance.id);
           if (mount.simulation) mount.simulation.pointer.active = false;
+          this.clearInteractionPointer(mount);
           return;
         }
-        const targetX = (event.clientX - rect.left) / rect.width;
-        const targetY = (event.clientY - rect.top) / rect.height;
-        const outputX = ((extent2?.left ?? 0) + targetX * (extent2?.sourceWidth ?? mount.width)) / mount.width;
-        const outputY = ((extent2?.top ?? 0) + targetY * (extent2?.sourceHeight ?? mount.height)) / mount.height;
-        const x = plan.rows[0][0] * outputX + plan.rows[0][1] * outputY + plan.rows[0][2];
-        const y = plan.rows[1][0] * outputX + plan.rows[1][1] * outputY + plan.rows[1][2];
-        const active = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+        const { x, y, active } = mapped.pointer;
         const prior2 = mount.simulation?.pointer;
         if (mount.simulation)
           mount.simulation.pointer = {
@@ -34011,14 +34399,41 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             vy: prior2 ? y - prior2.y : 0,
             active
           };
+        if (mount.definition.interaction) {
+          const previous = mount.pointerState;
+          mount.pointerState = mapped.pointer;
+          if (!previous || previous.x !== x || previous.y !== y || previous.active !== active)
+            this.requestSourceFrame();
+        }
       };
       const leave = () => {
         if (mount.simulation) mount.simulation.pointer.active = false;
+        this.clearInteractionPointer(mount);
       };
       mount.target.addEventListener("pointermove", pointer, { passive: true });
       mount.target.addEventListener("pointerleave", leave);
       mount.pointerListener = pointer;
       mount.pointerLeaveListener = leave;
+    }
+    clearInteractionPointer(mount) {
+      const interaction = mount.definition.interaction;
+      if (!interaction || mount.pointerState && !mount.pointerState.active)
+        return;
+      const authoredPosition = mount.instance.params[interaction.positionProperty] ?? mount.definition.properties[interaction.positionProperty].default;
+      mount.pointerState = mount.pointerState ? { ...mount.pointerState, active: false } : { x: authoredPosition[0], y: authoredPosition[1], active: false };
+      this.requestSourceFrame();
+    }
+    detachPointer(mount) {
+      if (mount.pointerListener)
+        mount.target.removeEventListener("pointermove", mount.pointerListener);
+      if (mount.pointerLeaveListener)
+        mount.target.removeEventListener(
+          "pointerleave",
+          mount.pointerLeaveListener
+        );
+      mount.pointerListener = null;
+      mount.pointerLeaveListener = null;
+      mount.pointerState = null;
     }
     fillGroup(target) {
       return [...this.mounts.values()].filter(
@@ -34199,13 +34614,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         (other) => other !== mount && other.instance.placement === "backdrop"
       ))
         this.releaseScenePresentation();
-      if (mount.pointerListener)
-        mount.target.removeEventListener("pointermove", mount.pointerListener);
-      if (mount.pointerLeaveListener)
-        mount.target.removeEventListener(
-          "pointerleave",
-          mount.pointerLeaveListener
-        );
+      this.detachPointer(mount);
       const survivors = [...this.mounts.values()].filter(
         (other) => other !== mount && other.target === mount.target
       );
@@ -36488,7 +36897,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       mount.feedbackFrame = frame;
       return output;
     }
-    async statelessComputePasses(mount, source3, time, encoder, definition3, instance) {
+    async statelessComputePasses(mount, source3, time, encoder, definition3, instance, deterministic) {
       try {
         const spec = definition3.statelessCompute;
         const graph = planEffectGraph(definition3);
@@ -36596,7 +37005,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           }),
           4
         );
-        data.set(packNativeProperties(definition3, instance.params), 8);
+        data.set(
+          packNativePointerProperties(
+            definition3,
+            instance.params,
+            mount.pointerState,
+            deterministic
+          ),
+          8
+        );
         inputTextures.add(output);
         const releaseTextures2 = this.retainStatelessTextures(
           device,
@@ -36730,7 +37147,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           time,
           encoder,
           definition3,
-          instance
+          instance,
+          deterministic
         );
       if (definition3.simulation)
         return this.simulationPasses(
@@ -36869,7 +37287,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           packNativeUniformClock({ time, seed: instance.seed, pixelRatio: dpr }),
           4
         );
-        data.set(packNativeProperties(definition3, instance.params), 8);
+        data.set(
+          packNativePointerProperties(
+            definition3,
+            instance.params,
+            mount.pointerState,
+            deterministic
+          ),
+          8
+        );
         const bind = this.bind(
           mount,
           \`pass:\${pass.id}\`,

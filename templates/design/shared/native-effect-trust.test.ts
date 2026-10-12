@@ -77,6 +77,15 @@ describe("native effect execution trust", () => {
     expect(
       await hashEffectDefinition({
         ...GRAIN_GRADIENT_EFFECT,
+        interaction: {
+          positionProperty: "pointerPosition",
+          activeProperty: "pointerActive",
+        },
+      }),
+    ).not.toBe(original);
+    expect(
+      await hashEffectDefinition({
+        ...GRAIN_GRADIENT_EFFECT,
         sourceSizing: { uv: "paper-image" },
       }),
     ).not.toBe(original);
