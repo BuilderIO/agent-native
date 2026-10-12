@@ -532,6 +532,81 @@ describe("POST /api/session-replay-storyboard", () => {
     expect(mocks.runAction).not.toHaveBeenCalled();
   });
 
+  it("stops waiting for active-org selection when the request expires", async () => {
+    let resolveLookup: (value: string | null) => void = () => {};
+    mocks.resolveActiveOrgIdForStorageCredential.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveLookup = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        mocks.resolveActiveOrgIdForStorageCredential,
+      ).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    resolveLookup(null);
+    expect(mocks.getPrivateStorageReadinessForRequest).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps a late active-org lookup rejection from replacing request expiry", async () => {
+    let rejectLookup: (reason?: unknown) => void = () => {};
+    mocks.resolveActiveOrgIdForStorageCredential.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((_resolve, reject) => {
+          rejectLookup = reject;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        mocks.resolveActiveOrgIdForStorageCredential,
+      ).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    rejectLookup(new Error("late membership lookup failure"));
+    await Promise.resolve();
+    expect(mocks.getPrivateStorageReadinessForRequest).not.toHaveBeenCalled();
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
   it("gates on private storage readiness before creating a board", async () => {
     mocks.getPrivateStorageReadinessForRequest.mockResolvedValueOnce({
       selectedOrg: "selected",

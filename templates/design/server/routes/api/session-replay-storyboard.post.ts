@@ -512,12 +512,14 @@ export default defineEventHandler(async (event) => {
     async () => {
       let storageCredentialOrgId: string | null;
       try {
-        storageCredentialOrgId = await resolveActiveOrgIdForStorageCredential(
-          caller.email!,
+        storageCredentialOrgId = await beforeRequestExpiry(requestSignal, () =>
+          resolveActiveOrgIdForStorageCredential(caller.email!),
         );
       } catch {
+        if (requestSignal?.aborted) throw requestDeadlineError();
         badRequest("Design private screenshot storage is unavailable", 503);
       }
+      throwIfRequestExpired(requestSignal);
       const withStorageCredentialOrg = <T>(operation: () => T | Promise<T>) =>
         runWithRequestContext(
           {
