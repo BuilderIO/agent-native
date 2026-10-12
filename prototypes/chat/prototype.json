@@ -11,6 +11,10 @@
         "for": "the agent chat surface shared across apps"
       }
     ],
-    "sections": {}
+    "sections": {
+      "Chat · Screens": "2841:26627",
+      "Chat · Menus and popovers": "2841:26628",
+      "Chat · Parts": "2841:26629"
+    }
   }
 }
