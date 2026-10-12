@@ -20,6 +20,8 @@ const booted = vi.hoisted(() => ({
     names: string[];
     entries: Record<string, any>;
   }>,
+  stopAfterResolve: true,
+  loopRuns: [] as Array<{ protocol: string; appId: unknown }>,
 }));
 
 // A2A and ask_app go on to run the model after resolving app actions, so stop
@@ -33,7 +35,7 @@ vi.mock("./agent-chat/additional-actions.js", async (importOriginal) => {
       ...args: Parameters<typeof actual.resolveAppAdditionalActions>
     ) => {
       const added = await actual.resolveAppAdditionalActions(...args);
-      if (args[1].surface === "chat") return added;
+      if (args[1].surface === "chat" || !booted.stopAfterResolve) return added;
       booted.delegatedAdditions.push({
         surface: args[1].surface,
         names: Object.keys(added),
@@ -41,6 +43,20 @@ vi.mock("./agent-chat/additional-actions.js", async (importOriginal) => {
       });
       throw new Error("app actions resolved");
     },
+  };
+});
+
+vi.mock("./agent-chat/action-filters-a2a.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./agent-chat/action-filters-a2a.js")>();
+  const stop = (protocol: string) => async (runOptions: any) => {
+    booted.loopRuns.push({ protocol, appId: runOptions.appId });
+    throw new Error("agent loop reached");
+  };
+  return {
+    ...actual,
+    runA2AAgentLoop: stop("a2a"),
+    runMCPAgentLoop: stop("mcp"),
   };
 });
 
@@ -135,7 +151,8 @@ async function boot(
   {
     mcpEnabled = false,
     additionalActionSurfaces,
-  }: Pick<AgentChatPluginOptions, "additionalActionSurfaces"> & {
+    appId,
+  }: Pick<AgentChatPluginOptions, "additionalActionSurfaces" | "appId"> & {
     mcpEnabled?: boolean;
   } = {},
 ): Promise<void> {
@@ -166,6 +183,7 @@ async function boot(
     mcp: { enabled: mcpEnabled },
     resolveAdditionalActions,
     additionalActionSurfaces,
+    ...(appId ? { appId } : {}),
   })(nitroApp);
   await booted.initPromises.at(-1);
 }
@@ -177,6 +195,8 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
     booted.a2aConfig = undefined;
     booted.mcpConfig = undefined;
     booted.delegatedAdditions.length = 0;
+    booted.stopAfterResolve = true;
+    booted.loopRuns.length = 0;
   });
 
   afterEach(async () => {
@@ -449,6 +469,36 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
         () => aliceTool.run({}),
       ),
     ).resolves.toBe("alice@example.com tool");
+  });
+});
+
+describe("delegated loops", () => {
+  beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "development");
+    booted.stopAfterResolve = false;
+    booted.loopRuns.length = 0;
+  });
+
+  afterEach(async () => {
+    await Promise.all(closers.splice(0).map((close) => close()));
+    booted.stopAfterResolve = true;
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("run A2A and ask_app with the app's identity so access policies can resolve", async () => {
+    await boot(async () => ({ "user-registered-tool": entry("user tool") }), {
+      mcpEnabled: true,
+      additionalActionSurfaces: ["a2a", "mcp"],
+      appId: "slides",
+    });
+
+    await runDelegated("alice@example.com", "task-app-identity");
+
+    expect(booted.loopRuns).toEqual([
+      { protocol: "a2a", appId: "slides" },
+      { protocol: "mcp", appId: "slides" },
+    ]);
   });
 });
 

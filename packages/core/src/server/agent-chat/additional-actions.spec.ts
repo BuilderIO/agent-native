@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ActionEntry } from "../../agent/production-agent.js";
+import type { AgentEngine, EngineEvent } from "../../agent/engine/types.js";
+import {
+  type ActionEntry,
+  runAgentLoop,
+} from "../../agent/production-agent.js";
 import { registerActionAccessChecker } from "../../authorization/action-access-runtime.js";
 import { hashEmail } from "../../mcp-client/remote-store.js";
 import { runWithRequestContext } from "../request-context.js";
@@ -224,6 +228,78 @@ describe("resolveAppAdditionalActions", () => {
       expect(Object.keys(added)).toEqual(["untrusted-ok"]);
     });
 
+    it("rejects regex keywords and schema identifiers but not properties that share their names", async () => {
+      const schemaEntry = (parameters: unknown) =>
+        entry("x", {
+          tool: { description: "x", parameters: parameters as never },
+        });
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "schema-pattern": schemaEntry({
+              type: "object",
+              properties: { a: { type: "string", pattern: "^(a+)+$" } },
+            }),
+            "schema-nested-pattern": schemaEntry({
+              type: "object",
+              properties: {
+                a: { type: "array", items: { anyOf: [{ pattern: "x" }] } },
+              },
+            }),
+            "schema-pattern-properties": schemaEntry({
+              type: "object",
+              patternProperties: { "^x": { type: "string" } },
+            }),
+            "schema-id": schemaEntry({
+              $id: "https://example.com/tool",
+              type: "object",
+            }),
+            "schema-remote-ref": schemaEntry({
+              type: "object",
+              properties: { a: { $ref: "https://example.com/a.json" } },
+            }),
+            "schema-property-names": schemaEntry({
+              type: "object",
+              properties: {
+                pattern: { type: "string" },
+                $id: { type: "string" },
+                b: { $ref: "#/$defs/b" },
+              },
+              $defs: { b: { type: "number" } },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+
+      expect(Object.keys(added)).toEqual(["schema-property-names"]);
+    });
+
+    it("compiles a freshly built schema on every request", async () => {
+      const resolver = () => ({
+        "fresh-schema": entry("x", {
+          tool: {
+            description: "x",
+            parameters: {
+              type: "object",
+              properties: { a: { $ref: "#/$defs/a" } },
+              $defs: { a: { type: "string" } },
+            },
+          },
+        }),
+      });
+
+      for (let i = 0; i < 3; i += 1) {
+        const added = await resolveAppAdditionalActions(
+          config({ resolver }),
+          alice,
+          {},
+        );
+        expect(Object.keys(added)).toEqual(["fresh-schema"]);
+      }
+    });
+
     it("cleans hidden characters and caps tool text", async () => {
       const added = await resolveAppAdditionalActions(
         config({
@@ -374,6 +450,89 @@ describe("resolveAppAdditionalActions", () => {
       await expect(asAlice(() => strict.run({ count: 3 }))).resolves.toEqual({
         count: 3,
       });
+    });
+
+    it("keeps the agent loop from coercing arguments before the strict check", async () => {
+      const run = vi.fn(async (args: unknown) => JSON.stringify(args));
+      const added = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "strict-loop-tool": entry("x", {
+              run,
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  properties: { count: { type: "number" } },
+                  required: ["count"],
+                },
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls <= 2) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `call-${streamCalls}`,
+                  name: "strict-loop-tool",
+                  input: { count: streamCalls === 1 ? "3" : 3 },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const events: any[] = [];
+
+      await asAlice(() =>
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: added,
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+
+      const results = events.filter((event) => event.type === "tool_done");
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({ isError: true });
+      expect(String(results[0].result)).toContain("must be number");
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith({ count: 3 }, expect.anything());
     });
 
     it("enforces the entry's access policy for the bound caller", async () => {

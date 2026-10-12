@@ -219,8 +219,9 @@ createAgentChatPlugin({
 `-` का न हो; जब वह नाम किसी template, framework, dev या MCP action का हो, उन
 actions सहित जो agent से छिपे हैं; जब वह ऐसा `mcp__` नाम हो जिसे कॉलर नहीं देख
 सकता; या जब उसकी tool definition उपयोग योग्य न हो। descriptions से छिपे control
-characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है, और `parameters` एक
-सीमित JSON schema होना चाहिए जिसकी root `object` हो।
+characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है। `parameters` एक
+सीमित JSON schema होना चाहिए जिसकी root `object` हो और जो `pattern`,
+`patternProperties`, `$id`, anchors, या schema के बाहर के `$ref` का उपयोग न करे।
 
 हर entry उस कॉलर से बंधी होती है जिसके लिए उसे resolve किया गया था। हर call,
 चाहे कोई भी dispatcher उसे करे, किसी दूसरे उपयोगकर्ता या organization के लिए
@@ -229,6 +230,9 @@ characters हटा दिए जाते हैं और उनकी लं
 durable background run के रूप में जारी रहता है, तो callback फिर चलता है लेकिन
 turn अपने मूल नाम बनाए रखता है: नई entries बाहर रहती हैं, और जो नाम गायब हो गया
 वह call करने पर error लौटाता है।
+
+ये entries केवल agent loop के लिए native tools हैं। कॉलर के MCP tools की तरह, इन
+तक `run-code` या `tool-orchestration` से नहीं पहुँचा जा सकता।
 
 `event` `chat` और `a2a` के लिए सेट होता है; `ask_app` calls में यह नहीं होता।
 anonymous अनुरोधों, scheduled jobs, automations या agent-team sub-agents के लिए

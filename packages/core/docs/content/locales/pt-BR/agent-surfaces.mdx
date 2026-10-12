@@ -225,8 +225,9 @@ letras, dígitos, `_` ou `-`; quando o nome pertence a qualquer ação de templa
 do framework, de desenvolvimento ou do MCP, inclusive ações ocultas do agente;
 quando é um nome `mcp__` que o chamador não pode ver; ou quando a definição da
 ferramenta é inutilizável. As descrições perdem caracteres de controle ocultos e
-têm tamanho limitado, e `parameters` deve ser um esquema JSON limitado com raiz
-`object`.
+têm tamanho limitado. `parameters` deve ser um esquema JSON limitado com raiz
+`object` que não use `pattern`, `patternProperties`, `$id`, âncoras nem um
+`$ref` fora do esquema.
 
 Cada entrada fica vinculada ao chamador para o qual foi resolvida. Toda chamada,
 qualquer que seja o despachante que a faça, se recusa a executar para outro
@@ -235,6 +236,10 @@ argumentos contra o esquema dela sem coerção de tipos. Quando um turno de chat
 continua como uma execução durável em segundo plano, o callback roda novamente,
 mas o turno mantém seus nomes originais: entradas novas ficam de fora, e um nome
 que desapareceu retorna um erro quando chamado.
+
+Essas entradas são ferramentas nativas apenas para o loop do agente. Como as
+ferramentas MCP de quem chama, elas não são acessíveis a partir de `run-code` ou
+`tool-orchestration`.
 
 `event` é definido para `chat` e `a2a`; chamadas `ask_app` não o têm. O callback
 não é chamado para solicitações anônimas, jobs agendados, automações ou

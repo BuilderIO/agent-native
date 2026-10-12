@@ -235,8 +235,10 @@ pas composé de 1 à 64 lettres, chiffres, `_` ou `-` ; lorsque le nom appartien
 à une action de modèle, de framework, de développement ou MCP, y compris les
 actions masquées à l’agent ; lorsqu’il s’agit d’un nom `mcp__` que l’appelant ne
 peut pas voir ; ou lorsque la définition de son outil est inutilisable. Les
-descriptions perdent leurs caractères de contrôle cachés et sont plafonnées, et
-`parameters` doit être un schéma JSON borné dont la racine est de type `object`.
+descriptions perdent leurs caractères de contrôle cachés et sont plafonnées.
+`parameters` doit être un schéma JSON borné dont la racine est de type `object`
+et qui n’utilise ni `pattern`, ni `patternProperties`, ni `$id`, ni ancres, ni
+`$ref` hors du schéma.
 
 Chaque entrée est liée à l’appelant pour lequel elle a été résolue. Chaque
 appel, quel que soit le dispatcher qui l’effectue, refuse de s’exécuter pour un
@@ -246,6 +248,10 @@ type. Lorsqu’un tour de chat se poursuit sous forme d’exécution durable en
 arrière-plan, le callback s’exécute de nouveau, mais le tour conserve ses noms
 d’origine : les nouvelles entrées restent à l’écart, et un nom qui a disparu
 renvoie une erreur lorsqu’il est appelé.
+
+Ces entrées sont des outils natifs réservés à la boucle de l’agent. Comme les
+outils MCP de l’appelant, elles ne sont pas accessibles depuis `run-code` ou
+`tool-orchestration`.
 
 `event` est défini pour `chat` et `a2a` ; les appels `ask_app` n’en ont pas. Le
 callback n’est pas appelé pour les requêtes anonymes, les tâches planifiées, les

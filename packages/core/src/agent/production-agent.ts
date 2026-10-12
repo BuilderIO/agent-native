@@ -365,6 +365,7 @@ import {
   claimSetupResume,
   setupResumeRefusedRunId,
 } from "./setup-resume-claim.js";
+import { getStrictToolInputValidator } from "./strict-tool-input.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -5800,6 +5801,8 @@ function validateRawToolInput(
   entry: ActionEntry,
   input: unknown,
 ): string | null {
+  const strict = getStrictToolInputValidator(entry);
+  if (strict) return strict(input);
   if (!shouldValidateRawToolParameters(entry)) return null;
   const parameters = entry.tool.parameters;
   if (!parameters) return null;
@@ -7344,21 +7347,24 @@ export async function runAgentLoop(opts: {
     ): Promise<EngineContentPart> => {
       noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
-      const placeholderNormalization = actionEntry
-        ? normalizeOptionalToolPlaceholders(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const strictToolInput = getStrictToolInputValidator(actionEntry);
+      const placeholderNormalization =
+        actionEntry && !strictToolInput
+          ? normalizeOptionalToolPlaceholders(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (placeholderNormalization.changed) {
         toolCall = { ...toolCall, input: placeholderNormalization.input };
       }
-      const jsonStringCoercion = actionEntry
-        ? coerceStringifiedJsonToolValues(
-            actionEntry.tool.parameters,
-            toolCall.input,
-          )
-        : { input: toolCall.input, changed: false };
+      const jsonStringCoercion =
+        actionEntry && !strictToolInput
+          ? coerceStringifiedJsonToolValues(
+              actionEntry.tool.parameters,
+              toolCall.input,
+            )
+          : { input: toolCall.input, changed: false };
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }

@@ -3,6 +3,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 
 import type { ActionRunContext } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
+import { registerStrictToolInput } from "../../agent/strict-tool-input.js";
 import { assertRegisteredActionAccess } from "../../authorization/action-access-runtime.js";
 import { isMcpToolAllowedForRequest } from "../../mcp-client/visibility.js";
 import { ForbiddenError } from "../../sharing/access.js";
@@ -70,6 +71,50 @@ const strictAjv2020 = new Ajv2020({
   useDefaults: false,
   removeAdditional: false,
 });
+
+const validateAnyObject = strictAjv.compile({ type: "object" });
+
+// Keywords whose values hold subschemas, by shape.
+const SUBSCHEMA_KEYWORDS = [
+  "additionalProperties",
+  "additionalItems",
+  "contains",
+  "else",
+  "if",
+  "items",
+  "not",
+  "propertyNames",
+  "then",
+  "unevaluatedItems",
+  "unevaluatedProperties",
+];
+const SUBSCHEMA_LIST_KEYWORDS = [
+  "allOf",
+  "anyOf",
+  "items",
+  "oneOf",
+  "prefixItems",
+];
+const SUBSCHEMA_MAP_KEYWORDS = [
+  "$defs",
+  "definitions",
+  "dependencies",
+  "dependentSchemas",
+  "properties",
+];
+// Regex keywords run user-chosen patterns synchronously on the event loop, so
+// one catastrophic pattern stalls every request in the process. Schema
+// identifiers register globally in Ajv and collide across requests and callers.
+const FORBIDDEN_SCHEMA_KEYWORDS = [
+  "pattern",
+  "patternProperties",
+  "$id",
+  "$anchor",
+  "$dynamicAnchor",
+  "$dynamicRef",
+  "$recursiveAnchor",
+  "$recursiveRef",
+];
 
 const reportedSkips = new Set<string>();
 
@@ -194,7 +239,7 @@ function prepareActionEntry(
   const parameters = entry.tool.parameters;
   let validate: ValidateFunction;
   if (parameters === undefined) {
-    validate = strictAjv.compile({ type: "object" });
+    validate = validateAnyObject;
   } else {
     const rejection = rejectParameterSchema(parameters);
     if (rejection) return rejection;
@@ -207,16 +252,22 @@ function prepareActionEntry(
   const { title: _untrustedTitle, ...tool } = entry.tool;
   const run = entry.run;
   const access = entry.access;
-  return {
+  const inputError = (input: unknown): string | null =>
+    validate(input)
+      ? null
+      : strictAjv.errorsText(validate.errors, {
+          dataVar: "input",
+          separator: "; ",
+        });
+  const prepared: ActionEntry = {
     ...entry,
     tool: { ...tool, ...(title ? { title } : {}), description },
     run: async (args: unknown, ctx?: ActionRunContext) => {
       const caller = assertBoundCaller(name, principal, ctx);
       const input = args === undefined ? {} : args;
-      if (!validate(input)) {
-        throw new TypeError(
-          `Invalid arguments for ${name}: ${strictAjv.errorsText(validate.errors, { dataVar: "input", separator: "; " })}`,
-        );
+      const error = inputError(input);
+      if (error) {
+        throw new TypeError(`Invalid arguments for ${name}: ${error}`);
       }
       if (access) {
         await assertRegisteredActionAccess(access, input, {
@@ -229,6 +280,12 @@ function prepareActionEntry(
       return run(input, ctx);
     },
   };
+  // The agent loop would otherwise repair and coerce the model's input before
+  // `run` sees it, so a string "3" would reach a number parameter as 3.
+  registerStrictToolInput(prepared, (input) =>
+    inputError(input === undefined ? {} : input),
+  );
+  return prepared;
 }
 
 /**
@@ -283,6 +340,36 @@ function rejectParameterSchema(parameters: unknown): string | null {
   if (schemaDepth(parameters) > MAX_SCHEMA_DEPTH) {
     return `has a tool schema nested deeper than ${MAX_SCHEMA_DEPTH} levels`;
   }
+  return rejectSchemaKeywords(parameters);
+}
+
+function rejectSchemaKeywords(schema: unknown): string | null {
+  if (!isPlainRecord(schema)) return null;
+  for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
+    if (Object.hasOwn(schema, keyword)) {
+      return `has a tool schema that uses "${keyword}", which app actions may not use`;
+    }
+  }
+  if (
+    Object.hasOwn(schema, "$ref") &&
+    !(typeof schema.$ref === "string" && schema.$ref.startsWith("#"))
+  ) {
+    return "has a tool schema with a $ref outside the schema";
+  }
+  const children: unknown[] = [];
+  for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);
+  for (const keyword of SUBSCHEMA_LIST_KEYWORDS) {
+    if (Array.isArray(schema[keyword])) children.push(...schema[keyword]);
+  }
+  for (const keyword of SUBSCHEMA_MAP_KEYWORDS) {
+    if (isPlainRecord(schema[keyword])) {
+      children.push(...Object.values(schema[keyword]));
+    }
+  }
+  for (const child of children) {
+    const rejection = rejectSchemaKeywords(child);
+    if (rejection) return rejection;
+  }
   return null;
 }
 
@@ -290,9 +377,17 @@ function compileStrict(schema: object): ValidateFunction {
   const declared = (schema as { $schema?: unknown }).$schema;
   const dialect =
     typeof declared === "string" ? declared.replace(/#$/, "") : undefined;
-  return dialect === "https://json-schema.org/draft/2020-12/schema"
-    ? strictAjv2020.compile(schema)
-    : strictAjv.compile(schema);
+  const ajv =
+    dialect === "https://json-schema.org/draft/2020-12/schema"
+      ? strictAjv2020
+      : strictAjv;
+  // Resolvers usually build fresh schema objects per request; Ajv keeps every
+  // compiled schema in a strong cache, so drop it once the validator exists.
+  try {
+    return ajv.compile(schema);
+  } finally {
+    ajv.removeSchema(schema);
+  }
 }
 
 function schemaDepth(value: unknown, depth = 0): number {

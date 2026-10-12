@@ -228,8 +228,9 @@ logs a warning once, when its name is not 1–64 letters, digits, `_`, or `-`;
 when the name belongs to any template, framework, dev, or MCP action, including
 actions hidden from the agent; when it is an `mcp__` name the caller cannot
 see; or when its tool definition is unusable. Descriptions lose hidden control
-characters and are capped, and `parameters` must be a bounded JSON schema with
-an `object` root.
+characters and are capped. `parameters` must be a bounded JSON schema with an
+`object` root that does not use `pattern`, `patternProperties`, `$id`, anchors,
+or a `$ref` outside the schema.
 
 Each entry is bound to the caller it was resolved for. Every call, whichever
 dispatcher makes it, refuses to run for a different user or organization,
@@ -237,6 +238,9 @@ enforces the entry's `access` policy, and validates the arguments against its
 schema without type coercion. When a chat turn continues as a durable background
 run, the callback runs again but the turn keeps its original names: new entries
 stay out, and a name that disappeared returns an error when called.
+
+These entries are native tools for the agent loop only. Like the caller's MCP
+tools, they aren't reachable from `run-code` or `tool-orchestration`.
 
 `event` is set for `chat` and `a2a`; `ask_app` calls have none. The callback
 is not called for anonymous requests, scheduled jobs, automations, or agent-team

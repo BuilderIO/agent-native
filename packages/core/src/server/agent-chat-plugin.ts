@@ -2790,6 +2790,9 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
+              // Without it, every action with an `access` policy is refused
+              // for lack of an application identity.
+              appId: options?.appId,
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -3371,6 +3374,7 @@ export function createAgentChatPlugin(
                 actions: mcpActions,
                 ownerEmail,
                 orgId: getRequestOrgId() ?? null,
+                appId: options?.appId,
                 executionMode: "act",
                 runId: mcpRunId,
                 networkProtocol: "mcp",

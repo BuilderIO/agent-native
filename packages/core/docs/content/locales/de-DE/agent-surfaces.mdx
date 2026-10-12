@@ -236,8 +236,10 @@ Name zu einer beliebigen Template-, Framework-, Dev- oder MCP-Action gehört,
 einschließlich vor dem Agenten verborgener Actions; wenn es ein `mcp__`-Name
 ist, den der Aufrufer nicht sehen kann; oder wenn seine Tool-Definition
 unbrauchbar ist. Aus Beschreibungen werden verborgene Steuerzeichen entfernt,
-und sie werden in der Länge begrenzt; `parameters` muss ein begrenztes
-JSON-Schema mit einem `object`-Wurzelelement sein.
+und sie werden in der Länge begrenzt. `parameters` muss ein begrenztes
+JSON-Schema mit einem `object`-Wurzelelement sein, das weder `pattern`,
+`patternProperties`, `$id`, Anker noch ein `$ref` außerhalb des Schemas
+verwendet.
 
 Jeder Eintrag ist an den Aufrufer gebunden, für den er aufgelöst wurde. Jeder
 Aufruf, egal welcher Dispatcher ihn ausführt, weigert sich, für einen anderen
@@ -247,6 +249,10 @@ gegen sein Schema. Setzt sich ein Chat-Turn als dauerhafter Hintergrundlauf
 fort, läuft der Callback erneut, aber der Turn behält seine ursprünglichen
 Namen: Neue Einträge bleiben draußen, und ein Name, der verschwunden ist,
 liefert beim Aufruf einen Fehler.
+
+Diese Einträge sind native Tools ausschließlich für die Agent-Schleife. Wie die
+MCP-Tools des Aufrufers sind sie aus `run-code` oder `tool-orchestration` nicht
+erreichbar.
 
 `event` ist für `chat` und `a2a` gesetzt; `ask_app`-Aufrufe haben keines. Der
 Callback wird weder für anonyme Anfragen noch für geplante Jobs, Automationen
