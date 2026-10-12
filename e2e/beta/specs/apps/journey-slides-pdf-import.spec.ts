@@ -55,6 +55,7 @@ skipUnlessAuthed();
 
 const STORAGE_ENV_SKIP =
   "[env] e2e account has no private storage; connect Builder storage to the e2e account";
+const STORAGE_STATUS_TIMEOUT_MS = 90_000;
 
 const site = siteById("slides");
 const origin = originFor(site);
@@ -114,12 +115,13 @@ function skipUnlessStorageReady(status: { status: number; text: string }) {
 
 async function assertStorageReady(page: Page): Promise<void> {
   skipUnlessStorageReady(
-    await page.evaluate(async () => {
+    await page.evaluate(async (timeoutMs) => {
       const response = await fetch("/api/uploads/status", {
         credentials: "include",
+        signal: AbortSignal.timeout(timeoutMs),
       });
       return { status: response.status, text: await response.text() };
-    }),
+    }, STORAGE_STATUS_TIMEOUT_MS),
   );
 }
 
