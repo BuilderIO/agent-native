@@ -6,6 +6,7 @@ import type {
 import { IconPencil } from "@tabler/icons-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
+import { BlockRenderErrorBoundary } from "./BlockRenderErrorBoundary.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 export function blockEditSurface(
@@ -34,14 +35,20 @@ export function BlockView({
   const [panelHovered, setPanelHovered] = useState(false);
   const Read = spec.Read;
   const readNode = (
-    <Read
-      data={block.data}
+    <BlockRenderErrorBoundary
       blockId={block.id}
-      title={block.title}
-      summary={block.summary}
-      ctx={ctx}
-      compactVisuals={compactVisuals}
-    />
+      blockType={spec.type}
+      resetKey={block.data}
+    >
+      <Read
+        data={block.data}
+        blockId={block.id}
+        title={block.title}
+        summary={block.summary}
+        ctx={ctx}
+        compactVisuals={compactVisuals}
+      />
+    </BlockRenderErrorBoundary>
   );
 
   const canEdit =
@@ -62,25 +69,33 @@ export function BlockView({
   };
 
   const Edit = spec.Edit;
-  const formNode = Edit ? (
-    <Edit
-      data={block.data}
-      onChange={commit}
-      editable
+  const formNode = (
+    <BlockRenderErrorBoundary
       blockId={block.id}
-      title={block.title}
-      summary={block.summary}
-      ctx={ctx}
-    />
-  ) : (
-    <SchemaBlockEditor
-      data={block.data}
-      onChange={commit}
-      schema={spec.schema}
-      editable
-      blockId={block.id}
-      ctx={ctx}
-    />
+      blockType={spec.type}
+      resetKey={block.data}
+    >
+      {Edit ? (
+        <Edit
+          data={block.data}
+          onChange={commit}
+          editable
+          blockId={block.id}
+          title={block.title}
+          summary={block.summary}
+          ctx={ctx}
+        />
+      ) : (
+        <SchemaBlockEditor
+          data={block.data}
+          onChange={commit}
+          schema={spec.schema}
+          editable
+          blockId={block.id}
+          ctx={ctx}
+        />
+      )}
+    </BlockRenderErrorBoundary>
   );
 
   if (blockEditSurface(spec) === "panel" && ctx.renderEditSurface) {

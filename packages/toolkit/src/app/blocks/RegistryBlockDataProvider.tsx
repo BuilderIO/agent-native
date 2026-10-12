@@ -7,6 +7,7 @@ import {
 import { IconPencil } from "@tabler/icons-react";
 import { useCallback, useMemo, type ReactNode } from "react";
 
+import { BlockRenderErrorBoundary } from "./BlockRenderErrorBoundary.js";
 import { blockEditSurface } from "./BlockView.js";
 import { useOptionalBlockRegistry } from "./provider.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
@@ -35,37 +36,51 @@ export function RegistryBlockDataProvider<
       const blockData = block.data;
       const Read = spec.Read;
       let body: ReactNode = (
-        <Read
-          data={blockData}
+        <BlockRenderErrorBoundary
           blockId={block.id}
-          title={block.title}
-          summary={block.summary}
-          ctx={registryValue.ctx}
-        />
-      );
-      let editSurface: ReactNode = null;
-      const canEditBlock = options.editable && spec.placement.includes("block");
-      if (canEditBlock) {
-        const Edit = spec.Edit;
-        const editorNode = Edit ? (
-          <Edit
+          blockType={blockType}
+          resetKey={blockData}
+        >
+          <Read
             data={blockData}
-            onChange={options.onChange}
-            editable
             blockId={block.id}
             title={block.title}
             summary={block.summary}
             ctx={registryValue.ctx}
           />
-        ) : (
-          <SchemaBlockEditor
-            data={blockData}
-            onChange={(nextData) => options.onChange(nextData)}
-            schema={spec.schema}
-            editable
+        </BlockRenderErrorBoundary>
+      );
+      let editSurface: ReactNode = null;
+      const canEditBlock = options.editable && spec.placement.includes("block");
+      if (canEditBlock) {
+        const Edit = spec.Edit;
+        const editorNode = (
+          <BlockRenderErrorBoundary
             blockId={block.id}
-            ctx={registryValue.ctx}
-          />
+            blockType={blockType}
+            resetKey={blockData}
+          >
+            {Edit ? (
+              <Edit
+                data={blockData}
+                onChange={options.onChange}
+                editable
+                blockId={block.id}
+                title={block.title}
+                summary={block.summary}
+                ctx={registryValue.ctx}
+              />
+            ) : (
+              <SchemaBlockEditor
+                data={blockData}
+                onChange={(nextData) => options.onChange(nextData)}
+                schema={spec.schema}
+                editable
+                blockId={block.id}
+                ctx={registryValue.ctx}
+              />
+            )}
+          </BlockRenderErrorBoundary>
         );
         const surface = blockEditSurface(spec);
         if (surface === "panel" && registryValue.ctx.renderEditSurface) {

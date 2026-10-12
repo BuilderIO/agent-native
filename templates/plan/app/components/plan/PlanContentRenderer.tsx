@@ -49,6 +49,7 @@ import {
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
+import { hasPlanBlockStructureChange } from "./plan-block-structure";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { collectPlanTocItems } from "./PlanTableOfContents.utils";
@@ -109,26 +110,6 @@ type PlanContentRendererProps = {
   visualSurfaceMode?: PlanVisualSurfaceMode;
   onVisualSurfaceModeChange?: (mode: PlanVisualSurfaceMode) => void;
 };
-
-function blockStructureSignature(blocks: PlanBlock[]): string {
-  const walk = (list: PlanBlock[]): string =>
-    list
-      .map((block) => {
-        if (block.type === "tabs") {
-          return `tabs:${block.id}[${block.data.tabs
-            .map((tab) => `${tab.id}(${walk(tab.blocks)})`)
-            .join(",")}]`;
-        }
-        if (block.type === "columns") {
-          return `columns:${block.id}[${block.data.columns
-            .map((column) => `${column.id}(${walk(column.blocks)})`)
-            .join(",")}]`;
-        }
-        return `${block.type}:${block.id}`;
-      })
-      .join("|");
-  return walk(blocks);
-}
 
 export function getPlanCodeAnnotationLayout({
   isRecap,
@@ -424,8 +405,7 @@ export function PlanContentRenderer({
   ) => {
     if (
       onOptimisticBlocks &&
-      blockStructureSignature(nextBlocks) !==
-        blockStructureSignature(content.blocks)
+      hasPlanBlockStructureChange(content.blocks, nextBlocks)
     ) {
       onOptimisticBlocks(nextBlocks);
     }

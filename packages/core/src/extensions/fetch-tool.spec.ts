@@ -508,6 +508,20 @@ describe("createFetchToolEntry", () => {
     expect(result).not.toContain("<html>");
   });
 
+  it("returns the status and text for a plain-text response labeled as HTML", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Access denied", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/blocked"),
+    ).rejects.toThrow("HTTP 403 Forbidden\n\nAccess denied");
+  });
+
   it("preserves alternate discovery links outside the readable article", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
