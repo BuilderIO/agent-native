@@ -1367,7 +1367,7 @@ export class NativeThumbnailService {
         let cleanupFailed = false;
         let cleanupFailure: unknown;
         try {
-          if (scanCompleted && !failed)
+          if (scanCompleted && !failed && !signal.aborted)
             await deadline(
               runtime.scan(),
               new AbortController().signal,
@@ -1456,26 +1456,26 @@ export class NativeThumbnailService {
       );
       this.queued = null;
     }
-    const until = performance.now() + RENDER_TIMEOUT_MS;
-    while (this.active && performance.now() < until)
-      await nextTurn(new AbortController().signal, 20);
     let failed = false;
     let failure: unknown;
-    if (this.active) {
-      failed = true;
-      failure = new NativeThumbnailError(
-        "thumbnail-cleanup-timeout",
-        "The GPU thumbnail operation did not settle before disposal.",
-      );
-    }
     try {
       this.disposeFrame();
     } catch (error) {
-      if (failed) failure = new NativeThumbnailCleanupError([failure, error]);
-      else {
-        failed = true;
-        failure = error;
-      }
+      failed = true;
+      failure = error;
+    }
+    const until = performance.now() + RENDER_TIMEOUT_MS;
+    while (this.active && performance.now() < until)
+      await nextTurn(new AbortController().signal, 20);
+    if (this.active) {
+      const timeout = new NativeThumbnailError(
+        "thumbnail-cleanup-timeout",
+        "The GPU thumbnail operation did not settle before disposal.",
+      );
+      failure = failed
+        ? new NativeThumbnailCleanupError([failure, timeout])
+        : timeout;
+      failed = true;
     }
     for (const url of this.cache.values()) {
       try {

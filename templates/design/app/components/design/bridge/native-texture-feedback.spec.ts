@@ -201,6 +201,72 @@ const sequentialKernel = {
 };
 
 describe("bounded texture feedback executor", () => {
+  it("requires and packs the declared cursor uniform at binding five", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      { ...OWNED_FEEDBACK_TEST_KERNEL, pointer: "interaction-v1" },
+    );
+    expect(() =>
+      executor.encode({
+        encoder: gpu.encoder,
+        source: gpu.source(),
+        target: gpu.target(),
+        timeSeconds: 0,
+        params,
+      }),
+    ).toThrowError(new NativeFeedbackFailure("feedback-params-invalid"));
+    expect(gpu.uniforms).toEqual([]);
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+      pointer: { x: 0.25, y: 0.75, dx: 0.1, dy: -0.2, active: true },
+    });
+    expect(gpu.groups[0].entries.map((entry) => entry.binding)).toEqual([
+      0, 1, 2, 3, 4, 5,
+    ]);
+    expect(gpu.uniforms[1].values).toEqual([
+      0.25,
+      0.75,
+      Math.fround(0.1),
+      Math.fround(-0.2),
+      1,
+      0,
+      0,
+      0,
+    ]);
+    frame.abandon();
+    executor.dispose();
+  });
+
+  it("applies live cursor motion once after fixed-step catch-up", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      { ...OWNED_FEEDBACK_TEST_KERNEL, pointer: "interaction-v1" },
+    );
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 1 / 30,
+      params,
+      pointer: { x: 0.6, y: 0.4, dx: 0.15, dy: -0.1, active: true },
+    });
+    expect(gpu.uniforms[1].values.slice(2, 4)).toEqual([0, 0]);
+    expect(gpu.uniforms[3].values.slice(2, 4)).toEqual([0, 0]);
+    expect(gpu.uniforms[5].values.slice(2, 4)).toEqual([
+      Math.fround(0.15),
+      Math.fround(-0.1),
+    ]);
+    frame.abandon();
+    executor.dispose();
+  });
   it("uses premultiplied blending for bounded instanced source resolves", async () => {
     const gpu = mockGpu();
     const executor = await NativeTextureFeedbackExecutor.create(

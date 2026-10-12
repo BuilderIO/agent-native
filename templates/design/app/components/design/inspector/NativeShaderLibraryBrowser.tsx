@@ -134,13 +134,18 @@ export function NativeShaderLibraryBrowser({
   useEffect(() => {
     let active = true;
     let service: NativeThumbnailService | null = null;
+    const disposeService = (current: NativeThumbnailService) => {
+      void Promise.resolve(current.dispose()).catch((error: unknown) => {
+        console.error("GPU thumbnail cleanup failed", error);
+      });
+    };
     void import("../native-thumbnail-service").then(
       (module) => {
         service = new module.NativeThumbnailService();
         if (active) {
           thumbnailService.current = service;
           setServiceReady(true);
-        } else service.dispose();
+        } else disposeService(service);
       },
       () => {
         if (active) setServiceError(true);
@@ -149,7 +154,7 @@ export function NativeShaderLibraryBrowser({
     return () => {
       active = false;
       thumbnailService.current = null;
-      service?.dispose();
+      if (service) disposeService(service);
     };
   }, []);
 

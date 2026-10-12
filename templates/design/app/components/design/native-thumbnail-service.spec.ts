@@ -637,11 +637,12 @@ describe("shared native thumbnail work queue", () => {
       return elapsed;
     });
     const active = service.renderBatch(options("active"));
-    await expect(service.dispose()).rejects.toMatchObject({
-      code: "thumbnail-cleanup-timeout",
-    });
+    const disposal = service.dispose();
     expect(dispose).toHaveBeenCalledOnce();
     expect(frame.isConnected).toBe(false);
+    await expect(disposal).rejects.toMatchObject({
+      code: "thumbnail-cleanup-timeout",
+    });
     expect(revoke).toHaveBeenCalledWith("blob:thumbnail-cached");
     expect(internal.cache.size).toBe(0);
     release();

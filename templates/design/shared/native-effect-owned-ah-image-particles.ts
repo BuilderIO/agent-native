@@ -92,9 +92,9 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
   let force = contour * globals.params[3].x + noise * globals.params[4].x + vec2f(0.0, -globals.params[2].x);
   let direction = unitOr(force, noise);
   let speedPixels = globals.params[1].x * globals.clock.z;
-  let target = direction * speedPixels;
-  let velocityPixels = particle.velocity * globals.viewport.xy;
-  velocityPixels = mix(velocityPixels, target, 1.0 - exp(-4.0 * dt));
+  let targetVelocity = direction * speedPixels;
+  var velocityPixels = particle.velocity * globals.viewport.xy;
+  velocityPixels = mix(velocityPixels, targetVelocity, 1.0 - exp(-4.0 * dt));
   particle.velocity = velocityPixels * globals.viewport.zw;
   particle.position += particle.velocity * dt;
   particle.age += dt;
@@ -157,9 +157,60 @@ fn cs(@builtin(global_invocation_id) invocation: vec3u) {
   let travel = unitOr(field, swirl) * globals.params[1].x * globals.clock.z;
   let offsetPixels = (particle.origin - particle.position) * globals.viewport.xy;
   let restoring = offsetPixels * globals.params[5].x;
-  let target = travel + restoring;
-  let velocityPixels = particle.velocity * globals.viewport.xy;
-  velocityPixels = mix(velocityPixels, target, 1.0 - exp(-3.0 * dt));
+  let targetVelocity = travel + restoring;
+  var velocityPixels = particle.velocity * globals.viewport.xy;
+  velocityPixels = mix(velocityPixels, targetVelocity, 1.0 - exp(-3.0 * dt));
+  particle.velocity = velocityPixels * globals.viewport.zw;
+  particle.position = clamp(particle.position + particle.velocity * dt, vec2f(-0.1), vec2f(1.1));
+  particle.age += dt;
+  nextParticles[index] = particle;
+}
+`;
+
+const transportThrowComputeWgsl = `${NATIVE_GLOBAL_BINDINGS}${particleBindings}${sourceSampling}
+@group(0) @binding(5) var<storage, read_write> nextParticles: array<Particle>;
+@compute @workgroup_size(256)
+fn cs(@builtin(global_invocation_id) invocation: vec3u) {
+  let index = invocation.x;
+  let count = u32(interaction.control.w);
+  if (index >= count) { return; }
+  let step = u32(interaction.control.z);
+  let seed = hash32(index ^ u32(globals.clock.y) ^ 0x6c4e2b11u) | 1u;
+  var particle = previousParticles[index];
+  if (step == 0u || particle.seed == 0u) {
+    let origin = originFor(index, count, seed);
+    nextParticles[index] = Particle(origin, vec2f(0.0), origin, 0.0, seed);
+    return;
+  }
+  let dt = interaction.control.y;
+  let gradient = sourceGradient(particle.origin);
+  let contour = unitOr(vec2f(-gradient.y, gradient.x), vec2f(0.0));
+  let normal = unitOr(gradient, vec2f(0.0));
+  let phase = f32(particle.seed & 65535u) * 0.00023;
+  let swirl = vec2f(sin(globals.clock.x * 0.9 + phase), cos(globals.clock.x * 1.1 + phase));
+  let field = contour * globals.params[2].x + normal * globals.params[3].x + swirl * globals.params[4].x;
+  let travel = unitOr(field, swirl) * globals.params[1].x * globals.clock.z;
+  let offsetPixels = (particle.origin - particle.position) * globals.viewport.xy;
+  let restoring = offsetPixels * globals.params[5].x;
+  var targetVelocity = travel + restoring;
+  if (interaction.control.x > 0.5) {
+    let pointerDelta = interaction.pointer.zw * globals.viewport.xy;
+    let pathLength = min(length(pointerDelta), 80.0 * globals.clock.z);
+    if (pathLength > 0.5 * globals.clock.z) {
+      let pointerOffset = (particle.position - interaction.pointer.xy) * globals.viewport.xy;
+      let radius = max(1.0, globals.params[10].x * globals.clock.z);
+      let influence = exp(-dot(pointerOffset, pointerOffset) / (radius * radius));
+      let source = sourceAt(particle.origin);
+      let rgb = source.rgb / max(source.a, 0.0001);
+      let chroma = vec2f(rgb.r - rgb.b, rgb.g - 0.5 * (rgb.r + rgb.b));
+      let channelDirection = unitOr(chroma, vec2f(0.0));
+      let pathDirection = unitOr(pointerDelta, vec2f(0.0));
+      let coloredThrow = unitOr(pathDirection + channelDirection * globals.params[11].x, pathDirection);
+      targetVelocity += coloredThrow * pathLength * globals.params[9].x * 8.0 * influence * source.a;
+    }
+  }
+  var velocityPixels = particle.velocity * globals.viewport.xy;
+  velocityPixels = mix(velocityPixels, targetVelocity, 1.0 - exp(-3.0 * dt));
   particle.velocity = velocityPixels * globals.viewport.zw;
   particle.position = clamp(particle.position + particle.velocity * dt, vec2f(-0.1), vec2f(1.1));
   particle.age += dt;
@@ -234,11 +285,12 @@ function imageParticleDefinition(
   computeWgsl: string,
   renderWgsl: string,
   decaySlot: number,
+  version = 1,
 ): EffectDefinition {
   return {
     id,
     name,
-    version: 1,
+    version,
     kind: "simulation",
     placements: ["layer", "backdrop"],
     properties,
@@ -356,6 +408,31 @@ export const SOURCE_IMAGE_PARTICLE_DEFINITIONS: readonly EffectDefinition[] = [
     transportRenderWgsl,
     8,
   ),
+  imageParticleDefinition(
+    "an-native-pixel-transport",
+    "Pixel Transport",
+    {
+      particleCount: countProperty(1536),
+      speed: { ...scalar("Speed", 46, 0, 200, 1), unit: "px" },
+      edgeFlow: scalar("Edge flow", 1.1, 0, 3),
+      edgePush: scalar("Edge push", 0.7, -2, 2),
+      wandering: scalar("Wandering", 0.55, 0, 3),
+      returnForce: scalar("Return force", 0.2, 0, 3),
+      cellSize: { ...scalar("Cell size", 12, 2, 36, 1), unit: "px" },
+      opacity: scalar("Opacity", 0.94, 0, 1, 0.01),
+      trailDecay: scalar("Trail decay", 7, 0.1, 30),
+      pointerStrength: scalar("Pointer strength", 1.2, 0, 4),
+      pointerRadius: {
+        ...scalar("Pointer radius", 120, 20, 500, 1),
+        unit: "px",
+      },
+      colorSplit: scalar("Color split", 0.8, 0, 3),
+    },
+    transportThrowComputeWgsl,
+    transportRenderWgsl,
+    8,
+    2,
+  ),
 ];
 
 export const SOURCE_IMAGE_PARTICLE_PRESETS: readonly EffectPreset[] = [
@@ -433,6 +510,47 @@ export const SOURCE_IMAGE_PARTICLE_PRESETS: readonly EffectPreset[] = [
       cellSize: 18,
       opacity: 0.86,
       trailDecay: 3.4,
+    },
+    clip: "bounds",
+    provenance: { origin: "design-original" },
+  },
+  {
+    id: "an-preset-pixel-transport-color-throw",
+    name: "Color Throw",
+    definitionId: "an-native-pixel-transport",
+    definitionVersion: 2,
+    placement: "layer",
+    params: {
+      particleCount: 1792,
+      speed: 42,
+      pointerStrength: 2.5,
+      pointerRadius: 155,
+      colorSplit: 1.8,
+      cellSize: 10,
+      returnForce: 0.45,
+      trailDecay: 9,
+    },
+    clip: "bounds",
+    provenance: { origin: "design-original" },
+  },
+  {
+    id: "an-preset-pixel-transport-channel-fling",
+    name: "Channel Fling",
+    definitionId: "an-native-pixel-transport",
+    definitionVersion: 2,
+    placement: "backdrop",
+    params: {
+      particleCount: 896,
+      speed: 85,
+      pointerStrength: 3.4,
+      pointerRadius: 85,
+      colorSplit: 2.7,
+      edgeFlow: 0.45,
+      edgePush: 1.4,
+      wandering: 1.3,
+      returnForce: 0.08,
+      cellSize: 17,
+      trailDecay: 3.8,
     },
     clip: "bounds",
     provenance: { origin: "design-original" },

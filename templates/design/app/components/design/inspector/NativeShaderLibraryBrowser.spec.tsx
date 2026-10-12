@@ -1,3 +1,4 @@
+import { AF_IMAGE_MATERIAL_DEFINITIONS } from "@shared/native-effect-owned-af-image-materials";
 import {
   OWNED_NEXT_SIX_R_DEFINITIONS,
   OWNED_NEXT_SIX_R_PRESETS,
@@ -73,6 +74,11 @@ vi.mock("@/components/ui/dropdown-menu", () => {
 
 import { NativeShaderLibraryBrowser } from "./NativeShaderLibraryBrowser";
 
+const HEAT_TINT_EFFECT = AF_IMAGE_MATERIAL_DEFINITIONS.find(
+  (definition) => definition.id === "an-native-owned-af-heat-tint",
+);
+if (!HEAT_TINT_EFFECT) throw new Error("Heat Tint fixture is unavailable.");
+
 describe("NativeShaderLibraryBrowser", () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -103,16 +109,16 @@ describe("NativeShaderLibraryBrowser", () => {
           return Promise.resolve({
             library: {
               selectedEntry: {
-                definition: GRAIN_GRADIENT_EFFECT,
+                definition: HEAT_TINT_EFFECT,
                 preset: {
                   id: "saved-preset",
-                  definitionId: GRAIN_GRADIENT_EFFECT.id,
-                  definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+                  definitionId: HEAT_TINT_EFFECT.id,
+                  definitionVersion: HEAT_TINT_EFFECT.version,
                   placement: "fill",
-                  params: {},
+                  params: { mode: "image" },
                   clip: "bounds",
                   bindings: {
-                    source: {
+                    image: {
                       kind: "authored-node",
                       nodeId: "another-node",
                       capture: "content",
@@ -225,16 +231,16 @@ describe("NativeShaderLibraryBrowser", () => {
           return Promise.resolve({
             library: {
               selectedEntry: {
-                definition: GRAIN_GRADIENT_EFFECT,
+                definition: HEAT_TINT_EFFECT,
                 preset: {
                   id: "saved-preset",
-                  definitionId: GRAIN_GRADIENT_EFFECT.id,
-                  definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+                  definitionId: HEAT_TINT_EFFECT.id,
+                  definitionVersion: HEAT_TINT_EFFECT.version,
                   placement: "fill",
-                  params: {},
+                  params: { mode: "image" },
                   clip: "bounds",
                   bindings: {
-                    source: {
+                    image: {
                       kind: "authored-node",
                       nodeId: "photo",
                       capture: "appearance",

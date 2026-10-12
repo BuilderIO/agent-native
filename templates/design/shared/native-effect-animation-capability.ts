@@ -8,6 +8,11 @@ export type NativeEffectAnimationCapability = "animated" | "static" | "unknown";
 // This display policy is outside EffectDefinition and does not change execution hashes.
 const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-v-luma-dct-eight@1",
+  "an-native-owned-al-color-codec@1",
+  "an-native-owned-ak-content-form-3d@1",
+  "an-native-owned-ak-content-surface-3d@1",
+  "an-native-owned-ak-source-voxels@1",
+  "an-native-owned-ao-source-irradiance@1",
   "an-native-owned-v-scalar-map-drift@1",
   "an-native-owned-v-one-sided-blur@1",
   "an-native-owned-v-checker-alpha-wipe@1",
@@ -270,6 +275,8 @@ const STATIC_BUILTIN_VERSIONS = new Set([
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
+  "an-native-owned-al-film-response@1",
+  "an-native-owned-an-cursor-run-sort@1",
   "an-native-owned-ai-source-smoke-fluid@1",
   "an-native-owned-ai-satin-folds@1",
   "an-native-owned-af-gem-smoke-volume@1",
@@ -384,7 +391,11 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-frame-mosh@1",
   "an-native-source-particle-drift@1",
   "an-native-pixel-transport@1",
+  "an-native-pixel-transport@2",
   "an-native-fracture-scatter@1",
+  "an-native-source-depth-particles@1",
+  "an-native-magnetic-filings@1",
+  "an-native-source-shape-fluid@1",
 ]);
 
 const canonicalPayloadByVersion = new Map(

@@ -4,6 +4,7 @@ import {
   type NativeFeedbackDefinition,
   type NativeFeedbackPlan,
 } from "../../../../shared/native-feedback-plan";
+import type { NativeFeedbackPointerInput } from "../../../../shared/native-pointer-input";
 import { assertNativeUniformTiming } from "../../../../shared/native-uniform-timing";
 import {
   planNativeFeedbackInteractiveResume,
@@ -105,6 +106,7 @@ export interface NativeFeedbackEncodeOptions {
   mode?: "deterministic" | "interactive";
   speed?: number;
   params: NativeFeedbackParams;
+  pointer?: NativeFeedbackPointerInput;
   sourcePixelRatio?: number;
   sourceChanged?: boolean;
   signal?: AbortSignal;
@@ -176,6 +178,22 @@ function validParams(value: NativeFeedbackParams): boolean {
     Number.isFinite(value.seed) &&
     value.seed >= 0 &&
     value.seed <= 100
+  );
+}
+
+function validPointer(value: NativeFeedbackPointerInput): boolean {
+  return (
+    Number.isFinite(Math.fround(value.x)) &&
+    Number.isFinite(Math.fround(value.y)) &&
+    Number.isFinite(Math.fround(value.dx)) &&
+    Number.isFinite(Math.fround(value.dy)) &&
+    value.x >= 0 &&
+    value.x <= 1 &&
+    value.y >= 0 &&
+    value.y <= 1 &&
+    Math.abs(value.dx) <= 1 &&
+    Math.abs(value.dy) <= 1 &&
+    typeof value.active === "boolean"
   );
 }
 
@@ -520,6 +538,12 @@ export class NativeTextureFeedbackExecutor {
       throw new NativeFeedbackFailure("feedback-source-resized");
     if (!validParams(options.params))
       throw new NativeFeedbackFailure("feedback-params-invalid");
+    if (
+      (this.definition.pointer === "interaction-v1") !==
+        (options.pointer !== undefined) ||
+      (options.pointer !== undefined && !validPointer(options.pointer))
+    )
+      throw new NativeFeedbackFailure("feedback-params-invalid");
     const sourcePixelRatio = options.sourcePixelRatio ?? 1;
     if (
       !Number.isFinite(Math.fround(sourcePixelRatio)) ||
@@ -598,7 +622,8 @@ export class NativeTextureFeedbackExecutor {
     if (steps.length === 0 && (options.sourceChanged || computeParamsChanged))
       steps.push(this.completedStep);
     if (
-      this.pending.size * UNIFORM_BYTES + (steps.length + 1) * UNIFORM_BYTES >
+      this.pending.size * UNIFORM_BYTES +
+        (steps.length * (this.definition.pointer ? 2 : 1) + 1) * UNIFORM_BYTES >
       MAX_PENDING_UNIFORM_BYTES
     )
       throw new NativeFeedbackFailure("feedback-resource-budget");
@@ -643,6 +668,29 @@ export class NativeTextureFeedbackExecutor {
             sourcePixelRatio,
           ]),
         );
+        let pointerUniform: GPUBuffer | null = null;
+        if (options.pointer) {
+          pointerUniform = this.device.createBuffer({
+            size: UNIFORM_BYTES,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+          uniforms.push(pointerUniform);
+          const finalStep = stepIndex === steps[steps.length - 1];
+          this.device.queue.writeBuffer(
+            pointerUniform,
+            0,
+            new Float32Array([
+              options.pointer.x,
+              options.pointer.y,
+              finalStep ? options.pointer.dx : 0,
+              finalStep ? options.pointer.dy : 0,
+              options.pointer.active ? 1 : 0,
+              0,
+              0,
+              0,
+            ]),
+          );
+        }
         const group = this.device.createBindGroup({
           layout: this.pipeline.getBindGroupLayout(0),
           entries: [
@@ -651,6 +699,9 @@ export class NativeTextureFeedbackExecutor {
             { binding: 2, resource: this.state[writeIndex].createView() },
             { binding: 3, resource: this.displayTexture.createView() },
             { binding: 4, resource: { buffer: uniform } },
+            ...(pointerUniform
+              ? [{ binding: 5, resource: { buffer: pointerUniform } }]
+              : []),
           ],
         });
         const pass = options.encoder.beginComputePass(

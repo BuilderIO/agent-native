@@ -66,6 +66,32 @@ import {
   FRACTURE_SCATTER_PRESETS,
 } from "./native-effect-owned-aj-fracture";
 import {
+  AK_SOURCE_3D_DEFINITIONS,
+  AK_SOURCE_3D_PRESETS,
+  AK_SOURCE_3D_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-ak-source-3d";
+import {
+  FILM_CODEC_DEFINITIONS,
+  FILM_CODEC_PRESETS,
+} from "./native-effect-owned-al-film-codec";
+import {
+  DEPTH_MAGNET_DEFINITIONS,
+  DEPTH_MAGNET_PRESETS,
+} from "./native-effect-owned-am-depth-magnet";
+import {
+  POINTER_RUN_SORT_DEFINITIONS,
+  POINTER_RUN_SORT_PRESETS,
+} from "./native-effect-owned-an-pointer-sort";
+import {
+  SOURCE_IRRADIANCE_EFFECT,
+  SOURCE_IRRADIANCE_PRESETS,
+  SOURCE_IRRADIANCE_PRESET_LABEL_SOURCE_IDS,
+} from "./native-effect-owned-ao-silhouette-light";
+import {
+  SOURCE_SHAPE_FLUID_EFFECT,
+  SOURCE_SHAPE_FLUID_PRESETS,
+} from "./native-effect-owned-ap-pointer-fluid";
+import {
   BREADTH_A_DEFINITIONS,
   BREADTH_A_PRESETS,
 } from "./native-effect-owned-breadth-a";
@@ -612,6 +638,12 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   FLOCKING_SWARM_EFFECT,
   REGION_BOUNDS_EFFECT,
   COVERAGE_ATLAS_EFFECT,
+  ...FILM_CODEC_DEFINITIONS,
+  ...AK_SOURCE_3D_DEFINITIONS,
+  ...DEPTH_MAGNET_DEFINITIONS,
+  ...POINTER_RUN_SORT_DEFINITIONS,
+  SOURCE_SHAPE_FLUID_EFFECT,
+  SOURCE_IRRADIANCE_EFFECT,
 ];
 
 const currentDefinitionCandidates: readonly EffectDefinition[] = [
@@ -647,6 +679,12 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   FLOCKING_SWARM_EFFECT,
   REGION_BOUNDS_EFFECT,
   COVERAGE_ATLAS_EFFECT,
+  ...FILM_CODEC_DEFINITIONS,
+  ...AK_SOURCE_3D_DEFINITIONS,
+  ...DEPTH_MAGNET_DEFINITIONS,
+  ...POINTER_RUN_SORT_DEFINITIONS,
+  SOURCE_SHAPE_FLUID_EFFECT,
+  SOURCE_IRRADIANCE_EFFECT,
 ];
 const latestDefinitionById = new Map<string, EffectDefinition>();
 for (const definition of currentDefinitionCandidates) {
@@ -766,6 +804,8 @@ export const NATIVE_PRESET_LABEL_SOURCE_IDS: Readonly<Record<string, string>> =
     ...TEMPORAL_IMAGE_PRESET_LABEL_SOURCE_IDS,
     ...SOURCE_IMAGE_PARTICLE_PRESET_LABEL_SOURCE_IDS,
     ...AI_FLUID_CLOTH_PRESET_LABEL_SOURCE_IDS,
+    ...AK_SOURCE_3D_PRESET_LABEL_SOURCE_IDS,
+    ...SOURCE_IRRADIANCE_PRESET_LABEL_SOURCE_IDS,
   };
 export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...PRE_COORDINATE_RANDOM_PRESETS,
@@ -801,4 +841,10 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...FLOCKING_SWARM_PRESETS,
   ...REGION_BOUNDS_PRESETS,
   ...COVERAGE_ATLAS_PRESETS,
+  ...FILM_CODEC_PRESETS,
+  ...AK_SOURCE_3D_PRESETS,
+  ...DEPTH_MAGNET_PRESETS,
+  ...POINTER_RUN_SORT_PRESETS,
+  ...SOURCE_SHAPE_FLUID_PRESETS,
+  ...SOURCE_IRRADIANCE_PRESETS,
 ];

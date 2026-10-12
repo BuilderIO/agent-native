@@ -13,6 +13,11 @@ export interface NativePointerState {
   active: boolean;
 }
 
+export interface NativeFeedbackPointerInput extends NativePointerState {
+  dx: number;
+  dy: number;
+}
+
 export class NativePointerInputError extends Error {
   readonly code = "native-pointer-invalid";
   constructor() {
@@ -135,4 +140,60 @@ export function packNativePointerProperties(
     slot += propertySlots(property);
   }
   return packed;
+}
+
+export function resolveNativeFeedbackPointerInput(
+  definition: EffectDefinition,
+  params: Record<string, EffectValue>,
+  pointer: NativePointerState | null,
+  deterministic: boolean,
+  previous: NativePointerState | null,
+): NativeFeedbackPointerInput {
+  const interaction = definition.interaction;
+  if (definition.feedback?.pointer !== "interaction-v1" || !interaction)
+    throw new NativePointerInputError();
+  const authoredPosition =
+    params[interaction.positionProperty] ??
+    definition.properties[interaction.positionProperty]?.default;
+  const authoredActive =
+    params[interaction.activeProperty] ??
+    definition.properties[interaction.activeProperty]?.default;
+  if (
+    !Array.isArray(authoredPosition) ||
+    authoredPosition.length !== 2 ||
+    !finiteGpuNumber(authoredPosition[0]) ||
+    !finiteGpuNumber(authoredPosition[1]) ||
+    authoredPosition[0] < 0 ||
+    authoredPosition[0] > 1 ||
+    authoredPosition[1] < 0 ||
+    authoredPosition[1] > 1 ||
+    typeof authoredActive !== "boolean" ||
+    (pointer !== null &&
+      (!finiteGpuNumber(pointer.x) ||
+        !finiteGpuNumber(pointer.y) ||
+        typeof pointer.active !== "boolean"))
+  )
+    throw new NativePointerInputError();
+  const live = !deterministic && pointer?.active === true;
+  const x = live && pointer ? pointer.x : authoredPosition[0];
+  const y = live && pointer ? pointer.y : authoredPosition[1];
+  const active = deterministic
+    ? authoredActive
+    : pointer !== null
+      ? pointer.active
+      : authoredActive;
+  const dx = !deterministic && active && previous?.active ? x - previous.x : 0;
+  const dy = !deterministic && active && previous?.active ? y - previous.y : 0;
+  if (
+    !finiteGpuNumber(x) ||
+    !finiteGpuNumber(y) ||
+    x < 0 ||
+    x > 1 ||
+    y < 0 ||
+    y > 1 ||
+    !finiteGpuNumber(dx) ||
+    !finiteGpuNumber(dy)
+  )
+    throw new NativePointerInputError();
+  return { x, y, dx, dy, active };
 }

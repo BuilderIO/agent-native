@@ -13,6 +13,7 @@ export interface NativeFeedbackDefinition {
   abi: "texture-feedback-v1";
   sourceHistory?: "sequential-captures";
   resolveDraw?: { vertices: 6; instances: number };
+  pointer?: "interaction-v1";
   id: string;
   version: number;
   source?: {
@@ -126,6 +127,7 @@ export function adaptNativeFeedbackDefinition(
       ...(feedback.resolveDraw === undefined
         ? {}
         : { resolveDraw: feedback.resolveDraw }),
+      ...(feedback.pointer === undefined ? {} : { pointer: feedback.pointer }),
       id: definition.id,
       version: definition.version,
       ...(upstream
@@ -176,6 +178,8 @@ export function planNativeFeedback(
     definition.abi !== "texture-feedback-v1" ||
     (definition.sourceHistory !== undefined &&
       definition.sourceHistory !== "sequential-captures") ||
+    (definition.pointer !== undefined &&
+      definition.pointer !== "interaction-v1") ||
     (definition.resolveDraw !== undefined &&
       (definition.resolveDraw === null ||
         typeof definition.resolveDraw !== "object" ||

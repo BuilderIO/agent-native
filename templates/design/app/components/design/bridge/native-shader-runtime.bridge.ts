@@ -60,6 +60,7 @@ import { NativePipelineCache } from "../../../../shared/native-pipeline-cache";
 import {
   mapNativePointerInput,
   packNativePointerProperties,
+  resolveNativeFeedbackPointerInput,
   type NativePointerState,
 } from "../../../../shared/native-pointer-input";
 import {
@@ -496,6 +497,8 @@ type Mount = {
     sourceIdentity: string;
     sourceRevision: string;
     pendingSourceRevision: string | null;
+    pointerPosition: NativePointerState | null;
+    pendingPointerPosition: NativePointerState | null;
     sourceWidth: number;
     sourceHeight: number;
     retirements: Set<Promise<void>>;
@@ -1462,6 +1465,7 @@ class NativeShaderRuntime {
   private allocatedStatelessBytes = 0;
   private statelessTextureLeases = new Map<GPUTexture, number>();
   private statelessDeviceLeases = new Map<GPUDevice, number>();
+  private destroyedDevices = new WeakSet<GPUDevice>();
   private statelessTextureDestruction = new Set<GPUTexture>();
   private statelessDeviceDestruction = new Set<GPUDevice>();
   private statelessPipelines =
@@ -3261,11 +3265,13 @@ class NativeShaderRuntime {
   }
 
   private destroyDevice(device: GPUDevice): void {
-    if (this.statelessDeviceLeases.has(device)) {
+    if (this.destroyedDevices.has(device)) return;
+    if (!this.disposed && this.statelessDeviceLeases.has(device)) {
       this.statelessDeviceDestruction.add(device);
       return;
     }
     device.destroy();
+    this.destroyedDevices.add(device);
   }
 
   private retainStatelessTextures(
@@ -7511,6 +7517,8 @@ class NativeShaderRuntime {
         sourceIdentity,
         sourceRevision: "",
         pendingSourceRevision: null,
+        pointerPosition: null,
+        pendingPointerPosition: null,
         sourceWidth: source.width,
         sourceHeight: source.height,
         retirements: new Set(),
@@ -7546,6 +7554,15 @@ class NativeShaderRuntime {
       output = this.texture(source.width, source.height, "rgba16float");
       mount.resourceTextures.set(outputName, output);
     }
+    const pointer = adapted.definition.pointer
+      ? resolveNativeFeedbackPointerInput(
+          definition,
+          instance.params,
+          mount.pointerState,
+          deterministic,
+          feedback.pointerPosition,
+        )
+      : undefined;
     const frame = feedback.executor.encode({
       encoder,
       source,
@@ -7555,12 +7572,16 @@ class NativeShaderRuntime {
       mode: deterministic ? "deterministic" : "interactive",
       speed: deterministic ? undefined : instance.timing.speed,
       params,
+      pointer,
       sourcePixelRatio: (source.width * mount.pixelRatio) / mount.width,
       sourceChanged: feedback.sourceRevision !== sourceRevision,
       timestampWritesForPass: ({ kind, stepIndex }) =>
         this.gpuTimestampWrites(encoder, `feedback:${kind}:step-${stepIndex}`),
     });
     feedback.pendingSourceRevision = sourceRevision;
+    feedback.pendingPointerPosition = pointer
+      ? { x: pointer.x, y: pointer.y, active: pointer.active }
+      : null;
     mount.feedbackFrame = frame;
     return output;
   }
@@ -11091,6 +11112,8 @@ class NativeShaderRuntime {
         this.reflectCommittedFeedbackTelemetry(mount);
         feedback.sourceRevision = feedback.pendingSourceRevision ?? "";
         feedback.pendingSourceRevision = null;
+        feedback.pointerPosition = feedback.pendingPointerPosition;
+        feedback.pendingPointerPosition = null;
         feedback.retirements.add(retirement);
         void retirement.then(
           () => feedback.retirements.delete(retirement),
@@ -11389,7 +11412,10 @@ class NativeShaderRuntime {
       if (mount.definition.simulation) this.releaseSimulation(mount);
       const feedbackFrame = mount.feedbackFrame;
       mount.feedbackFrame = null;
-      if (mount.feedback) mount.feedback.pendingSourceRevision = null;
+      if (mount.feedback) {
+        mount.feedback.pendingSourceRevision = null;
+        mount.feedback.pendingPointerPosition = null;
+      }
       let feedbackFailure: unknown;
       if (feedbackFrame)
         try {
@@ -15076,6 +15102,7 @@ class NativeShaderRuntime {
     clearTimeout(this.deviceRetryTimer);
     if (this.scenePresentation)
       this.unpublishScenePresentation(this.scenePresentation);
+    this.deviceLifecycle.dispose();
     const pending: Promise<unknown>[] = [];
     if (this.compositionDone) pending.push(this.compositionDone);
     if (this.scanning) pending.push(this.scanning);

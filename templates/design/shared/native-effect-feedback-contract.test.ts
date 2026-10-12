@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { planEffectGraph } from "./effect-graph";
+import { POINTER_RUN_SORT_DEFINITIONS } from "./native-effect-owned-an-pointer-sort";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "./native-effect-owned-test-fixtures";
 import { hashEffectDefinition } from "./native-effect-trust";
 import {
@@ -23,6 +24,22 @@ function errors(definition: EffectDefinition): string[] {
 }
 
 describe("Design-owned texture feedback contract", () => {
+  it("requires an authored interaction for optional cursor feedback", () => {
+    const definition = POINTER_RUN_SORT_DEFINITIONS[0];
+    expect(errors(definition)).toEqual([]);
+    expect(planEffectGraph(definition).errors).toEqual([]);
+    const adapted = adaptNativeFeedbackDefinition(definition);
+    expect(adapted.ok && adapted.definition.pointer).toBe("interaction-v1");
+    const missingInteraction = { ...definition, interaction: undefined };
+    expect(errors(missingInteraction)).toContainEqual(
+      expect.stringContaining("feedback is invalid"),
+    );
+    const legacy = adaptNativeFeedbackDefinition(candidate);
+    expect(
+      legacy.ok &&
+        Object.prototype.hasOwnProperty.call(legacy.definition, "pointer"),
+    ).toBe(false);
+  });
   it("accepts an explicit sequential source history requirement", () => {
     const definition: EffectDefinition = {
       ...candidate,

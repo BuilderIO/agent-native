@@ -41,6 +41,7 @@ export interface EffectFeedbackSpec {
   abi: "texture-feedback-v1";
   sourceHistory?: "sequential-captures";
   resolveDraw?: { vertices: 6; instances: number };
+  pointer?: "interaction-v1";
   grid: {
     width: number;
     height: number;
@@ -132,6 +133,7 @@ function validateFeedbackGraph(
     feedback?.abi !== "texture-feedback-v1" ||
     (feedback.sourceHistory !== undefined &&
       feedback.sourceHistory !== "sequential-captures") ||
+    (feedback.pointer !== undefined && feedback.pointer !== "interaction-v1") ||
     (feedback.resolveDraw !== undefined &&
       (feedback.resolveDraw === null ||
         typeof feedback.resolveDraw !== "object" ||

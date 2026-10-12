@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { POINTER_RUN_SORT_DEFINITIONS } from "./native-effect-owned-an-pointer-sort";
 import { GRAIN_GRADIENT_EFFECT } from "./native-effect-presets";
 import { packNativeProperties, type EffectDefinition } from "./native-effects";
 import {
   mapNativePointerInput,
   packNativePointerProperties,
+  resolveNativeFeedbackPointerInput,
   NativePointerInputError,
 } from "./native-pointer-input";
 
@@ -137,5 +139,46 @@ describe("native pointer input", () => {
         false,
       ),
     ).toThrow(NativePointerInputError);
+  });
+
+  it("resolves authored feedback cursors for export and live motion only from mapped input", () => {
+    const feedback = POINTER_RUN_SORT_DEFINITIONS[0];
+    const params = {
+      cursorPosition: [0.3, 0.6] as [number, number],
+      cursorActive: true,
+    };
+    expect(
+      resolveNativeFeedbackPointerInput(
+        feedback,
+        params,
+        { x: 0.9, y: 0.1, active: true },
+        true,
+        { x: 0.2, y: 0.2, active: true },
+      ),
+    ).toEqual({ x: 0.3, y: 0.6, dx: 0, dy: 0, active: true });
+    expect(
+      resolveNativeFeedbackPointerInput(
+        feedback,
+        params,
+        { x: 0.6, y: 0.45, active: true },
+        false,
+        { x: 0.5, y: 0.5, active: true },
+      ),
+    ).toEqual({
+      x: 0.6,
+      y: 0.45,
+      dx: expect.closeTo(0.1),
+      dy: expect.closeTo(-0.05),
+      active: true,
+    });
+    expect(
+      resolveNativeFeedbackPointerInput(
+        feedback,
+        params,
+        { x: 1.3, y: 0.45, active: false },
+        false,
+        null,
+      ),
+    ).toEqual({ x: 0.3, y: 0.6, dx: 0, dy: 0, active: false });
   });
 });

@@ -6,6 +6,7 @@ import type {
   EffectDefinition,
   EffectInstance,
 } from "../../../../shared/native-effects";
+import { NativeDeviceLifecycle } from "./native-device-lifecycle";
 
 type Texture = {
   width: number;
@@ -67,6 +68,47 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("destroys a leased device at disposal even while render work is pending", async () => {
+  const script = document.createElement("script");
+  document.body.append(script);
+  Object.defineProperty(document, "currentScript", {
+    configurable: true,
+    value: script,
+  });
+  Object.defineProperty(document, "readyState", {
+    configurable: true,
+    get: () => "loading",
+  });
+  new Function(nativeShaderRuntimeBridgeScript)();
+  runtime = (window as Window & { __anNativeShaders?: ResourceRuntime })
+    .__anNativeShaders;
+  if (!runtime) throw new Error("Resource runtime fixture unavailable.");
+  const internal = runtime as ResourceRuntime & {
+    deviceLifecycle: NativeDeviceLifecycle<object>;
+    statelessDeviceLeases: Map<object, number>;
+    running: Promise<object> | null;
+    destroyDevice(device: { destroy(): void }): void;
+  };
+  const device = { destroy: vi.fn() };
+  internal.deviceLifecycle = new NativeDeviceLifecycle(async (scope) => {
+    scope.own(() => internal.destroyDevice(device));
+    return device;
+  });
+  await internal.deviceLifecycle.acquire();
+  let finish!: (value: object) => void;
+  internal.running = new Promise<object>((resolve) => {
+    finish = resolve;
+  });
+  internal.statelessDeviceLeases.set(device, 1);
+
+  internal.dispose();
+  expect(device.destroy).toHaveBeenCalledOnce();
+  internal.destroyDevice(device);
+  expect(device.destroy).toHaveBeenCalledOnce();
+  finish({});
+  internal.running = null;
+});
+
 it.each(["color", "trail", "__native_trail_back"])(
   "detaches particle resource %s before a refused replacement and retries cleanly",
   async (key) => {
@@ -102,6 +144,7 @@ it.each(["color", "trail", "__native_trail_back"])(
       limits: {
         maxComputeWorkgroupsPerDimension: 65535,
         maxStorageBufferBindingSize: 134_217_728,
+        maxSampledTexturesPerShaderStage: 16,
       },
       queue: { writeBuffer() {} },
       createBuffer: () => ({ destroy() {} }),

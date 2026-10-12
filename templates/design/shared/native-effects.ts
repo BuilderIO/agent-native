@@ -1494,6 +1494,7 @@ function validateDefinition(
           "resetProperties",
           "sourceHistory",
           "resolveDraw",
+          "pointer",
         ].includes(key),
       ) &&
         ["abi", "grid", "timing", "stateResource", "displayResource"].every(
@@ -1514,12 +1515,16 @@ function validateDefinition(
         (uniformProperties === undefined ? 5 : 6) +
           (resetProperties === undefined ? 0 : 1) +
           (feedback.sourceHistory === undefined ? 0 : 1) +
-          (feedback.resolveDraw === undefined ? 0 : 1) ||
+          (feedback.resolveDraw === undefined ? 0 : 1) +
+          (feedback.pointer === undefined ? 0 : 1) ||
       !resetPropertiesValid ||
       !aliasesValid ||
       feedback.abi !== "texture-feedback-v1" ||
       (feedback.sourceHistory !== undefined &&
         feedback.sourceHistory !== "sequential-captures") ||
+      (feedback.pointer !== undefined &&
+        feedback.pointer !== "interaction-v1") ||
+      (feedback.pointer !== undefined && value.interaction === undefined) ||
       (feedback.resolveDraw !== undefined &&
         (!record(feedback.resolveDraw) ||
           Object.keys(feedback.resolveDraw).length !== 2 ||
@@ -1583,7 +1588,9 @@ function validateDefinition(
       !record(interaction) ||
       Object.keys(interaction).length !== 2 ||
       value.kind === "simulation" ||
-      value.feedback !== undefined ||
+      (value.feedback !== undefined &&
+        (!record(value.feedback) ||
+          value.feedback.pointer !== "interaction-v1")) ||
       typeof interaction.positionProperty !== "string" ||
       typeof interaction.activeProperty !== "string" ||
       !PROPERTY_RE.test(interaction.positionProperty) ||
