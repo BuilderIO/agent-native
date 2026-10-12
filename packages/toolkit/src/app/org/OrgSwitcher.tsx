@@ -475,7 +475,15 @@ export function OrgSwitcher({
   const { session } = useSession();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
-  const switchOrg = useSwitchOrg();
+  const [open, setOpen] = useState(false);
+  const earlyCloseOrgIdRef = useRef<string | null>(null);
+  const switchOrg = useSwitchOrg({
+    onPersisted: (orgId) => {
+      if (orgId === null || earlyCloseOrgIdRef.current !== orgId) return;
+      earlyCloseOrgIdRef.current = null;
+      setOpen(false);
+    },
+  });
   const createOrg = useCreateOrg();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();
@@ -487,7 +495,6 @@ export function OrgSwitcher({
     { enabled: !!email },
   );
   const avatarUrl = useAvatarUrl(email);
-  const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -671,7 +678,16 @@ export function OrgSwitcher({
 
   const selectOrg = (orgId: string) => {
     if (switchOrg.isPending) return;
-    switchOrg.mutate(orgId, { onSuccess: () => setOpen(false) });
+    earlyCloseOrgIdRef.current = orgId === org.orgId ? orgId : null;
+    switchOrg.mutate(orgId, {
+      onError: () => {
+        earlyCloseOrgIdRef.current = null;
+      },
+      onSuccess: () => {
+        earlyCloseOrgIdRef.current = null;
+        setOpen(false);
+      },
+    });
   };
   const isSwitchingTo = (orgId: string) =>
     switchOrg.isPending && switchOrg.variables === orgId;
