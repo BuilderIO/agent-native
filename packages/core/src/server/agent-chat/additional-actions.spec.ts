@@ -327,10 +327,7 @@ describe("resolveAppAdditionalActions", () => {
         {},
       );
 
-      expect(Object.keys(added)).toEqual([
-        "schema-recursive-ref",
-        "schema-property-names",
-      ]);
+      expect(Object.keys(added)).toEqual(["schema-property-names"]);
     });
 
     it("bounds the whole registry, not just each schema", async () => {

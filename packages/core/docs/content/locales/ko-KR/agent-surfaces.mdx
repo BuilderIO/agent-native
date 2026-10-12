@@ -218,7 +218,7 @@ createAgentChatPlugin({
 없는 `mcp__` 이름인 경우, 또는 도구 정의를 사용할 수 없는 경우에 해당 항목을
 무시하고 경고를 한 번만 기록합니다. 설명에서는 숨겨진 제어 문자가 제거되고
 길이가 제한됩니다. `parameters`는 루트가 `object`인 크기가 제한된 JSON
-스키마여야 하며, `pattern`, `patternProperties`, `$id`, 앵커, 스키마 밖을
+스키마여야 하며, `pattern`, `patternProperties`, `$id`, 앵커, 재귀적이거나 스키마 밖을
 가리키는 `$ref`를 사용해서는 안 됩니다.
 
 각 항목은 해결된 호출자에게 묶입니다. 어떤 디스패처가 호출하든 모든 호출은 다른

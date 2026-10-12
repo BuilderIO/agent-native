@@ -221,7 +221,7 @@ actions सहित जो agent से छिपे हैं; जब वह �
 सकता; या जब उसकी tool definition उपयोग योग्य न हो। descriptions से छिपे control
 characters हटा दिए जाते हैं और उनकी लंबाई सीमित की जाती है। `parameters` एक
 सीमित JSON schema होना चाहिए जिसकी root `object` हो और जो `pattern`,
-`patternProperties`, `$id`, anchors, या schema के बाहर के `$ref` का उपयोग न करे।
+`patternProperties`, `$id`, anchors, या recursive अथवा schema के बाहर इंगित करने वाले `$ref` का उपयोग न करे।
 
 हर entry उस कॉलर से बंधी होती है जिसके लिए उसे resolve किया गया था। हर call,
 चाहे कोई भी dispatcher उसे करे, किसी दूसरे उपयोगकर्ता या organization के लिए

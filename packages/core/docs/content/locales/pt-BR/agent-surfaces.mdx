@@ -227,7 +227,7 @@ quando é um nome `mcp__` que o chamador não pode ver; ou quando a definição 
 ferramenta é inutilizável. As descrições perdem caracteres de controle ocultos e
 têm tamanho limitado. `parameters` deve ser um esquema JSON limitado com raiz
 `object` que não use `pattern`, `patternProperties`, `$id`, âncoras nem um
-`$ref` fora do esquema.
+`$ref` que seja recursivo ou aponte para fora do esquema.
 
 Cada entrada fica vinculada ao chamador para o qual foi resolvida. Toda chamada,
 qualquer que seja o despachante que a faça, se recusa a executar para outro

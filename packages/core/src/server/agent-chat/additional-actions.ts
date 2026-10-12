@@ -111,19 +111,6 @@ const SUBSCHEMA_MAP_KEYWORDS = [
   "dependentSchemas",
   "properties",
 ];
-// Of those, the keywords that apply their subschemas to a child of the input
-// (a property value, an array item, a key) rather than to the input itself.
-const INSTANCE_DESCENDING_KEYWORDS = new Set([
-  "additionalItems",
-  "additionalProperties",
-  "contains",
-  "items",
-  "prefixItems",
-  "properties",
-  "propertyNames",
-  "unevaluatedItems",
-  "unevaluatedProperties",
-]);
 // Regex keywords run user-chosen patterns synchronously on the event loop, so
 // one catastrophic pattern stalls every request in the process. Schema
 // identifiers register globally in Ajv and collide across requests and callers.
@@ -386,9 +373,9 @@ function rejectParameterSchema(
   const walk: SchemaWalk = {
     expanded: 0,
     limit: Math.min(MAX_SCHEMA_EXPANDED_NODES, schemaBudget.expandedRemaining),
-    refDepths: new Map([[parameters, 0]]),
+    refStack: new Set([parameters]),
   };
-  const rejection = rejectSchemaKeywords(parameters, parameters, walk, 0);
+  const rejection = rejectSchemaKeywords(parameters, parameters, walk);
   if (rejection === "too-expanded") {
     return walk.limit < MAX_SCHEMA_EXPANDED_NODES
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_EXPANDED_NODES}-subschema budget shared by this request's schemas`
@@ -408,8 +395,8 @@ interface SchemaBudget {
 interface SchemaWalk {
   expanded: number;
   limit: number;
-  /** Each `$ref` target being expanded, and the input depth it was entered at. */
-  refDepths: Map<object, number>;
+  /** The `$ref` targets being expanded, outermost first. */
+  refStack: Set<object>;
 }
 
 /**
@@ -457,15 +444,15 @@ function measureSchema(
  * Each `$ref` is expanded where it is used, as validation evaluates it, so a
  * small schema that references the same definition several times per level
  * shows its exponential validation cost here and is rejected. A `$ref` back
- * into a schema it is already inside is allowed only when the walk has moved
- * to a child of the input since entering it: that recursion ends with the
- * input data. A cycle at the same input location never ends, so it is refused.
+ * into a schema it is already inside is refused outright: even when each
+ * level steps into a property or item, a recursive schema with more than one
+ * reference per level costs validation exponential work in the input's
+ * nesting depth, which the expansion count cannot see.
  */
 function rejectSchemaKeywords(
   schema: unknown,
   root: Record<string, unknown>,
   walk: SchemaWalk,
-  inputDepth: number,
 ): string | null {
   if (!isPlainRecord(schema)) return null;
   walk.expanded += 1;
@@ -481,39 +468,27 @@ function rejectSchemaKeywords(
       return 'has a tool schema with a $ref that is not "#" or an unencoded JSON pointer inside the schema';
     }
     if (isPlainRecord(target)) {
-      const enteredAt = walk.refDepths.get(target);
-      if (enteredAt === inputDepth) {
-        return "has a tool schema whose $ref cycles without reaching a property or item";
+      if (walk.refStack.has(target)) {
+        return "has a tool schema with a recursive $ref";
       }
-      if (enteredAt === undefined) {
-        walk.refDepths.set(target, inputDepth);
-        const rejection = rejectSchemaKeywords(target, root, walk, inputDepth);
-        walk.refDepths.delete(target);
-        if (rejection) return rejection;
-      }
+      walk.refStack.add(target);
+      const rejection = rejectSchemaKeywords(target, root, walk);
+      walk.refStack.delete(target);
+      if (rejection) return rejection;
     }
   }
-  const children: Array<[string, unknown]> = [];
-  for (const keyword of SUBSCHEMA_KEYWORDS) {
-    children.push([keyword, schema[keyword]]);
-  }
+  const children: unknown[] = [];
+  for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);
   for (const keyword of SUBSCHEMA_LIST_KEYWORDS) {
-    if (Array.isArray(schema[keyword])) {
-      for (const child of schema[keyword]) children.push([keyword, child]);
-    }
+    if (Array.isArray(schema[keyword])) children.push(...schema[keyword]);
   }
   for (const keyword of SUBSCHEMA_MAP_KEYWORDS) {
     if (isPlainRecord(schema[keyword])) {
-      for (const child of Object.values(schema[keyword])) {
-        children.push([keyword, child]);
-      }
+      children.push(...Object.values(schema[keyword]));
     }
   }
-  for (const [keyword, child] of children) {
-    const childDepth = INSTANCE_DESCENDING_KEYWORDS.has(keyword)
-      ? inputDepth + 1
-      : inputDepth;
-    const rejection = rejectSchemaKeywords(child, root, walk, childDepth);
+  for (const child of children) {
+    const rejection = rejectSchemaKeywords(child, root, walk);
     if (rejection) return rejection;
   }
   return null;
