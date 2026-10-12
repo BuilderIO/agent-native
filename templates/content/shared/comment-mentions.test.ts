@@ -147,7 +147,7 @@ describe("comment mentions", () => {
       name: "Sam",
     };
     const text =
-      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, or www.example.com/@Sam. A lone ` leaves @Sam";
+      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, or www.example.com/@Sam. A lone ` leaves @Sam";
 
     expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
       4,

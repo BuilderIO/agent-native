@@ -151,7 +151,8 @@ function isNameCharacter(character: string | undefined): boolean {
   return character !== undefined && NAME_CHARACTER.test(character);
 }
 
-const URL_START = /[a-z][a-z\d+.-]*:\/\/|\bwww\./i;
+// `//` starts a URL with or without its scheme, as in `//x.com/@Sam`.
+const URL_START = /\/\/|\bwww\./i;
 
 /**
  * Whether the `@` at `at` is part of a URL, as in `https://x.com/@Sam`: a URL
@@ -186,6 +187,16 @@ function codeSpans(text: string): { start: number; end: number }[] {
 }
 
 /**
+ * Tests whether an `@` in `text` is literal: in inline code or a URL, where it
+ * is code or part of the address, never a mention.
+ */
+export function literalAtSignTest(text: string): (at: number) => boolean {
+  const code = codeSpans(text);
+  return (at) =>
+    code.some((span) => span.start < at && at < span.end) || isInUrl(text, at);
+}
+
+/**
  * Where stored mentions' `@name`s appear in the text. A name counts only as a
  * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
  * two names start at the same `@` the longer wins. An `@name` in inline code
@@ -206,17 +217,13 @@ export function findCommentMentions(
     }
   }
   const names = [...byName.keys()].sort((a, b) => b.length - a.length);
-  const code = codeSpans(text);
-  const isInCode = (at: number) =>
-    code.some((span) => span.start < at && at < span.end);
+  const isLiteral = literalAtSignTest(text);
   const seen = new Map<string, number>();
   const matches: CommentMentionMatch[] = [];
   let start = text.indexOf("@");
   while (start !== -1) {
     const name =
-      isNameCharacter(text[start - 1]) ||
-      isInCode(start) ||
-      isInUrl(text, start)
+      isNameCharacter(text[start - 1]) || isLiteral(start)
         ? undefined
         : names.find(
             (candidate) =>

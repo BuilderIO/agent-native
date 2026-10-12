@@ -12,6 +12,7 @@ import {
 import {
   commentMentionKey,
   findCommentMentions,
+  literalAtSignTest,
   type CommentAgentMention,
 } from "@shared/comment-mentions";
 import { IconArrowUp, IconAt, IconMoodSmile } from "@tabler/icons-react";
@@ -205,7 +206,11 @@ function textReferences(
   // A draft saved before its mentions listed the AI chip. That chip is
   // appended after the text, so it can follow a word directly.
   const ai = aiReference(aiDraft);
-  const start = text.indexOf(`@${ai.label}`);
+  const isLiteral = literalAtSignTest(text);
+  let start = text.indexOf(`@${ai.label}`);
+  while (start >= 0 && isLiteral(start)) {
+    start = text.indexOf(`@${ai.label}`, start + 1);
+  }
   const end = start + 1 + ai.label.length;
   if (
     start >= 0 &&

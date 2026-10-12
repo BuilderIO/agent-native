@@ -417,6 +417,35 @@ describe("CommentComposer rich recipient", () => {
     ).toHaveLength(1);
   });
 
+  it("restores a saved AI draft's chip past an @model in inline code", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-code"
+          initialValue="See `@GPT-5.6 Luna`, then ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const chips = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(chips).toHaveLength(1);
+    const before = document.createRange();
+    before.setStart(editor(), 0);
+    before.setEndBefore(chips[0]!);
+    expect(before.toString()).toBe("See `@GPT-5.6 Luna`, then ask ");
+  });
+
   it("replaces an existing AI recipient when another model is selected", async () => {
     await act(async () =>
       root.render(
