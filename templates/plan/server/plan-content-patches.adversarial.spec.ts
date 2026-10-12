@@ -1044,7 +1044,7 @@ describe("replace-blocks and replace-block validation", () => {
           blocks: [incompleteQuestionBlock],
         },
       ]),
-    ).toThrow(/require data\.questions/i);
+    ).toThrow(/question-form blocks require at least one questions entry/i);
   });
 
   it("replace-blocks rejects a set with duplicate ids", () => {

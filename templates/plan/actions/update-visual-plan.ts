@@ -52,10 +52,10 @@ import {
 } from "../server/plans.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
+  assertPlanContentAuthoringChanges,
   applyPlanContentPatches,
   findBlock,
   planContentPatchesSchema,
-  planContentSchema,
   storedPlanContentSchema,
   type PlanBlock,
   type PlanContent,
@@ -552,7 +552,7 @@ const updateVisualPlanSchema = z.object({
     .describe(
       "Legacy-only standalone HTML. Allowed only while the current plan has no structured content. Structured plans reject this field because it would shadow blocks, inline editing, and MDX round-trip. Never use it for new plans.",
     ),
-  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  content: storedPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
   contentPatches: planContentPatchesSchema
     .optional()
     .default([])
@@ -705,7 +705,11 @@ export default defineAction({
     const isDestructiveStructuredWrite =
       args.content !== undefined || hasReplaceBlocksPatch;
     let nextContent =
-      args.content !== undefined ? normalizePlanContent(args.content) : null;
+      args.content !== undefined
+        ? normalizePlanContent(args.content, {
+            allowStoredLegacyDefaults: true,
+          })
+        : null;
     let surfaceWarnings: string[] = [];
     let versionAtLoad: string | null = null;
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
@@ -749,6 +753,13 @@ export default defineAction({
         );
       }
       versionAtLoad = args.expectedUpdatedAt;
+    }
+
+    if (args.content !== undefined && nextContent) {
+      assertPlanContentAuthoringChanges(
+        nextContent,
+        bundleAtLoad?.plan.content,
+      );
     }
 
     if (args.content === undefined && args.contentPatches.length > 0) {

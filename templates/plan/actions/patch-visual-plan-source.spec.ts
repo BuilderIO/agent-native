@@ -99,7 +99,7 @@ const populatedContent = () => ({
   prototype: { screens: [{ id: "screen_1", html: "<main>Screen</main>" }] },
 });
 
-const bundleWith = (content: ReturnType<typeof populatedContent>) => ({
+const bundleWith = (content: ReturnType<typeof populatedContent> | null) => ({
   plan: {
     id: "plan_test",
     title: "Plan",
@@ -268,6 +268,26 @@ describe("patch-visual-plan-source guardrails", () => {
             op: "replace-markdown-block",
             blockId: "block_1",
             markdown: "Updated body",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_test" });
+    expect(dbUpdateMock).toHaveBeenCalled();
+  });
+
+  it("validates new source content when the plan has no structured content", async () => {
+    loadPlanBundleMock.mockResolvedValueOnce(bundleWith(null));
+    parsePlanMdxFolderMock.mockResolvedValueOnce(populatedContent());
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        expectedUpdatedAt: "revision-1",
+        patches: [
+          {
+            op: "replace-file",
+            file: "plan.mdx",
+            content: "# New structured plan",
           },
         ],
       }),

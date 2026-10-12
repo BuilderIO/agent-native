@@ -2169,8 +2169,13 @@ export function parsePlanContentAuthoringChanges(
 
 export function assertPlanContentAuthoringChanges(
   content: PlanContent,
-  previous: PlanContent,
+  previous: PlanContent | null | undefined,
 ): void {
+  if (!previous) {
+    planContentSchema.parse(content);
+    return;
+  }
+
   const previousBlocks = new Map<string, PlanBlock>();
   const stack = previous.blocks.map((block) => ({ block, depth: 0 }));
   let visits = 0;
@@ -2641,7 +2646,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-block"),
     blockId: idSchema,
-    block: planAuthoringBlockSchema,
+    block: planBlockSchema,
   }),
   z.object({
     op: z.literal("update-block"),
@@ -2650,7 +2655,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("replace-blocks"),
-    blocks: z.array(planAuthoringBlockSchema).max(200),
+    blocks: z.array(planBlockSchema).max(200),
   }),
   z.object({
     op: z.literal("update-rich-text"),

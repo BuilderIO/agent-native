@@ -1650,6 +1650,60 @@ describe("parsePlanContent per-block salvage", () => {
     ).toThrow(/question-form blocks require at least one questions entry/);
   });
 
+  it("validates block replacements against existing legacy defaults", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+      ],
+    });
+    const questions = legacy.blocks[0];
+    if (questions?.type !== "question-form") {
+      throw new Error("Expected a question-form block");
+    }
+
+    expect(() =>
+      applyPlanContentPatches(legacy, [
+        { op: "replace-block", blockId: questions.id, block: questions },
+        { op: "replace-blocks", blocks: legacy.blocks },
+      ]),
+    ).not.toThrow();
+
+    expect(() =>
+      applyPlanContentPatches(legacy, [
+        {
+          op: "replace-blocks",
+          blocks: [
+            ...legacy.blocks,
+            {
+              id: "new-questions",
+              type: "question-form",
+              data: { questions: [] },
+            },
+          ],
+        },
+      ]),
+    ).toThrow(/question-form blocks require at least one questions entry/);
+  });
+
+  it("strictly validates authored content when there is no previous plan", () => {
+    const incomplete = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        {
+          id: "new-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    });
+
+    expect(() => assertPlanContentAuthoringChanges(incomplete, null)).toThrow(
+      /question-form blocks require at least one questions entry/,
+    );
+  });
+
   it("rejects null in lenient stored fields and empty required authoring arrays", () => {
     expect(
       storedPlanContentSchema.safeParse({

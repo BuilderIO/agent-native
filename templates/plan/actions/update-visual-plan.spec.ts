@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
+import {
+  planContentSchema,
+  storedPlanContentSchema,
+  type PlanContent,
+} from "../shared/plan-content.js";
 
 const request = vi.hoisted(() => ({
   email: undefined as string | undefined,
@@ -1479,6 +1483,85 @@ describe("update-visual-plan comments", () => {
       expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
     },
   );
+
+  it("accepts unchanged stored legacy defaults in full replacements", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    const legacyContent = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        {
+          id: "intro",
+          type: "rich-text",
+          data: { markdown: "Original copy." },
+        },
+      ],
+    });
+    const replacementContent = storedPlanContentSchema.parse({
+      ...legacyContent,
+      blocks: legacyContent.blocks.map((block) =>
+        block.id === "intro" && block.type === "rich-text"
+          ? { ...block, data: { markdown: "Updated copy." } }
+          : block,
+      ),
+    });
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: legacyContent }),
+    );
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (args: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content: replacementContent,
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      planId: "plan_public",
+    });
+    expect(updateWhereMock).toHaveBeenCalled();
+  });
+
+  it("rejects new incomplete fields in full replacements", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (args: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content: {
+        version: 2,
+        blocks: [
+          {
+            id: "new-questions",
+            type: "question-form",
+            data: { questions: [] },
+          },
+        ],
+      },
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).rejects.toThrow(
+      /question-form blocks require at least one questions entry/,
+    );
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
 
   it("types a stale revision as a 409 conflict so the action boundary does not capture it", async () => {
     request.email = "editor@example.com";

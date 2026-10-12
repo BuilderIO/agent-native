@@ -43,7 +43,7 @@ describe("validate-local-plan-source", () => {
     expect(result).toEqual({ valid: true, issues: [] });
   });
 
-  it("accepts exported legacy defaults when the folder carries a stored plan id", async () => {
+  it("does not trust a caller-supplied plan id to accept legacy defaults", async () => {
     const content = storedPlanContentSchema.parse({
       version: 2,
       title: "Exported plan",
@@ -60,7 +60,8 @@ describe("validate-local-plan-source", () => {
     });
 
     const result = await validateLocalPlanSource.run({ mdx });
-    expect(result).toEqual({ valid: true, issues: [] });
+    expect(result.valid).toBe(false);
+    expect(result.issues.length).toBeGreaterThan(0);
   });
 
   it("keeps authored empty fields invalid without a stored plan id", async () => {
