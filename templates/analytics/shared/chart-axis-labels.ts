@@ -45,18 +45,30 @@ const MONTH_NAME_DATE = new RegExp(
   "i",
 );
 
-function isOrdinalAxisValue(value: unknown): boolean {
+function isDateValue(value: unknown): boolean {
   if (value instanceof Date) return true;
-  if (typeof value === "number") return Number.isFinite(value);
   if (typeof value !== "string") return false;
   const text = value.trim();
   return (
     ISO_DATE_VALUE.test(text) ||
     PERIOD_VALUE.test(text) ||
     MONTH_NAME_DATE.test(text) ||
-    /^\d{8}$/.test(text) ||
-    (text !== "" && Number.isFinite(Number(text)))
+    /^\d{8}$/.test(text)
   );
+}
+
+function isOrdinalAxisValue(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  if (isDateValue(value)) return true;
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    Number.isFinite(Number(value))
+  );
+}
+
+function isBlank(value: unknown): boolean {
+  return value === null || value === undefined || value === "";
 }
 
 /**
@@ -65,13 +77,16 @@ function isOrdinalAxisValue(value: unknown): boolean {
  * names when ticks are skipped.
  */
 export function isCategoryAxis(values: readonly unknown[]): boolean {
-  return values.some(
-    (value) =>
-      value !== null &&
-      value !== undefined &&
-      value !== "" &&
-      !isOrdinalAxisValue(value),
-  );
+  return values.some((value) => !isBlank(value) && !isOrdinalAxisValue(value));
+}
+
+/**
+ * True when every x value is a date or period, so the end of the axis is the
+ * newest data. Plain numbers are ids or buckets, not time.
+ */
+export function isDateAxis(values: readonly unknown[]): boolean {
+  const present = values.filter((value) => !isBlank(value));
+  return present.length > 0 && present.every(isDateValue);
 }
 
 export interface CategoryAxisPlan {

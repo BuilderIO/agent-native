@@ -5,7 +5,7 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
-import { isCategoryAxis } from "./chart-axis-labels";
+import { isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
   resolveDashboardFunnelRows,
@@ -640,8 +640,8 @@ export interface ChartPointLimit {
 }
 
 /**
- * `xKey` lets a bar chart over dates or numbers keep its newest points, as a
- * line chart does; a category bar chart keeps the first.
+ * `xKey` lets a bar chart over dates keep its newest points, as a line chart
+ * does; a bar chart over categories, ids or buckets keeps the first.
  */
 export function chartPointLimit(
   rows: readonly Record<string, unknown>[],
@@ -657,7 +657,7 @@ export function chartPointLimit(
   }
   const keepsNewest =
     NEWEST_POINT_CHART_TYPES.includes(type) ||
-    (type === "bar" && !!xKey && !isCategoryAxis(rows.map((row) => row[xKey])));
+    (type === "bar" && !!xKey && isDateAxis(rows.map((row) => row[xKey])));
   return {
     shown: MAX_CHART_POINTS,
     total: rows.length,
@@ -665,7 +665,7 @@ export function chartPointLimit(
   };
 }
 
-/** Rows a chart draws: line, area, combo, heatmap and date/number bar charts keep the newest, the rest the first. */
+/** Rows a chart draws: line, area, combo, heatmap and date bar charts keep the newest, the rest the first. */
 export function limitChartRows<T extends Record<string, unknown>>(
   rows: T[],
   chartType: string,
@@ -702,15 +702,20 @@ function seriesTotal(rows: Record<string, unknown>[], key: string): number {
 }
 
 /**
- * Each drawn series' slot in `config.colors`. Colors follow result order, not
- * draw order: authors give colors a meaning (green for positive), so ranking a
- * stack must not hand one series another's color.
+ * Each drawn series' slot in `config.colors`: `config.pivot.seriesOrder` first,
+ * then result order. Never draw order: authors give colors a meaning (green
+ * for positive), so ranking a stack or a reordered result must not hand one
+ * series another's color.
  */
 export function seriesColorSlots(
   orderedKeys: readonly string[],
   resultKeys: readonly string[],
+  panel: RenderPanel,
 ): number[] {
-  return orderedKeys.map((key) => resultKeys.indexOf(key));
+  const listed = Array.from(new Set(keyList(panel.config?.pivot?.seriesOrder)));
+  const listedSet = new Set(listed);
+  const slots = [...listed, ...resultKeys.filter((key) => !listedSet.has(key))];
+  return orderedKeys.map((key) => slots.indexOf(key));
 }
 
 /**
@@ -869,7 +874,7 @@ export function planPanelRender(
     rawColumns,
     xKey,
     yKeys,
-    colorSlots: seriesColorSlots(yKeys, detected.yKeys),
+    colorSlots: seriesColorSlots(yKeys, detected.yKeys, panel),
     empty,
     renderedRowCount: empty ? 0 : (funnel?.items.length ?? rows.length),
     pointLimit: empty ? null : chartPointLimit(rows, panel.chartType, xKey),

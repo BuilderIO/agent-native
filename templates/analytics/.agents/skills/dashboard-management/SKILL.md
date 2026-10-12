@@ -523,13 +523,15 @@ in the same `set({...})` call.
   returns wide-format rows, remove `pivot` or the panel shows "No data".
 - A stacked bar or area chart draws its largest series at the bottom and an
   "Other"/"unknown" bucket on top; the legend and tooltip use the same order.
-  `config.colors` stays with each series in result order, so a color can mean
-  something. To fix the order, list series values in `config.pivot.seriesOrder`
-  (they go first, the rest follow by size) or list `config.yKeys` for wide rows.
+  To fix the order, list series values in `config.pivot.seriesOrder` (they go
+  first, the rest follow by size) or list `config.yKeys` for wide rows.
+- `config.colors` is matched to series in `config.pivot.seriesOrder` order, then
+  result order, never by stack position. When colors carry meaning (green for
+  positive), list those series in `seriesOrder` so row order cannot swap them.
 - A chart draws at most 400 points and says so under the chart: the newest for
-  line, area, combo, heatmap and bar charts over dates or numbers, the first for
-  category bars and the rest. Aggregate or limit the SQL instead of returning
-  more.
+  line, area, combo, heatmap and bar charts over dates, the first for bars over
+  categories, ids or buckets and the rest. Aggregate or limit the SQL instead of
+  returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.

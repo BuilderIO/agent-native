@@ -790,6 +790,32 @@ describe("orderPanelSeries", () => {
     expect(plan.yKeys).toEqual(["negative", "positive"]);
     expect(plan.colorSlots).toEqual([1, 0]);
   });
+
+  it("anchors colors to pivot.seriesOrder whatever order rows arrive in", () => {
+    const plan = planPanelRender(
+      [
+        { model: "a", sentiment: "negative", responses: 20 },
+        { model: "a", sentiment: "positive", responses: 5 },
+        { model: "b", sentiment: "neutral", responses: 1 },
+      ],
+      {
+        chartType: "bar",
+        config: {
+          stacked: true,
+          colors: ["#10b981", "#ef4444", "#94a3b8"],
+          pivot: {
+            xKey: "model",
+            seriesKey: "sentiment",
+            valueKey: "responses",
+            seriesOrder: ["positive", "negative"],
+          },
+        },
+      },
+    );
+
+    expect(plan.yKeys).toEqual(["positive", "negative", "neutral"]);
+    expect(plan.colorSlots).toEqual([0, 1, 2]);
+  });
 });
 
 describe("chart point limit", () => {
@@ -830,6 +856,18 @@ describe("chart point limit", () => {
     const kept = limitChartRows(days, "bar", "date");
     expect(kept[0]?.date).toBe("2025-02-20");
     expect(kept[kept.length - 1]?.date).toBe("2026-03-26");
+  });
+
+  it("keeps the first points of a bar chart over numeric ids", () => {
+    const accounts = Array.from({ length: 500 }, (_, index) => ({
+      account_id: 9000 - index,
+      revenue: 500 - index,
+    }));
+    expect(chartPointLimit(accounts, "bar", "account_id")?.keeps).toBe("first");
+    expect(limitChartRows(accounts, "bar", "account_id")[0]).toEqual({
+      account_id: 9000,
+      revenue: 500,
+    });
   });
 
   it("has no limit at or under the cap, or for tables", () => {

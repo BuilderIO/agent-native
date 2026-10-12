@@ -200,6 +200,31 @@ describe("SqlChart axis labels, series order and point limits", () => {
     expect(legend).toEqual(["preview", "production", "local"]);
   });
 
+  it("keeps each series' configured color when ranking moves it", async () => {
+    mocks.rows = dates(2).flatMap((day) => [
+      { day, sentiment: "positive", responses: 5 },
+      { day, sentiment: "negative", responses: 20 },
+    ]);
+    await render(
+      panel("bar", {
+        stacked: true,
+        colors: ["#10b981", "#ef4444"],
+        pivot: { xKey: "day", seriesKey: "sentiment", valueKey: "responses" },
+      }),
+    );
+
+    const swatches = [
+      ...container.querySelectorAll("[data-chart-legend-item]"),
+    ].map((item) => [
+      item.getAttribute("data-chart-legend-item"),
+      item.querySelector<HTMLElement>("span[style]")?.style.backgroundColor,
+    ]);
+    expect(swatches).toEqual([
+      ["negative", "#ef4444"],
+      ["positive", "#10b981"],
+    ]);
+  });
+
   it("says when a time series draws only its newest points", async () => {
     mocks.rows = dates(601).map((day, index) => ({ day, signups: index }));
     await render(panel("line", { xKey: "day", yKey: "signups" }));

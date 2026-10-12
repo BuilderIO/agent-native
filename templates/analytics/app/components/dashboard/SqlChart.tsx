@@ -1160,7 +1160,7 @@ function ConfigWarning({ keys }: { keys: string[] }) {
 
 function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
   return (
     <p
       data-chart-point-limit
@@ -1171,8 +1171,8 @@ function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
           ? "sqlDashboard.chartPointLimitNewest"
           : "sqlDashboard.chartPointLimitFirst",
         {
-          shown: formatNumber(limit.shown),
-          total: formatNumber(limit.total),
+          shown: formatters.formatNumber(limit.shown),
+          total: formatters.formatNumber(limit.total),
         },
       )}
     </p>

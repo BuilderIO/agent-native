@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   estimateTextWidth,
   isCategoryAxis,
+  isDateAxis,
   planCategoryAxis,
   trimToWidth,
 } from "./chart-axis-labels";
@@ -43,6 +44,16 @@ describe("isCategoryAxis", () => {
   it("does not read words that start with a month as dates", () => {
     expect(isCategoryAxis(["Marketing", "Nova", "Octopus"])).toBe(true);
     expect(isCategoryAxis(["Juniper", "Decks"])).toBe(true);
+  });
+});
+
+describe("isDateAxis", () => {
+  it("is true only when every present value is a date or period", () => {
+    expect(isDateAxis([null, "2026-09-08", "2026-W40", "Oct 01"])).toBe(true);
+    expect(isDateAxis(["2026-09-08", 3])).toBe(false);
+    expect(isDateAxis([101, 102, "103"])).toBe(false);
+    expect(isDateAxis(["mail"])).toBe(false);
+    expect(isDateAxis([null, ""])).toBe(false);
   });
 
   it("treats any named value as a category", () => {

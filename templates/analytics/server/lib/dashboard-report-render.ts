@@ -472,7 +472,7 @@ function buildChartInput(
         : (JSON.stringify(row[xKey]) ?? ""),
   );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
-  const colorSlots = seriesColorSlots(plotted, detected.yKeys);
+  const colorSlots = seriesColorSlots(plotted, detected.yKeys, panel);
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
