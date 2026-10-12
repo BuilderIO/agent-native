@@ -28,7 +28,7 @@ Building the experience in the app (design to code) is a separate handoff: work 
 
 ## Figma
 
-The Agent-Native file is `oJQ7t9q4e8oHzLZKuki7k1`. Every app already has a page there, because design usually starts in Figma. `<name>/prototype.json` names it under `figma.page` (with `pageId`) and records `figma.sections`, the sections and frames this prototype maps to. If an app has no page, ask. Don't create one.
+The Agent-Native file is `oJQ7t9q4e8oHzLZKuki7k1`. Every app already has a page there, because design usually starts in Figma. `<name>/prototype.json` names it under `figma.page` (with `pageId`), lists any `figma.related` pages (Chat's agent chat surface lives on AgentKit, shared by every app), and records `figma.sections`, the sections and frames this prototype maps to. If an app has no page, ask. Don't create one.
 
 Load `figma-use` before every `use_figma` call, and `figma-design-to-code` before `get_design_context`.
 
