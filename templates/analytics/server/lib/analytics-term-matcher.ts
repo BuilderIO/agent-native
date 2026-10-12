@@ -250,8 +250,10 @@ export function relevanceTerms(search: string): string[] {
 export function semanticScopeForSearch(value: string): string {
   const terms = new Set(searchTerms(value));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
-  const isBuilderProductUserQuery =
-    has("builder", "product") && has("user", "person", "people", "member");
+  const isActiveProductUserQuery =
+    has("builder") &&
+    has("product") &&
+    has("user", "person", "people", "member");
   if (
     ((has("agent") && has("native")) || has("analytics", "analytic")) &&
     has("user", "person", "people", "member")
@@ -272,7 +274,7 @@ export function semanticScopeForSearch(value: string): string {
       "adoption",
       "action",
     ) ||
-    (has("active") && !isBuilderProductUserQuery)
+    (has("active") && !isActiveProductUserQuery)
   ) {
     return "product_activity";
   }

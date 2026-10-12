@@ -217,7 +217,7 @@ describe("analytics query catalog", () => {
     expect(ids).not.toContain("approved-monthly-workspace-user-count");
   });
 
-  it("rejects inferred active-user activity while retaining a daily-refreshed current roster", () => {
+  it("rejects explicitly scoped active users and historical snapshots while retaining a current roster", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "current workspace user roster with roles",
       limit: 6,
@@ -231,6 +231,18 @@ describe("analytics query catalog", () => {
           table: "active_users_by_org",
           columnsUsed: "user_id, org_id, role",
           grain: "One row per user-organization membership",
+          semanticScope: "membership",
+        },
+        {
+          id: "historical-workspace-roles",
+          metric: "Historical workspace user roles",
+          definition:
+            "Historical snapshots of workspace memberships and assigned roles as of each month end.",
+          table: "workspace_member_role_history",
+          columnsUsed: "user_id, workspace_id, role, snapshot_month",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          updateFrequency: "Daily",
         },
         {
           id: "daily-refreshed-current-workspace-roles",
@@ -253,6 +265,51 @@ describe("analytics query catalog", () => {
           : candidate.dashboardId,
       ),
     ).toEqual(["daily-refreshed-current-workspace-roles"]);
+  });
+
+  it("keeps a row-level membership bridge ahead of an approved monthly aggregate for plain membership searches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace membership",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly workspace user count",
+          definition: "Month-end count of users by workspace.",
+          table: "workspace_user_monthly_rollup",
+          columnsUsed: "workspace_id, month, user_count",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "workspace-membership-bridge",
+          metric: "Workspace membership bridge",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      ),
+    ).toEqual([
+      "workspace-membership-bridge",
+      "approved-monthly-workspace-user-count",
+    ]);
   });
 
   it("keeps approved monthly metrics for explicit month-count questions", () => {

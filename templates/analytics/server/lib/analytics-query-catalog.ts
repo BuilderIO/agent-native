@@ -528,8 +528,10 @@ function hasExplicitActivityEvidence(
     .join(" ")
     .toLowerCase()
     .replace(/[_-]+/g, " ");
-  return /\b(?:events?|activities?|usage logs?|sessions?|funnels?|conversions?)\b/.test(
-    searchable,
+  return (
+    /\b(?:events?|activities?|usage logs?|sessions?|funnels?|conversions?)\b/.test(
+      searchable,
+    ) || inferSemanticScope(searchable) === "product_activity"
   );
 }
 
@@ -589,12 +591,6 @@ export function candidateSemanticScope(
   if (candidate.kind === "data-dictionary") {
     const declared = candidate.semanticScope;
     if (declared && declared !== "unknown" && SEMANTIC_SCOPES.has(declared)) {
-      if (
-        (declared === "membership" || declared === "membership_roster") &&
-        hasMembershipRosterEvidence(candidate)
-      ) {
-        return "membership_roster";
-      }
       return declared;
     }
     return inferSemanticScope(
@@ -992,6 +988,12 @@ export function rankAnalyticsQueryCatalogPage(args: {
   ];
 
   const requestedScope = requestedSemanticScope(args.search);
+  const aggregateRequest =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution|daily|weekly|monthly|quarterly|yearly|day|week|month|quarter|year)\b/i.test(
+      args.search,
+    );
+  const plainMembershipRequest =
+    requestedScope === "membership" && !aggregateRequest;
   const requestedTerms = new Set(searchTerms(args.search));
   const hasExactQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 0 &&
@@ -1017,6 +1019,8 @@ export function rankAnalyticsQueryCatalogPage(args: {
           ? 1
           : 0
       : 0,
+    membershipRowSpecificity:
+      plainMembershipRequest && hasMembershipRosterEvidence(candidate) ? 1 : 0,
     scope:
       requestedScope === "unknown"
         ? 1
@@ -1075,6 +1079,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
     .sort((a, b) => {
       if (b.rosterSpecificity !== a.rosterSpecificity) {
         return b.rosterSpecificity - a.rosterSpecificity;
+      }
+      if (b.membershipRowSpecificity !== a.membershipRowSpecificity) {
+        return b.membershipRowSpecificity - a.membershipRowSpecificity;
       }
       if (b.rankingTier !== a.rankingTier) {
         return b.rankingTier - a.rankingTier;

@@ -77,6 +77,15 @@ describe("Analytics term matching", () => {
 
   it("distinguishes Builder product users from Analytics app users", () => {
     expect(semanticScopeForSearch("Builder.io users")).toBe("product_user");
+    expect(semanticScopeForSearch("active product users")).toBe(
+      "product_activity",
+    );
+    expect(semanticScopeForSearch("active Builder users")).toBe(
+      "product_activity",
+    );
+    expect(semanticScopeForSearch("active Builder product users")).toBe(
+      "product_user",
+    );
     expect(semanticScopeForSearch("Builder users in organizations")).toBe(
       "membership",
     );

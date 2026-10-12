@@ -117,4 +117,43 @@ describe("find-data scan coverage", () => {
     expect(result.guidance).toContain("coverage counts are unavailable");
     expect(result.guidance).not.toContain("0 entries were omitted");
   });
+
+  it("reports unknown scan counts alongside positive counts", async () => {
+    mocks.searchAnalyticsQueryCatalog.mockResolvedValueOnce({
+      candidates: [],
+      searched: 0,
+      of: 0,
+      truncated: false,
+      nextPage: null,
+      searchedDashboardCount: 0,
+      dashboardSearchTruncated: false,
+      dashboardDetailHydrationTruncated: false,
+      dashboardPanelReferenceSearchStatus: "available",
+      dashboardPanelReferenceSearchTruncated: false,
+      dashboardPanelReferenceSearched: 0,
+      dashboardPanelReferenceOf: 0,
+      dashboardPanelReferenceNextPage: null,
+      dashboardSearchStatus: "available",
+      searchedDictionaryEntryCount: 0,
+      dictionarySearchTruncated: false,
+      dictionarySearchStatus: "available",
+      sourceIndexStatus: "available",
+      sourceIndexScanCoverage: {
+        unsafeEntriesOmitted: 2,
+        unsafeFieldsOmitted: 0,
+        truncatedFields: 0,
+        unresolvedTrackingCallSites: null,
+      },
+    });
+
+    const result = await action.run({ question: "workspace users" });
+
+    expect(result.guidance).toContain(
+      "2 entries were omitted by safety checks",
+    );
+    expect(result.guidance).toContain("coverage counts are unavailable");
+    expect(result.guidance).toContain(
+      "Treat missing source-index matches as incomplete",
+    );
+  });
 });

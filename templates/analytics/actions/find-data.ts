@@ -36,11 +36,13 @@ function sourceIndexScanGuidance(
       ? `${countLabel(coverage.unresolvedTrackingCallSites, "tracking call site")} ${coverage.unresolvedTrackingCallSites === 1 ? "has" : "have"} unresolved event names`
       : "",
   ].filter(Boolean);
+  if (Object.values(coverage).some((count) => count === null)) {
+    messages.push(
+      "Some source-index scan coverage counts are unavailable for this revision. Treat absence from generated references as unknown and verify with schema or source metadata.",
+    );
+  }
   if (messages.length > 0) {
     return `Source-index scan coverage: ${messages.join("; ")}. Treat missing source-index matches as incomplete and verify with schema or source metadata.`;
-  }
-  if (Object.values(coverage).some((count) => count === null)) {
-    return "Some source-index scan coverage counts are unavailable for this revision. Treat absence from generated references as unknown and verify with schema or source metadata.";
   }
   return "";
 }
