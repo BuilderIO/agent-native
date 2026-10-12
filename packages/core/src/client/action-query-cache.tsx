@@ -43,6 +43,7 @@ const WRITE_DELAY_MS = 1_000;
 // the app.
 const RESTORE_TIMEOUT_MS = 2_000;
 const INITIAL_CLEAR_TIMEOUT_MS = 2_000;
+const BIND_WAIT_BUDGET_MS = 2_000;
 const ACTION_QUERY_KEY = ["action"];
 
 function isAccessDeniedActionQuery(query: Query): boolean {
@@ -272,10 +273,18 @@ async function waitForStorageClear(): Promise<void> {
   }
 }
 
-async function waitForStorageClearWithinBound(): Promise<boolean> {
+async function waitForStorageClearWithinBound(
+  timeoutMs = INITIAL_CLEAR_TIMEOUT_MS,
+): Promise<boolean> {
+  if (timeoutMs <= 0) {
+    console.warn(
+      "Cached action results could not be cleared within the binding deadline",
+    );
+    return false;
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<boolean>((resolve) => {
-    timer = setTimeout(() => resolve(false), INITIAL_CLEAR_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(false), timeoutMs);
   });
   try {
     return await Promise.race([
@@ -589,13 +598,20 @@ function closeBinding(): void {
 async function waitForCleanup(
   cleanup: Promise<void>,
   timeoutMessage = "Cached action results could not be prepared in time; loading without them.",
+  timeoutMs = RESTORE_TIMEOUT_MS,
 ): Promise<boolean> {
+  if (timeoutMs <= 0) {
+    void cleanup.catch((error) =>
+      console.warn("Cache cleanup failed after its deadline", error),
+    );
+    return false;
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<boolean>((resolve) => {
     timer = setTimeout(() => {
       console.warn(timeoutMessage);
       resolve(false);
-    }, RESTORE_TIMEOUT_MS);
+    }, timeoutMs);
   });
   try {
     return await Promise.race([cleanup.then(() => true), timeout]);
@@ -604,7 +620,16 @@ async function waitForCleanup(
   }
 }
 
-async function waitForRestore(restored: Promise<void>): Promise<void> {
+async function waitForRestore(
+  restored: Promise<void>,
+  timeoutMs = RESTORE_TIMEOUT_MS,
+): Promise<void> {
+  if (timeoutMs <= 0) {
+    console.warn(
+      "Cached action results did not restore in time; loading without them.",
+    );
+    return;
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
@@ -612,7 +637,7 @@ async function waitForRestore(restored: Promise<void>): Promise<void> {
         "Cached action results did not restore in time; loading without them.",
       );
       resolve();
-    }, RESTORE_TIMEOUT_MS);
+    }, timeoutMs);
   });
   try {
     await Promise.race([
@@ -636,6 +661,8 @@ export async function bindActionQueryCache(
   options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
   const attempt = ++bindAttemptGeneration;
+  const bindDeadline = Date.now() + BIND_WAIT_BUDGET_MS;
+  const remainingBindBudget = () => Math.max(0, bindDeadline - Date.now());
   let cacheSafety = readCacheSafetyState(true);
   if (!cacheSafety) {
     releaseWithoutCache(client, attempt);
@@ -647,7 +674,9 @@ export async function bindActionQueryCache(
   if (storageClearInFlight || storageClearRequired) {
     let clearFinished: boolean;
     try {
-      clearFinished = await waitForStorageClearWithinBound();
+      clearFinished = await waitForStorageClearWithinBound(
+        remainingBindBudget(),
+      );
     } catch (error) {
       if (attempt === bindAttemptGeneration) {
         releaseWithoutCache(client, attempt);
@@ -657,7 +686,7 @@ export async function bindActionQueryCache(
     if (attempt !== bindAttemptGeneration) {
       return;
     }
-    if (!clearFinished) {
+    if (!clearFinished || remainingBindBudget() <= 0) {
       releaseWithoutCache(client, attempt);
       return;
     }
@@ -779,7 +808,10 @@ export async function bindActionQueryCache(
     }
   })();
   try {
-    if (!(await waitForCleanup(cleanup))) {
+    if (
+      !(await waitForCleanup(cleanup, undefined, remainingBindBudget())) ||
+      remainingBindBudget() <= 0
+    ) {
       if (isCurrentBinding()) persister.blockRestoreAndPersistence();
       return;
     }
@@ -908,7 +940,7 @@ export async function bindActionQueryCache(
         stopHydrationTracking();
         stopHydrationTracking = () => {};
       });
-    await waitForRestore(restored);
+    await waitForRestore(restored, remainingBindBudget());
     // A scope change during the restore can hydrate the old scope after the new
     // one has started; drop those results before the new scope saves them. A
     // query the new scope has refetched since holds newer data and is kept.
