@@ -4,19 +4,37 @@ Status: Accepted
 
 Date: 2026-09-25
 
-## Proposed stream-policy amendment: 2026-10-10
+## Proposed stream-policy amendment: 2026-10-13
 
 The original accepted decision permits an already-open run stream to deliver until disconnect after access loss. That remains current runtime behavior.
 
-The replacement uses the framework-wide [bounded viewer authorization contract](durable-agent-runs.md#bounded-viewer-authorization-leases). The approved maximum authorization age is 10 seconds from the authoritative check start. The selected idle policy is Option A: keep the connection open, but block protected delivery after authorization expires. A fresh decision precedes resumed delivery. Idle subscriptions cause no periodic authorization reads. There is no universal 5-second renewal schedule.
+The revised proposal uses the framework-wide [event-driven viewer access revocation contract](durable-agent-runs.md#event-driven-viewer-access-revocation). Committed access changes notify affected stream hosts. Each host invalidates affected authorization decisions and pauses protected delivery until a current access check succeeds. Confirmed denial closes only the viewer subscription. Another valid access path permits continuation. Client notifications support UI updates, not authorization enforcement.
 
-These policy choices do not establish runtime completion. Failure handling, disclosure and availability tradeoffs, and measured scaling budgets remain approval gates. V1 release under the amended contract requires those approvals, implementation, and independent runtime proof. The bound excludes bytes already handed to the transport.
+This proposal replaces frequent per-subscription authorization renewal with access-change invalidation. It does not establish immediate revocation or a maximum stale-access window. Commit-coupled publication, recoverable cross-host delivery, admission ordering and outage behavior remain design gates. A guaranteed bound requires a separate freshness decision and proof. Token expiry and a connected event feed do not supply that proof.
+
+The shared client retains bounded automatic recovery, denial handling and viewer/producer separation. Every reconnect requires fresh admission before protected replay. The accepted recovery limits remain in the shared contract. They do not define authorization freshness or permit delivery after known invalidation.
+
+This is a design revision, not runtime completion or authorization to implement. Team roles, bindings, ownership, context precedence and sharing rights remain unchanged.
+
+### Superseded stream-policy decisions: 2026-10-10 through 2026-10-12
+
+The earlier proposal selected a ten-second maximum authorization age measured from authoritative check start. Option A kept idle connections open without delivery rights after expiry. The 2026-10-11 fault option retained an existing approval only until its original deadline, then closed the faulted viewer without stopping the producer. These lease-specific choices are superseded by the event-driven proposal, not deployed guarantees.
+
+The 2026-10-11 automatic-recovery decision and the 2026-10-12 closure/reset, recovery limits and baseline-driven validation decisions remain applicable. Earlier authority and delivery candidates remain recorded in the shared design as unselected candidates.
 
 ## Context
 
 [Issue #5611](https://github.com/BuilderIO/agent-native/issues/5611) asks for one organization with people in several teams. Each team needs its own agent instructions, skills, and memory alongside the organization's. Leads need a central view of team work.
 
 Today, `workspace_user_groups` within an organization can share supported resources and grant access to workspace connections. They do not assign team roles or store team instructions, skills, and memory, so they cannot provide the requested workflow on their own.
+
+### Pre-Teams access baseline
+
+Organization resolution uses a 15-second process-local membership cache. Member removal clears that process's cache, not other hosts' caches. Supported group-share checks use current SQL group membership and an active organization membership row. Organization resolution also has session-based fallback branches after membership-read failure. These mechanisms do not establish a universal next-request revocation deadline.
+
+Better Auth's five-minute cookie cache concerns session authentication, not a resource-authorization window or stream lifetime. Offboarding deletes sessions only when no other active organization membership remains. The inspected run subscriptions authorize at admission and do not recheck membership during delivery. Open-stream revocation addresses an existing framework gap, not a guarantee inherited from pre-Teams behavior.
+
+### Product context
 
 An organization-wide resource does not need to become team-owned to meet these needs. [Review feedback on PR #5777](https://github.com/BuilderIO/agent-native/pull/5777#pullrequestreview-5311752444) calls for a smaller first release instead of another place to track members and a new team ownership model for every resource.
 
@@ -137,7 +155,7 @@ At grant time, validate the marked team, its match to the conversation's organiz
 
 Linked runs inherit their conversation's read access; V1 does not share runs separately. On each new read, list, stream connection (including reconnect and replay), or background response request, resolve the linked conversation and apply its current read rules: organization and team membership where applicable, plus owner or share access. Deny the request if the conversation is missing or inaccessible; cached results and background paths cannot bypass this check.
 
-The amendment applies that policy during an open viewer subscription through the shared [authorization contract](durable-agent-runs.md#bounded-viewer-authorization-leases). An open connection does not grant continuing delivery rights. Expired authorization blocks protected delivery until a fresh decision succeeds. Denial closes only the viewer subscription. A revoked grant does not deny a viewer who retains another valid access path. An unbound owner can retain access after revocation of a team share. The shared contract covers all run access rules, not only team-linked runs. This ADR defines linked-conversation access, not new rights for standalone or public runs.
+The amendment applies that policy during an open viewer subscription through the shared [revocation contract](durable-agent-runs.md#event-driven-viewer-access-revocation). A relevant access-change event invalidates the affected decision and pauses protected delivery until a current access check succeeds. Denial closes only the viewer subscription. A revoked grant does not deny a viewer who retains another valid access path. An unbound owner can retain access after revocation of a team share. The shared contract covers applicable run access rules, not only team-linked runs. This ADR defines linked-conversation access, not new rights for standalone or public runs.
 
 If the recorded owner leaves the team recorded on the conversation, they cannot read, continue, or manage it until they rejoin. Current members can still read it if the owner shared it with the team, but they cannot continue or manage it for the owner. V1 does not make a lead a successor or transfer ownership automatically. Removing someone from the organization remains a separate flow; any deliberate successor must belong to the team recorded on the conversation. A conversation started without a team keeps its personal-owner rules even if its team share is revoked.
 
@@ -170,7 +188,8 @@ These existing surfaces still need the remaining V1 behavior:
 - Session application state and user/organization selection: `packages/core/src/application-state/store.ts` (currently session-keyed; extend persistence without replacing session behavior)
 - Conversation persistence and access: `packages/core/src/chat-threads/store.ts`, `packages/core/src/server/agent-chat-plugin.ts`
 - Run access through conversations and stream connections: `packages/core/src/agent/run-ownership.ts`, `packages/core/src/server/agent-chat-plugin.ts` (event streams check access when opened, not while delivering events)
-- Shared stream delivery: `packages/core/src/agent/run-manager.ts` needs demand-driven authorization across live, SQL-polled, replayed, and buffered events. The final delivery boundary and fresh credential and policy checks require implementation proof. An outer wrapper alone does not prove that boundary.
+- Access-change publication: organization, group/team, deletion and sharing mutations need commit-coupled notifications. Relevant credential revocation needs a documented authority mechanism. Existing local emitters do not establish cross-host delivery.
+- Shared stream delivery: `packages/core/src/agent/run-manager.ts` needs server-side invalidation and current-policy rechecks across live, SQL-polled, replayed and buffered events. Delivery to affected hosts, admission ordering and the final delivery gate require implementation proof. An outer wrapper alone does not prove that boundary.
 
 ## Implementation and proof boundary
 
@@ -185,13 +204,32 @@ Implement group roles and team instructions, skills, and memory in Core first. T
 - A former member, including the owner, cannot read or continue a bound conversation. Unshared work stays private.
 - Only the recorded owner can grant or revoke a chat team share, only for an allowed team, and only as `viewer`. Reject `commenter`, `editor`, and `admin` grants, and reject callers relying only on resource-admin authority.
 - Bound conversations cannot issue public share tokens, and tokens issued before binding cannot expose their transcript or linked runs after binding, membership loss, or team deletion.
-- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses linked-conversation access. This includes team or organization membership removal and team deletion. Open subscriptions enforce the 10-second authorization age at protected delivery. Idle expiry keeps the connection open without delivery rights. Denial closes the viewer subscription, not the producing run. Failure and timeout cannot grant or extend authorization. Their handling remains a policy approval gate.
+- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses linked-conversation access. This includes team or organization membership removal and team deletion.
+- Committed access changes reach affected stream hosts through a recoverable mechanism. Known invalidation pauses protected delivery until a current access check succeeds. Confirmed denial closes only the viewer subscription. Alternative valid grants remain effective. Automatic recovery requires fresh admission and stops on denial or cancellation. No ten-second or immediate-revocation guarantee is implied. Publication, ordering, outage behavior and any required freshness bound remain design gates.
 - Deletion makes bound context and conversations inaccessible without deleting unrelated resources.
 - A failed or incomplete team-context lookup must not look like empty context or successful authorization.
 
 ### Verification
 
-Test changes to group and organization membership against cached, listed, and direct access. After access loss, test denial for each run path above, including reconnect and replay. Prove the 10-second bound at the final application-controlled writer, including idle expiry and fresh authorization before resumed delivery. Prove retained alternative access and continued producer operation. Include fault, client, buffering, and scaling evidence. Require independent integrated proof before release.
+Test changes to group and organization membership against cached, listed and direct access. After access loss, test denial for each run path above, including reconnect and replay. Prove commit-coupled publication and recoverable fan-out to every affected stream host. Include admission races, missed events, restarts and uncertain authority. Prove that known invalidation blocks protected writes at the final application-controlled writer. Prove retained alternative access and continued producer operation. Independent integrated proof must cover client behavior, buffering, faults and cross-host recovery. A maximum stale-access window needs a separate accepted requirement and authoritative freshness proof.
+
+Credential freshness includes provider caches, not just new SQL policy reads. The pinned Better Auth cookie cache can accept a deleted session in the library probe. Current-authority rechecks cannot rely on stale provider caches or Core's request-event memoization. Embed revocation, widget tickets and custom callbacks need explicit current-authority contracts. A producer owner seed is not a freshly validated viewer credential. Preserve existing admission rights without inventing public live-stream grants from transcript sharing.
+
+Preserve explicit-thread POST editor admission and supported omitted-thread POST startup separately from linked GET admission. A missing linked target denies GET; a generated effective thread/run ID is not a new GET grant. Purpose-token streaming POST verifies producer handoff, not current original-viewer authority. Public-token GET validates a non-revoked unbound transcript and bounded summaries; it is not live SSE admission. Callback APIs and fallback order remain unchanged. Their owners must identify credential/capability, cache and revocation semantics; a callback identity alone cannot prove freshness. Static auth-disabled/anonymous authority is not an invented revocable session.
+
+Access rechecks preserve bound org/team constraints and alternative valid grants. Admission, authorization snapshots and event registration need consistent ordering to prevent missed revocation. Federation can read remote authority and update local membership. SQL consistency alone cannot make that remote decision coherent. Uncertain authority remains distinct from denial and cannot approve resumed delivery. Concrete authority mechanisms remain design obligations, not permission changes.
+
+The shared design records [earlier authority candidates](durable-agent-runs.md#earlier-authority-candidates-2026-10-12) without selecting them. This revision does not mandate encrypted proof handoff, remote epochs or a new credential store. Each supported authority path needs a demonstrated current-access mechanism. Callback reinvocation alone cannot establish freshness without a provider guarantee. Unsupported assumptions cannot remove supported modes or permanently fault them.
+
+Current SQL event polling can return unlimited rows and materialize an oversized event before encoding. A row limit alone is not a byte bound. The delivery candidate requires bounded source reads, finite encoder/queue/adapter geometry and lossless oversized-event handling. Server handoff is distinct from client receipt; only a complete logical event advances the client's resume cursor. Exact source and adapter capabilities remain unresolved, so these candidates do not pass readiness.
+
+The [shared client recovery contract](durable-agent-runs.md#viewer-closure-and-recovery) retains the closure/reset behavior and limits accepted on 2026-10-12. It uses the existing subscription-error envelope without policy reasons or producer-terminal events. Confirmed denial stops automatic recovery. Backend faults can retry within the finite episode. No app-level retry framework is required. Implementation and compatibility proof remain pending.
+
+Independent local discovery now integrates current credential-backed Core admission and SQL SSE for 32 distinct credential/team/share scopes across four organizations, with sustained mixed decisions and advancing protected delivery. Separate-client forced-GC cohorts observe server aggregate held heap, and owned PostgreSQL process-tree CPU/cluster IO are recorded. These are fixture observations, not per-viewer owned memory, production capacity or accepted load budgets. Source-backed admission traces are not mounted-route execution, and synthetic persisted events are not an agent producer.
+
+Actual shared-client probes show denied HTTP opens retried despite runtime classification, generic subscription errors becoming producer failure, and bare EOF without authority becoming `run.failed/stream_ended`. The accepted closure/reset contract remains unimplemented. Neither local workers nor distinct run IDs establish independent-host policy load. Separate execution nodes against a shared isolated PostgreSQL fixture and synchronized barrier are needed for that proof.
+
+No total protected queue bound or integrated event-driven revocation latency is measured. The simulated Node writer remains transport-seam evidence only. The accepted validation strategy uses security/correctness invariants and measured query-count regression budgets. Characterize latency, CPU/IO and memory before selecting ceilings. Concrete finite source/queue design and lossless replay remain separate delivery requirements. Before implementation, resolve publication, cross-host recovery, admission ordering, current authority and outage behavior. Independently review the proof plan. Existing-path baselines do not prove the revised mechanism. No runtime work is authorized by this decision.
 
 ## Consequences and revisit criteria
 
@@ -199,4 +237,4 @@ V1 supplies team context and a central view of explicitly shared work without ma
 
 Revisit generic team ownership and family-specific moves only when a concrete workflow needs team-owned resources or recovery after owner departure. Revisit a separate automation identity, automatic sharing, cross-team conversation sharing, all-teams prompt context, or rules that hide inherited organization resources only for demonstrated needs; none is implied by this proposal.
 
-Current connection-scoped authorization has no bound on delivery after access loss. The amendment replaces that exception with bounded authorization at protected delivery. It is not immediate revocation or a limit on disclosed bytes. Demand-driven checks avoid idle authorization polling, not existing event polling or connection and memory costs. Approval must still cover the disclosure and availability tradeoffs and measured scaling budgets. Distributed invalidation requires a separate demonstrated need for faster revocation.
+Current connection-scoped authorization has no bound on delivery after access loss. The revision proposes event-driven invalidation across the framework, not a Teams-only renewal loop. Recoverable cross-host delivery is part of that proposal, not an established property of the local event bus. Event handling can require shared reconciliation or event-log polling. It does not remove existing SQL event polling or connection/memory costs. Prompt invalidation is not a guaranteed maximum stale-access window. Such a guarantee requires an explicit freshness policy and an authoritative backstop. Bytes already handed to transport cannot be revoked. Outage behavior and any freshness bound remain unresolved.

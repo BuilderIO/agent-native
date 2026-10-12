@@ -527,55 +527,304 @@ Minimal client change, because the reconnect machinery already exists:
   the JSON-then-poll variant is cleaner on Netlify because the interactive
   function returns in well under 75s.
 
-## Bounded viewer authorization leases
+## Event-driven viewer access revocation
 
-**Policy choices recorded, 2026-10-10: 10-second maximum authorization age and
-Option A for idle expiry. Runtime implementation and independent proof remain
-pending.** Current streams authorize only at opening. This section defines the
-target, not deployed behavior. The
-[tenancy ADR](organization-team-tenancy.md#proposed-stream-policy-amendment-2026-10-10)
+**Revised proposal, 2026-10-13. Implementation and independent proof remain pending.**
+The inspected run subscriptions authorize at admission without reauthorization
+in their delivery loops. This section defines the revised target, not deployed
+behavior. The [tenancy ADR](organization-team-tenancy.md#proposed-stream-policy-amendment-2026-10-13)
 defines linked-conversation access.
 
-1. **Scope:** The contract covers all authorized viewer subscriptions, including
-   non-team, standalone, and supported public access. It adds no access rights.
-   A missing linked conversation denies access. Standalone runs retain their own
-   applicable policy. A revoked grant does not deny another valid access path.
-2. **Freshness:** An approval expires no later than 10 seconds after its
-   authoritative check starts, measured with a monotonic clock. Slow checks,
-   replay, decision reuse, and delayed timers never extend that deadline.
-   Expired results cannot authorize delivery.
-3. **Demand-driven checks:** Idle connections remain open after authorization
-   expires, without protected delivery or periodic authorization reads. A fresh
-   decision precedes resumed delivery. There is no universal 5-second renewal
-   schedule. Only content-free heartbeats can bypass authorization, after proof
-   that their payload discloses no protected data.
-4. **Authoritative decision:** Each fresh check evaluates the original viewer's
-   current session or credential and complete applicable access policy. Cached
-   opening identity is insufficient. The authoritative database view must be
-   coherent and cannot predate the check start. Stale caches, lagging replicas,
-   and facts never valid together cannot approve access. Approval, denial,
-   backend failure, and timeout remain distinguishable outcomes.
-5. **Protected delivery:** A synchronous gate checks authorization immediately
-   before each protected write at the final application-controlled writer.
-   No asynchronous step separates that gate from transport handoff. The gate
-   covers live, SQL-polled, replayed, and buffered content, including protected
-   keepalives. Pending output remains bounded. No new protected writes occur
-   more than 10 seconds after committed revocation. Checks that start after
-   commit must observe current policy or refuse authorization. Bytes already
-   handed to transport can arrive later. The bound limits time, not byte volume.
-6. **Viewer and producer:** Denial closes only the viewer subscription. Late
-   approvals cannot revive a closed subscription. Reconnect requires fresh
-   authorization before replay. Client handling distinguishes subscription
-   closure from producer completion or failure. The producer continues.
-   Backend failure and timeout never grant or extend authorization. Their
-   terminal handling and availability tradeoffs remain policy approval gates.
+The revision uses access-change events instead of frequent authorization renewal
+for each subscription. It does not establish immediate revocation or a maximum
+stale-access window. A guaranteed bound remains a separate policy decision.
 
-Independent runtime proof must cover faults, buffering, client behavior, and
-scaling. Approval of the disclosure
-and availability tradeoffs and measured scaling budgets remains required before
-implementation. Budgets must cover active authorization work and idle connection
-and memory costs. Demand-driven authorization does not remove SQL event polling.
-Policy approval alone does not establish runtime completion or release readiness.
+```text
+Committed access change
+  -> recoverable notification to affected stream hosts
+  -> invalidate the decision and pause protected delivery
+  -> recheck current viewer authority and applicable grants
+  -> resume if allowed, or close the viewer if denied
+```
+
+1. **Scope:** The contract covers authorized viewer subscriptions, including
+   non-team and standalone runs under their applicable policies. Supported public
+   access retains its existing rights. A missing linked conversation denies access.
+   This contract creates no new public live-stream grant.
+2. **Access changes:** Relevant changes include organization and group/team
+   membership, deletion, sharing and applicable account/session or capability
+   revocation. Publication must cover every relevant mutation path, not only
+   the Teams UI. A local event emitter is not cross-host delivery.
+3. **Server invalidation:** Each affected host invalidates its cached decision
+   and pauses protected delivery. A current-authority recheck evaluates the
+   original viewer and complete applicable policy. An event prompts a recheck,
+   not unconditional denial. Another valid access path permits continuation.
+   An unavailable authority cannot approve resumed delivery.
+4. **Delivery gate:** A synchronous local gate precedes each protected write
+   at the final application-controlled writer. This gate does not query membership
+   for every event. Known invalidation blocks live, SQL-polled, replayed and
+   buffered content until a current recheck succeeds. A newer invalidation must
+   prevent an older in-flight approval from reopening delivery. Only demonstrably
+   content-free heartbeats can bypass the gate. Bytes already handed to transport
+   cannot be recalled. The gate cannot detect a revocation that its host missed.
+5. **Viewer and producer:** Confirmed denial closes only the viewer subscription.
+   Late approvals cannot revive a closed subscription. The producer continues.
+   Client notifications support UI updates, not security enforcement. Ignored
+   client notifications cannot preserve server delivery rights after invalidation.
+6. **Admission and recovery:** New connections and reconnects require current
+   admission before protected replay. Authorization snapshots, event registration
+   and change-log positions need consistent ordering to prevent missed revocation.
+   Catch-up after restart or reconnect must complete before protected delivery.
+   The existing client recovery requirements remain applicable.
+
+### Publication, freshness and outage design gates
+
+Access mutations need a durable change record coupled to successful commit.
+Commit followed by best-effort publication alone can lose a revocation.
+The transport must reach every affected stream host, not one competing consumer.
+Replay, duplicates, gaps, restarts and scale-out require a demonstrated recovery
+mechanism. Recipient routing must preserve access boundaries and avoid disclosing
+protected policy details. The existing event bus is process-local. Durable sync
+replay is precedent, not proof of distributed stream revocation.
+
+Shared reconciliation of an authoritative change log can reduce repeated
+per-stream membership reads. This reconciliation can itself use polling.
+Its feasibility depends on the actual serverless, stream-host and gateway
+topology. No shared watcher, broker or outbox implementation is selected here.
+
+A connected feed or caught-up cursor does not prove current authority. A committed
+change can remain unpublished while the host appears healthy. A guaranteed
+stale-access bound needs an authoritative freshness deadline and a demonstrated
+backstop at the delivery gate. Admission token expiry does not automatically
+close an admitted stream. The 15-minute chat token is not a universal viewer
+lease, and other stream families have different admission mechanisms.
+
+Known invalidation pauses protected delivery even when a recheck fails or times
+out. The pause does not approve access or assert producer failure. The design
+must separately select outage behavior for missed events or uncertain feed
+freshness. The maximum stale-access window, any deadline-triggered closure and
+the response to feed uncertainty remain unresolved. No implementation can claim
+a guaranteed bound until those choices and their authority mechanisms have proof.
+
+### Superseded lease policy, 2026-10-10 through 2026-10-12
+
+The previous proposal selected a ten-second maximum authorization age from
+authoritative check start. Option A kept an idle connection open after expiry
+without protected delivery rights. The 2026-10-11 fault option retained an
+existing approval only until its original deadline, then closed the faulted
+viewer unless a fresh check approved continuation. No valid approval meant
+immediate closure. These lease-specific choices are superseded, not runtime
+guarantees. The revised proposal does not retain their deadline or fault grace.
+
+The 2026-10-11 bounded recovery decision and the 2026-10-12 closure/reset,
+recovery limits and baseline-driven validation decisions remain applicable.
+
+### Viewer closure and recovery
+
+The closure contract accepted on 2026-10-12 reuses the shared-client subscription
+error envelope, without a policy-specific reason or producer-terminal event.
+Confirmed denial is non-recoverable; backend fault is recoverable within the
+finite episode. Fresh rejected opens retain the existing HTTP classification:
+401/403/404 stops automatic retries; 408/429/5xx can retry within the budget.
+Bare EOF is a transient interruption requiring fresh authorization, not proof
+of denial or producer termination. The existing client does not consistently
+consume these distinctions; this is a target contract, not shipped behavior.
+
+A healthy reset requires fresh authoritative admission and forward
+protected cursor progress observed by the client. Opening, heartbeats and old
+replay cannot reset an episode. A verified producer terminal result ends
+recovery normally. An idle recovered connection retains episode history;
+exhaustion prevents later automatic reconnects without closing a healthy idle
+connection. Keep accounting inside the shared Core client, with
+no app-level counters, timers, configuration or persisted state. These accepted
+closure/reset requirements still need implementation and compatibility proof.
+
+Accepted recovery limits are 250 ms initial exponential backoff, a 15-second
+backoff cap, 55 seconds total elapsed per episode including waits and in-flight
+attempts, and 12 total attempts including rejected opens and immediate-close
+cycles. The earlier ceiling wins; opening alone never resets the episode and
+background subscriptions have no exemption. Bound each attempt by remaining
+episode time. Honor Retry-After only within the remaining wait and attempt budget;
+otherwise stop rather than retry early. These limits do not authorize delivery
+after known invalidation or define a freshness deadline.
+
+### Current authority and supported admission
+
+Credential freshness must bypass both request-event memoization and credential
+provider caches. Core's pinned Better Auth 1.7.6 uses a five-minute signed
+cookie cache; a library probe still accepts that cookie after session-row
+deletion unless cache bypass is requested. Token signatures and streaming POST
+owner seeds likewise do not establish current membership or session authority.
+Resolver-specific revocation and external-policy contracts remain necessary.
+
+Preserve the supported admission families. Explicit-thread POST prepares the
+thread and requires editor access; POST without an explicit thread can start
+with the run ID as its effective thread ID. Neither creates a new standalone
+GET grant. Linked run-events GET checks the current linked conversation and
+denies a missing target. Public token GET returns a validated unbound transcript
+and limited run summaries, not a live subscription. A purpose-bound POST JWT
+is a producer handoff, not renewal of its original viewer credential.
+
+Custom session and anonymous-owner APIs keep their existing signatures and
+fallback order. Their owners must identify the governing credential, refresh
+and revocation semantics before they can support current-authority
+checks. Repeated callback invocation or a returned owner string alone is not
+that proof. Static auth-disabled/anonymous authority must not acquire an
+invented revocable session; applicable revocable resource policy still applies.
+
+A current access decision includes the applicable credential, linked binding,
+organization and team membership, and alternative valid grants. Its snapshot
+and event position need consistent ordering with admission and invalidation.
+Current sequential checks do not establish that ordering. External federation
+can consult remote authority and change local membership. No shared revision or
+ordering primitive is established. Uncertain authority cannot approve delivery.
+A fresh remote call and SQL transaction alone do not prove one coherent decision.
+The revised design must establish the necessary authority mechanism without
+changing permissions or assuming an existing lease API.
+
+### Earlier authority candidates, 2026-10-12
+
+These candidates record earlier exploration under the superseded lease proposal.
+They are not selected mechanisms or implementation prerequisites in their exact
+form. The event-driven design still needs current authority and consistent
+ordering. It does not mandate encrypted proof handoff, remote epochs or a new
+credential store. The candidate descriptions retain their original assumptions.
+
+**Original proof across hosts.** Capture the successful credential family and
+the inputs its authority actually validates, not just its returned identity.
+The purpose-token receiver needs confidential original-proof presentation bound
+to the destination audience, original viewer, applicable request scope and expiry.
+A client-carried authenticated encrypted envelope is a candidate, not an existing
+API. Its key distribution, bounded lifetime, replay protection and callback-input
+coverage need demonstrated mechanisms before selection. A signed owner claim,
+an in-process token-mint record or encryption without replay protection is
+insufficient. Do not default to a shared secret escrow: no reviewed store or
+atomic redemption facility is established, and this would add persisted sensitive
+bookkeeping. Retain usable proof only for the subscription; close releases it,
+and reconnect presents newly captured proof. Producer context remains separate.
+
+**Current callback authority.** Each credential family needs a documented
+provider check that bypasses request and provider caches. Classify its authority
+as revocable with a demonstrated current-proof validator, deliberately static,
+or not yet characterized. Preserve callback signatures, original request inputs
+and fallback order. A callback's `null` retains its fallback meaning; it is not
+automatically a confirmed denial. Keep approval, confirmed denial, absence,
+unreadable authority and timeout distinct through the complete decision. Static
+identity still undergoes current resource-policy checks. An uncharacterized
+provider is a readiness dependency, not a permanently faulting replacement for
+a previously supported mode.
+
+**One coherent policy decision.** Wholly SQL-governed authority uses a primary
+read-only repeatable-read transaction with its first snapshot acquired at or
+after check start. Pass that transaction through every applicable reader. For
+mixed remote/SQL authority, a conditional version-bracket design reads remote
+grant and epoch, acquires the complete SQL snapshot, then reads remote authority
+again. It works only if reads are linearizable, the monotonic epoch changes on
+every relevant mutation including revoke/regrant, and any projected membership
+in the SQL snapshot is demonstrably tied to that epoch. Both remote reads must
+grant at the same epoch. The current membership validator can mutate local rows;
+an unfenced validator write or lagging projection cannot satisfy this contract.
+No inspected provider establishes these guarantees. Ordinary repeated Boolean
+checks are rejected. The missing provider/fence capability blocks selection;
+uncertainty cannot approve or silently convert remote authority into local policy.
+
+### Separate delivery safety requirements
+
+Finite buffering, backpressure and lossless replay remain delivery requirements.
+They are separate from the choice of revocation transport or freshness deadline.
+The following source/writer design remains a candidate, not a selected migration.
+
+**Bounded lossless source and writer.** Current SQL subscriptions call the event
+reader without its optional row limit, then parse and encode complete event
+strings. Row-count batching is useful but cannot bound one oversized row.
+Memory replay also iterates complete shared events. A candidate source interface
+must expose immutable event metadata and bounded payload reads before driver
+return or viewer encoding; a range-readable payload with SQL references is one
+candidate, not evidence of an existing storage migration. Legacy inline events
+need a demonstrated lossless bounded-read path too. Reject fetching a whole row
+and slicing it afterward.
+
+For each source and supported host, record finite engineering values for source
+chunk bytes, rows per batch, source-buffer bytes, encoder carry, queued encoded
+bytes, maximum final-write chunk and adapter high-water mark. Include temporary
+copies and one in-flight chunk in the summed viewer allocation bound; account
+shared producer storage separately. Pull only when capacity exists and gate each
+protected final write synchronously. Pressure closes that viewer recoverably,
+without pausing the shared producer or another viewer. Oversized logical events
+retain their identity and bytes. Bounded wire frames require compatible parsing
+and lossless reassembly; a protocol that demands an unbounded intermediate value
+is not a solution. Exact geometry and adapter primitives remain selection gates,
+not the superseded performance ceilings.
+
+The server can observe a complete frame handed to its writable, not receipt by
+the client. The client alone advances its resume cursor after a complete logical
+event. On interruption, discard uncommitted partial assembly and replay from
+the client's previous complete cursor after fresh admission. Do not add an
+acknowledgment protocol merely to mislabel server handoff as client observation.
+
+On 2026-10-11, the user approved the viewer-only heading **Live updates
+unavailable**, reusing the existing inline connection alert and Reconnect
+control where recovery is permitted. This must not report that the agent run
+failed or disclose the access-policy reason. Confirmed denial still stops
+automatic retries; a manual reconnect must validate access again. Implementation
+must update the English source and configured locale translations together.
+
+### Verification and existing-path observations
+
+Before implementation, resolve commit-coupled publication, recoverable fan-out,
+admission ordering, current authority and outage behavior. Independently review
+the proof plan. A guaranteed freshness bound needs a separate accepted requirement
+and authoritative backstop. Closure/recovery and baseline-driven validation
+remain accepted. Finite lossless source/queue designs remain separate delivery
+obligations. Existing-path measurements inform feasibility, not event-driven
+revocation compliance.
+Implementation establishes justified query-count baselines and focused proof.
+Independent integrated verification must cover safety, finite queues, query
+regression, faults, buffering, client behavior and synchronized hosts before
+release. Characterize latency, CPU/IO, connections and memory before selecting
+additional ceilings. Policy approval alone is not runtime completion or readiness.
+
+Independent discovery now connects current credential-backed Core admission and
+SQL subscriptions in one local fixture with 32 distinct credential/team/share
+scopes across four organizations. Twenty-second mixed windows and a separate
+20.187-second delivery window exercise actual SQL SSE; the latter delivers
+2,560 matching events with advancing cursors while fresh grant/deny checks run.
+Events are synthetic persisted inserts, not an agent producer. This is neither
+the mounted route nor a coherent lease.
+
+Separated-client, forced-GC server measurements compare 0/16/32/64 idle-socket
+cohorts. Matched controls show about 2.40/2.74–2.77/3.24–3.26 MB aggregate held
+heap differences. They include server transport/database caches and do not
+attribute owned memory per viewer. PostgreSQL process-tree CPU and cluster IO
+are observed separately from Node RSS, but are not phase-specific load ceilings.
+Idle authorization checks are zero in the fixture; SQL event polling remains.
+These observations are not production budgets or connection-capacity limits.
+
+Actual shared-client probes also expose compatibility defects: recovery retries
+HTTP denial despite non-retryable runtime classification; an unknown generic
+subscription error becomes producer-terminal failure; bare EOF without run
+authority becomes `run.failed/stream_ended`. Passing current-behavior assertions
+does not implement the accepted closure/reset contract or bounded recovery.
+
+The simulated Node writer gate still proves only a transport seam. No integrated
+event-driven revocation latency, authorization delivery-pause distribution or total
+protected queue bound is measured. Local overlapping workers are not independent
+hosts. Independent-host proof needs distinct execution nodes against one shared
+isolated PostgreSQL fixture with a synchronized barrier and observability.
+The validation strategy accepted on 2026-10-12 uses security/correctness invariants
+and measured query-count regression budgets. Characterize latency, PostgreSQL
+CPU/IO and server memory before selecting ceilings; the earlier full numeric
+proposal is superseded, not approved. Bounded source/materialization and queues
+still require concrete, finite design limits and lossless cursor/replay semantics.
+Independent integrated proof, including synchronized hosts, remains mandatory.
+Proof must cover committed-change publication, missed events, duplicate or
+reordered events, host restarts and admission races. It must demonstrate paused
+delivery on known invalidation across live, buffered, SQL-polled and replayed
+paths. Retained alternative grants and continued producer operation need proof.
+Feed outages need evidence against the selected policy, not an assumed deadline.
+Readiness requires concrete publication, authority, ordering, outage and delivery
+designs plus the reviewed proof plan. Existing fixture results do not establish
+the revised mechanism or authorize implementation now.
 
 ## Per-model-call gateway cap
 
