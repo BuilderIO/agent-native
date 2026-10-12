@@ -257,25 +257,12 @@ test("[journey] [slides-import] slides: Import > PDF creates a deck that opens a
     await withCleanup(
       async () => {
         await assertSignedInOnBeta(context, site);
-        const storageStatus = page
-          .waitForResponse(
-            (response) => response.url().includes("/api/uploads/status"),
-            { timeout: 90_000 },
-          )
-          .then(async (response) => {
-            console.info("[slides-pdf] storage-status response", {
-              status: response.status(),
-              method: response.request().method(),
-            });
-            return { status: response.status(), text: await response.text() };
-          });
-        storageStatus.catch(() => undefined);
         await page.goto(`${origin}/home`, {
           waitUntil: "domcontentloaded",
           timeout: 90_000,
         });
         await renderedText(page, `${site.host} deck list`);
-        skipUnlessStorageReady(await storageStatus);
+        await assertStorageReady(page);
 
         const alertsBefore = new Set(
           await page.getByRole("alert").allInnerTexts(),
