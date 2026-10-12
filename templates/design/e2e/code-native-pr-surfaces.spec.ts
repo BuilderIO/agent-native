@@ -9,7 +9,13 @@ import {
 import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
-import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
+import {
+  designFrame,
+  enableLab,
+  gotoEditor,
+  selectByText,
+  openAppMenuSubmenu,
+} from "./helpers";
 
 let designId: string;
 let fileId: string;
@@ -66,7 +72,7 @@ async function setLabEnabled(
 }
 
 async function openMotionDockFromMenu(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
   await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
 }
 
@@ -364,13 +370,13 @@ async function runReviewPanelAudit(page: Page): Promise<void> {
 test("Motion lab-off hides the dock and menu entry", async ({ page }) => {
   await prepareMotionTest(page, false);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
+  await expect(
+    page.getByRole("menuitem", { name: "Zoom in", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Motion", exact: true }),
   ).toHaveCount(0);
-  await expect(
-    page.getByRole("menuitem", { name: "Back to designs", exact: true }),
-  ).toBeVisible();
   await page.keyboard.press("Escape");
   const workspaceRail = page.locator('nav[aria-label="Design workspace"]');
   await expect(
@@ -516,7 +522,10 @@ test("Motion lab-off hides the dock after a saved track", async ({ page }) => {
   await gotoEditor(page, designId);
   await enterDesignEditMode(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "View");
+  await expect(
+    page.getByRole("menuitem", { name: "Zoom in", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("menuitem", { name: "Motion", exact: true }),
   ).toHaveCount(0);

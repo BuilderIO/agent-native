@@ -12,7 +12,7 @@ import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 
 import { E2E_EMAIL } from "./global-setup";
-import { installBridge, waitForBridge } from "./helpers";
+import { installBridge, waitForBridge, openAppMenuSubmenu } from "./helpers";
 
 async function listen(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
@@ -786,7 +786,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     const [pdfDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         const exportAllScreens = page.getByRole("menuitem", {
           name: "Download PDF (all screens)",

@@ -5,7 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { expandAllLayers, gotoEditor } from "./helpers";
+import { expandAllLayers, gotoEditor, openAppMenuSubmenu } from "./helpers";
 
 const EXPORT_HTML = `<!doctype html>
 <html lang="en">
@@ -126,7 +126,7 @@ async function exportPngPixels(page: Page) {
 }
 
 async function exportPngPixelsFromFileMenu(page: Page) {
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
   // Open the submenu with a click: while a Screen is selected the canvas claims

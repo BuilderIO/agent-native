@@ -12,6 +12,7 @@ import {
   frameToolButton,
   gotoEditor,
   pickFrameMode,
+  openAppMenuSubmenu,
 } from "./helpers";
 
 const PRESET_HTML = `<!doctype html>
@@ -1146,7 +1147,7 @@ test("Screen Appearance styles reveal the board and keep pinned versus Hug heigh
     const [svgDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         await page
           .getByRole("menuitem", { name: "Download for Figma (SVG)" })
@@ -1217,7 +1218,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
     const [pdfDownload] = await Promise.all([
       page.waitForEvent("download"),
       (async () => {
-        await page.getByRole("button", { name: "More" }).click();
+        await openAppMenuSubmenu(page, "File");
         await page.getByRole("menuitem", { name: "Export" }).hover();
         await page
           .getByRole("menuitem", { name: "Download PDF (all screens)" })
@@ -1285,7 +1286,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
       `[data-screen-shell][data-frame-id="${imageScreenId}"]`,
     );
     const exportPdf = async () => {
-      await page.getByRole("button", { name: "More" }).click();
+      await openAppMenuSubmenu(page, "File");
       await page.getByRole("menuitem", { name: "Export" }).hover();
       await page
         .getByRole("menuitem", { name: "Download PDF (all screens)" })

@@ -336,6 +336,7 @@ export function renderDesignEditorView({
 
   const {
     keyboardShortcutsOpen,
+    keyboardShortcutsInitialFocus,
     responsiveInteractActive,
     handleModeChange,
     handleExitResponsiveInteract,
@@ -1517,6 +1518,7 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
+            initialFocus={keyboardShortcutsInitialFocus}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>
               setEditorPreferences({ ...editorPreferences, nudge })

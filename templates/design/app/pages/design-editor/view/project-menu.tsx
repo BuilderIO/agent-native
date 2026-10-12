@@ -277,7 +277,9 @@ export function renderProjectMenu({
                 <ThemeRadioItems t={t} />
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
+            <DropdownMenuItem
+              onClick={() => handleShowKeyboardShortcutsFromMenu("search")}
+            >
               {t("designEditor.keyboardShortcuts.title")}
               <DropdownMenuShortcut>
                 {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
@@ -285,7 +287,9 @@ export function renderProjectMenu({
                 {shortcut("ctrl+shift+?")}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
+            <DropdownMenuItem
+              onClick={() => handleShowKeyboardShortcutsFromMenu("nudge")}
+            >
               {t("designEditor.appMenu.nudgeAmount")}
             </DropdownMenuItem>
           </DropdownMenuSubContent>

@@ -5,7 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath } from "./helpers";
+import { appPath, openAppMenuSubmenu } from "./helpers";
 
 const BASE_URL =
   process.env.E2E_BASE_URL ??
@@ -757,7 +757,7 @@ test("vector fill gradient renders in the inspector, source, SVG and PNG exports
     expect(savedSource).toContain('id="draft-pen-board-1-stroke-gradient"');
     expect(savedSource).toContain('id="draft-pen-board-1-fill-gradient"');
 
-    await page.getByRole("button", { name: "More", exact: true }).click();
+    await openAppMenuSubmenu(page, "File");
     const exportMenu = page.getByRole("menuitem", { name: "Export" });
     await expect(exportMenu).toBeVisible();
     await exportMenu.press("ArrowRight");
