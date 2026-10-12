@@ -45,7 +45,7 @@ function loadChanges(): Change[] {
 }
 
 // The tokens come from the code, never from copies: the toolkit's shared tokens and its Tailwind @theme
-// (the --color-* names), then the template's own theme. Only exact `:root`, `.dark`, `.light`, and `@theme` rules
+// (the --color-* names), then the template's own theme. Only exact `:root`, `.dark`, `.light`, `@media (prefers-color-scheme: dark) { :root }`, and `@theme` rules
 // (and `:root` inside `@supports`) are read, and only their custom properties. `.dark` becomes the prototype's dark selectors, since a prototype follows the
 // viewer's color scheme or the review strip's Theme switch instead of a class.
 const repo = join(kit, "../..");
@@ -114,7 +114,15 @@ function tokensCss(template: string, extra: string[] = []): string {
         darkOnly.push(...customProperties(rule.body));
       else if (rule.selector === ".light")
         lightOnly.push(...customProperties(rule.body));
-      else if (rule.selector.startsWith("@supports")) {
+      else if (
+        /^@media\s*\(prefers-color-scheme:\s*dark\)$/.test(rule.selector)
+      ) {
+        // A dark palette written as a media query (Clips desktop's renderer CSS).
+        for (const r of topLevelRules(rule.body).filter(
+          (x) => x.selector === ":root",
+        ))
+          darkOnly.push(...customProperties(r.body));
+      } else if (rule.selector.startsWith("@supports")) {
         const inner = topLevelRules(rule.body).filter(
           (r) => r.selector === ":root",
         );

@@ -5,6 +5,8 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 | Prototype | Template | Artifact |
 | --- | --- | --- |
 | [Chat](chat/) | `templates/chat` | https://claude.ai/artifact/GqQxZw4AtoKkQFit9gtGH5 |
+| [Clips web](clips-web/) | `templates/clips` | https://claude.ai/artifact/YBWtSNr8esvyFwkDpBHGNw |
+| [Clips desktop](clips-desktop/) | `templates/clips/desktop` | https://claude.ai/artifact/PUNqcFC3kAogDLzHDo2XKx |
 | [Design](design/) | `templates/design` | https://claude.ai/artifact/MC9u3UmtuV3vbB865gU1kH |
 | [Slides](slides/) | `templates/slides` | https://claude.ai/artifact/SKFFSBvDk1xP5GQuBMFhm5 |
 

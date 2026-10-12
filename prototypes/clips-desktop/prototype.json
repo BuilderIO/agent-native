@@ -1,0 +1,4 @@
+{
+  "template": "clips",
+  "tokens": ["templates/clips/desktop/src/tailwind.css", "templates/clips/desktop/src/styles.css"]
+}

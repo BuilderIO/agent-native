@@ -28,6 +28,7 @@
  ],
  "appOrder": [
   "app",
+  "recordings",
   "notifications",
   "automations",
   "channels",
