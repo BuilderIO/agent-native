@@ -97,24 +97,30 @@ function sortableAxisValue(value: unknown): number | string | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
   const text = value.trim();
-  return ISO_DATE_VALUE.test(text) || /^\d{8}$/.test(text) ? text : null;
+  if (ISO_DATE_VALUE.test(text) || /^\d{8}$/.test(text)) return text;
+  const yearFirst = /^(\d{4})-?[WQ](\d{1,2})$/i.exec(text);
+  if (yearFirst) return Number(yearFirst[1]) * 100 + Number(yearFirst[2]);
+  const quarterFirst = /^Q([1-4])[ -](\d{4})$/i.exec(text);
+  if (quarterFirst)
+    return Number(quarterFirst[2]) * 100 + Number(quarterFirst[1]);
+  return null;
 }
 
 /**
- * True when an axis runs newest-first: its first value sorts after its last.
- * Only ISO dates, Dates and numbers are compared; anything else reads as
- * ascending.
+ * Which way an axis runs, from its first and last values; null when they
+ * cannot be compared (month names, mixed types), so no end is known to be
+ * the newest.
  */
-export function isDescendingAxis(values: readonly unknown[]): boolean {
+export function axisDirection(
+  values: readonly unknown[],
+): "ascending" | "descending" | null {
   const present = values.filter((value) => !isBlank(value));
   const first = sortableAxisValue(present[0]);
   const last = sortableAxisValue(present[present.length - 1]);
-  return (
-    first !== null &&
-    last !== null &&
-    typeof first === typeof last &&
-    first > last
-  );
+  if (first === null || last === null || typeof first !== typeof last) {
+    return null;
+  }
+  return first > last ? "descending" : "ascending";
 }
 
 export interface CategoryAxisPlan {

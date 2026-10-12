@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  axisDirection,
   estimateTextWidth,
   isCategoryAxis,
   isDateAxis,
-  isDescendingAxis,
   planCategoryAxis,
   trimToWidth,
 } from "./chart-axis-labels";
@@ -57,12 +57,18 @@ describe("isDateAxis", () => {
     expect(isDateAxis([null, ""])).toBe(false);
   });
 
-  it("detects axes that run newest-first", () => {
-    expect(isDescendingAxis(["2026-10-04", "2026-09-09"])).toBe(true);
-    expect(isDescendingAxis(["2026-09-09", null, "2026-10-04"])).toBe(false);
-    expect(isDescendingAxis([3, 2, 1])).toBe(true);
-    expect(isDescendingAxis(["Oct 04", "Sep 09"])).toBe(false);
-    expect(isDescendingAxis(["2026-10-04", 3])).toBe(false);
+  it("reads which way an axis runs from its first and last values", () => {
+    expect(axisDirection(["2026-10-04", "2026-09-09"])).toBe("descending");
+    expect(axisDirection(["2026-09-09", null, "2026-10-04"])).toBe("ascending");
+    expect(axisDirection([3, 2, 1])).toBe("descending");
+    expect(axisDirection(["2026-W40", "2025-W02"])).toBe("descending");
+    expect(axisDirection(["Q1 2025", "2025-Q4"])).toBe("ascending");
+  });
+
+  it("knows no direction for month names or mixed values", () => {
+    expect(axisDirection(["Oct 04", "Sep 09"])).toBeNull();
+    expect(axisDirection(["2026-10-04", 3])).toBeNull();
+    expect(axisDirection([])).toBeNull();
   });
 
   it("treats any named value as a category", () => {

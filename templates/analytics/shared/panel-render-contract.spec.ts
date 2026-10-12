@@ -870,6 +870,24 @@ describe("chart point limit", () => {
     }
   });
 
+  it("keeps the newest of newest-first weeks", () => {
+    const weeks = Array.from({ length: 450 }, (_, index) => ({
+      week: `${2026 - Math.floor(index / 52)}-W${String(52 - (index % 52)).padStart(2, "0")}`,
+      count: index,
+    }));
+    expect(chartPointLimit(weeks, "bar", "week")?.keeps).toBe("newest");
+    expect(limitChartRows(weeks, "bar", "week")[0]?.week).toBe("2026-W52");
+  });
+
+  it("keeps the first points of a bar chart whose date order is unknown", () => {
+    const days = Array.from({ length: 450 }, (_, index) => ({
+      day: `Oct ${String((index % 28) + 1).padStart(2, "0")}`,
+      count: index,
+    }));
+    expect(chartPointLimit(days, "bar", "day")?.keeps).toBe("first");
+    expect(limitChartRows(days, "bar", "day")[0]).toEqual(days[0]);
+  });
+
   it("keeps the first points of a bar chart over numeric ids", () => {
     const accounts = Array.from({ length: 500 }, (_, index) => ({
       account_id: 9000 - index,

@@ -5,7 +5,7 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
-import { isDateAxis, isDescendingAxis } from "./chart-axis-labels";
+import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
   resolveDashboardFunnelRows,
@@ -641,7 +641,8 @@ export interface ChartPointLimit {
 
 /**
  * `xKey` lets a bar chart over dates keep its newest points, as a line chart
- * does; a bar chart over categories, ids or buckets keeps the first.
+ * does, when the axis shows which end is newest; a bar chart over categories,
+ * ids, buckets or unorderable dates keeps the first.
  */
 export function chartPointLimit(
   rows: readonly Record<string, unknown>[],
@@ -655,9 +656,10 @@ export function chartPointLimit(
   ) {
     return null;
   }
+  const xValues = xKey ? rows.map((row) => row[xKey]) : [];
   const keepsNewest =
     NEWEST_POINT_CHART_TYPES.includes(type) ||
-    (type === "bar" && !!xKey && isDateAxis(rows.map((row) => row[xKey])));
+    (type === "bar" && isDateAxis(xValues) && axisDirection(xValues) !== null);
   return {
     shown: MAX_CHART_POINTS,
     total: rows.length,
@@ -680,7 +682,7 @@ export function limitChartRows<T extends Record<string, unknown>>(
   const newestFirst =
     limit.keeps === "newest" &&
     !!xKey &&
-    isDescendingAxis(rows.map((row) => row[xKey]));
+    axisDirection(rows.map((row) => row[xKey])) === "descending";
   return limit.keeps === "newest" && !newestFirst
     ? rows.slice(-limit.shown)
     : rows.slice(0, limit.shown);
