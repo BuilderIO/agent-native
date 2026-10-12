@@ -293,6 +293,10 @@ describe("resolveAppAdditionalActions", () => {
                 ]),
               ),
             }),
+            "schema-same-location-cycle": schemaEntry({
+              type: "object",
+              allOf: [{ $ref: "#" }],
+            }),
             "schema-recursive-ref": schemaEntry({
               type: "object",
               properties: { tree: { $ref: "#/$defs/node" } },
@@ -369,6 +373,44 @@ describe("resolveAppAdditionalActions", () => {
         {},
       );
       expect(Object.keys(budgeted)).toHaveLength(8);
+
+      // Each schema expands to about 4,300 subschemas through one shared $ref.
+      const fanned = entry("x", {
+        tool: {
+          description: "x",
+          parameters: {
+            type: "object",
+            properties: Object.fromEntries(
+              Array.from({ length: 70 }, (_, i) => [
+                `p${i}`,
+                { $ref: "#/$defs/d" },
+              ]),
+            ),
+            $defs: {
+              d: {
+                type: "object",
+                properties: Object.fromEntries(
+                  Array.from({ length: 60 }, (_, i) => [
+                    `q${i}`,
+                    { type: "string" },
+                  ]),
+                ),
+              },
+            },
+          },
+        },
+      });
+      const expanded = await resolveAppAdditionalActions(
+        config({
+          resolver: () =>
+            Object.fromEntries(
+              Array.from({ length: 5 }, (_, i) => [`fanned-${i}`, fanned]),
+            ),
+        }),
+        alice,
+        {},
+      );
+      expect(Object.keys(expanded)).toHaveLength(4);
     });
 
     it("keeps a bounded record of reported skips", async () => {

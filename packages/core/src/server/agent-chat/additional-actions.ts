@@ -61,6 +61,7 @@ const MAX_REPORTED_SKIPS = 1_000;
 // Validation can evaluate a shared `$ref` target once per use, so the cap is on
 // subschemas after expansion, not on the schema's written size.
 const MAX_SCHEMA_EXPANDED_NODES = 5_000;
+const MAX_TOTAL_SCHEMA_EXPANDED_NODES = 20_000;
 // C0/C1 controls other than tab and newline, zero-width characters, and bidi
 // overrides: invisible in logs and tool lists, but read by the model.
 const HIDDEN_TEXT_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g;
@@ -110,6 +111,19 @@ const SUBSCHEMA_MAP_KEYWORDS = [
   "dependentSchemas",
   "properties",
 ];
+// Of those, the keywords that apply their subschemas to a child of the input
+// (a property value, an array item, a key) rather than to the input itself.
+const INSTANCE_DESCENDING_KEYWORDS = new Set([
+  "additionalItems",
+  "additionalProperties",
+  "contains",
+  "items",
+  "prefixItems",
+  "properties",
+  "propertyNames",
+  "unevaluatedItems",
+  "unevaluatedProperties",
+]);
 // Regex keywords run user-chosen patterns synchronously on the event loop, so
 // one catastrophic pattern stalls every request in the process. Schema
 // identifiers register globally in Ajv and collide across requests and callers.
@@ -197,7 +211,10 @@ export async function resolveAppAdditionalActions(
     );
   }
   const added: Record<string, ActionEntry> = {};
-  const schemaBudget = { remaining: MAX_TOTAL_SCHEMA_JSON_CHARS };
+  const schemaBudget: SchemaBudget = {
+    remaining: MAX_TOTAL_SCHEMA_JSON_CHARS,
+    expandedRemaining: MAX_TOTAL_SCHEMA_EXPANDED_NODES,
+  };
   for (const name of names.slice(0, MAX_ADDITIONAL_ACTIONS)) {
     const entry: unknown = entries[name];
     const rejection =
@@ -252,7 +269,7 @@ function prepareActionEntry(
   name: string,
   entry: ActionEntry,
   principal: { ownerEmail: string; orgId: string | null },
-  schemaBudget: { remaining: number },
+  schemaBudget: SchemaBudget,
 ): ActionEntry | string {
   const description = cleanText(entry.tool.description, MAX_DESCRIPTION_CHARS);
   if (!description) return "has an empty tool description";
@@ -342,7 +359,7 @@ function assertBoundCaller(
 
 function rejectParameterSchema(
   parameters: unknown,
-  schemaBudget: { remaining: number },
+  schemaBudget: SchemaBudget,
 ): string | null {
   if (!isPlainRecord(parameters))
     return "has a tool schema that is not an object";
@@ -366,13 +383,33 @@ function rejectParameterSchema(
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_JSON_CHARS}-character budget shared by this request's schemas`
       : `has a tool schema larger than ${MAX_SCHEMA_JSON_CHARS} characters`;
   }
-  const rejection = rejectSchemaKeywords(parameters, parameters, {
+  const walk: SchemaWalk = {
     expanded: 0,
-    refStack: new Set(),
-  });
+    limit: Math.min(MAX_SCHEMA_EXPANDED_NODES, schemaBudget.expandedRemaining),
+    refDepths: new Map([[parameters, 0]]),
+  };
+  const rejection = rejectSchemaKeywords(parameters, parameters, walk, 0);
+  if (rejection === "too-expanded") {
+    return walk.limit < MAX_SCHEMA_EXPANDED_NODES
+      ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_EXPANDED_NODES}-subschema budget shared by this request's schemas`
+      : `has a tool schema that expands to more than ${MAX_SCHEMA_EXPANDED_NODES} subschemas through $ref`;
+  }
   if (rejection) return rejection;
   schemaBudget.remaining -= size;
+  schemaBudget.expandedRemaining -= walk.expanded;
   return null;
+}
+
+interface SchemaBudget {
+  remaining: number;
+  expandedRemaining: number;
+}
+
+interface SchemaWalk {
+  expanded: number;
+  limit: number;
+  /** Each `$ref` target being expanded, and the input depth it was entered at. */
+  refDepths: Map<object, number>;
 }
 
 /**
@@ -420,52 +457,63 @@ function measureSchema(
  * Each `$ref` is expanded where it is used, as validation evaluates it, so a
  * small schema that references the same definition several times per level
  * shows its exponential validation cost here and is rejected. A `$ref` back
- * into a schema it is already inside is not expanded again: that recursion
- * can only go as deep as the input data.
+ * into a schema it is already inside is allowed only when the walk has moved
+ * to a child of the input since entering it: that recursion ends with the
+ * input data. A cycle at the same input location never ends, so it is refused.
  */
 function rejectSchemaKeywords(
   schema: unknown,
   root: Record<string, unknown>,
-  walk: { expanded: number; refStack: Set<object> },
+  walk: SchemaWalk,
+  inputDepth: number,
 ): string | null {
   if (!isPlainRecord(schema)) return null;
   walk.expanded += 1;
-  if (walk.expanded > MAX_SCHEMA_EXPANDED_NODES) {
-    return `has a tool schema that expands to more than ${MAX_SCHEMA_EXPANDED_NODES} subschemas through $ref`;
-  }
+  if (walk.expanded > walk.limit) return "too-expanded";
   for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
     if (Object.hasOwn(schema, keyword)) {
       return `has a tool schema that uses "${keyword}", which app actions may not use`;
     }
   }
-  const children: unknown[] = [];
-  let refTarget: object | undefined;
   if (Object.hasOwn(schema, "$ref")) {
     const target = resolveLocalRef(root, schema.$ref);
     if (target === undefined) {
       return 'has a tool schema with a $ref that is not "#" or an unencoded JSON pointer inside the schema';
     }
-    if (isPlainRecord(target) && !walk.refStack.has(target)) {
-      refTarget = target;
+    if (isPlainRecord(target)) {
+      const enteredAt = walk.refDepths.get(target);
+      if (enteredAt === inputDepth) {
+        return "has a tool schema whose $ref cycles without reaching a property or item";
+      }
+      if (enteredAt === undefined) {
+        walk.refDepths.set(target, inputDepth);
+        const rejection = rejectSchemaKeywords(target, root, walk, inputDepth);
+        walk.refDepths.delete(target);
+        if (rejection) return rejection;
+      }
     }
   }
-  if (refTarget) {
-    walk.refStack.add(refTarget);
-    const rejection = rejectSchemaKeywords(refTarget, root, walk);
-    walk.refStack.delete(refTarget);
-    if (rejection) return rejection;
+  const children: Array<[string, unknown]> = [];
+  for (const keyword of SUBSCHEMA_KEYWORDS) {
+    children.push([keyword, schema[keyword]]);
   }
-  for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);
   for (const keyword of SUBSCHEMA_LIST_KEYWORDS) {
-    if (Array.isArray(schema[keyword])) children.push(...schema[keyword]);
+    if (Array.isArray(schema[keyword])) {
+      for (const child of schema[keyword]) children.push([keyword, child]);
+    }
   }
   for (const keyword of SUBSCHEMA_MAP_KEYWORDS) {
     if (isPlainRecord(schema[keyword])) {
-      children.push(...Object.values(schema[keyword]));
+      for (const child of Object.values(schema[keyword])) {
+        children.push([keyword, child]);
+      }
     }
   }
-  for (const child of children) {
-    const rejection = rejectSchemaKeywords(child, root, walk);
+  for (const [keyword, child] of children) {
+    const childDepth = INSTANCE_DESCENDING_KEYWORDS.has(keyword)
+      ? inputDepth + 1
+      : inputDepth;
+    const rejection = rejectSchemaKeywords(child, root, walk, childDepth);
     if (rejection) return rejection;
   }
   return null;
