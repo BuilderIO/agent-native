@@ -3,8 +3,8 @@
 //
 // Placeholders in <name>/source.html:
 //   __KIT_HEAD__    the font link, the template's tokens read from the code, and kit/base.css
-//   __KIT_SCRIPT__  kit/changes.ts with its types stripped, plus KIT_CHANGES from <name>/changes.json
-//   __ICONS__       kit/icons.json
+//   __KIT_SCRIPT__  kit/ui.ts and kit/changes.ts with their types stripped, with KIT_ICONS from kit/icons.json
+//                   and KIT_CHANGES from <name>/changes.json
 //   __LOGO__        the Agent-Native logo (__LOGO_SMALL__ at 20 × 12)
 //   __FOO__         any other placeholder is filled from <name>/foo.json
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -131,21 +131,26 @@ if (!config.template)
   );
 
 const changes = loadChanges();
-let html = read(join(dir, "source.html"))
-  .replace(
+const script = (file: string) => stripTypeScriptTypes(read(join(kit, file)));
+// Function replacements, so `$&`, `$'`, and `$$` in the inlined code stay literal.
+const fills: [string, string][] = [
+  [
     "__KIT_HEAD__",
-    `${FONTS}\n<style>\n${tokensCss(config.template)}\n${read(join(kit, "base.css"))}</style>`,
-  )
-  .replace(
+    `${FONTS}\n<style>\n${tokensCss(config.template)}\n${read(join(kit, "base.css"))}\n${read(join(kit, "ui.css"))}</style>`,
+  ],
+  [
     "__KIT_SCRIPT__",
-    `<script>\nconst KIT_CHANGES = ${JSON.stringify(changes)};\n${stripTypeScriptTypes(read(join(kit, "changes.ts")))}</script>`,
-  )
-  .replaceAll(
+    `<script>\nconst KIT_ICONS = ${read(join(kit, "icons.json")).trim()};\nconst KIT_CHANGES = ${JSON.stringify(changes)};\n${script("ui.ts")}\n${script("changes.ts")}</script>`,
+  ],
+  [
     "__LOGO_SMALL__",
     LOGO.replace('width="24" height="14"', 'width="20" height="12"'),
-  )
-  .replaceAll("__LOGO__", LOGO)
-  .replace("__ICONS__", read(join(kit, "icons.json")));
+  ],
+  ["__LOGO__", LOGO],
+];
+let html = read(join(dir, "source.html"));
+for (const [placeholder, value] of fills)
+  html = html.replaceAll(placeholder, () => value);
 
 html = html.replace(/__([A-Z]+)__/g, (placeholder, key: string) => {
   const file = join(dir, `${key.toLowerCase()}.json`);

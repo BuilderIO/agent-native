@@ -11,8 +11,9 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 ```
 kit/              shared by every prototype
   base.css        base reset, icon class, the Changes drawer, and the few tokens the code doesn't have yet
+  ui.css, ui.ts   the review strip, buttons, segmented control, menus, toasts, ic() and $
   changes.ts      the Changes drawer
-  icons.json      the Tabler icons prototypes draw with
+  icons.json      the Tabler icons prototypes draw with (add any a prototype needs)
   build.ts        builds one prototype
 <name>/
   source.html     the prototype
@@ -47,5 +48,6 @@ One plain sentence per change, in the past tense, saying what changed for someon
 
 1. Create `prototypes/<name>/` with `source.html`, `prototype.json`, and a `changes.json` holding its first entry.
 2. In `source.html`, put `__KIT_HEAD__` after the `<title>`, `__KIT_SCRIPT__` before the prototype's own `<script>`, and call `kitChangesInit(button)` on the button that opens the Changes drawer.
-3. Use `__ICONS__` for the icon set and `__LOGO__` for the logo. Any other `__NAME__` placeholder is filled from `<name>/name.json`.
-4. Build it, publish it, and add it to the table above.
+3. Draw icons with `ic("name")` and menus with `openMenu(anchor, items)`, both from `kit/ui.ts`; use `__LOGO__` for the logo. Any other `__NAME__` placeholder is filled from `<name>/name.json`.
+4. Set `--kit-accent` in the prototype's `:root` to the template's accent token. Shared pieces a second prototype needs go in the kit, not copied between prototypes.
+5. Build it, publish it, and add it to the table above.

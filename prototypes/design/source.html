@@ -22,6 +22,7 @@ __KIT_HEAD__
 /* Layout: 56 rail | 240 file panel (resizable, 8px steps) | canvas | 240 inspector; one 48px header line across all columns.
    The code's tokens and the base reset come from the kit; these are prototype-only (dock, overlays, diffs, syntax). */
 :root {
+  --kit-accent: var(--design-editor-accent-color);
   --dock: hsl(0 0% 24%);
   --dock-fg: hsl(0 0% 100%);
   --dock-hover: hsl(0 0% 100% / 10%);
@@ -58,13 +59,6 @@ __KIT_HEAD__
 }
 
 /* ───────── review strip ───────── */
-.review { height: 36px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; border-bottom: 1px solid var(--color-border); background: var(--color-muted); font-size: 12px; }
-.review .name { font-weight: 600; }
-.review .ver { color: var(--color-muted-foreground); }
-.review .grow { flex: 1; }
-.chip { height: 24px; padding-inline: 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--color-border); background: var(--color-background); white-space: nowrap; }
-.chip[aria-pressed="true"] { border-color: var(--design-editor-accent-color); color: var(--design-editor-accent-color); }
-.chip .k { color: var(--color-muted-foreground); font-size: 11px; }
 
 /* ───────── app shell ───────── */
 .app { --panel-w: 240px; height: calc(100% - 36px); display: grid; grid-template-columns: 56px var(--panel-w) minmax(0, 1fr) 240px; grid-template-rows: 48px minmax(0, 1fr); }
@@ -113,10 +107,6 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 /* The fill stays on its own 16px line, 2px under the name, so it never paints over the name's descenders. */
 .file-folder { height: 16px; margin: 2px 0 0 -4px; padding-inline: 4px; display: inline-flex; align-items: center; color: var(--color-muted-foreground); border-radius: 6px; align-self: flex-start; }
 .file-folder:hover, .file-folder:focus-visible { color: var(--color-foreground); background: var(--color-accent); }
-.icon-btn { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; flex: none; }
-.icon-btn:hover { background: var(--color-accent); }
-.icon-btn.sm { width: 22px; height: 22px; border-radius: 6px; }
-.icon-btn.xs { width: 24px; height: 24px; border-radius: 6px; }
 .icon-btn[aria-pressed="true"] { background: var(--design-editor-selection-color); color: var(--design-editor-accent-color); }
 
 .tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
@@ -165,9 +155,6 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .app:not(.no-inspector) .topbar { grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr) 232px; }
 .tb-insp { justify-self: end; min-width: 0; display: flex; align-items: center; gap: 12px; }
 @media (max-width: 1100px) { .app:not(.no-inspector) .topbar { grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr) auto; } }
-.seg { display: inline-flex; padding: 4px; border-radius: 14px; background: var(--color-muted); flex: none; }
-.seg button { height: 20px; padding-inline: 6px; border-radius: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--color-muted-foreground); }
-.seg button[aria-pressed="true"] { background: var(--color-background); color: var(--color-foreground); box-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 1px 1.5px rgb(0 0 0 / 10%); }
 .tb-zone { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .tb-center { justify-content: center; }
 .select { height: 28px; border: 1px solid var(--color-border); border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px 4px 10px; font-size: 14px; line-height: 20px; white-space: nowrap; background: var(--color-background); min-width: 0; }
@@ -182,11 +169,6 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .avatars { display: flex; }
 .avatars span { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--color-background); margin-right: -8px; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #fff; }
 .avatars span:last-child { margin-right: 0; }
-.btn { height: 32px; padding-inline: 10px; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; white-space: nowrap; }
-.btn.secondary { background: var(--color-muted); }
-.btn.secondary:hover { background: var(--color-border); }
-.btn.primary { background: var(--color-primary); color: var(--color-primary-foreground); }
-.btn.primary:hover { opacity: .9; }
 .tb-right { gap: 14px; flex: none; }
 .tb-right .btns { display: flex; gap: 8px; }
 .swap { animation: swap .16s ease-out; }
@@ -851,35 +833,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk.draft .tk-dname { flex: 1; min-width: 0; }
 .row.tk.draft .tk-edit { width: 80px; }
 .tk-empty .btn { height: 28px; font-size: 13px; border-radius: 8px; }
-.btn.agent { color: hsl(262 70% 52%); background: color-mix(in srgb, hsl(262 70% 52%) 8%, transparent); }
-.btn.agent:hover { background: color-mix(in srgb, hsl(262 70% 52%) 14%, transparent); }
-.btn[disabled] { opacity: .5; cursor: default; }
 .tk-empty .acts { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 .tk-empty { padding: 32px 16px; text-align: center; color: var(--color-muted-foreground); font-size: 11px; line-height: 16px; }
 .tk-empty b { display: block; color: var(--color-foreground); font-size: 12px; font-weight: 500; margin-bottom: 4px; }
 
-/* menus: Nova dropdown. Full-bleed 28px rows, no inner padding, dividers edge to edge. */
-/* The editor's menu density, from CanvasContextMenu.tsx: 3px inset, 28px rows of 12px text with 4px corners,
-   inset separators, 11px muted shortcuts. Same structure as the toolkit's shadcn DropdownMenu, at the editor's scale. */
-.menu { position: fixed; z-index: 50; background: var(--color-popover); color: var(--color-foreground); border: 1px solid var(--color-border); border-radius: 6px; padding: 3px; min-width: 128px; box-shadow: 0 4px 16px rgb(0 0 0 / 16%), 0 0 0 .5px rgb(0 0 0 / 8%); font-size: 12px; line-height: 16px; overflow: hidden; animation: swap .12s ease-out; }
-.menu button { width: 100%; height: 28px; padding: 0 8px; border-radius: 4px; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
-.menu button:hover, .menu button:focus-visible, .menu button.open { background: var(--color-accent); outline: none; }
-.menu button[disabled] { opacity: .35; cursor: default; background: none; }
-.menu button.two { height: auto; min-height: 40px; padding-block: 5px; align-items: flex-start; }
-.menu .tt { display: flex; flex-direction: column; min-width: 0; }
-.menu .tt small { color: var(--color-muted-foreground); font-size: 11px; line-height: 16px; }
-.menu .kbd { margin-left: auto; padding-left: 16px; font-size: 11px; color: var(--color-muted-foreground); opacity: .7; font-variant-numeric: tabular-nums; }
-.menu button svg { flex: none; }
-.menu button.danger { color: hsl(0 72% 51%); }
-.menu hr { border: 0; height: 1px; background: var(--color-border); opacity: .8; margin: 3px 0; }
-.menu .lbl { height: 24px; display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--color-muted-foreground); }
-.menu .ck { width: 16px; display: grid; place-items: center; flex: none; }
-.menu .sub { margin-left: auto; padding-left: 16px; display: grid; }
-.menu img.mi-img { width: 16px; height: 16px; border-radius: 4px; flex: none; }
-.menu .search { height: 32px; display: flex; align-items: center; gap: 8px; padding-inline: 11px; margin: -3px -3px 3px; color: var(--color-muted-foreground); border-bottom: 1px solid var(--color-border); }
-.menu .search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--color-foreground); }
-.menu .field-row { padding: 8px; margin: -3px -3px 3px; border-bottom: 1px solid var(--color-border); }
-.menu .field-row input { width: 100%; height: 24px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-background); padding-inline: 8px; font-size: 12px; }
 
 /* Top bar test (2026-10-01): every control at the 24px design-system default, ui/control text 12/16.
    Edge padding follows the edge content: 8px beside text, 4px beside a 16px glyph ((24 - 16) / 2). */
@@ -1095,9 +1052,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 
 .chip select { border: 0; background: none; font: inherit; color: inherit; outline: none; }
 .labs-tag { font-size: 10px; font-weight: 600; color: hsl(270 60% 55%); }
-.scrim { position: fixed; inset: 0; z-index: 40; }
 
-.toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: var(--color-primary); color: var(--color-primary-foreground); padding: 8px 12px; border-radius: 8px; font-size: 12px; z-index: 60; box-shadow: var(--agent-kit-overlay-elevation); }
 
 
 /* Below 1200px the groups no longer fit around a centred route: the route takes the leftover middle instead, and
@@ -1178,12 +1133,9 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 
 __KIT_SCRIPT__
 <script>
-const ICONS = __ICONS__;
-const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
 // Replace {{icon|cls}} tokens in static markup.
 document.body.innerHTML = document.body.innerHTML.replace(/\{\{([a-z0-9-]+)(?:\|([a-z0-9 ]+))?\}\}/g, (_, n, c) => ic(n, c || ""));
 
-const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
 const S = {
   mode: "design", tool: "select", route: "/home", device: "MacBook Pro 13″", zoom: 67, screenSel: false,
@@ -1980,84 +1932,6 @@ function sendComment(card) {
   }, 1100);
 }
 
-/* ───────── menus ───────── */
-let closeMenu = null;
-// items: "-" | {label} | {search} | {field} | {t, icon, k, run, toast, danger, disabled, toggle:bool (checkbox: stays open), radio:bool (one choice: closes), on:bool, sub:[items]}
-function menuEl(items, depth) {
-  const m = document.createElement("div"); m.className = "menu"; m.setAttribute("role", "menu"); m.dataset.depth = depth;
-  const hasCk = items.some(it => it && (it.toggle || it.radio));
-  m.innerHTML = items.map((it, i) => it === "-" ? "<hr>" : it.label ? `<div class="lbl">${it.label}</div>`
-    : it.search ? `<label class="search">${ic("search", "s14")}<input placeholder="${it.search}" aria-label="${it.search}"><span class="kbd" style="padding:0">${it.k || ""}</span></label>`
-    : it.field ? `<div class="field-row"><input value="${it.field}" aria-label="Zoom level"></div>`
-    : `<button role="${it.toggle ? "menuitemcheckbox" : it.radio ? "menuitemradio" : "menuitem"}" ${it.toggle || it.radio ? `aria-checked="${!!it.on}"` : ""} class="${it.danger ? "danger" : ""} ${it.desc ? "two" : ""}" data-i="${i}" ${it.disabled ? "disabled" : ""} ${it.sub ? 'aria-haspopup="menu"' : ""}>${hasCk ? `<span class="ck">${it.on ? ic("check", "s14") : ""}</span>` : ""}${it.img ? `<img class="mi-img" src="${it.img}" alt="">` : it.icon ? ic(it.icon) : ""}${it.desc ? `<span class="tt"><span>${it.t}</span><small>${it.desc}</small></span>` : `<span>${it.t}</span>`}${it.sub ? `<span class="sub">${ic(it.subIcon || "chevron-right", "s14")}</span>` : it.k ? `<span class="kbd">${it.k}</span>` : ""}</button>`).join("");
-  return m;
-}
-// Keep a menu inside the window: past the viewport height it scrolls instead of running off the edge.
-function fitMenuHeight(m) { m.style.maxHeight = innerHeight - 16 + "px"; m.style.overflowY = m.scrollHeight > innerHeight - 16 ? "auto" : ""; }
-// A submenu opens beside its row: to the right of the parent menu when it fits, otherwise flipped to its left.
-// Vertically it starts level with the row and slides up only as far as it must to stay on screen.
-function placeSubmenu(sm, row, parent) {
-  fitMenuHeight(sm);
-  const w = sm.offsetWidth, h = sm.offsetHeight, gap = 2;
-  const right = parent.right + gap, left = parent.left - gap - w;
-  sm.style.left = (right + w <= innerWidth - 8 || left < 8 ? Math.min(right, innerWidth - w - 8) : left) + "px";
-  sm.style.top = Math.max(8, Math.min(row.top - 5, innerHeight - h - 8)) + "px";
-}
-function openMenu(anchor, items, { align = "left", above = false, aboveOf = null, offset = 4, minWidth = 0, at = null } = {}) {
-  closeMenu?.();
-  const r = anchor.getBoundingClientRect();
-  const scrim = document.createElement("div"); scrim.className = "scrim";
-  const stack = [];
-  const close = () => { scrim.remove(); stack.forEach(x => x.remove()); anchor.setAttribute("aria-expanded", "false"); closeMenu = null; document.removeEventListener("keydown", esc); };
-  // An item's keys fire it while its menu is open, like Detach token on ⌫.
-  const esc = e => {
-    if (e.key === "Escape") { close(); anchor.focus(); return; }
-    const it = items.find(x => x && x.keys?.includes(e.key) && !x.disabled);
-    if (it) { e.preventDefault(); close(); anchor.focus(); it.run(); }
-  };
-  const mount = (list, depth, place) => {
-    stack.splice(depth).forEach(x => x.remove());
-    const m = menuEl(list, depth); document.body.append(m); stack[depth] = m;
-    place(m);
-    m.addEventListener("mouseover", e => {
-      const b = e.target.closest("[data-i]"); if (!b || b.parentElement !== m) return;
-      const it = list[+b.dataset.i];
-      m.querySelectorAll("button.open").forEach(x => x !== b && x.classList.remove("open"));
-      if (it.sub) { b.classList.add("open"); const br = b.getBoundingClientRect(); mount(it.sub, depth + 1, sm => placeSubmenu(sm, br, m.getBoundingClientRect())); }
-      else stack.splice(depth + 1).forEach(x => x.remove());
-    });
-    m.addEventListener("click", e => {
-      const b = e.target.closest("[data-i]"); if (!b) return;
-      const it = list[+b.dataset.i]; if (it.disabled || (it.sub && !it.run)) return;
-      if (it.toggle) { it.on = !it.on; it.run?.(it.on); b.setAttribute("aria-checked", it.on); b.querySelector(".ck").innerHTML = it.on ? ic("check", "s14") : ""; return; }
-      close(); it.run ? it.run() : toast(it.toast || it.t);
-    });
-    return m;
-  };
-  document.body.append(scrim);
-  mount(items, 0, m => {
-    if (minWidth) m.style.minWidth = minWidth + "px";
-    fitMenuHeight(m);
-    const mw = m.offsetWidth, mh = m.offsetHeight;
-    if (at) { m.style.left = Math.min(at.x, innerWidth - mw - 8) + "px"; m.style.top = Math.min(at.y, innerHeight - mh - 8) + "px"; return; }
-    // Menus above their control anchor by the bottom edge, so a height change (font load, async rows) can't detach them.
-    if (aboveOf || above) m.style.bottom = (innerHeight - (aboveOf ? aboveOf.getBoundingClientRect().top : r.top) + offset) + "px";
-    // Below the control when it fits; otherwise above it, or pinned to the bottom edge if neither side has room.
-    else if (r.bottom + offset + mh <= innerHeight - 8) m.style.top = (r.bottom + offset) + "px";
-    else if (r.top - offset - mh >= 8) m.style.top = (r.top - offset - mh) + "px";
-    else m.style.top = Math.max(8, innerHeight - mh - 8) + "px";
-    m.style.left = Math.max(8, Math.min(innerWidth - mw - 8, align === "right" ? r.right - mw : r.left)) + "px";
-  });
-  anchor.setAttribute("aria-expanded", "true");
-  document.addEventListener("keydown", esc);
-  scrim.onclick = close;
-  closeMenu = close;
-}
-function toast(t) {
-  document.querySelector(".toast")?.remove();
-  const d = document.createElement("div"); d.className = "toast"; d.textContent = t; d.setAttribute("role", "status");
-  document.body.append(d); setTimeout(() => d.remove(), 2200);
-}
 /* ───────── color picker: DesignColorPicker.tsx, redesigned ───────── */
 // The color lives as linear sRGB, unclamped, so Display P3 and OKLCH colors outside sRGB survive a round trip.
 // The mode is one property: it picks the field, the hue strip, and the value cells, and the CSS the picker writes.
