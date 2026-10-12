@@ -3582,6 +3582,59 @@ export async function runAuthoringFuzz(
     if (!listboxId) throw new Error("slash menu did not expose its listbox");
     return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
   };
+  const slashListboxId = async (listbox: Locator) => {
+    const listboxId = await listbox.getAttribute("id");
+    if (!listboxId) throw new Error("slash menu did not expose its listbox id");
+    return listboxId;
+  };
+  const waitForSlashMenuHidden = async (listboxId: string) => {
+    const state = () =>
+      page.evaluate(
+        ({ selector, id }: { selector: string; id: string }) => {
+          const editor = document.querySelector<HTMLElement>(selector);
+          const menu = document.getElementById(id);
+          const style = menu ? window.getComputedStyle(menu) : null;
+          return {
+            controlled: editor?.getAttribute("aria-controls") === id,
+            expanded: editor?.getAttribute("aria-expanded") === "true",
+            exists: !!menu,
+            visible:
+              !!menu &&
+              !!style &&
+              !menu.hidden &&
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              menu.getClientRects().length > 0,
+          };
+        },
+        { selector: editorSelector, id: listboxId },
+      );
+    try {
+      await page.waitForFunction(
+        ({ selector, id }: { selector: string; id: string }) => {
+          const editor = document.querySelector<HTMLElement>(selector);
+          const menu = document.getElementById(id);
+          const style = menu ? window.getComputedStyle(menu) : null;
+          const visible =
+            !!menu &&
+            !!style &&
+            !menu.hidden &&
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            menu.getClientRects().length > 0;
+          return editor?.getAttribute("aria-controls") !== id && !visible;
+        },
+        { selector: editorSelector, id: listboxId },
+        { timeout: 1500 },
+      );
+    } catch (error) {
+      const closeState = await state().catch(() => null);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `slash menu did not close (${reason}); state=${JSON.stringify(closeState)}`,
+      );
+    }
+  };
   const assertSlashMenuStaysHidden = async () => {
     const menuOpened = await page.evaluate(
       ({ selector, durationMs }: { selector: string; durationMs: number }) => {
@@ -3658,11 +3711,12 @@ export async function runAuthoringFuzz(
       throw new Error(`slash menu did not select ${command}`);
     }
     const withTrigger = await inspectSelection();
+    const listboxId = await slashListboxId(listbox);
     tracePhase(`slash.command-key:start:${command}:${key}`);
     await page.keyboard.press(key);
     tracePhase(`slash.command-key:end:${command}:${key}`);
     tracePhase(`slash.wait-hidden:start:${command}`);
-    await listbox.waitFor({ state: "hidden", timeout: 1500 });
+    await waitForSlashMenuHidden(listboxId);
     tracePhase(`slash.wait-hidden:end:${command}`);
     if (
       slashCount((await inspectSelection()).text) !==
@@ -4173,10 +4227,11 @@ export async function runAuthoringFuzz(
           const before = await inspectSelection();
           const listbox = await openSlashMenu();
           const withTrigger = await inspectSelection();
+          const listboxId = await slashListboxId(listbox);
           if (slashCount(withTrigger.text) !== slashCount(before.text) + 1)
             throw new Error("slash menu did not insert a single trigger token");
           await page.keyboard.press("Escape");
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(withTrigger.text)
@@ -4186,8 +4241,9 @@ export async function runAuthoringFuzz(
         }
         case "slash-filter": {
           const emptyListbox = await openSlashMenu();
+          const emptyListboxId = await slashListboxId(emptyListbox);
           await typeText("zz-no-command");
-          await emptyListbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(emptyListboxId);
           const listbox = await openSlashMenu();
           await typeText("heading 2");
           const options = listbox.locator('[role="option"]');
@@ -4202,8 +4258,9 @@ export async function runAuthoringFuzz(
             throw new Error("slash filtering selected the wrong command");
           }
           const withQuery = await inspectSelection();
+          const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Enter");
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(withQuery.text) - 1
@@ -4213,15 +4270,17 @@ export async function runAuthoringFuzz(
         }
         case "slash-away": {
           const listbox = await openSlashMenu();
+          const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("ArrowLeft");
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           break;
         }
         case "slash-delete": {
           const listbox = await openSlashMenu();
+          const listboxId = await slashListboxId(listbox);
           const beforeDelete = await inspectSelection();
           await page.keyboard.press("Backspace");
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(beforeDelete.text) - 1
@@ -4244,14 +4303,14 @@ export async function runAuthoringFuzz(
             .locator('[role="option"]')
             .first()
             .waitFor({ state: "visible", timeout: 5000 });
+          const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Escape");
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           break;
         }
         case "slash-outside": {
           const listbox = await openSlashMenu();
-          const listboxId = await listbox.getAttribute("id");
-          if (!listboxId) throw new Error("slash menu has no listbox id");
+          const listboxId = await slashListboxId(listbox);
           const point = await editor.evaluate(
             (root: HTMLElement, id: string) => {
               const menu = document.getElementById(id);
@@ -4283,7 +4342,7 @@ export async function runAuthoringFuzz(
             );
           }
           await page.mouse.click(point[0], point[1]);
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           await assertCaret();
           break;
         }
@@ -4311,8 +4370,9 @@ export async function runAuthoringFuzz(
             .locator('[role="option"]')
             .first()
             .waitFor({ state: "visible", timeout: 1500 });
+          const listboxId = await slashListboxId(listbox);
           await page.keyboard.press("Enter");
-          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          await waitForSlashMenuHidden(listboxId);
           await page.keyboard.press(`${modifier}+Z`);
           if (!(await inspectSelection()).text.includes("/heading 2")) {
             throw new Error("undo did not restore literal slash command text");
