@@ -58,4 +58,40 @@ describe("assistant root projection", () => {
       "segment-final",
     );
   });
+
+  it("deduplicates repeated snapshots for structured error statuses", () => {
+    const result = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "server-run-one",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          status: { type: "error" },
+          metadata: { runId: "run-one" },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "exact-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete" }],
+          metadata: { runId: "run-one" },
+        },
+        {
+          id: "repeated-answer",
+          role: "assistant",
+          parts: [{ type: "text", text: "Answer complete\nAnswer complete" }],
+          metadata: { runId: "run-one" },
+        },
+      ],
+    });
+
+    expect(result.representedRootMessageIds.has("server-run-one")).toBe(true);
+    expect(result.snapshotMessageIdsByRootMessageId.get("server-run-one")).toBe(
+      "exact-answer",
+    );
+    expect(result.supersededSnapshotMessageIds.has("repeated-answer")).toBe(
+      true,
+    );
+  });
 });

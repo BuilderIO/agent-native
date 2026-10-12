@@ -80,6 +80,7 @@ function isTerminalAssistant(value: Record<string, unknown>): boolean {
     status === "complete" ||
     status === "error" ||
     type === "complete" ||
+    type === "error" ||
     type === "incomplete"
   );
 }
