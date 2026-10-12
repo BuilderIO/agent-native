@@ -525,8 +525,8 @@ export async function bindActionQueryCache(
   }
   const generation = bindingGeneration;
   const persister = scopedPersister(scope);
-  registerActionQueryCacheRevoker(client, () => persister.discard());
   const token = {};
+  registerActionQueryCacheRevoker(client, () => persister.discard(), token);
   bindingScopes.set(token, scope);
   let unsubscribePersist = () => {};
   let stopHydrationTracking = () => {};
@@ -552,6 +552,11 @@ export async function bindActionQueryCache(
     if (event.query.queryKey[0] !== "action") return;
     const status = actionErrorStatus(event.action.error);
     if (status === 401 || status === 403 || status === 404) {
+      const deniedBinding = getAccessDeniedActionQueryBinding(event.query);
+      const deniedScope = deniedBinding
+        ? bindingScopes.get(deniedBinding)
+        : undefined;
+      if (deniedScope !== undefined && deniedScope !== scope) return;
       revokeBrowserPersistableActionQuery(event.query);
       persister.discard();
       clearAccessDeniedActionQueryData(event.query);

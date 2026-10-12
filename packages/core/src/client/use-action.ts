@@ -1086,17 +1086,26 @@ function trackActionCircuitTrip(
 const browserPersistableActionQueries = new WeakSet<Query>();
 const browserPersistableActionQueryBindings = new WeakMap<Query, object>();
 const actionQueryCacheRevokers = new WeakMap<QueryClient, () => void>();
+const actionQueryCacheBindingRevokers = new WeakMap<object, () => void>();
 let actionQueryCacheBindingToken: object | undefined;
 
 export function registerActionQueryCacheRevoker(
   client: QueryClient,
   revoke: () => void,
+  bindingToken?: object,
 ): void {
   actionQueryCacheRevokers.set(client, revoke);
+  if (bindingToken) actionQueryCacheBindingRevokers.set(bindingToken, revoke);
 }
 
-function revokeActionQueryCacheForClient(client: QueryClient): void {
-  actionQueryCacheRevokers.get(client)?.();
+function revokeActionQueryCacheForClient(
+  client: QueryClient,
+  bindingToken?: object,
+): void {
+  const bindingRevoker = bindingToken
+    ? actionQueryCacheBindingRevokers.get(bindingToken)
+    : undefined;
+  (bindingRevoker ?? actionQueryCacheRevokers.get(client))?.();
 }
 
 /** @internal set only by the scoped action-query cache binder. */
@@ -1220,7 +1229,7 @@ export function useActionQuery<
             revokeBrowserPersistableActionQuery(query);
             query.setState({ data: undefined, dataUpdatedAt: 0 });
           }
-          revokeActionQueryCacheForClient(client);
+          revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
         }
         throw error;
       }
