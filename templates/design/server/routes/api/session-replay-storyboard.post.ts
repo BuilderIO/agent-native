@@ -9,7 +9,7 @@ import {
 } from "@agent-native/core/private-blob";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -19,6 +19,7 @@ import {
 
 import addSessionReplayScreenshotsToBoard from "../../../actions/add-session-replay-screenshots-to-board.js";
 import createDesign from "../../../actions/create-design.js";
+import deleteDesign from "../../../actions/delete-design.js";
 import { getDb, schema } from "../../db/index.js";
 import { pngDimensions } from "../../lib/png-dimensions.js";
 
@@ -50,8 +51,135 @@ type Manifest = {
   screenshots: ReplayScreenshot[];
 };
 
+type CreatedDesignShell = {
+  title: string;
+  description: string | null;
+  data: string;
+  dataOperationRevisions: string;
+  liveCollaborationEnabled: boolean;
+  projectType: string;
+  designSystemId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: string;
+};
+
 function badRequest(message: string, statusCode = 400): never {
   throw createError({ statusCode, statusMessage: message });
+}
+
+function hasUnknownSaveOutcome(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const failure = error as {
+    data?: unknown;
+    details?: unknown;
+    saveOutcomeUnknown?: unknown;
+  };
+  const data =
+    failure.data && typeof failure.data === "object"
+      ? (failure.data as Record<string, unknown>)
+      : undefined;
+  const details =
+    failure.details && typeof failure.details === "object"
+      ? (failure.details as Record<string, unknown>)
+      : undefined;
+  const dataDetails =
+    data?.details && typeof data.details === "object"
+      ? (data.details as Record<string, unknown>)
+      : undefined;
+  return (
+    failure.saveOutcomeUnknown === true ||
+    details?.saveOutcomeUnknown === true ||
+    data?.saveOutcomeUnknown === true ||
+    dataDetails?.saveOutcomeUnknown === true
+  );
+}
+
+async function cleanupCreatedDesign(
+  designId: string,
+  userEmail: string,
+  expectedCreatedShell: CreatedDesignShell,
+): Promise<{ cleanupPending: true; cleanupUnknown?: true } | null> {
+  let deleteOutcome: "confirmed" | "rejected" | "unknown" = "unknown";
+  try {
+    const result = await deleteDesign.run(
+      { id: designId, expectedCreatedShell },
+      {
+        caller: "frontend",
+        actionName: "delete-design",
+        userEmail,
+        orgId: null,
+      } satisfies ActionRunContext,
+    );
+    deleteOutcome = result?.deleted === true ? "confirmed" : "rejected";
+  } catch (error) {
+    deleteOutcome =
+      isActionContractError(error) && error.statusCode < 500
+        ? "rejected"
+        : "unknown";
+  }
+
+  try {
+    const [remainingDesign] = await getDb()
+      .select({ id: schema.designs.id })
+      .from(schema.designs)
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          eq(schema.designs.ownerEmail, userEmail),
+          isNull(schema.designs.orgId),
+          eq(schema.designs.visibility, "private"),
+        ),
+      )
+      .limit(1);
+    if (remainingDesign) {
+      return {
+        cleanupPending: true,
+        ...(deleteOutcome !== "rejected"
+          ? { cleanupUnknown: true as const }
+          : {}),
+      };
+    }
+    return deleteOutcome === "confirmed"
+      ? null
+      : { cleanupPending: true, cleanupUnknown: true };
+  } catch (error) {
+    return { cleanupPending: true, cleanupUnknown: true };
+  }
+}
+
+function includeCleanupState(
+  error: unknown,
+  cleanupState: { cleanupPending: true; cleanupUnknown?: true },
+) {
+  const failure =
+    error && typeof error === "object"
+      ? (error as {
+          data?: unknown;
+          message?: unknown;
+          statusCode?: unknown;
+          statusMessage?: unknown;
+        })
+      : {};
+  const statusCode =
+    typeof failure.statusCode === "number" ? failure.statusCode : 500;
+  const existingData =
+    failure.data && typeof failure.data === "object"
+      ? (failure.data as Record<string, unknown>)
+      : {};
+  return createError({
+    statusCode,
+    statusMessage:
+      typeof failure.statusMessage === "string"
+        ? failure.statusMessage
+        : statusCode < 500 && typeof failure.message === "string"
+          ? failure.message
+          : "Design screenshot upload failed",
+    data: { ...existingData, ...cleanupState },
+    cause: error,
+  });
 }
 
 async function assertPersonalPrivateDesignBoard(
@@ -336,7 +464,9 @@ export default defineEventHandler(async (event) => {
     return data;
   });
 
-  return runWithRequestContext(
+  let createdDesignId: string | undefined;
+  let createdDesignShell: CreatedDesignShell | undefined;
+  const request = runWithRequestContext(
     {
       userEmail: caller.email,
       orgId: undefined,
@@ -359,11 +489,67 @@ export default defineEventHandler(async (event) => {
             orgId: null,
           } satisfies ActionRunContext,
         );
-        designId =
-          typeof created.id === "string" ? created.id.trim() : undefined;
-        if (!designId || designId.length > 128) {
+        createdDesignId =
+          typeof created.id === "string" && created.id.length > 0
+            ? created.id
+            : undefined;
+        designId = createdDesignId?.trim();
+        if (
+          !designId ||
+          designId.length > 128 ||
+          designId !== createdDesignId
+        ) {
           badRequest("Design did not confirm a private storyboard", 502);
         }
+        const [createdShell] = await getDb()
+          .select({
+            title: schema.designs.title,
+            description: schema.designs.description,
+            data: schema.designs.data,
+            dataOperationRevisions: schema.designs.dataOperationRevisions,
+            liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
+            projectType: schema.designs.projectType,
+            designSystemId: schema.designs.designSystemId,
+            createdAt: schema.designs.createdAt,
+            updatedAt: schema.designs.updatedAt,
+            ownerEmail: schema.designs.ownerEmail,
+            orgId: schema.designs.orgId,
+            visibility: schema.designs.visibility,
+          })
+          .from(schema.designs)
+          .where(
+            and(
+              eq(schema.designs.id, designId),
+              eq(schema.designs.ownerEmail, caller.email!),
+              isNull(schema.designs.orgId),
+              eq(schema.designs.visibility, "private"),
+            ),
+          )
+          .limit(1);
+        if (
+          !createdShell ||
+          createdShell.title !==
+            (manifest.title ?? "Session replay storyboard") ||
+          createdShell.description !==
+            "Private session replay storyboard from Analytics." ||
+          createdShell.data !== "{}" ||
+          createdShell.dataOperationRevisions !== "{}" ||
+          createdShell.liveCollaborationEnabled !== false ||
+          createdShell.projectType !== "prototype" ||
+          createdShell.designSystemId !== null ||
+          !createdShell.createdAt ||
+          createdShell.updatedAt !== createdShell.createdAt ||
+          createdShell.ownerEmail.trim().toLowerCase() !==
+            caller.email!.trim().toLowerCase() ||
+          createdShell.orgId !== null ||
+          createdShell.visibility !== "private"
+        ) {
+          badRequest(
+            "Design did not confirm an unchanged private storyboard",
+            502,
+          );
+        }
+        createdDesignShell = createdShell;
       }
       await assertPersonalPrivateDesignBoard(designId, caller.email!);
 
@@ -422,7 +608,11 @@ export default defineEventHandler(async (event) => {
           } satisfies ActionRunContext,
         );
         if (!result.boardUrl || !result.designId) {
-          badRequest("Design did not confirm a storyboard", 502);
+          throw createError({
+            statusCode: 502,
+            statusMessage: "Design did not confirm a storyboard",
+            data: { saveOutcomeUnknown: true },
+          });
         }
         response = {
           response: `Added ${screenshots.length} session replay screenshots to Design.`,
@@ -521,8 +711,39 @@ export default defineEventHandler(async (event) => {
           cause: actionFailure,
         });
       }
-      if (!response) badRequest("Design did not confirm a storyboard", 502);
+      if (!response) {
+        throw createError({
+          statusCode: 502,
+          statusMessage: "Design did not confirm a storyboard",
+          data: { saveOutcomeUnknown: true },
+        });
+      }
       return { ...response, cleanupPending };
     },
   );
+  return Promise.resolve(request).catch(async (error: unknown) => {
+    if (createdDesignId && !hasUnknownSaveOutcome(error)) {
+      if (!createdDesignShell) {
+        throw includeCleanupState(error, {
+          cleanupPending: true,
+          cleanupUnknown: true,
+        });
+      }
+      const cleanupState = await runWithRequestContext(
+        {
+          userEmail: caller.email!,
+          orgId: undefined,
+          orgScope: "personal",
+        },
+        () =>
+          cleanupCreatedDesign(
+            createdDesignId!,
+            caller.email!,
+            createdDesignShell!,
+          ),
+      );
+      if (cleanupState) throw includeCleanupState(error, cleanupState);
+    }
+    throw error;
+  });
 });

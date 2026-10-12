@@ -5,7 +5,6 @@ import {
   canonicalA2AAudience,
   invokeAgentAction,
   resolveA2ACallerAuth,
-  resolveAgentInvocationTarget,
   workspacePrivateOrigins,
 } from "@agent-native/core/a2a";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
@@ -16,6 +15,7 @@ import {
 import { createError, defineEventHandler, readMultipartFormData } from "h3";
 
 import { runApiHandlerWithContext } from "../../../lib/credentials";
+import { resolveReplayStoryboardDesignTarget } from "../../../lib/replay-storyboard-design-target.js";
 import { getSessionReplaySummary } from "../../../lib/session-replay";
 
 const MAX_SCREENSHOTS = 9;
@@ -919,9 +919,17 @@ export default defineEventHandler(async (event) =>
       }
 
       failurePhase = "designDiscovery";
-      const designTarget = await resolveAgentInvocationTarget("design", {
-        selfAppId: "analytics",
-      });
+      const designTarget = await beforeRequestDeadline(
+        () => resolveReplayStoryboardDesignTarget(),
+        designRequestDeadlineAt,
+        "Design target resolution exceeded its request deadline",
+      );
+      if (designTarget.code !== "ready") {
+        badRequest(
+          "Analytics could not securely resolve the Design target",
+          503,
+        );
+      }
       failurePhase = "designAuthentication";
       const caller = await runWithRequestContext(
         {
@@ -940,7 +948,7 @@ export default defineEventHandler(async (event) =>
         badRequest("Analytics could not authenticate the Design upload", 503);
       }
       let previousBoardContent = "";
-      let designTargetUrl = designTarget.url;
+      const designTargetUrl = designTarget.url;
       if (manifest.designId) {
         failurePhase = "designRead";
         const previous = await readDesignStoryboard(
@@ -956,7 +964,6 @@ export default defineEventHandler(async (event) =>
             502,
           );
         }
-        designTargetUrl = previous.targetUrl;
         previousBoardContent = previous.content;
       }
       const designManifest = {
@@ -978,6 +985,20 @@ export default defineEventHandler(async (event) =>
         designManifest,
         screenshotBytes,
       );
+      const forwardingTarget = await beforeRequestDeadline(
+        () => resolveReplayStoryboardDesignTarget(),
+        designRequestDeadlineAt,
+        "Design target resolution exceeded its request deadline",
+      );
+      if (
+        forwardingTarget.code !== "ready" ||
+        forwardingTarget.url !== designTargetUrl
+      ) {
+        badRequest(
+          "Analytics could not securely resolve the Design target",
+          503,
+        );
+      }
       const uploadTimeoutMs = remainingDesignRequestTimeout(
         designRequestDeadlineAt,
       );

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   createDesign: vi.fn(),
+  deleteDesign: vi.fn(),
   deleteAttachment: vi.fn(),
   mintAttachmentRef: vi.fn(),
   readMultipartFormData: vi.fn(),
@@ -12,7 +13,40 @@ const mocks = vi.hoisted(() => ({
   runAction: vi.fn(),
   select: vi.fn(),
   eq: vi.fn(),
+  whereCalls: [] as { table: unknown; conditions: unknown[] }[],
   verifyA2AToken: vi.fn(),
+  designsTable: {
+    id: "designs.id",
+    title: "designs.title",
+    description: "designs.description",
+    data: "designs.data",
+    dataOperationRevisions: "designs.dataOperationRevisions",
+    liveCollaborationEnabled: "designs.liveCollaborationEnabled",
+    projectType: "designs.projectType",
+    designSystemId: "designs.designSystemId",
+    createdAt: "designs.createdAt",
+    updatedAt: "designs.updatedAt",
+    ownerEmail: "designs.ownerEmail",
+    orgId: "designs.orgId",
+    visibility: "designs.visibility",
+  },
+  createdShell: undefined as
+    | {
+        id: string;
+        title: string;
+        description: string;
+        data: string;
+        dataOperationRevisions: string;
+        liveCollaborationEnabled: boolean;
+        projectType: string;
+        designSystemId: null;
+        createdAt: string;
+        updatedAt: string;
+        ownerEmail: string;
+        orgId: null;
+        visibility: string;
+      }
+    | undefined,
 }));
 
 vi.mock("h3", async (importOriginal) => {
@@ -56,12 +90,17 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (...args: unknown[]) => mocks.eq(...args),
+  isNull: (column: unknown) => ({ type: "isNull", column }),
 }));
 
 vi.mock("../../db/index.js", () => ({
   getDb: () => ({ select: (...args: unknown[]) => mocks.select(...args) }),
-  schema: { designShares: { resourceId: "design-shares.resource-id" } },
+  schema: {
+    designShares: { resourceId: "design-shares.resource-id" },
+    designs: mocks.designsTable,
+  },
 }));
 
 vi.mock("../../../actions/add-session-replay-screenshots-to-board.js", () => ({
@@ -70,6 +109,10 @@ vi.mock("../../../actions/add-session-replay-screenshots-to-board.js", () => ({
 
 vi.mock("../../../actions/create-design.js", () => ({
   default: { run: mocks.createDesign },
+}));
+
+vi.mock("../../../actions/delete-design.js", () => ({
+  default: { run: mocks.deleteDesign },
 }));
 
 import handler from "./session-replay-storyboard.post";
@@ -218,7 +261,21 @@ function makeEvent(body: BodyInit, token = "test-a2a-token") {
 
 describe("POST /api/session-replay-storyboard", () => {
   beforeEach(() => {
-    for (const mock of Object.values(mocks)) mock.mockReset();
+    for (const mock of [
+      mocks.assertAccess,
+      mocks.createDesign,
+      mocks.deleteDesign,
+      mocks.deleteAttachment,
+      mocks.mintAttachmentRef,
+      mocks.readMultipartFormData,
+      mocks.runAction,
+      mocks.runWithRequestContext,
+      mocks.select,
+      mocks.eq,
+      mocks.verifyA2AToken,
+    ]) {
+      mock.mockReset();
+    }
     mocks.verifyA2AToken.mockResolvedValue({
       email: "ada@example.test",
     });
@@ -234,15 +291,57 @@ describe("POST /api/session-replay-storyboard", () => {
       },
     });
     mocks.createDesign.mockResolvedValue({ id: designId });
-    const query = {
+    mocks.createdShell = {
+      id: designId,
+      title: "Session replay storyboard",
+      description: "Private session replay storyboard from Analytics.",
+      data: "{}",
+      dataOperationRevisions: "{}",
+      liveCollaborationEnabled: false,
+      projectType: "prototype",
+      designSystemId: null,
+      createdAt: "2026-10-11T12:00:00.000Z",
+      updatedAt: "2026-10-11T12:00:00.000Z",
+      ownerEmail: "ada@example.test",
+      orgId: null,
+      visibility: "private",
+    };
+    mocks.deleteDesign.mockImplementation(async ({ id }) => {
+      mocks.createdShell = undefined;
+      return { id, deleted: true };
+    });
+    const query: {
+      table: unknown;
+      from: ReturnType<typeof vi.fn>;
+      where: ReturnType<typeof vi.fn>;
+      limit: ReturnType<typeof vi.fn>;
+    } = {
+      table: undefined,
       from: vi.fn(),
       where: vi.fn(),
-      limit: vi.fn().mockResolvedValue([]),
+      limit: vi.fn(),
     };
-    query.from.mockReturnValue(query);
-    query.where.mockReturnValue(query);
+    query.from.mockImplementation((table: unknown) => {
+      query.table = table;
+      return query;
+    });
+    query.where.mockImplementation((...conditions: unknown[]) => {
+      mocks.whereCalls.push({ table: query.table, conditions });
+      return query;
+    });
+    query.limit.mockImplementation(() =>
+      Promise.resolve(
+        query.table === mocks.designsTable && mocks.createdShell
+          ? [mocks.createdShell]
+          : [],
+      ),
+    );
     mocks.select.mockReturnValue(query);
-    mocks.eq.mockReturnValue({ type: "eq" });
+    mocks.eq.mockImplementation((column: unknown, value: unknown) => ({
+      type: "eq",
+      column,
+      value,
+    }));
     mocks.mintAttachmentRef.mockResolvedValue({
       status: "ok",
       ref: "private-attachment-ref",
@@ -380,6 +479,24 @@ describe("POST /api/session-replay-storyboard", () => {
     );
   });
 
+  it("preserves a board already edited before its cleanup baseline is captured", async () => {
+    mocks.createdShell = {
+      ...mocks.createdShell!,
+      updatedAt: "2026-10-11T12:01:00.000Z",
+    };
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      data: { cleanupPending: true, cleanupUnknown: true },
+    });
+
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["an organization-owned board", { orgId: "org-1" }],
     ["a shared board", { visibility: "org" }],
@@ -493,12 +610,125 @@ describe("POST /api/session-replay-storyboard", () => {
     mocks.mintAttachmentRef.mockResolvedValue({ status: "storageUnavailable" });
 
     await expect(
-      (handler as any)(makeEvent(makeFormData())),
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
     ).rejects.toMatchObject({
       statusCode: 503,
       statusMessage: "Design private screenshot storage is unavailable",
     });
     expect(mocks.runAction).not.toHaveBeenCalled();
+    const designReads = mocks.whereCalls.filter(
+      (query) => query.table === mocks.designsTable,
+    );
+    const expectedDesignScope = {
+      type: "and",
+      conditions: [
+        { type: "eq", column: mocks.designsTable.id, value: designId },
+        {
+          type: "eq",
+          column: mocks.designsTable.ownerEmail,
+          value: "ada@example.test",
+        },
+        { type: "isNull", column: mocks.designsTable.orgId },
+        {
+          type: "eq",
+          column: mocks.designsTable.visibility,
+          value: "private",
+        },
+      ],
+    };
+    expect(designReads.length).toBeGreaterThanOrEqual(2);
+    for (const query of designReads) {
+      expect(query.conditions[0]).toEqual(expectedDesignScope);
+    }
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      {
+        id: designId,
+        expectedCreatedShell: expect.objectContaining({
+          title: "Session replay storyboard",
+          data: "{}",
+          updatedAt: "2026-10-11T12:00:00.000Z",
+          ownerEmail: "ada@example.test",
+          orgId: null,
+          visibility: "private",
+        }),
+      },
+      expect.objectContaining({
+        actionName: "delete-design",
+        userEmail: "ada@example.test",
+        orgId: null,
+      }),
+    );
+  });
+
+  it("reports cleanup state when deleting a new board is not confirmed", async () => {
+    mocks.mintAttachmentRef.mockResolvedValue({ status: "storageUnavailable" });
+    mocks.deleteDesign.mockResolvedValue({ id: designId, deleted: false });
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      data: { cleanupPending: true },
+    });
+  });
+
+  it("deletes only the newly created board after a known save failure", async () => {
+    mocks.runAction.mockRejectedValueOnce(
+      Object.assign(new Error("The storyboard was not saved"), {
+        actionContractError: true,
+        errorCode: "storyboard_conflict",
+        statusCode: 409,
+        details: { saveOutcomeUnknown: false },
+      }),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      {
+        id: designId,
+        expectedCreatedShell: expect.objectContaining({
+          updatedAt: "2026-10-11T12:00:00.000Z",
+        }),
+      },
+      expect.objectContaining({ actionName: "delete-design" }),
+    );
+  });
+
+  it("preserves a newly created board when the save outcome is unknown", async () => {
+    mocks.runAction.mockRejectedValueOnce(
+      Object.assign(new Error("The storyboard save could not be confirmed"), {
+        actionContractError: true,
+        errorCode: "action_failed",
+        statusCode: 502,
+        details: { saveOutcomeUnknown: true },
+      }),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData({ designId: null }))),
+    ).rejects.toMatchObject({
+      statusCode: 502,
+      data: { saveOutcomeUnknown: true },
+    });
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
+  });
+
+  it("never deletes an existing board after a known save failure", async () => {
+    mocks.runAction.mockRejectedValueOnce(
+      Object.assign(new Error("The storyboard was not saved"), {
+        actionContractError: true,
+        errorCode: "storyboard_conflict",
+        statusCode: 409,
+        details: {},
+      }),
+    );
+
+    await expect(
+      (handler as any)(makeEvent(makeFormData())),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.deleteDesign).not.toHaveBeenCalled();
   });
 
   it("reports when a temporary attachment cannot be cleaned up", async () => {
