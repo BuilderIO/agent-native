@@ -2782,7 +2782,7 @@ test.describe("responsive music-app workflow", () => {
       if (!cardABounds || !cardBInitialBounds) {
         throw new Error("Podcast card rows are not measurable");
       }
-      expect(cardBInitialBounds.y).toBeLessThan(cardABounds.y);
+      expect(cardABounds.y).toBeLessThan(cardBInitialBounds.y);
       const liveRow = designFrame(page, screenId).locator(
         `[data-agent-native-node-id="${rowNodeId}"]`,
       );
@@ -2808,9 +2808,9 @@ test.describe("responsive music-app workflow", () => {
       await expect.poll(liveSiblingOrder).toEqual(cardNames);
       const beforePositions = await liveCardPositions();
       expect(beforePositions.cardA.x).toBeLessThan(beforePositions.cardB.x);
-      await layerButton(page, "Podcast card A").click();
-      await expect(cardA).toHaveAttribute("aria-selected", "true");
-      const selectedPanelNodeId = await cardA
+      await layerButton(page, "Podcast card B").click();
+      await expect(cardB).toHaveAttribute("aria-selected", "true");
+      const selectedPanelNodeId = await cardB
         .locator("[data-layer-row-button]")
         .getAttribute("data-layer-node-id");
       expect(selectedPanelNodeId).not.toBeNull();
@@ -2900,7 +2900,7 @@ test.describe("responsive music-app workflow", () => {
         liveCardPositionsBefore: beforePositions,
       };
       try {
-        await cardA.dragTo(cardB, { targetPosition: { x: 24, y: 2 } });
+        await cardB.dragTo(cardA, { targetPosition: { x: 24, y: 2 } });
         await expect.poll(savedCardOrder).toEqual(reorderedNames);
         proof.sourceOrderAfterMove = await savedCardOrder();
         await expect.poll(liveSiblingOrder).toEqual(reorderedNames);
@@ -2909,13 +2909,13 @@ test.describe("responsive music-app workflow", () => {
         proof.liveAfterMove = {
           siblingNodes: await liveSiblingNodes(),
           positions: movedPositions,
-          selectedNodeId: await cardA
+          selectedNodeId: await cardB
             .locator("[data-layer-row-button]")
             .getAttribute("data-layer-node-id"),
         };
 
-        await expect(cardA).toHaveAttribute("aria-selected", "true");
-        await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
+        await expect(cardB).toHaveAttribute("aria-selected", "true");
+        await expect(cardB.locator("[data-layer-row-button]")).toHaveAttribute(
           "data-layer-node-id",
           selectedPanelNodeId ?? "",
         );
@@ -2936,8 +2936,8 @@ test.describe("responsive music-app workflow", () => {
         await expect.poll(liveSiblingOrder).toEqual(cardNames);
         const undoPositions = await liveCardPositions();
         expect(undoPositions.cardA.x).toBeLessThan(undoPositions.cardB.x);
-        await expect(cardA).toHaveAttribute("aria-selected", "true");
-        await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
+        await expect(cardB).toHaveAttribute("aria-selected", "true");
+        await expect(cardB.locator("[data-layer-row-button]")).toHaveAttribute(
           "data-layer-node-id",
           selectedPanelNodeId ?? "",
         );
@@ -2945,7 +2945,7 @@ test.describe("responsive music-app workflow", () => {
         proof.liveAfterUndo = {
           siblingNodes: await liveSiblingNodes(),
           positions: undoPositions,
-          selectedNodeId: await cardA
+          selectedNodeId: await cardB
             .locator("[data-layer-row-button]")
             .getAttribute("data-layer-node-id"),
         };
@@ -2955,8 +2955,8 @@ test.describe("responsive music-app workflow", () => {
         await expect.poll(liveSiblingOrder).toEqual(reorderedNames);
         const redoPositions = await liveCardPositions();
         expect(redoPositions.cardB.x).toBeLessThan(redoPositions.cardA.x);
-        await expect(cardA).toHaveAttribute("aria-selected", "true");
-        await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
+        await expect(cardB).toHaveAttribute("aria-selected", "true");
+        await expect(cardB.locator("[data-layer-row-button]")).toHaveAttribute(
           "data-layer-node-id",
           selectedPanelNodeId ?? "",
         );
@@ -2964,7 +2964,7 @@ test.describe("responsive music-app workflow", () => {
         proof.liveAfterRedo = {
           siblingNodes: await liveSiblingNodes(),
           positions: redoPositions,
-          selectedNodeId: await cardA
+          selectedNodeId: await cardB
             .locator("[data-layer-row-button]")
             .getAttribute("data-layer-node-id"),
         };
@@ -3010,7 +3010,7 @@ test.describe("responsive music-app workflow", () => {
           .catch(() => -1);
       }
 
-      await cardB.dragTo(cardA, { targetPosition: { x: 24, y: 2 } });
+      await cardA.dragTo(cardB, { targetPosition: { x: 24, y: 2 } });
       await expect.poll(savedCardOrder).toEqual(cardNames);
       const restoredSource = await savedSource();
       const [restoredCardA, restoredCardB] = await Promise.all([
@@ -3026,7 +3026,7 @@ test.describe("responsive music-app workflow", () => {
       if (!cardABoundsRestored || !cardBBoundsRestored) {
         throw new Error("Restored podcast card rows are not measurable");
       }
-      expect(cardBBoundsRestored.y).toBeLessThan(cardABoundsRestored.y);
+      expect(cardABoundsRestored.y).toBeLessThan(cardBBoundsRestored.y);
       await test.info().attach("music-app-layer-reorder-restored", {
         body: JSON.stringify(
           {

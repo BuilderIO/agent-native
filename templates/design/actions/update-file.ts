@@ -98,9 +98,10 @@ export default defineAction({
         })
         .optional()
         .describe(
-          "Instead of content: one splice applied to the live content whose " +
-            "sourceContentHash is expectedVersionHash. resultHash is the " +
-            "sourceContentHash of the content the splice produces.",
+          "Editor-only; agents send content instead. One splice applied to " +
+            "the live content whose sourceContentHash is expectedVersionHash. " +
+            "resultHash is the sourceContentHash of the content the splice " +
+            "produces.",
         ),
       filename: z.string().optional().describe("New filename"),
       fileType: z

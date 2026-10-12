@@ -37,6 +37,18 @@ describe("Design save failure classification", () => {
     ).toBe("other");
   });
 
+  it("treats the action client's local timeout as offline, not a server rejection", () => {
+    expect(
+      classifyDesignSaveFailure(
+        Object.assign(new Error("Action update-design timed out after 60s"), {
+          status: 408,
+          timedOut: true,
+        }),
+        true,
+      ),
+    ).toBe("offline");
+  });
+
   it("shows the server error instead of the reconnect warning when a save is rejected online", () => {
     const report = {
       warnChangesWillRetry: vi.fn(),

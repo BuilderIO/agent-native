@@ -356,6 +356,7 @@ export function useEditorActiveScreenAndGeometry({
     locallyPinnedHeightIdsRef,
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
+    frameGeometryOperationsInFlightRef,
     creativeContextEnabled,
     reportSaveFailure,
     journalOutboxEntry,
@@ -599,6 +600,12 @@ export function useEditorActiveScreenAndGeometry({
         pendingFrameGeometryOperationsForUnloadRef.current,
       );
       if (operationsForRevision.length === 0) return false;
+      frameGeometryOperationsInFlightRef.current =
+        stagePendingDesignDataOperations(
+          frameGeometryOperationsInFlightRef.current,
+          operationsForRevision,
+          revision,
+        );
       const operationSource = designSaveOperationSourceRef.current;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
@@ -745,6 +752,12 @@ export function useEditorActiveScreenAndGeometry({
               }
               reportSaveFailure(reconciledEntryRetryFailure?.error ?? error);
             }
+          } finally {
+            frameGeometryOperationsInFlightRef.current =
+              clearAcknowledgedDesignDataOperationsThroughRevision(
+                frameGeometryOperationsInFlightRef.current,
+                revision,
+              );
           }
         });
       frameGeometryMutationChainRef.current = current;

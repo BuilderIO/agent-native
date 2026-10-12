@@ -764,6 +764,36 @@ describe("FillProperties base row — image layer prop wiring", () => {
     container.remove();
   });
 
+  it("skips the subtree read when the selection already carries its colors", () => {
+    const readSubtreeColorStyles = vi.fn(
+      (): SubtreeColorStylesRead => ({ status: "captured", nodes: [] }),
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        createElement(FillProperties, {
+          element: element({
+            computedStyles: { backgroundColor: "rgb(255, 255, 255)" },
+          }),
+          onStyleChange: vi.fn(),
+          readSubtreeColorStyles,
+        }),
+      ),
+    );
+
+    act(() =>
+      container
+        .querySelector<HTMLElement>('[data-testid="base-fill-color-input"]')!
+        .click(),
+    );
+
+    expect(readSubtreeColorStyles).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("uses a visible background for a text-bearing control", () => {
     const markup = renderToStaticMarkup(
       createElement(FillProperties, {

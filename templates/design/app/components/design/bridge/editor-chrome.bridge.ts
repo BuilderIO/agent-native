@@ -18,8 +18,8 @@
  *   __RUNTIME_LAYER_SNAPSHOT_ENABLED__ — true only for URL-backed localhost apps
  *
  * Rules:
- *   • The shared, build-time-inlined canvas interaction controller is the one
- *     permitted import. No runtime module lookup survives code generation.
+ *   • Imports only from BRIDGE_SAFE_IMPORTS in bridge.guard.spec.ts, which
+ *     codegen inlines; no runtime module lookup survives code generation.
  *   • No require of any module (DOM globals only at iframe runtime).
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.

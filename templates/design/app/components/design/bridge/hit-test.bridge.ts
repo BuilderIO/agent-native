@@ -56,7 +56,8 @@
  * comments there).
  *
  * Rules:
- *   • No import/require of any module (DOM globals only).
+ *   • Imports only from BRIDGE_SAFE_IMPORTS in bridge.guard.spec.ts, which
+ *     codegen inlines; no runtime module lookup survives code generation.
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.
  */

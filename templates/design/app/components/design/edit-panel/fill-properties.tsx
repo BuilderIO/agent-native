@@ -452,9 +452,10 @@ export function FillProperties({
     subtreeColorsAtOpenRef.current = {
       pickerKey: openFillPickerKey,
       read:
-        openFillPickerKey === null
-          ? undefined
-          : readSubtreeColorStyles?.(element),
+        openFillPickerKey === `${fillStashKey}:base` &&
+        element.styleSnapshotReadOnDemand
+          ? readSubtreeColorStyles?.(element)
+          : undefined,
     };
   }
   const subtreeColorsAtOpen = subtreeColorsAtOpenRef.current.read;

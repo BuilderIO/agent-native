@@ -189,6 +189,8 @@ export function useEditorFilesAndSaving({
   );
   const pendingFrameGeometryOperationsForUnloadRef =
     useRef<PendingDesignDataOperations>({});
+  const frameGeometryOperationsInFlightRef =
+    useRef<PendingDesignDataOperations>({});
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -1044,12 +1046,12 @@ export function useEditorFilesAndSaving({
     }
   }, [serverFiles]);
   // A get-design response can predate a geometry save still in flight, so
-  // unacknowledged local operations stay on top of whatever the server sent.
+  // that save's operations stay on top of whatever the server sent.
   const designDataJson = useMemo(
     () =>
       rebaseDesignDataWithPendingOperations(
         parseDesignDataJson(design?.data),
-        pendingFrameGeometryOperationsForUnloadRef.current,
+        frameGeometryOperationsInFlightRef.current,
       ),
     [design?.data],
   );
@@ -1100,7 +1102,10 @@ export function useEditorFilesAndSaving({
   }, [layoutGrids]);
   handleLayoutGridChangeRef.current = handleLayoutGridChange;
   useEffect(() => {
-    designDataJsonRef.current = designDataJson;
+    designDataJsonRef.current = rebaseDesignDataWithPendingOperations(
+      designDataJson,
+      pendingFrameGeometryOperationsForUnloadRef.current,
+    );
   }, [designDataJson]);
   const canvasFrameGeometryById = useMemo(
     () => getCanvasFrameGeometry(designDataJson),
@@ -1574,6 +1579,7 @@ export function useEditorFilesAndSaving({
     setOptimisticFrameGeometryById,
     designSaveOperationSourceRef,
     pendingFrameGeometryOperationsForUnloadRef,
+    frameGeometryOperationsInFlightRef,
     showPrompt,
     showTweakPrompt,
     setShowTweakPrompt,

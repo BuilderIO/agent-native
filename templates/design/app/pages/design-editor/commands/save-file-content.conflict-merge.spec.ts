@@ -387,13 +387,13 @@ describe("runSaveFileContent request body", () => {
     expect(args.rollbackPendingLocalFileContent).not.toHaveBeenCalled();
   });
 
-  it("resends the whole document once when the server rejects the patch with a 422", async () => {
+  it("resends the whole document once when the server rejects the patch's result hash", async () => {
     const { args, pending, mutateAsync } = setup({
       mutate: async (input) => {
         if (input.content === undefined) {
           throw Object.assign(
             new Error("The content patch did not produce its result hash."),
-            { status: 422 },
+            { status: 422, errorCode: "content_patch_mismatch" },
           );
         }
         return { updated: true, versionHash: sourceContentHash(input.content) };
@@ -405,6 +405,21 @@ describe("runSaveFileContent request body", () => {
     expect(mutateAsync).toHaveBeenCalledTimes(2);
     expect(mutateAsync.mock.calls[1]![0]).toMatchObject({ content: MINE });
     expect(args.rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+  });
+
+  it("does not resend the whole document when the patched result fails the HTML check", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async () => {
+        throw Object.assign(
+          new Error("DESIGN_HTML_INTEGRITY: the document structure is invalid"),
+          { status: 422 },
+        );
+      },
+    });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("failed");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
   });
 
   it("treats the save as a conflict when the resent document is not persisted either", async () => {

@@ -24,7 +24,7 @@ export function designSaveErrorMessage(error: unknown): string | null {
 }
 
 export function isContentPatchRejection(error: unknown): boolean {
-  return errorField(error, "status") === 422;
+  return errorField(error, "errorCode") === "content_patch_mismatch";
 }
 
 export function isDesignSaveSuccessConflict(
@@ -59,6 +59,8 @@ export function classifyDesignSaveFailure(
   }
 
   if (!navigatorOnline) return "offline";
+  // The action client times a stalled request out locally, as status 408.
+  if (errorField(error, "timedOut") === true) return "offline";
   // The action client rethrows a fetch rejection as a plain Error with no status.
   const reachedServer = typeof status === "number" && status !== 0;
   if (

@@ -543,7 +543,19 @@ export function mapPanelMoveIntentToDomIntent(
     intent.placement === "inside"
       ? childrenListInLayoutOrder(targetRow.node)
       : targetRow.siblingsInLayoutOrder;
-  if (receiverInLayoutOrder) return intent;
+  if (receiverInLayoutOrder) {
+    // "Inside" lands at the top of the listed children, which in layout order
+    // is the first child rather than the DOM end.
+    const firstChild =
+      intent.placement === "inside"
+        ? targetRow.node.children?.find(
+            (child) => !intent.draggedIds.includes(child.id),
+          )
+        : undefined;
+    return firstChild
+      ? { ...intent, targetId: firstChild.id, placement: "before" }
+      : intent;
+  }
   return {
     ...intent,
     draggedIds: [...intent.draggedIds].reverse(),

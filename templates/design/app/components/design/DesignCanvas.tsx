@@ -7033,6 +7033,7 @@ export function DesignCanvas({
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       return;
     }
+    hostSourceNodeSwapRef.current = null;
     const previousRuntimeContent =
       lastRuntimeReplacementContentRef.current ?? renderedContent;
     const sourceContent = authoredSourceContent ?? runtimeReplacementContent;

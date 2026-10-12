@@ -613,6 +613,40 @@ describe("LayersPanel auto-layout row order", () => {
     ).toEqual(["upper", "lower"]);
   });
 
+  it("drops inside an auto-layout container above its first listed child", () => {
+    const stack: LayersPanelNode = {
+      id: "stack",
+      name: "stack",
+      layout: { isFlexContainer: true },
+      children: [
+        { id: "alpha", name: "alpha" },
+        { id: "bravo", name: "bravo" },
+      ],
+    };
+    const rows = flattenRows([stack], new Set(["stack"]), false);
+    expect(rows.map((r) => r.node.id)).toEqual(["stack", "alpha", "bravo"]);
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        { draggedIds: ["other"], targetId: "stack", placement: "inside" },
+        rows[0]!,
+      ),
+    ).toEqual({
+      draggedIds: ["other"],
+      targetId: "alpha",
+      placement: "before",
+    });
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        { draggedIds: ["alpha"], targetId: "stack", placement: "inside" },
+        rows[0]!,
+      ),
+    ).toEqual({
+      draggedIds: ["alpha"],
+      targetId: "bravo",
+      placement: "before",
+    });
+  });
+
   it("lists an auto-layout container's children in the order an inside drop keeps", () => {
     const stack: LayersPanelNode = {
       id: "stack",
