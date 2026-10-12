@@ -236,6 +236,30 @@ function snapshotAdditionalContentIsRepresented(
   );
 }
 
+function snapshotRepresentsRootContent(
+  root: Record<string, unknown>,
+  candidate: Record<string, unknown>,
+  toolMessageIds: Set<string> | undefined,
+): boolean {
+  const rootCalls = rootToolCalls(root);
+  const candidateCalls = rootToolCalls(candidate);
+  if (
+    rootCalls.every((rootCall) =>
+      candidateCalls.some((candidateCall) =>
+        sameToolCallIdentity(rootCall, candidateCall),
+      ),
+    )
+  ) {
+    return true;
+  }
+  return (
+    rootCalls.length > 0 &&
+    typeof candidate.id === "string" &&
+    toolMessageIds?.size === 1 &&
+    toolMessageIds.has(candidate.id)
+  );
+}
+
 function sameValue(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
@@ -484,21 +508,41 @@ export function projectRootAssistantMessages(input: {
     const exactTextMatches = sameRunMatches.filter(
       (candidate) => rootText !== undefined && text(candidate) === rootText,
     );
+    const duplicateCandidates =
+      rootText && isTerminalAssistant(root)
+        ? sameRunCandidates.filter((candidate) => {
+            const candidateText = text(candidate);
+            return (
+              candidateText === rootText ||
+              Boolean(
+                candidateText &&
+                isRepeatedAnswerSnapshot(rootText, candidateText),
+              )
+            );
+          })
+        : [];
     if (
       rootText &&
       isTerminalAssistant(root) &&
-      exactTextMatches.length === 1 &&
-      rootAssistantCountsByRun.get(runId) === 1
+      rootAssistantCountsByRun.get(runId) === 1 &&
+      duplicateCandidates.length > 0
     ) {
-      const matchingCandidate = exactTextMatches[0]!;
-      represented.add(root.id);
-      directMatches.set(root.id, matchingCandidate.id as string);
-      for (const candidate of sameRunCandidates) {
-        if (candidate.id === matchingCandidate.id) continue;
+      const matchingCandidate = exactTextMatches.find(
+        (candidate) =>
+          snapshotRepresentsRootContent(root, candidate, toolMessageIds) &&
+          snapshotAdditionalContentIsRepresented(root, candidate),
+      );
+      if (matchingCandidate && typeof matchingCandidate.id === "string") {
+        represented.add(root.id);
+        directMatches.set(root.id, matchingCandidate.id);
+      }
+      for (const candidate of duplicateCandidates) {
+        if (matchingCandidate && candidate.id === matchingCandidate.id) {
+          continue;
+        }
         const candidateText = text(candidate);
         if (
           candidateText &&
-          isRepeatedAnswerSnapshot(rootText, candidateText) &&
           snapshotAdditionalContentIsRepresented(root, candidate) &&
           typeof candidate.id === "string"
         ) {
@@ -507,7 +551,17 @@ export function projectRootAssistantMessages(input: {
       }
       continue;
     }
-    const matchingCandidate = exactTextMatches[0] ?? sameRunMatches[0];
+    const matchingCandidates =
+      rootText && isTerminalAssistant(root)
+        ? sameRunMatches.filter((candidate) => {
+            const candidateText = text(candidate);
+            return (
+              !candidateText ||
+              !isRepeatedAnswerSnapshot(rootText, candidateText)
+            );
+          })
+        : sameRunMatches;
+    const matchingCandidate = exactTextMatches[0] ?? matchingCandidates[0];
     const exactTextMatch = exactTextMatches.length === 1;
     const clientCanMatchPartial =
       matchingCandidate !== undefined &&

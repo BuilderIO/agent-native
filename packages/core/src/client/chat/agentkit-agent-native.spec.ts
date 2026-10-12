@@ -85,6 +85,119 @@ describe("projectRootAssistantMessages", () => {
       "snapshot-duplicate",
     );
   });
+
+  it("keeps the durable answer when the only snapshot repeats it", () => {
+    const runId = "run-with-only-repeated-snapshot";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-repeated",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+    });
+
+    expect(projection.representedRootMessageIds).not.toContain("root-answer");
+    expect(projection.supersededSnapshotMessageIds).toContain(
+      "snapshot-repeated",
+    );
+  });
+
+  it("keeps one exact copy and suppresses additional exact and repeated copies", () => {
+    const runId = "run-with-multiple-exact-snapshots";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-exact-copy",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-repeated-copy",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+    });
+
+    expect(
+      projection.snapshotMessageIdsByRootMessageId.get("root-answer"),
+    ).toBe("snapshot-canonical");
+    expect(projection.supersededSnapshotMessageIds).toEqual(
+      new Set(["snapshot-exact-copy", "snapshot-repeated-copy"]),
+    );
+  });
+
+  it("keeps durable tool calls when an exact-text snapshot omits them", () => {
+    const runId = "run-with-durable-tool-call";
+    const projection = projectRootAssistantMessages({
+      rootMessages: [
+        {
+          id: "root-answer",
+          role: "assistant",
+          status: { type: "complete" },
+          content: [
+            { type: "text", text: "Done." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "search",
+              args: { query: "example" },
+              result: { ok: true },
+            },
+          ],
+          metadata: { runId },
+        },
+      ],
+      snapshotMessages: [
+        {
+          id: "snapshot-canonical",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done." }],
+          metadata: { runId },
+        },
+        {
+          id: "snapshot-repeated",
+          role: "assistant",
+          parts: [{ type: "text", text: "Done.\nDone." }],
+          metadata: { runId },
+        },
+      ],
+    });
+
+    expect(projection.representedRootMessageIds).not.toContain("root-answer");
+    expect(projection.supersededSnapshotMessageIds).toEqual(
+      new Set(["snapshot-canonical", "snapshot-repeated"]),
+    );
+  });
 });
 
 function createAgentNativeAgentKitTransport(
