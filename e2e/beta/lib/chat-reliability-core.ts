@@ -286,6 +286,30 @@ export function describeState(state: ChatState): string {
       message.id!.startsWith("server-user-"),
     ).length,
   };
+  const assistants = scanned.filter((message) => message.role === "assistant");
+  const identifiedAssistants = assistants.filter((message) =>
+    message.id?.trim(),
+  );
+  const nonemptyAnswers = assistants.filter(
+    (message) => message.text.length > 0,
+  );
+  const assistantIdentity = {
+    scannedMessages: scanned.length,
+    truncated: state.messages.length > scanned.length,
+    assistantCount: assistants.length,
+    missingIdCount: assistants.length - identifiedAssistants.length,
+    distinctIdCount: new Set(identifiedAssistants.map((message) => message.id))
+      .size,
+    repeatedIdCount:
+      identifiedAssistants.length -
+      new Set(identifiedAssistants.map((message) => message.id)).size,
+    serverAssistantCount: identifiedAssistants.filter((message) =>
+      message.id!.startsWith("server-"),
+    ).length,
+    repeatedNonemptyTextCount:
+      nonemptyAnswers.length -
+      new Set(nonemptyAnswers.map((message) => message.text)).size,
+  };
   const messages = state.messages
     .map(
       (message) =>
@@ -300,6 +324,7 @@ export function describeState(state: ChatState): string {
     `activity=${JSON.stringify(state.currentActivity)}`,
     `messages=[${messages}]`,
     `userIdentity=${JSON.stringify(userIdentity)}`,
+    `assistantIdentity=${JSON.stringify(assistantIdentity)}`,
     state.errorCards.length
       ? `errorCards=${JSON.stringify(state.errorCards)}`
       : "",
