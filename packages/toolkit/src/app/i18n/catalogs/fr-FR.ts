@@ -2,6 +2,7 @@ import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
   "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
+  "block.loading": "Chargement du bloc.",
   "composer.contextUrlLabel": "Adresse URL",
   "composer.contextInvalidUrl": "Saisissez une URL HTTP ou HTTPS valide.",
   "composer.contextAttach": "Joindre",

@@ -349,6 +349,35 @@ describe("createFetchToolEntry", () => {
     expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
+  it("fails oversized response bodies before processing or saving them", async () => {
+    const responseBytes = 20 * 1024 * 1024 + 1;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("partial body", {
+        status: 200,
+        statusText: "OK",
+        headers: {
+          "content-type": "text/html",
+          "content-length": String(responseBytes),
+        },
+      }),
+    );
+
+    const result = runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () =>
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/page",
+          saveToFile: "exports/page.html",
+        }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      errorCode: "web_request_response_too_large",
+      message: expect.stringContaining("response too large"),
+    });
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+  });
+
   it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("ok", { status: 200, statusText: "OK" }),

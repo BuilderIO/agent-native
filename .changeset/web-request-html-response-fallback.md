@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Return HTML-labeled plain-text, empty, and oversized responses instead of failing during parsing.
+Return readable fallbacks for HTML-labeled plain-text and empty responses, and reject truncated bodies before processing or saving them.

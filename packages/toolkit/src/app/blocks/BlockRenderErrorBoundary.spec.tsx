@@ -94,7 +94,9 @@ describe("BlockRenderSuspenseFallback", () => {
       </AgentNativeI18nProvider>,
     );
 
-    expect(markup).toContain("data-block-render-error");
-    expect(markup).toContain("This block is temporarily unavailable.");
+    expect(markup).toContain("data-block-render-loading");
+    expect(markup).toContain('aria-label="Loading block."');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).not.toContain('role="alert"');
   });
 });

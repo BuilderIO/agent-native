@@ -2,6 +2,7 @@ import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
   "block.renderUnavailable": "このブロックは一時的に利用できません。",
+  "block.loading": "ブロックを読み込み中です。",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl":
     "有効な HTTP または HTTPS の URL を入力してください。",

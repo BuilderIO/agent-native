@@ -84,11 +84,24 @@ export function BlockRenderSuspenseFallback({
 }) {
   const t = useT();
   return (
-    <BlockRenderErrorFallback
-      blockId={blockId}
-      blockType={blockType}
-      message={t("agentChat.block.renderUnavailable")}
-    />
+    <div
+      role="status"
+      aria-label={t("agentChat.block.loading")}
+      aria-busy="true"
+      data-block-render-loading
+      data-block-id={blockId}
+      data-block-type={blockType}
+      className="space-y-2 rounded-md border border-border px-3 py-2"
+    >
+      <div
+        aria-hidden="true"
+        className="skeleton-shimmer h-3 w-1/3 rounded-md bg-muted"
+      />
+      <div
+        aria-hidden="true"
+        className="skeleton-shimmer h-3 w-2/3 rounded-md bg-muted"
+      />
+    </div>
   );
 }
 
