@@ -590,8 +590,18 @@ export function projectRootAssistantMessages(input: {
             );
           })
         : sameRunMatches;
-    const matchingCandidate = exactTextMatches[0] ?? matchingCandidates[0];
-    const exactTextMatch = exactTextMatches.length === 1;
+    const fallbackExactMatches = matchingCandidates.filter(
+      (candidate) => rootText !== undefined && text(candidate) === rootText,
+    );
+    const candidateMatches =
+      fallbackExactMatches.length > 0
+        ? fallbackExactMatches
+        : matchingCandidates;
+    const matchingCandidate = candidateMatches[0];
+    const exactTextMatch =
+      matchingCandidate !== undefined &&
+      rootText !== undefined &&
+      text(matchingCandidate) === rootText;
     const clientCanMatchPartial =
       matchingCandidate !== undefined &&
       (explicitRunId(matchingCandidate) === runId ||
@@ -600,7 +610,7 @@ export function projectRootAssistantMessages(input: {
             (runIdsByMessageId.get(matchingCandidate.id)?.size === 1 &&
               messageIdsByRun.get(runId)?.size === 1))));
     if (
-      sameRunMatches.length === 1 &&
+      candidateMatches.length === 1 &&
       (exactTextMatch ||
         (sameRunCandidates.length === 1 && clientCanMatchPartial))
     ) {

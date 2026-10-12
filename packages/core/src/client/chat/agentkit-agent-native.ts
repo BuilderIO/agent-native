@@ -1126,6 +1126,19 @@ function reconcileDurableMessages(
       }
     }
     const runId = snapshotRunId(message);
+    const sameRunRoot = runId ? durableByRun.get(runId) : undefined;
+    if (
+      sameRunRoot &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.has(
+        sameRunRoot.id,
+      ) &&
+      rootAssistantProjection.snapshotMessageIdsByRootMessageId.get(
+        sameRunRoot.id,
+      ) !== message.id &&
+      !durableById.has(message.id)
+    ) {
+      return message;
+    }
     const matched =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);

@@ -87,6 +87,45 @@ test("marks user identity diagnostics truncated at the message scan bound", () =
   );
 });
 
+test("reports bounded assistant identity counts without IDs or answer content", () => {
+  const diagnostic = describeState(
+    state({
+      messages: [
+        { ...message("assistant", "private answer"), id: "server-private" },
+        { ...message("assistant", "private answer"), id: "private-local" },
+        {
+          ...message("assistant", "another private answer"),
+          id: "private-local",
+        },
+        message("assistant", ""),
+        message("user", "private prompt"),
+      ],
+    }),
+  );
+  assert.ok(
+    diagnostic.includes(
+      'assistantIdentity={"scannedMessages":5,"truncated":false,"assistantCount":4,"missingIdCount":1,"distinctIdCount":2,"repeatedIdCount":1,"serverAssistantCount":1,"repeatedNonemptyTextCount":1}',
+    ),
+  );
+  assert.doesNotMatch(
+    diagnostic,
+    /server-private|private-local|private answer|private prompt/,
+  );
+  const bounded = describeState(
+    state({
+      messages: Array.from({ length: 257 }, (_, index) => ({
+        ...message("assistant", ""),
+        id: `private-${index}`,
+      })),
+    }),
+  );
+  assert.ok(
+    bounded.includes(
+      'assistantIdentity={"scannedMessages":256,"truncated":true,"assistantCount":256,"missingIdCount":0,"distinctIdCount":256,"repeatedIdCount":0,"serverAssistantCount":0,"repeatedNonemptyTextCount":0}',
+    ),
+  );
+});
+
 test("flags every run-failure string users have reported, case-insensitively", () => {
   for (const text of [
     "code stream_ended",
