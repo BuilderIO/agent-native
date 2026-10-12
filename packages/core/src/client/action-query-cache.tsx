@@ -171,8 +171,8 @@ interface RestoredSource {
 interface ScopedPersister extends Persister {
   /** Drops a write still waiting on the debounce, then deletes the record. */
   discard(): void;
-  /** Blocks restore and writes when a revoked record could not be deleted. */
-  blockAfterFailedDelete(): void;
+  /** Blocks restore and writes when cleanup cannot safely complete. */
+  blockRestoreAndPersistence(): void;
   close(): void;
   /** The query hashes and data ages the last restore hydrated from the record. */
   restoredStates(): ReadonlyMap<string, number>;
@@ -300,7 +300,7 @@ function scopedPersister(scope: string): ScopedPersister {
       })();
       trackRevokedScopeDelete(scope, deletion);
     },
-    blockAfterFailedDelete() {
+    blockRestoreAndPersistence() {
       persistBlocked = true;
       restoreBlocked = true;
       restoreRevision += 1;
@@ -373,6 +373,23 @@ function closeBinding(): void {
     } else {
       closing.client.removeQueries({ queryKey: query.queryKey, exact: true });
     }
+  }
+}
+
+async function waitForCleanup(cleanup: Promise<void>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(
+        "Cached action results could not be prepared in time; loading without them.",
+      );
+      resolve(false);
+    }, RESTORE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([cleanup.then(() => true), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -504,7 +521,7 @@ export async function bindActionQueryCache(
         blockPersistenceForScope = true;
       }
     }
-    if (blockPersistenceForScope) persister.blockAfterFailedDelete();
+    if (blockPersistenceForScope) persister.blockRestoreAndPersistence();
     if (!isCurrentBinding()) return;
     await waitForStorageOperations();
     if (!isCurrentBinding()) return;
@@ -513,11 +530,14 @@ export async function bindActionQueryCache(
     for (const key of keys) {
       if (key === scope) continue;
       if (!isCurrentBinding()) return;
-      await trackStorageDelete(storage.del(key));
+      await trackRevokedScopeDelete(key, storage.del(key));
     }
   })();
   try {
-    await cleanup;
+    if (!(await waitForCleanup(cleanup))) {
+      if (isCurrentBinding()) persister.blockRestoreAndPersistence();
+      return;
+    }
     if (!isCurrentBinding()) return;
 
     let payloadMappingValid = true;
