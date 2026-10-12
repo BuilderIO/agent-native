@@ -1133,6 +1133,13 @@ describe("Slides prompt-led home", () => {
   });
 
   it("restores the prompt when the selected design system cannot be loaded", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
     createDeck.mockReturnValue({ id: "new-deck" });
     vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
     callAction.mockImplementation(async (action: string) => {
@@ -1142,18 +1149,19 @@ describe("Slides prompt-led home", () => {
       return undefined;
     });
     const deleteDeck = vi.fn();
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
     renderHome({
       decks: [ownDeck],
-      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      ensureDeckPersisted,
       deleteDeck,
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    const prompt = "Create a presentation using my selected design system";
+    const prompt = "Improve this presentation using my selected design system";
 
     await act(async () => {
       await promptProps.mock.lastCall![0].onSubmit(
         prompt,
-        [],
+        [uploadedSource],
         { commit: vi.fn(), discard: vi.fn(), attachments: [] },
         {
           slidesContext: { designSystemId: "system-a", references: [] },
@@ -1175,6 +1183,12 @@ describe("Slides prompt-led home", () => {
     );
     expect(agentSubmit).not.toHaveBeenCalled();
     expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
@@ -1479,7 +1493,7 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit).not.toHaveBeenCalled();
   });
 
-  it("preserves imported source slides when a later attachment cannot be read", async () => {
+  it("checks attached references before importing source slides", async () => {
     const uploadedSource = {
       path: "/uploads/source.pptx",
       originalName: "source.pptx",
@@ -1509,12 +1523,10 @@ describe("Slides prompt-led home", () => {
       return undefined;
     });
     const deleteDeck = vi.fn();
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
     createDeck.mockReturnValue({ id: "new-deck" });
     vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
-    renderHome({
-      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
-      deleteDeck,
-    });
+    renderHome({ ensureDeckPersisted, deleteDeck });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const prompt = "Improve this presentation";
 
@@ -1537,14 +1549,123 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(callAction).toHaveBeenCalledWith(
-      "import-pptx",
-      { filePath: uploadedSource.path, deckId: "new-deck" },
-      expect.objectContaining({ timeoutMs: expect.any(Number) }),
-    );
-    expect(callAction).toHaveBeenCalledWith(
       "import-file",
       expect.objectContaining({ filePath: unreadableReference.path }),
       expect.anything(),
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("removes the empty deck when source upload validation fails", async () => {
+    const sourceDecks = [
+      {
+        path: "/uploads/source.pptx",
+        originalName: "source.pptx",
+        filename: "source.pptx",
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        size: 32,
+      },
+      {
+        path: "/uploads/another-source.pdf",
+        originalName: "another-source.pdf",
+        filename: "another-source.pdf",
+        type: "application/pdf",
+        size: 32,
+      },
+    ];
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        sourceDecks,
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(ensureDeckPersisted).not.toHaveBeenCalled();
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-pptx",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a source deck when the import action fails after it starts", async () => {
+    const uploadedSource = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    callAction.mockImplementation(async (action: string) => {
+      if (action === "import-pptx") {
+        throw new Error("The import stopped before returning a result.");
+      }
+      return undefined;
+    });
+    const ensureDeckPersisted = vi.fn().mockResolvedValue({ persisted: true });
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const prompt = "Improve this presentation";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        prompt,
+        [uploadedSource],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: prompt,
+      }),
+    );
+    expect(ensureDeckPersisted).toHaveBeenCalledWith("new-deck");
+    expect(callAction).toHaveBeenCalledWith(
+      "import-pptx",
+      { filePath: uploadedSource.path, deckId: "new-deck" },
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
     );
     expect(deleteDeck).not.toHaveBeenCalled();
     expect(agentSubmit).not.toHaveBeenCalled();

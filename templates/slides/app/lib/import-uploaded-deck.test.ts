@@ -38,14 +38,16 @@ describe("importUploadedDeckIntoDeck", () => {
       deckId: "deck-1",
       slideCount: 8,
     });
+    const onImportStarted = vi.fn();
 
     await expect(
-      importUploadedDeckIntoDeck([pptxFile], "deck-1"),
+      importUploadedDeckIntoDeck([pptxFile], "deck-1", { onImportStarted }),
     ).resolves.toMatchObject({
       format: "pptx",
       slideCount: 8,
       file: pptxFile,
     });
+    expect(onImportStarted).toHaveBeenCalledOnce();
     expect(mockCallAction).toHaveBeenCalledWith(
       "import-pptx",
       {
@@ -78,9 +80,14 @@ describe("importUploadedDeckIntoDeck", () => {
   });
 
   it("refuses ambiguous multi-deck uploads", async () => {
+    const onImportStarted = vi.fn();
+
     await expect(
-      importUploadedDeckIntoDeck([pptxFile, pdfFile], "deck-1"),
+      importUploadedDeckIntoDeck([pptxFile, pdfFile], "deck-1", {
+        onImportStarted,
+      }),
     ).rejects.toThrow("Upload one presentation at a time");
+    expect(onImportStarted).not.toHaveBeenCalled();
     expect(mockCallAction).not.toHaveBeenCalled();
   });
 

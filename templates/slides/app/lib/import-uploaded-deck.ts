@@ -11,6 +11,10 @@ export type ImportedSourceDeck = {
 
 export const IMPORT_ACTION_TIMEOUT_MS = 5 * 60 * 1000;
 
+export interface ImportUploadedDeckOptions {
+  onImportStarted?: () => void;
+}
+
 function sourceFormat(file: UploadedFile): "pdf" | "pptx" | null {
   const name = file.originalName.toLowerCase();
   if (name.endsWith(".pptx")) return "pptx";
@@ -25,23 +29,36 @@ function actionResultRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export async function importUploadedDeckIntoDeck(
-  files: UploadedFile[],
-  deckId: string,
-): Promise<ImportedSourceDeck | null> {
+function validatedSourceDeckFiles(files: UploadedFile[]): UploadedFile[] {
   const deckFiles = files.filter((file) => sourceFormat(file));
-  if (deckFiles.length === 0) return null;
   if (deckFiles.length > 1) {
     throw new Error(
       "Upload one presentation at a time when asking Slides to improve it. Multiple source decks cannot be merged safely without losing slide order or content.",
     );
   }
+  return deckFiles;
+}
+
+export function validateUploadedDeckImport(
+  files: UploadedFile[],
+): UploadedFile[] {
+  return validatedSourceDeckFiles(files);
+}
+
+export async function importUploadedDeckIntoDeck(
+  files: UploadedFile[],
+  deckId: string,
+  options: ImportUploadedDeckOptions = {},
+): Promise<ImportedSourceDeck | null> {
+  const deckFiles = validatedSourceDeckFiles(files);
+  if (deckFiles.length === 0) return null;
 
   const file = deckFiles[0];
   if (!file) return null;
   const format = sourceFormat(file);
   if (!format) return null;
 
+  options.onImportStarted?.();
   const result = actionResultRecord(
     await callAction(
       format === "pptx" ? "import-pptx" : "import-file",

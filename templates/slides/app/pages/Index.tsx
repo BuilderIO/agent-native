@@ -143,6 +143,7 @@ import { resolveGoogleSlidesImportPayload } from "@/lib/google-slides-reference-
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
+  validateUploadedDeckImport,
   type ImportedSourceDeck,
 } from "@/lib/import-uploaded-deck";
 import {
@@ -1383,36 +1384,12 @@ export default function Index({ active = true }: { active?: boolean }) {
       prompt,
       filesForSourceImprovement,
     );
-    let deckPersisted = false;
-    if (sourceImprovementRequest) {
-      let persisted: Awaited<ReturnType<typeof ensureDeckPersisted>>;
-      try {
-        persisted = await ensureDeckPersisted(deck.id);
-      } catch {
-        recoverFromGenerationSetupFailure(
-          t("home.generationStartFailedDescription"),
-          "deck_persistence_failed",
-        );
-        return;
-      }
-      if (!persisted.persisted) {
-        recoverFromGenerationSetupFailure(
-          describeDeckPersistenceFailure(
-            persisted,
-            t("home.generationStartFailedDescription"),
-          ),
-        );
-        return;
-      }
-      deckPersisted = true;
-    }
+    let sourceDeckPaths: string[] = [];
     if (sourceImprovementRequest) {
       try {
-        sourceImportMayHaveWrittenSlides = true;
-        importedSourceDeck = await importUploadedDeckIntoDeck(
+        sourceDeckPaths = validateUploadedDeckImport(
           filesForSourceImprovement,
-          deckId,
-        );
+        ).map((file) => file.path);
       } catch (error) {
         recoverFromGenerationSetupFailure(
           error instanceof Error
@@ -1422,6 +1399,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         return;
       }
     }
+    let deckPersisted = false;
 
     let referenceHydration: Awaited<
       ReturnType<typeof hydrateReferenceDocuments>
@@ -1430,7 +1408,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       referenceHydration = await hydrateReferenceDocuments(filesForGeneration, {
         excludePaths: [
           ...(importedReferenceFilePath ? [importedReferenceFilePath] : []),
-          ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
+          ...sourceDeckPaths,
         ],
       });
     } catch (error) {
@@ -1506,6 +1484,49 @@ export default function Index({ active = true }: { active?: boolean }) {
       );
       return;
     }
+
+    if (sourceImprovementRequest) {
+      let persisted: Awaited<ReturnType<typeof ensureDeckPersisted>>;
+      try {
+        persisted = await ensureDeckPersisted(deck.id);
+      } catch {
+        recoverFromGenerationSetupFailure(
+          t("home.generationStartFailedDescription"),
+          "deck_persistence_failed",
+        );
+        return;
+      }
+      if (!persisted.persisted) {
+        recoverFromGenerationSetupFailure(
+          describeDeckPersistenceFailure(
+            persisted,
+            t("home.generationStartFailedDescription"),
+          ),
+        );
+        return;
+      }
+      deckPersisted = true;
+
+      try {
+        importedSourceDeck = await importUploadedDeckIntoDeck(
+          filesForSourceImprovement,
+          deckId,
+          {
+            onImportStarted: () => {
+              sourceImportMayHaveWrittenSlides = true;
+            },
+          },
+        );
+      } catch (error) {
+        recoverFromGenerationSetupFailure(
+          error instanceof Error
+            ? error.message
+            : t("home.generationStartFailedDescription"),
+        );
+        return;
+      }
+    }
+
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
