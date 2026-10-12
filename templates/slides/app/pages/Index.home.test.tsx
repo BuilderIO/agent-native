@@ -1325,6 +1325,48 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it("restores the prompt when saving a source deck rejects", async () => {
+    const uploadedFile = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    const ensureDeckPersisted = vi
+      .fn()
+      .mockRejectedValue(new Error("Storage unavailable"));
+    const deleteDeck = vi.fn();
+    createDeck.mockReturnValue({ id: "new-deck" });
+    vi.mocked(deckIdFromPathname).mockReturnValue("new-deck");
+    renderHome({ ensureDeckPersisted, deleteDeck });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Improve this presentation",
+        [uploadedFile],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0]).toMatchObject({
+        open: true,
+        initialText: "Improve this presentation",
+      }),
+    );
+    expect(deleteDeck).toHaveBeenCalledWith("new-deck");
+    expect(agentSubmit).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith("home.generationStartFailed", {
+      description: "home.generationStartFailedDescription",
+    });
+  });
+
   it("starts from a prompt deck link and keeps other composer references", async () => {
     localStorage.setItem(
       "slides:recent-references",

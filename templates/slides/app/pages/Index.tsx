@@ -1407,7 +1407,16 @@ export default function Index({ active = true }: { active?: boolean }) {
     );
     let deckPersisted = false;
     if (sourceImprovementRequest) {
-      const persisted = await ensureDeckPersisted(deck.id);
+      let persisted: Awaited<ReturnType<typeof ensureDeckPersisted>>;
+      try {
+        persisted = await ensureDeckPersisted(deck.id);
+      } catch {
+        recoverFromGenerationSetupFailure(
+          t("home.generationStartFailedDescription"),
+          "deck_persistence_failed",
+        );
+        return;
+      }
       if (!persisted.persisted) {
         recoverFromGenerationSetupFailure(
           describeDeckPersistenceFailure(
@@ -1435,15 +1444,25 @@ export default function Index({ active = true }: { active?: boolean }) {
       }
     }
 
-    const referenceHydration = await hydrateReferenceDocuments(
-      filesForGeneration,
-      {
+    let referenceHydration: Awaited<
+      ReturnType<typeof hydrateReferenceDocuments>
+    >;
+    try {
+      referenceHydration = await hydrateReferenceDocuments(filesForGeneration, {
         excludePaths: [
           ...(importedReferenceFilePath ? [importedReferenceFilePath] : []),
           ...(importedSourceDeck ? [importedSourceDeck.file.path] : []),
         ],
-      },
-    );
+      });
+    } catch (error) {
+      recoverFromGenerationSetupFailure(
+        error instanceof Error
+          ? error.message
+          : t("home.generationStartFailedDescription"),
+        "reference_hydration_failed",
+      );
+      return;
+    }
     if (referenceHydration.status === "unreadable") {
       recoverFromGenerationSetupFailure(referenceHydration.message);
       return;
@@ -1490,11 +1509,23 @@ export default function Index({ active = true }: { active?: boolean }) {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const [loadedReferenceDeckContext, hydratedDesignSystemContext] =
-      await Promise.all([
-        loadReferenceDeckGenerationContext(referenceDeckId),
-        loadDesignSystemGenerationContext(designSystemId),
-      ]);
+    let loadedReferenceDeckContext: LoadedReferenceDeckContext;
+    let hydratedDesignSystemContext: string;
+    try {
+      [loadedReferenceDeckContext, hydratedDesignSystemContext] =
+        await Promise.all([
+          loadReferenceDeckGenerationContext(referenceDeckId),
+          loadDesignSystemGenerationContext(designSystemId),
+        ]);
+    } catch (error) {
+      recoverFromGenerationSetupFailure(
+        error instanceof Error
+          ? error.message
+          : t("home.generationStartFailedDescription"),
+        "generation_context_load_failed",
+      );
+      return;
+    }
     const referenceDeckContext = loadedReferenceDeckContext.agentContext;
     const designSystemContext = referenceSelection.composerContext
       ? formatSlidesComposerContext(
