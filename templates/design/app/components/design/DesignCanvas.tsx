@@ -3519,9 +3519,12 @@ export function DesignCanvas({
   const srcdocVersionRef = useRef({
     srcdoc,
     version: 0,
-    sourceVersionHash: sourceContentHash(iframeSourceContent),
+    sourceVersionHash: "",
   });
-  if (srcdocVersionRef.current.srcdoc !== srcdoc) {
+  if (!srcdocVersionRef.current.sourceVersionHash) {
+    srcdocVersionRef.current.sourceVersionHash =
+      sourceContentHash(iframeSourceContent);
+  } else if (srcdocVersionRef.current.srcdoc !== srcdoc) {
     srcdocVersionRef.current = {
       srcdoc,
       version: srcdocVersionRef.current.version + 1,

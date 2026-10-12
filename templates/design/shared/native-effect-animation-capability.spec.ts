@@ -1,10 +1,35 @@
 import { describe, expect, it } from "vitest";
 
+import { nativeBuiltinExecutionMetadata } from "../.generated/bridge/native-builtin-metadata.generated";
 import { nativeEffectAnimationCapability } from "./native-effect-animation-capability";
 import { STATEFUL_NINE_DEFINITIONS } from "./native-effect-owned-stateful-nine";
 import { NATIVE_EFFECT_DEFINITION_CATALOG } from "./native-effect-presets";
+import { hashEffectDefinition } from "./native-effect-trust";
 
 describe("native effect animation capability", () => {
+  it("keeps generated bridge metadata exact for every built-in execution payload", async () => {
+    const metadata = new Map<string, string>(nativeBuiltinExecutionMetadata);
+    expect(metadata.size).toBe(NATIVE_EFFECT_DEFINITION_CATALOG.length);
+    for (const definition of NATIVE_EFFECT_DEFINITION_CATALOG) {
+      const hash = await hashEffectDefinition(definition);
+      expect(metadata.get(hash), `${definition.id}@${definition.version}`).toBe(
+        nativeEffectAnimationCapability(definition),
+      );
+    }
+    const builtin = NATIVE_EFFECT_DEFINITION_CATALOG[0]!;
+    const edited = {
+      ...builtin,
+      passes: [
+        {
+          ...builtin.passes[0]!,
+          wgsl: `${builtin.passes[0]!.wgsl}\n// edited`,
+        },
+        ...builtin.passes.slice(1),
+      ],
+    };
+    expect(metadata.get(await hashEffectDefinition(edited))).toBeUndefined();
+  });
+
   it("classifies every exact built-in version and keeps static saved versions static", () => {
     expect(
       NATIVE_EFFECT_DEFINITION_CATALOG.every(

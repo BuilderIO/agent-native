@@ -180,7 +180,7 @@ describe("native multipass texture bindings", () => {
     const samplerConfigurations: GPUSamplerDescriptor[] = [];
     let cornerRadius = 0;
     let invalidDraftCompiles = 0;
-    const device = {
+    let device = {
       features: new Set(["timestamp-query"]),
       limits: {
         maxTextureDimension2D: 8192,
@@ -402,6 +402,11 @@ describe("native multipass texture bindings", () => {
             requiredFeatures?: string[];
           }) => {
             requestedFeatures.push(descriptor.requiredFeatures ?? []);
+            device = {
+              ...device,
+              lost: new Promise(() => {}),
+              queue: { ...device.queue },
+            };
             return device;
           },
         }),
@@ -1639,6 +1644,45 @@ describe("native multipass texture bindings", () => {
             source: parent,
             origin: location.origin,
           } as unknown as MessageEvent);
+        const policyRuntime = listener as typeof listener & {
+          requestScan(): void;
+          previewDirty: boolean;
+        };
+        const policyRescan = vi
+          .spyOn(policyRuntime, "requestScan")
+          .mockImplementation(() => {});
+        const previewDirtyBeforePolicy = policyRuntime.previewDirty;
+        try {
+          const policy = { quality: "performance", frameRateTarget: 120 };
+          const sendPolicy = (value: Record<string, unknown> | null) =>
+            send({
+              type: "native-shader-editor-preview-policy",
+              schemaVersion: 1,
+              policy: value,
+            });
+          policyRuntime.previewDirty = false;
+          sendPolicy(policy);
+          expect(policyRescan).toHaveBeenCalledTimes(1);
+          expect(policyRuntime.previewDirty).toBe(true);
+          policyRuntime.previewDirty = false;
+          sendPolicy({ ...policy });
+          expect(policyRescan).toHaveBeenCalledTimes(1);
+          expect(policyRuntime.previewDirty).toBe(false);
+          sendPolicy({ quality: "quality", frameRateTarget: 60 });
+          expect(policyRescan).toHaveBeenCalledTimes(2);
+          expect(policyRuntime.previewDirty).toBe(true);
+          policyRuntime.previewDirty = false;
+          sendPolicy(null);
+          expect(policyRescan).toHaveBeenCalledTimes(3);
+          expect(policyRuntime.previewDirty).toBe(true);
+          policyRuntime.previewDirty = false;
+          sendPolicy(null);
+          expect(policyRescan).toHaveBeenCalledTimes(3);
+          expect(policyRuntime.previewDirty).toBe(false);
+        } finally {
+          policyRuntime.previewDirty = previewDirtyBeforePolicy;
+          policyRescan.mockRestore();
+        }
         send({
           ...previewBase,
           type: "native-effect-set-instance",
@@ -3765,6 +3809,10 @@ describe("native multipass texture bindings", () => {
         allocatedTextureBytes: number;
         ensureCompositionBudget(mount: object, requestedBytes: number): void;
         releaseMountTextures(mount: object): void;
+        retainStatelessTextures(
+          device: unknown,
+          textures: Set<FakeTexture>,
+        ): () => void;
       };
       const teardownWaiters: Array<() => void> = [];
       const teardownQueue = vi
@@ -3786,6 +3834,9 @@ describe("native multipass texture bindings", () => {
       );
       runtime!.dispose();
       await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(() =>
+        teardownProbe.retainStatelessTextures(device, new Set(leasedTextures)),
+      ).toThrow("stateless-compute-frame-invalid");
       for (const texture of leasedTextures) {
         expect(teardownProbe.textureBytes.has(texture)).toBe(true);
         expect(teardownProbe.statelessTextureDestruction.has(texture)).toBe(

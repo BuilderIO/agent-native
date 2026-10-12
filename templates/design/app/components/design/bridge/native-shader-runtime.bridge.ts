@@ -1,3 +1,4 @@
+import { nativeBuiltinExecutionMetadata } from "../../../../.generated/bridge/native-builtin-metadata.generated";
 import {
   feedbackUniformProperties,
   planEffectGraph,
@@ -12,15 +13,11 @@ import type {
   NativeDraftPreviewResult,
 } from "../../../../shared/native-draft-preview-contract";
 import { isEffectPreviewPolicy } from "../../../../shared/native-editor-preferences";
-import {
-  nativeEffectAnimationCapability,
-  type NativeEffectAnimationCapability,
-} from "../../../../shared/native-effect-animation-capability";
+import type { NativeEffectAnimationCapability } from "../../../../shared/native-effect-animation-capability";
 import {
   nativeMountNeedsContinuousSourceFrames,
   planNativeSceneFrame,
 } from "../../../../shared/native-effect-frame-policy";
-import { NATIVE_EFFECT_DEFINITION_CATALOG } from "../../../../shared/native-effect-presets";
 import { planNativeEffectTransform } from "../../../../shared/native-effect-transform";
 import {
   hashEffectDefinition,
@@ -221,6 +218,33 @@ import {
   trackNativeFeedbackRetirement,
   type NativeFeedbackEncodedFrame,
 } from "./native-texture-feedback";
+
+const BUILTIN_NATIVE_CAPABILITIES = new Map<
+  string,
+  NativeEffectAnimationCapability
+>(nativeBuiltinExecutionMetadata);
+const BUILTIN_NATIVE_HASHES = new Set(BUILTIN_NATIVE_CAPABILITIES.keys());
+
+function sameEditorPreviewPolicy(
+  current: EffectPreviewPolicy | null,
+  next: EffectPreviewPolicy | null,
+): boolean {
+  return (
+    current === next ||
+    (current !== null &&
+      next !== null &&
+      current.quality === next.quality &&
+      current.frameRateTarget === next.frameRateTarget &&
+      current.colorMode === next.colorMode &&
+      current.dynamicRange === next.dynamicRange)
+  );
+}
+
+function builtinAnimationCapability(
+  executionHash: string,
+): NativeEffectAnimationCapability {
+  return BUILTIN_NATIVE_CAPABILITIES.get(executionHash) ?? "unknown";
+}
 
 // TS 7 declares WebGPU objects but has not yet declared these browser constants.
 declare const GPUTextureUsage: Readonly<{
@@ -1502,7 +1526,6 @@ class NativeShaderRuntime {
     window.parent === window ? "ready" : "pending";
   private rejectedById = new Map<string, Diagnostic & { nodeId: string }>();
   private sentStatus = new Map<string, { signature: string; at: number }>();
-  private builtinHashesPromise: Promise<Set<string>> | null = null;
   private scanning: Promise<void> | null = null;
   private rescanPending = false;
   private draft: DraftPreview | null = null;
@@ -3266,7 +3289,7 @@ class NativeShaderRuntime {
 
   private destroyDevice(device: GPUDevice): void {
     if (this.destroyedDevices.has(device)) return;
-    if (!this.disposed && this.statelessDeviceLeases.has(device)) {
+    if (this.statelessDeviceLeases.has(device)) {
       this.statelessDeviceDestruction.add(device);
       return;
     }
@@ -3278,6 +3301,8 @@ class NativeShaderRuntime {
     device: GPUDevice,
     textures: Set<GPUTexture>,
   ): () => void {
+    if (this.disposed)
+      throw new NativeStatelessComputeError("stateless-compute-frame-invalid");
     for (const texture of textures)
       if (
         !this.textureBytes.has(texture) ||
@@ -3735,13 +3760,6 @@ class NativeShaderRuntime {
     return this.parseFailure ? null : manifests;
   }
 
-  private builtinHashes(): Promise<Set<string>> {
-    this.builtinHashesPromise ??= Promise.all(
-      NATIVE_EFFECT_DEFINITION_CATALOG.map(hashEffectDefinition),
-    ).then((hashes) => new Set(hashes));
-    return this.builtinHashesPromise;
-  }
-
   private loadStandaloneApprovals(): void {
     if (window.parent !== window) return;
     const scripts = document.querySelectorAll<HTMLScriptElement>(
@@ -3816,43 +3834,7 @@ class NativeShaderRuntime {
     this.instancePreviewPending = false;
     this.scanFailures = [];
     this.rejectedById.clear();
-    let builtinHashes: Set<string>;
-    try {
-      builtinHashes = await this.builtinHashes();
-    } catch (error) {
-      this.issue("definition-hash-unavailable", String(error));
-      this.scanFailures.push({
-        code: "definition-hash-unavailable",
-        message: String(error),
-      });
-      for (const mount of this.mounts.values()) {
-        mount.frozenReason = {
-          code: "definition-hash-unavailable",
-          message: String(error),
-          instanceId: mount.instance.id,
-        };
-        mount.target.setAttribute(
-          "data-an-native-status",
-          mount.outputTexture ? "last-good" : "error",
-        );
-        mount.target.setAttribute(
-          "data-an-native-error",
-          "definition-hash-unavailable",
-        );
-        mount.target.setAttribute(
-          "data-an-native-error-message",
-          String(error).slice(0, 300),
-        );
-        this.rejectedTargets.add(mount.target);
-        this.postStatus(
-          mount.instance.id,
-          mount.instance.nodeId,
-          mount.outputTexture ? "last-good" : "error",
-          mount.frozenReason,
-        );
-      }
-      return;
-    }
+    const builtinHashes = BUILTIN_NATIVE_HASHES;
     const documents = this.parse();
     if (!documents) {
       const diagnostic = this.parseFailure ?? {
@@ -4249,7 +4231,7 @@ class NativeShaderRuntime {
         }
         existing.animationCapability = entry.instance.animation
           ? "animated"
-          : nativeEffectAnimationCapability(entry.definition);
+          : builtinAnimationCapability(entry.hash);
         existing.instance = entry.instance;
         existing.definition = entry.definition;
         existing.definitionHash = entry.hash;
@@ -4436,7 +4418,7 @@ class NativeShaderRuntime {
       definitionHash,
       animationCapability: instance.animation
         ? "animated"
-        : nativeEffectAnimationCapability(definition),
+        : builtinAnimationCapability(definitionHash),
       target,
       canvas,
       context,
@@ -14462,8 +14444,9 @@ class NativeShaderRuntime {
         !(data.policy === null || isEffectPreviewPolicy(data.policy))
       )
         return;
-      this.editorPreviewPolicy =
-        data.policy === null ? null : { ...data.policy };
+      const nextPolicy = data.policy as EffectPreviewPolicy | null;
+      if (sameEditorPreviewPolicy(this.editorPreviewPolicy, nextPolicy)) return;
+      this.editorPreviewPolicy = nextPolicy === null ? null : { ...nextPolicy };
       this.previewDirty = true;
       this.requestScan();
       return;
