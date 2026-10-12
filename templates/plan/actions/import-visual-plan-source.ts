@@ -99,7 +99,7 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    let previousContent: PlanContent | undefined;
+    let previousContent: PlanContent | null | undefined;
     if (args.planId) {
       await assertPlanEditor(args.planId);
       previousContent = (await loadPlanBundle(args.planId)).plan.content;
@@ -108,7 +108,7 @@ export default defineAction({
     let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
     try {
       content = await parsePlanMdxFolder(args.mdx, {
-        allowStoredLegacyDefaults: previousContent !== undefined,
+        allowStoredLegacyDefaults: previousContent != null,
         salvageInvalidBlocks: args.kind === "recap",
       });
       if (previousContent) {

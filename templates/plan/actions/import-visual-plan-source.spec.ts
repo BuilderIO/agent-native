@@ -177,6 +177,28 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     expect(updateMock).not.toHaveBeenCalled();
   });
 
+  it("keeps hosted replacements strict when the stored content is null", async () => {
+    state.content = null;
+
+    await expect(
+      runAction({
+        planId: "plan-without-content",
+        mdx: {
+          "plan.mdx": [
+            "---",
+            'title: "New authored plan"',
+            'kind: "plan"',
+            "---",
+            "",
+            '<QuestionForm id="questions" questions={[]} />',
+            "",
+          ].join("\n"),
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 422 });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
   it("rejects clearing a previously populated question array during replacement", async () => {
     const previous = storedPlanContentSchema.parse({
       version: 2,

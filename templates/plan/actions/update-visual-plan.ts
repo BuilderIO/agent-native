@@ -200,7 +200,7 @@ function isCanvasReviewMarkupRequest(args: {
   status?: string;
   currentFocus?: string;
   html?: string;
-  content?: PlanContent;
+  content?: unknown;
   contentPatches: PlanContentPatch[];
   markdown?: string;
   sections: unknown[];
@@ -259,7 +259,7 @@ function isExistingCommentStatusUpdateRequest(args: {
   status?: string;
   currentFocus?: string;
   html?: string;
-  content?: PlanContent;
+  content?: unknown;
   contentPatches: PlanContentPatch[];
   markdown?: string;
   sections: unknown[];
@@ -552,7 +552,7 @@ const updateVisualPlanSchema = z.object({
     .describe(
       "Legacy-only standalone HTML. Allowed only while the current plan has no structured content. Structured plans reject this field because it would shadow blocks, inline editing, and MDX round-trip. Never use it for new plans.",
     ),
-  content: storedPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  content: z.unknown().optional().describe(CONTENT_DESCRIPTION),
   contentPatches: planContentPatchesSchema
     .optional()
     .default([])
@@ -704,12 +704,7 @@ export default defineAction({
     );
     const isDestructiveStructuredWrite =
       args.content !== undefined || hasReplaceBlocksPatch;
-    let nextContent =
-      args.content !== undefined
-        ? normalizePlanContent(args.content, {
-            allowStoredLegacyDefaults: true,
-          })
-        : null;
+    let nextContent: PlanContent | null = null;
     let surfaceWarnings: string[] = [];
     let versionAtLoad: string | null = null;
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
@@ -755,9 +750,18 @@ export default defineAction({
       versionAtLoad = args.expectedUpdatedAt;
     }
 
-    if (args.content !== undefined && nextContent) {
+    if (args.content !== undefined) {
+      nextContent = normalizePlanContent(args.content as PlanContent, {
+        allowStoredLegacyDefaults: true,
+      });
+      if (!nextContent) {
+        fail("Full plan content must be a structured object.", {
+          errorCode: "invalid_plan_content",
+          statusCode: 422,
+        });
+      }
       assertPlanContentAuthoringChanges(
-        nextContent,
+        args.content as PlanContent,
         bundleAtLoad?.plan.content,
       );
     }

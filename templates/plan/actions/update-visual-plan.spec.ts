@@ -1563,6 +1563,57 @@ describe("update-visual-plan comments", () => {
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [
+      "checklist items",
+      { id: "new-checklist", type: "checklist", data: {} },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "annotated-code code",
+      { id: "new-annotated-code", type: "annotated-code", data: {} },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "rejects full replacements with omitted $0",
+    async (_label, block, message) => {
+      request.email = "editor@example.com";
+      useSuccessfulDb();
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Existing content." },
+          },
+        ],
+      });
+      loadPlanBundleMock.mockResolvedValue(planBundle({ content: previous }));
+      const action = updateVisualPlan as unknown as {
+        schema: { parse: (input: unknown) => unknown };
+        run: (input: unknown) => Promise<unknown>;
+      };
+      const input = {
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: {
+          version: 2,
+          blocks: [previous.blocks[0], block],
+        },
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      };
+      const args = action.schema.parse(input);
+
+      expect(args).toMatchObject({ content: input.content });
+      await expect(action.run(args)).rejects.toThrow(message);
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("types a stale revision as a 409 conflict so the action boundary does not capture it", async () => {
     request.email = "editor@example.com";
     getDbMock.mockReturnValue({});
