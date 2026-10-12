@@ -53,5 +53,46 @@ export function hasPlanBlockStructureChange(
 ): boolean {
   const current = blockStructureSignature(currentBlocks);
   const next = blockStructureSignature(nextBlocks);
-  return current !== null && next !== null && current !== next;
+  return current === null || next === null || current !== next;
+}
+
+export function visitPlanBlocks(
+  blocks: unknown,
+  visit: (block: PlanBlock) => void,
+): void {
+  if (!Array.isArray(blocks)) return;
+
+  for (const value of blocks) {
+    if (
+      !isRecord(value) ||
+      typeof value.id !== "string" ||
+      typeof value.type !== "string"
+    ) {
+      continue;
+    }
+
+    const block = value as PlanBlockLike;
+    visit(value as PlanBlock);
+    if (block.type !== "tabs" && block.type !== "columns") continue;
+    if (!isRecord(block.data)) continue;
+
+    const collection = block.data[block.type === "tabs" ? "tabs" : "columns"];
+    if (!Array.isArray(collection)) continue;
+
+    for (const region of collection) {
+      if (!isRecord(region) || !Array.isArray(region.blocks)) continue;
+      visitPlanBlocks(region.blocks, visit);
+    }
+  }
+}
+
+export function nestedPlanBlockLists(block: unknown): unknown[] {
+  if (!isRecord(block) || (block.type !== "tabs" && block.type !== "columns")) {
+    return [];
+  }
+  if (!isRecord(block.data)) return [];
+
+  const regions = block.data[block.type === "tabs" ? "tabs" : "columns"];
+  if (!Array.isArray(regions)) return [];
+  return regions.flatMap((region) => (isRecord(region) ? [region.blocks] : []));
 }

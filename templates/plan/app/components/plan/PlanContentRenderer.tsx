@@ -49,7 +49,11 @@ import {
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
-import { hasPlanBlockStructureChange } from "./plan-block-structure";
+import {
+  hasPlanBlockStructureChange,
+  nestedPlanBlockLists,
+  visitPlanBlocks,
+} from "./plan-block-structure";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
 import { PlanTableOfContents } from "./PlanTableOfContents";
 import { collectPlanTocItems } from "./PlanTableOfContents.utils";
@@ -588,20 +592,7 @@ export function PlanContentRenderer({
   ]);
   const blockLookup = useMemo(() => {
     const blocks = new Map<string, PlanBlock>();
-    const visit = (block: PlanBlock) => {
-      blocks.set(block.id, block);
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) {
-          for (const child of tab.blocks) visit(child);
-        }
-      }
-      if (block.type === "columns") {
-        for (const column of block.data.columns) {
-          for (const child of column.blocks) visit(child);
-        }
-      }
-    };
-    for (const block of content.blocks) visit(block);
+    visitPlanBlocks(content.blocks, (block) => blocks.set(block.id, block));
     return blocks;
   }, [content.blocks]);
   const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
@@ -915,29 +906,22 @@ function isWideLayoutBlock(block: PlanBlock): boolean {
       return true;
     case "tabs":
       return (
-        block.data.orientation === "vertical" ||
-        block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks))
+        block.data?.orientation === "vertical" ||
+        nestedPlanBlockLists(block).some(blocksContainDiffLike)
       );
+    case "columns":
+      return nestedPlanBlockLists(block).some(blocksContainDiffLike);
     default:
       return false;
   }
 }
 
-function blocksContainDiffLike(blocks: PlanBlock[]): boolean {
-  return blocks.some(blockContainsDiffLike);
-}
-
-function blockContainsDiffLike(block: PlanBlock): boolean {
-  if (block.type === "diff" || block.type === "annotated-code") return true;
-  if (block.type === "tabs") {
-    return block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks));
-  }
-  if (block.type === "columns") {
-    return block.data.columns.some((column) =>
-      blocksContainDiffLike(column.blocks),
-    );
-  }
-  return false;
+function blocksContainDiffLike(blocks: unknown): boolean {
+  let found = false;
+  visitPlanBlocks(blocks, (block) => {
+    if (block.type === "diff" || block.type === "annotated-code") found = true;
+  });
+  return found;
 }
 
 function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {

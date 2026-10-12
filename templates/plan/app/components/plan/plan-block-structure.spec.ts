@@ -1,7 +1,11 @@
 import type { PlanBlock } from "@shared/plan-content";
 import { describe, expect, it } from "vitest";
 
-import { hasPlanBlockStructureChange } from "./plan-block-structure";
+import {
+  hasPlanBlockStructureChange,
+  nestedPlanBlockLists,
+  visitPlanBlocks,
+} from "./plan-block-structure";
 
 const currentBlocks = [
   {
@@ -44,12 +48,37 @@ describe("hasPlanBlockStructureChange", () => {
       type: "columns",
       data: { columns: [{ id: "column-1" }] },
     },
-  ])("rejects an incomplete nested block without throwing: %o", (block) => {
+  ])("treats an incomplete nested block as a structure change: %o", (block) => {
     expect(() =>
       hasPlanBlockStructureChange(currentBlocks, [block] as PlanBlock[]),
     ).not.toThrow();
     expect(
       hasPlanBlockStructureChange(currentBlocks, [block] as PlanBlock[]),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("visits valid descendants while skipping malformed regions", () => {
+    const seen: string[] = [];
+    const blocks = [
+      {
+        id: "tabs-2",
+        type: "tabs",
+        data: {
+          tabs: [
+            {
+              id: "tab-1",
+              blocks: [{ id: "note-1", type: "note", data: {} }],
+            },
+            null,
+          ],
+        },
+      },
+    ];
+
+    expect(() =>
+      visitPlanBlocks(blocks, (block) => seen.push(block.id)),
+    ).not.toThrow();
+    expect(seen).toEqual(["tabs-2", "note-1"]);
+    expect(nestedPlanBlockLists(blocks[0])).toHaveLength(1);
   });
 });
