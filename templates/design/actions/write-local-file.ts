@@ -29,6 +29,7 @@ import {
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
+import { localhostBridgeRelayStep } from "./motion-localhost-relay.js";
 import {
   createLocalhostBridgeRelay,
   isLocalhostBridgeRelayRequest,
@@ -263,11 +264,31 @@ export default defineAction({
     const bridgeToken = connection.bridgeToken || grant.bridgeToken;
 
     if (isLocalhostBridgeRelayRequest(ctx)) {
+      const step = localhostBridgeRelayStep(ctx);
       return createLocalhostBridgeRelay({
         operation: content !== undefined ? "write-file" : "apply-edit",
         designId,
         connectionId,
         relPath,
+        ...(step
+          ? {
+              step,
+              payload:
+                content !== undefined
+                  ? {
+                      relPath,
+                      content,
+                      expectedVersionHash,
+                      requireExpectedVersionHash,
+                    }
+                  : {
+                      relPath,
+                      patch,
+                      expectedVersionHash,
+                      requireExpectedVersionHash,
+                    },
+            }
+          : {}),
       });
     }
 

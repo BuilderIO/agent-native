@@ -511,6 +511,11 @@ ALTER TABLE design_board_replay_screenshots ADD COLUMN IF NOT EXISTS capture_sou
   CREATE INDEX IF NOT EXISTS design_screen_restore_claims_design_source_idx
     ON design_screen_restore_claims (design_id, source_file_id)`,
   },
+  {
+    version: 42,
+    name: "design-motion-timeline-text-document",
+    sql: `ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS text_document TEXT`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

@@ -9,7 +9,10 @@
  *   { type: 'motion-load-tracks', tracks: Array<{
  *       targetNodeId: string,
  *       property: string,
- *       keyframes: Array<{ t: number, value: string, ease?: string }>,
+ *       keyframes: Array<{
+ *         t: number, value: string, ease?: string,
+ *         motionPath?: { version: 1, type: "cubic", control1: {x,y}, control2: {x,y} }
+ *       }>,
  *       delayMs?: number,      // track start offset within the timeline
  *       durationMs?: number    // per-track span; omitted = whole timeline
  *     }>, defaultEase?: string, durationMs?: number }
@@ -30,6 +33,24 @@
  *     Remove all motion-preview inline-style overrides and the in-memory
  *     track list. Called when the dock is closed or the timeline is discarded.
  *
+ *   { type: 'motion-audio-load', clips: MotionAudioClip[] }
+ *     Load durable audio URLs and their timeline, trim, volume, and mute data.
+ *     Audio bytes stay in external file storage.
+ *
+ *   { type: 'motion-audio-state', timelineTimeMs, isPlaying }
+ *     Seek or play loaded clips against the current timeline position. Seeking
+ *     never starts playback; only an explicit play state does.
+ *
+ *   { type: 'motion-audio-clear' }
+ *     Stop and release loaded audio elements when the dock is removed.
+ *
+ *   { type: 'motion-path-editing', enabled, targetNodeId }
+ *     Show editable Position path geometry for the selected target.
+ *
+ * Iframe → parent: { type: 'motion-path-edit', targetNodeId, edits }
+ *   Each edit identifies a Position keyframe and/or its outgoing segment.
+ *   Endpoint values and changed cubic control offsets share one atomic gesture.
+ *
  * Per-segment easing reads the ease of the keyframe LEAVING each interval,
  * following CSS keyframe timing semantics. Supported forms: CSS keywords, cubic-bezier(...),
  * steps(...), CSS linear(...) stop lists, and real spring physics via
@@ -43,18 +64,71 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
-  var loadedTracks: Array<{
+  type MotionPathPoint = { x: number; y: number };
+  type MotionPathSegment = {
+    version: 1;
+    type: "cubic";
+    control1: MotionPathPoint;
+    control2: MotionPathPoint;
+  };
+  type PreviewKeyframe = {
+    t: number;
+    value: string;
+    ease?: string;
+    motionPath?: MotionPathSegment;
+  };
+  type PreviewTrack = {
     targetNodeId: string;
     property: string;
-    keyframes: Array<{ t: number; value: string; ease?: string }>;
+    keyframes: PreviewKeyframe[];
+    enabled?: boolean;
     delayMs?: number;
     durationMs?: number;
-  }> = [];
+  };
+  type PreviewEasingVariable = { id: string; value: string };
+  type PreviewAudioClip = {
+    id: string;
+    sourceUrl: string;
+    timelineStartMs: number;
+    sourceTrimStartMs: number;
+    durationMs: number;
+    volume: number;
+    muted: boolean;
+  };
+  type LoadedAudioClip = {
+    clip: PreviewAudioClip;
+    element: HTMLAudioElement;
+    failed: boolean;
+    pendingTime: number | null;
+  };
+  type PathDrag = {
+    pointerId: number;
+    kind: "endpoint" | "control1" | "control2";
+    targetNodeId: string;
+    keyframeIndex: number;
+    startClientX: number;
+    startClientY: number;
+    keyframes: PreviewKeyframe[];
+  };
+  var loadedTracks: PreviewTrack[] = [];
+  var loadedAudioClips: LoadedAudioClip[] = [];
+  var audioPlaybackActive = false;
+  var loadedEasingVariables: PreviewEasingVariable[] = [];
   var loadedDefaultEase = "ease";
   var loadedTimelineDurationMs: number | null = null;
   var touchedProps: Record<string, string[]> = {};
   var originalInlineValues: Record<string, Record<string, string>> = {};
   var elementCache: Record<string, HTMLElement | null> = {};
+  var pathEditingEnabled = false;
+  var pathEditingTargetNodeId: string | null = null;
+  var pathOverlay: SVGSVGElement | null = null;
+  var activePathDrag: PathDrag | null = null;
+  var pathOverlayNs = "http://www.w3.org/2000/svg";
+  var pathOverlayAccentColor = "var(--design-editor-accent-color, Highlight)";
+  var pathOverlaySurfaceColor = "Canvas";
+  var pathPointerListenersInstalled = false;
+  (window as unknown as Record<string, unknown>).__designMotionPreviewBridge =
+    true;
 
   function resolveTrackElement(nodeId: string): HTMLElement | null {
     var cached = elementCache[nodeId];
@@ -306,6 +380,20 @@
     var raw = String(ease == null ? "ease" : ease)
       .trim()
       .toLowerCase();
+    var variableReference =
+      /^var\(--an-motion-ease-([a-z0-9][a-z0-9-]{0,63})\)$/.exec(raw);
+    if (variableReference) {
+      var variableId = variableReference[1];
+      var definition = loadedEasingVariables.find(function (candidate) {
+        return candidate.id === variableId;
+      });
+      if (!definition) {
+        throw new Error(
+          "Motion preview easing variable is not defined: " + variableId,
+        );
+      }
+      raw = definition.value.trim().toLowerCase();
+    }
     if (raw === "linear") return clamped;
     if (raw === "step-start") return clamped > 0 ? 1 : 0;
     if (raw === "step-end") return clamped >= 1 ? 1 : 0;
@@ -575,10 +663,167 @@
     return ratio < 0.5 ? a : b;
   }
 
-  function interpolate(
-    keyframes: Array<{ t: number; value: string; ease?: string }>,
-    t: number,
-  ): string {
+  function parsePosition(value: string): MotionPathPoint | null {
+    if (typeof value !== "string") return null;
+    if (value.trim().toLowerCase() === "none") return { x: 0, y: 0 };
+    var number = "([+-]?(?:\\d+\\.?\\d*|\\.\\d+))";
+    var match = new RegExp(
+      "^\\s*" + number + "(px)?(?:\\s+" + number + "(px)?)?\\s*$",
+      "i",
+    ).exec(value);
+    if (!match) return null;
+    var x = Number(match[1]);
+    var y = match[3] === undefined ? 0 : Number(match[3]);
+    if ((match[2] == null && x !== 0) || (match[4] == null && y !== 0)) {
+      return null;
+    }
+    if (
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      Math.abs(x) > 1000000 ||
+      Math.abs(y) > 1000000
+    ) {
+      return null;
+    }
+    return { x: x, y: y };
+  }
+
+  function formatPosition(point: MotionPathPoint): string {
+    return formatNum(point.x) + "px " + formatNum(point.y) + "px";
+  }
+
+  function validPathSegment(value: unknown): value is MotionPathSegment {
+    if (!value || typeof value !== "object") return false;
+    var segment = value as Record<string, unknown>;
+    function validPoint(point: unknown): point is MotionPathPoint {
+      if (!point || typeof point !== "object") return false;
+      var coordinates = point as Record<string, unknown>;
+      return (
+        Object.keys(coordinates).every(function (key) {
+          return key === "x" || key === "y";
+        }) &&
+        typeof coordinates.x === "number" &&
+        Number.isFinite(coordinates.x) &&
+        Math.abs(coordinates.x) <= 100000 &&
+        typeof coordinates.y === "number" &&
+        Number.isFinite(coordinates.y) &&
+        Math.abs(coordinates.y) <= 100000
+      );
+    }
+    return (
+      segment.version === 1 &&
+      segment.type === "cubic" &&
+      Object.keys(segment).every(function (key) {
+        return ["version", "type", "control1", "control2"].indexOf(key) >= 0;
+      }) &&
+      validPoint(segment.control1) &&
+      validPoint(segment.control2)
+    );
+  }
+
+  function cubicPoints(
+    start: MotionPathPoint,
+    end: MotionPathPoint,
+    segment?: MotionPathSegment,
+  ) {
+    var dx = end.x - start.x;
+    var dy = end.y - start.y;
+    return {
+      start: start,
+      control1: segment
+        ? {
+            x: start.x + segment.control1.x,
+            y: start.y + segment.control1.y,
+          }
+        : { x: start.x + dx / 3, y: start.y + dy / 3 },
+      control2: segment
+        ? { x: end.x + segment.control2.x, y: end.y + segment.control2.y }
+        : { x: end.x - dx / 3, y: end.y - dy / 3 },
+      end: end,
+    };
+  }
+
+  function cubicPoint(points: ReturnType<typeof cubicPoints>, t: number) {
+    var inverse = 1 - t;
+    var startWeight = inverse * inverse * inverse;
+    var control1Weight = 3 * inverse * inverse * t;
+    var control2Weight = 3 * inverse * t * t;
+    var endWeight = t * t * t;
+    return {
+      x:
+        points.start.x * startWeight +
+        points.control1.x * control1Weight +
+        points.control2.x * control2Weight +
+        points.end.x * endWeight,
+      y:
+        points.start.y * startWeight +
+        points.control1.y * control1Weight +
+        points.control2.y * control2Weight +
+        points.end.y * endWeight,
+    };
+  }
+
+  function sampleCubicByDistance(
+    points: ReturnType<typeof cubicPoints>,
+    progress: number,
+  ): MotionPathPoint {
+    var samples: MotionPathPoint[] = [points.start];
+    var cumulative: number[] = [0];
+    for (var step = 1; step <= 512; step++) {
+      var point = cubicPoint(points, step / 512);
+      var previous = samples[step - 1];
+      samples.push(point);
+      cumulative.push(
+        cumulative[step - 1] +
+          Math.hypot(point.x - previous.x, point.y - previous.y),
+      );
+    }
+    var total = cumulative[cumulative.length - 1];
+    if (total === 0) return points.end;
+    if (progress === 0) return points.start;
+    if (progress === 1) return points.end;
+    if (progress < 0 || progress > 1) {
+      var atStart = progress < 0;
+      var tangent = atStart
+        ? {
+            x:
+              points.control1.x - points.start.x ||
+              points.control2.x - points.start.x ||
+              points.end.x - points.start.x,
+            y:
+              points.control1.y - points.start.y ||
+              points.control2.y - points.start.y ||
+              points.end.y - points.start.y,
+          }
+        : {
+            x:
+              points.end.x - points.control2.x ||
+              points.end.x - points.control1.x ||
+              points.end.x - points.start.x,
+            y:
+              points.end.y - points.control2.y ||
+              points.end.y - points.control1.y ||
+              points.end.y - points.start.y,
+          };
+      var magnitude = Math.hypot(tangent.x, tangent.y);
+      if (magnitude === 0) return atStart ? points.start : points.end;
+      var origin = atStart ? points.start : points.end;
+      var distance = total * (progress - (atStart ? 0 : 1));
+      return {
+        x: origin.x + (tangent.x / magnitude) * distance,
+        y: origin.y + (tangent.y / magnitude) * distance,
+      };
+    }
+    var target = total * progress;
+    var upper = 1;
+    while (upper < cumulative.length && cumulative[upper] < target) upper++;
+    var lower = upper - 1;
+    var length = cumulative[upper] - cumulative[lower];
+    var local = length > 0 ? (target - cumulative[lower]) / length : 0;
+    return cubicPoint(points, (lower + local) / 512);
+  }
+
+  function interpolate(keyframes: PreviewKeyframe[], t: number): string {
     if (!keyframes || keyframes.length === 0) return "";
     if (keyframes.length === 1) return keyframes[0].value;
     var prev = keyframes[0];
@@ -595,6 +840,18 @@
     var ratio = Math.max(0, Math.min(1, (t - prev.t) / span));
     var kfEase = prev.ease == null ? loadedDefaultEase : prev.ease;
     var eased = evalEase(kfEase, ratio);
+    if (prev.motionPath && validPathSegment(prev.motionPath)) {
+      var start = parsePosition(prev.value);
+      var end = parsePosition(next.value);
+      if (start && end) {
+        return formatPosition(
+          sampleCubicByDistance(
+            cubicPoints(start, end, prev.motionPath),
+            eased,
+          ),
+        );
+      }
+    }
     return lerp(prev.value, next.value, eased);
   }
 
@@ -620,25 +877,817 @@
     return local < 0 ? 0 : local > 1 ? 1 : local;
   }
 
+  function pathTrackForTarget(targetNodeId: string): PreviewTrack | null {
+    for (var i = 0; i < loadedTracks.length; i++) {
+      var track = loadedTracks[i];
+      if (
+        track.targetNodeId === targetNodeId &&
+        track.property === "translate" &&
+        track.enabled !== false &&
+        track.keyframes.length >= 2
+      ) {
+        return track;
+      }
+    }
+    return null;
+  }
+
+  function positionAtKeyframe(
+    keyframe: PreviewKeyframe,
+  ): MotionPathPoint | null {
+    return parsePosition(keyframe.value);
+  }
+
+  function positionTrackElement(track: PreviewTrack): HTMLElement | null {
+    return resolveTrackElement(track.targetNodeId);
+  }
+
+  function elementPathOrigin(
+    track: PreviewTrack,
+    element: HTMLElement,
+  ): MotionPathPoint | null {
+    if (typeof element.getBoundingClientRect !== "function") return null;
+    var rect = element.getBoundingClientRect();
+    var currentPosition: MotionPathPoint | null = null;
+    if (lastPreviewT !== null) {
+      currentPosition = parsePosition(
+        interpolate(track.keyframes, trackLocalT(track, lastPreviewT)),
+      );
+    }
+    if (!currentPosition && typeof window.getComputedStyle === "function") {
+      var computed = window.getComputedStyle(element);
+      currentPosition = parsePosition(computed.translate || "none");
+    }
+    if (!currentPosition) currentPosition = { x: 0, y: 0 };
+    return {
+      x: rect.left + rect.width / 2 - currentPosition.x,
+      y: rect.top + rect.height / 2 - currentPosition.y,
+    };
+  }
+
+  function svgElement<K extends keyof SVGElementTagNameMap>(
+    tag: K,
+  ): SVGElementTagNameMap[K] {
+    return document.createElementNS(
+      pathOverlayNs,
+      tag,
+    ) as SVGElementTagNameMap[K];
+  }
+
+  function setSvgPoint(
+    element: SVGCircleElement | SVGRectElement,
+    point: MotionPathPoint,
+  ): void {
+    if (element.tagName.toLowerCase() === "rect") {
+      var rect = element as SVGRectElement;
+      rect.setAttribute("x", formatNum(point.x - 5));
+      rect.setAttribute("y", formatNum(point.y - 5));
+      rect.setAttribute("width", "10");
+      rect.setAttribute("height", "10");
+      rect.setAttribute("rx", "1");
+    } else {
+      element.setAttribute("cx", formatNum(point.x));
+      element.setAttribute("cy", formatNum(point.y));
+      element.setAttribute("r", "4");
+    }
+  }
+
+  function appendPathLine(
+    svg: SVGSVGElement,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+  ): void {
+    var line = svgElement("line");
+    line.setAttribute("x1", formatNum(x1));
+    line.setAttribute("y1", formatNum(y1));
+    line.setAttribute("x2", formatNum(x2));
+    line.setAttribute("y2", formatNum(y2));
+    line.setAttribute("stroke", pathOverlayAccentColor);
+    line.setAttribute("stroke-width", "1");
+    line.setAttribute("stroke-dasharray", "3 3");
+    line.setAttribute("pointer-events", "none");
+    svg.appendChild(line);
+  }
+
+  function pathSegmentForFrame(
+    keyframes: PreviewKeyframe[],
+    index: number,
+    positions: MotionPathPoint[],
+  ) {
+    var segment = keyframes[index]?.motionPath;
+    if (segment && !validPathSegment(segment)) return null;
+    return cubicPoints(positions[index]!, positions[index + 1]!, segment);
+  }
+
+  function ensurePathOverlay(): SVGSVGElement | null {
+    if (pathOverlay && document.contains(pathOverlay)) return pathOverlay;
+    if (!document.body || typeof document.createElementNS !== "function") {
+      return null;
+    }
+    pathOverlay = svgElement("svg");
+    pathOverlay.setAttribute("data-motion-path-overlay", "");
+    pathOverlay.setAttribute("aria-hidden", "true");
+    pathOverlay.style.position = "fixed";
+    pathOverlay.style.inset = "0";
+    pathOverlay.style.width = "100vw";
+    pathOverlay.style.height = "100vh";
+    pathOverlay.style.overflow = "visible";
+    pathOverlay.style.pointerEvents = "none";
+    pathOverlay.style.zIndex = "2147483646";
+    pathOverlay.style.userSelect = "none";
+    pathOverlay.style.touchAction = "none";
+    document.body.appendChild(pathOverlay);
+    if (!pathPointerListenersInstalled) {
+      window.addEventListener("pointerdown", onPathPointerDown, true);
+      window.addEventListener("pointermove", onPathPointerMove, true);
+      window.addEventListener("pointerup", finishPathPointer, true);
+      window.addEventListener("pointercancel", finishPathPointer, true);
+      pathPointerListenersInstalled = true;
+    }
+    return pathOverlay;
+  }
+
+  function removePathOverlay(): void {
+    if (pathOverlay?.parentNode)
+      pathOverlay.parentNode.removeChild(pathOverlay);
+    pathOverlay = null;
+  }
+
+  function renderPathOverlay(): void {
+    if (!pathEditingEnabled || !pathEditingTargetNodeId || activePathDrag) {
+      if (!pathEditingEnabled) removePathOverlay();
+      return;
+    }
+    var track = pathTrackForTarget(pathEditingTargetNodeId);
+    var element = track ? positionTrackElement(track) : null;
+    if (!track || !element) {
+      removePathOverlay();
+      return;
+    }
+    var keyframes = [...track.keyframes].sort(function (a, b) {
+      return a.t - b.t;
+    });
+    var positions = keyframes.map(positionAtKeyframe);
+    if (
+      positions.some(function (point) {
+        return point === null;
+      })
+    ) {
+      removePathOverlay();
+      return;
+    }
+    var origin = elementPathOrigin(track, element);
+    if (!origin) {
+      removePathOverlay();
+      return;
+    }
+    var absolutePositions = (positions as MotionPathPoint[]).map(
+      function (point) {
+        return { x: origin!.x + point.x, y: origin!.y + point.y };
+      },
+    );
+    var svg = ensurePathOverlay();
+    if (!svg) return;
+    svg.setAttribute("data-motion-path-target", track.targetNodeId);
+    svg.setAttribute(
+      "viewBox",
+      "0 0 " + window.innerWidth + " " + window.innerHeight,
+    );
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var pathCommands: string[] = [];
+    for (var i = 0; i < keyframes.length - 1; i++) {
+      var points = pathSegmentForFrame(
+        keyframes,
+        i,
+        positions as MotionPathPoint[],
+      );
+      if (!points) continue;
+      var start = absolutePositions[i]!;
+      var control1 = {
+        x: origin.x + points.control1.x,
+        y: origin.y + points.control1.y,
+      };
+      var control2 = {
+        x: origin.x + points.control2.x,
+        y: origin.y + points.control2.y,
+      };
+      var end = absolutePositions[i + 1]!;
+      pathCommands.push(
+        (i === 0 ? "M " + formatNum(start.x) + " " + formatNum(start.y) : "") +
+          " C " +
+          formatNum(control1.x) +
+          " " +
+          formatNum(control1.y) +
+          " " +
+          formatNum(control2.x) +
+          " " +
+          formatNum(control2.y) +
+          " " +
+          formatNum(end.x) +
+          " " +
+          formatNum(end.y),
+      );
+    }
+    var curve = svgElement("path");
+    curve.setAttribute("data-motion-path-curve", "");
+    curve.setAttribute("fill", "none");
+    curve.setAttribute("stroke", pathOverlayAccentColor);
+    curve.setAttribute("stroke-width", "2");
+    curve.setAttribute("d", pathCommands.join(" "));
+    curve.setAttribute("pointer-events", "none");
+    svg.appendChild(curve);
+
+    for (
+      var segmentIndex = 0;
+      segmentIndex < keyframes.length - 1;
+      segmentIndex++
+    ) {
+      var segmentPoints = pathSegmentForFrame(
+        keyframes,
+        segmentIndex,
+        positions as MotionPathPoint[],
+      );
+      if (!segmentPoints) continue;
+      var segmentStart = absolutePositions[segmentIndex]!;
+      var segmentEnd = absolutePositions[segmentIndex + 1]!;
+      var handle1 = {
+        x: origin.x + segmentPoints.control1.x,
+        y: origin.y + segmentPoints.control1.y,
+      };
+      var handle2 = {
+        x: origin.x + segmentPoints.control2.x,
+        y: origin.y + segmentPoints.control2.y,
+      };
+      appendPathLine(svg, segmentStart.x, segmentStart.y, handle1.x, handle1.y);
+      appendPathLine(svg, handle2.x, handle2.y, segmentEnd.x, segmentEnd.y);
+
+      var ease = keyframes[segmentIndex]!.ease ?? loadedDefaultEase;
+      for (var dotIndex = 1; dotIndex < 8; dotIndex++) {
+        var progress = evalEase(ease, dotIndex / 8);
+        var dotPosition = sampleCubicByDistance(segmentPoints, progress);
+        var dot = svgElement("circle");
+        dot.setAttribute("data-motion-path-easing-dot", String(dotIndex));
+        dot.setAttribute(
+          "data-motion-path-segment-start",
+          String(keyframes[segmentIndex]!.t),
+        );
+        setSvgPoint(dot, {
+          x: origin.x + dotPosition.x,
+          y: origin.y + dotPosition.y,
+        });
+        dot.setAttribute("r", "2");
+        dot.setAttribute("fill", pathOverlaySurfaceColor);
+        dot.setAttribute("stroke", pathOverlayAccentColor);
+        dot.setAttribute("stroke-width", "1.5");
+        dot.setAttribute("pointer-events", "none");
+        svg.appendChild(dot);
+      }
+
+      appendPathHandle(svg, "control1", keyframes[segmentIndex]!.t, handle1);
+      appendPathHandle(svg, "control2", keyframes[segmentIndex]!.t, handle2);
+    }
+    for (
+      var keyframeIndex = 0;
+      keyframeIndex < keyframes.length;
+      keyframeIndex++
+    ) {
+      var marker = svgElement("rect");
+      marker.setAttribute(
+        "data-motion-path-keyframe",
+        String(keyframes[keyframeIndex]!.t),
+      );
+      marker.setAttribute("data-motion-path-target", track.targetNodeId);
+      setSvgPoint(marker, absolutePositions[keyframeIndex]!);
+      marker.setAttribute("fill", pathOverlaySurfaceColor);
+      marker.setAttribute("stroke", pathOverlayAccentColor);
+      marker.setAttribute("stroke-width", "2");
+      marker.setAttribute("pointer-events", "all");
+      marker.style.cursor = "move";
+      marker.style.touchAction = "none";
+      svg.appendChild(marker);
+    }
+  }
+
+  function appendPathHandle(
+    svg: SVGSVGElement,
+    handle: "control1" | "control2",
+    segmentStartT: number,
+    point: MotionPathPoint,
+  ): void {
+    var marker = svgElement("circle");
+    marker.setAttribute("data-motion-path-handle", handle);
+    marker.setAttribute(
+      "data-motion-path-segment-start",
+      String(segmentStartT),
+    );
+    setSvgPoint(marker, point);
+    marker.setAttribute("r", "5");
+    marker.setAttribute("fill", pathOverlayAccentColor);
+    marker.setAttribute("stroke", pathOverlaySurfaceColor);
+    marker.setAttribute("stroke-width", "1.5");
+    marker.setAttribute("pointer-events", "all");
+    marker.style.cursor = "crosshair";
+    marker.style.touchAction = "none";
+    svg.appendChild(marker);
+  }
+
+  function pathMessage(
+    targetNodeId: string,
+    edits: Array<{
+      keyframeT: number;
+      value?: string;
+      segmentStartT?: number;
+      motionPath?: MotionPathSegment;
+    }>,
+  ): void {
+    if (edits.length === 0) return;
+    window.parent.postMessage(
+      { type: "motion-path-edit", targetNodeId: targetNodeId, edits: edits },
+      "*",
+    );
+  }
+
+  function pathForEdit(
+    keyframes: PreviewKeyframe[],
+    index: number,
+  ): MotionPathSegment | null {
+    var start = parsePosition(keyframes[index]?.value ?? "");
+    var end = parsePosition(keyframes[index + 1]?.value ?? "");
+    if (!start || !end) return null;
+    var points = cubicPoints(start, end, keyframes[index]?.motionPath);
+    return {
+      version: 1,
+      type: "cubic",
+      control1: {
+        x: Number(formatNum(points.control1.x - start.x)),
+        y: Number(formatNum(points.control1.y - start.y)),
+      },
+      control2: {
+        x: Number(formatNum(points.control2.x - end.x)),
+        y: Number(formatNum(points.control2.y - end.y)),
+      },
+    };
+  }
+
+  function applyLocalPathEdits(
+    track: PreviewTrack,
+    edits: Array<{
+      keyframeT: number;
+      value?: string;
+      segmentStartT?: number;
+      motionPath?: MotionPathSegment;
+    }>,
+  ): void {
+    edits.forEach(function (edit) {
+      var valueFrame = track.keyframes.find(function (frame) {
+        return frame.t === edit.keyframeT;
+      });
+      if (valueFrame && edit.value !== undefined) valueFrame.value = edit.value;
+      if (edit.segmentStartT !== undefined && edit.motionPath) {
+        var segmentFrame = track.keyframes.find(function (frame) {
+          return frame.t === edit.segmentStartT;
+        });
+        if (segmentFrame) segmentFrame.motionPath = edit.motionPath;
+      }
+    });
+  }
+
+  function onPathPointerDown(event: PointerEvent): void {
+    if (!pathEditingEnabled || !pathEditingTargetNodeId) return;
+    var target = event.target as SVGElement | null;
+    if (
+      !target ||
+      typeof target.getAttribute !== "function" ||
+      (!target.getAttribute("data-motion-path-handle") &&
+        target.getAttribute("data-motion-path-keyframe") === null)
+    ) {
+      target = pathTargetAtPoint(
+        event.clientX,
+        event.clientY,
+        event.ctrlKey || event.metaKey,
+      );
+    }
+    if (!target) return;
+    var handle = target.getAttribute("data-motion-path-handle");
+    var keyframeAttribute = target.getAttribute("data-motion-path-keyframe");
+    var kind: PathDrag["kind"] | null = null;
+    var keyframeT: number | null = null;
+    var segmentStartT: number | null = null;
+    if (handle === "control1" || handle === "control2") {
+      if (!event.ctrlKey && !event.metaKey) return;
+      kind = handle;
+      segmentStartT = Number(
+        target.getAttribute("data-motion-path-segment-start"),
+      );
+      keyframeT = segmentStartT;
+    } else if (keyframeAttribute !== null) {
+      kind = "endpoint";
+      keyframeT = Number(keyframeAttribute);
+    } else {
+      return;
+    }
+    if (keyframeT === null || !Number.isFinite(keyframeT)) return;
+    var track = pathTrackForTarget(pathEditingTargetNodeId);
+    if (!track) return;
+    var keyframes = [...track.keyframes].sort(function (a, b) {
+      return a.t - b.t;
+    });
+    var keyframeIndex = keyframes.findIndex(function (frame) {
+      return frame.t === keyframeT;
+    });
+    if (keyframeIndex < 0) return;
+    if (segmentStartT !== null) {
+      keyframeIndex = keyframes.findIndex(function (frame) {
+        return frame.t === segmentStartT;
+      });
+      if (keyframeIndex < 0 || keyframeIndex >= keyframes.length - 1) return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    activePathDrag = {
+      pointerId: event.pointerId,
+      kind: kind,
+      targetNodeId: track.targetNodeId,
+      keyframeIndex: keyframeIndex,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      keyframes: keyframes.map(function (frame) {
+        return {
+          ...frame,
+          ...(frame.motionPath
+            ? {
+                motionPath: {
+                  ...frame.motionPath,
+                  control1: { ...frame.motionPath.control1 },
+                  control2: { ...frame.motionPath.control2 },
+                },
+              }
+            : {}),
+        };
+      }),
+    };
+  }
+
+  // The editor's full-frame selection shield paints above body-appended SVG nodes.
+  function pathTargetAtPoint(
+    clientX: number,
+    clientY: number,
+    preferHandles: boolean,
+  ): SVGElement | null {
+    if (!pathOverlay) return null;
+    var selectors = preferHandles
+      ? ["[data-motion-path-handle]", "[data-motion-path-keyframe]"]
+      : ["[data-motion-path-keyframe]", "[data-motion-path-handle]"];
+    for (
+      var selectorIndex = 0;
+      selectorIndex < selectors.length;
+      selectorIndex++
+    ) {
+      var targets = pathOverlay.querySelectorAll<SVGElement>(
+        selectors[selectorIndex]!,
+      );
+      var nearestTarget: SVGElement | null = null;
+      var nearestDistance = Number.POSITIVE_INFINITY;
+      for (var index = 0; index < targets.length; index++) {
+        var candidate = targets[index]!;
+        var rect = candidate.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        ) {
+          var deltaX = clientX - (rect.left + rect.right) / 2;
+          var deltaY = clientY - (rect.top + rect.bottom) / 2;
+          var distance = deltaX * deltaX + deltaY * deltaY;
+          if (distance <= nearestDistance) {
+            nearestTarget = candidate;
+            nearestDistance = distance;
+          }
+        }
+      }
+      if (nearestTarget) return nearestTarget;
+    }
+    return null;
+  }
+
+  function onPathPointerMove(event: PointerEvent): void {
+    var drag = activePathDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    var dx = event.clientX - drag.startClientX;
+    var dy = event.clientY - drag.startClientY;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    var edits: Array<{
+      keyframeT: number;
+      value?: string;
+      segmentStartT?: number;
+      motionPath?: MotionPathSegment;
+    }> = [];
+
+    if (drag.kind === "control1" || drag.kind === "control2") {
+      var path = pathForEdit(drag.keyframes, drag.keyframeIndex);
+      if (!path) return;
+      var control = path[drag.kind];
+      path[drag.kind] = {
+        x: Number(formatNum(control.x + dx)),
+        y: Number(formatNum(control.y + dy)),
+      };
+      if (
+        Math.abs(path.control1.x) > 100000 ||
+        Math.abs(path.control1.y) > 100000 ||
+        Math.abs(path.control2.x) > 100000 ||
+        Math.abs(path.control2.y) > 100000
+      ) {
+        return;
+      }
+      var segmentFrame = drag.keyframes[drag.keyframeIndex]!;
+      edits.push({
+        keyframeT: segmentFrame.t,
+        segmentStartT: segmentFrame.t,
+        motionPath: path,
+      });
+    } else {
+      var originalValue = parsePosition(
+        drag.keyframes[drag.keyframeIndex]!.value,
+      );
+      if (!originalValue) return;
+      var movedPosition = { x: originalValue.x + dx, y: originalValue.y + dy };
+      if (
+        Math.abs(movedPosition.x) > 1000000 ||
+        Math.abs(movedPosition.y) > 1000000
+      ) {
+        return;
+      }
+      var movedFrame = drag.keyframes[drag.keyframeIndex]!;
+      edits.push({
+        keyframeT: movedFrame.t,
+        value: formatPosition(movedPosition),
+      });
+
+      var delta = { x: dx, y: dy };
+      if (drag.keyframeIndex > 0) {
+        var previousIndex = drag.keyframeIndex - 1;
+        var previousPath = pathForEdit(drag.keyframes, previousIndex);
+        if (!previousPath) return;
+        previousPath.control2 = {
+          x: Number(formatNum(previousPath.control2.x - delta.x)),
+          y: Number(formatNum(previousPath.control2.y - delta.y)),
+        };
+        if (
+          Math.abs(previousPath.control2.x) > 100000 ||
+          Math.abs(previousPath.control2.y) > 100000
+        ) {
+          return;
+        }
+        edits.push({
+          keyframeT: movedFrame.t,
+          segmentStartT: drag.keyframes[previousIndex]!.t,
+          motionPath: previousPath,
+        });
+      }
+      if (drag.keyframeIndex < drag.keyframes.length - 1) {
+        var outgoingPath = pathForEdit(drag.keyframes, drag.keyframeIndex);
+        if (!outgoingPath) return;
+        outgoingPath.control1 = {
+          x: Number(formatNum(outgoingPath.control1.x - delta.x)),
+          y: Number(formatNum(outgoingPath.control1.y - delta.y)),
+        };
+        if (
+          Math.abs(outgoingPath.control1.x) > 100000 ||
+          Math.abs(outgoingPath.control1.y) > 100000
+        ) {
+          return;
+        }
+        edits.push({
+          keyframeT: movedFrame.t,
+          segmentStartT: movedFrame.t,
+          motionPath: outgoingPath,
+        });
+      }
+    }
+
+    event.preventDefault();
+    var currentTrack = pathTrackForTarget(drag.targetNodeId);
+    if (!currentTrack) return;
+    applyLocalPathEdits(currentTrack, edits);
+    pathMessage(drag.targetNodeId, edits);
+    if (lastPreviewT !== null) applyPreview(lastPreviewT);
+  }
+
+  function finishPathPointer(event: PointerEvent): void {
+    if (!activePathDrag || activePathDrag.pointerId !== event.pointerId) return;
+    activePathDrag = null;
+    renderPathOverlay();
+  }
+
+  function writePreviewStyle(
+    targetNodeId: string,
+    element: HTMLElement,
+    property: string,
+    value: string,
+  ): void {
+    if (!originalInlineValues[targetNodeId]) {
+      originalInlineValues[targetNodeId] = {};
+    }
+    if (!(property in originalInlineValues[targetNodeId]!)) {
+      originalInlineValues[targetNodeId] = {
+        ...originalInlineValues[targetNodeId],
+        [property]:
+          (element.style as unknown as Record<string, string>)[property] || "",
+      };
+    }
+    (element.style as unknown as Record<string, string>)[property] = value;
+    if (!touchedProps[targetNodeId]) touchedProps[targetNodeId] = [];
+    if (touchedProps[targetNodeId]!.indexOf(property) === -1) {
+      touchedProps[targetNodeId]!.push(property);
+    }
+  }
+
   function applyPreview(t: number): void {
     for (var i = 0; i < loadedTracks.length; i++) {
       var track = loadedTracks[i];
+      if (track.enabled === false) continue;
       var el = resolveTrackElement(track.targetNodeId);
       if (!el) continue;
       var value = interpolate(track.keyframes, trackLocalT(track, t));
       if (value === "") continue;
       var prop = camelizeProp(track.property);
-      if (!originalInlineValues[track.targetNodeId])
-        originalInlineValues[track.targetNodeId] = {};
-      if (!(prop in originalInlineValues[track.targetNodeId])) {
-        originalInlineValues[track.targetNodeId][prop] =
-          (el.style as unknown as Record<string, string>)[prop] || "";
+      if (
+        track.property === "translate" &&
+        track.keyframes.some(function (keyframe) {
+          return Boolean(keyframe.motionPath);
+        })
+      ) {
+        writePreviewStyle(track.targetNodeId, el, "offsetPath", "none");
       }
-      (el.style as unknown as Record<string, string>)[prop] = value;
-      if (!touchedProps[track.targetNodeId])
-        touchedProps[track.targetNodeId] = [];
-      if (touchedProps[track.targetNodeId].indexOf(prop) === -1) {
-        touchedProps[track.targetNodeId].push(prop);
+      writePreviewStyle(track.targetNodeId, el, prop, value);
+    }
+    renderPathOverlay();
+  }
+
+  function postAudioPlaybackError(clipId: string): void {
+    window.parent.postMessage(
+      { type: "motion-audio-playback-error", clipId: clipId },
+      "*",
+    );
+  }
+
+  function setAudioPosition(
+    loaded: LoadedAudioClip,
+    positionMs: number,
+    force: boolean,
+  ): void {
+    var audio = loaded.element;
+    var target = Math.max(0, positionMs / 1000);
+    if (audio.readyState === 0) {
+      loaded.pendingTime = target;
+      return;
+    }
+    if (
+      !Number.isFinite(audio.currentTime) ||
+      Math.abs(audio.currentTime - target) > (force ? 0.025 : 0.15)
+    ) {
+      try {
+        audio.currentTime = target;
+        loaded.pendingTime = null;
+      } catch (_error) {
+        loaded.pendingTime = target;
+      }
+    }
+  }
+
+  function clearAudioClips(): void {
+    for (var i = 0; i < loadedAudioClips.length; i++) {
+      var audio = loadedAudioClips[i]!.element;
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
+    loadedAudioClips = [];
+    audioPlaybackActive = false;
+  }
+
+  function attachAudioMetadataListener(
+    audio: HTMLAudioElement,
+    loaded: LoadedAudioClip,
+  ): void {
+    audio.addEventListener("loadedmetadata", function () {
+      var pending = loaded.pendingTime;
+      if (pending === null) return;
+      try {
+        audio.currentTime = pending;
+        loaded.pendingTime = null;
+      } catch (_error) {
+        loaded.pendingTime = pending;
+      }
+    });
+  }
+
+  function reportAudioPlayFailure(loaded: LoadedAudioClip): void {
+    loaded.failed = true;
+    postAudioPlaybackError(loaded.clip.id);
+  }
+
+  function startAudioPlayback(loaded: LoadedAudioClip): void {
+    try {
+      var playback = loaded.element.play();
+      if (playback && typeof playback.catch === "function") {
+        playback.catch(function () {
+          reportAudioPlayFailure(loaded);
+        });
+      }
+    } catch (_error) {
+      reportAudioPlayFailure(loaded);
+    }
+  }
+
+  function loadAudioClips(rawClips: unknown): void {
+    if (!Array.isArray(rawClips)) return;
+    var clips = rawClips;
+    var next: LoadedAudioClip[] = [];
+    for (var i = 0; i < clips.length; i++) {
+      var clip = clips[i] as PreviewAudioClip;
+      if (
+        !clip ||
+        typeof clip.id !== "string" ||
+        typeof clip.sourceUrl !== "string" ||
+        !clip.sourceUrl ||
+        !Number.isFinite(clip.timelineStartMs) ||
+        !Number.isFinite(clip.sourceTrimStartMs) ||
+        !Number.isFinite(clip.durationMs) ||
+        clip.durationMs <= 0 ||
+        !Number.isFinite(clip.volume) ||
+        typeof clip.muted !== "boolean"
+      ) {
+        continue;
+      }
+      var loaded = loadedAudioClips.find(function (candidate) {
+        return (
+          candidate.clip.id === clip.id &&
+          candidate.clip.sourceUrl === clip.sourceUrl
+        );
+      });
+      if (!loaded) {
+        var audio = new Audio(clip.sourceUrl);
+        audio.preload = "auto";
+        loaded = {
+          clip: clip,
+          element: audio,
+          failed: false,
+          pendingTime: null,
+        };
+        attachAudioMetadataListener(audio, loaded);
+      }
+      loaded.clip = clip;
+      loaded.element.volume = clamp01(clip.volume);
+      loaded.element.muted = clip.muted;
+      next.push(loaded);
+    }
+    for (
+      var previousIndex = 0;
+      previousIndex < loadedAudioClips.length;
+      previousIndex++
+    ) {
+      var previous = loadedAudioClips[previousIndex]!;
+      if (next.indexOf(previous) === -1) {
+        previous.element.pause();
+        previous.element.removeAttribute("src");
+        previous.element.load();
+      }
+    }
+    loadedAudioClips = next;
+  }
+
+  function syncAudio(timelineTimeMs: number, isPlaying: boolean): void {
+    if (isPlaying && !audioPlaybackActive) {
+      for (
+        var resetIndex = 0;
+        resetIndex < loadedAudioClips.length;
+        resetIndex++
+      ) {
+        loadedAudioClips[resetIndex]!.failed = false;
+      }
+    }
+    audioPlaybackActive = isPlaying;
+    for (var i = 0; i < loadedAudioClips.length; i++) {
+      var loaded = loadedAudioClips[i]!;
+      var clip = loaded.clip;
+      var offsetMs = timelineTimeMs - clip.timelineStartMs;
+      var active = offsetMs >= 0 && offsetMs < clip.durationMs;
+      var sourcePositionMs =
+        clip.sourceTrimStartMs +
+        Math.max(0, Math.min(clip.durationMs, offsetMs));
+      setAudioPosition(loaded, sourcePositionMs, !isPlaying || !active);
+
+      if (!isPlaying || !active) {
+        if (!loaded.element.paused) loaded.element.pause();
+        continue;
+      }
+      if (loaded.element.paused && !loaded.failed) {
+        startAudioPlayback(loaded);
       }
     }
   }
@@ -660,6 +1709,7 @@
     touchedProps = {};
     originalInlineValues = {};
     loadedTracks = [];
+    loadedEasingVariables = [];
     loadedDefaultEase = "ease";
     loadedTimelineDurationMs = null;
     elementCache = {};
@@ -670,9 +1720,26 @@
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
     if (!e.data || typeof e.data.type !== "string") return;
+    if (e.data.type === "motion-audio-load") {
+      loadAudioClips(e.data.clips);
+      return;
+    }
+    if (e.data.type === "motion-audio-state") {
+      var audioTime = Number(e.data.timelineTimeMs);
+      if (!Number.isFinite(audioTime) || audioTime < 0) return;
+      syncAudio(audioTime, e.data.isPlaying === true);
+      return;
+    }
+    if (e.data.type === "motion-audio-clear") {
+      clearAudioClips();
+      return;
+    }
     if (e.data.type === "motion-load-tracks") {
       clearPreview();
       loadedTracks = Array.isArray(e.data.tracks) ? e.data.tracks : [];
+      loadedEasingVariables = Array.isArray(e.data.easingVariables)
+        ? e.data.easingVariables
+        : [];
       loadedDefaultEase =
         typeof e.data.defaultEase === "string" && e.data.defaultEase
           ? e.data.defaultEase
@@ -691,6 +1758,8 @@
       }
       if (lastPreviewT !== null && loadedTracks.length > 0) {
         applyPreview(lastPreviewT);
+      } else {
+        renderPathOverlay();
       }
       return;
     }
@@ -706,9 +1775,24 @@
       applyPreview(t);
       return;
     }
+    if (e.data.type === "motion-path-editing") {
+      pathEditingEnabled = e.data.enabled === true;
+      pathEditingTargetNodeId =
+        pathEditingEnabled && typeof e.data.targetNodeId === "string"
+          ? e.data.targetNodeId
+          : null;
+      if (!pathEditingEnabled) activePathDrag = null;
+      renderPathOverlay();
+      return;
+    }
     if (e.data.type === "motion-preview-clear") {
       clearPreview();
+      clearAudioClips();
       lastPreviewT = null;
+      pathEditingEnabled = false;
+      pathEditingTargetNodeId = null;
+      activePathDrag = null;
+      removePathOverlay();
       return;
     }
   });

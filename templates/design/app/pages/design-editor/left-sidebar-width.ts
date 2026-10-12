@@ -1,6 +1,6 @@
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
-export const DEFAULT_LEFT_SIDEBAR_WIDTH = 240;
+export const DEFAULT_LEFT_SIDEBAR_WIDTH = 280;
 const LEFT_SIDEBAR_WIDTH_STEP = 8;
 const LEFT_SIDEBAR_MIN_WIDTH = 232;
 const LEFT_SIDEBAR_MAX_WIDTH = 416;

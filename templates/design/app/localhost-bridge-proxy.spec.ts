@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  LOCALHOST_BRIDGE_RELAY_HEADER,
   LOCALHOST_BRIDGE_RELAY_MARKER,
   type LocalhostBridgeRelay,
 } from "../shared/visual-edit-bridge-relay.js";
@@ -127,6 +128,309 @@ describe("localhost bridge browser relay", () => {
       versionHash: "hash-2",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads a Motion source through the browser relay and resumes the query", async () => {
+    const sourceRelay = relay("read-file", {
+      path: "src/App.tsx",
+      step: "source-read",
+    });
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          if (url.includes("continue-motion-localhost-relay")) {
+            const body = JSON.parse(String(init?.body));
+            expect(body).toMatchObject({
+              action: "get-motion-timeline",
+              input: {
+                designId: "design_1",
+                sourceRef: "screen_1",
+              },
+              responses: [
+                {
+                  relay: sourceRelay,
+                  result: {
+                    designId: "design_1",
+                    connectionId: "conn_1",
+                    path: "src/App.tsx",
+                    content: "export default function App() {}\n",
+                    versionHash: "hash-1",
+                    readonly: false,
+                  },
+                },
+              ],
+            });
+            return Response.json({
+              timelines: [{ source: "recovered-react" }],
+            });
+          }
+          expect(
+            new Headers(init?.headers).get(LOCALHOST_BRIDGE_RELAY_HEADER),
+          ).toBe("1");
+          return Response.json(sourceRelay);
+        }
+        expect(url).toBe("http://127.0.0.1:7666/read-file");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          relPath: "src/App.tsx",
+        });
+        return Response.json({
+          content: "export default function App() {}\n",
+          versionHash: "hash-1",
+        });
+      },
+    );
+
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/get-motion-timeline?designId=design_1&sourceRef=screen_1`,
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      timelines: [{ source: "recovered-react" }],
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns a distinct error for malformed Motion action JSON", async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json(
+        relay("read-file", { path: "src/App.tsx", step: "source-read" }),
+      ),
+    );
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/apply-motion-edit`,
+      { method: "POST", body: "{" },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "The Motion source relay action input is not valid JSON.",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat a continuation 401 as a rejected localhost bridge token", async () => {
+    const sourceRelay = relay("read-file", {
+      path: "src/App.tsx",
+      step: "source-read",
+    });
+    const onBridgeTokenRejected = vi.fn();
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL): Promise<Response> => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          return url.includes("continue-motion-localhost-relay")
+            ? Response.json({ error: "Session expired." }, { status: 401 })
+            : Response.json(sourceRelay);
+        }
+        return Response.json({
+          content: "export default function App() {}\n",
+          versionHash: "hash-1",
+        });
+      },
+    );
+
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+      onBridgeTokenRejected,
+    });
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/get-motion-timeline?designId=design_1&sourceRef=screen_1`,
+      { method: "GET" },
+    );
+
+    expect(response.status).toBe(401);
+    expect(onBridgeTokenRejected).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("writes an applied Motion source edit through the relay before resuming", async () => {
+    const sourceRelay = relay("read-file", {
+      path: "src/App.tsx",
+      step: "source-read",
+    });
+    const writeRelay = relay("write-file", {
+      relPath: "src/App.tsx",
+      step: "source-write",
+      payload: {
+        relPath: "src/App.tsx",
+        content: "export default function App() { /* managed motion */ }\n",
+        expectedVersionHash: "hash-1",
+        requireExpectedVersionHash: true,
+      },
+    });
+    const actionInput = {
+      designId: "design_1",
+      sourceRef: "screen_1",
+      localSource: {
+        connectionId: "conn_1",
+        modulePath: "src/App.tsx",
+        moduleVersionHash: "hash-1",
+      },
+      tracks: [],
+      durationMs: 500,
+    };
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          if (url.includes("continue-motion-localhost-relay")) {
+            const body = JSON.parse(String(init?.body));
+            if (body.responses.length === 1) {
+              expect(body).toMatchObject({
+                action: "apply-motion-edit",
+                input: actionInput,
+                responses: [
+                  {
+                    relay: sourceRelay,
+                    result: {
+                      designId: "design_1",
+                      connectionId: "conn_1",
+                      path: "src/App.tsx",
+                      content: "export default function App() {}\n",
+                      versionHash: "hash-1",
+                      readonly: false,
+                    },
+                  },
+                ],
+              });
+              return Response.json(writeRelay);
+            }
+            expect(body.responses).toHaveLength(2);
+            expect(body.responses[1].relay).toEqual(writeRelay);
+            expect(body.responses[1].result).toMatchObject({
+              designId: "design_1",
+              relPath: "src/App.tsx",
+              operation: "write",
+              written: true,
+              versionHash: "hash-2",
+            });
+            return Response.json({ persisted: true, sourcePatched: true });
+          }
+          expect(
+            new Headers(init?.headers).get(LOCALHOST_BRIDGE_RELAY_HEADER),
+          ).toBe("1");
+          return Response.json(sourceRelay);
+        }
+        if (url.endsWith("/read-file")) {
+          return Response.json({
+            content: "export default function App() {}\n",
+            versionHash: "hash-1",
+          });
+        }
+        expect(url).toBe("http://127.0.0.1:7666/write-file");
+        expect(JSON.parse(String(init?.body))).toEqual(writeRelay.payload);
+        expect(new Headers(init?.headers).get("X-Bridge-Token")).toBe(
+          transport.bridgeToken,
+        );
+        return Response.json({ versionHash: "hash-2" });
+      },
+    );
+
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/apply-motion-edit`,
+      { method: "POST", body: JSON.stringify(actionInput) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      persisted: true,
+      sourcePatched: true,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it("confirms a Motion timeline removal through the relay before resuming", async () => {
+    const initialSource = "export default function App() { /* managed */ }\n";
+    const cleanedSource = "export default function App() {}\n";
+    const sourceRelay = relay("read-file", {
+      path: "src/App.tsx",
+      step: "source-read",
+    });
+    const writeRelay = relay("write-file", {
+      relPath: "src/App.tsx",
+      step: "source-write",
+      payload: {
+        relPath: "src/App.tsx",
+        content: cleanedSource,
+        expectedVersionHash: "hash-1",
+        requireExpectedVersionHash: true,
+      },
+    });
+    const confirmRelay = relay("read-file", {
+      path: "src/App.tsx",
+      step: "source-confirm",
+    });
+    const actionInput = { designId: "design_1", timelineId: "timeline_1" };
+    let readCount = 0;
+    const fetchImpl = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith(pageOrigin)) {
+          if (url.includes("continue-motion-localhost-relay")) {
+            const body = JSON.parse(String(init?.body));
+            if (body.responses.length === 1) {
+              return Response.json(writeRelay);
+            }
+            if (body.responses.length === 2) {
+              return Response.json(confirmRelay);
+            }
+            expect(body).toMatchObject({
+              action: "remove-motion-timeline",
+              input: actionInput,
+              responses: [
+                { relay: sourceRelay },
+                { relay: writeRelay },
+                { relay: confirmRelay },
+              ],
+            });
+            expect(body.responses[2].result).toMatchObject({
+              content: cleanedSource,
+              versionHash: "hash-2",
+            });
+            return Response.json({ deleted: true, sourcePatched: true });
+          }
+          return Response.json(sourceRelay);
+        }
+        if (url.endsWith("/read-file")) {
+          readCount += 1;
+          return Response.json({
+            content: readCount === 1 ? initialSource : cleanedSource,
+            versionHash: readCount === 1 ? "hash-1" : "hash-2",
+          });
+        }
+        expect(url).toBe("http://127.0.0.1:7666/write-file");
+        expect(JSON.parse(String(init?.body))).toEqual(writeRelay.payload);
+        return Response.json({ versionHash: "hash-2" });
+      },
+    );
+
+    const proxy = createLocalhostBridgeFetchProxy(transport, fetchImpl, {
+      origin: pageOrigin,
+    });
+    const response = await proxy(
+      `${pageOrigin}/_agent-native/actions/remove-motion-timeline`,
+      { method: "POST", body: JSON.stringify(actionInput) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deleted: true,
+      sourcePatched: true,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(7);
   });
 
   it("flattens an apply-edit patch before sending it to the bridge", async () => {

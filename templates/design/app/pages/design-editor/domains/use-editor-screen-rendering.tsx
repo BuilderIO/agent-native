@@ -173,6 +173,7 @@ export function useEditorScreenRendering({
     clearPendingOverviewLayerSelectionTimer,
     lockedLayerIds,
     hiddenLayerIds,
+    motionDockOpen,
     shaderFillPreview,
     activeBreakpointWidthState,
     setActiveBreakpointWidthState,
@@ -252,17 +253,20 @@ export function useEditorScreenRendering({
     contentRenderRevision,
     motionDurationMs,
     motionDefaultEase,
+    motionEasingVariables,
     zoom,
     selectedCanvasSelectorCandidates,
     selectedCanvasSelector,
     canEditLiveScreen,
     designFusionUrl,
     motionTracksWire,
+    motionSelectedTarget,
   } = editorLiveEditsAndPresence;
   const {
     hoveredCanvasSelectorCandidates,
     hoveredCanvasSelector,
     applyFileContentUpdate,
+    handleMotionCanvasPathTracksChange,
   } = editorContentAndComponents;
   const {
     reviewFocusRequest,
@@ -918,8 +922,20 @@ export function useEditorScreenRendering({
           fusionUrl={designFusionUrl}
           onComponentSourceJump={handleComponentSourceJump}
           motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
+          motionEasingVariables={motionEasingVariables}
           motionDefaultEase={motionDefaultEase}
           motionDurationMs={motionDurationMs}
+          motionPathEditingEnabled={
+            screenIsActive &&
+            motionDockOpen &&
+            (canEditDesign || canEditLiveScreen(screen.id))
+          }
+          motionPathTargetNodeId={motionSelectedTarget?.nodeId ?? null}
+          onMotionPathTracksChange={
+            screenIsActive && (canEditDesign || canEditLiveScreen(screen.id))
+              ? handleMotionCanvasPathTracksChange
+              : undefined
+          }
           shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
@@ -1131,7 +1147,11 @@ export function useEditorScreenRendering({
       designFusionUrl,
       handleComponentSourceJump,
       motionTracksWire,
+      motionSelectedTarget,
+      motionDockOpen,
+      handleMotionCanvasPathTracksChange,
       motionDefaultEase,
+      motionEasingVariables,
       motionDurationMs,
       shaderFillPreview,
       inScreenGradientEditTarget,

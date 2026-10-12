@@ -178,6 +178,7 @@ export const motionTimeline = table("motion_timeline", {
   sourceRef: text("source_ref"),
   filePath: text("file_path"),
   tracks: text("tracks").notNull().default("[]"),
+  textDocument: text("text_document"),
   durationMs: integer("duration_ms").notNull().default(300),
   defaultEase: text("default_ease").notNull().default("ease"),
   compiledHash: text("compiled_hash"),

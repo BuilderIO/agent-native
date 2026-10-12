@@ -1,0 +1,169 @@
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
+
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children?: unknown }) => children as never,
+  TooltipTrigger: ({ children }: { children?: unknown }) => children as never,
+  TooltipContent: ({ children }: { children?: unknown }) => children as never,
+  TooltipProvider: ({ children }: { children?: unknown }) => children as never,
+}));
+
+import type { ElementInfo } from "../types";
+import { PositionLayoutProperties } from "./position-layout-properties";
+
+describe("PositionLayoutProperties interactions", () => {
+  it("keyframes both axes through the shared CSS scale track", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggle = vi.fn();
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "block",
+        position: "absolute",
+        left: "0px",
+        top: "0px",
+        transform: "none",
+        scale: "2 3",
+      },
+      inlineStyles: { scale: "2 3" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      hasOwnText: true,
+      childElementCount: 0,
+      sourceId: "motion-scale",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <PositionLayoutProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          motionKeyframeContext={{
+            hasTimeline: true,
+            keyframedProperties: ["scale"],
+            onToggle,
+          }}
+        />,
+      );
+    });
+
+    const scaleDiamond = container.querySelector<HTMLButtonElement>(
+      'button[data-motion-css-property="scale"]',
+    );
+    expect(
+      container.querySelectorAll('button[data-motion-css-property="scale"]'),
+    ).toHaveLength(1);
+    expect(scaleDiamond?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container.querySelector('input[aria-label="editPanel.scale.factor X"]'),
+    ).toBeNull();
+
+    await act(async () => scaleDiamond?.click());
+    expect(onToggle.mock.calls).toEqual([["scale"]]);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it("matches Motion scale locking and keyframes", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStyleChange = vi.fn();
+    const onToggle = vi.fn();
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "block",
+        position: "absolute",
+        left: "0px",
+        top: "0px",
+        transform: "none",
+        scale: "2 3",
+      },
+      inlineStyles: { scale: "2 3" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 80 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      hasOwnText: true,
+      childElementCount: 0,
+      sourceId: "motion-scale",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <PositionLayoutProperties
+          element={element}
+          onStyleChange={onStyleChange}
+          motionInspector
+          motionKeyframeContext={{
+            hasTimeline: true,
+            keyframedProperties: ["scale"],
+            onToggle,
+          }}
+        />,
+      );
+    });
+
+    const scaleX = container.querySelector<HTMLInputElement>(
+      'input[aria-label="editPanel.scale.factor X"]',
+    );
+    const scaleY = container.querySelector<HTMLInputElement>(
+      'input[aria-label="editPanel.scale.factor Y"]',
+    );
+    const unlockAspectRatio = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.unlockAspectRatio"]',
+    );
+    expect(Number.parseFloat(scaleX?.value ?? "")).toBe(200);
+    expect(Number.parseFloat(scaleY?.value ?? "")).toBe(300);
+    expect(unlockAspectRatio?.getAttribute("aria-pressed")).toBe("true");
+    const scaleDiamonds = container.querySelectorAll<HTMLButtonElement>(
+      'button[data-motion-css-property="scale"]',
+    );
+    expect(scaleDiamonds).toHaveLength(1);
+
+    await act(async () => scaleDiamonds[0]?.click());
+    expect(onToggle.mock.calls).toEqual([["scale"]]);
+
+    await act(async () => {
+      scaleX?.focus();
+      if (!scaleX) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(scaleX, "400");
+      scaleX.dispatchEvent(new Event("input", { bubbles: true }));
+      scaleX.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+    });
+    expect(onStyleChange).toHaveBeenLastCalledWith("scale", "4 6", {
+      source: "commit",
+      expression: "400",
+      phase: "commit",
+    });
+
+    expect(
+      container.querySelector(
+        'button[aria-label="editPanel.labels.flipHorizontal"]',
+      ),
+    ).toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});

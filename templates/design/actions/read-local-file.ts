@@ -28,6 +28,7 @@ import {
   resolveLocalhostBridgeConnection,
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
+import { localhostBridgeRelayStep } from "./motion-localhost-relay.js";
 import {
   createLocalhostBridgeRelay,
   isLocalhostBridgeRelayRequest,
@@ -102,11 +103,13 @@ export default defineAction({
 
     const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
     if (isLocalhostBridgeRelayRequest(ctx)) {
+      const step = localhostBridgeRelayStep(ctx);
       return createLocalhostBridgeRelay({
         operation: "read-file",
         designId,
         connectionId,
         path: relPath,
+        ...(step ? { step } : {}),
       });
     }
 
@@ -120,16 +123,26 @@ export default defineAction({
       const errText = await res.text().catch(() => res.statusText);
       throw localhostBridgeRequestError("read-file", res.status, errText);
     }
-    const body = (await res.json()) as {
-      content?: string;
-      versionHash?: string;
-    };
+    const body = (await res.json().catch(() => undefined)) as
+      | { content?: unknown; versionHash?: unknown }
+      | undefined;
+    if (
+      !body ||
+      typeof body.content !== "string" ||
+      typeof body.versionHash !== "string"
+    ) {
+      throw localhostBridgeRequestError(
+        "read-file",
+        502,
+        "invalid response; expected string content and versionHash",
+      );
+    }
 
     return {
       designId,
       connectionId,
       path: relPath,
-      content: body.content ?? "",
+      content: body.content,
       versionHash: body.versionHash,
       readonly: false,
     };

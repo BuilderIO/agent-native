@@ -109,6 +109,30 @@ import type { EditorGenerationAndAccess } from "./use-editor-generation-and-acce
 import type { EditorHistory } from "./use-editor-history";
 import { useTweaks } from "./use-tweaks";
 
+function codeLayerSourceForDesignFile(args: {
+  designData: Record<string, unknown>;
+  designId: string | undefined;
+  fileId: string;
+  filename: string | undefined;
+  kind?: "design-file" | "inline-html";
+}): CodeLayerSource {
+  const source = designFileCodeLayerSource(
+    args.designId,
+    args.fileId,
+    args.filename,
+    args.kind,
+  );
+  const screenMetadata = getDesignDataRecord(
+    getDesignDataRecord(args.designData, "screenMetadata"),
+    args.fileId,
+  );
+  const connectionId =
+    typeof screenMetadata.connectionId === "string"
+      ? screenMetadata.connectionId.trim()
+      : "";
+  return connectionId ? { ...source, connectionId } : source;
+}
+
 export function useEditorFilesAndSaving({
   editorCore,
   editorHistory,
@@ -817,6 +841,10 @@ export function useEditorFilesAndSaving({
   );
 
   const serverFiles = resolveServerFiles(design);
+  const designDataJson = useMemo(
+    () => parseDesignDataJson(design?.data),
+    [design?.data],
+  );
   rawServerFilesByIdRef.current = new Map(
     serverFiles.map((file) => [file.id, file]),
   );
@@ -847,13 +875,18 @@ export function useEditorFilesAndSaving({
         const prepared = prepareCanonicalSourceContent(sourceContent, {
           fileId: file.id,
           fileType: file.fileType,
-          source: designFileCodeLayerSource(id, file.id, file.filename),
+          source: codeLayerSourceForDesignFile({
+            designData: designDataJson,
+            designId: id,
+            fileId: file.id,
+            filename: file.filename,
+          }),
         });
         return prepared.content === file.content
           ? file
           : { ...file, content: prepared.content };
       }),
-    [id, pendingLocalFileContentsSnapshot, serverFiles],
+    [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles],
   );
   const getComponentExpectedFiles = useCallback(
     () =>
@@ -872,13 +905,14 @@ export function useEditorFilesAndSaving({
       screenId: string,
       kind: "design-file" | "inline-html" = "design-file",
     ): CodeLayerSource =>
-      designFileCodeLayerSource(
-        id,
-        screenId,
-        files.find((file) => file.id === screenId)?.filename,
+      codeLayerSourceForDesignFile({
+        designData: designDataJson,
+        designId: id,
+        fileId: screenId,
+        filename: files.find((file) => file.id === screenId)?.filename,
         kind,
-      ),
-    [files, id],
+      }),
+    [designDataJson, files, id],
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
@@ -1022,10 +1056,6 @@ export function useEditorFilesAndSaving({
       }
     }
   }, [serverFiles]);
-  const designDataJson = useMemo(
-    () => parseDesignDataJson(design?.data),
-    [design?.data],
-  );
   const designSourceType = useMemo(
     () =>
       normalizeDesignSourceType(designDataJson.sourceType as unknown) ??

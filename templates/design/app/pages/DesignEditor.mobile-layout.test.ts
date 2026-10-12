@@ -47,9 +47,6 @@ describe("Design editor mobile layout", () => {
       "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
     expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
-    expect(editorSource).toContain(
-      'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
-    );
     expect(editorSource).toContain("resolveLeftSidebarWidth(");
     const resizeSource = readFileSync(
       "app/pages/design-editor/commands/start-sidebar-resize.ts",

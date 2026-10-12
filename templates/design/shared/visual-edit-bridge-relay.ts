@@ -7,6 +7,18 @@ export type LocalhostBridgeRelay = {
   operation: "read-file" | "list-files" | "write-file" | "apply-edit";
   designId: string;
   connectionId: string;
+  step?: string;
   path?: string;
   relPath?: string;
+  payload?: Record<string, unknown>;
 };
+
+export type LocalhostBridgeRelayResponse = {
+  relay: LocalhostBridgeRelay;
+  result: unknown;
+};
+
+export type MotionLocalhostRelayAction =
+  | "get-motion-timeline"
+  | "apply-motion-edit"
+  | "remove-motion-timeline";
