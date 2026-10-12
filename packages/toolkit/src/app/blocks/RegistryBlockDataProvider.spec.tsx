@@ -156,9 +156,9 @@ describe("RegistryBlockDataProvider", () => {
         );
       });
 
-      expect(
-        container.querySelector("[data-block-render-error]")?.textContent,
-      ).toContain("renderer failed");
+      const fallback = container.querySelector("[data-block-render-error]");
+      expect(fallback).not.toBeNull();
+      expect(fallback?.textContent).not.toContain("renderer failed");
     } finally {
       logError.mockRestore();
     }

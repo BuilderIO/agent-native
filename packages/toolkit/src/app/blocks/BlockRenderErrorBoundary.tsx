@@ -88,7 +88,7 @@ function BlockRenderUnavailableFallback({
     <BlockRenderErrorFallback
       blockId={blockId}
       blockType={blockType}
-      message={t("block.renderUnavailable")}
+      message={t("agentChat.block.renderUnavailable")}
       interactive={interactive}
     />
   );

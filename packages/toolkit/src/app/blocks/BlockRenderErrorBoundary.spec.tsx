@@ -96,7 +96,9 @@ describe("BlockRenderErrorBoundary", () => {
         ),
       );
 
-      expect(container.textContent).toContain("Render unavailable");
+      expect(container.textContent).toContain(
+        "This block is temporarily unavailable.",
+      );
       expect(container.textContent).not.toContain("renderer failed");
     } finally {
       logError.mockRestore();
@@ -137,7 +139,9 @@ describe("BlockRenderErrorBoundary", () => {
     expect(
       container.querySelector("[data-block-render-loading]"),
     ).not.toBeNull();
-    expect(container.textContent).not.toContain("Render unavailable");
+    expect(container.textContent).not.toContain(
+      "This block is temporarily unavailable.",
+    );
 
     await act(async () => {
       suspended = false;
@@ -177,10 +181,10 @@ describe("BlockRenderSuspenseFallback", () => {
       );
 
       expect(markup).toContain("data-block-render-error");
-      expect(markup).toContain("Render unavailable");
+      expect(markup).toContain("This block is temporarily unavailable.");
       expect(markup).not.toContain("data-block-render-loading");
       expect(markup.match(/<p role="alert"[^>]*>(.*?)<\/p>/)?.[1]).toBe(
-        "Render unavailable",
+        "This block is temporarily unavailable.",
       );
     } finally {
       logError.mockRestore();
