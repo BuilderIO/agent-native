@@ -1151,12 +1151,32 @@ describe("applyPlanContentPatches validates the input plan first", () => {
       version: 2,
       blocks: [
         { id: "legacy", type: "question-form", data: {} },
+        {
+          id: "legacy-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "legacy-tab",
+                label: "Legacy tab",
+                blocks: [
+                  { id: "legacy-nested", type: "question-form", data: {} },
+                ],
+              },
+            ],
+          },
+        },
         { id: "copy", type: "rich-text", data: { markdown: "Original." } },
       ],
     });
 
     const next = applyPlanContentPatches(legacy, [
       { op: "update-block", blockId: "legacy", patch: { title: "Questions" } },
+      {
+        op: "update-block",
+        blockId: "legacy-tabs",
+        patch: { title: "Legacy questions" },
+      },
       { op: "update-rich-text", blockId: "copy", markdown: "Updated." },
     ]);
 
@@ -1167,11 +1187,94 @@ describe("applyPlanContentPatches validates the input plan first", () => {
       data: { questions: [] },
     });
     expect(next.blocks[1]).toMatchObject({
+      id: "legacy-tabs",
+      title: "Legacy questions",
+      type: "tabs",
+      data: {
+        tabs: [
+          {
+            blocks: [
+              {
+                id: "legacy-nested",
+                type: "question-form",
+                data: { questions: [] },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(next.blocks[2]).toMatchObject({
       id: "copy",
       type: "rich-text",
       data: { markdown: "Updated." },
     });
   });
+
+  it.each(["tabs", "columns"] as const)(
+    "rejects incomplete nested authoring data in update-block %s patches",
+    (type) => {
+      const existingNestedBlock = {
+        id: "existing",
+        type: "rich-text",
+        data: { markdown: "Existing." },
+      };
+      const content = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "container",
+            type,
+            data:
+              type === "tabs"
+                ? {
+                    tabs: [
+                      {
+                        id: "tab",
+                        label: "Tab",
+                        blocks: [existingNestedBlock],
+                      },
+                    ],
+                  }
+                : {
+                    columns: [{ id: "column", blocks: [existingNestedBlock] }],
+                  },
+          },
+        ],
+      });
+      const data: Record<string, unknown> =
+        type === "tabs"
+          ? {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Tab",
+                  blocks: [
+                    { id: "incomplete", type: "question-form", data: {} },
+                  ],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "column",
+                  blocks: [{ id: "incomplete", type: "checklist", data: {} }],
+                },
+              ],
+            };
+
+      expect(() =>
+        applyPlanContentPatches(content, [
+          {
+            op: "update-block",
+            blockId: "container",
+            patch: { data },
+          },
+        ]),
+      ).toThrow(/require data\.(questions|items)/i);
+    },
+  );
 
   it("throws when the starting content is already invalid", () => {
     const broken = {

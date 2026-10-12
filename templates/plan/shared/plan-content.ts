@@ -2833,6 +2833,7 @@ export function applyPlanContentPatches(
         }
         if (patch.patch.data !== undefined) {
           validateRequiredAuthoringDataPatch(block.type, patch.patch.data);
+          validatePatchedNestedAuthoringBlocks(block.type, patch.patch.data);
           (merged as { data: unknown }).data = {
             ...(block as { data?: Record<string, unknown> }).data,
             ...patch.patch.data,
@@ -3098,6 +3099,24 @@ function validateRequiredAuthoringDataPatch(
     throw new Error(
       `Authoring ${type} blocks require at least one ${required.field} entry.`,
     );
+  }
+}
+
+function validatePatchedNestedAuthoringBlocks(
+  type: PlanBlockType,
+  data: Record<string, unknown>,
+) {
+  const groups =
+    type === "tabs" ? data.tabs : type === "columns" ? data.columns : undefined;
+  if (!Array.isArray(groups)) return;
+
+  for (const group of groups) {
+    if (!group || typeof group !== "object") continue;
+    const blocks = (group as Record<string, unknown>).blocks;
+    if (!Array.isArray(blocks)) continue;
+    for (const block of blocks) {
+      planAuthoringBlockSchema.parse(block);
+    }
   }
 }
 
