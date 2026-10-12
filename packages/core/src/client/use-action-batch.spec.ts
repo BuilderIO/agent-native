@@ -77,9 +77,30 @@ function batchResponses(
   });
 }
 
-type QuerySpec = readonly [name: string, params?: Record<string, unknown>];
+function answerBatches(call: RecordedCall): Response {
+  return call.url === BATCH_URL
+    ? batchResponses(call, () => ({ status: 200, body: {} }))
+    : jsonResponse({});
+}
+
+function batchedActions(calls: RecordedCall[]): string[] | undefined {
+  return calls
+    .find((call) => call.url === BATCH_URL)
+    ?.body?.requests?.map((request) => request.action);
+}
+
+type QuerySpec = readonly [
+  name: string,
+  params?: Record<string, unknown>,
+  options?: { batchRefetches?: boolean },
+];
 
 const roots: Root[] = [];
+
+function Probe({ spec: [name, params, options] }: { spec: QuerySpec }) {
+  useActionQuery(name, params, { retry: false, ...options });
+  return null;
+}
 
 /**
  * Mounts one useActionQuery per spec and waits for their first fetches.
@@ -90,10 +111,6 @@ async function mountQueries(
   specs: readonly QuerySpec[],
   queryClient = new QueryClient(),
 ) {
-  function Probe({ spec: [name, params] }: { spec: QuerySpec }) {
-    useActionQuery(name, params, { retry: false });
-    return null;
-  }
   const root = createRoot(document.createElement("div"));
   roots.push(root);
   await act(async () =>
@@ -191,7 +208,7 @@ describe("action GET batching", () => {
     );
   });
 
-  it("batches the mount-time refetch of data restored from the persisted cache", async () => {
+  it("batches the mount-time refetch of data already in the cache", async () => {
     const { calls } = stubFetch((call) =>
       call.url === BATCH_URL
         ? batchResponses(call, (index) => ({ status: 200, body: { index } }))
@@ -213,6 +230,50 @@ describe("action GET batching", () => {
       { index: 0 },
       { index: 1 },
     ]);
+  });
+
+  it("sends a new query's first fetch alone while refetches in its tick share a batch", async () => {
+    const { calls } = stubFetch(answerBatches);
+    const { queryClient } = await mountQueries([["get-a"], ["get-b"]]);
+    calls.length = 0;
+    const root = createRoot(document.createElement("div"));
+    roots.push(root);
+
+    act(() => {
+      void queryClient.invalidateQueries({ queryKey: ["action"] });
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(Probe, { spec: ["get-c"] }),
+        ),
+      );
+    });
+    await settled(queryClient);
+
+    expect(calls.map(requestLine).sort()).toEqual([
+      "GET /_agent-native/actions/get-c",
+      `POST ${BATCH_URL}`,
+    ]);
+    expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
+  });
+
+  it("keeps refetches of a query that opts out of batching on their own requests", async () => {
+    const { calls } = stubFetch(answerBatches);
+    const { refetchAll } = await mountQueries([
+      ["get-a"],
+      ["get-b"],
+      ["get-editor-document", undefined, { batchRefetches: false }],
+    ]);
+    calls.length = 0;
+
+    await refetchAll();
+
+    expect(calls.map(requestLine).sort()).toEqual([
+      "GET /_agent-native/actions/get-editor-document",
+      `POST ${BATCH_URL}`,
+    ]);
+    expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
   });
 
   it("keeps imperative GET calls on their own requests", async () => {

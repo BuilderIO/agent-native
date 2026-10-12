@@ -1122,6 +1122,12 @@ export function useActionQuery<
      * still refetches the query.
      */
     resources?: readonly string[];
+    /**
+     * Set false when the UI holds a placeholder until a fresh read lands
+     * instead of showing cached data. Its refetches then go alone, like a
+     * first fetch, rather than waiting on the other reads in their batch.
+     */
+    batchRefetches?: boolean;
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
@@ -1131,6 +1137,7 @@ export function useActionQuery<
     retry: callerRetry,
     queryKeyScope,
     resources,
+    batchRefetches = true,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1148,7 +1155,7 @@ export function useActionQuery<
         // serverless a batch runs all its items on one database connection
         // and answers only when the slowest is done. Only a refetch of data
         // already on screen shares a batch.
-        batch: query?.state.data !== undefined,
+        batch: batchRefetches && query?.state.data !== undefined,
         onResponse: (response) => {
           browserPersist =
             response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
