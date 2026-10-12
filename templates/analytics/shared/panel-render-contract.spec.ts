@@ -858,6 +858,18 @@ describe("chart point limit", () => {
     expect(kept[kept.length - 1]?.date).toBe("2026-03-26");
   });
 
+  it("keeps the newest points when dates run newest-first", () => {
+    const days = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+      count: index,
+    })).reverse();
+    for (const chartType of ["bar", "line"]) {
+      const kept = limitChartRows(days, chartType, "date");
+      expect(kept[0]?.date).toBe("2026-03-26");
+      expect(kept[kept.length - 1]?.date).toBe("2025-02-20");
+    }
+  });
+
   it("keeps the first points of a bar chart over numeric ids", () => {
     const accounts = Array.from({ length: 500 }, (_, index) => ({
       account_id: 9000 - index,

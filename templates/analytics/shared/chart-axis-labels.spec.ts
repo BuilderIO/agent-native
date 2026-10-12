@@ -4,6 +4,7 @@ import {
   estimateTextWidth,
   isCategoryAxis,
   isDateAxis,
+  isDescendingAxis,
   planCategoryAxis,
   trimToWidth,
 } from "./chart-axis-labels";
@@ -54,6 +55,14 @@ describe("isDateAxis", () => {
     expect(isDateAxis([101, 102, "103"])).toBe(false);
     expect(isDateAxis(["mail"])).toBe(false);
     expect(isDateAxis([null, ""])).toBe(false);
+  });
+
+  it("detects axes that run newest-first", () => {
+    expect(isDescendingAxis(["2026-10-04", "2026-09-09"])).toBe(true);
+    expect(isDescendingAxis(["2026-09-09", null, "2026-10-04"])).toBe(false);
+    expect(isDescendingAxis([3, 2, 1])).toBe(true);
+    expect(isDescendingAxis(["Oct 04", "Sep 09"])).toBe(false);
+    expect(isDescendingAxis(["2026-10-04", 3])).toBe(false);
   });
 
   it("treats any named value as a category", () => {
@@ -114,5 +123,21 @@ describe("trimToWidth", () => {
     const trimmed = trimToWidth("referrer-number-1.example.com", 12, 60, "…");
     expect(trimmed.endsWith("…")).toBe(true);
     expect(estimateTextWidth(trimmed, 12)).toBeLessThanOrEqual(60);
+  });
+
+  it("never cuts an emoji in half", () => {
+    const label = "Launch 🚀🚀🚀🚀🚀🚀🚀🚀";
+    for (let width = 20; width < estimateTextWidth(label, 12); width += 2) {
+      const trimmed = trimToWidth(label, 12, width, "…");
+      expect(trimmed).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    }
+  });
+
+  it("keeps the longest prefix that fits, without trailing spaces", () => {
+    expect(trimToWidth("ab cd ef", 10, 20, "…")).toBe("ab…");
+    const url = `https://example.com/${"segment/".repeat(5000)}`;
+    const trimmed = trimToWidth(url, 12, 120, "…");
+    expect(trimmed.startsWith("https://example")).toBe(true);
+    expect(estimateTextWidth(trimmed, 12)).toBeLessThanOrEqual(120);
   });
 });

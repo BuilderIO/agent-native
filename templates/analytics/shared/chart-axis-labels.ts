@@ -26,14 +26,17 @@ export function trimToWidth(
   ellipsis = "...",
 ): string {
   if (estimateTextWidth(value, fontSize) <= maxWidth) return value;
-  let trimmed = value;
-  while (
-    trimmed &&
-    estimateTextWidth(`${trimmed}${ellipsis}`, fontSize) > maxWidth
-  ) {
-    trimmed = trimmed.slice(0, -1).trimEnd();
+  // One pass: a label can be a long URL and every category tick trims one.
+  const room = maxWidth - estimateTextWidth(ellipsis, fontSize);
+  let kept = "";
+  let width = 0;
+  for (const char of value) {
+    width += estimateTextWidth(char, fontSize);
+    if (width > room) break;
+    kept += char;
   }
-  return trimmed ? `${trimmed}${ellipsis}` : "";
+  kept = kept.trimEnd();
+  return kept ? `${kept}${ellipsis}` : "";
 }
 
 const ISO_DATE_VALUE = /^\d{4}-\d{2}(-\d{2})?([ T]\d{2}:\d{2}.*)?$/;
@@ -81,12 +84,37 @@ export function isCategoryAxis(values: readonly unknown[]): boolean {
 }
 
 /**
- * True when every x value is a date or period, so the end of the axis is the
+ * True when every x value is a date or period, so one end of the axis is the
  * newest data. Plain numbers are ids or buckets, not time.
  */
 export function isDateAxis(values: readonly unknown[]): boolean {
   const present = values.filter((value) => !isBlank(value));
   return present.length > 0 && present.every(isDateValue);
+}
+
+function sortableAxisValue(value: unknown): number | string | null {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return ISO_DATE_VALUE.test(text) || /^\d{8}$/.test(text) ? text : null;
+}
+
+/**
+ * True when an axis runs newest-first: its first value sorts after its last.
+ * Only ISO dates, Dates and numbers are compared; anything else reads as
+ * ascending.
+ */
+export function isDescendingAxis(values: readonly unknown[]): boolean {
+  const present = values.filter((value) => !isBlank(value));
+  const first = sortableAxisValue(present[0]);
+  const last = sortableAxisValue(present[present.length - 1]);
+  return (
+    first !== null &&
+    last !== null &&
+    typeof first === typeof last &&
+    first > last
+  );
 }
 
 export interface CategoryAxisPlan {

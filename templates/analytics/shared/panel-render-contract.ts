@@ -5,7 +5,7 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
-import { isDateAxis } from "./chart-axis-labels";
+import { isDateAxis, isDescendingAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
   resolveDashboardFunnelRows,
@@ -665,7 +665,11 @@ export function chartPointLimit(
   };
 }
 
-/** Rows a chart draws: line, area, combo, heatmap and date bar charts keep the newest, the rest the first. */
+/**
+ * Rows a chart draws: line, area, combo, heatmap and date bar charts keep the
+ * newest, the rest the first. Newest is the end of the rows unless `xKey`
+ * shows they run newest-first (ORDER BY date DESC).
+ */
 export function limitChartRows<T extends Record<string, unknown>>(
   rows: T[],
   chartType: string,
@@ -673,7 +677,11 @@ export function limitChartRows<T extends Record<string, unknown>>(
 ): T[] {
   const limit = chartPointLimit(rows, chartType, xKey);
   if (!limit) return rows;
-  return limit.keeps === "newest"
+  const newestFirst =
+    limit.keeps === "newest" &&
+    !!xKey &&
+    isDescendingAxis(rows.map((row) => row[xKey]));
+  return limit.keeps === "newest" && !newestFirst
     ? rows.slice(-limit.shown)
     : rows.slice(0, limit.shown);
 }
