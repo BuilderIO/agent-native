@@ -56,6 +56,7 @@ describe("foreground native shader GPU result", () => {
   let renderAt: ReturnType<typeof vi.fn>;
   let liveRenderAtWithPixelRatio: ReturnType<typeof vi.fn>;
   let dedicatedRenderAtWithPixelRatio: ReturnType<typeof vi.fn>;
+  let liveMeasureMountedScene: ReturnType<typeof vi.fn>;
   let primeHeldViewport: ReturnType<typeof vi.fn>;
   let dedicatedReady: boolean;
   let asyncApproval: boolean;
@@ -139,6 +140,7 @@ describe("foreground native shader GPU result", () => {
         failures: [],
         renderWallMs: 2,
       }));
+    liveMeasureMountedScene = vi.fn();
     renderGolden = vi.fn().mockImplementation(async () => {
       dedicatedReady = true;
       return {
@@ -246,6 +248,7 @@ describe("foreground native shader GPU result", () => {
       __anNativeShaders: {
         renderAt,
         renderAtWithPixelRatio: liveRenderAtWithPixelRatio,
+        measureMountedScene: liveMeasureMountedScene,
         renderCompositionFrameGolden: renderGolden,
         renderCompositionFrameValidated: renderValidated,
         renderCompositionFramePixels: renderPixels,
@@ -1571,6 +1574,57 @@ describe("foreground native shader GPU result", () => {
     expect(renderGolden).toHaveBeenCalledTimes(1);
     expect(primeHeldViewport).not.toHaveBeenCalled();
     expect(dedicatedFrame.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the primary native render diagnostic for ordinary validation", async () => {
+    dedicatedRenderAtWithPixelRatio.mockRejectedValueOnce(
+      runInNewContext(`Object.assign(new Error("native render incomplete"), {
+        code: "native-render-incomplete",
+        result: { failures: [{
+          code: "source-epoch-stale",
+          message: "The authored source changed before presentation.",
+          instanceId: "grain-instance"
+        }] }
+      })`),
+    );
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item,
+      signal: new AbortController().signal,
+    });
+    expect(result).toMatchObject({
+      status: "error",
+      code: "source-epoch-stale",
+      message: "The authored source changed before presentation.",
+    });
+    expect(dedicatedRenderAtWithPixelRatio).toHaveBeenCalledOnce();
+    expect(dedicatedFrame.remove).toHaveBeenCalledOnce();
+  });
+
+  it("keeps benchmark failure identity and bounded renderer detail at the client boundary", async () => {
+    liveMeasureMountedScene.mockRejectedValueOnce(
+      runInNewContext(`Object.assign(new Error(
+        "benchmark-render-failed: grain-instance: source-epoch-stale: The authored source changed before presentation."
+      ), { code: "benchmark-render-failed" })`),
+    );
+    const result = await validateNativeShaderCaseInEditor({
+      fileId: "screen-1",
+      item: {
+        ...item,
+        mountedMeasurement: {
+          warmupRafIntervals: 120,
+          measuredRafIntervals: 840,
+        },
+      },
+      signal: new AbortController().signal,
+    });
+    expect(result).toMatchObject({
+      status: "error",
+      code: "benchmark-render-failed",
+      message:
+        "benchmark-render-failed: grain-instance: source-epoch-stale: The authored source changed before presentation.",
+    });
+    expect(liveMeasureMountedScene).toHaveBeenCalledOnce();
   });
 
   it("waits for queued approval and scanning before the held capture", async () => {

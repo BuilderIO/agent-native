@@ -610,6 +610,61 @@ describe("live mounted benchmark window", () => {
     );
     await expect(run.done).rejects.toMatchObject({ code: "benchmark-timeout" });
   });
+
+  it("preserves a bounded primary renderer diagnostic without completing the window", async () => {
+    const run = new NativeMountedBenchmarkRun(
+      request,
+      new AbortController().signal,
+    );
+    for (let index = 0; index <= 120; index += 1)
+      run.onFrame(index * 10, () => "visible");
+    run.onRender({
+      renderWallMs: 3,
+      sourceWallMs: 1,
+      composeWallMs: 1,
+      failureCount: 1,
+      failure: {
+        code: "source-epoch-stale",
+        instanceId: "effect-instance-123",
+        message: "The authored source changed before presentation.",
+      },
+    });
+
+    await expect(run.done).rejects.toMatchObject({
+      code: "benchmark-render-failed",
+      message:
+        "benchmark-render-failed: effect-instance-123: source-epoch-stale: The authored source changed before presentation.",
+    });
+    expect(run.collector.isComplete).toBe(false);
+  });
+
+  it("bounds malformed renderer diagnostics in the benchmark failure message", async () => {
+    const run = new NativeMountedBenchmarkRun(
+      request,
+      new AbortController().signal,
+    );
+    for (let index = 0; index <= 120; index += 1)
+      run.onFrame(index * 10, () => "visible");
+    run.onRender({
+      renderWallMs: 3,
+      sourceWallMs: 1,
+      composeWallMs: 1,
+      failureCount: 1,
+      failure: {
+        code: "!malformed-code",
+        instanceId: "i".repeat(200),
+        message: "m".repeat(500),
+      },
+    });
+
+    const error = await run.done.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "benchmark-render-failed" });
+    expect(error).toHaveProperty(
+      "message",
+      expect.stringContaining("render-failed"),
+    );
+    expect((error as Error).message.length).toBeLessThanOrEqual(300);
+  });
 });
 
 describe("measurement end boundary", () => {

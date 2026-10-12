@@ -3,6 +3,12 @@ export type NativeMountedBenchmarkRequest = {
   measuredRafIntervals: 840;
 };
 
+export type NativeMountedBenchmarkRenderFailure = {
+  code: string;
+  message: string;
+  instanceId?: string;
+};
+
 import { NATIVE_BENCHMARK_SOURCE_READ_SCOPE } from "../../../../shared/native-benchmark-contract";
 import type { NativeSourceReadSceneMetrics } from "./native-source-provider";
 
@@ -204,11 +210,35 @@ export class NativeMountedBenchmarkError extends Error {
     | "benchmark-unavailable"
     | "benchmark-source-stale"
     | "benchmark-unpersisted-preview";
-  constructor(code: NativeMountedBenchmarkError["code"]) {
-    super(code);
+  constructor(
+    code: NativeMountedBenchmarkError["code"],
+    renderFailure?: NativeMountedBenchmarkRenderFailure,
+  ) {
+    super(
+      code === "benchmark-render-failed" && renderFailure
+        ? nativeMountedBenchmarkRenderFailureMessage(renderFailure)
+        : code,
+    );
     this.code = code;
     this.name = "NativeMountedBenchmarkError";
   }
+}
+
+export function nativeMountedBenchmarkRenderFailureMessage(
+  failure: NativeMountedBenchmarkRenderFailure,
+): string {
+  const code = /^[a-z][a-z0-9-]{0,79}$/.test(failure.code)
+    ? failure.code
+    : "render-failed";
+  const instanceId =
+    typeof failure.instanceId === "string" && failure.instanceId.length > 0
+      ? `${failure.instanceId.slice(0, 64)}: `
+      : "";
+  const message =
+    typeof failure.message === "string" && failure.message.trim()
+      ? failure.message.trim().slice(0, 120)
+      : code;
+  return `benchmark-render-failed: ${instanceId}${code}: ${message}`;
 }
 
 const MAX_INTERVAL_MS = 120_000;
@@ -373,10 +403,14 @@ export class NativeMountedBenchmarkWindowCollector {
     fullFrameWallPhases?: NativeBenchmarkFullFrameValues;
     sourceReadDetail?: NativeSourceReadSceneMetrics;
     failureCount: number;
+    failure?: NativeMountedBenchmarkRenderFailure;
   }): void {
     if (!this.isMeasuring) return;
     if (sample.failureCount !== 0)
-      throw new NativeMountedBenchmarkError("benchmark-render-failed");
+      throw new NativeMountedBenchmarkError(
+        "benchmark-render-failed",
+        sample.failure,
+      );
     const fullFrame = sample.fullFrameWallPhases;
     const hasFullFrame = fullFrame !== undefined;
     const sourceReadDetail = sample.sourceReadDetail;
@@ -680,6 +714,7 @@ export class NativeMountedBenchmarkRun {
     fullFrameWallPhases?: NativeBenchmarkFullFrameValues;
     sourceReadDetail?: NativeSourceReadSceneMetrics;
     failureCount: number;
+    failure?: NativeMountedBenchmarkRenderFailure;
   }): void {
     if (this.settled) return;
     try {

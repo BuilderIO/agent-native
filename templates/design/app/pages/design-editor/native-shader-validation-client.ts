@@ -1393,19 +1393,17 @@ export async function validateNativeShaderCaseInEditor(args: {
       }
     } catch (error) {
       renderFailed = true;
-      if (item.mountedFrame || item.mountedMeasurement) {
-        const primary = validationErrorDetail(
-          error instanceof NativeShaderValidationCleanupError
-            ? error.renderError
-            : error,
-        );
-        renderCode = primary.code;
-        renderMessage = primary.message;
-        if (error instanceof NativeShaderValidationCleanupError) {
-          const cleanup = validationErrorDetail(error.cleanupError);
-          cleanupCode = cleanup.code;
-          cleanupMessage = cleanup.message;
-        }
+      const primary = validationErrorDetail(
+        error instanceof NativeShaderValidationCleanupError
+          ? error.renderError
+          : error,
+      );
+      renderCode = primary.code;
+      renderMessage = primary.message;
+      if (error instanceof NativeShaderValidationCleanupError) {
+        const cleanup = validationErrorDetail(error.cleanupError);
+        cleanupCode = cleanup.code;
+        cleanupMessage = cleanup.message;
       }
     }
     if (signal.aborted)

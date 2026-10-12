@@ -133,6 +133,7 @@ import {
   NativeMountedBenchmarkRun,
   type NativeBenchmarkPhaseValues,
   type NativeBenchmarkFullFrameValues,
+  type NativeMountedBenchmarkRenderFailure,
   type NativeMountedBenchmarkRequest,
   type NativeMountedBenchmarkWindow,
 } from "./native-mounted-benchmark";
@@ -292,6 +293,25 @@ class NativeRenderFailure extends Error {
     );
     this.name = "NativeRenderFailure";
   }
+}
+
+function nativeMountedBenchmarkFailure(
+  error: unknown,
+): NativeMountedBenchmarkRenderFailure | undefined {
+  if (error instanceof NativeRenderFailure) return error.result.failures[0];
+  if (!(error instanceof Error)) return undefined;
+  const coded = error as Error & { code?: unknown; instanceId?: unknown };
+  return {
+    code:
+      typeof coded.code === "string" &&
+      /^[a-z][a-z0-9-]{0,79}$/.test(coded.code)
+        ? coded.code
+        : "render-failed",
+    message: error.message,
+    ...(typeof coded.instanceId === "string"
+      ? { instanceId: coded.instanceId }
+      : {}),
+  };
 }
 type Manifest = EffectDocument;
 type NativeDeviceResources = {
@@ -10161,7 +10181,10 @@ class NativeShaderRuntime {
       result = await this.running;
     } catch (error) {
       this.mountedBenchmark?.fail(
-        new NativeMountedBenchmarkError("benchmark-render-failed"),
+        new NativeMountedBenchmarkError(
+          "benchmark-render-failed",
+          nativeMountedBenchmarkFailure(error),
+        ),
       );
       throw error;
     } finally {
@@ -10181,6 +10204,7 @@ class NativeShaderRuntime {
           fullFrameWallPhases: benchmarkMetrics.fullFrameWallPhases,
           sourceReadDetail: benchmarkMetrics.sourceReadDetail,
           failureCount: result.failures.length,
+          failure: result.failures[0],
         });
       if (
         !this.compositionAbort &&

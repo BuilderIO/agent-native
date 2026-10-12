@@ -27210,12 +27210,20 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     };
   }
   var NativeMountedBenchmarkError = class extends Error {
-    constructor(code) {
-      super(code);
+    constructor(code, renderFailure) {
+      super(
+        code === "benchmark-render-failed" && renderFailure ? nativeMountedBenchmarkRenderFailureMessage(renderFailure) : code
+      );
       this.code = code;
       this.name = "NativeMountedBenchmarkError";
     }
   };
+  function nativeMountedBenchmarkRenderFailureMessage(failure2) {
+    const code = /^[a-z][a-z0-9-]{0,79}$/.test(failure2.code) ? failure2.code : "render-failed";
+    const instanceId = typeof failure2.instanceId === "string" && failure2.instanceId.length > 0 ? \`\${failure2.instanceId.slice(0, 64)}: \` : "";
+    const message = typeof failure2.message === "string" && failure2.message.trim() ? failure2.message.trim().slice(0, 120) : code;
+    return \`benchmark-render-failed: \${instanceId}\${code}: \${message}\`;
+  }
   var MAX_INTERVAL_MS = 12e4;
   var MAX_RENDER_SAMPLES = 2520;
   var RAF_60_HZ_MS = 1e3 / 60;
@@ -27307,7 +27315,10 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
     onRender(sample) {
       if (!this.isMeasuring) return;
       if (sample.failureCount !== 0)
-        throw new NativeMountedBenchmarkError("benchmark-render-failed");
+        throw new NativeMountedBenchmarkError(
+          "benchmark-render-failed",
+          sample.failure
+        );
       const fullFrame = sample.fullFrameWallPhases;
       const hasFullFrame = fullFrame !== void 0;
       const sourceReadDetail = sample.sourceReadDetail;
@@ -29493,6 +29504,16 @@ fn nativeSamplePixelated(image: texture_2d<f32>, uv: vec2f, multiple: vec2f, pre
       this.name = "NativeRenderFailure";
     }
   };
+  function nativeMountedBenchmarkFailure(error) {
+    if (error instanceof NativeRenderFailure) return error.result.failures[0];
+    if (!(error instanceof Error)) return void 0;
+    const coded = error;
+    return {
+      code: typeof coded.code === "string" && /^[a-z][a-z0-9-]{0,79}$/.test(coded.code) ? coded.code : "render-failed",
+      message: error.message,
+      ...typeof coded.instanceId === "string" ? { instanceId: coded.instanceId } : {}
+    };
+  }
   var SCRIPT_TYPE = "application/x-agent-native-effects";
   var APPROVALS_SCRIPT_TYPE = "application/x-agent-native-effect-approvals";
   var definitionKey2 = (id, version) => JSON.stringify([id, version]);
@@ -31223,7 +31244,10 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           result = await this.running;
         } catch (error) {
           this.mountedBenchmark?.fail(
-            new NativeMountedBenchmarkError("benchmark-render-failed")
+            new NativeMountedBenchmarkError(
+              "benchmark-render-failed",
+              nativeMountedBenchmarkFailure(error)
+            )
           );
           throw error;
         } finally {
@@ -31241,7 +31265,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               hostWallPhases: benchmarkMetrics.hostWallPhases,
               fullFrameWallPhases: benchmarkMetrics.fullFrameWallPhases,
               sourceReadDetail: benchmarkMetrics.sourceReadDetail,
-              failureCount: result.failures.length
+              failureCount: result.failures.length,
+              failure: result.failures[0]
             });
           if (!this.compositionAbort && !this.compositionPixelBusy && this.compositionPixelRatio === null && this.previewPolicy.observeRenderWall(result.renderWallMs)) {
             this.previewDirty = true;
