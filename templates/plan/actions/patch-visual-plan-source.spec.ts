@@ -235,6 +235,77 @@ describe("patch-visual-plan-source guardrails", () => {
     },
   );
 
+  it("preserves existing empty legacy fields when patching another block", async () => {
+    const previous = {
+      ...populatedContent(),
+      blocks: [
+        ...populatedContent().blocks,
+        {
+          id: "legacy-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    };
+    loadPlanBundleMock.mockResolvedValueOnce(bundleWith(previous));
+    parsePlanMdxFolderMock.mockResolvedValueOnce({
+      ...previous,
+      blocks: [
+        {
+          id: "block_1",
+          type: "rich-text",
+          data: { markdown: "Updated body" },
+        },
+        previous.blocks[1],
+      ],
+    });
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        patches: [
+          {
+            op: "replace-markdown-block",
+            blockId: "block_1",
+            markdown: "Updated body",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_test" });
+    expect(dbUpdateMock).toHaveBeenCalled();
+  });
+
+  it("rejects new incomplete blocks during a legacy-preserving source edit", async () => {
+    parsePlanMdxFolderMock.mockResolvedValueOnce({
+      ...populatedContent(),
+      blocks: [
+        ...populatedContent().blocks,
+        {
+          id: "new-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    });
+
+    await expect(
+      runAction({
+        planId: "plan_test",
+        patches: [
+          {
+            op: "replace-markdown-block",
+            blockId: "block_1",
+            markdown: "Updated body",
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      /question-form blocks require at least one questions entry/,
+    );
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    expect(dbUpdateMock).not.toHaveBeenCalled();
+  });
+
   it("allows an explicitly destructive replacement and logs only bounded metadata", async () => {
     const emptyContent = {
       version: 2,

@@ -4,8 +4,15 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { writePlanLocalFolder } from "../server/lib/local-plan-files.js";
-import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
+import {
+  readPlanLocalFolder,
+  writePlanLocalFolder,
+} from "../server/lib/local-plan-files.js";
+import {
+  planContentSchema,
+  storedPlanContentSchema,
+  type PlanContent,
+} from "../shared/plan-content.js";
 import updateLocalPlanFolder from "./update-local-plan-folder.js";
 
 function sampleContent(): PlanContent {
@@ -97,6 +104,63 @@ describe("update-local-plan-folder", () => {
       "utf-8",
     );
     expect(planMdx).toContain("Edited locally in the browser.");
+  });
+
+  it("preserves stored legacy blocks during an unrelated local folder update", async () => {
+    const content = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Legacy local plan",
+      brief: "Keep old blocks intact.",
+      blocks: [
+        {
+          id: "summary",
+          type: "rich-text",
+          data: { markdown: "Original summary." },
+        },
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        { id: "legacy-model", type: "data-model", data: {} },
+      ],
+    });
+    await writePlanLocalFolder({
+      slug: "legacy-local-plan",
+      planId: "local-legacy-local-plan",
+      title: content.title ?? "Legacy local plan",
+      brief: content.brief,
+      content,
+      url: "/local-plans/legacy-local-plan",
+    });
+
+    const result = await updateLocalPlanFolder.run({
+      slug: "legacy-local-plan",
+      contentPatches: [
+        {
+          op: "update-rich-text",
+          blockId: "summary",
+          markdown: "Updated summary.",
+        },
+      ],
+    });
+    const blocks = result.plan.content?.blocks;
+    expect(blocks?.map((block) => block.type)).toEqual([
+      "rich-text",
+      "question-form",
+      "tabs",
+      "data-model",
+    ]);
+
+    const reread = await readPlanLocalFolder("legacy-local-plan");
+    expect(reread.content.blocks.map((block) => block.type)).toEqual([
+      "rich-text",
+      "question-form",
+      "tabs",
+      "data-model",
+    ]);
+    expect(reread.content.blocks[0]).toMatchObject({
+      id: "summary",
+      type: "rich-text",
+      data: { markdown: "Updated summary." },
+    });
   });
 
   it("writes back to an opened repo-relative local plan path", async () => {

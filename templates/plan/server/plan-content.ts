@@ -236,22 +236,26 @@ function omitEmptyLegacyDefaults(content: PlanContentInput): PlanContentInput {
 
 export function normalizePlanContent(
   content: PlanContentInput | undefined,
-  options: { salvageInvalidBlocks?: boolean } = {},
+  options: {
+    allowStoredLegacyDefaults?: boolean;
+    salvageInvalidBlocks?: boolean;
+  } = {},
 ): PlanContent | null {
   if (!content) return null;
   const migrated = migratePlanContent(content);
+  const schema = options.allowStoredLegacyDefaults
+    ? storedPlanContentSchema
+    : planContentSchema;
   if (options.salvageInvalidBlocks) {
-    const result = planContentSchema.safeParse(
-      preSanitizePlanContentInput(migrated),
-    );
+    const result = schema.safeParse(preSanitizePlanContentInput(migrated));
     if (result.success) return sanitizePlanContent(result.data);
     console.warn(
       "[plan-content] recap import: full parse failed; salvaging per-block so the rest publishes:",
       result.error.issues.slice(0, 4),
     );
-    return parsePlanContentWithSalvage(migrated, planContentSchema);
+    return parsePlanContentWithSalvage(migrated, schema);
   }
-  return sanitizePlanContent(planContentSchema.parse(migrated));
+  return sanitizePlanContent(schema.parse(migrated));
 }
 
 export function normalizeStoredPlanContent(content: unknown): PlanContent {

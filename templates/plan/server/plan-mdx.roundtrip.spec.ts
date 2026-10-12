@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
+import {
+  planContentSchema,
+  storedPlanContentSchema,
+  type PlanContent,
+} from "../shared/plan-content.js";
 import {
   applyPlanMdxSourcePatches,
   exportPlanContentToMdxFolder,
@@ -19,6 +23,83 @@ async function roundTrip(content: PlanContent): Promise<PlanContent> {
 function findBlock(content: PlanContent, id: string) {
   return content.blocks.find((block) => block.id === id);
 }
+
+describe("stored legacy defaults in MDX source", () => {
+  it("preserves legacy block types through export, source patches, and re-import", async () => {
+    const content = storedPlanContentSchema.parse({
+      version: 2,
+      title: "Legacy source",
+      blocks: [
+        {
+          id: "summary",
+          type: "rich-text",
+          data: { markdown: "Original summary." },
+        },
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        { id: "legacy-model", type: "data-model", data: {} },
+      ],
+    });
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Legacy source",
+    });
+
+    await expect(parsePlanMdxFolder(folder)).rejects.toThrow();
+
+    const read = await parsePlanMdxFolder(folder, {
+      allowStoredLegacyDefaults: true,
+    });
+    expect(read.blocks.map((block) => block.type)).toEqual([
+      "rich-text",
+      "question-form",
+      "tabs",
+      "data-model",
+    ]);
+    expect(read.blocks.slice(1)).toMatchObject([
+      { id: "legacy-questions", data: { questions: [] } },
+      { id: "legacy-tabs", data: { tabs: [] } },
+      { id: "legacy-model", data: { entities: [] } },
+    ]);
+
+    const patchedFolder = await applyPlanMdxSourcePatches(folder, [
+      {
+        op: "replace-markdown-block",
+        blockId: "summary",
+        markdown: "Updated summary.",
+      },
+    ]);
+    const patched = await parsePlanMdxFolder(patchedFolder, {
+      allowStoredLegacyDefaults: true,
+    });
+    expect(patched.blocks.map((block) => block.type)).toEqual([
+      "rich-text",
+      "question-form",
+      "tabs",
+      "data-model",
+    ]);
+    expect(patched.blocks[0]).toMatchObject({
+      id: "summary",
+      type: "rich-text",
+      data: { markdown: "Updated summary." },
+    });
+  });
+
+  it("keeps MDX authoring strict for explicitly empty required fields", async () => {
+    await expect(
+      parsePlanMdxFolder({
+        "plan.mdx": [
+          "---",
+          "version: 2",
+          "---",
+          "",
+          '<QuestionForm id="questions" questions={[]} />',
+          '<TabsBlock id="tabs" tabs={[]} />',
+        ].join("\n"),
+      }),
+    ).rejects.toThrow();
+  });
+});
 
 describe("plan MDX round-trip fidelity per block type", () => {
   it("prototype.mdx: round-trips live prototype screens and transitions", async () => {

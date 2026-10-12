@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertPlanContentAuthoringChanges,
   agentPlanContentSchema,
   applyPlanContentPatches,
   migratePlanContent,
@@ -1596,6 +1597,57 @@ describe("parsePlanContent per-block salvage", () => {
         ],
       }).success,
     ).toBe(false);
+  });
+
+  it("allows unchanged stored empty defaults but rejects new incomplete source blocks", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-tabs", type: "tabs", data: {} },
+        { id: "legacy-model", type: "data-model", data: {} },
+      ],
+    });
+    expect(() =>
+      assertPlanContentAuthoringChanges(legacy, legacy),
+    ).not.toThrow();
+
+    const withNewIncompleteBlock = storedPlanContentSchema.parse({
+      ...legacy,
+      blocks: [
+        ...legacy.blocks,
+        {
+          id: "new-empty-questions",
+          type: "question-form",
+          data: { questions: [] },
+        },
+      ],
+    });
+    expect(() =>
+      assertPlanContentAuthoringChanges(withNewIncompleteBlock, legacy),
+    ).toThrow(/question-form blocks require at least one questions entry/);
+
+    const previouslyValid = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        {
+          id: "questions",
+          type: "question-form",
+          data: {
+            questions: [{ id: "q1", title: "Question", mode: "freeform" }],
+          },
+        },
+      ],
+    });
+    const emptied = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "questions", type: "question-form", data: { questions: [] } },
+      ],
+    });
+    expect(() =>
+      assertPlanContentAuthoringChanges(emptied, previouslyValid),
+    ).toThrow(/question-form blocks require at least one questions entry/);
   });
 
   it("rejects null in lenient stored fields and empty required authoring arrays", () => {

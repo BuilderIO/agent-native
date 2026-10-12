@@ -1683,7 +1683,9 @@ const agentPlanBlockSchemaTerse = z
       .record(z.string(), z.unknown())
       .describe("Type-specific fields — call get-plan-blocks for the shape."),
   })
-  .superRefine((block, context) => validateAuthoringBlock(block, [], context));
+  .superRefine((block, context) => {
+    validateAuthoringBlock(block, [], context);
+  });
 
 const annotationPlacementSchema = z.enum([
   "top",
@@ -2021,73 +2023,118 @@ const requiredAuthoringDataFields: Partial<
   "annotated-code": { field: "code" },
 };
 
-function validateAuthoringBlock(
-  value: unknown,
-  path: Array<string | number>,
+function validateAuthoringBlocks(
+  roots: Array<{ block: unknown; path: Array<string | number> }>,
   context: PlanContentValidationContext,
-) {
-  if (!value || typeof value !== "object") return;
-  const block = value as Record<string, unknown>;
-  const type = block.type;
-  const data = block.data;
+  previousBlocks?: Map<string, PlanBlock>,
+): boolean {
+  const stack = roots.map((root) => ({ ...root, depth: 0 })).reverse();
+  let visits = 0;
 
-  if (typeof type === "string" && data && typeof data === "object") {
-    const required = requiredAuthoringDataFields[type as PlanBlockType];
-    if (required) {
-      const fieldValue = (data as Record<string, unknown>)[required.field];
-      const fieldPath = [...path, "data", required.field];
-      if (fieldValue === undefined) {
-        context.addIssue({
-          code: "custom",
-          path: fieldPath,
-          message: `Authoring ${type} blocks require data.${required.field}.`,
-        });
-      } else if (
-        required.nonEmpty &&
-        Array.isArray(fieldValue) &&
-        fieldValue.length === 0
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    visits += 1;
+    if (
+      current.depth > PLAN_BLOCK_MAX_DEPTH ||
+      visits > PLAN_BLOCK_MAX_VISITS
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: current.path,
+        message:
+          current.depth > PLAN_BLOCK_MAX_DEPTH
+            ? `Plan blocks exceed max depth ${PLAN_BLOCK_MAX_DEPTH}.`
+            : `Plan blocks exceed max visits ${PLAN_BLOCK_MAX_VISITS}.`,
+      });
+      return true;
+    }
+
+    if (!current.block || typeof current.block !== "object") continue;
+    const block = current.block as Record<string, unknown>;
+    const type = block.type;
+    const data = block.data;
+
+    if (typeof type === "string" && data && typeof data === "object") {
+      const required = requiredAuthoringDataFields[type as PlanBlockType];
+      if (required) {
+        const fieldValue = (data as Record<string, unknown>)[required.field];
+        const fieldPath = [...current.path, "data", required.field];
+        const previousBlock =
+          typeof block.id === "string" ? previousBlocks?.get(block.id) : null;
+        const previousFieldValue =
+          previousBlock?.type === type
+            ? (previousBlock.data as Record<string, unknown>)[required.field]
+            : undefined;
+        const preservesLegacyEmptyArray =
+          required.nonEmpty &&
+          Array.isArray(fieldValue) &&
+          fieldValue.length === 0 &&
+          Array.isArray(previousFieldValue) &&
+          previousFieldValue.length === 0;
+        if (fieldValue === undefined) {
+          context.addIssue({
+            code: "custom",
+            path: fieldPath,
+            message: `Authoring ${type} blocks require data.${required.field}.`,
+          });
+        } else if (
+          required.nonEmpty &&
+          Array.isArray(fieldValue) &&
+          fieldValue.length === 0 &&
+          !preservesLegacyEmptyArray
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: fieldPath,
+            message: `Authoring ${type} blocks require at least one ${required.field} entry.`,
+          });
+        }
+      }
+    }
+
+    if (!data || typeof data !== "object") continue;
+    const record = data as Record<string, unknown>;
+    const nestedKey =
+      type === "tabs" ? "tabs" : type === "columns" ? "columns" : null;
+    const groups = nestedKey ? record[nestedKey] : undefined;
+    if (!nestedKey || !Array.isArray(groups)) continue;
+
+    for (let groupIndex = groups.length - 1; groupIndex >= 0; groupIndex -= 1) {
+      const group = groups[groupIndex];
+      if (!group || typeof group !== "object") continue;
+      const children = (group as Record<string, unknown>).blocks;
+      if (!Array.isArray(children)) continue;
+      for (
+        let childIndex = children.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
       ) {
-        context.addIssue({
-          code: "custom",
-          path: fieldPath,
-          message: `Authoring ${type} blocks require at least one ${required.field} entry.`,
+        stack.push({
+          block: children[childIndex],
+          path: [
+            ...current.path,
+            "data",
+            nestedKey,
+            groupIndex,
+            "blocks",
+            childIndex,
+          ],
+          depth: current.depth + 1,
         });
       }
     }
   }
 
-  if (!data || typeof data !== "object") return;
-  const record = data as Record<string, unknown>;
-  if (type === "tabs" && Array.isArray(record.tabs)) {
-    record.tabs.forEach((tab, index) => {
-      if (!tab || typeof tab !== "object") return;
-      const blocks = (tab as Record<string, unknown>).blocks;
-      if (Array.isArray(blocks)) {
-        blocks.forEach((child, childIndex) =>
-          validateAuthoringBlock(
-            child,
-            [...path, "data", "tabs", index, "blocks", childIndex],
-            context,
-          ),
-        );
-      }
-    });
-  }
-  if (type === "columns" && Array.isArray(record.columns)) {
-    record.columns.forEach((column, index) => {
-      if (!column || typeof column !== "object") return;
-      const blocks = (column as Record<string, unknown>).blocks;
-      if (Array.isArray(blocks)) {
-        blocks.forEach((child, childIndex) =>
-          validateAuthoringBlock(
-            child,
-            [...path, "data", "columns", index, "blocks", childIndex],
-            context,
-          ),
-        );
-      }
-    });
-  }
+  return false;
+}
+
+function validateAuthoringBlock(
+  value: unknown,
+  path: Array<string | number>,
+  context: PlanContentValidationContext,
+) {
+  return validateAuthoringBlocks([{ block: value, path }], context);
 }
 
 function validateAuthoringPlanContent(
@@ -2097,8 +2144,60 @@ function validateAuthoringPlanContent(
   if (!value || typeof value !== "object") return;
   const blocks = (value as Record<string, unknown>).blocks;
   if (Array.isArray(blocks)) {
-    blocks.forEach((block, index) =>
-      validateAuthoringBlock(block, ["blocks", index], context),
+    validateAuthoringBlocks(
+      blocks.map((block, index) => ({ block, path: ["blocks", index] })),
+      context,
+    );
+  }
+}
+
+export function assertPlanContentAuthoringChanges(
+  content: PlanContent,
+  previous: PlanContent,
+): void {
+  const previousBlocks = new Map<string, PlanBlock>();
+  const stack = previous.blocks.map((block) => ({ block, depth: 0 }));
+  let visits = 0;
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || !current.block || typeof current.block !== "object")
+      continue;
+    visits += 1;
+    if (
+      current.depth > PLAN_BLOCK_MAX_DEPTH ||
+      visits > PLAN_BLOCK_MAX_VISITS
+    ) {
+      throw new Error("Previous plan exceeds authoring validation bounds.");
+    }
+
+    const block = current.block;
+    previousBlocks.set(block.id, block);
+    const groups =
+      block.type === "tabs"
+        ? block.data.tabs
+        : block.type === "columns"
+          ? block.data.columns
+          : [];
+    for (const group of groups) {
+      for (const child of group.blocks) {
+        stack.push({ block: child, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  const issues: Array<{ path: Array<string | number>; message: string }> = [];
+  validateAuthoringBlocks(
+    content.blocks.map((block, index) => ({ block, path: ["blocks", index] })),
+    {
+      addIssue: ({ path, message }) => issues.push({ path, message }),
+    },
+    previousBlocks,
+  );
+  if (issues.length > 0) {
+    const first = issues[0];
+    const location = first?.path.length ? ` at ${first.path.join(".")}` : "";
+    throw new Error(
+      `Plan source edit contains invalid authored block data${location}: ${first?.message ?? "validation failed"}`,
     );
   }
 }
@@ -2214,7 +2313,7 @@ export const storedPlanContentSchema: z.ZodType<PlanContent> = z
 
 export const planAuthoringBlockSchema: z.ZodType<PlanBlock> = z.preprocess(
   (block, context) => {
-    validateAuthoringBlock(block, [], context);
+    if (validateAuthoringBlock(block, [], context)) return null;
     return block;
   },
   planBlockSchema,

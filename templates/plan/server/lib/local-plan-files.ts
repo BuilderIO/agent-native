@@ -547,7 +547,10 @@ export async function readPlanLocalFolder(
     url: localPlanRoutePath(location.slug, location.repoPath),
     suggestedRepoPath: await defaultLocalPlanRepoPath(location.slug),
     mdx,
-    content: await parsePlanMdxFolder(mdx, { salvageInvalidBlocks: true }),
+    content: await parsePlanMdxFolder(mdx, {
+      allowStoredLegacyDefaults: true,
+      salvageInvalidBlocks: true,
+    }),
   };
 }
 

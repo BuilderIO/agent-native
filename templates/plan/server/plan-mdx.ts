@@ -1728,7 +1728,10 @@ function parseWireframeNode(
 
 export async function parsePlanMdxFolder(
   folder: PlanMdxFolder,
-  options: { salvageInvalidBlocks?: boolean } = {},
+  options: {
+    allowStoredLegacyDefaults?: boolean;
+    salvageInvalidBlocks?: boolean;
+  } = {},
 ): Promise<PlanContent> {
   const files = planMdxFileSchema.parse(folder);
   const parsedMatter = parseSimpleFrontmatter(files["plan.mdx"]);

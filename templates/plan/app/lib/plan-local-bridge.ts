@@ -369,6 +369,7 @@ async function localPlanBridgePayloadToBundle(
   }
 
   const rawContent = await parsePlanMdxFolder(payload.mdx, {
+    allowStoredLegacyDefaults: true,
     salvageInvalidBlocks: true,
   });
   const content = inlineLocalPlanAssets(rawContent, payload.mdx["assets/"]);
