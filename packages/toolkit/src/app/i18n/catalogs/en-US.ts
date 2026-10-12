@@ -1,4 +1,5 @@
 const messages = {
+  "block.renderUnavailable": "This block is temporarily unavailable.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "Enter a valid HTTP or HTTPS URL.",
   "composer.contextAttach": "Attach",

@@ -4,9 +4,12 @@ import type {
   BlockRenderContext,
 } from "@agent-native/core/blocks/server";
 import { IconPencil } from "@tabler/icons-react";
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Suspense, useState, type MouseEvent as ReactMouseEvent } from "react";
 
-import { BlockRenderErrorBoundary } from "./BlockRenderErrorBoundary.js";
+import {
+  BlockRenderErrorBoundary,
+  BlockRenderSuspenseFallback,
+} from "./BlockRenderErrorBoundary.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 export function blockEditSurface(
@@ -40,14 +43,23 @@ export function BlockView({
       blockType={spec.type}
       resetKey={block.data}
     >
-      <Read
-        data={block.data}
-        blockId={block.id}
-        title={block.title}
-        summary={block.summary}
-        ctx={ctx}
-        compactVisuals={compactVisuals}
-      />
+      <Suspense
+        fallback={
+          <BlockRenderSuspenseFallback
+            blockId={block.id}
+            blockType={spec.type}
+          />
+        }
+      >
+        <Read
+          data={block.data}
+          blockId={block.id}
+          title={block.title}
+          summary={block.summary}
+          ctx={ctx}
+          compactVisuals={compactVisuals}
+        />
+      </Suspense>
     </BlockRenderErrorBoundary>
   );
 
@@ -75,26 +87,35 @@ export function BlockView({
       blockType={spec.type}
       resetKey={block.data}
     >
-      {Edit ? (
-        <Edit
-          data={block.data}
-          onChange={commit}
-          editable
-          blockId={block.id}
-          title={block.title}
-          summary={block.summary}
-          ctx={ctx}
-        />
-      ) : (
-        <SchemaBlockEditor
-          data={block.data}
-          onChange={commit}
-          schema={spec.schema}
-          editable
-          blockId={block.id}
-          ctx={ctx}
-        />
-      )}
+      <Suspense
+        fallback={
+          <BlockRenderSuspenseFallback
+            blockId={block.id}
+            blockType={spec.type}
+          />
+        }
+      >
+        {Edit ? (
+          <Edit
+            data={block.data}
+            onChange={commit}
+            editable
+            blockId={block.id}
+            title={block.title}
+            summary={block.summary}
+            ctx={ctx}
+          />
+        ) : (
+          <SchemaBlockEditor
+            data={block.data}
+            onChange={commit}
+            schema={spec.schema}
+            editable
+            blockId={block.id}
+            ctx={ctx}
+          />
+        )}
+      </Suspense>
     </BlockRenderErrorBoundary>
   );
 

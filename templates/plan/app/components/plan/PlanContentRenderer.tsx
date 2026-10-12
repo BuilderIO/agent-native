@@ -51,7 +51,7 @@ import {
 import { PlanBlockView } from "./DocumentArea";
 import {
   hasPlanBlockStructureChange,
-  nestedPlanBlockLists,
+  isWideLayoutBlock,
   visitPlanBlocks,
 } from "./plan-block-structure";
 import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
@@ -897,31 +897,6 @@ function renderFlowBlockFrame(block: PlanBlock, node: ReactNode) {
       {node}
     </div>
   );
-}
-
-function isWideLayoutBlock(block: PlanBlock): boolean {
-  switch (block.type) {
-    case "diff":
-    case "annotated-code":
-      return true;
-    case "tabs":
-      return (
-        block.data?.orientation === "vertical" ||
-        nestedPlanBlockLists(block).some(blocksContainDiffLike)
-      );
-    case "columns":
-      return nestedPlanBlockLists(block).some(blocksContainDiffLike);
-    default:
-      return false;
-  }
-}
-
-function blocksContainDiffLike(blocks: unknown): boolean {
-  let found = false;
-  visitPlanBlocks(blocks, (block) => {
-    if (block.type === "diff" || block.type === "annotated-code") found = true;
-  });
-  return found;
 }
 
 function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {

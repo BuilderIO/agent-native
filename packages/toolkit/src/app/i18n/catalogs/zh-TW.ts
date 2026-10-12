@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "此區塊暫時無法使用。",
   "composer.contextUrlLabel": "網址",
   "composer.contextInvalidUrl": "請輸入有效的 HTTP 或 HTTPS 網址。",
   "composer.contextAttach": "附加",

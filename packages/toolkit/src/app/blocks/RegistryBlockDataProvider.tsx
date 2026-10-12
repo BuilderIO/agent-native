@@ -5,9 +5,13 @@ import {
   type RegistryBlockSideMapBlock,
 } from "@agent-native/toolkit/editor/RegistryBlockContext";
 import { IconPencil } from "@tabler/icons-react";
+import { Suspense } from "react";
 import { useCallback, useMemo, type ReactNode } from "react";
 
-import { BlockRenderErrorBoundary } from "./BlockRenderErrorBoundary.js";
+import {
+  BlockRenderErrorBoundary,
+  BlockRenderSuspenseFallback,
+} from "./BlockRenderErrorBoundary.js";
 import { blockEditSurface } from "./BlockView.js";
 import { useOptionalBlockRegistry } from "./provider.js";
 import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
@@ -41,13 +45,22 @@ export function RegistryBlockDataProvider<
           blockType={blockType}
           resetKey={blockData}
         >
-          <Read
-            data={blockData}
-            blockId={block.id}
-            title={block.title}
-            summary={block.summary}
-            ctx={registryValue.ctx}
-          />
+          <Suspense
+            fallback={
+              <BlockRenderSuspenseFallback
+                blockId={block.id}
+                blockType={blockType}
+              />
+            }
+          >
+            <Read
+              data={blockData}
+              blockId={block.id}
+              title={block.title}
+              summary={block.summary}
+              ctx={registryValue.ctx}
+            />
+          </Suspense>
         </BlockRenderErrorBoundary>
       );
       let editSurface: ReactNode = null;
@@ -60,26 +73,35 @@ export function RegistryBlockDataProvider<
             blockType={blockType}
             resetKey={blockData}
           >
-            {Edit ? (
-              <Edit
-                data={blockData}
-                onChange={options.onChange}
-                editable
-                blockId={block.id}
-                title={block.title}
-                summary={block.summary}
-                ctx={registryValue.ctx}
-              />
-            ) : (
-              <SchemaBlockEditor
-                data={blockData}
-                onChange={(nextData) => options.onChange(nextData)}
-                schema={spec.schema}
-                editable
-                blockId={block.id}
-                ctx={registryValue.ctx}
-              />
-            )}
+            <Suspense
+              fallback={
+                <BlockRenderSuspenseFallback
+                  blockId={block.id}
+                  blockType={blockType}
+                />
+              }
+            >
+              {Edit ? (
+                <Edit
+                  data={blockData}
+                  onChange={options.onChange}
+                  editable
+                  blockId={block.id}
+                  title={block.title}
+                  summary={block.summary}
+                  ctx={registryValue.ctx}
+                />
+              ) : (
+                <SchemaBlockEditor
+                  data={blockData}
+                  onChange={(nextData) => options.onChange(nextData)}
+                  schema={spec.schema}
+                  editable
+                  blockId={block.id}
+                  ctx={registryValue.ctx}
+                />
+              )}
+            </Suspense>
           </BlockRenderErrorBoundary>
         );
         const surface = blockEditSurface(spec);

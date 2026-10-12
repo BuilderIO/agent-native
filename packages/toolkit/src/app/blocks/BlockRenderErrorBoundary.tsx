@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { Component, type ReactNode } from "react";
 
 type BlockRenderErrorBoundaryProps = {
@@ -10,6 +11,8 @@ type BlockRenderErrorBoundaryProps = {
 
 type BlockRenderErrorBoundaryState = {
   error: Error | null;
+  blockId: string;
+  blockType: string;
   resetKey: unknown;
 };
 
@@ -19,15 +22,31 @@ export class BlockRenderErrorBoundary extends Component<
 > {
   constructor(props: BlockRenderErrorBoundaryProps) {
     super(props);
-    this.state = { error: null, resetKey: props.resetKey };
+    this.state = {
+      error: null,
+      blockId: props.blockId,
+      blockType: props.blockType,
+      resetKey: props.resetKey,
+    };
   }
 
   static getDerivedStateFromProps(
     props: BlockRenderErrorBoundaryProps,
     state: BlockRenderErrorBoundaryState,
   ): Partial<BlockRenderErrorBoundaryState> | null {
-    if (props.resetKey === state.resetKey) return null;
-    return { error: null, resetKey: props.resetKey };
+    if (
+      props.blockId === state.blockId &&
+      props.blockType === state.blockType &&
+      Object.is(props.resetKey, state.resetKey)
+    ) {
+      return null;
+    }
+    return {
+      error: null,
+      blockId: props.blockId,
+      blockType: props.blockType,
+      resetKey: props.resetKey,
+    };
   }
 
   static getDerivedStateFromError(
@@ -54,6 +73,23 @@ export class BlockRenderErrorBoundary extends Component<
       />
     );
   }
+}
+
+export function BlockRenderSuspenseFallback({
+  blockId,
+  blockType,
+}: {
+  blockId: string;
+  blockType: string;
+}) {
+  const t = useT();
+  return (
+    <BlockRenderErrorFallback
+      blockId={blockId}
+      blockType={blockType}
+      message={t("agentChat.block.renderUnavailable")}
+    />
+  );
 }
 
 export function BlockRenderErrorFallback({

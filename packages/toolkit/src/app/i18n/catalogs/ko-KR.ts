@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "composer.contextUrlLabel": "URL",
   "composer.contextInvalidUrl": "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
   "composer.contextAttach": "첨부",

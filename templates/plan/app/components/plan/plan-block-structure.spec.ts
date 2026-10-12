@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasPlanBlockStructureChange,
+  isWideLayoutBlock,
   nestedPlanBlockLists,
   visitPlanBlocks,
 } from "./plan-block-structure";
@@ -80,5 +81,39 @@ describe("hasPlanBlockStructureChange", () => {
     ).not.toThrow();
     expect(seen).toEqual(["tabs-2", "note-1"]);
     expect(nestedPlanBlockLists(blocks[0])).toHaveLength(1);
+  });
+});
+
+describe("isWideLayoutBlock", () => {
+  it("keeps columns at the default width even when they contain a diff", () => {
+    const columns = {
+      id: "columns-1",
+      type: "columns",
+      data: {
+        columns: [
+          {
+            id: "column-1",
+            blocks: [{ id: "diff-1", type: "diff", data: {} }],
+          },
+        ],
+      },
+    } as unknown as PlanBlock;
+
+    expect(isWideLayoutBlock(columns)).toBe(false);
+  });
+
+  it("keeps direct and tab-nested diff blocks wide", () => {
+    const diff = { id: "diff-1", type: "diff", data: {} } as PlanBlock;
+    const tabs = {
+      id: "tabs-1",
+      type: "tabs",
+      data: {
+        orientation: "horizontal",
+        tabs: [{ id: "tab-1", blocks: [diff] }],
+      },
+    } as unknown as PlanBlock;
+
+    expect(isWideLayoutBlock(diff)).toBe(true);
+    expect(isWideLayoutBlock(tabs)).toBe(true);
   });
 });

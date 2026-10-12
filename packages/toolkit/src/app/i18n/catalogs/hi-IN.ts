@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
   "composer.contextUrlLabel": "यूआरएल",
   "composer.contextInvalidUrl": "मान्य HTTP या HTTPS यूआरएल दर्ज करें।",
   "composer.contextAttach": "अटैच करें",

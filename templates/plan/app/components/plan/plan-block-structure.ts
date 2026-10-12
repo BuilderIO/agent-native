@@ -96,3 +96,26 @@ export function nestedPlanBlockLists(block: unknown): unknown[] {
   if (!Array.isArray(regions)) return [];
   return regions.flatMap((region) => (isRecord(region) ? [region.blocks] : []));
 }
+
+export function isWideLayoutBlock(block: PlanBlock): boolean {
+  switch (block.type) {
+    case "diff":
+    case "annotated-code":
+      return true;
+    case "tabs":
+      return (
+        block.data?.orientation === "vertical" ||
+        nestedPlanBlockLists(block).some(blocksContainDiffLike)
+      );
+    default:
+      return false;
+  }
+}
+
+function blocksContainDiffLike(blocks: unknown): boolean {
+  let found = false;
+  visitPlanBlocks(blocks, (block) => {
+    if (block.type === "diff" || block.type === "annotated-code") found = true;
+  });
+  return found;
+}
