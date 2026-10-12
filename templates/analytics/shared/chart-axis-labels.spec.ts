@@ -57,12 +57,25 @@ describe("isDateAxis", () => {
     expect(isDateAxis([null, ""])).toBe(false);
   });
 
+  it("reads eight digits as a date only when they form a calendar date", () => {
+    expect(isDateAxis(["20260908", "20261231"])).toBe(true);
+    expect(isDateAxis(["10000001", "10000002"])).toBe(false);
+    expect(isDateAxis(["20261301"])).toBe(false);
+    expect(isDateAxis(["20260900"])).toBe(false);
+    expect(isCategoryAxis(["10000001", "10000002"])).toBe(false);
+  });
+
   it("reads which way an axis runs from its first and last values", () => {
     expect(axisDirection(["2026-10-04", "2026-09-09"])).toBe("descending");
     expect(axisDirection(["2026-09-09", null, "2026-10-04"])).toBe("ascending");
     expect(axisDirection([3, 2, 1])).toBe("descending");
     expect(axisDirection(["2026-W40", "2025-W02"])).toBe("descending");
     expect(axisDirection(["Q1 2025", "2025-Q4"])).toBe("ascending");
+    expect(
+      axisDirection([new Date("2026-10-04"), new Date("2026-09-09")]),
+    ).toBe("descending");
+    expect(axisDirection(["20260909", "20261004"])).toBe("ascending");
+    expect(axisDirection(["2026-09-09", "2026-09-09"])).toBe("ascending");
   });
 
   it("knows no direction for month names, mixed or out-of-order values", () => {

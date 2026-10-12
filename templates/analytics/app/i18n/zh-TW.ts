@@ -1234,6 +1234,7 @@ export default {
     multiColumnSortHelp: "點擊排序。按住 Shift 點擊可加入另一個排序欄位。",
     chartPointLimitNewest: "顯示 {{total}} 個資料點中最新的 {{shown}} 個",
     chartPointLimitFirst: "顯示 {{total}} 個資料點中的前 {{shown}} 個",
+    chartPointLimitLast: "顯示 {{total}} 個資料點中的最後 {{shown}} 個",
     exportToGoogleSheets: "匯出到 Google Sheets",
     exportingToGoogleSheets: "正在匯出到 Google Sheets...",
     googleSheetsExported: "已匯出到 Google Sheets",

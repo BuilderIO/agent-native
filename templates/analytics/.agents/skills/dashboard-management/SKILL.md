@@ -534,10 +534,10 @@ in the same `set({...})` call.
   dashboard and in emailed reports, and the chart's other series (`unknown`,
   `docs`) are muted. Leave `config.colors` off such panels, or it replaces
   those colors.
-- A chart draws at most 400 points and says so under the chart: the newest for
-  line, area, combo, heatmap and bar charts over dates in date order, the first
-  for bars over categories, ids, buckets or dates sorted another way. Aggregate
-  or limit the SQL instead of returning more.
+- A chart draws at most 400 points and says so under the chart. Line, area,
+  combo and heatmap charts keep their last rows, and bar charts their first;
+  over dates in date order (`YYYY-MM-DD`, `YYYYMMDD`, weeks, quarters) both
+  keep the newest. Aggregate or limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.

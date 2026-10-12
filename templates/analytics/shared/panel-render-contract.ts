@@ -631,7 +631,7 @@ const POINT_LIMITED_CHART_TYPES: readonly string[] = [
   "funnel",
   "callout",
 ];
-const NEWEST_POINT_CHART_TYPES: readonly string[] = [
+const LAST_POINT_CHART_TYPES: readonly string[] = [
   "line",
   "area",
   "combo",
@@ -642,13 +642,13 @@ const NEWEST_POINT_CHART_TYPES: readonly string[] = [
 export interface ChartPointLimit {
   shown: number;
   total: number;
-  keeps: "newest" | "first";
+  keeps: "newest" | "last" | "first";
 }
 
 /**
- * `xKey` lets a bar chart over dates keep its newest points, as a line chart
- * does, when the axis shows which end is newest; a bar chart over categories,
- * ids, buckets or unorderable dates keeps the first.
+ * Line, area, combo and heatmap charts keep their last rows, and bar charts
+ * their first. Only an `xKey` of dates in date order makes the kept rows the
+ * newest, for a bar chart too; otherwise the note must not claim recency.
  */
 export function chartPointLimit(
   rows: readonly Record<string, unknown>[],
@@ -663,20 +663,23 @@ export function chartPointLimit(
     return null;
   }
   const xValues = xKey ? rows.map((row) => row[xKey]) : [];
-  const keepsNewest =
-    NEWEST_POINT_CHART_TYPES.includes(type) ||
-    (type === "bar" && isDateAxis(xValues) && axisDirection(xValues) !== null);
+  const keepsLast = LAST_POINT_CHART_TYPES.includes(type);
+  const datesInOrder = isDateAxis(xValues) && axisDirection(xValues) !== null;
   return {
     shown: MAX_CHART_POINTS,
     total: rows.length,
-    keeps: keepsNewest ? "newest" : "first",
+    keeps:
+      datesInOrder && (keepsLast || type === "bar")
+        ? "newest"
+        : keepsLast
+          ? "last"
+          : "first",
   };
 }
 
 /**
- * Rows a chart draws: line, area, combo, heatmap and date bar charts keep the
- * newest, the rest the first. Newest is the end of the rows unless `xKey`
- * shows they run newest-first (ORDER BY date DESC).
+ * Rows a chart draws, per `chartPointLimit`. Newest is the end of the rows
+ * unless `xKey` shows they run newest-first (ORDER BY date DESC).
  */
 export function limitChartRows<T extends Record<string, unknown>>(
   rows: T[],
@@ -689,9 +692,9 @@ export function limitChartRows<T extends Record<string, unknown>>(
     limit.keeps === "newest" &&
     !!xKey &&
     axisDirection(rows.map((row) => row[xKey])) === "descending";
-  return limit.keeps === "newest" && !newestFirst
-    ? rows.slice(-limit.shown)
-    : rows.slice(0, limit.shown);
+  return limit.keeps === "first" || newestFirst
+    ? rows.slice(0, limit.shown)
+    : rows.slice(-limit.shown);
 }
 
 const STACKABLE_CHART_TYPES: readonly string[] = ["bar", "area"];

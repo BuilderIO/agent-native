@@ -222,10 +222,10 @@ describe("verifyDashboardPanels", () => {
     expect(result.panels[0]).toMatchObject({
       status: "ok",
       renderedRowCount: 601,
-      pointLimit: { shown: 400, total: 601, keeps: "newest" },
+      pointLimit: { shown: 400, total: 601, keeps: "last" },
     });
     expect(describePanelOutcome(result.panels[0])).toContain(
-      "the chart draws only the newest 400 of 601 points",
+      "the chart draws only the last 400 of 601 points",
     );
   });
 

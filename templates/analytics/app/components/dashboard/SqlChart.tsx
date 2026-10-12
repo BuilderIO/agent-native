@@ -1170,7 +1170,9 @@ function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
       {t(
         limit.keeps === "newest"
           ? "sqlDashboard.chartPointLimitNewest"
-          : "sqlDashboard.chartPointLimitFirst",
+          : limit.keeps === "last"
+            ? "sqlDashboard.chartPointLimitLast"
+            : "sqlDashboard.chartPointLimitFirst",
         {
           shown: formatters.formatNumber(limit.shown),
           total: formatters.formatNumber(limit.total),

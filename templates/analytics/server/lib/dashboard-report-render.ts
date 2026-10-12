@@ -866,7 +866,7 @@ async function renderChartBlock(args: {
   const subtitleParts = [description].filter(Boolean);
   if (input.pointLimit) {
     subtitleParts.push(
-      `showing the ${input.pointLimit.keeps === "newest" ? "newest" : "first"} ${input.pointLimit.shown} of ${input.pointLimit.total} points`,
+      `showing the ${input.pointLimit.keeps} ${input.pointLimit.shown} of ${input.pointLimit.total} points`,
     );
   }
   const subtitle = subtitleParts.join(" · ");

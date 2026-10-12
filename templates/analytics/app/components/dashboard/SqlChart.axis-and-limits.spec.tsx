@@ -305,6 +305,18 @@ describe("SqlChart axis labels, series order and point limits", () => {
     ).toBe('sqlDashboard.chartPointLimitFirst {"shown":"400","total":"450"}');
   });
 
+  it("calls the kept points of a line chart over categories the last, not the newest", async () => {
+    mocks.rows = Array.from({ length: 450 }, (_, index) => ({
+      page: `/page-${index}`,
+      views: 450 - index,
+    }));
+    await render(panel("line", { xKey: "page", yKey: "views" }));
+
+    expect(
+      container.querySelector("[data-chart-point-limit]")?.textContent,
+    ).toBe('sqlDashboard.chartPointLimitLast {"shown":"400","total":"450"}');
+  });
+
   it("adds no note when every point is drawn", async () => {
     mocks.rows = dates(400).map((day, index) => ({ day, signups: index }));
     await render(panel("line", { xKey: "day", yKey: "signups" }));

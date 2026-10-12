@@ -877,7 +877,7 @@ describe("resolveSeriesColors", () => {
     ]);
   });
 
-  it("draws every other series of an app chart gray, never a palette color", () => {
+  it("draws every other series of an app chart muted, never a palette color", () => {
     const rows = [
       { day: "2026-10-01", template: "website", visitors: 4 },
       { day: "2026-10-01", template: "unknown", visitors: 3 },
@@ -934,6 +934,29 @@ describe("resolveSeriesColors", () => {
     ]);
   });
 
+  it("reads an `app` pivot column in any case, and app-named columns alone stay on the palette", () => {
+    const appColors = [APP_SERIES_COLORS.mail, APP_SERIES_COLORS.slides];
+    for (const seriesKey of ["app", " App "]) {
+      const panel = {
+        ...byApp,
+        config: {
+          ...byApp.config,
+          pivot: { xKey: "day", seriesKey, valueKey: "visitors" },
+        },
+      };
+      expect(
+        resolveSeriesColors(["mail", "slides"], [0, 1], panel, PALETTE),
+      ).toEqual(appColors);
+    }
+    const unpivoted = {
+      chartType: "line" as const,
+      config: { xKey: "day", yKeys: ["mail", "slides"] },
+    };
+    expect(
+      resolveSeriesColors(["mail", "slides"], [0, 1], unpivoted, PALETTE),
+    ).toEqual(["#06b6d4", "#ef4444"]);
+  });
+
   it("lets config.colors override the app colors", () => {
     const panel = {
       ...byApp,
@@ -959,12 +982,48 @@ describe("chart point limit", () => {
     Array.from({ length: count }, (_, index) => ({ n: index }));
 
   it("keeps the newest points of a time series and says so", () => {
-    expect(chartPointLimit(rows(601), "line")).toEqual({
+    const days = Array.from({ length: 601 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+    }));
+    expect(chartPointLimit(days, "line", "date")).toEqual({
       shown: 400,
       total: 601,
       keeps: "newest",
     });
-    expect(limitChartRows(rows(601), "area")[0]).toEqual({ n: 201 });
+    expect(limitChartRows(days, "area", "date")[0]).toEqual(days[201]);
+  });
+
+  it("keeps the last points of a line chart over anything but ordered dates, and calls them last", () => {
+    const pages = Array.from({ length: 450 }, (_, index) => ({
+      page: `/page-${index}`,
+    }));
+    const busiest = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + ((index * 7) % 450)))
+        .toISOString()
+        .slice(0, 10),
+    }));
+    const cases: [Record<string, unknown>[], string | undefined][] = [
+      [pages, "page"],
+      [rows(601), "n"],
+      [rows(601), undefined],
+      [busiest, "date"],
+    ];
+    for (const [data, xKey] of cases) {
+      for (const chartType of ["line", "area", "combo", "heatmap"]) {
+        expect(chartPointLimit(data, chartType, xKey)?.keeps).toBe("last");
+      }
+      expect(limitChartRows(data, "line", xKey)[0]).toEqual(
+        data[data.length - 400],
+      );
+    }
+  });
+
+  it("treats an eight-digit id as a number, not a date", () => {
+    const orders = Array.from({ length: 450 }, (_, index) => ({
+      order_id: String(10_000_001 + index),
+    }));
+    expect(chartPointLimit(orders, "bar", "order_id")?.keeps).toBe("first");
+    expect(chartPointLimit(orders, "line", "order_id")?.keeps).toBe("last");
   });
 
   it("keeps the first points of a category chart and says so", () => {
@@ -1055,7 +1114,7 @@ describe("chart point limit", () => {
   it("is part of the render plan", () => {
     const plan = planPanelRender(
       Array.from({ length: 601 }, (_, index) => ({
-        date: `d${String(index).padStart(4, "0")}`,
+        date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
         n: index,
       })),
       { chartType: "line", config: { xKey: "date", yKey: "n" } },

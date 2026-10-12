@@ -838,6 +838,7 @@ export default {
     multiColumnSortHelp: "Click to sort. Shift-click to add another sort.",
     chartPointLimitNewest: "Showing the newest {{shown}} of {{total}} points",
     chartPointLimitFirst: "Showing the first {{shown}} of {{total}} points",
+    chartPointLimitLast: "Showing the last {{shown}} of {{total}} points",
     exportToGoogleSheets: "Export to Google Sheets",
     exportingToGoogleSheets: "Exporting to Google Sheets...",
     googleSheetsExported: "Exported to Google Sheets",

@@ -1228,6 +1228,7 @@ export default {
       "Mostrando os {{shown}} pontos mais recentes de {{total}}",
     chartPointLimitFirst:
       "Mostrando os primeiros {{shown}} de {{total}} pontos",
+    chartPointLimitLast: "Mostrando os últimos {{shown}} de {{total}} pontos",
     exportToGoogleSheets: "Exportar para o Google Sheets",
     exportingToGoogleSheets: "Exportando para o Google Sheets...",
     googleSheetsExported: "Exportado para o Google Sheets",

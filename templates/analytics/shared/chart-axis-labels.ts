@@ -40,6 +40,10 @@ export function trimToWidth(
 }
 
 const ISO_DATE_VALUE = /^\d{4}-\d{2}(-\d{2})?([ T]\d{2}:\d{2}.*)?$/;
+// YYYYMMDD, as GA4's BigQuery export writes `event_date`. Requiring a real month
+// and day keeps an eight-digit id from passing as a date.
+const COMPACT_DATE_VALUE =
+  /^(19|20|21)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])$/;
 const PERIOD_VALUE = /^(\d{4}-?W\d{1,2}|\d{4}-?Q[1-4]|Q[1-4][ -]\d{4})$/i;
 const MONTH =
   "(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\\.?";
@@ -56,7 +60,7 @@ function isDateValue(value: unknown): boolean {
     ISO_DATE_VALUE.test(text) ||
     PERIOD_VALUE.test(text) ||
     MONTH_NAME_DATE.test(text) ||
-    /^\d{8}$/.test(text)
+    COMPACT_DATE_VALUE.test(text)
   );
 }
 
@@ -97,7 +101,7 @@ function sortableAxisValue(value: unknown): number | string | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
   const text = value.trim();
-  if (ISO_DATE_VALUE.test(text) || /^\d{8}$/.test(text)) return text;
+  if (ISO_DATE_VALUE.test(text) || COMPACT_DATE_VALUE.test(text)) return text;
   const yearFirst = /^(\d{4})-?[WQ](\d{1,2})$/i.exec(text);
   if (yearFirst) return Number(yearFirst[1]) * 100 + Number(yearFirst[2]);
   const quarterFirst = /^Q([1-4])[ -](\d{4})$/i.exec(text);
