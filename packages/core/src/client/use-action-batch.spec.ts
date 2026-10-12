@@ -276,24 +276,37 @@ describe("action GET batching", () => {
     expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
   });
 
-  it("keeps an opted-out query unbatched when another reader of it renders later", async () => {
-    const { calls } = stubFetch(answerBatches);
-    const { refetchAll } = await mountQueries([
-      ["get-a"],
-      ["get-b"],
-      ["get-editor-document", undefined, { batchRefetches: false }],
-      ["get-editor-document"],
-    ]);
-    calls.length = 0;
+  it.each([
+    ["after", false],
+    ["before", true],
+  ])(
+    "keeps an opted-out query unbatched when another reader of it renders %s",
+    async (_, defaultReaderFirst) => {
+      const { calls } = stubFetch(answerBatches);
+      const optedOut: QuerySpec = [
+        "get-editor-document",
+        undefined,
+        { batchRefetches: false },
+      ];
+      const defaultReader: QuerySpec = ["get-editor-document"];
+      const { refetchAll } = await mountQueries([
+        ["get-a"],
+        ["get-b"],
+        ...(defaultReaderFirst
+          ? [defaultReader, optedOut]
+          : [optedOut, defaultReader]),
+      ]);
+      calls.length = 0;
 
-    await refetchAll();
+      await refetchAll();
 
-    expect(calls.map(requestLine).sort()).toEqual([
-      "GET /_agent-native/actions/get-editor-document",
-      `POST ${BATCH_URL}`,
-    ]);
-    expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
-  });
+      expect(calls.map(requestLine).sort()).toEqual([
+        "GET /_agent-native/actions/get-editor-document",
+        `POST ${BATCH_URL}`,
+      ]);
+      expect(batchedActions(calls)).toEqual(["get-a", "get-b"]);
+    },
+  );
 
   it("keeps imperative GET calls on their own requests", async () => {
     const { calls } = stubFetch();
