@@ -1314,7 +1314,9 @@ export function SqlChart({
       />
     );
   }
-  const colors = panel.config?.colors || DEFAULT_COLORS;
+  const colors = panel.config?.colors?.length
+    ? panel.config.colors
+    : DEFAULT_COLORS;
   const seriesColors = resolveSeriesColors(
     plan.yKeys,
     plan.colorSlots,

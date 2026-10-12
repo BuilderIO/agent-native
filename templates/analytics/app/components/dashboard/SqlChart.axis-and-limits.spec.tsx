@@ -43,7 +43,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { APP_SERIES_COLORS } from "@shared/app-series-colors";
+import { APP_SERIES_COLORS } from "@shared/tokens/app-series-colors";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -227,7 +227,7 @@ describe("SqlChart axis labels, series order and point limits", () => {
     ]);
   });
 
-  it("keeps each app's color when the stack is reordered", async () => {
+  it("keeps each app's color when the result order, stack order and app set change", async () => {
     const appPanel = panel("area", {
       stacked: true,
       pivot: { xKey: "day", seriesKey: "template", valueKey: "count" },
@@ -240,24 +240,40 @@ describe("SqlChart axis labels, series order and point limits", () => {
         ],
       );
 
+    const strokes = () =>
+      [...container.querySelectorAll(".recharts-area-curve")].map((curve) =>
+        curve.getAttribute("stroke"),
+      );
+
     mocks.rows = dates(2).flatMap((day) => [
       { day, template: "mail", count: 90 },
       { day, template: "slides", count: 5 },
+      { day, template: "brain", count: 1 },
     ]);
     await render(appPanel);
     expect(swatches()).toEqual([
       ["mail", APP_SERIES_COLORS.mail],
       ["slides", APP_SERIES_COLORS.slides],
+      ["brain", APP_SERIES_COLORS.brain],
+    ]);
+    expect(strokes()).toEqual([
+      APP_SERIES_COLORS.mail,
+      APP_SERIES_COLORS.slides,
+      APP_SERIES_COLORS.brain,
     ]);
 
     mocks.rows = dates(2).flatMap((day) => [
-      { day, template: "mail", count: 5 },
       { day, template: "slides", count: 90 },
+      { day, template: "mail", count: 5 },
     ]);
     await render({ ...appPanel, id: "reordered" });
     expect(swatches()).toEqual([
       ["slides", APP_SERIES_COLORS.slides],
       ["mail", APP_SERIES_COLORS.mail],
+    ]);
+    expect(strokes()).toEqual([
+      APP_SERIES_COLORS.slides,
+      APP_SERIES_COLORS.mail,
     ]);
   });
 

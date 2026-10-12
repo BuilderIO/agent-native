@@ -5,13 +5,16 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
-import { appSeriesColor } from "./app-series-colors";
 import { axisDirection, isDateAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import {
+  NON_APP_SERIES_COLORS,
+  appSeriesColor,
+} from "./tokens/app-series-colors";
 
 export { PANEL_CHART_TYPES };
 
@@ -730,10 +733,10 @@ export function seriesColorSlots(
 }
 
 /**
- * The color each of `orderedKeys` draws in. Without `config.colors`, a series
- * named after an Agent-Native app takes that app's fixed color and the rest
- * take `palette` by slot, skipping colors an app already shows in this chart.
- * With `config.colors`, `palette` is those colors and every series takes its slot.
+ * The color each of `orderedKeys` draws in. With `config.colors`, `palette` is
+ * those colors and every series takes its slot. Otherwise a chart with a series
+ * named after an Agent-Native app draws apps in their fixed colors and every
+ * other series in gray, and a chart with none takes `palette` by slot.
  */
 export function resolveSeriesColors(
   orderedKeys: readonly string[],
@@ -741,18 +744,20 @@ export function resolveSeriesColors(
   panel: RenderPanel,
   palette: readonly string[],
 ): string[] {
-  const bySlot = (colors: readonly string[], index: number) =>
-    colors[slots[index] % colors.length];
-  if (keyList(panel.config?.colors).length > 0) {
-    return orderedKeys.map((_, index) => bySlot(palette, index));
-  }
   const appColors = orderedKeys.map(appSeriesColor);
-  const shown = new Set(appColors.map((color) => color?.toLowerCase()));
-  const free = palette.filter((color) => !shown.has(color.toLowerCase()));
-  return orderedKeys.map(
-    (_, index) =>
-      appColors[index] ?? bySlot(free.length > 0 ? free : palette, index),
-  );
+  if (
+    keyList(panel.config?.colors).length > 0 ||
+    appColors.every((color) => color === undefined)
+  ) {
+    return slots.map((slot) => palette[slot % palette.length]);
+  }
+  const otherSlots = slots.filter((_, index) => !appColors[index]);
+  return orderedKeys.map((_, index) => {
+    const app = appColors[index];
+    if (app) return app;
+    const rank = otherSlots.filter((slot) => slot < slots[index]).length;
+    return NON_APP_SERIES_COLORS[rank % NON_APP_SERIES_COLORS.length];
+  });
 }
 
 /**

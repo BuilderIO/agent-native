@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics";
-import { APP_SERIES_COLORS } from "./app-series-colors";
 import {
   PANEL_CHART_TYPES,
   PANEL_TOP_LEVEL_KEYS,
@@ -19,6 +18,10 @@ import {
   unknownPanelConfigKeys,
   validatePanelContract,
 } from "./panel-render-contract";
+import {
+  APP_SERIES_COLORS,
+  NON_APP_SERIES_COLORS,
+} from "./tokens/app-series-colors";
 
 const wideRows = [
   { week: "2026-09-01", app_a: 3, app_b: 4, viral_coefficient: 0.3 },
@@ -822,7 +825,7 @@ describe("orderPanelSeries", () => {
 
 describe("resolveSeriesColors", () => {
   const PALETTE = ["#06b6d4", "#ef4444", "#f59e0b"];
-  const stacked = {
+  const byApp = {
     chartType: "area" as const,
     config: {
       stacked: true,
@@ -833,63 +836,83 @@ describe("resolveSeriesColors", () => {
   function colorsByKey(
     rows: Record<string, unknown>[],
     panel: Parameters<typeof planPanelRender>[1],
+    palette = PALETTE,
   ) {
     const plan = planPanelRender(rows, panel);
     const colors = resolveSeriesColors(
       plan.yKeys,
       plan.colorSlots,
       panel,
-      PALETTE,
+      palette,
     );
     return plan.yKeys.map((key, index) => [key, colors[index]]);
   }
 
-  it("keeps each app's color when the stack order changes", () => {
-    const mailFirst = colorsByKey(
+  it("keeps each app's color when result order, stack order and the app set change", () => {
+    const first = colorsByKey(
       [
         { day: "2026-10-01", template: "slides", visitors: 2 },
         { day: "2026-10-01", template: "mail", visitors: 9 },
+        { day: "2026-10-01", template: "brain", visitors: 1 },
       ],
-      stacked,
+      byApp,
     );
-    const slidesFirst = colorsByKey(
+    const second = colorsByKey(
       [
-        { day: "2026-10-01", template: "slides", visitors: 9 },
         { day: "2026-10-01", template: "mail", visitors: 2 },
+        { day: "2026-10-01", template: "slides", visitors: 9 },
       ],
-      stacked,
+      byApp,
     );
 
-    expect(mailFirst).toEqual([
+    expect(first).toEqual([
       ["mail", APP_SERIES_COLORS.mail],
       ["slides", APP_SERIES_COLORS.slides],
+      ["brain", APP_SERIES_COLORS.brain],
     ]);
-    expect(slidesFirst).toEqual([
+    expect(second).toEqual([
       ["slides", APP_SERIES_COLORS.slides],
       ["mail", APP_SERIES_COLORS.mail],
     ]);
   });
 
-  it("skips palette colors an app in the chart shows; other series keep their slot", () => {
+  it("draws every other series of an app chart gray, never a palette color", () => {
+    const rows = [
+      { day: "2026-10-01", template: "unknown", visitors: 3 },
+      { day: "2026-10-01", template: "forms", visitors: 9 },
+      { day: "2026-10-01", template: "docs", visitors: 2 },
+    ];
+    const expected = [
+      ["forms", APP_SERIES_COLORS.forms],
+      ["docs", NON_APP_SERIES_COLORS[1]],
+      ["unknown", NON_APP_SERIES_COLORS[0]],
+    ];
+
+    expect(colorsByKey(rows, byApp)).toEqual(expected);
+    expect(colorsByKey(rows, byApp, ["var(--brand-blue)", "#0d9488"])).toEqual(
+      expected,
+    );
+  });
+
+  it("keeps the palette by slot on a chart with no app series", () => {
     expect(
       colorsByKey(
         [
-          { day: "2026-10-01", template: "forms", visitors: 9 },
-          { day: "2026-10-01", template: "docs", visitors: 2 },
+          { day: "2026-10-01", template: "production", visitors: 2 },
+          { day: "2026-10-01", template: "unknown", visitors: 9 },
         ],
-        stacked,
+        byApp,
       ),
     ).toEqual([
-      ["forms", APP_SERIES_COLORS.forms],
-      // Slot 1 of the palette without forms' #06b6d4.
-      ["docs", "#f59e0b"],
+      ["production", "#06b6d4"],
+      ["unknown", "#ef4444"],
     ]);
   });
 
   it("lets config.colors override the app colors", () => {
     const panel = {
-      ...stacked,
-      config: { ...stacked.config, colors: PALETTE },
+      ...byApp,
+      config: { ...byApp.config, colors: PALETTE },
     };
     expect(
       colorsByKey(

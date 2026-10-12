@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
-import { APP_SERIES_COLORS } from "../../shared/app-series-colors";
+import {
+  APP_SERIES_COLORS,
+  NON_APP_SERIES_COLORS,
+} from "../../shared/tokens/app-series-colors";
 
 const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(
@@ -996,7 +999,7 @@ describe("report chart parity with the dashboard", () => {
     ).toEqual([
       ["mail", APP_SERIES_COLORS.mail],
       ["slides", APP_SERIES_COLORS.slides],
-      ["unknown", APP_SERIES_COLORS.unknown],
+      ["unknown", NON_APP_SERIES_COLORS[0]],
     ]);
   });
 });
