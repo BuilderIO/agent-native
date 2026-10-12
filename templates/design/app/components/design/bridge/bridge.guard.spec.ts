@@ -17687,6 +17687,7 @@ it(
         ),
       );
 
+      const preLoadMessageCount = (await readBridgeMessages(page)).length;
       releaseFontResponse?.();
       await page.evaluate(async () => {
         await document.fonts.ready;
@@ -17700,10 +17701,10 @@ it(
           "قياس ارتفاع النص",
         );
       });
-      await page.waitForFunction(() => {
-        const messages = [
-          ...((window as any).__bridgeMessages ?? []),
-        ].reverse();
+      await page.waitForFunction((startIndex) => {
+        const messages = ((window as any).__bridgeMessages ?? [])
+          .slice(startIndex)
+          .reverse();
         const height = document
           .querySelector("#text")!
           .getBoundingClientRect().height;
@@ -17727,7 +17728,7 @@ it(
               height,
           ) < 0.05
         );
-      });
+      }, preLoadMessageCount);
       let loadedMessages = await readBridgeMessages(page);
       const latestLoadedMessages = loadedMessages.slice().reverse();
       const activeRangeUpdate = latestLoadedMessages.find(

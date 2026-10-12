@@ -21,7 +21,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
 import { clientBuildId } from "./build-compatibility.js";
-import { isBrowserPersistableActionQuery } from "./use-action.js";
+import {
+  isBrowserPersistableActionQuery,
+  markRestoredBrowserPersistableActionQuery,
+} from "./use-action.js";
 import { useSession } from "./use-session.js";
 
 // Bump when a cached result's shape or meaning changes. A record stored under
@@ -101,12 +104,21 @@ function withinMaxAge(
   };
 }
 
+interface RestoredSource {
+  dataUpdatedAt: number;
+  data: unknown;
+  queryKey: readonly unknown[];
+  status: string;
+}
+
 interface ScopedPersister extends Persister {
   /** Drops a write still waiting on the debounce, then deletes the record. */
   discard(): void;
   close(): void;
   /** The query hashes and data ages the last restore hydrated from the record. */
   restoredStates(): ReadonlyMap<string, number>;
+  restoredSources(): ReadonlyMap<string, RestoredSource>;
+  restoreWasAccepted(): boolean;
 }
 
 // ponytail: one record holds every persisted result for the scope, with no size cap; split per query or cap bytes if restore shows up in traces.
@@ -115,6 +127,15 @@ function scopedPersister(scope: string): ScopedPersister {
   let latest: PersistedClient | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let restored = new Map<string, number>();
+  let restoredSources = new Map<string, RestoredSource>();
+  let restoreAccepted = false;
+  let restoreRevision = 0;
+
+  const clearRestoredState = () => {
+    restoreAccepted = false;
+    restored = new Map();
+    restoredSources = new Map();
+  };
 
   const flush = () => {
     timer = undefined;
@@ -135,26 +156,53 @@ function scopedPersister(scope: string): ScopedPersister {
       timer ??= setTimeout(flush, WRITE_DELAY_MS);
     },
     async restoreClient() {
+      clearRestoredState();
       if (!open) return undefined;
+      const revision = restoreRevision;
       const stored = await storage.get(scope);
-      // Closed while the read was in flight: the record belongs to a scope the
-      // page has left, so it must not be hydrated into this client.
-      const record = open ? withinMaxAge(stored) : undefined;
+      // A revoked record can still be in an outstanding storage read. Do not
+      // return it to the persister after discard, even if the read was started
+      // before the matching 403/404.
+      const record =
+        open && revision === restoreRevision ? withinMaxAge(stored) : undefined;
       restored = new Map(
         record?.clientState.queries.map((query) => [
           query.queryHash,
           query.state.dataUpdatedAt,
         ]),
       );
+      restoredSources = new Map(
+        record?.clientState.queries.map((query) => [
+          query.queryHash,
+          {
+            dataUpdatedAt: query.state.dataUpdatedAt,
+            data: query.state.data,
+            queryKey: query.queryKey,
+            status: query.state.status,
+          },
+        ]),
+      );
+      restoreAccepted =
+        open && revision === restoreRevision && record !== undefined;
       return record;
     },
     restoredStates() {
       return restored;
     },
+    restoredSources() {
+      return restoredSources;
+    },
+    restoreWasAccepted() {
+      return open && restoreAccepted;
+    },
     removeClient() {
+      restoreRevision += 1;
+      clearRestoredState();
       return storage.del(scope);
     },
     discard() {
+      restoreRevision += 1;
+      clearRestoredState();
       // A debounced write still holds the client as it was before the revoke,
       // and would put the revoked result back after this delete.
       latest = undefined;
@@ -168,6 +216,8 @@ function scopedPersister(scope: string): ScopedPersister {
     },
     close() {
       open = false;
+      restoreRevision += 1;
+      clearRestoredState();
       latest = undefined;
       clearTimeout(timer);
       timer = undefined;
@@ -239,11 +289,74 @@ export async function bindActionQueryCache(
   if (generation !== bindingGeneration) return;
 
   const persister = scopedPersister(scope);
+  let payloadMappingValid = true;
+  let deserializeIndex = 0;
+  const deserializedByHash = new Map<
+    string,
+    { dataUpdatedAt: number; data: unknown }
+  >();
+  let cachedSourceEntries: Array<[string, RestoredSource]> | undefined;
+  const sourceEntries = () => {
+    cachedSourceEntries ??= [...persister.restoredSources()].filter(
+      ([, source]) => source.data !== undefined,
+    );
+    return cachedSourceEntries;
+  };
+  const clientHydrateOptions = client.getDefaultOptions().hydrate;
+  const clientDeserializeData = clientHydrateOptions?.deserializeData;
+  const hydrateOptions = {
+    defaultOptions: {
+      ...clientHydrateOptions,
+      deserializeData: (data: unknown) => {
+        const result = clientDeserializeData
+          ? clientDeserializeData(data)
+          : data;
+        const expected = sourceEntries()[deserializeIndex++];
+        if (!expected || !Object.is(expected[1].data, data)) {
+          payloadMappingValid = false;
+        } else {
+          deserializedByHash.set(expected[0], {
+            dataUpdatedAt: expected[1].dataUpdatedAt,
+            data: result,
+          });
+        }
+        return result;
+      },
+    },
+  };
+  const hydratedQueryHashes = new Set<string>();
+  const unsubscribeHydration = client.getQueryCache().subscribe((event) => {
+    if (!persister.restoreWasAccepted()) return;
+    const hash = event.query.queryHash;
+    const source = persister.restoredSources().get(hash);
+    const deserialized = deserializedByHash.get(hash);
+    if (!source || !deserialized) return;
+    // An unrelated local setState can happen while restore is pending. Count
+    // it only when its payload is the object produced by SDK deserialization.
+    const isHydratedState = (state: {
+      data?: unknown;
+      dataUpdatedAt?: number;
+      status?: string;
+    }) =>
+      state.status === source.status &&
+      state.dataUpdatedAt === source.dataUpdatedAt &&
+      Object.is(state.data, deserialized.data);
+    if (event.type === "added" && isHydratedState(event.query.state)) {
+      hydratedQueryHashes.add(hash);
+    } else if (
+      event.type === "updated" &&
+      event.action.type === "setState" &&
+      isHydratedState(event.action.state)
+    ) {
+      hydratedQueryHashes.add(hash);
+    }
+  });
   const [unsubscribe, restored] = persistQueryClient({
     queryClient: client,
     persister,
     buster: ACTION_QUERY_CACHE_BUSTER,
     maxAge: ACTION_QUERY_CACHE_MAX_AGE_MS,
+    hydrateOptions,
     dehydrateOptions: {
       shouldDehydrateQuery: isBrowserPersistableActionQuery,
       // A mutation replayed from disk would look like a write that succeeded.
@@ -267,9 +380,48 @@ export async function bindActionQueryCache(
     unsubscribe: () => {
       unsubscribe();
       unsubscribeRevoked();
+      unsubscribeHydration();
     },
   };
 
+  const finishAcceptedRestore = () => {
+    const expectedDataCount = sourceEntries().length;
+    if (deserializeIndex !== expectedDataCount) payloadMappingValid = false;
+    if (
+      !payloadMappingValid ||
+      generation !== bindingGeneration ||
+      !persister.restoreWasAccepted()
+    ) {
+      return;
+    }
+    const restoredStates = persister.restoredStates();
+    const restoredSources = persister.restoredSources();
+    for (const query of client.getQueryCache().getAll()) {
+      const source = restoredSources.get(query.queryHash);
+      const deserialized = deserializedByHash.get(query.queryHash);
+      if (
+        hydratedQueryHashes.has(query.queryHash) &&
+        source?.queryKey[0] === "action" &&
+        source.status === "success" &&
+        query.queryKey[0] === "action" &&
+        query.state.status === "success" &&
+        restoredStates.get(query.queryHash) === query.state.dataUpdatedAt &&
+        source.dataUpdatedAt === deserialized?.dataUpdatedAt &&
+        Object.is(query.state.data, deserialized?.data)
+      ) {
+        markRestoredBrowserPersistableActionQuery(query.queryHash);
+      }
+    }
+  };
+  // This runs after SDK hydration settles even if the UI's bounded wait has
+  // already released the app; a later scope generation cannot be authorized.
+  void restored.then(
+    () => {
+      finishAcceptedRestore();
+      unsubscribeHydration();
+    },
+    () => unsubscribeHydration(),
+  );
   await waitForRestore(restored);
   // A scope change during the restore can hydrate the old scope after the new
   // one has started; drop those results before the new scope saves them. A

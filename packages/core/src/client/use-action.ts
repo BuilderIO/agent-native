@@ -1093,6 +1093,13 @@ export function isBrowserPersistableActionQuery(query: Query): boolean {
   );
 }
 
+/** @internal used only after a persisted action result is accepted and hydrated. */
+export function markRestoredBrowserPersistableActionQuery(
+  queryHash: string,
+): void {
+  browserPersistableActionQueryHashes.add(queryHash);
+}
+
 export function useActionQuery<
   TResult = undefined,
   TName extends ActionName = ActionName,

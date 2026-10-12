@@ -114,6 +114,39 @@ afterEach(async () => {
 });
 
 describe("Templates cached-list freshness", () => {
+  it.each([
+    { status: 503, keepCachedList: true },
+    { status: 403, keepCachedList: false },
+    { status: 404, keepCachedList: false },
+  ])(
+    "handles refresh failure $status without bypassing access errors",
+    async ({ status, keepCachedList }) => {
+      mocks.listTemplates.mockRejectedValue(
+        Object.assign(new Error("Refresh failed"), { status }),
+      );
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <MemoryRouter initialEntries={["/templates"]}>
+              <Templates />
+            </MemoryRouter>
+          </QueryClientProvider>,
+        );
+      });
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(queryClient.getQueryState(queryKey)?.status).toBe("error"),
+        );
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        container.querySelector('[data-template-id="builtin-one"]') !== null,
+      ).toBe(keepCachedList);
+      expect(container.textContent).toContain("common.genericError");
+    },
+  );
   it("refetches a fresh cached list on mount and populates the library leaf", async () => {
     const cachedState = queryClient.getQueryState(queryKey);
     expect(cachedState?.isInvalidated).toBe(false);
