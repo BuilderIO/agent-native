@@ -70,6 +70,9 @@ export function nativeEffectExecutionPayload(definition: EffectDefinition) {
     ...(definition.statelessCompute === undefined
       ? {}
       : { statelessCompute: definition.statelessCompute }),
+    ...(definition.resourceGraph === undefined
+      ? {}
+      : { resourceGraph: definition.resourceGraph }),
     ...(definition.simulation === undefined
       ? {}
       : { simulation: definition.simulation }),

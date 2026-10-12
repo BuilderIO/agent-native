@@ -681,6 +681,7 @@ export default {
           "owned-x-wavelet-bands": "نطاقات المويجات",
           "owned-x-perlin-gradient-field": "حقل تدرج بيرلن",
           "owned-x-simplex-lattice": "شبكة سيمبلكس",
+          "owned-y-steered-kuwahara": "كواهارا موجّه",
         },
         properties: {
           channel: "القناة",
@@ -1245,6 +1246,7 @@ export default {
           threshold: "العتبة",
           cellSize: "حجم الخلية",
           radius: "نصف القطر",
+          directionality: "التوجيه",
           strength: "القوة",
           curvature: "الانحناء",
           scanlines: "خطوط المسح",
@@ -2171,6 +2173,10 @@ export default {
           "an-preset-owned-x-perlin-gradient-field-v1-2": "اضطراب التدرج",
           "an-preset-owned-x-simplex-lattice-v1-1": "توهج سيمبلكس",
           "an-preset-owned-x-simplex-lattice-v1-2": "اضطراب سيمبلكس",
+          "an-preset-owned-y-steered-kuwahara-soft-brushwork":
+            "ضربات فرشاة ناعمة",
+          "an-preset-owned-y-steered-kuwahara-flowing-strokes":
+            "ضربات فرشاة انسيابية",
           "an-preset-curl-streamlines-v2-1": "حبر متدفق",
           "an-preset-curl-streamlines-v2-2": "طاقة الدوامة",
         },

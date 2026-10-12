@@ -185,6 +185,8 @@ describe("native multipass texture bindings", () => {
       limits: {
         maxTextureDimension2D: 8192,
         maxSampledTexturesPerShaderStage: 16,
+        maxStorageBuffersPerShaderStage: 8,
+        maxStorageTexturesPerShaderStage: 4,
         maxComputeWorkgroupsPerDimension: 65535,
         maxStorageBufferBindingSize: 134217728,
         maxBufferSize: 268435456,
@@ -3431,6 +3433,138 @@ describe("native multipass texture bindings", () => {
       const beforeInvalidation = epochProvider.sourceEpoch();
       epochProvider.invalidate();
       expect(epochProvider.sourceEpoch()).toBeGreaterThan(beforeInvalidation);
+      const graphDefinition: EffectDefinition = {
+        ...definition,
+        id: "linear-buffer-graph-test",
+        extent: undefined,
+        resourceGraph: { abi: "linear-resource-v1" },
+        resources: [
+          {
+            name: "source",
+            kind: "texture-2d",
+            external: true,
+            usage: ["sampled"],
+          },
+          {
+            name: "cells",
+            kind: "buffer",
+            size: "fixed",
+            byteLength: 64,
+            usage: ["storage"],
+          },
+          {
+            name: "color",
+            kind: "texture-2d",
+            format: "rgba16float",
+            size: "viewport",
+            usage: ["render", "sampled"],
+          },
+        ],
+        passes: [
+          {
+            id: "cells-pass",
+            kind: "compute",
+            reads: ["source"],
+            output: "cells",
+            dispatch: { elements: "output-buffer", workgroupSize: [4, 1, 1] },
+            wgsl: `struct Globals { viewport: vec4f, clock: vec4f, params: array<vec4f, 32> };
+@group(0) @binding(0) var<uniform> globals: Globals;
+@group(0) @binding(1) var effectSampler: sampler;
+@group(0) @binding(2) var sourceTexture: texture_2d<f32>;
+@group(0) @binding(18) var<storage, read_write> cells: array<vec4f>;
+@compute @workgroup_size(4,1,1) fn cs(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x < u32(globals.viewport.x)) { cells[id.x] = textureLoad(sourceTexture, vec2i(0), 0); }
+}`,
+          },
+          {
+            id: "resolve",
+            kind: "render",
+            reads: ["source", "cells"],
+            output: "color",
+            wgsl: `struct Globals { viewport: vec4f, clock: vec4f, params: array<vec4f, 32> };
+@group(0) @binding(0) var<uniform> globals: Globals;
+@group(0) @binding(1) var effectSampler: sampler;
+@group(0) @binding(2) var sourceTexture: texture_2d<f32>;
+@group(0) @binding(3) var<storage, read> cells: array<vec4f>;
+@vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
+  let xy = array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
+  return vec4f(xy[index],0.,1.);
+}
+@fragment fn fs() -> @location(0) vec4f { return cells[0] * 0. + textureLoad(sourceTexture, vec2i(0), 0); }`,
+          },
+        ],
+      };
+      {
+        const graphInstance = {
+          ...pairMount.instance,
+          definitionId: graphDefinition.id,
+          definitionVersion: graphDefinition.version,
+          params: {},
+        };
+        const graphRunner = internal as typeof internal & {
+          effectPasses(
+            mount: typeof pairMount,
+            source: FakeTexture,
+            time: number,
+            encoder: GPUCommandEncoder,
+            definition: EffectDefinition,
+            instance: EffectInstance,
+            deterministic: boolean,
+          ): Promise<FakeTexture>;
+          settleStatelessFrames(
+            encoder: GPUCommandEncoder,
+            submitted: boolean,
+          ): void;
+        };
+        const graphEncoder = (
+          device as unknown as GPUDevice
+        ).createCommandEncoder();
+        const beforeGraph = computeCommandTrace.length;
+        const beforeBindings = bound.length;
+        await graphRunner.effectPasses(
+          pairMount,
+          pairMount.outputTexture!,
+          0,
+          graphEncoder,
+          graphDefinition,
+          graphInstance,
+          true,
+        );
+        (device as unknown as GPUDevice).queue.submit([graphEncoder.finish()]);
+        graphRunner.settleStatelessFrames(graphEncoder, true);
+        expect(computeCommandTrace.slice(beforeGraph)).toContain(
+          "dispatch:1,1,1",
+        );
+        const graphGroups = bound.slice(beforeBindings);
+        const computed = graphGroups.find((group) =>
+          group.entries.some((entry) => entry.binding === 18),
+        );
+        const computedBuffer = (
+          computed?.entries.find((entry) => entry.binding === 18)?.resource as
+            | { buffer?: unknown }
+            | undefined
+        )?.buffer;
+        const resolved = graphGroups.find((group) =>
+          group.entries.some(
+            (entry) =>
+              entry.binding === 3 &&
+              (entry.resource as { buffer?: unknown }).buffer ===
+                computedBuffer,
+          ),
+        );
+        expect(computed).toBeDefined();
+        expect(resolved).toBeDefined();
+        expect(
+          resolved?.entries.find((entry) => entry.binding === 2)?.resource,
+        ).toHaveProperty("textureId");
+        await Promise.all([
+          ...(
+            internal as typeof internal & {
+              statelessRetirements: Set<Promise<void>>;
+            }
+          ).statelessRetirements,
+        ]);
+      }
       // Test-only private ABI consumer; no catalog or oracle promotion.
       const statelessProbe = internal as typeof internal & {
         approvedHashes: Set<string>;

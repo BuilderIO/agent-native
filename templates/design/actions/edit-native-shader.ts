@@ -175,7 +175,7 @@ const operation = z.discriminatedUnion("kind", [
 export default defineAction({
   description:
     "Edit a native v2 GPU effect in one inline Design HTML file, or approve/revoke an exact executable definition hash for the signed-in viewer. " +
-    "set-instance can update params and bindings atomically; bindingTargets resolves unique same-file selectors and stamps stable authored node IDs on unlocked sources in that write. Authored bindings are for ordinary render-pass inputs, not compute or stateful effects. " +
+    "set-instance can update params and bindings atomically; bindingTargets resolves unique same-file selectors and stamps stable authored node IDs on unlocked sources in that write. Authored texture bindings work in ordinary render passes and linear-resource-v1 graphs; feedback, simulation, and source-buffer-v1 compute retain their separate input contracts. " +
     "Source edits, including document preview quality, frame-rate, requested color gamut, and dynamic-range policy, require editor access and an expected version hash; approvals require view access and change only viewer-scoped application state. " +
     "CPU validation does not compile GPU code; verify rendering in the Design preview.",
   requiresAuth: true,

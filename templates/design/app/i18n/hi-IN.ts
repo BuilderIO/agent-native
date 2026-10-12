@@ -684,6 +684,7 @@ export default {
           "owned-x-wavelet-bands": "वेवलेट बैंड",
           "owned-x-perlin-gradient-field": "Perlin ग्रेडिएंट क्षेत्र",
           "owned-x-simplex-lattice": "Simplex जाल",
+          "owned-y-steered-kuwahara": "दिशा-निर्देशित कुवाहारा",
         },
         properties: {
           channel: "चैनल",
@@ -1248,6 +1249,7 @@ export default {
           threshold: "दहलीज़",
           cellSize: "कोशिका आकार",
           radius: "त्रिज्या",
+          directionality: "दिशात्मकता",
           strength: "तीव्रता",
           curvature: "वक्रता",
           scanlines: "स्कैन रेखाएँ",
@@ -2167,6 +2169,9 @@ export default {
           "an-preset-owned-x-perlin-gradient-field-v1-2": "ग्रेडिएंट अशांति",
           "an-preset-owned-x-simplex-lattice-v1-1": "Simplex चमक",
           "an-preset-owned-x-simplex-lattice-v1-2": "Simplex अशांति",
+          "an-preset-owned-y-steered-kuwahara-soft-brushwork":
+            "मुलायम ब्रश स्ट्रोक",
+          "an-preset-owned-y-steered-kuwahara-flowing-strokes": "बहते ब्रश स्ट्रोक",
           "an-preset-curl-streamlines-v2-1": "बहती स्याही",
           "an-preset-curl-streamlines-v2-2": "भंवर ऊर्जा",
         },

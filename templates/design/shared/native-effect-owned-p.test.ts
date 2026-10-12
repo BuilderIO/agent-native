@@ -93,13 +93,13 @@ describe("four independently authored P registrations", () => {
     expect(digest(OWNED_P_PRESETS)).toBe(
       "77a0c67148e7cbc6a8cf5726683c923a0018620d23fce76f33781fc8596e5012",
     );
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(306);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(356);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(714);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(307);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(357);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(716);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((d) => d.id)).size,
-    ).toBe(306);
-    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(714);
+    ).toBe(307);
+    expect(new Set(NATIVE_EFFECT_PRESETS.map((p) => p.id)).size).toBe(716);
     expect(digest(NATIVE_EFFECT_DEFINITION_CATALOG.slice(0, 264))).toBe(
       "75c7a8a3641379e10f7e27b1949d4b8a3cf22cb407f371d7bda89d283f1a53d3",
     );

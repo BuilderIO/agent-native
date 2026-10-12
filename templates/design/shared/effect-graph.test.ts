@@ -6,6 +6,8 @@ import {
   resizeInvalidatedResources,
   type EffectPass,
 } from "./effect-graph";
+import { nativeEffectExecutionPayload } from "./native-effect-trust";
+import type { EffectDefinition } from "./native-effects";
 
 const pass = (
   id: string,
@@ -22,6 +24,94 @@ const pass = (
 });
 
 describe("native effect pass planner", () => {
+  it("plans ordered mixed-resource linear graphs and binds the opt-in ABI to trust", () => {
+    const resources = [
+      {
+        name: "source",
+        kind: "texture-2d" as const,
+        external: true,
+        usage: ["sampled" as const],
+      },
+      {
+        name: "cells",
+        kind: "buffer" as const,
+        size: "fixed" as const,
+        byteLength: 64,
+        usage: ["storage" as const],
+      },
+      {
+        name: "color",
+        kind: "texture-2d" as const,
+        size: "viewport" as const,
+        format: "rgba16float",
+        usage: ["render" as const, "sampled" as const],
+      },
+    ];
+    const compute: EffectPass = {
+      id: "cells-pass",
+      kind: "compute",
+      reads: ["source"],
+      output: "cells",
+      wgsl: "// @compute @workgroup_size(1,1,1) fn cs() {}\n@compute @workgroup_size(4,1,1) fn cs() {}",
+      dispatch: { elements: "output-buffer", workgroupSize: [4, 1, 1] },
+    };
+    const resolve = pass("resolve", ["source", "cells"], "color");
+    const plan = planEffectPasses(
+      [resolve, compute],
+      resources,
+      "color",
+      undefined,
+      undefined,
+      { abi: "linear-resource-v1" },
+    );
+    expect(plan.errors).toEqual([]);
+    expect(plan.passes.map((item) => item.id)).toEqual([
+      "cells-pass",
+      "resolve",
+    ]);
+    expect(
+      planEffectPasses([resolve, compute], resources, "color").errors,
+    ).toContain("linear-resource-definition-invalid");
+    expect(
+      planEffectPasses(
+        [
+          resolve,
+          {
+            ...compute,
+            dispatch: { elements: "output-buffer", workgroupSize: [8, 1, 1] },
+          },
+        ],
+        resources,
+        "color",
+        undefined,
+        undefined,
+        { abi: "linear-resource-v1" },
+      ).errors,
+    ).toContain(
+      "linear compute pass cells-pass has mismatched WGSL workgroup metadata",
+    );
+    const definition = {
+      id: "linear-test",
+      version: 1,
+      kind: "processor",
+      placements: ["layer"],
+      properties: {},
+      resourceGraph: { abi: "linear-resource-v1" },
+      resources,
+      passes: [compute, resolve],
+      output: "color",
+    } as EffectDefinition;
+    expect(nativeEffectExecutionPayload(definition).resourceGraph).toEqual({
+      abi: "linear-resource-v1",
+    });
+    expect(
+      "resourceGraph" in
+        nativeEffectExecutionPayload({
+          ...definition,
+          resourceGraph: undefined,
+        }),
+    ).toBe(false);
+  });
   it("sorts same-frame dependencies and computes transient lifetimes", () => {
     const plan = planEffectPasses([
       pass("finish", ["blurred"], "color"),

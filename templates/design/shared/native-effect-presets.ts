@@ -158,6 +158,10 @@ import {
   OWNED_X_NOISE_DEFINITIONS,
   OWNED_X_NOISE_PRESETS,
 } from "./native-effect-owned-x-noise";
+import {
+  STEERED_KUWAHARA_EFFECT,
+  STEERED_KUWAHARA_PRESETS,
+} from "./native-effect-owned-y-directional";
 import { PARTICLE_FLOW_EFFECT } from "./native-effect-particle-flow";
 import {
   NATIVE_PERIMETER_FOCAL_DEFINITIONS,
@@ -546,6 +550,7 @@ export const NATIVE_EFFECT_DEFINITION_CATALOG: readonly EffectDefinition[] = [
   ...OWNED_W_DISTORTION_DEFINITIONS,
   FREQUENCY_SEPARATION_EFFECT,
   ...OWNED_X_NOISE_DEFINITIONS,
+  STEERED_KUWAHARA_EFFECT,
 ];
 
 const currentDefinitionCandidates: readonly EffectDefinition[] = [
@@ -569,6 +574,7 @@ const currentDefinitionCandidates: readonly EffectDefinition[] = [
   ...OWNED_W_DISTORTION_DEFINITIONS,
   FREQUENCY_SEPARATION_EFFECT,
   ...OWNED_X_NOISE_DEFINITIONS,
+  STEERED_KUWAHARA_EFFECT,
 ];
 const latestDefinitionById = new Map<string, EffectDefinition>();
 for (const definition of currentDefinitionCandidates) {
@@ -705,4 +711,5 @@ export const NATIVE_EFFECT_PRESETS: readonly EffectPreset[] = [
   ...OWNED_W_DISTORTION_PRESETS,
   ...FREQUENCY_SEPARATION_PRESETS,
   ...OWNED_X_NOISE_PRESETS,
+  ...STEERED_KUWAHARA_PRESETS,
 ];

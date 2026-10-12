@@ -262,6 +262,7 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-frequency-separation@1",
   "an-native-owned-x-high-pass-speckle@1",
   "an-native-owned-x-drainage-field@1",
+  "an-native-owned-y-steered-kuwahara@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([

@@ -5,6 +5,7 @@ import {
   feedbackUniformProperties,
   planEffectGraph,
   type EffectFeedbackSpec,
+  type EffectLinearResourceGraphSpec,
   type EffectPass,
   type EffectResourceSpec,
   type EffectStatelessComputeSpec,
@@ -21,6 +22,7 @@ import {
   type NativePositionBasis,
   type NativePositionValue,
 } from "./native-effect-position";
+import { isLinearResourceDispatch } from "./native-linear-resource-graph";
 import {
   isNativeSourceSizing,
   type NativeSourceSizing,
@@ -247,6 +249,7 @@ export interface EffectDefinition {
   optionalImage?: RetiredNativeOptionalImageContract;
   feedback?: EffectFeedbackSpec;
   statelessCompute?: EffectStatelessComputeSpec;
+  resourceGraph?: EffectLinearResourceGraphSpec;
   simulation?: {
     fixedDt: number;
     stateResource: string;
@@ -1215,6 +1218,19 @@ function validateDefinition(
       }
     }
   }
+  if (
+    value.resourceGraph !== undefined &&
+    (!record(value.resourceGraph) ||
+      value.resourceGraph.abi !== "linear-resource-v1" ||
+      Object.keys(value.resourceGraph).length !== 1 ||
+      value.kind === "simulation" ||
+      value.feedback !== undefined ||
+      value.statelessCompute !== undefined ||
+      value.simulation !== undefined ||
+      value.optionalImage !== undefined ||
+      value.sourceSizing !== undefined)
+  )
+    errors.push(`${prefix}.resourceGraph: linear-resource-definition-invalid`);
   if (value.simulation !== undefined) {
     const simulation = value.simulation;
     const count = record(simulation) ? simulation.count : undefined;
@@ -1562,6 +1578,7 @@ function validateDefinition(
     } else if (
       !value.feedback &&
       !value.statelessCompute &&
+      !value.resourceGraph &&
       value.passes.some(
         (pass: EffectPass) =>
           pass.dispatch || pass.draw || pass.additionalOutputs,
@@ -1602,6 +1619,7 @@ function validateDefinition(
         (pass.dispatch !== undefined &&
           (!record(pass.dispatch) ||
             (!isStatelessComputeDispatch(pass.dispatch) &&
+              !isLinearResourceDispatch(pass.dispatch) &&
               Object.keys(pass.dispatch).length !== 2) ||
             pass.kind !== "compute" ||
             !(
@@ -1614,7 +1632,8 @@ function validateDefinition(
                 pass.dispatch.workgroupSize[1] === 8 &&
                 pass.dispatch.elements === "fixed-grid") ||
               (value.statelessCompute &&
-                isStatelessComputeDispatch(pass.dispatch))
+                isStatelessComputeDispatch(pass.dispatch)) ||
+              (value.resourceGraph && isLinearResourceDispatch(pass.dispatch))
             ))) ||
         (pass.draw !== undefined &&
           (!record(pass.draw) ||
@@ -1669,6 +1688,7 @@ function validateDefinition(
             passes: EffectPass[];
             resources?: EffectResourceSpec[];
             output?: string;
+            resourceGraph?: EffectLinearResourceGraphSpec;
           },
         ).errors.map((error) => `${prefix}: ${error}`),
       );

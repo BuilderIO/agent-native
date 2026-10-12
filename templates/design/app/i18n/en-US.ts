@@ -687,6 +687,7 @@ export default {
           "owned-x-wavelet-bands": "Wavelet Bands",
           "owned-x-perlin-gradient-field": "Perlin Gradient Field",
           "owned-x-simplex-lattice": "Simplex Lattice",
+          "owned-y-steered-kuwahara": "Steered Kuwahara",
         },
         properties: {
           channel: "Channel",
@@ -1310,6 +1311,7 @@ export default {
           threshold: "Threshold",
           cellSize: "Cell size",
           radius: "Radius",
+          directionality: "Directionality",
           strength: "Strength",
           curvature: "Curvature",
           scanlines: "Scanlines",
@@ -2203,6 +2205,9 @@ export default {
           "an-preset-owned-x-perlin-gradient-field-v1-2": "Gradient turbulence",
           "an-preset-owned-x-simplex-lattice-v1-1": "Simplex glow",
           "an-preset-owned-x-simplex-lattice-v1-2": "Simplex turbulence",
+          "an-preset-owned-y-steered-kuwahara-soft-brushwork": "Soft brushwork",
+          "an-preset-owned-y-steered-kuwahara-flowing-strokes":
+            "Flowing strokes",
           "an-preset-curl-streamlines-v2-1": "Flowing ink",
           "an-preset-curl-streamlines-v2-2": "Curl energy",
         },

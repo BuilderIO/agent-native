@@ -1,8 +1,16 @@
 import {
+  isLinearResourceDispatch,
+  validateLinearResourceGraph,
+  type EffectLinearResourceGraphSpec,
+  type LinearResourceDispatch,
+} from "./native-linear-resource-graph";
+import {
   isStatelessComputeDispatch,
   validateStatelessComputeGraph,
   type StatelessComputeDispatch,
 } from "./native-stateless-compute";
+
+export type { EffectLinearResourceGraphSpec } from "./native-linear-resource-graph";
 
 export interface EffectStatelessComputeSpec {
   abi: "source-buffer-v1";
@@ -24,7 +32,8 @@ export interface EffectPass {
   dispatch?:
     | { workgroupSize: 256; elements: "simulation-count" }
     | { workgroupSize: readonly [8, 8]; elements: "fixed-grid" }
-    | StatelessComputeDispatch;
+    | StatelessComputeDispatch
+    | LinearResourceDispatch;
   draw?: { vertices: 6; instances: "simulation-count" };
 }
 
@@ -236,6 +245,7 @@ export function planEffectPasses(
   finalOutput?: string,
   feedback?: EffectFeedbackSpec,
   statelessCompute?: EffectStatelessComputeSpec,
+  resourceGraph?: EffectLinearResourceGraphSpec,
 ): EffectPassPlan {
   const errors: string[] = [];
   if (!Array.isArray(passes) || passes.length < 1 || passes.length > 16) {
@@ -280,9 +290,11 @@ export function planEffectPasses(
               pass.dispatch.workgroupSize[0] === 8 &&
               pass.dispatch.workgroupSize[1] === 8 &&
               pass.dispatch.elements === "fixed-grid") ||
-            isStatelessComputeDispatch(pass.dispatch)
+            isStatelessComputeDispatch(pass.dispatch) ||
+            isLinearResourceDispatch(pass.dispatch)
           ) ||
           (!isStatelessComputeDispatch(pass.dispatch) &&
+            !isLinearResourceDispatch(pass.dispatch) &&
             Object.keys(pass.dispatch).length !== 2))) ||
       (pass.draw !== undefined &&
         (pass.kind !== "render" ||
@@ -501,6 +513,17 @@ export function planEffectPasses(
     [...declarations.values()].some((resource) => resource.size === "source")
   )
     errors.push("stateless-compute-definition-invalid");
+  if (resourceGraph)
+    errors.push(
+      ...validateLinearResourceGraph(
+        resourceGraph,
+        passes,
+        declarations,
+        finalOutput,
+      ),
+    );
+  else if (passes.some((pass) => isLinearResourceDispatch(pass.dispatch)))
+    errors.push("linear-resource-definition-invalid");
 
   const edges = new Map<string, Set<string>>();
   const indegree = new Map<string, number>();
@@ -662,6 +685,7 @@ export function planEffectGraph(definition: {
   output?: string;
   feedback?: EffectFeedbackSpec;
   statelessCompute?: EffectStatelessComputeSpec;
+  resourceGraph?: EffectLinearResourceGraphSpec;
 }): EffectPassPlan {
   return planEffectPasses(
     definition.passes,
@@ -669,6 +693,7 @@ export function planEffectGraph(definition: {
     definition.output,
     definition.feedback,
     definition.statelessCompute,
+    definition.resourceGraph,
   );
 }
 

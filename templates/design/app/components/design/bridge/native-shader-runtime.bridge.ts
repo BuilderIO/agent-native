@@ -1,6 +1,8 @@
 import {
   feedbackUniformProperties,
   planEffectGraph,
+  type EffectPass,
+  type EffectResourceSpec,
 } from "../../../../shared/effect-graph";
 import { resolveNativeClipRadii } from "../../../../shared/native-clip-geometry";
 import type {
@@ -52,6 +54,7 @@ import {
   type NativeInstancePreviewResult,
   type NativeInstancePreviewSet,
 } from "../../../../shared/native-instance-preview-contract";
+import { isLinearResourceDispatch } from "../../../../shared/native-linear-resource-graph";
 import { NativePipelineCache } from "../../../../shared/native-pipeline-cache";
 import {
   mapNativePointerInput,
@@ -387,6 +390,7 @@ type AuthoredInputCapture = {
   capture: "content" | "appearance";
   provider: NativeSceneProvider;
   surface: CompositionSurface;
+  capturedSourceEpoch: number | null;
 };
 type Mount = {
   instance: EffectInstance;
@@ -421,6 +425,10 @@ type Mount = {
   assetFailures: Map<string, NativeSourceError>;
   assetAbort: AbortController;
   authoredInputs: Map<string, AuthoredInputCapture>;
+  pendingGraphInputEpochs: Map<
+    string,
+    { capture: AuthoredInputCapture; sourceEpoch: number }
+  > | null;
   outputTexture: GPUTexture | null;
   groupLocalCommittedChildren: Set<string>;
   groupLocalNoncontributingChildren: Set<string>;
@@ -1404,9 +1412,12 @@ class NativeShaderRuntime {
   private retirementInFlightTextures = new Set<GPUTexture>();
   private retirementPending = false;
   private textureBytes = new Map<GPUTexture, number>();
+  private graphStorageTextures = new WeakSet<GPUTexture>();
   private destroyedTextures = new WeakSet<GPUTexture>();
   private allocatedTextureBytes = 0;
   private uniformBytes = new Map<GPUBuffer, number>();
+  private graphUniformLeases = new Map<GPUBuffer, number>();
+  private graphUniformDestruction = new Set<GPUBuffer>();
   private allocatedUniformBytes = 0;
   private statelessBufferBytes = new Map<GPUBuffer, number>();
   private allocatedStatelessBytes = 0;
@@ -1416,6 +1427,9 @@ class NativeShaderRuntime {
   private statelessDeviceDestruction = new Set<GPUDevice>();
   private statelessPipelines =
     new NativePipelineCache<NativeStatelessComputePipelines>(16);
+  private graphPipelines = new NativePipelineCache<
+    GPURenderPipeline | GPUComputePipeline
+  >(32);
   private statelessFrames = new Map<
     GPUCommandEncoder,
     NativeStatelessComputeFrame[]
@@ -2901,6 +2915,7 @@ class NativeShaderRuntime {
     this.pipelines.reset();
     this.simulationComputePipelines.reset();
     this.statelessPipelines.reset();
+    this.graphPipelines.reset();
     this.simulationRenderPipelines.reset();
     this.simulationLayout = null;
     this.simulationPipelineLayout = null;
@@ -3442,6 +3457,7 @@ class NativeShaderRuntime {
       this.allocatedUniformBytes +
       this.allocatedSimulationBytes +
       this.allocatedStatelessBytes +
+      this.graphPipelines.size * 524_288 +
       (this.pipelines.size +
         this.simulationComputePipelines.size +
         this.simulationRenderPipelines.size +
@@ -3452,12 +3468,50 @@ class NativeShaderRuntime {
   }
 
   private destroyUniform(buffer: GPUBuffer): void {
+    if (this.graphUniformLeases.has(buffer)) {
+      this.graphUniformDestruction.add(buffer);
+      return;
+    }
     const bytes = this.uniformBytes.get(buffer);
     if (bytes !== undefined) {
       this.allocatedUniformBytes -= bytes;
       this.uniformBytes.delete(buffer);
     }
     buffer.destroy();
+  }
+
+  private retainGraphUniforms(buffers: Set<GPUBuffer>): () => void {
+    for (const buffer of buffers) {
+      if (
+        !this.uniformBytes.has(buffer) ||
+        this.graphUniformDestruction.has(buffer)
+      )
+        throw new NativeSourceError(
+          "linear-resource-frame-invalid",
+          "A graph uniform buffer was retired before submission.",
+        );
+    }
+    for (const buffer of buffers)
+      this.graphUniformLeases.set(
+        buffer,
+        (this.graphUniformLeases.get(buffer) ?? 0) + 1,
+      );
+    return () => {
+      for (const buffer of buffers) {
+        const count = this.graphUniformLeases.get(buffer);
+        if (!count)
+          throw new NativeSourceError(
+            "linear-resource-frame-invalid",
+            "A graph uniform lease was already released.",
+          );
+        if (count > 1) this.graphUniformLeases.set(buffer, count - 1);
+        else {
+          this.graphUniformLeases.delete(buffer);
+          if (this.graphUniformDestruction.delete(buffer))
+            this.destroyUniform(buffer);
+        }
+      }
+    };
   }
 
   private destroySimulationBuffer(buffer: GPUBuffer): void {
@@ -3992,6 +4046,7 @@ class NativeShaderRuntime {
           !definition.simulation &&
           !definition.feedback &&
           !definition.statelessCompute &&
+          !definition.resourceGraph &&
           definition.passes.some(
             (pass) =>
               pass.kind !== "render" ||
@@ -4345,6 +4400,7 @@ class NativeShaderRuntime {
       assetFailures: new Map(),
       assetAbort: new AbortController(),
       authoredInputs: new Map(),
+      pendingGraphInputEpochs: null,
       outputTexture: null,
       groupLocalCommittedChildren: new Set(),
       groupLocalNoncontributingChildren: new Set(),
@@ -7863,6 +7919,7 @@ class NativeShaderRuntime {
           imageRasters: 0,
           sourceDownsamples: 0,
         },
+        capturedSourceEpoch: null,
       };
       mount.authoredInputs.set(resource, capture);
     }
@@ -7959,75 +8016,539 @@ class NativeShaderRuntime {
         "input-authored-source-stale",
         `Authored input ${binding.nodeId} changed during capture.`,
       );
+    capture.capturedSourceEpoch = read.sourceEpoch;
     return texture;
   }
 
-  private async effectPasses(
+  private async linearResourcePipeline(
+    pass: EffectPass,
+    reads: readonly EffectResourceSpec[],
+    output: EffectResourceSpec,
+  ): Promise<GPURenderPipeline | GPUComputePipeline> {
+    const device = this.device!;
+    const epoch = this.deviceEpoch;
+    const compute = pass.kind === "compute";
+    const visibility = compute
+      ? GPUShaderStage.COMPUTE
+      : GPUShaderStage.FRAGMENT;
+    const sampled = reads.filter(
+      (resource) => resource.kind === "texture-2d",
+    ).length;
+    const storageReads = reads.length - sampled;
+    const limits = device.limits;
+    if (
+      !Number.isSafeInteger(limits.maxSampledTexturesPerShaderStage) ||
+      !Number.isSafeInteger(limits.maxStorageBuffersPerShaderStage) ||
+      !Number.isSafeInteger(limits.maxStorageTexturesPerShaderStage) ||
+      sampled > limits.maxSampledTexturesPerShaderStage ||
+      storageReads + (compute && output.kind === "buffer" ? 1 : 0) >
+        limits.maxStorageBuffersPerShaderStage ||
+      (compute &&
+        output.kind === "texture-2d" &&
+        limits.maxStorageTexturesPerShaderStage < 1)
+    )
+      throw new NativeSourceError(
+        "linear-resource-device-limit",
+        `Pass ${pass.id} exceeds this WebGPU device's texture or storage binding limit.`,
+      );
+    const key = `${epoch}:${pass.kind}:${output.format ?? "buffer"}:${reads.map((resource) => resource.kind).join(",")}:${pass.wgsl}`;
+    if (!this.graphPipelines.has(key)) this.ensureTextureBudget(524_288);
+    return this.graphPipelines.getOrCreate(key, async () => {
+      const module = device.createShaderModule({ code: pass.wgsl });
+      const compilation = await module.getCompilationInfo();
+      if (this.device !== device || this.deviceEpoch !== epoch)
+        throw new NativeSourceError(
+          "device-generation-changed",
+          "The WebGPU device changed during shader compilation.",
+        );
+      const issues = compilation.messages.filter(
+        (message) => message.type === "error",
+      );
+      if (issues.length)
+        throw new NativeShaderCompilationError(
+          issues.map((issue) => ({
+            line: issue.lineNum,
+            column: issue.linePos,
+            message: issue.message,
+          })),
+        );
+      const entries: GPUBindGroupLayoutEntry[] = [
+        {
+          binding: 0,
+          visibility: compute
+            ? GPUShaderStage.COMPUTE
+            : GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        },
+        { binding: 1, visibility, sampler: { type: "filtering" } },
+        ...reads.map(
+          (resource, index): GPUBindGroupLayoutEntry => ({
+            binding: index + 2,
+            visibility,
+            ...(resource.kind === "buffer"
+              ? { buffer: { type: "read-only-storage" as const } }
+              : { texture: { sampleType: "float" as const } }),
+          }),
+        ),
+      ];
+      if (compute)
+        entries.push({
+          binding: 18,
+          visibility: GPUShaderStage.COMPUTE,
+          ...(output.kind === "buffer"
+            ? { buffer: { type: "storage" } }
+            : {
+                storageTexture: {
+                  access: "write-only",
+                  format: output.format as GPUTextureFormat,
+                },
+              }),
+        });
+      try {
+        const layout = device.createPipelineLayout({
+          bindGroupLayouts: [device.createBindGroupLayout({ entries })],
+        });
+        const pipeline = compute
+          ? await device.createComputePipelineAsync({
+              layout,
+              compute: { module, entryPoint: "cs" },
+            })
+          : await device.createRenderPipelineAsync({
+              layout,
+              vertex: { module, entryPoint: "vs" },
+              fragment: {
+                module,
+                entryPoint: "fs",
+                targets: [{ format: output.format as GPUTextureFormat }],
+              },
+              primitive: { topology: "triangle-list" },
+            });
+        if (this.device !== device || this.deviceEpoch !== epoch)
+          throw new NativeSourceError(
+            "device-generation-changed",
+            "The WebGPU device changed during pipeline creation.",
+          );
+        return pipeline;
+      } catch (error) {
+        if (error instanceof NativeSourceError) throw error;
+        throw new NativeSourceError(
+          "shader-pipeline-failed",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    });
+  }
+
+  private async linearResourcePasses(
     mount: Mount,
     source: GPUTexture,
     time: number,
     encoder: GPUCommandEncoder,
-    definition: EffectDefinition = mount.definition,
-    instance: EffectInstance = mount.instance,
-    deterministic = false,
-    sourceRevision = "",
+    definition: EffectDefinition,
+    instance: EffectInstance,
+    deterministic: boolean,
     dependencies?: { complete: Set<string>; active: Set<string> },
   ): Promise<GPUTexture> {
-    assertNativeUniformTiming(time, "time");
-    assertNativeUniformTiming(instance.timing.time, "initial-time");
-    assertNativeUniformTiming(instance.timing.speed, "speed");
-    if (definition.passes[0]?.original)
+    const plan = planEffectGraph(definition);
+    if (plan.errors.length)
       throw new NativeSourceError(
-        "original-pass-retired",
-        "This stored shader requires a retired original-source execution path.",
+        "linear-resource-definition-invalid",
+        plan.errors.join("; "),
       );
+    const declared = new Map(
+      (definition.resources ?? []).map((resource) => [resource.name, resource]),
+    );
+    const { resources: inputs, inputPlan } = await this.effectInputTextures(
+      mount,
+      source,
+      time,
+      encoder,
+      definition,
+      instance,
+      deterministic,
+      dependencies,
+    );
+    const inputEpochs = new Map<
+      string,
+      { capture: AuthoredInputCapture; sourceEpoch: number }
+    >();
+    for (const [name, binding] of inputPlan.inputs) {
+      if (binding.kind !== "authored-node") continue;
+      const capture = mount.authoredInputs.get(name);
+      if (!capture || capture.capturedSourceEpoch === null)
+        throw new NativeSourceError(
+          "input-authored-source-stale",
+          `Authored input ${binding.nodeId} has no captured source revision.`,
+        );
+      inputEpochs.set(name, {
+        capture,
+        sourceEpoch: capture.capturedSourceEpoch,
+      });
+    }
+    for (const pass of plan.passes) {
+      const mipmapped = pass.reads.filter((name) => {
+        const binding = inputPlan.inputs.get(name);
+        return binding?.kind === "asset" && binding.mipmap === "generated";
+      });
+      if (mipmapped.length && pass.reads.length !== 1)
+        throw new NativeSourceError(
+          "input-mipmap-sampler-unsupported",
+          "A processed mipmapped input needs its own single-texture pass.",
+        );
+    }
+    const device = this.device!;
+    const epoch = this.deviceEpoch;
+    const renderEpoch = this.renderEpoch;
+    const pipelines = new Map<string, GPURenderPipeline | GPUComputePipeline>();
+    for (const pass of plan.passes) {
+      const output = declared.get(pass.output);
+      const reads = pass.reads.map((name) => declared.get(name));
+      if (!output || reads.some((read) => !read))
+        throw new NativeSourceError(
+          "linear-resource-definition-invalid",
+          `Pass ${pass.id} has an undeclared resource.`,
+        );
+      try {
+        pipelines.set(
+          pass.id,
+          await this.linearResourcePipeline(
+            pass,
+            reads as EffectResourceSpec[],
+            output,
+          ),
+        );
+      } catch (error) {
+        if (error instanceof NativeShaderCompilationError)
+          throw error.withPass(pass.id);
+        throw error;
+      }
+    }
     if (
-      this.colorPresented === "display-p3" &&
-      usesDisplayP3Color(definition, instance.params) &&
-      !hasFloatColorPath(definition)
+      this.device !== device ||
+      this.deviceEpoch !== epoch ||
+      this.renderEpoch !== renderEpoch ||
+      this.mounts.get(instance.id) !== mount
     )
       throw new NativeSourceError(
-        "color-working-format-unsupported",
-        `Effect ${instance.id} needs rgba16float pass outputs to preserve its Display-P3 colors.`,
+        "linear-resource-frame-invalid",
+        "The effect source changed while preparing its GPU graph.",
       );
-    if (definition.statelessCompute)
-      return this.statelessComputePasses(
-        mount,
-        source,
-        time,
-        encoder,
-        definition,
-        instance,
-        deterministic,
+    for (const [name, { capture, sourceEpoch }] of inputEpochs)
+      if (
+        mount.authoredInputs.get(name) !== capture ||
+        capture.provider.sourceEpoch?.() !== sourceEpoch
+      )
+        throw new NativeSourceError(
+          "input-authored-source-stale",
+          `Authored input ${capture.nodeId} changed while preparing its GPU graph.`,
+        );
+    mount.pendingGraphInputEpochs = inputEpochs;
+    const values = new Map<string, GPUTexture | GPUBuffer>(inputs);
+    const buffers: GPUBuffer[] = [];
+    const usedUniforms = new Set<GPUBuffer>();
+    const usedTextures = new Set<GPUTexture>(inputs.values());
+    let graphBytes = 0;
+    const releaseBuffers = () => {
+      for (const buffer of buffers) {
+        mount.statelessBuffers.delete(buffer);
+        const bytes = this.statelessBufferBytes.get(buffer);
+        if (bytes !== undefined) {
+          this.statelessBufferBytes.delete(buffer);
+          this.allocatedStatelessBytes -= bytes;
+        }
+        buffer.destroy();
+      }
+    };
+    try {
+      for (const pass of plan.passes) {
+        const spec = declared.get(pass.output)!;
+        const dispatch = pass.dispatch;
+        const width =
+          spec.kind === "buffer"
+            ? spec.byteLength! / 16
+            : spec.size === "fixed"
+              ? spec.width!
+              : mount.width;
+        const height =
+          spec.kind === "buffer"
+            ? 1
+            : spec.size === "fixed"
+              ? spec.height!
+              : mount.height;
+        const byteLength =
+          spec.kind === "buffer"
+            ? spec.byteLength!
+            : width * height * (spec.format === "rgba16float" ? 8 : 4);
+        if (
+          !Number.isSafeInteger(byteLength) ||
+          byteLength < 1 ||
+          (spec.kind === "texture-2d" &&
+            (width < 1 ||
+              height < 1 ||
+              width > MAX_DIMENSION ||
+              height > MAX_DIMENSION ||
+              width > device.limits.maxTextureDimension2D ||
+              height > device.limits.maxTextureDimension2D ||
+              width * height > MAX_PIXELS)) ||
+          (spec.kind === "buffer" &&
+            (byteLength > device.limits.maxStorageBufferBindingSize ||
+              byteLength > device.limits.maxBufferSize))
+        )
+          throw new NativeSourceError(
+            "linear-resource-device-limit",
+            `Pass ${pass.id} exceeds this WebGPU device's resource size limit.`,
+          );
+        graphBytes += byteLength;
+        if (graphBytes > MAX_RESOURCE_BYTES)
+          throw new NativeSourceError(
+            "resource-budget-exceeded",
+            "The effect graph exceeds the per-instance resource budget.",
+          );
+        let output: GPUTexture | GPUBuffer;
+        if (spec.kind === "buffer") {
+          this.ensureCompositionBudget(mount, byteLength);
+          this.ensureTextureBudget(byteLength);
+          const buffer = device.createBuffer({
+            size: byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          buffers.push(buffer);
+          mount.statelessBuffers.add(buffer);
+          this.statelessBufferBytes.set(buffer, byteLength);
+          this.allocatedStatelessBytes += byteLength;
+          output = buffer;
+        } else {
+          let texture = mount.resourceTextures.get(pass.output);
+          if (
+            !texture ||
+            texture.width !== width ||
+            texture.height !== height ||
+            texture.format !== spec.format ||
+            (pass.kind === "compute" && !this.graphStorageTextures.has(texture))
+          ) {
+            mount.resourceTextures.delete(pass.output);
+            this.destroyTexture(texture);
+            this.ensureCompositionBudget(mount, byteLength);
+            texture = this.texture(
+              width,
+              height,
+              spec.format as GPUTextureFormat,
+              pass.kind === "compute" ? GPUTextureUsage.STORAGE_BINDING : 0,
+            );
+            if (pass.kind === "compute") this.graphStorageTextures.add(texture);
+            mount.resourceTextures.set(pass.output, texture);
+          }
+          output = texture;
+          usedTextures.add(texture);
+        }
+        const pipeline = pipelines.get(pass.id)!;
+        const data = new Float32Array(136);
+        data.set([width, height, 1 / width, 1 / height], 0);
+        data.set(
+          packNativeUniformClock({
+            time,
+            seed: instance.seed,
+            pixelRatio: mount.pixelRatio,
+          }),
+          4,
+        );
+        data.set(
+          packNativePointerProperties(
+            definition,
+            instance.params,
+            mount.pointerState,
+            deterministic,
+          ),
+          8,
+        );
+        const bindingKey = `linear:${pass.id}`;
+        let uniform = mount.drawBindings.get(bindingKey);
+        if (!uniform) {
+          const size = data.byteLength;
+          if (
+            this.allocatedUniformBytes + size > MAX_UNIFORM_BYTES ||
+            this.estimatedResourceBytes() + size > MAX_REALM_TEXTURE_BYTES
+          )
+            throw new NativeSourceError(
+              "gpu-budget-exceeded",
+              "Native effect uniforms exceed the bounded resource budget.",
+            );
+          this.ensureCompositionBudget(mount, size);
+          const buffer = device.createBuffer({
+            size,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+          this.uniformBytes.set(buffer, size);
+          this.allocatedUniformBytes += size;
+          uniform = {
+            buffer,
+            size,
+            bindGroup: null,
+            pipeline: null,
+            source: null,
+            mask: null,
+            sampler: null,
+            secondSampler: null,
+            extraTextures: null,
+            lastFrame: 0,
+          };
+          mount.drawBindings.set(bindingKey, uniform);
+        }
+        device.queue.writeBuffer(uniform.buffer, 0, data);
+        usedUniforms.add(uniform.buffer);
+        uniform.lastFrame = this.renderEpoch;
+        const entries: GPUBindGroupEntry[] = [
+          { binding: 0, resource: { buffer: uniform.buffer } },
+          { binding: 1, resource: this.sampler! },
+        ];
+        for (const [index, name] of pass.reads.entries()) {
+          const resource = values.get(name);
+          if (!resource)
+            throw new NativeSourceError(
+              "pass-input-missing",
+              `Pass ${pass.id} has no GPU resource for ${name}.`,
+            );
+          entries.push({
+            binding: index + 2,
+            resource:
+              declared.get(name)?.kind === "buffer"
+                ? { buffer: resource as GPUBuffer }
+                : (resource as GPUTexture).createView(),
+          });
+          if (declared.get(name)?.kind === "texture-2d")
+            usedTextures.add(resource as GPUTexture);
+        }
+        if (pass.kind === "compute")
+          entries.push({
+            binding: 18,
+            resource:
+              spec.kind === "buffer"
+                ? { buffer: output as GPUBuffer }
+                : (output as GPUTexture).createView(),
+          });
+        const bind = device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries,
+        });
+        if (pass.kind === "compute") {
+          if (!isLinearResourceDispatch(dispatch))
+            throw new NativeSourceError(
+              "linear-resource-definition-invalid",
+              `Pass ${pass.id} has invalid dispatch metadata.`,
+            );
+          const [x, y, z] = dispatch.workgroupSize;
+          if (
+            x > device.limits.maxComputeWorkgroupSizeX ||
+            y > device.limits.maxComputeWorkgroupSizeY ||
+            z > device.limits.maxComputeWorkgroupSizeZ ||
+            x * y * z > device.limits.maxComputeInvocationsPerWorkgroup
+          )
+            throw new NativeSourceError(
+              "linear-resource-device-limit",
+              `Pass ${pass.id} exceeds this WebGPU device's workgroup limit.`,
+            );
+          const groupsX = Math.ceil(
+            (spec.kind === "buffer" ? byteLength / 16 : width) / x,
+          );
+          const groupsY = spec.kind === "buffer" ? 1 : Math.ceil(height / y);
+          if (
+            groupsX > device.limits.maxComputeWorkgroupsPerDimension ||
+            groupsY > device.limits.maxComputeWorkgroupsPerDimension
+          )
+            throw new NativeSourceError(
+              "linear-resource-device-limit",
+              `Pass ${pass.id} exceeds this WebGPU device's dispatch limit.`,
+            );
+          const compute = encoder.beginComputePass({
+            ...this.gpuTimestampWrites(encoder, `effect:${pass.id}`),
+          });
+          compute.setPipeline(pipeline as GPUComputePipeline);
+          compute.setBindGroup(0, bind);
+          compute.dispatchWorkgroups(groupsX, groupsY, 1);
+          compute.end();
+        } else {
+          const render = encoder.beginRenderPass({
+            ...this.gpuTimestampWrites(encoder, `effect:${pass.id}`),
+            colorAttachments: [
+              {
+                view: (output as GPUTexture).createView(),
+                loadOp: "clear",
+                storeOp: "store",
+                clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              },
+            ],
+          });
+          render.setPipeline(pipeline as GPURenderPipeline);
+          render.setBindGroup(0, bind);
+          render.draw(3);
+          render.end();
+        }
+        values.set(pass.output, output);
+      }
+      const final = values.get(definition.output!);
+      if (!final || declared.get(definition.output!)?.kind !== "texture-2d")
+        throw new NativeSourceError(
+          "linear-resource-output-missing",
+          "The effect graph did not produce its final texture.",
+        );
+      const releaseTextures = this.retainStatelessTextures(
+        device,
+        usedTextures,
       );
-    if (definition.simulation)
-      return this.simulationPasses(
-        mount,
-        source,
-        time,
-        encoder,
-        definition,
-        instance,
-        deterministic,
-      );
-    if (definition.feedback)
-      return this.feedbackPasses(
-        mount,
-        source,
-        time,
-        encoder,
-        definition,
-        instance,
-        sourceRevision,
-        deterministic,
-      );
-    if (usesRetiredNativeImageAbi(definition, instance))
-      throw new NativeSourceError(
-        "legacy-image-abi-retired",
-        "This saved image-sampling contract remains readable but is not executable.",
-      );
-    const plan = planEffectGraph(definition);
-    if (plan.errors.length) throw new Error(plan.errors.join("; "));
+      let releaseUniforms: () => void;
+      try {
+        releaseUniforms = this.retainGraphUniforms(usedUniforms);
+      } catch (error) {
+        releaseTextures();
+        throw error;
+      }
+      const frames = this.statelessFrames.get(encoder) ?? [];
+      frames.push({
+        abandon: () => {
+          try {
+            releaseBuffers();
+          } finally {
+            try {
+              releaseUniforms();
+            } finally {
+              releaseTextures();
+            }
+          }
+        },
+        retire: async () => {
+          try {
+            await device.queue.onSubmittedWorkDone();
+          } finally {
+            try {
+              releaseBuffers();
+            } finally {
+              try {
+                releaseUniforms();
+              } finally {
+                releaseTextures();
+              }
+            }
+          }
+        },
+      });
+      this.statelessFrames.set(encoder, frames);
+      return final as GPUTexture;
+    } catch (error) {
+      releaseBuffers();
+      throw error;
+    }
+  }
+
+  private async effectInputTextures(
+    mount: Mount,
+    source: GPUTexture,
+    time: number,
+    encoder: GPUCommandEncoder,
+    definition: EffectDefinition,
+    instance: EffectInstance,
+    deterministic: boolean,
+    dependencies?: { complete: Set<string>; active: Set<string> },
+  ) {
     const inputPlan = planNativeInputResources(definition, instance);
     if (!inputPlan.ok)
       throw new NativeSourceError(inputPlan.code, inputPlan.detail);
@@ -8069,6 +8590,96 @@ class NativeShaderRuntime {
       resources.set(name, input);
     }
     if (!resources.has("source")) resources.set("source", source);
+    return { resources, inputPlan };
+  }
+
+  private async effectPasses(
+    mount: Mount,
+    source: GPUTexture,
+    time: number,
+    encoder: GPUCommandEncoder,
+    definition: EffectDefinition = mount.definition,
+    instance: EffectInstance = mount.instance,
+    deterministic = false,
+    sourceRevision = "",
+    dependencies?: { complete: Set<string>; active: Set<string> },
+  ): Promise<GPUTexture> {
+    assertNativeUniformTiming(time, "time");
+    assertNativeUniformTiming(instance.timing.time, "initial-time");
+    assertNativeUniformTiming(instance.timing.speed, "speed");
+    if (definition.passes[0]?.original)
+      throw new NativeSourceError(
+        "original-pass-retired",
+        "This stored shader requires a retired original-source execution path.",
+      );
+    if (
+      this.colorPresented === "display-p3" &&
+      usesDisplayP3Color(definition, instance.params) &&
+      !hasFloatColorPath(definition)
+    )
+      throw new NativeSourceError(
+        "color-working-format-unsupported",
+        `Effect ${instance.id} needs rgba16float pass outputs to preserve its Display-P3 colors.`,
+      );
+    if (definition.statelessCompute)
+      return this.statelessComputePasses(
+        mount,
+        source,
+        time,
+        encoder,
+        definition,
+        instance,
+        deterministic,
+      );
+    if (definition.resourceGraph)
+      return this.linearResourcePasses(
+        mount,
+        source,
+        time,
+        encoder,
+        definition,
+        instance,
+        deterministic,
+        dependencies,
+      );
+    if (definition.simulation)
+      return this.simulationPasses(
+        mount,
+        source,
+        time,
+        encoder,
+        definition,
+        instance,
+        deterministic,
+      );
+    if (definition.feedback)
+      return this.feedbackPasses(
+        mount,
+        source,
+        time,
+        encoder,
+        definition,
+        instance,
+        sourceRevision,
+        deterministic,
+      );
+    if (usesRetiredNativeImageAbi(definition, instance))
+      throw new NativeSourceError(
+        "legacy-image-abi-retired",
+        "This saved image-sampling contract remains readable but is not executable.",
+      );
+    const plan = planEffectGraph(definition);
+    if (plan.errors.length) throw new Error(plan.errors.join("; "));
+    const { resources, inputPlan } = await this.effectInputTextures(
+      mount,
+      source,
+      time,
+      encoder,
+      definition,
+      instance,
+      deterministic,
+      dependencies,
+    );
     const dpr = mount.pixelRatio;
     let resourceBytes = 0;
     for (const pass of plan.passes) {
@@ -9398,7 +10009,12 @@ class NativeShaderRuntime {
         : undefined;
     const statelessFrame =
       !!(draft?.definition ?? mount.definition).statelessCompute ||
-      nestedChildren.some((child) => !!child.definition.statelessCompute);
+      !!(draft?.definition ?? mount.definition).resourceGraph ||
+      nestedChildren.some(
+        (child) =>
+          !!child.definition.statelessCompute ||
+          !!child.definition.resourceGraph,
+      );
     const statelessAuthoredEpoch = statelessFrame
       ? mount.provider.authoredSourceEpoch?.()
       : undefined;
@@ -9648,6 +10264,25 @@ class NativeShaderRuntime {
       const assertStatelessCurrent = () => {
         if (!statelessFrame) return;
         assertCurrentPresentation();
+        if ((draft?.definition ?? mount.definition).resourceGraph) {
+          if (!mount.pendingGraphInputEpochs)
+            throw new NativeSourceError(
+              "linear-resource-frame-invalid",
+              "The graph input revision is unavailable.",
+            );
+          for (const [
+            name,
+            { capture, sourceEpoch },
+          ] of mount.pendingGraphInputEpochs)
+            if (
+              mount.authoredInputs.get(name) !== capture ||
+              capture.provider.sourceEpoch?.() !== sourceEpoch
+            )
+              throw new NativeSourceError(
+                "input-authored-source-stale",
+                `Authored input ${capture.nodeId} changed before GPU submission.`,
+              );
+        }
         if (
           statelessAuthoredEpoch === undefined ||
           mount.provider?.authoredSourceEpoch?.() !== statelessAuthoredEpoch ||
@@ -9676,6 +10311,7 @@ class NativeShaderRuntime {
         !mount.previousFillId &&
         !mount.definition.simulation &&
         !mount.definition.feedback &&
+        !mount.definition.resourceGraph &&
         !draft &&
         !!mount.outputTexture &&
         mount.outputTexture.width === mount.width &&
@@ -10340,6 +10976,7 @@ class NativeShaderRuntime {
         this.settleStatelessFrames(profiledEncoder, submitted);
         this.gpuSamples.delete(profiledEncoder);
       }
+      mount.pendingGraphInputEpochs = null;
       if (gpuSample && !profileSubmitted)
         this.gpuProfiler?.abandonSample(gpuSample);
     }
@@ -14026,6 +14663,7 @@ class NativeShaderRuntime {
     this.pipelines.reset();
     this.simulationComputePipelines.reset();
     this.statelessPipelines.reset();
+    this.graphPipelines.reset();
     this.simulationRenderPipelines.reset();
     this.simulationLayout = null;
     this.simulationPipelineLayout = null;

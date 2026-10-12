@@ -99,8 +99,10 @@ manifest, never a `data:` or `blob:` URL. For a user-selected native texture, ca
 Ordinary render-pass texture and mask inputs can instead bind another uniquely
 identified layer in the same screen. `capture:"content"` reads that layer's
 original content; `capture:"appearance"` reads its rendered effect stack. The
-inspector's Canvas layer picker offers both. Stateful, compute, retired
-optional-image/noise, and linear-data ports do not offer authored layers.
+inspector's Canvas layer picker offers both. Feedback, simulation,
+source-buffer-v1 compute, retired optional-image/noise, and linear-data ports
+do not offer authored layers. Linear-resource-v1 graphs can bind authored
+layers to their sampled texture ports.
 The source cannot be the receiver or create a dependency cycle. Live source
 changes update the binding, while a missing or duplicated ID fails explicitly.
 For an unannotated unlocked image, text, or group, pass
@@ -123,6 +125,24 @@ its scoped export provider, not by an arbitrary network fetch. Each ordinary
 render pass uses the fixed `Globals` uniform and sampler at bindings 0–1,
 its ordered sampled textures from binding 2, `vs`/`fs` entry points, linear
 RGB working color, and premultiplied output.
+
+For same-frame compute followed by render, opt into
+`resourceGraph:{abi:"linear-resource-v1"}`. Declare each sampled external
+texture, each produced `rgba8unorm` or `rgba16float` texture, and any fixed
+storage buffer of 16-byte `vec4f` cells; name a produced sampled texture as
+the final `output`. Compute may read ordered sampled textures and read-only
+storage buffers at bindings 2–17 and writes one declared storage texture or
+buffer at binding 18. Render may read the same ordered texture/buffer slots
+and writes one render texture with `vs`/`fs`. Bindings 0–1 remain `Globals`
+and sampler; `NATIVE_GRAPH_GLOBALS` declares only those shared bindings.
+Compute metadata uses `{elements:"output-texture",workgroupSize:[x,y,1]}`
+or `{elements:"output-buffer",workgroupSize:[x,1,1]}`, matching a literal
+`@compute @workgroup_size(x,y,1) fn cs(...)` declaration. Dispatch spans the
+output texels or buffer cells, subject to device limits. No previous-frame
+reads, draw calls, extra outputs, copy passes, or persistent resources are
+part of this ABI. Use the existing feedback and simulation ABIs for temporal
+state. Internal storage texture samples are linear data; final color remains
+linear premultiplied RGBA.
 
 A stateless source processor can opt into `statelessCompute: {abi:
 "source-buffer-v1",bufferResource,sharedBytes}`. Its graph contains exactly the
