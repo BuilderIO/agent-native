@@ -525,31 +525,31 @@ test("keeps hidden Code source reads quiet during canvas commits", async ({
       designData(await readDesign(request, designId)).canvasFrames?.[fileId]?.x;
     const initialX = await readFrameX();
     expect(initialX).toBe(0);
+    // Retry only readiness: the key press is a non-idempotent mutation and must
+    // be sent once per nudge.
+    await expect(async () => {
+      await frameLabel.click();
+      await expect(
+        page
+          .getByRole("tree", { name: "Layers" })
+          .getByRole("treeitem", { selected: true }),
+      ).toHaveCount(1, { timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     for (let index = 0; index < 20; index += 1) {
-      // Re-select before each nudge: the first key press can land before the
-      // frame selection reaches the keyboard handler.
-      await expect(async () => {
-        await frameLabel.click();
-        const writeResponse = page.waitForResponse(
-          (response) => {
-            const pathname = new URL(response.url()).pathname;
-            return (
-              pathname.endsWith("/_agent-native/actions/update-design") &&
-              response.request().method() === "POST"
-            );
-          },
-          { timeout: 5_000 },
+      const writeResponse = page.waitForResponse((response) => {
+        const pathname = new URL(response.url()).pathname;
+        return (
+          pathname.endsWith("/_agent-native/actions/update-design") &&
+          response.request().method() === "POST"
         );
-        await page.keyboard.press("ArrowRight");
-        const response = await writeResponse;
-        expect(
-          response.ok(),
-          `canvas commit failed: ${response.status()} ${await response.text()}`,
-        ).toBe(true);
-      }).toPass({ timeout: 30_000 });
-      await expect
-        .poll(readFrameX)
-        .toBeGreaterThanOrEqual(initialX + index + 1);
+      });
+      await page.keyboard.press("ArrowRight");
+      const response = await writeResponse;
+      expect(
+        response.ok(),
+        `canvas commit failed: ${response.status()} ${await response.text()}`,
+      ).toBe(true);
+      await expect.poll(readFrameX).toBe(initialX + index + 1);
     }
     expect(sourceReads).toBe(sourceReadsBeforeEdits);
 
