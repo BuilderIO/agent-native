@@ -65,14 +65,33 @@ export class BlockRenderErrorBoundary extends Component<
   override render() {
     if (!this.state.error) return this.props.children;
     return (
-      <BlockRenderErrorFallback
+      <BlockRenderUnavailableFallback
         blockId={this.props.blockId}
         blockType={this.props.blockType}
-        message={this.state.error.message}
         interactive={this.props.interactive}
       />
     );
   }
+}
+
+function BlockRenderUnavailableFallback({
+  blockId,
+  blockType,
+  interactive,
+}: {
+  blockId: string;
+  blockType: string;
+  interactive?: boolean;
+}) {
+  const t = useT();
+  return (
+    <BlockRenderErrorFallback
+      blockId={blockId}
+      blockType={blockType}
+      message={t("block.renderUnavailable")}
+      interactive={interactive}
+    />
+  );
 }
 
 export function BlockRenderSuspenseFallback({
@@ -83,6 +102,12 @@ export function BlockRenderSuspenseFallback({
   blockType: string;
 }) {
   const t = useT();
+  if (typeof window === "undefined") {
+    return (
+      <BlockRenderUnavailableFallback blockId={blockId} blockType={blockType} />
+    );
+  }
+
   return (
     <div
       role="status"

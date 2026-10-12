@@ -68,35 +68,123 @@ describe("BlockRenderErrorBoundary", () => {
       logError.mockRestore();
     }
   });
-});
 
-describe("BlockRenderSuspenseFallback", () => {
-  it("contains a block renderer exception during server rendering", () => {
+  it("shows localized copy when a renderer throws in the browser", async () => {
     function FailingRead() {
       throw new Error("renderer failed");
     }
 
-    const markup = renderToString(
-      <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
-        <BlockView
-          spec={
-            {
-              type: "note",
-              label: "Note",
-              placement: [],
-              Read: FailingRead,
-            } as unknown as BlockSpec<{}>
-          }
-          block={{ id: "note-1", data: {} }}
-          editing={false}
-          ctx={{}}
-        />
-      </AgentNativeI18nProvider>,
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () =>
+        root.render(
+          <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
+            <BlockView
+              spec={
+                {
+                  type: "note",
+                  label: "Note",
+                  placement: [],
+                  Read: FailingRead,
+                } as unknown as BlockSpec<{}>
+              }
+              block={{ id: "note-1", data: {} }}
+              editing={false}
+              ctx={{}}
+            />
+          </AgentNativeI18nProvider>,
+        ),
+      );
+
+      expect(container.textContent).toContain("Render unavailable");
+      expect(container.textContent).not.toContain("renderer failed");
+    } finally {
+      logError.mockRestore();
+    }
+  });
+
+  it("keeps the loading fallback for a suspended browser renderer", async () => {
+    let resolvePending!: () => void;
+    let suspended = true;
+    const pending = new Promise<void>((resolve) => {
+      resolvePending = resolve;
+    });
+    function SuspendedRead() {
+      if (suspended) throw pending;
+      return <p>Loaded block</p>;
+    }
+
+    await act(async () =>
+      root.render(
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
+          <BlockView
+            spec={
+              {
+                type: "note",
+                label: "Note",
+                placement: [],
+                Read: SuspendedRead,
+              } as unknown as BlockSpec<{}>
+            }
+            block={{ id: "note-1", data: {} }}
+            editing={false}
+            ctx={{}}
+          />
+        </AgentNativeI18nProvider>,
+      ),
     );
 
-    expect(markup).toContain("data-block-render-loading");
-    expect(markup).toContain('aria-label="Loading block."');
-    expect(markup).toContain('aria-busy="true"');
-    expect(markup).not.toContain('role="alert"');
+    expect(
+      container.querySelector("[data-block-render-loading]"),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("Render unavailable");
+
+    await act(async () => {
+      suspended = false;
+      resolvePending();
+      await pending;
+    });
+
+    expect(container.textContent).toContain("Loaded block");
+  });
+});
+
+describe("BlockRenderSuspenseFallback", () => {
+  it("shows a localized failure state for server-rendered blocks", () => {
+    function FailingRead() {
+      throw new Error("renderer failed");
+    }
+
+    vi.stubGlobal("window", undefined);
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const markup = renderToString(
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
+          <BlockView
+            spec={
+              {
+                type: "note",
+                label: "Note",
+                placement: [],
+                Read: FailingRead,
+              } as unknown as BlockSpec<{}>
+            }
+            block={{ id: "note-1", data: {} }}
+            editing={false}
+            ctx={{}}
+          />
+        </AgentNativeI18nProvider>,
+      );
+
+      expect(markup).toContain("data-block-render-error");
+      expect(markup).toContain("Render unavailable");
+      expect(markup).not.toContain("data-block-render-loading");
+      expect(markup.match(/<p role="alert"[^>]*>(.*?)<\/p>/)?.[1]).toBe(
+        "Render unavailable",
+      );
+    } finally {
+      logError.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });
