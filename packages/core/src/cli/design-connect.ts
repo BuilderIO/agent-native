@@ -2369,6 +2369,11 @@ function readMotionImportConfig(
   filePath: string,
   remainingBytes: number,
 ): { source: string; bytesRead: number } {
+  if (fsSync.lstatSync(filePath).isSymbolicLink()) {
+    throw new Error(
+      `Symlinked tsconfig/jsconfig files are unsupported for Motion import verification: ${filePath}`,
+    );
+  }
   const noFollow = fsSync.constants.O_NOFOLLOW ?? 0;
   const descriptor = fsSync.openSync(
     filePath,

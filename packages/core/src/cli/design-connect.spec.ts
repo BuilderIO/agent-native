@@ -847,6 +847,44 @@ describe("design connect bridge endpoints", () => {
     ).resolves.toBe(false);
   });
 
+  it("reports symlinked Motion import configs as an unsupported layout", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.mkdirSync(path.join(root, "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return null; }\n",
+    );
+    fs.writeFileSync(path.join(root, "motion-config.json"), "{}\n");
+    fs.symlinkSync("motion-config.json", path.join(root, "tsconfig.json"));
+
+    const query = () =>
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      });
+    await expect(query()).rejects.toThrow(
+      /Symlinked tsconfig\/jsconfig files are unsupported/,
+    );
+
+    fs.unlinkSync(path.join(root, "tsconfig.json"));
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      '{"extends":"./config/base.json"}\n',
+    );
+    fs.writeFileSync(path.join(root, "config/base-config.json"), "{}\n");
+    fs.symlinkSync("base-config.json", path.join(root, "config/base.json"));
+    await expect(query()).rejects.toThrow(
+      /Symlinked tsconfig\/jsconfig files are unsupported/,
+    );
+  });
+
   it("proves an HTML Motion source only for its linked HTML route", async () => {
     const root = tmpDir();
     fs.mkdirSync(path.join(root, "pages"), { recursive: true });
