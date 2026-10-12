@@ -22,10 +22,10 @@ const reportedCollisions = new Set<string>();
 
 /**
  * Runs the app's `resolveAdditionalActions` for one request and returns the
- * entries whose names `registered` does not already hold. A registered
- * template, framework, or MCP action keeps its entry, so an allowlist or
- * approval granted to that name can't be redirected to an app-supplied
- * implementation; each colliding name is reported once per process.
+ * entries whose names `reserved` does not hold. A template, framework, or MCP
+ * action name is never given to an app-supplied implementation, so an
+ * allowlist or approval granted to that name can't be redirected; each
+ * colliding name is reported once per process.
  */
 export async function resolveAppAdditionalActions(
   resolver: ResolveAgentChatAdditionalActions | undefined,
@@ -35,7 +35,7 @@ export async function resolveAppAdditionalActions(
     ownerEmail: string | null | undefined;
     orgId: string | null | undefined;
   },
-  registered: Record<string, ActionEntry>,
+  reserved: Record<string, ActionEntry>,
 ): Promise<Record<string, ActionEntry>> {
   const { ownerEmail } = details;
   if (!resolver || !ownerEmail) return {};
@@ -47,14 +47,14 @@ export async function resolveAppAdditionalActions(
   });
   const added: Record<string, ActionEntry> = {};
   for (const [name, entry] of Object.entries(entries)) {
-    if (!Object.hasOwn(registered, name)) {
+    if (!Object.hasOwn(reserved, name)) {
       added[name] = entry;
       continue;
     }
     if (reportedCollisions.has(name)) continue;
     reportedCollisions.add(name);
     console.warn(
-      `[agent-chat] resolveAdditionalActions returned "${name}", which is already registered; keeping the registered action.`,
+      `[agent-chat] resolveAdditionalActions returned "${name}", which is a registered action name; ignoring the app entry.`,
     );
   }
   return added;

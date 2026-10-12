@@ -132,9 +132,11 @@ export interface AgentChatPluginOptions {
    * names are only known at runtime. Called for interactive chat (production
    * and dev), A2A tasks, and MCP `ask_app` runs; `surface` says which. The
    * entries join the caller's MCP entries, so `tool-search` finds them and
-   * `resolveActionSurface` sees them in `availableActionNames`. An entry whose
-   * name is already registered is ignored with a warning. Not called for
-   * anonymous requests, background jobs, or agent-team sub-agents.
+   * `resolveActionSurface` sees them in `availableActionNames`. An entry that
+   * uses a template, framework, or MCP action name is ignored with a warning.
+   * Not called for anonymous requests, scheduled jobs, automations, or
+   * agent-team sub-agents; a chat turn that continues as a durable background
+   * run still calls it with `surface: "chat"`.
    */
   resolveAdditionalActions?: ResolveAgentChatAdditionalActions;
   leanPrompt?: boolean;

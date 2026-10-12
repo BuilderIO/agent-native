@@ -228,12 +228,15 @@ createAgentChatPlugin({
 });
 ```
 
-Una entrada cuyo nombre ya está registrado, ya sea una acción de la plantilla,
-una herramienta del framework o una herramienta MCP, se ignora, y el servidor
-registra una advertencia una vez por nombre. `event` está definido para `chat`
-y `a2a`; las llamadas a `ask_app` no lo tienen. El callback no se invoca para
-solicitudes anónimas, trabajos en segundo plano ni subagentes de equipos de
-agentes, y un error que lance hace fallar la solicitud.
+Una entrada que usa el nombre de una acción de la plantilla, una herramienta del
+framework o una herramienta MCP se ignora, incluso cuando el registro de la
+solicitud no incluye esa herramienta (como ocurre en el modo lean), y el
+servidor registra una advertencia una vez por nombre. `event` está definido
+para `chat` y `a2a`; las llamadas a `ask_app` no lo tienen. El callback no se
+invoca para solicitudes anónimas, trabajos programados, automatizaciones ni
+subagentes de equipos de agentes. Un turno de chat que el servidor termina como
+ejecución duradera en segundo plano sigue invocándolo con `surface: "chat"`. Un
+error que lance el callback hace fallar la solicitud.
 
 ## Interfaz de usuario nativa integrada {#native-inline-ui}
 

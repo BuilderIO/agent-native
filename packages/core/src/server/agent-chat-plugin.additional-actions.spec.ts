@@ -172,6 +172,30 @@ describe("resolveAdditionalActions through the agent chat plugin", () => {
     });
   });
 
+  it("ignores framework names that lean mode leaves out of the chat registry", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await boot(async () => ({
+      "agent-teams": entry("app agent-teams"),
+      "user-registered-tool": entry("user tool"),
+    }));
+
+    const chatHandlers = booted.handlerOptions.filter(
+      (options) => options.resolveAdditionalActions,
+    );
+    expect(chatHandlers).toHaveLength(2);
+    for (const options of chatHandlers) {
+      expect(options.actions["agent-teams"]).toBeUndefined();
+      const added: Record<string, ActionEntry> =
+        await options.resolveAdditionalActions({
+          event: { path: "/_agent-native/agent-chat" },
+          ownerEmail: "alice@example.com",
+          orgId: "acme",
+        });
+      expect(added["user-registered-tool"]?.tool.description).toBe("user tool");
+      expect(added["agent-teams"]).toBeUndefined();
+    }
+  });
+
   it("asks the app for A2A actions with the delegated caller's identity", async () => {
     const seen: unknown[] = [];
     await boot(async (details) => {

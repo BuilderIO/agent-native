@@ -24,7 +24,7 @@ describe("agent chat startup", () => {
     expect(source).not.toContain("new McpClientManager(");
     expect(source).not.toContain("ensureMcpInitialized");
     expect(source).toMatch(
-      /resolveAdditionalActions: \(details\) =>\s+getChatAdditionalActions\(details, prodHandlerActions\)/,
+      /resolveAdditionalActions: \(details\) =>\s+getChatAdditionalActions\(details, \{\s+\.\.\.prodActions,\s+\.\.\.prodHandlerActions,\s+\}\)/,
     );
   });
 

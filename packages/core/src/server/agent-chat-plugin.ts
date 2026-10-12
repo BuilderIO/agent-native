@@ -1268,13 +1268,16 @@ export function createAgentChatPlugin(
           ...(toolNames ? { toolNames } : {}),
         });
       };
+      // `reserved` must hold the full template and framework registry, not the
+      // lean subset a handler exposes, or an app entry could take a framework
+      // name that other surfaces resolve to the framework implementation.
       const getChatAdditionalActions = async (
         details: {
           event: any;
           ownerEmail: string | null;
           orgId: string | null;
         },
-        registered: Record<string, ActionEntry>,
+        reserved: Record<string, ActionEntry>,
       ): Promise<Record<string, ActionEntry>> => {
         const mcpEntries = await getMcpActionEntriesForPrincipal(
           details.ownerEmail,
@@ -1285,7 +1288,7 @@ export function createAgentChatPlugin(
           ...(await resolveAppAdditionalActions(
             options?.resolveAdditionalActions,
             { surface: "chat", ...details },
-            { ...registered, ...mcpEntries },
+            { ...reserved, ...mcpEntries },
           )),
         };
       };
@@ -4922,7 +4925,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: (details) =>
-          getChatAdditionalActions(details, prodHandlerActions),
+          getChatAdditionalActions(details, {
+            ...prodActions,
+            ...prodHandlerActions,
+          }),
         // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
@@ -5115,7 +5121,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
           resolveAdditionalActions: (details) =>
-            getChatAdditionalActions(details, devActions),
+            getChatAdditionalActions(details, {
+              ...prodActions,
+              ...devActions,
+            }),
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const requestActionsPrompt = resolveRequestActionsPrompt(

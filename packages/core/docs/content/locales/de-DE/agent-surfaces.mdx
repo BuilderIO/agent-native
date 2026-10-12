@@ -226,12 +226,15 @@ createAgentChatPlugin({
 });
 ```
 
-Ein Eintrag, dessen Name bereits registriert ist, ob Template-Action,
-Framework-Tool oder MCP-Tool, wird ignoriert, und der Server protokolliert pro
+Ein Eintrag, der den Namen einer Template-Action, eines Framework-Tools oder
+eines MCP-Tools verwendet, wird ignoriert, auch wenn die Registry der Anfrage
+dieses Tool nicht enthält (wie im Lean-Modus), und der Server protokolliert pro
 Name einmal eine Warnung. `event` ist für `chat` und `a2a` gesetzt;
 `ask_app`-Aufrufe haben keines. Der Callback wird weder für anonyme Anfragen
-noch für Hintergrundjobs oder Sub-Agenten von Agent-Teams aufgerufen, und ein
-Fehler, den er wirft, lässt die Anfrage fehlschlagen.
+noch für geplante Jobs, Automationen oder Sub-Agenten von Agent-Teams
+aufgerufen. Ein Chat-Turn, den der Server als dauerhaften Hintergrundlauf
+abschließt, ruft ihn weiterhin mit `surface: "chat"` auf. Ein Fehler, den der
+Callback wirft, lässt die Anfrage fehlschlagen.
 
 ## Native Inline-UI {#native-inline-ui}
 

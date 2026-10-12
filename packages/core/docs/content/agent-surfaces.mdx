@@ -220,11 +220,13 @@ createAgentChatPlugin({
 });
 ```
 
-An entry whose name is already registered, whether a template action, a
-framework tool, or an MCP tool, is ignored, and the server logs a warning once
-per name. `event` is set for `chat` and `a2a`; `ask_app` calls have none. The
-callback is not called for anonymous requests, background jobs, or agent-team
-sub-agents, and an error it throws fails the request.
+An entry that uses the name of a template action, a framework tool, or an MCP
+tool is ignored, even when the request's registry leaves that tool out (as lean
+mode does), and the server logs a warning once per name. `event` is set for
+`chat` and `a2a`; `ask_app` calls have none. The callback is not called for
+anonymous requests, scheduled jobs, automations, or agent-team sub-agents. A
+chat turn that the server finishes as a durable background run still calls it
+with `surface: "chat"`. An error the callback throws fails the request.
 
 ## Native inline UI {#native-inline-ui}
 

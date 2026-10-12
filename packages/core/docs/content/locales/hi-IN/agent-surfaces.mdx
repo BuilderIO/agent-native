@@ -210,12 +210,15 @@ createAgentChatPlugin({
 });
 ```
 
-जिस entry का नाम पहले से registered है, चाहे वह template action हो, framework
-tool हो या MCP tool, उसे अनदेखा किया जाता है, और server हर नाम के लिए एक बार
-warning log करता है। `event` केवल `chat` और `a2a` के लिए set होता है;
-`ask_app` calls में यह नहीं होता। anonymous requests, background jobs या
-agent-team sub-agents के लिए callback नहीं चलता, और callback द्वारा throw की
-गई error request को fail कर देती है।
+जो entry किसी template action, framework tool या MCP tool के नाम का उपयोग करती
+है, उसे अनदेखा किया जाता है, तब भी जब request की registry में वह tool शामिल
+नहीं होता (जैसे lean mode में), और server हर नाम के लिए एक बार warning log
+करता है। `event` केवल `chat` और `a2a` के लिए set होता है; `ask_app` calls में
+यह नहीं होता। anonymous requests, scheduled jobs, automations या agent-team
+sub-agents के लिए callback नहीं चलता। जिस chat turn को server durable
+background run के रूप में पूरा करता है, उसमें callback अब भी
+`surface: "chat"` के साथ चलता है। callback द्वारा throw की गई error request
+को fail कर देती है।
 
 ## Native inline UI {#native-inline-ui}
 
