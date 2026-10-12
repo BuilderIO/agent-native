@@ -142,6 +142,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
+  type RequestRunContext,
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
@@ -12942,9 +12943,26 @@ export function createProductionAgentHandler(
                   `\n</custom-agent-profile>`;
 
                 let responseText = "";
-                const subUsage = await runAgentLoop({
+                // A profile is its own model conversation running beside
+                // others, so it gets its own run context: its model and effort
+                // never stand in for another loop's, and it starts with
+                // nothing read, since the run's reads are what the run's
+                // model saw. New per-conversation fields reset here too.
+                const profileRun: RequestRunContext = {
+                  ...getRequestRunContext(),
+                  model: profile.model ?? model,
+                  reasoningEffort,
+                  toolSearchReads: undefined,
+                  extensionContentReads: undefined,
+                  extensionExcerptReads: undefined,
+                };
+                const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,
+                  onModelSettings: (loopModel, effort) => {
+                    profileRun.model = loopModel;
+                    profileRun.reasoningEffort = effort;
+                  },
                   systemPrompt: profilePrompt,
                   tools: requestTools,
                   availableTools: availableRequestTools,
@@ -13002,7 +13020,11 @@ export function createProductionAgentHandler(
                   ...(resolvedRunSoftTimeoutMs > 0
                     ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
                     : {}),
-                });
+                };
+                const subUsage = await runWithRequestContext(
+                  { ...getRequestContext(), run: profileRun },
+                  () => runAgentLoop(profileLoopOpts),
+                );
                 await control.flushEvents();
 
                 try {
@@ -13144,8 +13166,8 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
-          // Nested loops (custom agent profiles) share this request context
-          // but not this callback, so they never overwrite the run's model.
+          // Custom agent profile loops report into their own run context
+          // copies, so only this loop sets the run's model and effort.
           onModelSettings: (
             model: string,
             effort: ReasoningEffort | undefined,

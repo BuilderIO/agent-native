@@ -16030,6 +16030,157 @@ describe("runAgentLoop", () => {
     await vi.waitFor(() => expect(seen).toEqual(["medium"]));
   });
 
+  it("runs each custom agent profile in its own run context, so a write there records that profile's model and effort, starts with nothing read, and leaves the run's alone", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // Neither profile writes until both have settled their model, so a
+    // shared run context would hand one profile's model to the other.
+    let profilesWaiting = 0;
+    let releaseProfiles!: () => void;
+    const bothProfilesReady = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model", "editor-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = (calls.get(opts.model) ?? 0) + 1;
+        calls.set(opts.model, call);
+        // The reviewer's first answer is empty, so it retries at lower effort.
+        const toolCall = opts.model === "reviewer-model" ? 2 : 1;
+        if (call < toolCall) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "thinking", text: "..." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (call === toolCall && opts.model !== "claude-sonnet-5") {
+          if (++profilesWaiting === 2) releaseProfiles();
+          await bothProfilesReady;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            call === toolCall
+              ? [
+                  {
+                    type: "tool-call",
+                    id: `record-${opts.model}`,
+                    name: "record",
+                    input: { loop: opts.model },
+                  },
+                ]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: call === toolCall ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    let run: ReturnType<typeof getRequestRunContext>;
+    const seen = new Map<unknown, unknown>();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async (args) => {
+            seen.set(args.loop, {
+              model: getRequestRunContext()?.model,
+              effort: getRequestRunContext()?.reasoningEffort,
+              run: { model: run?.model, effort: run?.reasoningEffort },
+              reads: Object.keys(getRequestRunContext()?.toolSearchReads ?? {}),
+            });
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, model, reasoningEffort) => {
+        run ??= getRequestRunContext();
+        run!.model = model;
+        run!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-models",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+            { type: "custom-agent", name: "Editor", refId: "editor" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          // Only the run's model saw this search, so a profile must not
+          // be told it already ran.
+          run: {
+            toolSearchReads: {
+              "earlier search": { totalTools: 1, resultNames: ["record"] },
+            },
+          },
+        },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      const runAt = { model: "claude-sonnet-5", effort: "high" };
+      await vi.waitFor(() =>
+        expect(Object.fromEntries(seen)).toEqual({
+          "reviewer-model": {
+            model: "reviewer-model",
+            effort: "medium",
+            run: runAt,
+            reads: [],
+          },
+          "editor-model": {
+            model: "editor-model",
+            effort: "high",
+            run: runAt,
+            reads: [],
+          },
+          "claude-sonnet-5": {
+            ...runAt,
+            run: runAt,
+            reads: ["earlier search"],
+          },
+        }),
+      );
+      expect(run).toMatchObject({
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      });
+    } finally {
+      findProfile.mockRestore();
+    }
+  });
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",
