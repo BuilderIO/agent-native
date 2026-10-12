@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { FLOCKING_SWARM_EFFECT } from "./native-effect-owned-aa-flocking";
 import { OWNED_RENDERED_SURFACE_TEST_EFFECT } from "./native-effect-owned-source-test-fixtures";
 import {
   FROSTED_REFRACTION_EFFECT,
@@ -345,14 +346,69 @@ describe("native effect document", () => {
       instances: [],
     };
     expect(validateEffectDocument(document).errors).toEqual([]);
-    definition.simulation.count.tiers.high = 60000 as 50000;
+    const legacyCount = definition.simulation.count;
+    expect("tiers" in legacyCount).toBe(true);
+    if (!("tiers" in legacyCount)) throw new Error("Expected tier counts");
+    legacyCount.tiers.high = 60000 as 50000;
     expect(validateEffectDocument(document).errors).toContainEqual(
       expect.stringContaining("simulation is invalid or unbounded"),
     );
-    definition.simulation.count.tiers.high = 50000;
+    legacyCount.tiers.high = 50000;
     definition.passes[1].draw = undefined;
     expect(validateEffectDocument(document).errors).toContainEqual(
       expect.stringContaining("persistent trail pass"),
+    );
+  });
+  it("validates bounded integer simulation counts without changing legacy tiers", () => {
+    const definition = structuredClone(FLOCKING_SWARM_EFFECT);
+    const document: EffectDocument = {
+      schemaVersion: 2,
+      definitions: [definition],
+      instances: [],
+    };
+    expect(validateEffectDocument(document).errors).toEqual([]);
+    const packed = packNativeProperties(definition);
+    expect(
+      [
+        packed[0],
+        packed[12],
+        packed[16],
+        packed[28],
+        packed[40],
+        packed[44],
+      ].map((value) => Number(value.toFixed(2))),
+    ).toEqual([160, 68, 2.4, 82, 2.5, 2.8]);
+    expect(packed[7]).toBeCloseTo(0.85);
+    expect(packed[11]).toBeCloseTo(0.85);
+    definition.simulation!.count = {
+      property: "agentCount",
+      min: 64,
+      max: 50_001,
+    };
+    expect(validateEffectDocument(document).errors).toContainEqual(
+      expect.stringContaining("simulation is invalid or unbounded"),
+    );
+    definition.simulation!.count = {
+      property: "agentCount",
+      min: 64,
+      max: 256,
+    };
+    definition.properties.agentCount = {
+      type: "float",
+      label: "Agents",
+      default: 160,
+      min: 64,
+      max: 256,
+      step: 1,
+    };
+    expect(validateEffectDocument(document).errors).toContainEqual(
+      expect.stringContaining("simulation is invalid or unbounded"),
+    );
+    definition.properties.agentCount =
+      FLOCKING_SWARM_EFFECT.properties.agentCount;
+    definition.resources![0].byteLength = 64 * 32;
+    expect(validateEffectDocument(document).errors).toContainEqual(
+      expect.stringContaining("simulation is invalid or unbounded"),
     );
   });
   it("validates all three original definitions and their source-processing placement", () => {

@@ -55,6 +55,7 @@ import {
   type NativeInstancePreviewSet,
 } from "../../../../shared/native-instance-preview-contract";
 import { isLinearResourceDispatch } from "../../../../shared/native-linear-resource-graph";
+import { resolveNativeParameterAnimation } from "../../../../shared/native-parameter-animation";
 import { NativePipelineCache } from "../../../../shared/native-pipeline-cache";
 import {
   mapNativePointerInput,
@@ -90,6 +91,7 @@ import {
   clearNativeAuthoredOpacityIfUnsuppressed,
   readNativeAuthoredPaint,
 } from "./native-authored-paint";
+import { recordNativeCameraClip } from "./native-camera-recorder";
 import { planNativePhysicalRootBox } from "./native-capture-roi";
 import {
   detectNativeDisplayDynamicRange,
@@ -136,6 +138,10 @@ import {
   planNativeLinearGoldenReadback,
   NATIVE_LINEAR_SAMPLE_BYTES_PER_ROW,
 } from "./native-linear-golden";
+import {
+  NativeCameraError,
+  NativeLiveCameraSource,
+} from "./native-live-camera-source";
 import {
   emptyNativeBenchmarkPhaseValues,
   emptyNativeBenchmarkFullFrameValues,
@@ -487,6 +493,7 @@ type Mount = {
     seed: number;
     resetPropertyValues: readonly (readonly [string, number])[];
     seekRevision: number;
+    sourceIdentity: string;
     sourceRevision: string;
     pendingSourceRevision: string | null;
     sourceWidth: number;
@@ -1351,6 +1358,38 @@ class NativeShaderRuntime {
     | undefined;
   private embeddedAssetBlobs = new Map<string, Promise<Blob>>();
   private mounts = new Map<string, Mount>();
+  private cameraReportedState = "idle";
+  private cameraFrameTexture: {
+    texture: GPUTexture;
+    device: GPUDevice;
+    epoch: number;
+  } | null = null;
+  private cameraSnapshot: ImageBitmap | null = null;
+  private cameraClip: {
+    nextFrame: (
+      frameIndex: number,
+      signal: AbortSignal,
+    ) => Promise<ImageBitmap>;
+    dispose: () => void;
+  } | null = null;
+  private readonly cameraSource = new NativeLiveCameraSource(() => {
+    const state = this.cameraSource.state();
+    if (state === "stopped") this.releaseCameraTexture();
+    if (state !== this.cameraReportedState) {
+      this.cameraReportedState = state;
+      if (window.parent !== window) {
+        try {
+          window.parent.dispatchEvent(new Event("an-native-camera-state"));
+        } catch (error) {
+          console.warn(
+            "Unable to dispatch camera state to the parent window.",
+            error,
+          );
+        }
+      }
+    }
+    this.requestSourceFrame();
+  });
   private positionedParents = new Map<HTMLElement, number>();
   private presentationSheet: CSSStyleSheet | null = null;
   private readonly sceneCanvasIdentities = new WeakSet<HTMLCanvasElement>();
@@ -2871,6 +2910,9 @@ class NativeShaderRuntime {
   }
 
   private clearDeviceResources(code: string, message: string): void {
+    this.cameraSource.stop();
+    this.clearCameraClip();
+    this.releaseCameraTexture();
     this.releaseScenePresentation();
     this.presentationMirrorCapture = false;
     this.publishedPresentationMirror.clear();
@@ -4197,11 +4239,11 @@ class NativeShaderRuntime {
           );
         }
         if (existing.definitionHash !== entry.hash) {
-          existing.animationCapability = nativeEffectAnimationCapability(
-            entry.definition,
-          );
           existing.pointerState = null;
         }
+        existing.animationCapability = entry.instance.animation
+          ? "animated"
+          : nativeEffectAnimationCapability(entry.definition);
         existing.instance = entry.instance;
         existing.definition = entry.definition;
         existing.definitionHash = entry.hash;
@@ -4261,6 +4303,14 @@ class NativeShaderRuntime {
         if (previous) previous.isTopLayer = false;
       }
     for (const mount of this.mounts.values()) this.syncPresentation(mount);
+    if (
+      !this.hasCameraConsumer() &&
+      (this.cameraSource.state() === "active" ||
+        this.cameraSource.state() === "starting")
+    ) {
+      this.cameraSource.stop();
+      this.releaseCameraTexture();
+    }
     if (this.mounts.size) {
       await this.renderInternal(this.currentTime(), false);
       if (this.playing && !this.raf) this.frame();
@@ -4378,7 +4428,9 @@ class NativeShaderRuntime {
       instance,
       definition,
       definitionHash,
-      animationCapability: nativeEffectAnimationCapability(definition),
+      animationCapability: instance.animation
+        ? "animated"
+        : nativeEffectAnimationCapability(definition),
       target,
       canvas,
       context,
@@ -6969,23 +7021,46 @@ class NativeShaderRuntime {
         "Simulation metadata is missing.",
       );
     assertNativeUniformTiming(spec.fixedDt, "delta-time");
-    const qualityProperty = definition.properties[spec.count.property];
-    const tier =
-      instance.params[spec.count.property] ?? qualityProperty?.default;
-    if (tier !== "low" && tier !== "medium" && tier !== "high")
-      throw new NativeSourceError(
-        "simulation-tier-invalid",
-        "The particle tier is invalid.",
-      );
-    const count = spec.count.tiers[tier];
+    const countProperty = definition.properties[spec.count.property];
+    const countValue =
+      instance.params[spec.count.property] ?? countProperty?.default;
+    let count: number;
+    if ("tiers" in spec.count) {
+      if (
+        countValue !== "low" &&
+        countValue !== "medium" &&
+        countValue !== "high"
+      )
+        throw new NativeSourceError(
+          "simulation-tier-invalid",
+          "The particle tier is invalid.",
+        );
+      count = spec.count.tiers[countValue];
+    } else {
+      if (
+        !Number.isSafeInteger(countValue) ||
+        (countValue as number) < spec.count.min ||
+        (countValue as number) > spec.count.max
+      )
+        throw new NativeSourceError(
+          "simulation-count-invalid",
+          "The agent count is outside the bounded integer range.",
+        );
+      count = countValue as number;
+    }
     const stateSpec = definition.resources?.find(
       (resource) => resource.name === spec.stateResource,
     );
-    const byteLength = stateSpec?.byteLength;
+    const declaredByteLength = stateSpec?.byteLength;
+    const byteLength =
+      "tiers" in spec.count
+        ? declaredByteLength
+        : count * spec.bytesPerParticle;
     if (
       stateSpec?.kind !== "buffer" ||
       !byteLength ||
-      byteLength < count * spec.bytesPerParticle ||
+      !declaredByteLength ||
+      declaredByteLength < count * spec.bytesPerParticle ||
       byteLength * 2 > MAX_RESOURCE_BYTES ||
       Math.ceil(count / 256) >
         this.device!.limits.maxComputeWorkgroupsPerDimension ||
@@ -7110,7 +7185,18 @@ class NativeShaderRuntime {
         }),
         4,
       );
-      values.set(packNativeProperties(definition, instance.params), 8);
+      values.set(
+        packNativeProperties(
+          definition,
+          resolveNativeParameterAnimation(
+            definition,
+            instance.params,
+            instance.animation,
+            stepTime,
+          ),
+        ),
+        8,
+      );
       return this.simulationUniform(values);
     };
     const bind = (
@@ -7335,6 +7421,7 @@ class NativeShaderRuntime {
     instance: EffectInstance,
     sourceRevision: string,
     deterministic: boolean,
+    sourceIdentity: string,
   ): Promise<GPUTexture> {
     if (definition !== mount.definition)
       throw new NativeSourceError(
@@ -7380,6 +7467,7 @@ class NativeShaderRuntime {
     if (
       prior &&
       (prior.definitionHash !== mount.definitionHash ||
+        prior.sourceIdentity !== sourceIdentity ||
         prior.seed !== params.seed ||
         nativeFeedbackResetValuesChanged(
           prior.resetPropertyValues,
@@ -7420,6 +7508,7 @@ class NativeShaderRuntime {
         seed: params.seed,
         resetPropertyValues,
         seekRevision: revision,
+        sourceIdentity,
         sourceRevision: "",
         pendingSourceRevision: null,
         sourceWidth: source.width,
@@ -7466,6 +7555,7 @@ class NativeShaderRuntime {
       mode: deterministic ? "deterministic" : "interactive",
       speed: deterministic ? undefined : instance.timing.speed,
       params,
+      sourcePixelRatio: (source.width * mount.pixelRatio) / mount.width,
       sourceChanged: feedback.sourceRevision !== sourceRevision,
       timestampWritesForPass: ({ kind, stepIndex }) =>
         this.gpuTimestampWrites(encoder, `feedback:${kind}:step-${stepIndex}`),
@@ -7506,12 +7596,7 @@ class NativeShaderRuntime {
       const sourceBinding = inputPlan.ok
         ? inputPlan.inputs.get("source")
         : undefined;
-      if (
-        !inputPlan.ok ||
-        inputPlan.inputs.size !== 1 ||
-        sourceBinding?.kind !== "builtin" ||
-        !["source", "backdrop"].includes(sourceBinding.source)
-      )
+      if (!inputPlan.ok || inputPlan.inputs.size !== 1 || !sourceBinding)
         throw new NativeStatelessComputeError(
           "stateless-compute-definition-invalid",
         );
@@ -8539,6 +8624,267 @@ class NativeShaderRuntime {
     }
   }
 
+  cameraState() {
+    return this.cameraSource.state();
+  }
+
+  async startCamera(instanceId: string, port: string): Promise<void> {
+    let parentActivated = false;
+    try {
+      parentActivated =
+        window.parent.navigator.userActivation?.isActive === true;
+    } catch {
+      parentActivated = false;
+    }
+    if (
+      this.disposed ||
+      (navigator.userActivation?.isActive === false && !parentActivated)
+    )
+      throw new NativeCameraError("unavailable");
+    const mount = this.mounts.get(instanceId);
+    if (!mount || mount.instance.enabled === false)
+      throw new NativeCameraError("unavailable");
+    const plan = planNativeInputResources(mount.definition, mount.instance);
+    const resource = mount.definition.inputs?.[port]?.resource;
+    if (!plan.ok || !resource || plan.inputs.get(resource)?.kind !== "camera")
+      throw new NativeCameraError("unavailable");
+    await this.cameraSource.start();
+    if (this.disposed || !this.hasCameraConsumer()) {
+      this.cameraSource.stop();
+      throw new NativeCameraError("stopped");
+    }
+    this.requestSourceFrame();
+  }
+
+  stopCamera(): void {
+    this.cameraSource.stop();
+    this.releaseCameraTexture();
+  }
+
+  async snapshotCamera(
+    expectedInstanceIds: readonly string[],
+  ): Promise<ImageBitmap> {
+    this.assertCameraConsumers(expectedInstanceIds);
+    const bitmap = await createImageBitmap(this.cameraSource.frame());
+    if (
+      !bitmap.width ||
+      !bitmap.height ||
+      bitmap.width > 1920 ||
+      bitmap.height > 1080 ||
+      this.disposed ||
+      this.cameraSource.state() !== "active"
+    ) {
+      bitmap.close();
+      throw new NativeCameraError("unavailable");
+    }
+    return bitmap;
+  }
+
+  async recordCameraClip(
+    expectedInstanceIds: readonly string[],
+    durationSeconds: number,
+    signal: AbortSignal,
+    onProgress?: (elapsedSeconds: number, durationSeconds: number) => void,
+  ): Promise<Blob> {
+    this.assertCameraConsumers(expectedInstanceIds);
+    const blob = await recordNativeCameraClip({
+      sourceTrack: this.cameraSource.track(),
+      durationSeconds,
+      signal,
+      onProgress: (elapsedSeconds, totalSeconds) => {
+        this.assertCameraConsumers(expectedInstanceIds);
+        onProgress?.(elapsedSeconds, totalSeconds);
+      },
+    });
+    this.assertCameraConsumers(expectedInstanceIds);
+    return blob;
+  }
+
+  async installCameraClip(
+    clip: {
+      nextFrame: (
+        frameIndex: number,
+        signal: AbortSignal,
+      ) => Promise<ImageBitmap>;
+      dispose: () => void;
+    },
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (this.disposed) throw new NativeCameraError("unavailable");
+    this.clearCameraClip();
+    this.cameraClip = clip;
+    try {
+      await this.nextCameraClipFrame(0, signal);
+    } catch (error) {
+      this.clearCameraClip();
+      throw error;
+    }
+  }
+
+  async nextCameraClipFrame(
+    frameIndex: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const clip = this.cameraClip;
+    if (!clip || this.disposed) throw new NativeCameraError("unavailable");
+    if (frameIndex === 0 && this.cameraSnapshot) return;
+    const bitmap = await clip.nextFrame(frameIndex, signal);
+    if (this.disposed || clip !== this.cameraClip || signal.aborted) {
+      bitmap.close();
+      throw new NativeCameraError("unavailable");
+    }
+    this.replaceCameraSnapshot(bitmap, frameIndex === 0);
+  }
+
+  clearCameraClip(): void {
+    this.cameraClip?.dispose();
+    this.cameraClip = null;
+    this.clearCameraSnapshot();
+  }
+
+  private assertCameraConsumers(expectedInstanceIds: readonly string[]): void {
+    if (
+      this.disposed ||
+      this.cameraSource.state() !== "active" ||
+      expectedInstanceIds.length === 0 ||
+      !expectedInstanceIds.every((id) => {
+        const mount = this.mounts.get(id);
+        const plan = mount
+          ? planNativeInputResources(mount.definition, mount.instance)
+          : null;
+        return (
+          mount?.instance.enabled !== false &&
+          plan?.ok === true &&
+          [...plan.inputs.values()].some((input) => input.kind === "camera")
+        );
+      })
+    )
+      throw new NativeCameraError("unavailable");
+  }
+
+  installCameraSnapshot(bitmap: ImageBitmap): void {
+    this.replaceCameraSnapshot(bitmap, true);
+  }
+
+  private replaceCameraSnapshot(
+    bitmap: ImageBitmap,
+    requestRescan: boolean,
+  ): void {
+    if (
+      this.disposed ||
+      bitmap.width < 1 ||
+      bitmap.height < 1 ||
+      bitmap.width > 1920 ||
+      bitmap.height > 1080
+    )
+      throw new NativeCameraError("unavailable");
+    this.cameraSnapshot?.close();
+    this.cameraSnapshot = bitmap;
+    this.releaseCameraTexture();
+    if (requestRescan) this.requestScan();
+  }
+
+  clearCameraSnapshot(): void {
+    this.cameraSnapshot?.close();
+    this.cameraSnapshot = null;
+    this.releaseCameraTexture();
+  }
+
+  private releaseCameraTexture(): void {
+    if (!this.cameraFrameTexture) return;
+    this.textureRetirement.push(this.cameraFrameTexture.texture);
+    this.cameraFrameTexture = null;
+  }
+
+  private hasCameraConsumer(): boolean {
+    return [...this.mounts.values()].some((mount) => {
+      if (mount.instance.enabled === false) return false;
+      const plan = planNativeInputResources(mount.definition, mount.instance);
+      return (
+        plan.ok &&
+        [...plan.inputs.values()].some((input) => input.kind === "camera")
+      );
+    });
+  }
+
+  private cameraTexture(): GPUTexture {
+    if (this.cameraFrameTexture?.epoch === this.renderEpoch)
+      return this.cameraFrameTexture.texture;
+    let source: HTMLVideoElement | ImageBitmap;
+    try {
+      source = this.cameraSnapshot ?? this.cameraSource.frame();
+    } catch (error) {
+      const state =
+        error instanceof NativeCameraError ? error.code : "unavailable";
+      throw new NativeSourceError(
+        state === "permission-denied"
+          ? "input-camera-permission-denied"
+          : state === "stopped"
+            ? "input-camera-stopped"
+            : "input-camera-unavailable",
+        `The camera input is ${state}.`,
+      );
+    }
+    const width =
+      source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+    const height =
+      source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+    if (
+      !Number.isSafeInteger(width) ||
+      !Number.isSafeInteger(height) ||
+      width < 1 ||
+      height < 1 ||
+      width > Math.min(MAX_DIMENSION, 1920) ||
+      height > Math.min(MAX_DIMENSION, 1080) ||
+      width * height > MAX_PIXELS
+    )
+      throw new NativeSourceError(
+        "input-camera-size",
+        "The camera frame has unavailable or oversized dimensions.",
+      );
+    const device = this.device;
+    if (!device)
+      throw new NativeSourceError(
+        "input-device-unavailable",
+        "The WebGPU device is unavailable.",
+      );
+    if (
+      this.cameraFrameTexture &&
+      (this.cameraFrameTexture.device !== device ||
+        this.cameraFrameTexture.texture.width !== width ||
+        this.cameraFrameTexture.texture.height !== height)
+    )
+      this.releaseCameraTexture();
+    if (!this.cameraFrameTexture) {
+      this.ensureTextureBudget(width * height * 4);
+      this.cameraFrameTexture = {
+        texture: this.texture(width, height, "rgba8unorm-srgb"),
+        device,
+        epoch: -1,
+      };
+    }
+    const frame = this.cameraFrameTexture;
+    try {
+      device.queue.copyExternalImageToTexture(
+        { source, flipY: false },
+        {
+          texture: frame.texture,
+          premultipliedAlpha: false,
+          colorSpace: "srgb",
+        },
+        [width, height],
+      );
+    } catch (error) {
+      this.releaseCameraTexture();
+      throw new NativeSourceError(
+        "input-camera-upload",
+        `The camera frame could not be uploaded: ${String(error)}`,
+      );
+    }
+    frame.epoch = this.renderEpoch;
+    return frame.texture;
+  }
+
   private async effectInputTextures(
     mount: Mount,
     source: GPUTexture,
@@ -8566,6 +8912,7 @@ class NativeShaderRuntime {
           binding.preprocess,
           binding.mipmap,
         );
+      else if (binding.kind === "camera") input = this.cameraTexture();
       else if (binding.kind === "fallback") input = this.transparent!;
       else if (binding.kind === "authored-node") {
         if (!dependencies)
@@ -8607,6 +8954,16 @@ class NativeShaderRuntime {
     assertNativeUniformTiming(time, "time");
     assertNativeUniformTiming(instance.timing.time, "initial-time");
     assertNativeUniformTiming(instance.timing.speed, "speed");
+    if (instance.animation)
+      instance = {
+        ...instance,
+        params: resolveNativeParameterAnimation(
+          definition,
+          instance.params,
+          instance.animation,
+          time,
+        ),
+      };
     if (definition.passes[0]?.original)
       throw new NativeSourceError(
         "original-pass-retired",
@@ -8621,10 +8978,79 @@ class NativeShaderRuntime {
         "color-working-format-unsupported",
         `Effect ${instance.id} needs rgba16float pass outputs to preserve its Display-P3 colors.`,
       );
+    let backendSource = source;
+    let backendSourceRevision = sourceRevision;
+    let backendSourceIdentity = "builtin:source";
+    if (
+      definition.statelessCompute ||
+      definition.simulation ||
+      definition.feedback
+    ) {
+      const planned = planNativeInputResources(definition, instance);
+      if (!planned.ok)
+        throw new NativeSourceError(planned.code, planned.detail);
+      const binding = planned.inputs.get("source");
+      if (
+        planned.inputs.size > 1 ||
+        (planned.inputs.size === 1 && !binding) ||
+        (planned.inputs.size === 0 && !definition.simulation)
+      )
+        throw new NativeSourceError(
+          "input-backend-multiple-unsupported",
+          "This compute backend needs one resolved source texture.",
+        );
+      if (binding) {
+        const inputs = await this.effectInputTextures(
+          mount,
+          source,
+          time,
+          encoder,
+          definition,
+          instance,
+          deterministic,
+          dependencies,
+        );
+        const selected = inputs.resources.get("source");
+        if (!selected)
+          throw new NativeSourceError(
+            "pass-input-missing",
+            "The selected source texture is unavailable.",
+          );
+        backendSource = selected;
+        if (binding.kind === "asset") {
+          backendSourceIdentity = `asset:${binding.url}`;
+          backendSourceRevision = `asset:${binding.url}`;
+        } else if (binding.kind === "camera") {
+          backendSourceIdentity = "camera";
+          const epoch = this.cameraFrameTexture?.epoch;
+          if (epoch !== this.renderEpoch)
+            throw new NativeSourceError(
+              "input-camera-frame-unavailable",
+              "The selected camera frame is unavailable.",
+            );
+          backendSourceRevision = `camera:${epoch}`;
+        } else if (binding.kind === "authored-node") {
+          backendSourceIdentity = `authored:${binding.nodeId}:${binding.capture}`;
+          const capture = mount.authoredInputs.get("source");
+          if (!capture || capture.capturedSourceEpoch === null)
+            throw new NativeSourceError(
+              "input-authored-source-stale",
+              `Authored input ${binding.nodeId} has no captured source revision.`,
+            );
+          mount.pendingGraphInputEpochs = new Map([
+            ["source", { capture, sourceEpoch: capture.capturedSourceEpoch }],
+          ]);
+          backendSourceRevision = `authored:${binding.nodeId}:${binding.capture}:${capture.capturedSourceEpoch}`;
+        } else if (binding.kind === "fallback") {
+          backendSourceIdentity = "fallback:transparent-data";
+          backendSourceRevision = "fallback:transparent-data";
+        } else backendSourceIdentity = `builtin:${binding.source}`;
+      }
+    }
     if (definition.statelessCompute)
       return this.statelessComputePasses(
         mount,
-        source,
+        backendSource,
         time,
         encoder,
         definition,
@@ -8645,7 +9071,7 @@ class NativeShaderRuntime {
     if (definition.simulation)
       return this.simulationPasses(
         mount,
-        source,
+        backendSource,
         time,
         encoder,
         definition,
@@ -8655,13 +9081,14 @@ class NativeShaderRuntime {
     if (definition.feedback)
       return this.feedbackPasses(
         mount,
-        source,
+        backendSource,
         time,
         encoder,
         definition,
         instance,
-        sourceRevision,
+        backendSourceRevision,
         deterministic,
+        backendSourceIdentity,
       );
     if (usesRetiredNativeImageAbi(definition, instance))
       throw new NativeSourceError(
@@ -10262,20 +10689,36 @@ class NativeShaderRuntime {
       const sourceEpoch = mount.provider?.sourceEpoch?.();
 
       const assertStatelessCurrent = () => {
-        if (!statelessFrame) return;
+        const statefulFrame =
+          !!(draft?.definition ?? mount.definition).simulation ||
+          !!(draft?.definition ?? mount.definition).feedback;
+        if (!statelessFrame && !statefulFrame) return;
         assertCurrentPresentation();
-        if ((draft?.definition ?? mount.definition).resourceGraph) {
-          if (!mount.pendingGraphInputEpochs)
-            throw new NativeSourceError(
-              "linear-resource-frame-invalid",
-              "The graph input revision is unavailable.",
-            );
+        if (
+          statefulFrame &&
+          sourceEpoch !== undefined &&
+          mount.provider?.sourceEpoch?.() !== sourceEpoch
+        )
+          throw new NativeSourceError(
+            "source-epoch-stale",
+            "The authored source changed before GPU submission.",
+          );
+        if (
+          (draft?.definition ?? mount.definition).resourceGraph &&
+          !mount.pendingGraphInputEpochs
+        )
+          throw new NativeSourceError(
+            "linear-resource-frame-invalid",
+            "The graph input revision is unavailable.",
+          );
+        if (mount.pendingGraphInputEpochs) {
           for (const [
             name,
             { capture, sourceEpoch },
           ] of mount.pendingGraphInputEpochs)
             if (
               mount.authoredInputs.get(name) !== capture ||
+              capture.capturedSourceEpoch !== sourceEpoch ||
               capture.provider.sourceEpoch?.() !== sourceEpoch
             )
               throw new NativeSourceError(
@@ -10283,6 +10726,7 @@ class NativeShaderRuntime {
                 `Authored input ${capture.nodeId} changed before GPU submission.`,
               );
         }
+        if (!statelessFrame) return;
         if (
           statelessAuthoredEpoch === undefined ||
           mount.provider?.authoredSourceEpoch?.() !== statelessAuthoredEpoch ||
@@ -12787,6 +13231,11 @@ class NativeShaderRuntime {
         const frameSteps = Math.ceil(
           timing.speed / options.fps / feedback.timing.fixedDt,
         );
+        if (feedback.sourceHistory === "sequential-captures" && firstStep > 0)
+          throw new NativeSourceError(
+            "feedback-source-history-unavailable",
+            `Feedback effect ${mount.instance.id} needs source captures beginning at its first step.`,
+          );
         if (
           !Number.isSafeInteger(firstStep) ||
           firstStep > feedback.timing.maxStepsPerCall ||
@@ -14487,6 +14936,15 @@ class NativeShaderRuntime {
       ])
         element.removeAttribute(name);
     window.addEventListener("message", this.onMessage);
+    if (window.parent !== window)
+      try {
+        window.parent.dispatchEvent(new Event("an-native-camera-state"));
+      } catch (error) {
+        console.warn(
+          "Unable to dispatch camera state to the parent window.",
+          error,
+        );
+      }
     this.authoredStyleObserver = new MutationObserver((records) => {
       const isPresentationSwap = (record: MutationRecord): boolean =>
         [...this.mounts.values()].some(
@@ -14593,6 +15051,11 @@ class NativeShaderRuntime {
 
   dispose(): void {
     if (this.disposed) return;
+    this.cameraSource.stop();
+    this.clearCameraClip();
+    this.releaseCameraTexture();
+    this.cameraSnapshot?.close();
+    this.cameraSnapshot = null;
     this.presentationFaultLatch.clear();
     this.presentationFaultHold = false;
     this.presentationMirrorCapture = false;

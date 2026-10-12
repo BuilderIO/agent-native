@@ -7,7 +7,10 @@ import {
   validateEffectDocument,
   type EffectDefinition,
 } from "./native-effects";
-import { adaptNativeFeedbackDefinition } from "./native-feedback-plan";
+import {
+  adaptNativeFeedbackDefinition,
+  planNativeFeedback,
+} from "./native-feedback-plan";
 
 const candidate = OWNED_FEEDBACK_TEST_DEFINITION;
 
@@ -20,6 +23,106 @@ function errors(definition: EffectDefinition): string[] {
 }
 
 describe("Design-owned texture feedback contract", () => {
+  it("accepts an explicit sequential source history requirement", () => {
+    const definition: EffectDefinition = {
+      ...candidate,
+      feedback: {
+        ...candidate.feedback!,
+        sourceHistory: "sequential-captures",
+      },
+    };
+    expect(errors(definition)).toEqual([]);
+    expect(planEffectGraph(definition).errors).toEqual([]);
+    const adapted = adaptNativeFeedbackDefinition(definition);
+    expect(adapted.ok && adapted.definition.sourceHistory).toBe(
+      "sequential-captures",
+    );
+    const legacy = adaptNativeFeedbackDefinition(candidate);
+    expect(
+      legacy.ok &&
+        Object.prototype.hasOwnProperty.call(
+          legacy.definition,
+          "sourceHistory",
+        ),
+    ).toBe(false);
+  });
+
+  it("rejects unsupported history modes and hashes the declared requirement", async () => {
+    const definition: EffectDefinition = {
+      ...candidate,
+      feedback: {
+        ...candidate.feedback!,
+        sourceHistory: "sequential-captures",
+      },
+    };
+    expect(await hashEffectDefinition(definition)).not.toBe(
+      await hashEffectDefinition(candidate),
+    );
+    const invalid = {
+      ...definition,
+      feedback: {
+        ...definition.feedback!,
+        sourceHistory: "replay-unseen-source",
+      },
+    } as unknown as EffectDefinition;
+    expect(errors(invalid)).toContainEqual(
+      expect.stringContaining("feedback is invalid"),
+    );
+    expect(planEffectGraph(invalid).errors).toContain(
+      "feedback specification is malformed or unbounded",
+    );
+  });
+
+  it("accepts bounded instanced resolves without changing the legacy adapter", () => {
+    const definition: EffectDefinition = {
+      ...candidate,
+      feedback: {
+        ...candidate.feedback!,
+        resolveDraw: { vertices: 6, instances: 64 },
+      },
+    };
+    expect(errors(definition)).toEqual([]);
+    expect(planEffectGraph(definition).errors).toEqual([]);
+    const adapted = adaptNativeFeedbackDefinition(definition);
+    expect(adapted.ok && adapted.definition.resolveDraw).toEqual({
+      vertices: 6,
+      instances: 64,
+    });
+    if (!adapted.ok) throw new Error("Instanced feedback did not adapt.");
+    const legacy = adaptNativeFeedbackDefinition(candidate);
+    expect(
+      legacy.ok &&
+        Object.prototype.hasOwnProperty.call(legacy.definition, "resolveDraw"),
+    ).toBe(false);
+    for (const instances of [0, 257, 1.5]) {
+      const invalid = {
+        ...definition,
+        feedback: {
+          ...definition.feedback!,
+          resolveDraw: { vertices: 6, instances },
+        },
+      };
+      expect(errors(invalid as unknown as EffectDefinition)).toContainEqual(
+        expect.stringContaining("feedback is invalid"),
+      );
+      expect(
+        planEffectGraph(invalid as unknown as EffectDefinition).errors,
+      ).toContain("feedback specification is malformed or unbounded");
+      expect(
+        planNativeFeedback(
+          {
+            ...adapted.definition,
+            resolveDraw: { vertices: 6, instances },
+          },
+          {
+            maxTextureDimension2D: 8192,
+            maxComputeWorkgroupsPerDimension: 65535,
+          },
+        ),
+      ).toEqual({ ok: false, code: "feedback-definition-invalid" });
+    }
+  });
+
   it("validates two-output persistent compute and a bounded float resolve", () => {
     expect(errors(candidate)).toEqual([]);
     const plan = planEffectGraph(candidate);

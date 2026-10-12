@@ -1,5 +1,6 @@
 import {
   checkEffectAssetUrl,
+  effectInputEnabled,
   type EffectDefinition,
   type EffectInputBinding,
   type EffectInstance,
@@ -20,6 +21,7 @@ export type NativeExternalTextureInput =
       mipmap?: "generated";
     }
   | { kind: "authored-node"; nodeId: string; capture: "content" | "appearance" }
+  | { kind: "camera" }
   | { kind: "fallback"; source: "transparent-data" };
 
 export type NativeInputPlan =
@@ -39,13 +41,15 @@ function sameInput(
       : a.kind === "authored-node"
         ? a.nodeId === (b as typeof a).nodeId &&
           a.capture === (b as typeof a).capture
-        : a.source === (b as typeof a).source)
+        : a.kind === "camera"
+          ? true
+          : a.source === (b as typeof a).source)
   );
 }
 
 export function planNativeInputResources(
   definition: EffectDefinition,
-  instance: EffectInstance,
+  instance: Pick<EffectInstance, "bindings" | "params" | "placement">,
 ): NativeInputPlan {
   const produced = new Set(
     definition.passes.flatMap((pass) => [
@@ -58,11 +62,23 @@ export function planNativeInputResources(
       .flatMap((pass) => pass.reads)
       .filter((read) => !produced.has(read)),
   );
+  const singleSourceBackend =
+    (definition.statelessCompute !== undefined ||
+      definition.simulation !== undefined ||
+      definition.feedback !== undefined) &&
+    needed.size === 1 &&
+    needed.has("source");
   const inputs = new Map<string, NativeExternalTextureInput>();
   for (const [portName, port] of Object.entries(definition.inputs ?? {})) {
     if (port.kind !== "texture-2d" && port.kind !== "mask") continue;
     const resource = port.resource;
     if (!resource) continue;
+    if (!effectInputEnabled(port, definition, instance.params)) {
+      if (needed.has(resource)) {
+        inputs.set(resource, { kind: "fallback", source: "transparent-data" });
+      }
+      continue;
+    }
     const optionalNoise =
       definition.optionalImage !== undefined &&
       definition.passes[0]?.reads[1] === "noise" &&
@@ -104,6 +120,12 @@ export function planNativeInputResources(
         source: resource as "source" | "mask" | "backdrop",
       };
     if (!binding) {
+      if (port.enabledWhen && needed.has(resource))
+        return {
+          ok: false,
+          code: "input-conditional-binding-required",
+          detail: `Input ${portName} needs a selected image in ${String(port.enabledWhen.equals)} mode.`,
+        };
       if (optionalNoise && needed.has(resource))
         return {
           ok: false,
@@ -130,15 +152,16 @@ export function planNativeInputResources(
         detail: `Input ${portName} needs a decoded asset rather than an authored or composed source.`,
       };
     if (
-      binding.kind === "authored-node" &&
+      (binding.kind === "authored-node" || binding.kind === "camera") &&
       (definition.statelessCompute ||
         definition.simulation ||
-        definition.feedback)
+        definition.feedback) &&
+      !singleSourceBackend
     )
       return {
         ok: false,
         code: "input-authored-mode-unsupported",
-        detail: `Input ${portName} needs a render-pass effect for authored-node capture.`,
+        detail: `Input ${portName} needs a render-pass effect for live capture.`,
       };
     if (binding.kind === "asset") {
       const checked = checkEffectAssetUrl(binding.url);
@@ -174,7 +197,9 @@ export function planNativeInputResources(
         detail: `Input ${portName} cannot sample a backdrop on a ${instance.placement} instance.`,
       };
     if (
-      (binding.kind === "builtin" || binding.kind === "authored-node") &&
+      (binding.kind === "builtin" ||
+        binding.kind === "authored-node" ||
+        binding.kind === "camera") &&
       definition.resources?.some(
         (candidate) =>
           candidate.name === resource &&

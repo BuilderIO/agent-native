@@ -32,6 +32,7 @@ import {
   MAX_EFFECT_MANIFEST_BYTES,
   parseEffectsFromHtml,
 } from "../shared/native-effects.js";
+import { planNativeInputResources } from "../shared/native-input-resources.js";
 import {
   isNativeSourceSizing,
   type NativeSourceSizing,
@@ -49,6 +50,63 @@ const presetTiming = z
     time: z.number().finite().min(0).refine(isFiniteNativeUniformTiming),
   })
   .strict();
+const animation = z
+  .object({
+    duration: z.number().finite().gt(0).max(60),
+    loop: z.boolean(),
+    tracks: z
+      .record(
+        z.string().min(1),
+        z
+          .object({
+            keys: z
+              .array(
+                z
+                  .object({
+                    time: z.number().finite().min(0),
+                    value: z
+                      .unknown()
+                      .describe(
+                        "Value matching the declared native property type",
+                      ),
+                    easing: z
+                      .enum([
+                        "linear",
+                        "ease-in",
+                        "ease-out",
+                        "ease-in-out",
+                        "step",
+                      ])
+                      .optional(),
+                  })
+                  .strict(),
+              )
+              .min(2)
+              .max(32),
+          })
+          .strict(),
+      )
+      .refine(
+        (tracks) =>
+          Object.keys(tracks).length > 0 && Object.keys(tracks).length <= 16,
+      ),
+  })
+  .strict()
+  .describe(
+    "Bounded native property tracks; key times start at zero, increase, and end at duration. The shared effect validator checks property types and eligibility.",
+  );
+const bindingTargets = z.record(
+  z.string(),
+  z.object({
+    selector: z
+      .string()
+      .min(1)
+      .describe(
+        "Unique same-file source selector; the action persists an authored node ID before binding.",
+      ),
+    capture: z.enum(["content", "appearance"]),
+  }),
+);
 const operation = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("apply"),
@@ -60,9 +118,11 @@ const operation = z.discriminatedUnion("kind", [
     params: values.optional(),
     clip: z.enum(["bounds", "text"]).optional(),
     bindings: z.unknown().optional(),
+    bindingTargets: bindingTargets.optional(),
     transform: z.unknown().optional(),
     sourceSizing: sourceSizing.optional(),
     timing: presetTiming.optional(),
+    animation: animation.optional(),
   }),
   z.object({
     kind: z.literal("apply-many"),
@@ -74,10 +134,12 @@ const operation = z.discriminatedUnion("kind", [
     params: values.optional(),
     clip: z.enum(["bounds", "text"]).optional(),
     bindings: z.unknown().optional(),
+    bindingTargets: bindingTargets.optional(),
     transform: z.unknown().optional(),
     sourceSizing: sourceSizing.optional(),
     sourceSizingByNodeId: z.record(z.string().min(1), sourceSizing).optional(),
     timing: presetTiming.optional(),
+    animation: animation.optional(),
   }),
   z.object({
     kind: z.literal("apply-preset"),
@@ -100,26 +162,14 @@ const operation = z.discriminatedUnion("kind", [
     kind: z.literal("set-instance"),
     instanceId: z.string(),
     params: values.optional(),
+    animation: animation.nullable().optional(),
     enabled: z.boolean().optional(),
     opacity: z.number().optional(),
     seed: z.number().int().min(0).max(1_000_000).optional(),
     clip: z.enum(["bounds", "text"]).optional(),
     placement: z.enum(["fill", "layer", "backdrop"]).optional(),
     bindings: z.unknown().nullable().optional(),
-    bindingTargets: z
-      .record(
-        z.string(),
-        z.object({
-          selector: z
-            .string()
-            .min(1)
-            .describe(
-              "Unique same-file source selector; the action persists an authored node ID before binding.",
-            ),
-          capture: z.enum(["content", "appearance"]),
-        }),
-      )
-      .optional(),
+    bindingTargets: bindingTargets.optional(),
     transform: z.unknown().nullable().optional(),
     sourceSizing: sourceSizing.nullable().optional(),
   }),
@@ -174,8 +224,10 @@ const operation = z.discriminatedUnion("kind", [
 
 export default defineAction({
   description:
-    "Edit a native v2 GPU effect in one inline Design HTML file, or approve/revoke an exact executable definition hash for the signed-in viewer. " +
-    "set-instance can update params and bindings atomically; bindingTargets resolves unique same-file selectors and stamps stable authored node IDs on unlocked sources in that write. Authored texture bindings work in ordinary render passes and linear-resource-v1 graphs; feedback, simulation, and source-buffer-v1 compute retain their separate input contracts. " +
+    "Apply or edit native v2 GPU effects in one inline Design HTML file, or approve/revoke an exact executable definition hash for the signed-in viewer. " +
+    "Animation supports up to 60 seconds, 1–16 tracks, and 2–32 keys per track; it excludes texture, position, color-array, rebuild, simulation-count, feedback reset/seed, mode-switch, and interaction properties. Apply, apply-many, set-instance, and saved presets can carry animation. " +
+    "Declared texture inputs accept assets. Authored layers and camera work on compatible ordinary render ports and on feedback, simulation, or source-buffer-v1 only when that backend reads exactly one external resource named source; mixed or multiple external reads on those backends do not. Linear-data resources and retired optional-image/noise ports reject authored or camera bindings; retired optional inputs remain asset-only. Sequential-capture feedback export needs its first source frame and returns a typed error for a cold nonzero start. An optional feedback resolveDraw uses 6 vertices and 1–256 instances. Camera permission and live preview start require the user's Start camera control; MP4 export records a new local clip only when the camera is already active. " +
+    "apply, apply-many, and set-instance can use bindingTargets to resolve unique same-file selectors and stamp stable authored node IDs in that write. " +
     "Source edits, including document preview quality, frame-rate, requested color gamut, and dynamic-range policy, require editor access and an expected version hash; approvals require view access and change only viewer-scoped application state. " +
     "CPU validation does not compile GPU code; verify rendering in the Design preview.",
   requiresAuth: true,
@@ -327,17 +379,25 @@ export default defineAction({
     }
     let preparedHtml = live.content;
     let preparedOperation = operation as NativeEffectEdit;
-    if (operation.kind === "set-instance" && operation.bindingTargets) {
+    if (
+      (operation.kind === "set-instance" ||
+        operation.kind === "apply" ||
+        operation.kind === "apply-many") &&
+      operation.bindingTargets
+    ) {
       const parsed = parseEffectsFromHtml(live.content);
       if (parsed.errors.length)
         fail("Native effect manifest is unreadable.", {
           errorCode: "native_effect_manifest_unreadable",
           statusCode: 422,
         });
-      const instance = parsed.document?.instances.find(
-        (item) => item.id === operation.instanceId,
-      );
-      if (!instance)
+      const instance =
+        operation.kind === "set-instance"
+          ? parsed.document?.instances.find(
+              (item) => item.id === operation.instanceId,
+            )
+          : null;
+      if (operation.kind === "set-instance" && !instance)
         fail("Native effect instance not found.", {
           errorCode: "native_effect_instance_not_found",
           statusCode: 404,
@@ -353,7 +413,7 @@ export default defineAction({
           statusCode: 422,
         });
       const bindings = {
-        ...(supplied === null ? {} : (supplied ?? instance.bindings ?? {})),
+        ...(supplied === null ? {} : (supplied ?? instance?.bindings ?? {})),
       } as Record<
         string,
         import("../shared/native-effects.js").EffectInputBinding
@@ -469,15 +529,28 @@ export default defineAction({
           ? item.id === operation.instanceId
           : !beforeIds.has(item.id),
       );
-      if (
-        changedInstances.some(
-          (item) => !authoredSourceBindingsAvailable(next.html, item.bindings),
-        )
-      )
-        fail("An authored input layer is missing or duplicated in this file.", {
-          errorCode: "native_effect_source_layer_unavailable",
-          statusCode: 422,
-        });
+      for (const item of changedInstances) {
+        const definition = after.document.definitions.find(
+          (candidate) =>
+            candidate.id === item.definitionId &&
+            candidate.version === item.definitionVersion,
+        );
+        if (!definition) continue;
+        const plan = planNativeInputResources(definition, item);
+        if (!plan.ok)
+          fail(plan.detail, {
+            errorCode: plan.code,
+            statusCode: 422,
+          });
+        if (!authoredSourceBindingsAvailable(next.html, plan.inputs))
+          fail(
+            "An authored input layer is missing or duplicated in this file.",
+            {
+              errorCode: "native_effect_source_layer_unavailable",
+              statusCode: 422,
+            },
+          );
+      }
     }
     if (next.html !== live.content)
       await snapshotDesignBeforeAgentEdit(designId, context);

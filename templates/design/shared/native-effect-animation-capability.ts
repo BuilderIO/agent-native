@@ -64,6 +64,7 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-p-slat-shutter@5",
   "an-native-highlight-streaks@1",
   "an-native-owned-p-environment-metal@1",
+  "an-native-owned-af-polished-metal@1",
   "an-native-owned-p-density-heatmap@3",
   "an-native-owned-p-vector-field-displacement@2",
   "an-native-owned-o-angular-stops@2",
@@ -263,9 +264,17 @@ const STATIC_BUILTIN_VERSIONS = new Set([
   "an-native-owned-x-high-pass-speckle@1",
   "an-native-owned-x-drainage-field@1",
   "an-native-owned-y-steered-kuwahara@1",
+  "an-native-owned-z-content-repeater@1",
+  "an-native-owned-ab-region-bounds@1",
+  "an-native-owned-ac-coverage-atlas@1",
 ]);
 
 const ANIMATED_BUILTIN_VERSIONS = new Set([
+  "an-native-owned-ai-source-smoke-fluid@1",
+  "an-native-owned-ai-satin-folds@1",
+  "an-native-owned-af-gem-smoke-volume@1",
+  "an-native-owned-af-heat-tint@1",
+  "an-native-owned-af-water-refraction@1",
   "an-native-owned-v-thermal-mask-contour@1",
   "an-native-owned-v-soft-cell-noise@1",
   "an-native-owned-life-mosaic@1",
@@ -368,6 +377,14 @@ const ANIMATED_BUILTIN_VERSIONS = new Set([
   "an-native-owned-x-perlin-gradient-field@1",
   "an-native-owned-x-simplex-lattice@1",
   "an-native-curl-streamlines@2",
+  "an-native-flocking-swarm@1",
+  "an-native-owned-feature-pursuit@1",
+  "an-native-owned-source-shards@1",
+  "an-native-owned-exposure-trail@1",
+  "an-native-owned-frame-mosh@1",
+  "an-native-source-particle-drift@1",
+  "an-native-pixel-transport@1",
+  "an-native-fracture-scatter@1",
 ]);
 
 const canonicalPayloadByVersion = new Map(

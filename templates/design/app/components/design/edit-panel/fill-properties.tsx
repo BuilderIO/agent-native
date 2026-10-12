@@ -226,11 +226,19 @@ function FillPropertiesInner({
   const t = useT();
   const [requestedNativeShaderOpen, setRequestedNativeShaderOpen] =
     useState(false);
+  const [nativeShaderTitle, setNativeShaderTitle] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
     if (nativeShaderPickerRequest && glslShaderContext?.nodeId) {
+      setNativeShaderTitle(null);
       setRequestedNativeShaderOpen(true);
     }
   }, [nativeShaderPickerRequest, glslShaderContext?.nodeId]);
+  useEffect(
+    () => setNativeShaderTitle(null),
+    [glslShaderContext?.fileId, glslShaderContext?.nodeId],
+  );
   const commitImageFillPatch = (
     patch: Record<string, string>,
     meta?: Parameters<StyleChangeHandler>[2],
@@ -548,7 +556,10 @@ function FillPropertiesInner({
           {canOpenNativeFill ? (
             <SectionIconButton
               label={t("editPanel.shaders.fillsTitle")}
-              onClick={() => setRequestedNativeShaderOpen(true)}
+              onClick={() => {
+                setNativeShaderTitle(null);
+                setRequestedNativeShaderOpen(true);
+              }}
             >
               <IconWaveSine className="size-3.5" />
             </SectionIconButton>
@@ -567,15 +578,21 @@ function FillPropertiesInner({
       {glslShaderContext && canOpenNativeFill && requestedNativeShaderOpen ? (
         <Popover
           open
-          onOpenChange={(open) => setRequestedNativeShaderOpen(open)}
+          onOpenChange={(open) => {
+            setRequestedNativeShaderOpen(open);
+            if (!open) setNativeShaderTitle(null);
+          }}
         >
           <PopoverAnchor asChild>
             <span className="block h-0 w-full" />
           </PopoverAnchor>
           <InspectorControlPopoverContent
-            title={t("editPanel.shaders.fillsTitle")}
+            title={nativeShaderTitle ?? t("editPanel.shaders.fillsTitle")}
             icon={<IconWaveSine className="size-3.5" />}
-            onClose={() => setRequestedNativeShaderOpen(false)}
+            onClose={() => {
+              setRequestedNativeShaderOpen(false);
+              setNativeShaderTitle(null);
+            }}
             bodyClassName="p-0"
           >
             <GlslShaderPanel
@@ -583,7 +600,11 @@ function FillPropertiesInner({
               context={glslShaderContext}
               initialView="browser"
               presentation="popover"
-              onBack={() => setRequestedNativeShaderOpen(false)}
+              onActiveTitleChange={setNativeShaderTitle}
+              onBack={() => {
+                setRequestedNativeShaderOpen(false);
+                setNativeShaderTitle(null);
+              }}
             />
           </InspectorControlPopoverContent>
         </Popover>

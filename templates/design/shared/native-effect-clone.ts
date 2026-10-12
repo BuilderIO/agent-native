@@ -8,6 +8,7 @@ import {
   type EffectDocument,
   type EffectInstance,
 } from "./native-effects";
+import { planNativeInputResources } from "./native-input-resources";
 import { ensureNativeShaderRuntime } from "./shader-fills";
 import { sourceContentHash } from "./source-workspace";
 
@@ -50,13 +51,29 @@ export function captureNativeEffectsForClone(
     ids.has(instance.nodeId),
   );
   if (!instances?.length) return { snapshot: null, errors: [] };
+  const definitionByKey = new Map(
+    source.document!.definitions.map((definition) => [
+      definitionKey(definition.id, definition.version),
+      definition,
+    ]),
+  );
   for (const instance of instances) {
     if (authoredNodeCount(sourceHtml, instance.nodeId) !== 1)
       return {
         snapshot: null,
         errors: [`native clone source node ${instance.nodeId} is ambiguous`],
       };
-    for (const binding of Object.values(instance.bindings ?? {})) {
+    const definition = definitionByKey.get(
+      definitionKey(instance.definitionId, instance.definitionVersion),
+    );
+    if (!definition)
+      return {
+        snapshot: null,
+        errors: [`native clone definition ${instance.definitionId} is missing`],
+      };
+    const plan = planNativeInputResources(definition, instance);
+    if (!plan.ok) return { snapshot: null, errors: [plan.detail] };
+    for (const binding of plan.inputs.values()) {
       if (binding.kind === "authored-node" && !ids.has(binding.nodeId))
         return {
           snapshot: null,
@@ -131,6 +148,20 @@ export function mergeNativeEffectsForClone(
   const instances = [...document.instances];
   const reserved = new Set(instances.map((instance) => instance.id));
   for (const sourceInstance of source.document.instances) {
+    const definition = source.document.definitions.find(
+      (candidate) =>
+        candidate.id === sourceInstance.definitionId &&
+        candidate.version === sourceInstance.definitionVersion,
+    );
+    if (!definition)
+      return {
+        html: destinationHtml,
+        errors: [
+          `native clone definition ${sourceInstance.definitionId} is missing`,
+        ],
+      };
+    const plan = planNativeInputResources(definition, sourceInstance);
+    if (!plan.ok) return { html: destinationHtml, errors: [plan.detail] };
     const nodeId = nodeIdMap.get(sourceInstance.nodeId);
     if (!nodeId || authoredNodeCount(destinationHtml, nodeId) !== 1)
       return {
@@ -145,11 +176,16 @@ export function mergeNativeEffectsForClone(
     )) {
       if (binding.kind === "authored-node") {
         const mapped = nodeIdMap.get(binding.nodeId);
-        if (!mapped || authoredNodeCount(destinationHtml, mapped) !== 1)
+        const resource = definition.inputs?.[name]?.resource;
+        const active =
+          resource && plan.inputs.get(resource)?.kind === "authored-node";
+        if (!mapped || authoredNodeCount(destinationHtml, mapped) !== 1) {
+          if (!active) continue;
           return {
             html: destinationHtml,
             errors: [`native clone binding ${binding.nodeId} is missing`],
           };
+        }
         bindings[name] = { ...binding, nodeId: mapped };
       } else bindings[name] = binding;
     }

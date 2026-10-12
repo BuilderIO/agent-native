@@ -333,6 +333,7 @@ import {
   type ExportSettingsValue,
 } from "@/components/design/inspector";
 import { waitForShaderWriteToSettle } from "@/components/design/inspector/GlslShaderPanel";
+import { InspectorControlPopoverPortalProvider } from "@/components/design/inspector/InspectorControlPopover";
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
 import {
@@ -3621,8 +3622,14 @@ function DesignEditor() {
   );
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
+  const [inspectorSheetContainer, setInspectorSheetContainer] =
+    useState<HTMLDivElement | null>(null);
   const [pngExporting, setPngExporting] = useState(false);
   const [mp4Exporting, setMp4Exporting] = useState(false);
+  const [mp4RecordingProgress, setMp4RecordingProgress] = useState<{
+    elapsedSeconds: number;
+    durationSeconds: number;
+  } | null>(null);
   const [mp4Progress, setMp4Progress] = useState<{
     completed: number;
     total: number;
@@ -20260,6 +20267,7 @@ function DesignEditor() {
       mp4ExportingRef.current = true;
       pngExportingRef.current = true;
       setMp4Exporting(true);
+      setMp4RecordingProgress(null);
       try {
         const total = nativeVideoFrameCount(settings);
         setMp4Progress({ completed: 0, total });
@@ -20276,9 +20284,12 @@ function DesignEditor() {
           settings,
           signal: controller.signal,
           onProgress: (completed, frameCount) => {
+            setMp4RecordingProgress(null);
             if (completed % 6 === 0 || completed === frameCount)
               setMp4Progress({ completed, total: frameCount });
           },
+          onRecordingProgress: (elapsedSeconds, durationSeconds) =>
+            setMp4RecordingProgress({ elapsedSeconds, durationSeconds }),
         });
         if (controller.signal.aborted)
           throw new NativeSceneExportError(
@@ -20299,6 +20310,7 @@ function DesignEditor() {
         mp4ExportingRef.current = false;
         pngExportingRef.current = false;
         setMp4Exporting(false);
+        setMp4RecordingProgress(null);
       }
     },
     [
@@ -20337,6 +20349,7 @@ function DesignEditor() {
         mp4ExportingRef.current = true;
         mp4AbortRef.current = controller;
         setMp4Exporting(true);
+        setMp4RecordingProgress(null);
         setMp4Progress({ completed: 0, total });
       } else {
         rasterAbortRef.current = controller;
@@ -20352,9 +20365,12 @@ function DesignEditor() {
             triggerRetainedNativeDownload(blob, filename, extension);
           },
           onProgress: (completed, frameCount) => {
+            setMp4RecordingProgress(null);
             if (completed % 6 === 0 || completed === frameCount)
               setMp4Progress({ completed, total: frameCount });
           },
+          onRecordingProgress: (elapsedSeconds, durationSeconds) =>
+            setMp4RecordingProgress({ elapsedSeconds, durationSeconds }),
         });
         downloadTriggered = true;
       } finally {
@@ -20365,6 +20381,7 @@ function DesignEditor() {
         mp4ExportingRef.current = false;
         pngExportingRef.current = false;
         setMp4Exporting(false);
+        setMp4RecordingProgress(null);
         setPngExporting(false);
         if (downloadTriggered) nativeLocalExportFormatRef.current = null;
       }
@@ -21297,11 +21314,13 @@ function DesignEditor() {
             aria-live="polite"
             className="col-span-2 text-[11px] tabular-nums text-muted-foreground"
           >
-            {mp4Exporting && mp4Progress
-              ? `${t("designEditor.mp4Progress")} ${mp4Progress.completed}/${mp4Progress.total}`
-              : nativeVideoPreview.valid
-                ? `${nativeVideoPreview.frameCount} ${t("designEditor.mp4Frames")}`
-                : t("designEditor.mp4SettingsInvalid")}
+            {mp4Exporting && mp4RecordingProgress
+              ? `${t("designEditor.mp4RecordingCamera")} ${Math.floor(mp4RecordingProgress.elapsedSeconds)}/${Math.ceil(mp4RecordingProgress.durationSeconds)}s`
+              : mp4Exporting && mp4Progress
+                ? `${t("designEditor.mp4Progress")} ${mp4Progress.completed}/${mp4Progress.total}`
+                : nativeVideoPreview.valid
+                  ? `${nativeVideoPreview.frameCount} ${t("designEditor.mp4Frames")}`
+                  : t("designEditor.mp4SettingsInvalid")}
           </div>
         </div>
       ) : null}
@@ -26708,7 +26727,9 @@ function DesignEditor() {
             >
               <IconMovie className="mr-2 h-4 w-4" />
               {mp4Exporting
-                ? `${t("designEditor.cancelMp4")} ${mp4Progress?.completed ?? 0}/${mp4Progress?.total ?? 0}`
+                ? mp4RecordingProgress
+                  ? `${t("designEditor.cancelMp4")} · ${t("designEditor.mp4RecordingCamera")} ${Math.floor(mp4RecordingProgress.elapsedSeconds)}/${Math.ceil(mp4RecordingProgress.durationSeconds)}s`
+                  : `${t("designEditor.cancelMp4")} ${mp4Progress?.completed ?? 0}/${mp4Progress?.total ?? 0}`
                 : t("designEditor.downloadMp4")}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -29548,6 +29569,7 @@ function DesignEditor() {
             </SheetTrigger>
           ) : null}
           <SheetContent
+            ref={setInspectorSheetContainer}
             side="right"
             className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
           >
@@ -29555,7 +29577,11 @@ function DesignEditor() {
               <SheetTitle>{t("editPanel.properties")}</SheetTitle>
             </SheetHeader>
             <div className="h-full min-h-0 pt-8">
-              <EditPanel {...editPanelProps} width={320} />
+              <InspectorControlPopoverPortalProvider
+                container={inspectorSheetContainer}
+              >
+                <EditPanel {...editPanelProps} width={320} />
+              </InspectorControlPopoverPortalProvider>
             </div>
           </SheetContent>
         </Sheet>

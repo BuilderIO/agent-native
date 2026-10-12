@@ -39,6 +39,8 @@ export interface EffectPass {
 
 export interface EffectFeedbackSpec {
   abi: "texture-feedback-v1";
+  sourceHistory?: "sequential-captures";
+  resolveDraw?: { vertices: 6; instances: number };
   grid: {
     width: number;
     height: number;
@@ -128,6 +130,17 @@ function validateFeedbackGraph(
 ): string[] {
   if (
     feedback?.abi !== "texture-feedback-v1" ||
+    (feedback.sourceHistory !== undefined &&
+      feedback.sourceHistory !== "sequential-captures") ||
+    (feedback.resolveDraw !== undefined &&
+      (feedback.resolveDraw === null ||
+        typeof feedback.resolveDraw !== "object" ||
+        Array.isArray(feedback.resolveDraw) ||
+        Object.keys(feedback.resolveDraw).length !== 2 ||
+        feedback.resolveDraw.vertices !== 6 ||
+        !Number.isSafeInteger(feedback.resolveDraw.instances) ||
+        feedback.resolveDraw.instances < 1 ||
+        feedback.resolveDraw.instances > 256)) ||
     !feedback.grid ||
     !Number.isSafeInteger(feedback.grid.width) ||
     !Number.isSafeInteger(feedback.grid.height) ||

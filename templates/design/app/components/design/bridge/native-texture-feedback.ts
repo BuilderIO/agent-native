@@ -31,6 +31,7 @@ export type NativeFeedbackFailureCode =
   | "feedback-time-invalid"
   | "feedback-seek-backward"
   | "feedback-step-limit"
+  | "feedback-source-history-unavailable"
   | "feedback-params-invalid"
   | "feedback-shader-invalid"
   | "feedback-resource-unavailable"
@@ -104,6 +105,7 @@ export interface NativeFeedbackEncodeOptions {
   mode?: "deterministic" | "interactive";
   speed?: number;
   params: NativeFeedbackParams;
+  sourcePixelRatio?: number;
   sourceChanged?: boolean;
   signal?: AbortSignal;
   timestampWritesForPass?: (pass: NativeFeedbackProfilePass) => {
@@ -192,6 +194,7 @@ export class NativeTextureFeedbackExecutor {
   private committedComputeParams:
     | readonly [number, number, number, number, number]
     | null = null;
+  private committedSourcePixelRatio: number | null = null;
 
   private constructor(
     private readonly device: GPUDevice,
@@ -248,7 +251,27 @@ export class NativeTextureFeedbackExecutor {
         fragment: {
           module: resolveModule,
           entryPoint: "fs",
-          targets: [{ format: "rgba16float" }],
+          targets: [
+            {
+              format: "rgba16float",
+              ...(definition.resolveDraw
+                ? {
+                    blend: {
+                      color: {
+                        srcFactor: "one" as const,
+                        dstFactor: "one-minus-src-alpha" as const,
+                        operation: "add" as const,
+                      },
+                      alpha: {
+                        srcFactor: "one" as const,
+                        dstFactor: "one-minus-src-alpha" as const,
+                        operation: "add" as const,
+                      },
+                    },
+                  }
+                : {}),
+            },
+          ],
         },
         primitive: { topology: "triangle-list" },
       });
@@ -466,6 +489,7 @@ export class NativeTextureFeedbackExecutor {
     this.interactiveClock = null;
     this.sourceSize = null;
     this.committedComputeParams = null;
+    this.committedSourcePixelRatio = null;
     const cleanupFailures = releaseTextures(this.allocator, old);
     if (cleanupFailures.length)
       throw new NativeFeedbackFailure(
@@ -496,6 +520,12 @@ export class NativeTextureFeedbackExecutor {
       throw new NativeFeedbackFailure("feedback-source-resized");
     if (!validParams(options.params))
       throw new NativeFeedbackFailure("feedback-params-invalid");
+    const sourcePixelRatio = options.sourcePixelRatio ?? 1;
+    if (
+      !Number.isFinite(Math.fround(sourcePixelRatio)) ||
+      sourcePixelRatio <= 0
+    )
+      throw new NativeFeedbackFailure("feedback-params-invalid");
     assertNativeUniformTiming(options.timeSeconds, "time");
     if (options.initialLocalSeconds !== undefined)
       assertNativeUniformTiming(options.initialLocalSeconds, "initial-time");
@@ -518,15 +548,40 @@ export class NativeTextureFeedbackExecutor {
     const simulationTimeSeconds = resume?.ok
       ? resume.simulationTimeSeconds
       : options.timeSeconds;
-    const advance = planNativeFeedbackAdvance(
-      this.definition,
-      { completedStep: this.completedStep },
-      simulationTimeSeconds,
-      mode,
-    );
-    if (!advance.ok) throw new NativeFeedbackFailure(advance.code);
     const initializeState = !this.initializedState;
-    const steps = initializeState ? [0, ...advance.steps] : [...advance.steps];
+    const sequentialHistory =
+      this.definition.sourceHistory === "sequential-captures";
+    const liveBaseline =
+      sequentialHistory && initializeState && mode === "interactive";
+    const firstStep = Math.floor(
+      simulationTimeSeconds / this.definition.timing.fixedDt + 1e-7,
+    );
+    if (
+      sequentialHistory &&
+      initializeState &&
+      mode === "deterministic" &&
+      firstStep > 0
+    )
+      throw new NativeFeedbackFailure("feedback-source-history-unavailable");
+    const advance = liveBaseline
+      ? Number.isSafeInteger(firstStep) &&
+        firstStep <= this.definition.timing.maxStepIndex
+        ? {
+            ok: true as const,
+            steps: [] as readonly number[],
+            targetStep: firstStep,
+          }
+        : { ok: false as const, code: "feedback-step-limit" as const }
+      : planNativeFeedbackAdvance(
+          this.definition,
+          { completedStep: this.completedStep },
+          simulationTimeSeconds,
+          mode,
+        );
+    if (!advance.ok) throw new NativeFeedbackFailure(advance.code);
+    const steps = initializeState
+      ? [liveBaseline ? advance.targetStep : 0, ...advance.steps]
+      : [...advance.steps];
     const computeParams = [
       options.params.intensity,
       options.params.blockSize,
@@ -536,6 +591,7 @@ export class NativeTextureFeedbackExecutor {
     ] as const;
     const computeParamsChanged =
       !this.committedComputeParams ||
+      this.committedSourcePixelRatio !== sourcePixelRatio ||
       computeParams.some(
         (value, index) => value !== this.committedComputeParams?.[index],
       );
@@ -559,7 +615,9 @@ export class NativeTextureFeedbackExecutor {
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         uniforms.push(uniform);
-        const zeroDt = initializeState && stepIndex === 0;
+        const zeroDt =
+          initializeState &&
+          stepIndex === (liveBaseline ? advance.targetStep : 0);
         const dt =
           zeroDt || advance.steps.length === 0
             ? 0
@@ -582,7 +640,7 @@ export class NativeTextureFeedbackExecutor {
             options.params.blockSize,
             options.params.drift,
             options.params.churn,
-            0,
+            sourcePixelRatio,
           ]),
         );
         const group = this.device.createBindGroup({
@@ -613,7 +671,16 @@ export class NativeTextureFeedbackExecutor {
       this.device.queue.writeBuffer(
         resolveUniform,
         0,
-        new Float32Array([options.params.blend, 0, 0, 0, 0, 0, 0, 0]),
+        new Float32Array([
+          options.params.blend,
+          sourcePixelRatio,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+        ]),
       );
       const resolveGroup = this.device.createBindGroup({
         layout: this.resolvePipeline.getBindGroupLayout(0),
@@ -640,7 +707,12 @@ export class NativeTextureFeedbackExecutor {
       });
       resolvePass.setPipeline(this.resolvePipeline);
       resolvePass.setBindGroup(0, resolveGroup);
-      resolvePass.draw(3);
+      if (this.definition.resolveDraw)
+        resolvePass.draw(
+          this.definition.resolveDraw.vertices,
+          this.definition.resolveDraw.instances,
+        );
+      else resolvePass.draw(3);
       resolvePass.end();
     } catch (error) {
       for (const uniform of uniforms) uniform.destroy();
@@ -697,6 +769,7 @@ export class NativeTextureFeedbackExecutor {
         this.interactiveClock = resume?.ok ? resume.nextClock : null;
         this.sourceSize = sourceSize;
         this.committedComputeParams = computeParams;
+        this.committedSourcePixelRatio = sourcePixelRatio;
         this.openTransaction = false;
         await retireSubmitted();
       },

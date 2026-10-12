@@ -40,6 +40,10 @@ export async function runRenderNativeMp4Blob(args: {
   scope: PngCaptureScope;
   signal?: AbortSignal;
   onProgress?: (completed: number, total: number) => void;
+  onRecordingProgress?: (
+    elapsedSeconds: number,
+    durationSeconds: number,
+  ) => void;
 }): Promise<Blob> {
   if (!args.designId)
     throw new NativeSceneExportError(
@@ -151,5 +155,6 @@ export async function runRenderNativeMp4Blob(args: {
     settings: args.settings,
     signal: args.signal,
     onProgress: args.onProgress,
+    onRecordingProgress: args.onRecordingProgress,
   });
 }

@@ -9,6 +9,12 @@ import {
   type NativeShaderRuntimeStatus,
 } from "@/components/design/design-canvas/native-status-bridge";
 import {
+  NativeCameraClientError,
+  recordNativeCameraClip,
+  snapshotNativeCamera,
+} from "@/components/design/inspector/native-live-camera-client";
+import type { NativeCameraClip } from "@/pages/design-editor/native-camera-clip";
+import {
   NativeRasterEncodingError,
   flattenStraightRgbaOnWhite,
   rasterMimeType,
@@ -17,6 +23,7 @@ import {
 } from "@/pages/design-editor/native-raster-encoding";
 
 import { parseEffectsFromHtml } from "../../../shared/native-effects";
+import { planNativeInputResources } from "../../../shared/native-input-resources";
 import { nativeVideoCodedDimensions } from "../../../shared/native-local-export";
 import {
   buildNativeCodePackage,
@@ -127,6 +134,23 @@ type NativePixelResult = {
 };
 
 export type NativePixelRuntime = {
+  installCameraSnapshot?: (bitmap: ImageBitmap) => void;
+  clearCameraSnapshot?: () => void;
+  installCameraClip?: (
+    clip: {
+      nextFrame: (
+        frameIndex: number,
+        signal: AbortSignal,
+      ) => Promise<ImageBitmap>;
+      dispose: () => void;
+    },
+    signal: AbortSignal,
+  ) => Promise<void>;
+  nextCameraClipFrame?: (
+    frameIndex: number,
+    signal: AbortSignal,
+  ) => Promise<void>;
+  clearCameraClip?: () => void;
   scan?: () => Promise<void>;
   compositionSceneDiagnostic?: () => {
     stage: "not-captured" | "scene-read";
@@ -217,7 +241,9 @@ export class NativeSceneExportError extends Error {
       | "export-timeout"
       | "export-canceled"
       | "format-unavailable"
-      | "video-unavailable",
+      | "video-unavailable"
+      | "camera-unavailable"
+      | "camera-recording-unavailable",
     message: string,
   ) {
     super(message);
@@ -642,6 +668,8 @@ export async function captureNativeSceneFrames(args: {
   simulationSessionId?: string;
   crop?: NonNullable<SelectedNativeSceneArgs["crop"]>;
   appendFrame: (frame: NativeSceneFrame) => Promise<void>;
+  beforeFrame?: (frameIndex: number) => Promise<void>;
+  afterFrame?: () => void;
 }): Promise<void> {
   if (
     ![24, 30, VIDEO_FPS].includes(args.fps) ||
@@ -659,6 +687,7 @@ export async function captureNativeSceneFrames(args: {
     );
   expectedNativeScenePixels(args.viewport, args.pixelRatio);
   for (let frameIndex = 0; frameIndex < args.frameCount; frameIndex++) {
+    await args.beforeFrame?.(frameIndex);
     if (args.signal.aborted)
       throw new NativeSceneExportError(
         "video-unavailable",
@@ -729,6 +758,7 @@ export async function captureNativeSceneFrames(args: {
       alpha: "straight",
       rgba: Uint8Array.from(pixels.rgba),
     });
+    args.afterFrame?.();
   }
 }
 
@@ -818,7 +848,52 @@ type SelectedNativeSceneArgs = {
     nodeId: string;
   };
   sourceViewport?: { width: number; height: number };
+  cameraMode?: "still" | "video";
+  cameraVideo?: {
+    durationSeconds: number;
+    fps: number;
+    frameCount: number;
+    onRecordingProgress?: (
+      elapsedSeconds: number,
+      durationSeconds: number,
+    ) => void;
+  };
 };
+
+function cameraInputInstanceIds(html: string): string[] {
+  const parsed = parseEffectsFromHtml(html);
+  if (parsed.errors.length)
+    throw new NativeSceneExportError(
+      "scene-unreadable",
+      `The native source manifest is unreadable: ${parsed.errors.join("; ")}`,
+    );
+  const definitions = new Map(
+    (parsed.document?.definitions ?? []).map((definition) => [
+      `${definition.id}@${definition.version}`,
+      definition,
+    ]),
+  );
+  return (parsed.document?.instances ?? []).flatMap((instance) => {
+    if (instance.enabled === false) return [];
+    const definition = definitions.get(
+      `${instance.definitionId}@${instance.definitionVersion}`,
+    );
+    if (!definition)
+      throw new NativeSceneExportError(
+        "scene-unreadable",
+        `The native effect definition for instance ${instance.id} is missing.`,
+      );
+    const plan = planNativeInputResources(definition, instance);
+    if (!plan.ok)
+      throw new NativeSceneExportError(
+        "scene-unreadable",
+        `The native inputs for instance ${instance.id} are unreadable (${plan.code}): ${plan.detail}`,
+      );
+    return [...plan.inputs.values()].some((input) => input.kind === "camera")
+      ? [instance.id]
+      : [];
+  });
+}
 
 export function offsetNativeSceneForCrop(
   html: string,
@@ -1094,6 +1169,11 @@ async function withSelectedNativeScene<Result>(
         );
   const frame = document.createElement("iframe");
   let runtimeForDiagnostic: NativePixelRuntime | undefined;
+  let cameraBitmap: ImageBitmap | null = null;
+  let cameraClip: Blob | null = null;
+  let cameraClipDecoder: NativeCameraClip | null = null;
+  let primaryError: unknown;
+  let failed = false;
   frame.setAttribute("aria-hidden", "true");
   frame.setAttribute("sandbox", "allow-same-origin allow-scripts");
   frame.tabIndex = -1;
@@ -1130,6 +1210,55 @@ async function withSelectedNativeScene<Result>(
       expectedVersionHash: args.expectedVersionHash,
     });
     args.assertStillViewed?.();
+    const sceneTargetIds = new Set(
+      scene.instanceTargets.map((target) => target.instanceId),
+    );
+    const cameraInstanceIds = cameraInputInstanceIds(scene.html).filter((id) =>
+      sceneTargetIds.has(id),
+    );
+    if (cameraInstanceIds.length) {
+      try {
+        const capture = (boardFile: boolean) =>
+          args.cameraMode === "video" && args.cameraVideo
+            ? recordNativeCameraClip(
+                args.fileId,
+                boardFile,
+                cameraInstanceIds,
+                args.cameraVideo.durationSeconds + 0.12,
+                controller.signal,
+                (elapsedSeconds, durationSeconds) => {
+                  args.assertStillViewed?.();
+                  args.cameraVideo?.onRecordingProgress?.(
+                    Math.min(elapsedSeconds, args.cameraVideo.durationSeconds),
+                    Math.min(durationSeconds, args.cameraVideo.durationSeconds),
+                  );
+                },
+              )
+            : snapshotNativeCamera(args.fileId, boardFile, cameraInstanceIds);
+        let captured: ImageBitmap | Blob;
+        try {
+          captured = await capture(false);
+        } catch (error) {
+          if (
+            !(error instanceof NativeCameraClientError) ||
+            error.code !== "camera-frame-unavailable"
+          )
+            throw error;
+          captured = await capture(true);
+        }
+        if (captured instanceof Blob) cameraClip = captured;
+        else cameraBitmap = captured;
+      } catch (error) {
+        args.assertStillViewed?.();
+        throw new NativeSceneExportError(
+          args.cameraMode === "video"
+            ? "camera-recording-unavailable"
+            : "camera-unavailable",
+          `The current camera input could not be captured: ${String(error)}`,
+        );
+      }
+      args.assertStillViewed?.();
+    }
     const loaded = awaitFrameLoad(frame, controller.signal);
     frame.srcdoc =
       args.crop && !args.sourceViewport
@@ -1161,6 +1290,36 @@ async function withSelectedNativeScene<Result>(
         "native-unavailable",
         "The trusted native renderer is unavailable in the export frame.",
       );
+    if (cameraBitmap) {
+      if (!runtime.installCameraSnapshot || !runtime.clearCameraSnapshot)
+        throw new NativeSceneExportError(
+          "camera-unavailable",
+          "The native export frame cannot accept a frozen camera input.",
+        );
+      runtime.installCameraSnapshot(cameraBitmap);
+      cameraBitmap = null;
+    }
+    if (cameraClip) {
+      if (
+        !args.cameraVideo ||
+        !runtime.installCameraClip ||
+        !runtime.clearCameraClip
+      )
+        throw new NativeSceneExportError(
+          "camera-recording-unavailable",
+          "The native export frame cannot decode the recorded camera input.",
+        );
+      const { NativeCameraClip } = await import("./native-camera-clip");
+      cameraClipDecoder = await NativeCameraClip.open(
+        cameraClip,
+        args.cameraVideo.fps,
+        args.cameraVideo.frameCount,
+        controller.signal,
+      );
+      await runtime.installCameraClip(cameraClipDecoder, controller.signal);
+      cameraClip = null;
+      args.assertStillViewed?.();
+    }
     postNativeApprovalState(target, window.location.origin, {
       status: "ready",
       hashes: scene.approvedDefinitionHashes,
@@ -1185,14 +1344,38 @@ async function withSelectedNativeScene<Result>(
     return result;
   } catch (error) {
     reportNativeCompositionScene(runtimeForDiagnostic, true);
-    if (controller.signal.reason instanceof NativeSceneExportError)
-      throw controller.signal.reason;
-    throw error;
+    primaryError =
+      controller.signal.reason instanceof NativeSceneExportError
+        ? controller.signal.reason
+        : error;
+    failed = true;
+    throw primaryError;
   } finally {
+    let cleanupError: unknown;
+    try {
+      cameraBitmap?.close();
+      runtimeForDiagnostic?.clearCameraSnapshot?.();
+      runtimeForDiagnostic?.clearCameraClip?.();
+    } catch (error) {
+      cleanupError = error;
+    }
+    try {
+      await cameraClipDecoder?.dispose();
+    } catch (error) {
+      cleanupError =
+        cleanupError === undefined
+          ? error
+          : new NativeSceneExportCleanupError([cleanupError, error]);
+    }
     if (deadline) clearTimeout(deadline);
     controller.abort();
     args.signal?.removeEventListener("abort", onAbort);
     frame.remove();
+    if (cleanupError !== undefined) {
+      if (failed)
+        throw new NativeSceneExportCleanupError([primaryError, cleanupError]);
+      throw cleanupError;
+    }
   }
 }
 
@@ -1526,6 +1709,10 @@ export async function renderSelectedNativeSceneMp4Blob(
   args: Omit<SelectedNativeSceneArgs, "pixelRatio"> & {
     settings: NativeVideoSettings;
     onProgress?: (completed: number, total: number) => void;
+    onRecordingProgress?: (
+      elapsedSeconds: number,
+      durationSeconds: number,
+    ) => void;
   },
 ): Promise<Blob> {
   const frameCount = nativeVideoFrameCount(args.settings);
@@ -1535,8 +1722,29 @@ export async function renderSelectedNativeSceneMp4Blob(
       "Selected native video export needs the mounted full-scene viewport.",
     );
   return withSelectedNativeScene(
-    { ...args, pixelRatio: args.settings.pixelRatio },
+    {
+      ...args,
+      pixelRatio: args.settings.pixelRatio,
+      cameraMode: "video",
+      cameraVideo: {
+        durationSeconds: args.settings.durationSeconds,
+        fps: args.settings.fps,
+        frameCount,
+        onRecordingProgress: args.onRecordingProgress,
+      },
+    },
     async (runtime, scene, signal) => {
+      const selectedTargetIds = new Set(
+        scene.instanceTargets.map((target) => target.instanceId),
+      );
+      const hasCameraInput = cameraInputInstanceIds(scene.html).some((id) =>
+        selectedTargetIds.has(id),
+      );
+      if (hasCameraInput && !runtime.nextCameraClipFrame)
+        throw new NativeSceneExportError(
+          "camera-recording-unavailable",
+          "The native camera clip cannot be advanced for video export.",
+        );
       const outputSize = expectedNativeScenePixels(
         args.viewport,
         args.settings.pixelRatio,
@@ -1578,6 +1786,13 @@ export async function renderSelectedNativeSceneMp4Blob(
             signal,
             simulationSessionId,
             crop: args.crop,
+            beforeFrame: async (frameIndex) => {
+              args.assertStillViewed?.();
+              if (hasCameraInput)
+                await runtime.nextCameraClipFrame!(frameIndex, signal);
+              args.assertStillViewed?.();
+            },
+            afterFrame: args.assertStillViewed,
             appendFrame: (frame) =>
               writer.appendFrame(padNativeVideoFrame(frame, size)),
           });

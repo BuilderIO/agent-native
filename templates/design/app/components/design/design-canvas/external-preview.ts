@@ -176,7 +176,9 @@ function isLoopbackPreviewUrl(value: string | null | undefined): boolean {
 
 export function getDesignCanvasIframeAllow(
   previewUrl: string | null | undefined,
+  editableInline = false,
 ): string | undefined {
+  if (!previewUrl && editableInline) return "camera";
   return isLoopbackPreviewUrl(previewUrl) ? "local-network-access" : undefined;
 }
 

@@ -257,6 +257,73 @@ describe("native effect source edits", () => {
     expect(invalid.errors).not.toEqual([]);
     expect(invalid.html).toBe(paused.html);
   });
+  it("persists bounded property tracks through edits and presets, and rejects invalid tracks", () => {
+    const initial = applied();
+    const instanceId = initial.instanceIds[0];
+    const animation = {
+      duration: 2,
+      loop: true,
+      tracks: {
+        scale: {
+          keys: [
+            { time: 0, value: 1, easing: "linear" as const },
+            { time: 2, value: 3 },
+          ],
+        },
+      },
+    };
+    const changed = editNativeEffectHtml(initial.html, {
+      kind: "set-instance",
+      instanceId,
+      animation,
+    });
+    expect(changed.errors).toEqual([]);
+    expect(
+      parseEffectsFromHtml(changed.html).document?.instances[0].animation,
+    ).toEqual(animation);
+    const invalid = editNativeEffectHtml(changed.html, {
+      kind: "set-instance",
+      instanceId,
+      animation: { ...animation, tracks: { missing: animation.tracks.scale } },
+    });
+    expect(invalid.errors).toContain(
+      "instance[0].animation track missing is not animatable",
+    );
+    expect(invalid.html).toBe(changed.html);
+    const saved = editNativeEffectHtml(changed.html, {
+      kind: "save-preset",
+      preset: {
+        id: "animated-grain",
+        name: "Animated grain",
+        definitionId: GRAIN_GRADIENT_EFFECT.id,
+        definitionVersion: GRAIN_GRADIENT_EFFECT.version,
+        placement: "fill",
+        params: {},
+        animation,
+        clip: "bounds",
+        provenance: { origin: "user-authored" },
+      },
+    });
+    expect(saved.errors).toEqual([]);
+    const appliedPreset = editNativeEffectHtml(saved.html, {
+      kind: "apply-preset",
+      nodeId: "hero",
+      presetId: "animated-grain",
+    });
+    expect(appliedPreset.errors).toEqual([]);
+    expect(
+      parseEffectsFromHtml(appliedPreset.html).document?.instances[0].animation,
+    ).toEqual(animation);
+    const cleared = editNativeEffectHtml(appliedPreset.html, {
+      kind: "reset-instance",
+      instanceId: appliedPreset.instanceIds[0],
+    });
+    expect(cleared.errors).toEqual([]);
+    expect(
+      parseEffectsFromHtml(cleared.html).document?.instances[0].animation,
+    ).toBeUndefined();
+  });
+
   it("applies to multiple authored nodes atomically and updates common params together", () => {
     const applied = editNativeEffectHtml(twoTargets, {
       kind: "apply-many",

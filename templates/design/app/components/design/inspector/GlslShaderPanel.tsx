@@ -15,6 +15,7 @@ import {
 } from "@shared/native-effect-presets";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
 import {
+  effectInputEnabled,
   parseEffectsFromHtml,
   type EffectDefinition,
   type EffectInputBinding,
@@ -23,6 +24,7 @@ import {
   type EffectTransform2D,
   type EffectValue,
 } from "@shared/native-effects";
+import { planNativeInputResources } from "@shared/native-input-resources";
 import { hashEffectInstance } from "@shared/native-instance-preview-contract";
 import {
   annotateNodeWithShader,
@@ -91,12 +93,18 @@ import {
   InspectorControlField,
   InspectorControlPopoverContent,
 } from "./InspectorControlPopover";
-import { nativeAuthoredLayerOptions } from "./native-authored-input-options";
-import { nativeCatalogDefinitionKey } from "./native-catalog-display";
+import {
+  nativeAuthoredInputPorts,
+  nativeAuthoredLayerOptions,
+} from "./native-authored-input-options";
+import {
+  nativeCatalogDefinitionKey,
+  nativeCatalogPresetKey,
+  nativeCatalogPropertyKey,
+} from "./native-catalog-display";
 import { sendNativeInstancePreviewMessage } from "./native-instance-preview-client";
 import { NativeInstanceScrubSession } from "./native-instance-scrub-session";
 import {
-  defaultNativeIntrinsicSourceSizing,
   nativeApplySourceSizing,
   NativeIntrinsicSourceClientError,
 } from "./native-intrinsic-source-client";
@@ -112,6 +120,8 @@ import { NativeEffectApproval } from "./NativeEffectApproval";
 import { NativeEffectControls } from "./NativeEffectControls";
 import { nativeEffectValuesEqual } from "./NativeEffectControls";
 import type { NativeEffectInputChoice } from "./NativeEffectInputControls";
+import { NativeEffectInputControls } from "./NativeEffectInputControls";
+import { NativeParameterAnimationControls } from "./NativeParameterAnimationControls";
 import { NativeShaderLibraryBrowser } from "./NativeShaderLibraryBrowser";
 import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 
@@ -663,6 +673,7 @@ export interface GlslShaderPanelProps {
   initialView?: "browser" | "current";
   presentation?: "compact" | "popover";
   onBack: (hasShader: boolean) => void;
+  onActiveTitleChange?: (title: string) => void;
   disabled?: boolean;
 }
 
@@ -672,6 +683,7 @@ export function GlslShaderPanel({
   nativeInstanceId,
   initialView = "current",
   onBack,
+  onActiveTitleChange,
   disabled = false,
   presentation = "compact",
 }: GlslShaderPanelProps) {
@@ -680,6 +692,13 @@ export function GlslShaderPanel({
   tRef.current = t;
   const [search, setSearch] = useState("");
   const [browsing, setBrowsing] = useState(initialView === "browser");
+  const [pendingNativeApply, setPendingNativeApply] = useState<{
+    source: "builtin" | "saved";
+    definition: EffectDefinition;
+    placement: EffectInstance["placement"];
+    preset?: EffectPreset;
+    choices: Record<string, NativeEffectInputChoice>;
+  } | null>(null);
   const [justAppliedNativeId, setJustAppliedNativeId] = useState<string | null>(
     null,
   );
@@ -711,6 +730,7 @@ export function GlslShaderPanel({
     usePersistNativeShaderEdit(context);
   const busy = legacyBusy || nativeBusy;
   const nodeId = context.nodeId;
+  useEffect(() => setPendingNativeApply(null), [nodeId]);
   const selectedNodeIds = context.nodeIds?.length
     ? context.nodeIds
     : nodeId
@@ -846,9 +866,11 @@ export function GlslShaderPanel({
             definition.version === activeNativeInstance.definitionVersion,
         ) ?? null)
       : null;
-  const activeNativeAnimationCapability = activeNativeDef
-    ? nativeEffectAnimationCapability(activeNativeDef)
-    : "unknown";
+  const activeNativeAnimationCapability = activeNativeInstance?.animation
+    ? "animated"
+    : activeNativeDef
+      ? nativeEffectAnimationCapability(activeNativeDef)
+      : "unknown";
   const nativeRuntimeDisplayStatus =
     activeNativeInstance?.enabled === false
       ? "disabled"
@@ -939,25 +961,42 @@ export function GlslShaderPanel({
       !context.designId ||
       !context.fileId ||
       !nodeId ||
-      !activeNativeInstance
+      (!activeNativeInstance && !pendingNativeApply)
     ) {
       return;
     }
     const key = designShaderFocusStateKeyForTab(getBrowserTabId());
-    const focus = {
-      designId: context.designId,
-      fileId: context.fileId,
-      nodeId,
-      instanceId: activeNativeInstance.id,
-      definitionId: activeNativeInstance.definitionId,
-      definitionVersion: activeNativeInstance.definitionVersion,
-      placement: activeNativeInstance.placement,
-      labOpen,
-      runtime: {
-        status: nativeRuntimeDisplayStatus,
-        code: nativeRuntimeDisplayCode,
-      },
-    };
+    const focus = pendingNativeApply
+      ? {
+          designId: context.designId,
+          fileId: context.fileId,
+          nodeId,
+          pendingApply: true,
+          definitionId: pendingNativeApply.definition.id,
+          definitionVersion: pendingNativeApply.definition.version,
+          placement: pendingNativeApply.placement,
+          params: pendingNativeApply.preset?.params ?? {},
+          bindings: Object.fromEntries(
+            Object.entries(pendingNativeApply.choices).map(([name, choice]) => [
+              name,
+              choice,
+            ]),
+          ),
+        }
+      : {
+          designId: context.designId,
+          fileId: context.fileId,
+          nodeId,
+          instanceId: activeNativeInstance!.id,
+          definitionId: activeNativeInstance!.definitionId,
+          definitionVersion: activeNativeInstance!.definitionVersion,
+          placement: activeNativeInstance!.placement,
+          labOpen,
+          runtime: {
+            status: nativeRuntimeDisplayStatus,
+            code: nativeRuntimeDisplayCode,
+          },
+        };
     void setClientAppState(key, focus).catch(console.error);
     return () => {
       void setClientAppState(key, null, { keepalive: true }).catch(
@@ -973,6 +1012,7 @@ export function GlslShaderPanel({
     activeNativeInstance?.definitionVersion,
     activeNativeInstance?.placement,
     activeNativeInstance?.enabled,
+    pendingNativeApply,
     labOpen,
     nativeRuntimeDisplayStatus,
     nativeRuntimeDisplayCode,
@@ -992,13 +1032,13 @@ export function GlslShaderPanel({
   }, [activeNativeDef, activeNativeInstance, draftNativeParams]);
   const authoredLayerOptions = useMemo(
     () =>
-      activeNativeInstance
+      activeNativeInstance || nodeId
         ? nativeAuthoredLayerOptions(
             screen.content,
-            activeNativeInstance.nodeId,
+            activeNativeInstance?.nodeId ?? nodeId!,
           )
         : [],
-    [screen.content, activeNativeInstance?.nodeId],
+    [screen.content, activeNativeInstance?.nodeId, nodeId],
   );
   useEffect(() => {
     setDraftNativeParams(null);
@@ -1020,6 +1060,14 @@ export function GlslShaderPanel({
     const key = nativeCatalogDefinitionKey(definition);
     return key ? t(key) : definition.name;
   };
+  const activeTitle = browsing
+    ? modeAttrTitle
+    : activeNativeDef
+      ? nativePresetLabel(activeNativeDef)
+      : (activeDef?.name ?? modeAttrTitle);
+  useEffect(() => {
+    onActiveTitleChange?.(activeTitle);
+  }, [activeTitle, onActiveTitleChange]);
 
   const savedShaders = useMemo(() => {
     if (context.nativeOnly) return [];
@@ -1121,11 +1169,109 @@ export function GlslShaderPanel({
     nodeId,
   ]);
 
+  const requiredNativeInputPorts = (
+    definition: EffectDefinition,
+    params: Record<string, EffectValue>,
+  ) => {
+    const produced = new Set(
+      definition.passes.flatMap((pass) => [
+        pass.output,
+        ...(pass.additionalOutputs ?? []),
+      ]),
+    );
+    const reads = new Set(definition.passes.flatMap((pass) => pass.reads));
+    return Object.entries(definition.inputs ?? {}).filter(
+      ([, port]) =>
+        (port.kind === "texture-2d" || port.kind === "mask") &&
+        Boolean(
+          port.resource &&
+          reads.has(port.resource) &&
+          !produced.has(port.resource),
+        ) &&
+        !["source", "mask", "backdrop"].includes(port.resource ?? "") &&
+        !port.optional &&
+        effectInputEnabled(port, definition, params),
+    );
+  };
+  const stageRequiredNativeInputs = (
+    source: "builtin" | "saved",
+    definition: EffectDefinition,
+    placement: EffectInstance["placement"],
+    preset?: EffectPreset,
+  ): boolean => {
+    const params = preset?.params ?? {};
+    const plan = planNativeInputResources(definition, {
+      placement,
+      params,
+      bindings: preset?.bindings ?? {},
+    });
+    if (plan.ok) return false;
+    if (
+      plan.code !== "input-resource-missing" &&
+      plan.code !== "input-conditional-binding-required"
+    )
+      return false;
+    const ports = requiredNativeInputPorts(definition, params);
+    if (
+      !ports.some(([name]) => {
+        const texture = Object.entries(definition.properties).find(
+          ([, property]) =>
+            property.type === "texture" && property.input === name,
+        );
+        return (
+          !preset?.bindings?.[name] &&
+          !(texture && (params[texture[0]] ?? texture[1].default))
+        );
+      })
+    )
+      return false;
+    setPendingNativeApply({
+      source,
+      definition,
+      placement,
+      preset,
+      choices: { ...preset?.bindings },
+    });
+    return true;
+  };
+  const preparePendingNativeApply = (
+    draft: NonNullable<typeof pendingNativeApply>,
+  ) => {
+    const params: Record<string, EffectValue> = { ...draft.preset?.params };
+    const bindings: Record<string, EffectInputBinding> = {
+      ...draft.preset?.bindings,
+    };
+    const bindingTargets: Record<
+      string,
+      { selector: string; capture: "content" | "appearance" }
+    > = {};
+    for (const [name, choice] of Object.entries(draft.choices)) {
+      if (!choice) {
+        delete bindings[name];
+        continue;
+      }
+      if (choice.kind === "authored-selector") {
+        delete bindings[name];
+        bindingTargets[name] = {
+          selector: choice.selector,
+          capture: choice.capture,
+        };
+      } else bindings[name] = choice;
+      for (const [propertyName, property] of Object.entries(
+        draft.definition.properties,
+      ))
+        if (property.type === "texture" && property.input === name)
+          params[propertyName] = null;
+    }
+    return { params, bindings, bindingTargets };
+  };
+
   const applyNativeCatalog = async (
     definitionId: string,
     definitionVersion: number,
     placement: EffectInstance["placement"],
     preset?: EffectPreset,
+    staged?: NonNullable<typeof pendingNativeApply>,
   ): Promise<boolean> => {
     if (!nodeId) {
       toast.error(t("editPanel.shaders.selectCanvasElementFirst"));
@@ -1154,6 +1300,17 @@ export function GlslShaderPanel({
       toast.error(t("editPanel.shaders.libraryUnavailable"));
       return false;
     }
+    if (
+      !staged &&
+      stageRequiredNativeInputs(
+        "builtin",
+        definition,
+        placement,
+        selectedPreset ?? undefined,
+      )
+    )
+      return false;
+    const prepared = staged ? preparePendingNativeApply(staged) : null;
     let sourceSizing;
     try {
       sourceSizing = nativeApplySourceSizing({
@@ -1177,14 +1334,16 @@ export function GlslShaderPanel({
             placement,
             definitionId,
             definitionVersion,
-            params: selectedPreset?.params,
+            params: prepared?.params ?? selectedPreset?.params,
             clip: selectedPreset?.clip,
-            bindings: selectedPreset?.bindings,
+            bindings: prepared?.bindings ?? selectedPreset?.bindings,
+            bindingTargets: prepared?.bindingTargets,
             transform: selectedPreset?.transform,
             timing: selectedPreset?.timing,
+            animation: selectedPreset?.animation,
             ...sourceSizing,
           }
-        : selectedPreset
+        : selectedPreset && !prepared
           ? {
               kind: "apply-preset",
               nodeId,
@@ -1197,6 +1356,13 @@ export function GlslShaderPanel({
               placement,
               definitionId,
               definitionVersion,
+              params: prepared?.params,
+              bindings: prepared?.bindings,
+              bindingTargets: prepared?.bindingTargets,
+              clip: selectedPreset?.clip,
+              transform: selectedPreset?.transform,
+              timing: selectedPreset?.timing,
+              animation: selectedPreset?.animation,
               sourceSizing: sourceSizing.sourceSizing,
             },
     );
@@ -1212,6 +1378,7 @@ export function GlslShaderPanel({
         )?.id ?? null;
       setJustAppliedNativeId(newInstanceId);
       setBrowsing(false);
+      setPendingNativeApply(null);
       setDraftNativeParams(null);
       void screen.refetch();
       return true;
@@ -1222,8 +1389,15 @@ export function GlslShaderPanel({
   const applySavedLibrary = async (
     definition: EffectDefinition,
     preset: EffectPreset,
+    staged?: NonNullable<typeof pendingNativeApply>,
   ): Promise<boolean> => {
     if (!nodeId) return false;
+    if (
+      !staged &&
+      stageRequiredNativeInputs("saved", definition, preset.placement, preset)
+    )
+      return false;
+    const prepared = staged ? preparePendingNativeApply(staged) : null;
     let sourceSizing;
     try {
       sourceSizing = nativeApplySourceSizing({
@@ -1245,11 +1419,13 @@ export function GlslShaderPanel({
             nodeIds: selectedNodeIds,
             placement: preset.placement,
             definition,
-            params: preset.params,
+            params: prepared?.params ?? preset.params,
             clip: preset.clip,
-            bindings: preset.bindings,
+            bindings: prepared?.bindings ?? preset.bindings,
+            bindingTargets: prepared?.bindingTargets,
             transform: preset.transform,
             timing: preset.timing,
+            animation: preset.animation,
             ...sourceSizing,
           }
         : {
@@ -1257,11 +1433,13 @@ export function GlslShaderPanel({
             nodeId,
             placement: preset.placement,
             definition,
-            params: preset.params,
+            params: prepared?.params ?? preset.params,
             clip: preset.clip,
-            bindings: preset.bindings,
+            bindings: prepared?.bindings ?? preset.bindings,
+            bindingTargets: prepared?.bindingTargets,
             transform: preset.transform,
             timing: preset.timing,
+            animation: preset.animation,
             sourceSizing: sourceSizing.sourceSizing,
           },
     );
@@ -1275,6 +1453,7 @@ export function GlslShaderPanel({
     );
     setJustAppliedNativeId(instance?.id ?? null);
     setBrowsing(false);
+    setPendingNativeApply(null);
     setDraftNativeParams(null);
     void screen.refetch();
     return true;
@@ -1382,7 +1561,7 @@ export function GlslShaderPanel({
     if (binding && binding.kind !== "authored-selector")
       nextBindings[name] = binding;
     else delete nextBindings[name];
-    const textureParams = Object.fromEntries(
+    const textureParams: Record<string, EffectValue> = Object.fromEntries(
       Object.entries(activeNativeDef.properties)
         .filter(
           ([, property]) =>
@@ -1390,6 +1569,19 @@ export function GlslShaderPanel({
         )
         .map(([propertyName]) => [propertyName, null]),
     );
+    const condition = activeNativeDef.inputs?.[name]?.enabledWhen;
+    if (condition) {
+      const defaultMode =
+        activeNativeDef.properties[condition.property]?.default;
+      if (
+        !binding &&
+        (defaultMode === undefined || defaultMode === condition.equals)
+      )
+        return;
+      textureParams[condition.property] = binding
+        ? condition.equals
+        : defaultMode;
+    }
     void persistNative({
       kind: "set-instance",
       instanceId: activeNativeInstance.id,
@@ -1435,6 +1627,7 @@ export function GlslShaderPanel({
             clip: patch.clip,
             placement: patch.placement,
             transform: patch.transform,
+            animation: patch.animation,
           };
     void persistNative(operation).then((result) => {
       if (result) void screen.refetch();
@@ -1569,6 +1762,19 @@ export function GlslShaderPanel({
     }
   };
 
+  const previewNativeAnimation = (time: number) => {
+    if (!activeNativeInstance) return;
+    void persistNative({
+      kind: "playback",
+      instanceId: activeNativeInstance.id,
+      paused: true,
+      time,
+      seekRevision: (activeNativeInstance.timing.seekRevision ?? 0) + 1,
+    }).then((result) => {
+      if (result) void screen.refetch();
+    });
+  };
+
   const removeFromNode = async () => {
     if (!nodeId) return;
     // Scope removal to this panel's mode — a fill and an effect can coexist
@@ -1610,6 +1816,134 @@ export function GlslShaderPanel({
       });
     }
   };
+
+  if (pendingNativeApply) {
+    const pendingTitleKey =
+      pendingNativeApply.source === "builtin"
+        ? (pendingNativeApply.preset &&
+            nativeCatalogPresetKey(pendingNativeApply.preset)) ||
+          nativeCatalogDefinitionKey(pendingNativeApply.definition)
+        : null;
+    const pendingPorts = requiredNativeInputPorts(
+      pendingNativeApply.definition,
+      pendingNativeApply.preset?.params ?? {},
+    );
+    const authoredPorts = new Set(
+      nativeAuthoredInputPorts(pendingNativeApply.definition).map(
+        ([name]) => name,
+      ),
+    );
+    const complete = pendingPorts.every(([name]) => {
+      const texture = Object.entries(
+        pendingNativeApply.definition.properties,
+      ).find(
+        ([, property]) =>
+          property.type === "texture" && property.input === name,
+      );
+      return Boolean(
+        pendingNativeApply.choices[name] ||
+        (texture &&
+          (pendingNativeApply.preset?.params?.[texture[0]] ??
+            texture[1].default)),
+      );
+    });
+    return (
+      <div className="flex flex-col gap-3 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setPendingNativeApply(null)}
+          >
+            <IconArrowLeft className="size-3.5" />
+            {t("editPanel.shaders.backToBrowser")}
+          </Button>
+          <span className="truncate text-xs font-medium">
+            {pendingTitleKey
+              ? t(pendingTitleKey)
+              : (pendingNativeApply.preset?.name ??
+                pendingNativeApply.definition.name)}
+          </span>
+        </div>
+        {pendingPorts.map(([name, port]) => {
+          const choice = pendingNativeApply.choices[name] ?? null;
+          const texture = Object.entries(
+            pendingNativeApply.definition.properties,
+          ).find(
+            ([, property]) =>
+              property.type === "texture" && property.input === name,
+          );
+          const propertyKey =
+            pendingNativeApply.source === "builtin" && texture
+              ? nativeCatalogPropertyKey(
+                  pendingNativeApply.definition,
+                  texture[1].label,
+                )
+              : null;
+          return (
+            <NativeEffectInputControls
+              key={name}
+              label={
+                propertyKey ? t(propertyKey) : (texture?.[1].label ?? name)
+              }
+              binding={choice}
+              assetValue={
+                (texture
+                  ? (pendingNativeApply.preset?.params?.[texture[0]] ??
+                    texture[1].default)
+                  : null) as
+                  | import("@shared/native-effects").EffectTextureRef
+                  | null
+              }
+              layers={authoredPorts.has(name) ? authoredLayerOptions : []}
+              defaultAvailable={false}
+              disabled={disabled || busy}
+              designId={context.designId}
+              fileId={context.fileId}
+              cameraAvailable={
+                authoredPorts.has(name) && port.kind === "texture-2d"
+              }
+              cameraInputActive={true}
+              onChange={(next) =>
+                setPendingNativeApply((current) =>
+                  current
+                    ? {
+                        ...current,
+                        choices: { ...current.choices, [name]: next },
+                      }
+                    : current,
+                )
+              }
+            />
+          );
+        })}
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled || busy || !complete}
+          onClick={() => {
+            if (pendingNativeApply.source === "builtin")
+              void applyNativeCatalog(
+                pendingNativeApply.definition.id,
+                pendingNativeApply.definition.version,
+                pendingNativeApply.placement,
+                pendingNativeApply.preset,
+                pendingNativeApply,
+              );
+            else if (pendingNativeApply.preset)
+              void applySavedLibrary(
+                pendingNativeApply.definition,
+                pendingNativeApply.preset,
+                pendingNativeApply,
+              );
+          }}
+        >
+          {t("editPanel.shaders.applySelected")}
+        </Button>
+      </div>
+    );
+  }
 
   if (
     activeNativeDef &&
@@ -1908,6 +2242,9 @@ export function GlslShaderPanel({
           <NativeEffectControls
             designId={context.designId}
             fileId={context.fileId}
+            cameraFileId={context.fileId}
+            cameraBoardFile={context.boardFile}
+            cameraInstanceId={activeNativeInstance.id}
             key={`${context.fileId}:${activeNativeInstance.id}`}
             definition={activeNativeDef}
             values={nativeValues}
@@ -1918,6 +2255,26 @@ export function GlslShaderPanel({
             disabled={disabled || busy}
             onValueChange={changeNativeParam}
           />
+          {!multiTarget && (
+            <NativeParameterAnimationControls
+              key={`${context.fileId}:${activeNativeInstance.id}:animation`}
+              definition={activeNativeDef}
+              params={nativeValues}
+              animation={activeNativeInstance.animation}
+              disabled={disabled || busy}
+              previewTime={activeNativeInstance.timing.time}
+              onChange={(animation) => {
+                void persistNative({
+                  kind: "set-instance",
+                  instanceId: activeNativeInstance.id,
+                  animation,
+                }).then((result) => {
+                  if (result) void screen.refetch();
+                });
+              }}
+              onPreview={previewNativeAnimation}
+            />
+          )}
         </div>
         {!multiTarget &&
           labOpen &&
@@ -2147,6 +2504,9 @@ export function GlslShaderEffectSection({
   const t = useT();
   const [effectPopoverOpen, setEffectPopoverOpen] = useState(false);
   const [nativePopoverId, setNativePopoverId] = useState<string | null>(null);
+  const [activePopoverTitle, setActivePopoverTitle] = useState<string | null>(
+    null,
+  );
   const screen = useScreenGlslShaders(context);
   const { persist, busy } = usePersistShaderEdit(context);
   const { persistNative, busy: nativeBusy } =
@@ -2225,9 +2585,10 @@ export function GlslShaderEffectSection({
           <Popover
             key={instance.id}
             open={nativePopoverId === instance.id}
-            onOpenChange={(open) =>
-              setNativePopoverId(open ? instance.id : null)
-            }
+            onOpenChange={(open) => {
+              setNativePopoverId(open ? instance.id : null);
+              setActivePopoverTitle(null);
+            }}
           >
             <InspectorPaintRow>
               <InspectorGridCell span={20}>
@@ -2263,24 +2624,41 @@ export function GlslShaderEffectSection({
               </InspectorGridCell>
             </InspectorPaintRow>
             <InspectorControlPopoverContent
-              title={displayName}
+              title={
+                nativePopoverId === instance.id
+                  ? (activePopoverTitle ?? displayName)
+                  : displayName
+              }
               icon={<IconWaveSine className="size-3.5" />}
-              onClose={() => setNativePopoverId(null)}
+              onClose={() => {
+                setNativePopoverId(null);
+                setActivePopoverTitle(null);
+              }}
             >
               <GlslShaderPanel
                 mode="effect"
                 context={context}
                 nativeInstanceId={instance.id}
+                onActiveTitleChange={setActivePopoverTitle}
                 disabled={disabled}
                 presentation="popover"
-                onBack={() => setNativePopoverId(null)}
+                onBack={() => {
+                  setNativePopoverId(null);
+                  setActivePopoverTitle(null);
+                }}
               />
             </InspectorControlPopoverContent>
           </Popover>
         );
       })}
       {effectDef && effectMount ? (
-        <Popover open={effectPopoverOpen} onOpenChange={setEffectPopoverOpen}>
+        <Popover
+          open={effectPopoverOpen}
+          onOpenChange={(open) => {
+            setEffectPopoverOpen(open);
+            setActivePopoverTitle(null);
+          }}
+        >
           <InspectorPaintRow>
             <InspectorGridCell span={20}>
               <PopoverTrigger asChild>
@@ -2317,16 +2695,23 @@ export function GlslShaderEffectSection({
             </InspectorGridCell>
           </InspectorPaintRow>
           <InspectorControlPopoverContent
-            title={effectDef.name}
+            title={activePopoverTitle ?? effectDef.name}
             icon={<IconWaveSine className="size-3.5" />}
-            onClose={() => setEffectPopoverOpen(false)}
+            onClose={() => {
+              setEffectPopoverOpen(false);
+              setActivePopoverTitle(null);
+            }}
           >
             <GlslShaderPanel
               mode="effect"
               context={context}
+              onActiveTitleChange={setActivePopoverTitle}
               disabled={disabled}
               presentation="popover"
-              onBack={() => setEffectPopoverOpen(false)}
+              onBack={() => {
+                setEffectPopoverOpen(false);
+                setActivePopoverTitle(null);
+              }}
             />
           </InspectorControlPopoverContent>
         </Popover>
@@ -2339,9 +2724,12 @@ export function GlslShaderEffectSection({
           </PopoverAnchor>
           {/* The menu handoff can move focus while the canvas reprojects. */}
           <InspectorControlPopoverContent
-            title={t("editPanel.shaders.effectsTitle")}
+            title={activePopoverTitle ?? t("editPanel.shaders.effectsTitle")}
             icon={<IconWaveSine className="size-3.5" />}
-            onClose={() => onPickerOpenChange(false)}
+            onClose={() => {
+              onPickerOpenChange(false);
+              setActivePopoverTitle(null);
+            }}
             onFocusOutside={(event) => event.preventDefault()}
             bodyClassName="p-0"
           >
@@ -2349,9 +2737,13 @@ export function GlslShaderEffectSection({
               mode="effect"
               context={context}
               initialView="browser"
+              onActiveTitleChange={setActivePopoverTitle}
               disabled={disabled}
               presentation="popover"
-              onBack={() => onPickerOpenChange(false)}
+              onBack={() => {
+                onPickerOpenChange(false);
+                setActivePopoverTitle(null);
+              }}
             />
           </InspectorControlPopoverContent>
         </Popover>

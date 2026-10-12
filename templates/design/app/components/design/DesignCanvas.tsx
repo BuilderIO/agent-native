@@ -7708,7 +7708,10 @@ export function DesignCanvas({
             previewUrl: externalPreviewUrl,
             parentOrigin: browserOrigin ?? undefined,
           })}
-          allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
+          allow={getDesignCanvasIframeAllow(
+            externalPreviewUrl,
+            !readOnly && !snapshotOnly,
+          )}
           data-design-preview-iframe
           onFocus={(event) => {
             if (

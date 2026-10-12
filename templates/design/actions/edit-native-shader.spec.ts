@@ -84,6 +84,45 @@ describe("edit-native-shader", () => {
     });
   });
 
+  it("applies a definition and stamps a selected source in one write", async () => {
+    const source = `<html><body><main><div data-agent-native-node-id="hero">Effect</div><img alt="Source" src="/photo.png"></main></body></html>`;
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: source,
+      versionHash: "hash-1",
+    });
+    const image = buildCodeLayerProjection(source).nodes.find(
+      (node) => node.tag === "img",
+    );
+    const result = await action.run({
+      designId: "design-1",
+      fileId: "file-1",
+      expectedVersionHash: "hash-1",
+      operation: {
+        kind: "apply",
+        nodeId: "hero",
+        placement: "layer",
+        definitionId: HALFTONE_EFFECT.id,
+        definitionVersion: HALFTONE_EFFECT.version,
+        bindingTargets: {
+          source: { selector: image!.selector, capture: "content" },
+        },
+      },
+    });
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+    const stamped = /<img[^>]*data-agent-native-node-id="([^"]+)"/.exec(
+      result.content,
+    )?.[1];
+    expect(stamped).toMatch(/^an\.[a-f0-9]{32}$/);
+    expect(
+      parseEffectsFromHtml(result.content).document?.instances[0].bindings
+        .source,
+    ).toEqual({
+      kind: "authored-node",
+      nodeId: stamped,
+      capture: "content",
+    });
+  });
+
   it("stamps an unannotated source layer and saves its authored binding in one source write", async () => {
     const source = `<html><body><main><div data-agent-native-node-id="hero">Effect</div><img alt="Photo source" src="/photo.png"></main></body></html>`;
     const applied = editNativeEffectHtml(source, {

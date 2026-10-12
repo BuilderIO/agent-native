@@ -75,12 +75,6 @@ export function nativeAuthoredLayerOptions(
 }
 
 export function nativeAuthoredInputPorts(definition: EffectDefinition) {
-  if (
-    definition.statelessCompute ||
-    definition.simulation ||
-    definition.feedback
-  )
-    return [];
   const produced = new Set(
     definition.passes.flatMap((pass) => [
       pass.output,
@@ -92,6 +86,19 @@ export function nativeAuthoredInputPorts(definition: EffectDefinition) {
       .flatMap((pass) => pass.reads)
       .filter((resource) => !produced.has(resource)),
   );
+  const singleSourceBackend =
+    (definition.statelessCompute ||
+      definition.simulation ||
+      definition.feedback) &&
+    read.size === 1 &&
+    read.has("source");
+  if (
+    (definition.statelessCompute ||
+      definition.simulation ||
+      definition.feedback) &&
+    !singleSourceBackend
+  )
+    return [];
   return Object.entries(definition.inputs ?? {}).filter(([name, port]) => {
     if (
       (port.kind !== "texture-2d" && port.kind !== "mask") ||

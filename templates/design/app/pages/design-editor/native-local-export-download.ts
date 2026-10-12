@@ -95,6 +95,10 @@ export async function runNativeLocalExportDownload(args: {
     extension: NativeLocalExportState["export"]["format"],
   ) => void;
   onProgress?: (completed: number, total: number) => void;
+  onRecordingProgress?: (
+    elapsedSeconds: number,
+    durationSeconds: number,
+  ) => void;
   capturePng?: CapturePng;
   captureMp4?: CaptureMp4;
   captureSvg?: CaptureSvg;
@@ -140,6 +144,7 @@ export async function runNativeLocalExportDownload(args: {
         sourceViewport: request.sourceViewport,
         signal,
         onProgress: args.onProgress,
+        onRecordingProgress: args.onRecordingProgress,
       });
     } else {
       const source = {

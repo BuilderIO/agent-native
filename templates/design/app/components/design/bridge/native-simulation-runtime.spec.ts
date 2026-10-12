@@ -2,6 +2,7 @@
 import { build } from "esbuild";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { FLOCKING_SWARM_EFFECT } from "../../../../shared/native-effect-owned-aa-flocking";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "../../../../shared/native-effect-owned-test-fixtures";
 import { GRAIN_GRADIENT_EFFECT } from "../../../../shared/native-effect-presets";
 import { hashEffectDefinition } from "../../../../shared/native-effect-trust";
@@ -91,7 +92,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
       instance: EffectInstance,
       deterministic: boolean,
     ): Promise<object>;
-    attachSimulationPointer(mount: object): void;
+    attachPointer(mount: object): void;
     mounts: Map<string, object>;
     playing: boolean;
     previewDirty: boolean;
@@ -135,6 +136,7 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     limits: {
       maxComputeWorkgroupsPerDimension: 65535,
       maxStorageBufferBindingSize: 134_217_728,
+      maxSampledTexturesPerShaderStage: 16,
     },
     queue: { writeBuffer() {} },
     createBuffer({ size }: { size: number }) {
@@ -348,8 +350,16 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
   vi.spyOn(target, "getBoundingClientRect").mockReturnValue(
     new DOMRect(0, 0, 128, 64),
   );
+  Object.defineProperty(target, "offsetWidth", {
+    configurable: true,
+    value: 128,
+  });
+  Object.defineProperty(target, "offsetHeight", {
+    configurable: true,
+    value: 64,
+  });
   instance.transform = { translate: [16, 0] };
-  runtime.attachSimulationPointer(mount);
+  runtime.attachPointer(mount);
   target.dispatchEvent(
     new PointerEvent("pointermove", { clientX: 64, clientY: 32 }),
   );
@@ -641,6 +651,72 @@ it("dispatches seeded state at 120 Hz and draws exactly the selected particle ti
     runtime.endSimulationExportSession(changedSourceSession.sessionId),
   ).rejects.toMatchObject({ code: "simulation-session-source-stale" });
   expect(scanOnce).toHaveBeenCalledOnce();
+  const flockDefinition = structuredClone(FLOCKING_SWARM_EFFECT);
+  const flockInstance: EffectInstance = {
+    ...instance,
+    id: "flock-one",
+    definitionId: flockDefinition.id,
+    placement: "fill",
+    params: { agentCount: 96 },
+    timing: { speed: 1, paused: false, time: 0 },
+  };
+  const flockMount = {
+    ...mount,
+    instance: flockInstance,
+    definition: flockDefinition,
+    simulation: null,
+    resourceTextures: new Map(),
+    outputTexture: null,
+  };
+  await runtime.simulationPasses(
+    flockMount,
+    source,
+    0,
+    encoder,
+    flockDefinition,
+    flockInstance,
+    true,
+  );
+  expect(dispatches[dispatches.length - 1]).toBe(1);
+  expect(draws.slice(-2)).toEqual([
+    [6, 96],
+    [3, 1],
+  ]);
+  expect(buffers.filter((buffer) => buffer.size === 96 * 32)).toHaveLength(2);
+  expect(target.getAttribute("data-an-native-particle-count")).toBe("96");
+  flockInstance.params.agentCount = 128;
+  await runtime.simulationPasses(
+    flockMount,
+    source,
+    0,
+    encoder,
+    flockDefinition,
+    flockInstance,
+    true,
+  );
+  expect(dispatches[dispatches.length - 1]).toBe(1);
+  expect(draws.slice(-2)).toEqual([
+    [6, 128],
+    [3, 1],
+  ]);
+  expect(
+    buffers.filter((buffer) => buffer.size === 96 * 32 && buffer.destroyed),
+  ).toHaveLength(2);
+  expect(buffers.filter((buffer) => buffer.size === 128 * 32)).toHaveLength(2);
+  expect(target.getAttribute("data-an-native-particle-count")).toBe("128");
+  flockInstance.params.agentCount = 257;
+  await expect(
+    runtime.simulationPasses(
+      flockMount,
+      source,
+      0,
+      encoder,
+      flockDefinition,
+      flockInstance,
+      true,
+    ),
+  ).rejects.toMatchObject({ code: "simulation-count-invalid" });
+  runtime.mounts.set(flockInstance.id, flockMount);
   runtime.mounts.clear();
   runtime.dispose();
 });

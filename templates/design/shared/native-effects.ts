@@ -24,6 +24,10 @@ import {
 } from "./native-effect-position";
 import { isLinearResourceDispatch } from "./native-linear-resource-graph";
 import {
+  validateNativeParameterAnimation,
+  type NativeParameterAnimation,
+} from "./native-parameter-animation";
+import {
   isNativeSourceSizing,
   type NativeSourceSizing,
 } from "./native-source-sizing";
@@ -175,7 +179,8 @@ export type EffectInputBinding =
       nodeId: string;
       capture: "content" | "appearance";
     }
-  | { kind: "asset"; url: string };
+  | { kind: "asset"; url: string }
+  | { kind: "camera" };
 
 export interface EffectTransform2D {
   translate?: [number, number];
@@ -210,6 +215,20 @@ export interface EffectPortSpec {
   resource?: string;
   optional?: boolean;
   fallback?: "transparent-data";
+  enabledWhen?: EffectVisibilityCondition;
+}
+
+export function effectInputEnabled(
+  port: EffectPortSpec,
+  definition: EffectDefinition,
+  params: Record<string, EffectValue>,
+): boolean {
+  const condition = port.enabledWhen;
+  if (!condition) return true;
+  return (
+    (params[condition.property] ??
+      definition.properties[condition.property]?.default) === condition.equals
+  );
 }
 
 export type RetiredNativeImageUvContract = {
@@ -254,10 +273,16 @@ export interface EffectDefinition {
     fixedDt: number;
     stateResource: string;
     bytesPerParticle: 32;
-    count: {
-      property: string;
-      tiers: { low: 10000; medium: 25000; high: 50000 };
-    };
+    count:
+      | {
+          property: string;
+          tiers: { low: 10000; medium: 25000; high: 50000 };
+        }
+      | {
+          property: string;
+          min: number;
+          max: number;
+        };
     maxInteractiveSteps: 8;
     maxDeterministicSteps: 512;
     idlePointer: { x: number; y: number };
@@ -282,6 +307,7 @@ export interface EffectInstance {
   definitionVersion: number;
   placement: "fill" | "layer" | "backdrop";
   params: Record<string, EffectValue>;
+  animation?: NativeParameterAnimation;
   enabled: boolean;
   opacity: number;
   seed: number;
@@ -305,6 +331,7 @@ export interface EffectPreset {
   definitionVersion: number;
   placement: EffectInstance["placement"];
   params: Record<string, EffectValue>;
+  animation?: NativeParameterAnimation;
   clip: EffectInstance["clip"];
   bindings?: EffectInstance["bindings"];
   transform?: EffectTransform2D;
@@ -516,9 +543,11 @@ function validateBindings(
         ? ["kind", "source"]
         : binding.kind === "authored-node"
           ? ["kind", "nodeId", "capture"]
-          : binding.kind === "asset"
-            ? ["kind", "url"]
-            : ["kind"];
+          : binding.kind === "camera"
+            ? ["kind"]
+            : binding.kind === "asset"
+              ? ["kind", "url"]
+              : ["kind"];
     if (Object.keys(binding).some((field) => !fields.includes(field)))
       errors.push(`${prefix}.bindings.${name} has unknown fields`);
     const optionalNoise =
@@ -554,6 +583,9 @@ function validateBindings(
         errors.push(
           `${prefix}.bindings.${name} asset needs a same-origin root path (${asset.reason})`,
         );
+    } else if (binding.kind === "camera") {
+      if (port.kind !== "texture-2d")
+        errors.push(`${prefix}.bindings.${name} camera needs a texture input`);
     } else {
       errors.push(`${prefix}.bindings.${name} kind is invalid`);
     }
@@ -674,6 +706,7 @@ function validatePorts(
   errors: string[],
   isInput: boolean,
   optionalImagePort?: string,
+  properties?: unknown,
 ): void {
   if (value === undefined) return;
   if (!record(value) || Object.keys(value).length > 32) {
@@ -735,13 +768,41 @@ function validatePorts(
     ) {
       errors.push(`${prefix}.${name} resource kind does not match port kind`);
     }
+    if (unknownPort.enabledWhen !== undefined) {
+      const condition = unknownPort.enabledWhen;
+      const dependency =
+        record(condition) && record(properties)
+          ? properties[condition.property as string]
+          : undefined;
+      if (
+        !isInput ||
+        !["texture-2d", "mask"].includes(String(unknownPort.kind)) ||
+        unknownPort.optional === true ||
+        unknownPort.fallback !== "transparent-data" ||
+        !record(condition) ||
+        Object.keys(condition).length !== 2 ||
+        typeof condition.property !== "string" ||
+        !record(dependency) ||
+        !["bool", "enum", "int", "float"].includes(String(dependency.type)) ||
+        (dependency.type === "bool" && typeof condition.equals !== "boolean") ||
+        (dependency.type === "enum" &&
+          (!Array.isArray(dependency.options) ||
+            !dependency.options.includes(condition.equals))) ||
+        (["int", "float"].includes(String(dependency.type)) &&
+          (!finite(condition.equals) ||
+            (dependency.type === "int" && !Number.isInteger(condition.equals))))
+      )
+        errors.push(`${prefix}.${name} has an invalid enabledWhen condition`);
+    }
     if (
       unknownPort.fallback !== undefined &&
       (!isInput ||
         unknownPort.fallback !== "transparent-data" ||
-        unknownPort.optional !== true ||
+        (unknownPort.optional !== true &&
+          unknownPort.enabledWhen === undefined) ||
         !["texture-2d", "mask"].includes(String(unknownPort.kind)) ||
         !(
+          unknownPort.enabledWhen !== undefined ||
           resource?.preprocess === "paper-liquid-mask" ||
           (name === optionalImagePort &&
             resource?.name === "image" &&
@@ -750,6 +811,41 @@ function validatePorts(
         ))
     )
       errors.push(`${prefix}.${name} has an unsupported input fallback`);
+  }
+}
+
+function validateConditionalInputs(
+  params: unknown,
+  bindings: unknown,
+  definition: EffectDefinition | undefined,
+  prefix: string,
+  errors: string[],
+): void {
+  if (!definition || !record(params)) return;
+  for (const [name, port] of Object.entries(definition.inputs ?? {})) {
+    if (
+      !port.enabledWhen ||
+      !effectInputEnabled(
+        port,
+        definition,
+        params as Record<string, EffectValue>,
+      )
+    )
+      continue;
+    const hasBinding =
+      record(bindings) && Object.prototype.hasOwnProperty.call(bindings, name);
+    const hasTextureProperty = Object.entries(definition.properties).some(
+      ([propertyName, property]) =>
+        property.type === "texture" &&
+        property.input === name &&
+        (Object.prototype.hasOwnProperty.call(params, propertyName)
+          ? params[propertyName] !== null
+          : property.default !== null),
+    );
+    if (!hasBinding && !hasTextureProperty)
+      errors.push(
+        `${prefix}.input-conditional-binding-required: ${name} needs a source in ${String(port.enabledWhen.equals)} mode`,
+      );
   }
 }
 
@@ -1235,6 +1331,10 @@ function validateDefinition(
     const simulation = value.simulation;
     const count = record(simulation) ? simulation.count : undefined;
     const tiers = record(count) ? count.tiers : undefined;
+    const boundedCount =
+      record(count) &&
+      (Object.prototype.hasOwnProperty.call(count, "min") ||
+        Object.prototype.hasOwnProperty.call(count, "max"));
     const idlePointer = record(simulation) ? simulation.idlePointer : undefined;
     const stateResource =
       record(simulation) && Array.isArray(value.resources)
@@ -1267,18 +1367,37 @@ function validateDefinition(
       simulation.maxInteractiveSteps !== 8 ||
       simulation.maxDeterministicSteps !== 512 ||
       !record(count) ||
-      Object.keys(count).some((key) => key !== "property" && key !== "tiers") ||
-      !record(tiers) ||
-      Object.keys(tiers).length !== 3 ||
-      tiers.low !== 10000 ||
-      tiers.medium !== 25000 ||
-      tiers.high !== 50000 ||
-      !record(countProperty) ||
-      countProperty.type !== "enum" ||
-      !Array.isArray(countProperty.options) ||
-      !["low", "medium", "high"].every((tier) =>
-        (countProperty.options as unknown[]).includes(tier),
-      ) ||
+      (boundedCount
+        ? Object.keys(count).some(
+            (key) => key !== "property" && key !== "min" && key !== "max",
+          ) ||
+          !Number.isSafeInteger(count.min) ||
+          !Number.isSafeInteger(count.max) ||
+          (count.min as number) < 1 ||
+          (count.max as number) > 50000 ||
+          (count.min as number) > (count.max as number) ||
+          !record(countProperty) ||
+          countProperty.type !== "int" ||
+          countProperty.min !== count.min ||
+          countProperty.max !== count.max ||
+          countProperty.step !== 1 ||
+          !Number.isSafeInteger(countProperty.default) ||
+          (countProperty.default as number) < (count.min as number) ||
+          (countProperty.default as number) > (count.max as number)
+        : Object.keys(count).some(
+            (key) => key !== "property" && key !== "tiers",
+          ) ||
+          !record(tiers) ||
+          Object.keys(tiers).length !== 3 ||
+          tiers.low !== 10000 ||
+          tiers.medium !== 25000 ||
+          tiers.high !== 50000 ||
+          !record(countProperty) ||
+          countProperty.type !== "enum" ||
+          !Array.isArray(countProperty.options) ||
+          !["low", "medium", "high"].every((tier) =>
+            (countProperty.options as unknown[]).includes(tier),
+          )) ||
       !record(idlePointer) ||
       Object.keys(idlePointer).length !== 2 ||
       ![idlePointer.x, idlePointer.y].every(
@@ -1292,7 +1411,8 @@ function validateDefinition(
       !stateResource.persistent ||
       !stateResource.usage?.includes("storage") ||
       !stateResource.byteLength ||
-      stateResource.byteLength < 50000 * 32 ||
+      stateResource.byteLength <
+        (boundedCount ? (count.max as number) : 50000) * 32 ||
       stateResource.byteLength > 16_777_216
     )
       errors.push(`${prefix}.simulation is invalid or unbounded`);
@@ -1372,6 +1492,8 @@ function validateDefinition(
           "displayResource",
           "uniformProperties",
           "resetProperties",
+          "sourceHistory",
+          "resolveDraw",
         ].includes(key),
       ) &&
         ["abi", "grid", "timing", "stateResource", "displayResource"].every(
@@ -1390,10 +1512,21 @@ function validateDefinition(
       !feedbackKeysValid ||
       Object.keys(feedback).length !==
         (uniformProperties === undefined ? 5 : 6) +
-          (resetProperties === undefined ? 0 : 1) ||
+          (resetProperties === undefined ? 0 : 1) +
+          (feedback.sourceHistory === undefined ? 0 : 1) +
+          (feedback.resolveDraw === undefined ? 0 : 1) ||
       !resetPropertiesValid ||
       !aliasesValid ||
       feedback.abi !== "texture-feedback-v1" ||
+      (feedback.sourceHistory !== undefined &&
+        feedback.sourceHistory !== "sequential-captures") ||
+      (feedback.resolveDraw !== undefined &&
+        (!record(feedback.resolveDraw) ||
+          Object.keys(feedback.resolveDraw).length !== 2 ||
+          feedback.resolveDraw.vertices !== 6 ||
+          !Number.isSafeInteger(feedback.resolveDraw.instances) ||
+          (feedback.resolveDraw.instances as number) < 1 ||
+          (feedback.resolveDraw.instances as number) > 256)) ||
       !record(grid) ||
       Object.keys(grid).length !== 4 ||
       !Number.isSafeInteger(grid.width) ||
@@ -1511,6 +1644,7 @@ function validateDefinition(
     record(value.optionalImage) && value.optionalImage.port === "image"
       ? "image"
       : undefined,
+    value.properties,
   );
   validatePorts(
     value.outputs,
@@ -1782,6 +1916,14 @@ function validateInstance(
   ) {
     errors.push(`${prefix}.timing is invalid`);
   }
+  if (definition)
+    errors.push(
+      ...validateNativeParameterAnimation(
+        definition,
+        value.animation,
+        validateValue,
+      ).map((error) => `${prefix}.${error}`),
+    );
   if (definition && record(value.params))
     errors.push(
       ...validateResolvedParameterConstraints(
@@ -1791,6 +1933,13 @@ function validateInstance(
       ).map((error) => `${prefix}.${error}`),
     );
   validateBindings(value.bindings, definition, prefix, errors);
+  validateConditionalInputs(
+    value.params,
+    value.bindings,
+    definition,
+    prefix,
+    errors,
+  );
   validateTransform(value.transform, prefix, errors);
   validateSourceSizing(value.sourceSizing, definition, prefix, errors);
   validateTextureBindingConflicts(
@@ -1871,6 +2020,14 @@ function validatePreset(
       ))
   )
     errors.push(`${prefix}.timing is invalid`);
+  if (definition)
+    errors.push(
+      ...validateNativeParameterAnimation(
+        definition,
+        value.animation,
+        validateValue,
+      ).map((error) => `${prefix}.${error}`),
+    );
   if (!record(value.params)) {
     errors.push(`${prefix}.params must be an object`);
   } else if (definition && record(definition.properties)) {
@@ -1899,6 +2056,13 @@ function validatePreset(
       ).map((error) => `${prefix}.${error}`),
     );
   validateBindings(value.bindings, definition, prefix, errors);
+  validateConditionalInputs(
+    value.params,
+    value.bindings,
+    definition,
+    prefix,
+    errors,
+  );
   validateTransform(value.transform, prefix, errors);
   validateSourceSizing(value.sourceSizing, definition, prefix, errors);
   validateTextureBindingConflicts(
@@ -2207,6 +2371,7 @@ export function applyNativeEffectToHtml(
     transform?: EffectTransform2D;
     sourceSizing?: NativeSourceSizing;
     timing?: EffectPreset["timing"];
+    animation?: NativeParameterAnimation;
   },
 ): EffectHtmlResult {
   if (
@@ -2256,6 +2421,7 @@ export function applyNativeEffectToHtml(
     definitionVersion: options.definition.version,
     placement: options.placement,
     params: options.params ?? {},
+    ...(options.animation && { animation: options.animation }),
     enabled: true,
     opacity: 1,
     seed: Math.floor(Math.random() * 1_000_000),

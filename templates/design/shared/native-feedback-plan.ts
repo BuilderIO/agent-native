@@ -11,6 +11,8 @@ export type NativeFeedbackFormat = "rgba16float";
 
 export interface NativeFeedbackDefinition {
   abi: "texture-feedback-v1";
+  sourceHistory?: "sequential-captures";
+  resolveDraw?: { vertices: 6; instances: number };
   id: string;
   version: number;
   source?: {
@@ -118,6 +120,12 @@ export function adaptNativeFeedbackDefinition(
     ok: true,
     definition: {
       abi: feedback.abi,
+      ...(feedback.sourceHistory === undefined
+        ? {}
+        : { sourceHistory: feedback.sourceHistory }),
+      ...(feedback.resolveDraw === undefined
+        ? {}
+        : { resolveDraw: feedback.resolveDraw }),
       id: definition.id,
       version: definition.version,
       ...(upstream
@@ -166,6 +174,17 @@ export function planNativeFeedback(
   const { width, height, format, workgroup } = definition.grid;
   if (
     definition.abi !== "texture-feedback-v1" ||
+    (definition.sourceHistory !== undefined &&
+      definition.sourceHistory !== "sequential-captures") ||
+    (definition.resolveDraw !== undefined &&
+      (definition.resolveDraw === null ||
+        typeof definition.resolveDraw !== "object" ||
+        Array.isArray(definition.resolveDraw) ||
+        Object.keys(definition.resolveDraw).length !== 2 ||
+        definition.resolveDraw.vertices !== 6 ||
+        !Number.isSafeInteger(definition.resolveDraw.instances) ||
+        definition.resolveDraw.instances < 1 ||
+        definition.resolveDraw.instances > 256)) ||
     !/^[A-Za-z][A-Za-z0-9-]{0,63}$/.test(definition.id) ||
     !Number.isSafeInteger(definition.version) ||
     definition.version < 1 ||

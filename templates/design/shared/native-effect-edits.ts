@@ -36,9 +36,14 @@ export type NativeEffectEdit =
       params?: Record<string, EffectValue>;
       clip?: EffectInstance["clip"];
       bindings?: Record<string, EffectInputBinding>;
+      bindingTargets?: Record<
+        string,
+        { selector: string; capture: "content" | "appearance" }
+      >;
       transform?: EffectTransform2D;
       sourceSizing?: NativeSourceSizing;
       timing?: EffectPreset["timing"];
+      animation?: EffectPreset["animation"];
     }
   | {
       kind: "apply-many";
@@ -50,10 +55,15 @@ export type NativeEffectEdit =
       params?: Record<string, EffectValue>;
       clip?: EffectInstance["clip"];
       bindings?: Record<string, EffectInputBinding>;
+      bindingTargets?: Record<
+        string,
+        { selector: string; capture: "content" | "appearance" }
+      >;
       transform?: EffectTransform2D;
       sourceSizing?: NativeSourceSizing;
       sourceSizingByNodeId?: Record<string, NativeSourceSizing>;
       timing?: EffectPreset["timing"];
+      animation?: EffectPreset["animation"];
     }
   | {
       kind: "apply-preset";
@@ -76,6 +86,7 @@ export type NativeEffectEdit =
       kind: "set-instance";
       instanceId: string;
       params?: Record<string, EffectValue>;
+      animation?: EffectInstance["animation"] | null;
       enabled?: boolean;
       opacity?: number;
       seed?: number;
@@ -211,6 +222,15 @@ export function editNativeEffectHtml(
     definitions: [],
     instances: [],
   };
+  if (
+    (operation.kind === "apply" ||
+      operation.kind === "apply-many" ||
+      operation.kind === "set-instance") &&
+    operation.bindingTargets
+  )
+    return failed(html, [
+      "native effect binding targets need source resolution",
+    ]);
 
   if (operation.kind === "set-preview") {
     const preview = operation.preview ?? undefined;
@@ -335,6 +355,7 @@ export function editNativeEffectHtml(
       transform: preset.transform,
       sourceSizing: operation.sourceSizing ?? preset.sourceSizing,
       timing: preset.timing,
+      animation: preset.animation,
     });
   }
 
@@ -390,6 +411,7 @@ export function editNativeEffectHtml(
       transform: operation.transform,
       sourceSizing: operation.sourceSizing,
       timing: operation.timing,
+      animation: operation.animation,
     });
     if (result.errors.length) return failed(html, result.errors);
     const next = parseEffectsFromHtml(result.html);
@@ -519,10 +541,6 @@ export function editNativeEffectHtml(
       `native effect instance "${operation.instanceId}" not found`,
     ]);
   const instance = document.instances[index];
-  if (operation.kind === "set-instance" && operation.bindingTargets)
-    return failed(html, [
-      "native effect binding targets need source resolution",
-    ]);
   if (operation.kind === "set-instance" && operation.sourceSizing)
     return failed(html, ["legacy-image-abi-retired"]);
   const instances = [...document.instances];
@@ -546,6 +564,10 @@ export function editNativeEffectHtml(
       instances[index] = {
         ...instance,
         params: { ...instance.params, ...(operation.params ?? {}) },
+        animation:
+          operation.animation === null
+            ? undefined
+            : (operation.animation ?? instance.animation),
         enabled: operation.enabled ?? instance.enabled,
         opacity: operation.opacity ?? instance.opacity,
         seed: operation.seed ?? instance.seed,
@@ -588,6 +610,7 @@ export function editNativeEffectHtml(
       instances[index] = {
         ...instance,
         params: {},
+        animation: undefined,
         enabled: true,
         opacity: 1,
         timing: { speed: 1, paused: false, time: 0 },

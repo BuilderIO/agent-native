@@ -1,11 +1,12 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type {
-  EffectColor,
-  EffectDefinition,
-  EffectInputBinding,
-  EffectValue,
-  EffectTextureRef,
-  NativePositionValue,
+import {
+  effectInputEnabled,
+  type EffectColor,
+  type EffectDefinition,
+  type EffectInputBinding,
+  type EffectValue,
+  type EffectTextureRef,
+  type NativePositionValue,
 } from "@shared/native-effects";
 import {
   IconArrowDown,
@@ -113,6 +114,9 @@ export function NativeEffectControls({
   bindings,
   layerOptions,
   onInputChange,
+  cameraFileId,
+  cameraBoardFile = false,
+  cameraInstanceId,
 }: {
   definition: EffectDefinition;
   values: Record<string, EffectValue>;
@@ -124,6 +128,9 @@ export function NativeEffectControls({
   bindings?: Record<string, EffectInputBinding>;
   layerOptions?: NativeAuthoredLayerOption[];
   onInputChange?: (name: string, binding: NativeEffectInputChoice) => void;
+  cameraFileId?: string;
+  cameraBoardFile?: boolean;
+  cameraInstanceId?: string;
 }) {
   const t = useT();
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -154,7 +161,16 @@ export function NativeEffectControls({
           port.resource === "source" ||
           port.resource === "mask" ||
           port.resource === "backdrop" ||
+          (port.enabledWhen && !effectInputEnabled(port, definition, values)) ||
           (port.optional && port.fallback === "transparent-data");
+        const cameraAvailable =
+          port.kind === "texture-2d" &&
+          name !== definition.optionalImage?.port &&
+          !definition.resources?.some(
+            (resource) =>
+              resource.name === port.resource &&
+              resource.sampleEncoding === "linear-data",
+          );
         const label = textureProperty
           ? propertyLabel(textureProperty[1].label)
           : name === "source"
@@ -176,6 +192,12 @@ export function NativeEffectControls({
             layers={layerOptions ?? []}
             defaultAvailable={Boolean(defaultAvailable)}
             disabled={disabled}
+            cameraAvailable={cameraAvailable}
+            cameraInputActive={effectInputEnabled(port, definition, values)}
+            cameraFileId={cameraFileId}
+            cameraBoardFile={cameraBoardFile}
+            cameraInstanceId={cameraInstanceId}
+            cameraPort={name}
             designId={designId}
             fileId={fileId}
             onChange={(next) => onInputChange?.(name, next)}

@@ -10,6 +10,7 @@ import {
   NATIVE_EFFECT_PRESETS,
 } from "@shared/native-effect-presets";
 import type { EffectDefinition, EffectPreset } from "@shared/native-effects";
+import { planNativeInputResources } from "@shared/native-input-resources";
 import { IconChevronDown, IconStar, IconWaveSine } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -301,8 +302,19 @@ export function NativeShaderLibraryBrowser({
       const selected = response.library.selectedEntry;
       if (!selected?.preset)
         throw new Error(t("editPanel.shaders.libraryUnavailable"));
+      const inputPlan = planNativeInputResources(
+        selected.definition,
+        selected.preset,
+      );
       if (
-        Object.values(selected.preset.bindings ?? {}).some(
+        !inputPlan.ok &&
+        inputPlan.code !== "input-resource-missing" &&
+        inputPlan.code !== "input-conditional-binding-required"
+      )
+        throw new Error(inputPlan.detail);
+      if (
+        inputPlan.ok &&
+        [...inputPlan.inputs.values()].some(
           (binding) => binding.kind === "authored-node",
         )
       ) {
@@ -315,10 +327,7 @@ export function NativeShaderLibraryBrowser({
         );
         if (
           typeof current.content !== "string" ||
-          !authoredSourceBindingsAvailable(
-            current.content,
-            selected.preset.bindings,
-          )
+          !authoredSourceBindingsAvailable(current.content, inputPlan.inputs)
         )
           throw new Error(t("editPanel.shaders.librarySourceIncompatible"));
       }
@@ -458,7 +467,21 @@ export function NativeShaderLibraryBrowser({
                 const selected = exact.library.selectedEntry;
                 if (!selected?.definition || !selected.preset)
                   throw new Error("Saved shader source is unavailable");
-                if (Object.keys(selected.preset.bindings ?? {}).length)
+                const inputPlan = planNativeInputResources(
+                  selected.definition,
+                  selected.preset,
+                );
+                if (!inputPlan.ok) throw new Error(inputPlan.detail);
+                if (
+                  Object.keys(selected.preset.bindings ?? {}).some((name) => {
+                    const resource =
+                      selected.definition.inputs?.[name]?.resource;
+                    return (
+                      resource &&
+                      inputPlan.inputs.get(resource)?.kind !== "fallback"
+                    );
+                  })
+                )
                   throw new Error("Preview needs the saved input's scene");
                 return {
                   key: entry.itemKey,

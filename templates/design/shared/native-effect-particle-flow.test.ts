@@ -20,7 +20,11 @@ it("plans bounded particle state, instanced draw, and persistent trail in execut
     "particles",
     "trail",
   ]);
-  expect(PARTICLE_FLOW_EFFECT.simulation?.count.tiers).toEqual({
+  const count = PARTICLE_FLOW_EFFECT.simulation?.count;
+  expect(count && "tiers" in count).toBe(true);
+  if (!count || !("tiers" in count))
+    throw new Error("Particle Flow needs tier counts");
+  expect(count.tiers).toEqual({
     low: 10000,
     medium: 25000,
     high: 50000,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { planEffectGraph } from "./effect-graph";
+import { AF_IMAGE_MATERIAL_DEFINITIONS } from "./native-effect-owned-af-image-materials";
+import { TEMPORAL_IMAGE_DEFINITIONS } from "./native-effect-owned-ag-temporal-images";
 import { OWNED_OPTIONAL_IMAGE_SIZING } from "./native-effect-owned-source-test-fixtures";
 import { OWNED_FEEDBACK_TEST_DEFINITION } from "./native-effect-owned-test-fixtures";
 import { HALFTONE_EFFECT } from "./native-effect-presets";
@@ -53,6 +55,91 @@ const definition = {
 };
 
 describe("native named input resources", () => {
+  it("resolves a temporal effect's one source from asset, authored layer, or camera", () => {
+    const temporal = TEMPORAL_IMAGE_DEFINITIONS[0]!;
+    for (const binding of [
+      { kind: "asset" as const, url: "/images/source.png" },
+      {
+        kind: "authored-node" as const,
+        nodeId: "source-layer",
+        capture: "content" as const,
+      },
+      { kind: "camera" as const },
+    ]) {
+      const plan = planNativeInputResources(temporal, {
+        ...instance,
+        bindings: { source: binding },
+      });
+      expect(plan.ok).toBe(true);
+      if (plan.ok) expect(plan.inputs.get("source")?.kind).toBe(binding.kind);
+    }
+  });
+
+  it("keeps mixed-input feedback captures unsupported", () => {
+    const temporal = TEMPORAL_IMAGE_DEFINITIONS[0]!;
+    const mixed = {
+      ...temporal,
+      inputs: {
+        ...temporal.inputs,
+        mask: { kind: "mask" as const, resource: "mask" },
+      },
+      passes: [
+        { ...temporal.passes[0]!, reads: ["source", "mask"] },
+        temporal.passes[1]!,
+      ],
+    };
+    expect(
+      planNativeInputResources(mixed, {
+        ...instance,
+        bindings: { mask: { kind: "camera" } },
+      }),
+    ).toMatchObject({ ok: false, code: "input-authored-mode-unsupported" });
+  });
+
+  it("uses explicit mode for conditional image material inputs", () => {
+    const material = AF_IMAGE_MATERIAL_DEFINITIONS[0]!;
+    const procedural = {
+      ...instance,
+      definitionId: material.id,
+      placement: "fill" as const,
+      params: { mode: "procedural" },
+      bindings: { image: { kind: "camera" as const } },
+    };
+    expect(planNativeInputResources(material, procedural)).toMatchObject({
+      ok: true,
+      inputs: new Map([
+        ["image", { kind: "fallback", source: "transparent-data" }],
+      ]),
+    });
+    expect(
+      planNativeInputResources(material, {
+        ...procedural,
+        bindings: undefined,
+        params: { mode: "image" },
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "input-conditional-binding-required",
+    });
+    for (const binding of [
+      { kind: "asset" as const, url: "/images/one-pixel.png" },
+      {
+        kind: "authored-node" as const,
+        nodeId: "black-layer",
+        capture: "content" as const,
+      },
+      { kind: "camera" as const },
+    ]) {
+      const plan = planNativeInputResources(material, {
+        ...procedural,
+        params: { mode: "image" },
+        bindings: { image: binding },
+      });
+      expect(plan.ok).toBe(true);
+      if (plan.ok) expect(plan.inputs.get("image")?.kind).toBe(binding.kind);
+    }
+  });
+
   it("treats a compute pass's additional display output as produced before a feedback resolve", () => {
     const feedback = OWNED_FEEDBACK_TEST_DEFINITION;
     const mounted = {

@@ -9,6 +9,7 @@ import {
   type EffectDocument,
 } from "@shared/native-effects";
 import { parseNativeEmbeddedAssetRegistryText } from "@shared/native-embedded-assets";
+import { planNativeInputResources } from "@shared/native-input-resources";
 import {
   nativeLocalExportCropSchema,
   type NativeLocalExportCrop,
@@ -112,18 +113,36 @@ export async function extractNativeSelectedSource(args: {
   const instances = parsed.document.instances.filter((instance) =>
     selectedIds.has(instance.nodeId),
   );
+  const definitionByKey = new Map(
+    parsed.document.definitions.map((definition) => [
+      `${definition.id}@${definition.version}`,
+      definition,
+    ]),
+  );
   if (!instances.some((instance) => instance.enabled))
     throw new NativeSelectedSourceError(
       "selection-unavailable",
       "The selected source contains no enabled native effect.",
     );
   for (const instance of instances) {
+    if (instance.enabled === false) continue;
     if (instance.placement === "backdrop")
       throw new NativeSelectedSourceError(
         "dependency-outside-selection",
         "A selected backdrop needs authored content outside the selected subtree.",
       );
-    for (const binding of Object.values(instance.bindings ?? {}))
+    const definition = definitionByKey.get(
+      `${instance.definitionId}@${instance.definitionVersion}`,
+    );
+    const plan = definition
+      ? planNativeInputResources(definition, instance)
+      : null;
+    if (!plan?.ok)
+      throw new NativeSelectedSourceError(
+        "source-unreadable",
+        plan?.detail ?? "A selected native effect has no matching definition.",
+      );
+    for (const binding of plan.inputs.values())
       if (binding.kind === "authored-node" && !selectedIds.has(binding.nodeId))
         throw new NativeSelectedSourceError(
           "dependency-outside-selection",

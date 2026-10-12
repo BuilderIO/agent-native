@@ -3,8 +3,9 @@ import type {
   EffectInputBinding,
   EffectTextureRef,
 } from "@shared/native-effects";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -14,6 +15,12 @@ import {
 } from "@/components/ui/select";
 
 import type { NativeAuthoredLayerOption } from "./native-authored-input-options";
+import {
+  readNativeCameraState,
+  startNativeCamera,
+  stopNativeCamera,
+  type NativeCameraClientState,
+} from "./native-live-camera-client";
 import { NativeEffectTextureControl } from "./NativeEffectTextureControl";
 
 export type NativeEffectInputChoice =
@@ -34,29 +41,62 @@ export function NativeEffectInputControls({
   disabled,
   designId,
   fileId,
+  cameraAvailable = false,
+  cameraInputActive = true,
+  cameraFileId,
+  cameraBoardFile = false,
+  cameraInstanceId,
+  cameraPort,
   onChange,
 }: {
   label: string;
-  binding: EffectInputBinding | null;
+  binding: NativeEffectInputChoice;
   assetValue: EffectTextureRef | null;
   layers: NativeAuthoredLayerOption[];
   defaultAvailable: boolean;
   disabled: boolean;
   designId?: string;
   fileId?: string;
+  cameraAvailable?: boolean;
+  cameraInputActive?: boolean;
+  cameraFileId?: string;
+  cameraBoardFile?: boolean;
+  cameraInstanceId?: string;
+  cameraPort?: string;
   onChange: (binding: NativeEffectInputChoice) => void;
 }) {
   const t = useT();
   const [wantsImage, setWantsImage] = useState(false);
+  useEffect(() => setWantsImage(false), [binding?.kind]);
+  const [cameraState, setCameraState] =
+    useState<NativeCameraClientState>("idle");
+  useEffect(() => {
+    if (binding?.kind !== "camera" || !cameraFileId || !cameraInputActive)
+      return;
+    const refresh = () => {
+      try {
+        setCameraState(readNativeCameraState(cameraFileId, cameraBoardFile));
+      } catch {
+        setCameraState("unavailable");
+      }
+    };
+    refresh();
+    window.addEventListener("an-native-camera-state", refresh);
+    return () => window.removeEventListener("an-native-camera-state", refresh);
+  }, [binding?.kind, cameraFileId, cameraBoardFile, cameraInputActive]);
   const source = wantsImage
     ? "image"
-    : binding?.kind === "authored-node"
-      ? `node:${binding.nodeId}`
-      : binding?.kind === "asset" || assetValue
-        ? "image"
-        : defaultAvailable
-          ? "default"
-          : "missing";
+    : binding?.kind === "camera"
+      ? "camera"
+      : binding?.kind === "authored-node"
+        ? `node:${binding.nodeId}`
+        : binding?.kind === "authored-selector"
+          ? `selector:${binding.selector}`
+          : binding?.kind === "asset" || assetValue
+            ? "image"
+            : defaultAvailable
+              ? "default"
+              : "missing";
   const selectedLayer = layers.some((layer) => layer.key === source);
   const image = binding?.kind === "asset" ? binding : assetValue;
   return (
@@ -71,6 +111,10 @@ export function NativeEffectInputControls({
             return;
           }
           setWantsImage(false);
+          if (value === "camera") {
+            onChange({ kind: "camera" });
+            return;
+          }
           if (value === "default") {
             onChange(null);
             return;
@@ -102,6 +146,11 @@ export function NativeEffectInputControls({
           <SelectItem value="image">
             {t("editPanel.shaders.nativeInputImage")}
           </SelectItem>
+          {(cameraAvailable || binding?.kind === "camera") && (
+            <SelectItem value="camera" disabled={!cameraAvailable}>
+              {t("editPanel.shaders.nativeInputCamera")}
+            </SelectItem>
+          )}
           {!defaultAvailable && (
             <SelectItem value="missing" disabled>
               {t("editPanel.shaders.nativeTextureSelect")}
@@ -119,6 +168,75 @@ export function NativeEffectInputControls({
           )}
         </SelectContent>
       </Select>
+      {source === "camera" &&
+        cameraInputActive &&
+        cameraFileId &&
+        cameraInstanceId &&
+        cameraPort && (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={
+                disabled || !cameraAvailable || cameraState === "starting"
+              }
+              onClick={() => {
+                if (cameraState === "active") {
+                  try {
+                    stopNativeCamera(cameraFileId, cameraBoardFile);
+                    setCameraState("stopped");
+                  } catch {
+                    setCameraState("unavailable");
+                  }
+                  return;
+                }
+                setCameraState("starting");
+                void startNativeCamera(
+                  cameraFileId,
+                  cameraBoardFile,
+                  cameraInstanceId,
+                  cameraPort,
+                ).then(
+                  () => setCameraState("active"),
+                  (error: unknown) => {
+                    const code =
+                      error && typeof error === "object" && "code" in error
+                        ? (error as { code: unknown }).code
+                        : null;
+                    setCameraState(
+                      code === "permission-denied"
+                        ? "permission-denied"
+                        : code === "stopped"
+                          ? "stopped"
+                          : "unavailable",
+                    );
+                  },
+                );
+              }}
+            >
+              {t(
+                cameraState === "active"
+                  ? "editPanel.shaders.nativeInputCameraStop"
+                  : "editPanel.shaders.nativeInputCameraStart",
+              )}
+            </Button>
+            {(cameraState === "permission-denied" ||
+              cameraState === "unavailable" ||
+              cameraState === "stopped") && (
+              <span role="status" className="text-xs text-muted-foreground">
+                {t(
+                  cameraState === "permission-denied"
+                    ? "editPanel.shaders.nativeInputCameraPermissionDenied"
+                    : cameraState === "stopped"
+                      ? "editPanel.shaders.nativeInputCameraStopped"
+                      : "editPanel.shaders.nativeInputCameraUnavailable",
+                )}
+              </span>
+            )}
+          </div>
+        )}
       {(source === "image" || source === "missing") && (
         <NativeEffectTextureControl
           designId={designId}
@@ -137,31 +255,33 @@ export function NativeEffectInputControls({
           }}
         />
       )}
-      {source.startsWith("node:") && binding?.kind === "authored-node" && (
-        <Select
-          value={binding.capture}
-          disabled={disabled}
-          onValueChange={(capture) => {
-            if (capture === "content" || capture === "appearance")
-              onChange({ ...binding, capture });
-          }}
-        >
-          <SelectTrigger
-            className="h-7 w-full text-xs"
-            aria-label={t("editPanel.shaders.nativeInputLayer")}
+      {(source.startsWith("node:") || source.startsWith("selector:")) &&
+        (binding?.kind === "authored-node" ||
+          binding?.kind === "authored-selector") && (
+          <Select
+            value={binding.capture}
+            disabled={disabled}
+            onValueChange={(capture) => {
+              if (capture === "content" || capture === "appearance")
+                onChange({ ...binding, capture });
+            }}
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="content">
-              {t("editPanel.shaders.nativeInputContent")}
-            </SelectItem>
-            <SelectItem value="appearance">
-              {t("editPanel.shaders.nativeInputAppearance")}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      )}
+            <SelectTrigger
+              className="h-7 w-full text-xs"
+              aria-label={t("editPanel.shaders.nativeInputLayer")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="content">
+                {t("editPanel.shaders.nativeInputContent")}
+              </SelectItem>
+              <SelectItem value="appearance">
+                {t("editPanel.shaders.nativeInputAppearance")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        )}
     </div>
   );
 }

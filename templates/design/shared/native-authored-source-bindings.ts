@@ -1,11 +1,11 @@
 import { buildCodeLayerProjection } from "./code-layer";
-import type { EffectInputBinding } from "./native-effects";
+import type { NativeExternalTextureInput } from "./native-input-resources";
 
 export function authoredSourceBindingsAvailable(
   html: string,
-  bindings: Record<string, EffectInputBinding> | null | undefined,
+  inputs: ReadonlyMap<string, NativeExternalTextureInput>,
 ): boolean {
-  const referenced = Object.values(bindings ?? {}).flatMap((binding) =>
+  const referenced = [...inputs.values()].flatMap((binding) =>
     binding.kind === "authored-node" ? [binding.nodeId] : [],
   );
   if (!referenced.length) return true;

@@ -99,20 +99,54 @@ manifest, never a `data:` or `blob:` URL. For a user-selected native texture, ca
 Ordinary render-pass texture and mask inputs can instead bind another uniquely
 identified layer in the same screen. `capture:"content"` reads that layer's
 original content; `capture:"appearance"` reads its rendered effect stack. The
-inspector's Canvas layer picker offers both. Feedback, simulation,
-source-buffer-v1 compute, retired optional-image/noise, and linear-data ports
-do not offer authored layers. Linear-resource-v1 graphs can bind authored
-layers to their sampled texture ports.
+inspector's Canvas layer picker offers both. Eligible texture and mask ports
+can use authored layers in ordinary render passes and linear-resource-v1 graphs.
+Feedback, simulation, and source-buffer-v1 also support authored-layer and
+camera bindings when their passes read exactly one external resource named
+`source`; mixed or multiple external reads do not. Authored and camera bindings
+cannot target `linear-data` resources. Retired `optionalImage` and paired
+optional-noise inputs remain asset-only; optional noise requires a linear-data
+asset. Asset bindings continue to use declared compatible texture ports.
+A compatible render-pass color texture port can also bind `{kind:"camera"}`.
+The binding stores only source metadata; the editor's Start camera control asks
+the user for permission in the active preview. Setting the binding through an
+action, reloading, or opening another preview does not activate a camera. The
+stream stops when its last bound preview consumer is removed or the preview
+closes. A still export freezes the current live frame in memory for the export
+frame. An MP4 export explicitly records a new bounded clip from an already
+active camera, then renders that clip offline at the requested frame rate. It
+cannot export camera history from before the export began; stopping the camera
+or canceling the export stops recording and discards the in-memory clip.
+An input port with `enabledWhen:{property,equals}` participates only while
+that property equals the named value. For the image-aware materials, set
+`mode:"image"` and provide an asset, authored layer, or camera binding in the
+same edit. Missing Image input fails validation; `mode:"procedural"` uses the
+declared transparent-data fallback and does not load, capture, or export a
+stored image binding. Presence is determined by the mode and binding, never
+by pixel alpha, color, or dimensions.
 The source cannot be the receiver or create a dependency cycle. Live source
 changes update the binding, while a missing or duplicated ID fails explicitly.
+For `feedback.sourceHistory:"sequential-captures"`, live state begins from the
+first captured source frame. Deterministic export needs that same source history;
+a cold export starting at nonzero time returns the typed
+`feedback-source-history-unavailable` error. A feedback `resolveDraw` is
+optional and, when present, requires 6 vertices and 1–256 instances.
+
+Instance parameter animation has a duration in `(0,60]` seconds, 1–16 tracks,
+and 2–32 increasing keys per track. Key times start at zero and end at the
+duration. Float, integer, color, boolean, and enum properties can animate;
+boolean and enum keys use step easing. Texture, position, color-array, rebuild,
+simulation-count, feedback seed/reset, mode-switch, and interaction properties
+are excluded. Animation can be supplied when applying a definition, updated or
+cleared with `set-instance`, or saved on and applied from a preset.
 For an unannotated unlocked image, text, or group, pass
 `operation.bindingTargets:{<port>:{selector,capture}}` to `edit-native-shader`
-with `kind:"set-instance"`; the action resolves that selector against the
+with `kind:"apply"`, `kind:"apply-many"`, or `kind:"set-instance"`; the action resolves that selector against the
 current source and stamps a persistent `data-agent-native-node-id` in the same
 source write. Never persist a selector or preview hash as a binding node ID.
 Locked layers need an existing stable ID. A saved preset with authored bindings
 can be applied only when each referenced ID exists uniquely in the current
-screen. Use `set-instance` to send the complete `bindings` record and optional
+screen. The library browser stages entries with missing required texture inputs; choose an asset or same-file layer, then apply the definition and bindings in one edit. Agents can use the same `apply` or `apply-many` operation with `bindings` and `bindingTargets`, without persisting an invalid intermediate instance. Use `set-instance` to send the complete `bindings` record and optional
 `params` together when switching a texture property from an asset to a layer:
 set that asset parameter to `null` in the same operation. An absent `params`
 field leaves parameters unchanged; supplied parameters merge with the stored
@@ -367,14 +401,18 @@ screens. They are compatibility data, not current choices. `get-shader` with
 advertising the retired presets. Existing authored GLSL definitions remain
 readable; use the native catalog for new applications.
 
-## Fills vs effects
+## Legacy GLSL compatibility: fills vs overlays
 
-| | Fill (`data-an-shader-fill`) | Effect (`data-an-shader-effect`) |
+| | Legacy GLSL fill (`data-an-shader-fill`) | Legacy GLSL overlay (`data-an-shader-effect`) |
 |---|---|---|
 | Canvas position | Behind content (negative z-index in an isolated stacking context, above the element's own background) | Overlay above content, `pointer-events: none` |
 | Output | Opaque pixels (a material) | Transparent overlay (alpha compositing) |
 | Fallback | Element keeps a static `background` color | Degrades to no overlay |
 | Overrides attr | `data-an-shader-uniforms` | `data-an-shader-effect-uniforms` |
+
+This table describes legacy GLSL overlay behavior, not native v2 processors.
+Keep existing overlays readable, but use the native v2 catalog for new source
+processors and effects.
 
 Failures (no WebGL, compile error, > 8 mounts per screen) remove the canvas
 and record the reason in `data-an-shader-error` on the element — check that

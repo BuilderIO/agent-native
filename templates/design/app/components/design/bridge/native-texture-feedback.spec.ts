@@ -36,6 +36,8 @@ function mockGpu() {
   const groups: GPUBindGroupDescriptor[] = [];
   const dispatches: Array<[number, number]> = [];
   const draws: number[] = [];
+  const instancedDraws: Array<[number, number | undefined]> = [];
+  const pipelineDescriptors: GPURenderPipelineDescriptor[] = [];
   const computeDescriptors: GPUComputePassDescriptor[] = [];
   const renderDescriptors: GPURenderPassDescriptor[] = [];
   let pendingResolve: (() => void) | null = null;
@@ -65,9 +67,12 @@ function mockGpu() {
     createComputePipelineAsync: async () => ({
       getBindGroupLayout: () => ({}),
     }),
-    createRenderPipelineAsync: async () => ({
-      getBindGroupLayout: () => ({}),
-    }),
+    createRenderPipelineAsync: async (
+      descriptor: GPURenderPipelineDescriptor,
+    ) => {
+      pipelineDescriptors.push(descriptor);
+      return { getBindGroupLayout: () => ({}) };
+    },
     createSampler: () => ({}),
     createBuffer: (descriptor: GPUBufferDescriptor) => {
       if (descriptor.usage & MAP_READ) {
@@ -121,7 +126,10 @@ function mockGpu() {
       return {
         setPipeline: () => undefined,
         setBindGroup: () => undefined,
-        draw: (vertices: number) => draws.push(vertices),
+        draw: (vertices: number, instances?: number) => {
+          draws.push(vertices);
+          instancedDraws.push([vertices, instances]);
+        },
         end: () => undefined,
       };
     },
@@ -158,6 +166,8 @@ function mockGpu() {
     uniforms,
     dispatches,
     draws,
+    instancedDraws,
+    pipelineDescriptors,
     computeDescriptors,
     renderDescriptors,
     allocated,
@@ -185,8 +195,211 @@ const params = {
   blend: 1,
   seed: 7,
 };
+const sequentialKernel = {
+  ...OWNED_FEEDBACK_TEST_KERNEL,
+  sourceHistory: "sequential-captures" as const,
+};
 
 describe("bounded texture feedback executor", () => {
+  it("uses premultiplied blending for bounded instanced source resolves", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      {
+        ...OWNED_FEEDBACK_TEST_KERNEL,
+        resolveDraw: { vertices: 6, instances: 64 },
+      },
+    );
+    const target = gpu.pipelineDescriptors[0].fragment?.targets?.[0];
+    expect(target?.blend).toEqual({
+      color: {
+        srcFactor: "one",
+        dstFactor: "one-minus-src-alpha",
+        operation: "add",
+      },
+      alpha: {
+        srcFactor: "one",
+        dstFactor: "one-minus-src-alpha",
+        operation: "add",
+      },
+    });
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    expect(gpu.instancedDraws).toEqual([[6, 64]]);
+    expect(gpu.renderDescriptors[0]?.colorAttachments[0]?.loadOp).toBe("clear");
+    frame.abandon();
+    executor.dispose();
+  });
+  it("rejects deterministic cold seeks before writing GPU work", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      sequentialKernel,
+    );
+    expect(() =>
+      executor.encode({
+        encoder: gpu.encoder,
+        source: gpu.source(),
+        target: gpu.target(),
+        timeSeconds: 5,
+        params,
+      }),
+    ).toThrowError(
+      new NativeFeedbackFailure("feedback-source-history-unavailable"),
+    );
+    expect(gpu.uniforms).toHaveLength(0);
+    executor.dispose();
+  });
+
+  it("advances deterministic frames after a real step-zero capture", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      sequentialKernel,
+    );
+    const first = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    expect(first.steps).toBe(1);
+    const firstRetirement = first.commit();
+    gpu.settle();
+    await firstRetirement;
+    const next = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 1 / 60,
+      params,
+    });
+    expect(next.steps).toBe(1);
+    expect(gpu.uniforms[gpu.uniforms.length - 2]?.values[1]).toBeCloseTo(
+      1 / 60,
+    );
+    const nextRetirement = next.commit();
+    gpu.settle();
+    await nextRetirement;
+    expect(executor.lastCompletedStep).toBe(1);
+    executor.dispose();
+  });
+
+  it("starts live effects at a fresh current-capture baseline", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      sequentialKernel,
+    );
+    const baseline = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 20,
+      initialLocalSeconds: 20,
+      mode: "interactive",
+      speed: 1,
+      params,
+    });
+    expect(baseline.steps).toBe(1);
+    expect(gpu.uniforms[0].values.slice(0, 2)).toEqual([0, 0]);
+    const baselineRetirement = baseline.commit();
+    gpu.settle();
+    await baselineRetirement;
+    expect(executor.lastCompletedStep).toBe(1200);
+    const next = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 20 + 1 / 60,
+      initialLocalSeconds: 20,
+      mode: "interactive",
+      speed: 1,
+      params,
+    });
+    expect(next.steps).toBe(1);
+    expect(gpu.uniforms[gpu.uniforms.length - 2]?.values[1]).toBeCloseTo(
+      1 / 60,
+    );
+    const nextRetirement = next.commit();
+    gpu.settle();
+    await nextRetirement;
+    executor.dispose();
+  });
+
+  it("requires a new capture after reset before deterministic replay", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      sequentialKernel,
+    );
+    const first = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+    });
+    const retirement = first.commit();
+    gpu.settle();
+    await retirement;
+    executor.reset();
+    expect(() =>
+      executor.encode({
+        encoder: gpu.encoder,
+        source: gpu.source(),
+        target: gpu.target(),
+        timeSeconds: 1 / 60,
+        params,
+      }),
+    ).toThrowError(
+      new NativeFeedbackFailure("feedback-source-history-unavailable"),
+    );
+    executor.dispose();
+  });
+
+  it("packs actual source density into reserved compute and resolve uniform slots", async () => {
+    const gpu = mockGpu();
+    const executor = await NativeTextureFeedbackExecutor.create(
+      gpu.device,
+      gpu.allocator,
+      OWNED_FEEDBACK_TEST_KERNEL,
+    );
+    expect(() =>
+      executor.encode({
+        encoder: gpu.encoder,
+        source: gpu.source(),
+        target: gpu.target(),
+        timeSeconds: 0,
+        params,
+        sourcePixelRatio: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrowError(new NativeFeedbackFailure("feedback-params-invalid"));
+    expect(gpu.uniforms).toEqual([]);
+    const frame = executor.encode({
+      encoder: gpu.encoder,
+      source: gpu.source(),
+      target: gpu.target(),
+      timeSeconds: 0,
+      params,
+      sourcePixelRatio: 2,
+    });
+    expect(gpu.uniforms[0].values[7]).toBe(2);
+    expect(gpu.uniforms[gpu.uniforms.length - 1].values[1]).toBe(2);
+    frame.abandon();
+    executor.dispose();
+  });
   it.each([
     { timeSeconds: 1e40 },
     { initialLocalSeconds: 1e40, mode: "interactive" as const, speed: 1 },

@@ -115,7 +115,8 @@ it("opens Add Effect → Shader at the catalog even when an effect exists", () =
   ).toBeNull();
 });
 
-it("opens an existing effect instance at its own controls", () => {
+it("reports the visible shader title and resets it on Back", () => {
+  const onActiveTitleChange = vi.fn();
   act(() =>
     root.render(
       <TooltipProvider>
@@ -123,6 +124,7 @@ it("opens an existing effect instance at its own controls", () => {
           mode="effect"
           context={context}
           nativeInstanceId="existing-lift"
+          onActiveTitleChange={onActiveTitleChange}
           onBack={() => undefined}
         />
       </TooltipProvider>,
@@ -132,4 +134,17 @@ it("opens an existing effect instance at its own controls", () => {
     host.querySelector('[aria-label="editPanel.shaders.backToBrowser"]'),
   ).not.toBeNull();
   expect(host.querySelector('[data-testid="native-library"]')).toBeNull();
+  const innerTitle = host.querySelector(".font-semibold")?.textContent;
+  expect(onActiveTitleChange).toHaveBeenLastCalledWith(innerTitle);
+  act(() =>
+    (
+      host.querySelector(
+        '[aria-label="editPanel.shaders.backToBrowser"]',
+      ) as HTMLButtonElement
+    ).click(),
+  );
+  expect(onActiveTitleChange).toHaveBeenLastCalledWith(
+    "editPanel.shaders.effectsTitle",
+  );
+  expect(host.querySelector('[data-testid="native-library"]')).not.toBeNull();
 });

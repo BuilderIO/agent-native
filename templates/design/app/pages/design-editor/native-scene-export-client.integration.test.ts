@@ -11,12 +11,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PARTICLE_FLOW_EFFECT } from "../../../shared/native-effect-particle-flow";
 import { writeEffectsToHtml } from "../../../shared/native-effects";
 import {
+  DEFAULT_NATIVE_VIDEO_SETTINGS,
   renderSelectedNativeCodePackage,
   renderSelectedNativeSceneBlob,
+  renderSelectedNativeSceneMp4Blob,
   type NativePixelRuntime,
 } from "./native-scene-export-client";
 
 vi.mock("@agent-native/core/client/hooks", () => ({ callAction: vi.fn() }));
+vi.mock("./native-scene-mp4-writer", () => ({
+  createNativeSceneMp4Writer: vi.fn(async () => ({
+    appendFrame: vi.fn(async () => {}),
+    finalize: vi.fn(async () => new Blob(["mp4"], { type: "video/mp4" })),
+    cancel: vi.fn(async () => {}),
+  })),
+}));
 
 const rgba = Uint8Array.from([187, 31, 203, 128, 11, 157, 43, 0]);
 const viewport = { width: 2, height: 1 };
@@ -144,6 +153,21 @@ beforeEach(() => {
 });
 
 describe("selected native straight PNG exports", () => {
+  it("does not advance a camera clip for an ordinary video scene", async () => {
+    const runtime = preparedFrame();
+    runtime.nextCameraClipFrame = vi.fn(async () => {
+      throw new Error("No camera clip was recorded");
+    });
+    const blob = await renderSelectedNativeSceneMp4Blob({
+      ...args,
+      settings: {
+        ...DEFAULT_NATIVE_VIDEO_SETTINGS,
+        durationSeconds: 0.1,
+      },
+    });
+    expect(blob.type).toBe("video/mp4");
+    expect(runtime.nextCameraClipFrame).not.toHaveBeenCalled();
+  });
   it("preserves exact partial-alpha and transparent RGB in the selected PNG", async () => {
     const runtime = preparedFrame();
     const png = await renderSelectedNativeSceneBlob({ ...args, format: "png" });

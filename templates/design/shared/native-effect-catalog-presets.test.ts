@@ -26,14 +26,14 @@ import { parseEffectsFromHtml, validateEffectDocument } from "./native-effects";
 
 describe("Design-owned catalog", () => {
   it("registers unique independently authored definitions and valid original recipes", () => {
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(307);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(324);
     expect(
       new Set(NATIVE_EFFECT_LATEST_DEFINITIONS.map((item) => item.id)).size,
-    ).toBe(307);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(357);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(716);
+    ).toBe(324);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(374);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(750);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((item) => item.id)).size).toBe(
-      716,
+      750,
     );
     for (const definition of NATIVE_EFFECT_LATEST_DEFINITIONS) {
       expect(definition.provenance?.origin).toBe("design-original");

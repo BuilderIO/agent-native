@@ -6,6 +6,34 @@ import { planEffectGraph } from "./effect-graph";
 import { nativeEffectAnimationCapability } from "./native-effect-animation-capability";
 import { editNativeEffectHtml } from "./native-effect-edits";
 import {
+  FEATURE_PURSUIT_DEFINITIONS,
+  FEATURE_PURSUIT_PRESETS,
+} from "./native-effect-owned-ad-feature-pursuit";
+import {
+  SOURCE_SHARDS_DEFINITIONS,
+  SOURCE_SHARDS_PRESETS,
+} from "./native-effect-owned-ae-source-shards";
+import {
+  AF_IMAGE_MATERIAL_DEFINITIONS,
+  AF_IMAGE_MATERIAL_PRESETS,
+} from "./native-effect-owned-af-image-materials";
+import {
+  TEMPORAL_IMAGE_DEFINITIONS,
+  TEMPORAL_IMAGE_PRESETS,
+} from "./native-effect-owned-ag-temporal-images";
+import {
+  SOURCE_IMAGE_PARTICLE_DEFINITIONS,
+  SOURCE_IMAGE_PARTICLE_PRESETS,
+} from "./native-effect-owned-ah-image-particles";
+import {
+  AI_FLUID_CLOTH_DEFINITIONS,
+  AI_FLUID_CLOTH_PRESETS,
+} from "./native-effect-owned-ai-fluid-cloth";
+import {
+  FRACTURE_SCATTER_EFFECT,
+  FRACTURE_SCATTER_PRESETS,
+} from "./native-effect-owned-aj-fracture";
+import {
   STATEFUL_NINE_DEFINITIONS,
   STATEFUL_NINE_PRESETS,
 } from "./native-effect-owned-stateful-nine";
@@ -24,6 +52,28 @@ const ids = new Set(
   STATEFUL_NINE_DEFINITIONS.map((definition) => definition.id),
 );
 const recipeIds = new Set(STATEFUL_NINE_PRESETS.map((preset) => preset.id));
+const insertedDefinitions = new Set(
+  [
+    ...FEATURE_PURSUIT_DEFINITIONS,
+    ...SOURCE_SHARDS_DEFINITIONS,
+    ...AF_IMAGE_MATERIAL_DEFINITIONS,
+    ...TEMPORAL_IMAGE_DEFINITIONS,
+    ...SOURCE_IMAGE_PARTICLE_DEFINITIONS,
+    FRACTURE_SCATTER_EFFECT,
+    ...AI_FLUID_CLOTH_DEFINITIONS,
+  ].map((definition) => definition.id),
+);
+const insertedRecipes = new Set(
+  [
+    ...FEATURE_PURSUIT_PRESETS,
+    ...SOURCE_SHARDS_PRESETS,
+    ...AF_IMAGE_MATERIAL_PRESETS,
+    ...TEMPORAL_IMAGE_PRESETS,
+    ...SOURCE_IMAGE_PARTICLE_PRESETS,
+    ...FRACTURE_SCATTER_PRESETS,
+    ...AI_FLUID_CLOTH_PRESETS,
+  ].map((preset) => preset.id),
+);
 const html = '<div data-agent-native-node-id="target"></div>';
 const hashes: Record<string, string> = {
   "an-native-owned-life-mosaic@1":
@@ -48,13 +98,16 @@ const hashes: Record<string, string> = {
 
 describe("additive stateful-nine catalog registration", () => {
   it("preserves the pinned pre-V catalog snapshot around the nine definitions and eighteen recipes", async () => {
-    const priorDefinitions = NATIVE_EFFECT_DEFINITION_CATALOG.slice(
-      0,
-      331,
-    ).filter((definition) => !ids.has(definition.id));
-    const priorRecipes = NATIVE_EFFECT_PRESETS.slice(0, 664).filter(
-      (preset) => !recipeIds.has(preset.id),
-    );
+    const priorDefinitions = NATIVE_EFFECT_DEFINITION_CATALOG.filter(
+      (definition) => !insertedDefinitions.has(definition.id),
+    )
+      .slice(0, 331)
+      .filter((definition) => !ids.has(definition.id));
+    const priorRecipes = NATIVE_EFFECT_PRESETS.filter(
+      (preset) => !insertedRecipes.has(preset.id),
+    )
+      .slice(0, 664)
+      .filter((preset) => !recipeIds.has(preset.id));
     expect(priorDefinitions).toHaveLength(322);
     expect(priorRecipes).toHaveLength(646);
     const priorHashes = await Promise.all(
@@ -69,16 +122,16 @@ describe("additive stateful-nine catalog registration", () => {
     expect(sha(JSON.stringify(priorRecipes))).toBe(
       "d98b6a364cea2385b6166a68ec605aee8dbebad99fa840a0d4d1b9ed86257b27",
     );
-    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(291);
-    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(337);
-    expect(NATIVE_EFFECT_PRESETS).toHaveLength(676);
+    expect(NATIVE_EFFECT_LATEST_DEFINITIONS).toHaveLength(324);
+    expect(NATIVE_EFFECT_DEFINITION_CATALOG).toHaveLength(374);
+    expect(NATIVE_EFFECT_PRESETS).toHaveLength(750);
     expect(
       new Set(
         NATIVE_EFFECT_LATEST_DEFINITIONS.map((definition) => definition.id),
       ).size,
-    ).toBe(291);
+    ).toBe(324);
     expect(new Set(NATIVE_EFFECT_PRESETS.map((preset) => preset.id)).size).toBe(
-      676,
+      750,
     );
     const animationCounts = (definitions: readonly EffectDefinition[]) =>
       definitions.reduce(
@@ -89,13 +142,13 @@ describe("additive stateful-nine catalog registration", () => {
         { animated: 0, static: 0, unknown: 0 },
       );
     expect(animationCounts(NATIVE_EFFECT_LATEST_DEFINITIONS)).toEqual({
-      animated: 78,
-      static: 213,
+      animated: 96,
+      static: 228,
       unknown: 0,
     });
     expect(animationCounts(NATIVE_EFFECT_DEFINITION_CATALOG)).toEqual({
-      animated: 96,
-      static: 241,
+      animated: 115,
+      static: 259,
       unknown: 0,
     });
     for (const definition of STATEFUL_NINE_DEFINITIONS) {

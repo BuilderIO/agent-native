@@ -1,11 +1,34 @@
 import { IconX } from "@tabler/icons-react";
-import { type ComponentProps, type ReactNode } from "react";
+import {
+  createContext,
+  useEffect,
+  useContext,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 export const INSPECTOR_CONTROL_POPOVER_WIDTH_PX = 256;
+
+const InspectorPopoverPortalContext = createContext<HTMLElement | null>(null);
+
+export function InspectorControlPopoverPortalProvider({
+  container,
+  children,
+}: {
+  container: HTMLElement | null;
+  children: ReactNode;
+}) {
+  return (
+    <InspectorPopoverPortalContext.Provider value={container}>
+      {children}
+    </InspectorPopoverPortalContext.Provider>
+  );
+}
 
 export function InspectorControlPopoverContent({
   title,
@@ -36,14 +59,30 @@ export function InspectorControlPopoverContent({
   sideOffset?: number;
   onFocusOutside?: ComponentProps<typeof PopoverContent>["onFocusOutside"];
 }) {
+  const portalContainer = useContext(InspectorPopoverPortalContext);
+  const [narrowViewport, setNarrowViewport] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 768,
+  );
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setNarrowViewport(media.matches);
+    media.addEventListener("change", update);
+    update();
+    return () => media.removeEventListener("change", update);
+  }, []);
+
   return (
     <PopoverContent
-      side={side}
-      align={align}
+      data-design-inspector-control-popover
+      side={narrowViewport ? "top" : side}
+      align={narrowViewport ? "end" : align}
       sideOffset={sideOffset}
+      collisionPadding={16}
+      container={portalContainer ?? undefined}
       onFocusOutside={onFocusOutside}
       className={cn(
-        "w-[min(256px,calc(100vw-2rem))] overflow-hidden rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-xl",
+        "max-h-[calc(100dvh-2rem)] w-[min(256px,calc(100vw-2rem))] overflow-y-auto overflow-x-hidden rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-xl",
         className,
       )}
     >
