@@ -912,6 +912,28 @@ describe("resolveSeriesColors", () => {
     ]);
   });
 
+  it("keeps the palette on a chart split by another column, whatever its series are named", () => {
+    const byChannel = {
+      ...byApp,
+      config: {
+        ...byApp.config,
+        pivot: { xKey: "day", seriesKey: "channel", valueKey: "visitors" },
+      },
+    };
+    expect(
+      colorsByKey(
+        [
+          { day: "2026-10-01", channel: "chat", visitors: 9 },
+          { day: "2026-10-01", channel: "email", visitors: 2 },
+        ],
+        byChannel,
+      ),
+    ).toEqual([
+      ["chat", "#06b6d4"],
+      ["email", "#ef4444"],
+    ]);
+  });
+
   it("lets config.colors override the app colors", () => {
     const panel = {
       ...byApp,

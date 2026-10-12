@@ -43,7 +43,10 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { APP_SERIES_COLORS } from "@shared/tokens/app-series-colors";
+import {
+  APP_SERIES_COLORS,
+  UNKNOWN_APP_COLOR,
+} from "@shared/tokens/app-series-colors";
 
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -249,17 +252,20 @@ describe("SqlChart axis labels, series order and point limits", () => {
       { day, template: "mail", count: 90 },
       { day, template: "slides", count: 5 },
       { day, template: "brain", count: 1 },
+      { day, template: "unknown", count: 3 },
     ]);
     await render(appPanel);
     expect(swatches()).toEqual([
       ["mail", APP_SERIES_COLORS.mail],
       ["slides", APP_SERIES_COLORS.slides],
       ["brain", APP_SERIES_COLORS.brain],
+      ["unknown", UNKNOWN_APP_COLOR],
     ]);
     expect(strokes()).toEqual([
       APP_SERIES_COLORS.mail,
       APP_SERIES_COLORS.slides,
       APP_SERIES_COLORS.brain,
+      UNKNOWN_APP_COLOR,
     ]);
 
     mocks.rows = dates(2).flatMap((day) => [

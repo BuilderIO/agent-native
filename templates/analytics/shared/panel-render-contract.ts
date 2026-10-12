@@ -734,11 +734,27 @@ export function seriesColorSlots(
   return orderedKeys.map((key) => slots.indexOf(key));
 }
 
+// The pivot columns that hold an Agent-Native app key. Series names alone can't
+// say so: `chat` or `content` is also a channel or a site section.
+const APP_PIVOT_COLUMNS = new Set(["app", "template"]);
+
+function isSplitByApp(
+  panel: RenderPanel,
+  appColors: readonly (string | undefined)[],
+): boolean {
+  const column = panel.config?.pivot?.seriesKey;
+  return (
+    typeof column === "string" &&
+    APP_PIVOT_COLUMNS.has(column.trim().toLowerCase()) &&
+    appColors.some((color) => color !== undefined)
+  );
+}
+
 /**
  * The color each of `orderedKeys` draws in. With `config.colors`, `palette` is
- * those colors and every series takes its slot. Otherwise a chart with a series
- * named after an Agent-Native app draws apps in their fixed colors and every
- * other series in gray, and a chart with none takes `palette` by slot.
+ * those colors and every series takes its slot. Otherwise a chart pivoted by an
+ * app column that holds an Agent-Native app draws apps in their fixed colors
+ * and every other series muted; any other chart takes `palette` by slot.
  */
 export function resolveSeriesColors(
   orderedKeys: readonly string[],
@@ -749,7 +765,7 @@ export function resolveSeriesColors(
   const appColors = orderedKeys.map(appSeriesColor);
   if (
     keyList(panel.config?.colors).length > 0 ||
-    appColors.every((color) => color === undefined)
+    !isSplitByApp(panel, appColors)
   ) {
     return slots.map((slot) => palette[slot % palette.length]);
   }

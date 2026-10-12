@@ -528,11 +528,12 @@ in the same `set({...})` call.
 - `config.colors` is matched to series in `config.pivot.seriesOrder` order, then
   result order, never by stack position. When colors carry meaning (green for
   positive), list those series in `seriesOrder` so row order cannot swap them.
-- Without `config.colors`, a series named after an Agent-Native app (`mail`,
-  `slides`, ...) takes that app's fixed color from
-  `shared/tokens/app-series-colors.ts`, on every dashboard and in emailed
-  reports, and the chart's other series (`unknown`, `docs`) are gray. Leave
-  `config.colors` off panels split by app, or it replaces those colors.
+- To split a chart by Agent-Native app, pivot by a column named `template` or
+  `app` that holds the lowercase app key. Then each app (`mail`, `slides`, ...)
+  takes its fixed color from `shared/tokens/app-series-colors.ts`, on every
+  dashboard and in emailed reports, and the chart's other series (`unknown`,
+  `docs`) are muted. Leave `config.colors` off such panels, or it replaces
+  those colors.
 - A chart draws at most 400 points and says so under the chart: the newest for
   line, area, combo, heatmap and bar charts over dates in date order, the first
   for bars over categories, ids, buckets or dates sorted another way. Aggregate

@@ -23,14 +23,14 @@ export const APP_SERIES_COLORS: Readonly<Record<string, string>> = {
 };
 
 /** `unknown`, the app key of events that carry no app, in a chart split by app. */
-export const UNKNOWN_APP_COLOR = "#8a94a6";
+export const UNKNOWN_APP_COLOR = "#6b939a";
 
 /**
- * The other series of a chart split by app (`docs`), by slot, so none reads as
- * an app. Grays that keep 3:1 on both cards cannot get further apart, so a
- * third such series repeats the first.
+ * The other series of a chart split by app (`docs`), by slot: muted, so none
+ * reads as an app. Only a few muted colors keep 3:1 on both cards and stay
+ * apart, so a third such series repeats the first.
  */
-export const NON_APP_SERIES_COLORS: readonly string[] = ["#6b7280", "#9c8f84"];
+export const NON_APP_SERIES_COLORS: readonly string[] = ["#a0817b", "#747253"];
 
 function appKey(key: string): string {
   return key.trim().toLowerCase();
