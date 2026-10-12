@@ -188,6 +188,28 @@ createAgentChatPlugin({
 Agent 会继承同一操作范围。由于不受限制的 shell 无法强制执行严格的操作
 边界，trusted shell 工具会自动降为按请求过滤的 sandbox。
 
+### 请求级附加操作
+
+当调用方可用的操作只有在请求时才能确定（例如用户在服务器运行期间注册的
+工具）时，请使用 `resolveAdditionalActions`。该回调会在每个经过身份验证的
+交互式聊天请求（生产和开发）、A2A 任务以及 MCP `ask_app` 调用中运行。
+`surface` 为 `"chat"`、`"a2a"` 或 `"mcp"`，由应用决定哪些界面获得哪些
+操作。返回的条目仅在该请求中加入调用方的 MCP 工具：`tool-search` 可以
+找到它们，`resolveActionSurface` 也会在 `availableActionNames` 中看到它们。
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+名称已被注册的条目（无论是模板操作、框架工具还是 MCP 工具）会被忽略，
+服务器对每个名称只记录一次警告。`event` 在 `chat` 和 `a2a` 中提供；
+`ask_app` 调用没有该字段。匿名请求、后台任务和 Agent 团队的子 Agent 不会
+调用该回调；回调抛出的错误会使请求失败。
+
 ## 原生内联 UI {#native-inline-ui}
 
 当你的动作返回结构化数据——记录列表、图表数据集、状态摘要——且这些数据应在聊天会话中以真实 UI 组件而非纯文字描述的形式渲染时，请使用此功能。你在动作上定义一个 `chatUI` 渲染器，Agent-Native 会将其渲染为第一方 React 组件：无 iframe，无独立渲染路径。

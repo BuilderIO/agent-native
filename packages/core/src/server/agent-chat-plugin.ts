@@ -455,6 +455,7 @@ import {
   resolveArtifactBaseUrl,
   unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
+import { resolveAppAdditionalActions } from "./agent-chat/additional-actions.js";
 import {
   createBuilderBrowserTool,
   createTeamTools,
@@ -1266,6 +1267,27 @@ export function createAgentChatPlugin(
           ...mcpActionEntryOptions,
           ...(toolNames ? { toolNames } : {}),
         });
+      };
+      const getChatAdditionalActions = async (
+        details: {
+          event: any;
+          ownerEmail: string | null;
+          orgId: string | null;
+        },
+        registered: Record<string, ActionEntry>,
+      ): Promise<Record<string, ActionEntry>> => {
+        const mcpEntries = await getMcpActionEntriesForPrincipal(
+          details.ownerEmail,
+          details.orgId,
+        );
+        return {
+          ...mcpEntries,
+          ...(await resolveAppAdditionalActions(
+            options?.resolveAdditionalActions,
+            { surface: "chat", ...details },
+            { ...registered, ...mcpEntries },
+          )),
+        };
       };
       const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
@@ -2588,61 +2610,73 @@ export function createAgentChatPlugin(
           // repetition guard kills the run minutes later. A rejected `{}` call
           // returns a schema error the model can fix on the next step, which is
           // strictly better than a shell loop nobody can see.
+          const a2aOrgId = getRequestOrgId();
           const requestMcpActionEntries = await getMcpActionEntriesForPrincipal(
             userEmail,
-            getRequestOrgId(),
+            a2aOrgId,
           );
-          const a2aActions = attachToolSearch(
-            devActive
-              ? {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                  ...automationTools,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...browserSessionTools,
-                  ...remoteBrowserTools,
-                  ...coreEmailTools,
-                  ...coreAttachmentTools,
-                  ...browserTools,
-                  ...requestMcpActionEntries,
-                  ...devScriptsForA2A,
-                  ...devRunCodeTool,
-                }
-              : {
-                  ...templateScripts,
-                  ...resourceScripts,
-                  ...docsScripts,
-                  ...dbScripts,
-                  ...refreshScreenTool,
-                  ...(lazyContext ? frameworkContextTool : {}),
-                  ...urlTools,
-                  ...chatScripts,
-                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
-                  ...automationTools,
-                  ...fetchTool,
-                  ...webSearchTool,
-                  ...workspaceFilesTool,
-                  ...workspaceFileActions,
-                  ...toolActions,
-                  ...browserSessionTools,
-                  ...remoteBrowserTools,
-                  ...coreEmailTools,
-                  ...coreAttachmentTools,
-                  ...browserTools,
-                  ...requestMcpActionEntries,
-                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                  ...prodCodingTools,
-                },
-          );
+          const a2aRegisteredActions = devActive
+            ? {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...urlTools,
+                ...chatScripts,
+                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
+                ...automationTools,
+                ...fetchTool,
+                ...webSearchTool,
+                ...workspaceFilesTool,
+                ...workspaceFileActions,
+                ...toolActions,
+                ...browserSessionTools,
+                ...remoteBrowserTools,
+                ...coreEmailTools,
+                ...coreAttachmentTools,
+                ...browserTools,
+                ...requestMcpActionEntries,
+                ...devScriptsForA2A,
+                ...devRunCodeTool,
+              }
+            : {
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...dbScripts,
+                ...refreshScreenTool,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...urlTools,
+                ...chatScripts,
+                ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
+                ...automationTools,
+                ...fetchTool,
+                ...webSearchTool,
+                ...workspaceFilesTool,
+                ...workspaceFileActions,
+                ...toolActions,
+                ...browserSessionTools,
+                ...remoteBrowserTools,
+                ...coreEmailTools,
+                ...coreAttachmentTools,
+                ...browserTools,
+                ...requestMcpActionEntries,
+                ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                ...prodCodingTools,
+              };
+          const a2aActions = attachToolSearch({
+            ...a2aRegisteredActions,
+            ...(await resolveAppAdditionalActions(
+              options?.resolveAdditionalActions,
+              {
+                surface: "a2a",
+                event: context.event,
+                ownerEmail: userEmail,
+                orgId: a2aOrgId,
+              },
+              a2aRegisteredActions,
+            )),
+          });
 
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
@@ -3207,48 +3241,52 @@ export function createAgentChatPlugin(
             // here for the same reason as the A2A surface above: an external
             // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
+            const mcpOrgId = getRequestOrgId();
             const requestMcpActionEntries =
-              await getMcpActionEntriesForPrincipal(
-                getRequestUserEmail(),
-                getRequestOrgId(),
-              );
-            const mcpActions = attachToolSearch(
-              devActiveMcp
-                ? {
-                    ...templateScripts,
-                    ...resourceScripts,
-                    ...docsScripts,
-                    ...(lazyContext ? frameworkContextTool : {}),
-                    ...urlTools,
-                    ...chatScripts,
-                    ...fetchTool,
-                    ...webSearchTool,
-                    ...workspaceFilesTool,
-                    ...workspaceFileActions,
-                    ...toolActions,
-                    ...requestMcpActionEntries,
-                    ...devScriptsForA2A,
-                    ...devRunCodeTool,
-                  }
-                : {
-                    ...templateScripts,
-                    ...resourceScripts,
-                    ...docsScripts,
-                    ...dbScripts,
-                    ...refreshScreenTool,
-                    ...(lazyContext ? frameworkContextTool : {}),
-                    ...urlTools,
-                    ...chatScripts,
-                    ...fetchTool,
-                    ...webSearchTool,
-                    ...workspaceFilesTool,
-                    ...workspaceFileActions,
-                    ...toolActions,
-                    ...requestMcpActionEntries,
-                    ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
-                    ...prodCodingTools,
-                  },
-            );
+              await getMcpActionEntriesForPrincipal(ownerEmail, mcpOrgId);
+            const mcpRegisteredActions = devActiveMcp
+              ? {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...requestMcpActionEntries,
+                  ...devScriptsForA2A,
+                  ...devRunCodeTool,
+                }
+              : {
+                  ...templateScripts,
+                  ...resourceScripts,
+                  ...docsScripts,
+                  ...dbScripts,
+                  ...refreshScreenTool,
+                  ...(lazyContext ? frameworkContextTool : {}),
+                  ...urlTools,
+                  ...chatScripts,
+                  ...fetchTool,
+                  ...webSearchTool,
+                  ...workspaceFilesTool,
+                  ...workspaceFileActions,
+                  ...toolActions,
+                  ...requestMcpActionEntries,
+                  ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
+                  ...prodCodingTools,
+                };
+            const mcpActions = attachToolSearch({
+              ...mcpRegisteredActions,
+              ...(await resolveAppAdditionalActions(
+                options?.resolveAdditionalActions,
+                { surface: "mcp", ownerEmail, orgId: mcpOrgId },
+                mcpRegisteredActions,
+              )),
+            });
 
             // Same compact initial-tool surface as interactive chat and A2A:
             // template actions + the small framework default set stay visible
@@ -4666,9 +4704,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             : "\n\n<code-execution-mode>Sandboxed code execution is enabled. Use tool-orchestration for short bounded fan-out, joins, and reduction over read-only tools. Use run-code when you need its broader provider/web helpers, workspace staging, or durable background execution. In either tool, authenticated calls go through the provided host globals and results should be reduced before printing.</code-execution-mode>"
           : "";
 
+      const prodHandlerActions = leanPrompt ? leanActions : prodActions;
       const prodHandler = createProductionAgentHandler({
         assertAiSetupReady: requireAgentChatAiSetup,
-        actions: leanPrompt ? leanActions : prodActions,
+        actions: prodHandlerActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
           const requestActionsPrompt = resolveRequestActionsPrompt("tool");
@@ -4882,8 +4921,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId, trackingSource);
         },
-        resolveAdditionalActions: ({ ownerEmail, orgId }) =>
-          getMcpActionEntriesForPrincipal(ownerEmail, orgId),
+        resolveAdditionalActions: (details) =>
+          getChatAdditionalActions(details, prodHandlerActions),
         // Resolve owner from session for usage attribution in hosted prod
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
@@ -5075,8 +5114,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         devHandler = createProductionAgentHandler({
           assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
-          resolveAdditionalActions: ({ ownerEmail, orgId }) =>
-            getMcpActionEntriesForPrincipal(ownerEmail, orgId),
+          resolveAdditionalActions: (details) =>
+            getChatAdditionalActions(details, devActions),
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const requestActionsPrompt = resolveRequestActionsPrompt(

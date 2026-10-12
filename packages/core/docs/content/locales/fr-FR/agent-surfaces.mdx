@@ -206,6 +206,33 @@ de la même surface. Les outils shell de confiance sont automatiquement ramenés
 au bac à sable filtré par requête, car un shell sans restriction ne peut pas
 appliquer une frontière d’actions stricte.
 
+### Actions supplémentaires limitées à la requête
+
+Utilisez `resolveAdditionalActions` lorsque les actions accessibles à
+l’appelant ne sont connues qu’au moment de la requête, par exemple des outils
+qu’un utilisateur enregistre pendant que le serveur tourne. Le callback
+s’exécute pour chaque requête de chat interactif authentifiée (production et
+développement), chaque tâche A2A et chaque appel MCP à `ask_app`. `surface`
+vaut `"chat"`, `"a2a"` ou `"mcp"`, ce qui permet à l’app de décider quelles
+surfaces reçoivent quelles actions. Les entrées retournées s’ajoutent aux
+outils MCP de l’appelant pour cette requête uniquement : `tool-search` peut les
+trouver et `resolveActionSurface` les voit dans `availableActionNames`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+Une entrée dont le nom est déjà enregistré, qu’il s’agisse d’une action du
+template, d’un outil du framework ou d’un outil MCP, est ignorée, et le serveur
+journalise un avertissement une fois par nom. `event` est défini pour `chat` et
+`a2a` ; les appels `ask_app` n’en ont pas. Le callback n’est pas appelé pour
+les requêtes anonymes, les jobs en arrière-plan ni les sous-agents des équipes
+d’agents, et une erreur qu’il lève fait échouer la requête.
+
 ## Interface utilisateur native intégrée {#native-inline-ui}
 
 Utilisez cette surface lorsque vos actions renvoient des données structurées — une liste d'enregistrements, un jeu de données de graphique, un résumé d'état — qui doivent s'afficher en tant que vrai composant d'interface dans le fil de chat plutôt qu'une simple description textuelle. Vous définissez un renderer `chatUI` sur l'action, et Agent-Native l'affiche en tant que composant React de premier niveau : pas d'iframe, pas de chemin de rendu séparé.

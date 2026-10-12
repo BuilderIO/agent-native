@@ -206,6 +206,33 @@ Oberfläche. Vertrauenswürdige Shell-Tools werden automatisch auf die
 anfragegefilterte Sandbox reduziert, da eine unbeschränkte Shell keine harte
 Action-Grenze durchsetzen kann.
 
+### Request-bezogene zusätzliche Actions
+
+Verwende `resolveAdditionalActions`, wenn die Actions eines Aufrufers erst zur
+Anfragezeit bekannt sind, etwa Tools, die ein Benutzer registriert, während der
+Server läuft. Der Callback läuft für jede authentifizierte interaktive
+Chat-Anfrage (Produktion und Entwicklung), jede A2A-Aufgabe und jeden
+MCP-Aufruf von `ask_app`. `surface` ist `"chat"`, `"a2a"` oder `"mcp"`, sodass
+die App entscheidet, welche Oberflächen welche Actions erhalten. Die
+zurückgegebenen Einträge ergänzen die MCP-Tools des Aufrufers nur für diese
+Anfrage: `tool-search` findet sie, und `resolveActionSurface` sieht sie in
+`availableActionNames`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+Ein Eintrag, dessen Name bereits registriert ist, ob Template-Action,
+Framework-Tool oder MCP-Tool, wird ignoriert, und der Server protokolliert pro
+Name einmal eine Warnung. `event` ist für `chat` und `a2a` gesetzt;
+`ask_app`-Aufrufe haben keines. Der Callback wird weder für anonyme Anfragen
+noch für Hintergrundjobs oder Sub-Agenten von Agent-Teams aufgerufen, und ein
+Fehler, den er wirft, lässt die Anfrage fehlschlagen.
+
 ## Native Inline-UI {#native-inline-ui}
 
 Verwenden Sie diese, wenn Ihre Aktionen strukturierte Daten zurückgeben — eine Liste von Einträgen, einen Diagramm-Datensatz, eine Statuszusammenfassung — die als echte UI-Komponente im Chat-Thread gerendert werden sollen, anstatt als reine Textbeschreibung. Sie definieren einen `chatUI`-Renderer auf der Aktion, und Agent-Native rendert ihn als First-Party-React-Komponente: keine iFrames, kein separater Rendering-Pfad.

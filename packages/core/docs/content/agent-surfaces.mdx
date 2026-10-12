@@ -202,6 +202,30 @@ framework guidance and spawned sub-agents inherit the same surface. Trusted
 shell tools are automatically reduced to the request-filtered sandbox because
 an unrestricted shell cannot enforce a hard action boundary.
 
+### Request-scoped additional actions
+
+Use `resolveAdditionalActions` when the actions a caller can use are only known
+at request time, such as tools a user registers while the server runs. The
+callback runs for every authenticated interactive chat request (production and
+dev), A2A task, and MCP `ask_app` call. `surface` is `"chat"`, `"a2a"`, or
+`"mcp"`, so the app decides which surfaces receive which actions. Returned
+entries join the caller's MCP tools for that request only: `tool-search` can
+find them, and `resolveActionSurface` sees them in `availableActionNames`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+An entry whose name is already registered, whether a template action, a
+framework tool, or an MCP tool, is ignored, and the server logs a warning once
+per name. `event` is set for `chat` and `a2a`; `ask_app` calls have none. The
+callback is not called for anonymous requests, background jobs, or agent-team
+sub-agents, and an error it throws fails the request.
+
 ## Native inline UI {#native-inline-ui}
 
 Use this when your actions return structured data — a list of records, a chart dataset, a status summary — that should render as a real UI component inside the chat thread rather than a plain text description. You define a `chatUI` renderer on the action, and Agent-Native renders it as a first-party React component: no iframes, no separate rendering path.

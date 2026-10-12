@@ -10,6 +10,7 @@ import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
+import type { ResolveAgentChatAdditionalActions } from "./additional-actions.js";
 import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
@@ -126,6 +127,16 @@ export interface AgentChatPluginOptions {
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   prepareRequest?: ProductionAgentOptions["prepareRequest"];
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
+  /**
+   * Adds actions for the signed-in caller on each request, such as tools whose
+   * names are only known at runtime. Called for interactive chat (production
+   * and dev), A2A tasks, and MCP `ask_app` runs; `surface` says which. The
+   * entries join the caller's MCP entries, so `tool-search` finds them and
+   * `resolveActionSurface` sees them in `availableActionNames`. An entry whose
+   * name is already registered is ignored with a warning. Not called for
+   * anonymous requests, background jobs, or agent-team sub-agents.
+   */
+  resolveAdditionalActions?: ResolveAgentChatAdditionalActions;
   leanPrompt?: boolean;
   skipFilesContext?: boolean;
   initialToolNames?: string[];

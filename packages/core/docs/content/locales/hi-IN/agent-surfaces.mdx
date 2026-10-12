@@ -191,6 +191,32 @@ HTTP, MCP, A2A, jobs या triggers को नहीं। default framework gu
 request-filtered sandbox तक सीमित हो जाते हैं, क्योंकि unrestricted shell
 सख्त action boundary लागू नहीं कर सकता।
 
+### अनुरोध-स्कोप वाले अतिरिक्त actions
+
+जब caller के लिए उपलब्ध actions केवल request के समय पता चलते हों, जैसे
+server चलते समय user द्वारा register किए गए tools, तब
+`resolveAdditionalActions` का उपयोग करें। callback हर authenticated
+interactive chat request (production और dev), A2A task और MCP `ask_app` call
+पर चलता है। `surface` का मान `"chat"`, `"a2a"` या `"mcp"` होता है, इसलिए app
+तय करता है कि किस surface को कौन-से actions मिलें। लौटाई गई entries केवल उसी
+request के लिए caller के MCP tools में जुड़ती हैं: `tool-search` उन्हें खोज
+सकता है, और `resolveActionSurface` उन्हें `availableActionNames` में देखता है।
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+जिस entry का नाम पहले से registered है, चाहे वह template action हो, framework
+tool हो या MCP tool, उसे अनदेखा किया जाता है, और server हर नाम के लिए एक बार
+warning log करता है। `event` केवल `chat` और `a2a` के लिए set होता है;
+`ask_app` calls में यह नहीं होता। anonymous requests, background jobs या
+agent-team sub-agents के लिए callback नहीं चलता, और callback द्वारा throw की
+गई error request को fail कर देती है।
+
 ## Native inline UI {#native-inline-ui}
 
 इसका उपयोग तब करें जब आपके actions structured data वापस करते हैं — records की एक list, एक chart dataset, एक status summary — जो plain text विवरण के बजाय chat thread के अंदर एक वास्तविक UI component के रूप में रेंडर होनी चाहिए। आप action पर एक `chatUI` renderer परिभाषित करते हैं, और Agent-Native इसे एक first-party React component के रूप में रेंडर करता है: कोई iframes नहीं, कोई अलग rendering path नहीं।

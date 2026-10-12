@@ -1326,10 +1326,10 @@ describe("delegated tool surfaces in dev", () => {
       return branch.slice(0, elseAt);
     };
 
-    expect(devBranch("const a2aActions = attachToolSearch(")).toContain(
+    expect(devBranch("const a2aRegisteredActions = devActive")).toContain(
       "...templateScripts,",
     );
-    expect(devBranch("const mcpActions = attachToolSearch(")).toContain(
+    expect(devBranch("const mcpRegisteredActions = devActiveMcp")).toContain(
       "...templateScripts,",
     );
 

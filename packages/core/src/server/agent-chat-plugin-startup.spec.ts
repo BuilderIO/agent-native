@@ -23,8 +23,8 @@ describe("agent chat startup", () => {
     );
     expect(source).not.toContain("new McpClientManager(");
     expect(source).not.toContain("ensureMcpInitialized");
-    expect(source).toContain(
-      "resolveAdditionalActions: ({ ownerEmail, orgId })",
+    expect(source).toMatch(
+      /resolveAdditionalActions: \(details\) =>\s+getChatAdditionalActions\(details, prodHandlerActions\)/,
     );
   });
 

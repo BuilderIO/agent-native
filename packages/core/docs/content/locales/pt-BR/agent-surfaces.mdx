@@ -196,6 +196,33 @@ herdam a mesma superfície. Ferramentas shell confiáveis são automaticamente
 reduzidas ao sandbox filtrado por solicitação, pois um shell irrestrito não
 consegue impor uma fronteira rígida de ações.
 
+### Ações adicionais por solicitação
+
+Use `resolveAdditionalActions` quando as ações disponíveis para quem chama só
+são conhecidas no momento da solicitação, como ferramentas que um usuário
+registra enquanto o servidor está rodando. O callback é executado em cada
+solicitação autenticada de chat interativo (produção e desenvolvimento), cada
+tarefa A2A e cada chamada MCP a `ask_app`. `surface` é `"chat"`, `"a2a"` ou
+`"mcp"`, então o app decide quais superfícies recebem quais ações. As entradas
+retornadas se somam às ferramentas MCP de quem chama somente nessa solicitação:
+`tool-search` consegue encontrá-las e `resolveActionSurface` as vê em
+`availableActionNames`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+Uma entrada cujo nome já está registrado, seja uma ação do template, uma
+ferramenta do framework ou uma ferramenta MCP, é ignorada, e o servidor
+registra um aviso uma vez por nome. `event` é definido para `chat` e `a2a`;
+chamadas a `ask_app` não o têm. O callback não é chamado para solicitações
+anônimas, jobs em segundo plano nem subagentes de equipes de agentes, e um erro
+lançado por ele faz a solicitação falhar.
+
 ## UI inline nativa {#native-inline-ui}
 
 Use isso quando suas actions retornam dados estruturados — uma lista de registros, um conjunto de dados de gráfico, um resumo de status — que devem ser renderizados como um componente de UI real dentro da thread do chat, em vez de uma descrição em texto simples. Você define um renderizador `chatUI` na action, e o Agent-Native o renderiza como um componente React de primeira linha: sem iframes, sem caminho de renderização separado.

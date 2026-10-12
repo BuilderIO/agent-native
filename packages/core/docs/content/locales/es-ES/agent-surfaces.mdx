@@ -208,6 +208,33 @@ heredan la misma superficie. Las herramientas shell de confianza se reducen
 automáticamente al sandbox filtrado por solicitud, porque una shell sin
 restricciones no puede imponer una frontera estricta de acciones.
 
+### Acciones adicionales por solicitud
+
+Usa `resolveAdditionalActions` cuando las acciones que puede usar quien llama
+solo se conocen en el momento de la solicitud, como las herramientas que un
+usuario registra mientras el servidor está en marcha. El callback se ejecuta en
+cada solicitud autenticada de chat interactivo (producción y desarrollo), cada
+tarea A2A y cada llamada MCP a `ask_app`. `surface` es `"chat"`, `"a2a"` o
+`"mcp"`, de modo que la app decide qué superficies reciben qué acciones. Las
+entradas devueltas se suman a las herramientas MCP de quien llama solo para esa
+solicitud: `tool-search` puede encontrarlas y `resolveActionSurface` las ve en
+`availableActionNames`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    surface === "chat" ? await loadUserTools(ownerEmail, orgId) : {},
+});
+```
+
+Una entrada cuyo nombre ya está registrado, ya sea una acción de la plantilla,
+una herramienta del framework o una herramienta MCP, se ignora, y el servidor
+registra una advertencia una vez por nombre. `event` está definido para `chat`
+y `a2a`; las llamadas a `ask_app` no lo tienen. El callback no se invoca para
+solicitudes anónimas, trabajos en segundo plano ni subagentes de equipos de
+agentes, y un error que lance hace fallar la solicitud.
+
 ## Interfaz de usuario nativa integrada {#native-inline-ui}
 
 Úsala cuando tus acciones devuelvan datos estructurados — una lista de registros, un conjunto de datos de gráfico, un resumen de estado — que deban renderizarse como un componente de interfaz de usuario real dentro del hilo de chat en lugar de una descripción de texto simple. Defines un renderizador `chatUI` en la acción, y Agent-Native lo renderiza como un componente React de primera clase: sin iframes, sin ruta de renderizado separada.
