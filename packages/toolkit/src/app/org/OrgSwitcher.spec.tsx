@@ -780,7 +780,7 @@ describe("OrgSwitcher (account menu)", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("closes the current row after persistence while other selections await refresh", async () => {
+  it("closes explicit selections on persistence and leaves reopened menus open", async () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     let currentOptions: Parameters<typeof mocks.succeed>[1] = undefined;
     mocks.switchOrg.mutate.mockImplementationOnce((_orgId, options) => {
@@ -797,6 +797,9 @@ describe("OrgSwitcher (account menu)", () => {
     expect(currentOptions?.onSuccess).toBeDefined();
 
     openMenu();
+    act(() => currentOptions?.onSuccess?.());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+
     let otherOptions: Parameters<typeof mocks.succeed>[1] = undefined;
     mocks.switchOrg.mutate.mockImplementationOnce((_orgId, options) => {
       otherOptions = options;
@@ -805,12 +808,42 @@ describe("OrgSwitcher (account menu)", () => {
 
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
     act(() => mocks.switchOrg.onPersisted?.("org-2"));
-    expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    act(() => otherOptions?.onSuccess?.());
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    openMenu();
+    act(() => otherOptions?.onSuccess?.());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("does not early-close for automatic personal recovery", () => {
+  it("clears failed explicit intent before automatic personal recovery", async () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    let failedOptions: Parameters<typeof mocks.succeed>[1] = undefined;
+    mocks.switchOrg.mutate.mockImplementationOnce((_orgId, options) => {
+      failedOptions = options;
+    });
+
+    render(<OrgSwitcher />);
+    openMenu();
+    await select("Acme");
+    act(() => failedOptions?.onError?.());
+
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+
+    let recoveryOptions: Parameters<typeof mocks.succeed>[1] = undefined;
+    mocks.switchOrg.mutate.mockImplementationOnce((_orgId, options) => {
+      recoveryOptions = options;
+    });
+    mocks.useOrg.mockReturnValue({
+      data: { ...ownerOrg, orgId: null, orgName: null, role: null },
+      isLoading: false,
+    });
+    render(<OrgSwitcher />);
+
+    expect(recoveryOptions).toBeDefined();
+    act(() => mocks.switchOrg.onPersisted?.("org-1"));
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps same-target personal recovery separate from explicit selection", async () => {
     mocks.useOrg.mockReturnValue({
       data: {
         ...ownerOrg,
@@ -828,7 +861,9 @@ describe("OrgSwitcher (account menu)", () => {
       expect.objectContaining({ onError: expect.any(Function) }),
     );
     openMenu();
+    await select("Acme");
 
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(1);
     act(() => mocks.switchOrg.onPersisted?.("org-1"));
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });

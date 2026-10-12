@@ -476,11 +476,23 @@ export function OrgSwitcher({
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
   const [open, setOpen] = useState(false);
-  const earlyCloseOrgIdRef = useRef<string | null>(null);
+  const pendingOrgSwitchRef = useRef<
+    | { kind: "explicit"; orgId: string; closedEarly: boolean }
+    | { kind: "personal-recovery"; orgId: string }
+    | null
+  >(null);
   const switchOrg = useSwitchOrg({
     onPersisted: (orgId) => {
-      if (orgId === null || earlyCloseOrgIdRef.current !== orgId) return;
-      earlyCloseOrgIdRef.current = null;
+      const pendingSwitch = pendingOrgSwitchRef.current;
+      if (
+        orgId === null ||
+        pendingSwitch?.kind !== "explicit" ||
+        pendingSwitch.orgId !== orgId ||
+        pendingSwitch.closedEarly
+      ) {
+        return;
+      }
+      pendingSwitch.closedEarly = true;
       setOpen(false);
     },
   });
@@ -526,13 +538,31 @@ export function OrgSwitcher({
   const firstMembershipId = org?.orgs?.[0]?.orgId ?? null;
   const switchOrgMutate = switchOrg.mutate;
   useEffect(() => {
-    if (org?.orgId || !firstMembershipId || personalRecoveryRef.current) {
+    if (
+      org?.orgId ||
+      !firstMembershipId ||
+      personalRecoveryRef.current ||
+      pendingOrgSwitchRef.current
+    ) {
       return;
     }
     personalRecoveryRef.current = true;
+    const recovery = {
+      kind: "personal-recovery" as const,
+      orgId: firstMembershipId,
+    };
+    pendingOrgSwitchRef.current = recovery;
     switchOrgMutate(firstMembershipId, {
       onError: () => {
         personalRecoveryRef.current = false;
+        if (pendingOrgSwitchRef.current === recovery) {
+          pendingOrgSwitchRef.current = null;
+        }
+      },
+      onSettled: () => {
+        if (pendingOrgSwitchRef.current === recovery) {
+          pendingOrgSwitchRef.current = null;
+        }
       },
     });
   }, [org?.orgId, firstMembershipId, switchOrgMutate, dataUpdatedAt]);
@@ -677,15 +707,20 @@ export function OrgSwitcher({
   );
 
   const selectOrg = (orgId: string) => {
-    if (switchOrg.isPending) return;
-    earlyCloseOrgIdRef.current = orgId === org.orgId ? orgId : null;
+    if (switchOrg.isPending || pendingOrgSwitchRef.current) return;
+    const selection = { kind: "explicit" as const, orgId, closedEarly: false };
+    pendingOrgSwitchRef.current = selection;
     switchOrg.mutate(orgId, {
       onError: () => {
-        earlyCloseOrgIdRef.current = null;
+        if (pendingOrgSwitchRef.current === selection) {
+          pendingOrgSwitchRef.current = null;
+        }
       },
       onSuccess: () => {
-        earlyCloseOrgIdRef.current = null;
-        setOpen(false);
+        if (pendingOrgSwitchRef.current === selection) {
+          pendingOrgSwitchRef.current = null;
+        }
+        if (!selection.closedEarly) setOpen(false);
       },
     });
   };
