@@ -1,9 +1,38 @@
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
+
 const REPOSITORY_PART_MEDIA_TYPE = "application/x-agent-native-repository-part";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+export function failedRunIdsWithError(runs: unknown): Set<string> {
+  return new Set(
+    (Array.isArray(runs) ? runs : []).flatMap((value) => {
+      const run = record(value);
+      return run?.status === "failed" &&
+        record(run.error) &&
+        typeof run.id === "string"
+        ? [run.id]
+        : [];
+    }),
+  );
+}
+
+export function isRenderedRunNotStartedNotice(
+  value: unknown,
+  failedRunIds: ReadonlySet<string>,
+): boolean {
+  const entry = message(value);
+  const metadata = record(entry?.metadata);
+  return (
+    entry?.role === "assistant" &&
+    record(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+    typeof metadata?.runId === "string" &&
+    failedRunIds.has(metadata.runId)
+  );
 }
 
 function message(value: unknown): Record<string, unknown> | undefined {

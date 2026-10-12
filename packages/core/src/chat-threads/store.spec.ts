@@ -21,6 +21,7 @@ import {
   applySubmittedUserMessage,
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
+import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
@@ -1677,6 +1678,44 @@ describe("chat thread store", () => {
     );
 
     expect(row!.message_count).toBe(2);
+  });
+
+  it("excludes failed run notices hidden during hydration from message counts", async () => {
+    const runId = "failed-before-start";
+    const repository = {
+      messages: [
+        { message: { ...userMessage } },
+        {
+          message: {
+            id: "not-started-notice",
+            role: "assistant",
+            content: [{ type: "text", text: "The run could not start." }],
+            metadata: {
+              runId,
+              custom: { [RUN_NOT_STARTED_METADATA_KEY]: true },
+            },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [],
+        runs: [
+          { id: runId, status: "failed", error: { message: "Unavailable" } },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(1);
   });
 
   it("counts a mirrored reply when the completed run no longer has message events", async () => {

@@ -13,6 +13,8 @@ import {
   type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import {
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
   projectRootAssistantMessages,
   threadMessageRecord,
 } from "../agent/thread-message-projection.js";
@@ -438,7 +440,12 @@ function countThreadMessages(value: unknown, fallback: number): number {
     return fallback;
   }
 
-  const rootMessages = Array.isArray(repo.messages) ? repo.messages : [];
+  const failedRunIds = failedRunIdsWithError(repo.agentKit?.runs);
+  const rootMessages = (
+    Array.isArray(repo.messages) ? repo.messages : []
+  ).filter(
+    (entry: unknown) => !isRenderedRunNotStartedNotice(entry, failedRunIds),
+  );
   const agentKitMessages = Array.isArray(repo.agentKit?.messages)
     ? repo.agentKit.messages
     : [];

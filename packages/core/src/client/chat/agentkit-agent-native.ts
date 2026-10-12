@@ -24,7 +24,11 @@ import {
   persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
-import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
+import {
+  failedRunIdsWithError,
+  isRenderedRunNotStartedNotice,
+  projectRootAssistantMessages,
+} from "../../agent/thread-message-projection.js";
 import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
@@ -412,24 +416,6 @@ function storedMessages(
       },
     ];
   });
-}
-
-/**
- * The server answers a turn it refused before any run started with a durable
- * notice and a failed run. The run renders as the recovery card, so showing the
- * notice too would print the same failure twice.
- */
-function isRenderedRunNotStartedNotice(
-  message: AgentMessage,
-  failedRunIds: ReadonlySet<string>,
-): boolean {
-  const metadata = asRecord(message.metadata);
-  return (
-    message.role === "assistant" &&
-    asRecord(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
-    typeof metadata?.runId === "string" &&
-    failedRunIds.has(metadata.runId)
-  );
 }
 
 function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
@@ -2440,16 +2426,7 @@ export function createAgentNativeAgentKitTransport(
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
     const agentKit = asRecord(repository.agentKit);
-    const failedRunIds = new Set(
-      (Array.isArray(agentKit?.runs) ? agentKit.runs : []).flatMap((value) => {
-        const run = asRecord(value);
-        return run?.status === "failed" &&
-          asRecord(run.error) &&
-          typeof run.id === "string"
-          ? [run.id]
-          : [];
-      }),
-    );
+    const failedRunIds = failedRunIdsWithError(agentKit?.runs);
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
@@ -2912,11 +2889,7 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const failedRunIds = new Set(
-      runs.flatMap((run) =>
-        run.status === "failed" && run.error ? [run.id] : [],
-      ),
-    );
+    const failedRunIds = failedRunIdsWithError(runs);
     const messages = reconcileDurableMessages(
       thread.messages,
       durableMessages.filter(
