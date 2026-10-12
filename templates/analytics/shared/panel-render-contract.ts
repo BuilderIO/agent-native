@@ -5,6 +5,7 @@ import {
   type SqlPanel,
   type SqlPanelConfig,
 } from "../app/pages/adhoc/sql-dashboard/types";
+import { isCategoryAxis } from "./chart-axis-labels";
 import { normalizeDashboardConfig } from "./dashboard-config-normalization";
 import {
   resolveDashboardFunnelRows,
@@ -638,27 +639,39 @@ export interface ChartPointLimit {
   keeps: "newest" | "first";
 }
 
+/**
+ * `xKey` lets a bar chart over dates or numbers keep its newest points, as a
+ * line chart does; a category bar chart keeps the first.
+ */
 export function chartPointLimit(
-  rowCount: number,
+  rows: readonly Record<string, unknown>[],
   chartType: string,
+  xKey?: string,
 ): ChartPointLimit | null {
   const type = LEGACY_CHART_TYPE_ALIASES[chartType] ?? chartType;
   if (
-    rowCount <= MAX_CHART_POINTS ||
+    rows.length <= MAX_CHART_POINTS ||
     !POINT_LIMITED_CHART_TYPES.includes(type)
   ) {
     return null;
   }
+  const keepsNewest =
+    NEWEST_POINT_CHART_TYPES.includes(type) ||
+    (type === "bar" && !!xKey && !isCategoryAxis(rows.map((row) => row[xKey])));
   return {
     shown: MAX_CHART_POINTS,
-    total: rowCount,
-    keeps: NEWEST_POINT_CHART_TYPES.includes(type) ? "newest" : "first",
+    total: rows.length,
+    keeps: keepsNewest ? "newest" : "first",
   };
 }
 
-/** Rows a chart draws: line, area, combo and heatmap keep the newest, the rest the first. */
-export function limitChartRows<T>(rows: T[], chartType: string): T[] {
-  const limit = chartPointLimit(rows.length, chartType);
+/** Rows a chart draws: line, area, combo, heatmap and date/number bar charts keep the newest, the rest the first. */
+export function limitChartRows<T extends Record<string, unknown>>(
+  rows: T[],
+  chartType: string,
+  xKey?: string,
+): T[] {
+  const limit = chartPointLimit(rows, chartType, xKey);
   if (!limit) return rows;
   return limit.keeps === "newest"
     ? rows.slice(-limit.shown)
@@ -686,6 +699,18 @@ function seriesTotal(rows: Record<string, unknown>[], key: string): number {
     if (Number.isFinite(value)) total += value;
   }
   return total;
+}
+
+/**
+ * Each drawn series' slot in `config.colors`. Colors follow result order, not
+ * draw order: authors give colors a meaning (green for positive), so ranking a
+ * stack must not hand one series another's color.
+ */
+export function seriesColorSlots(
+  orderedKeys: readonly string[],
+  resultKeys: readonly string[],
+): number[] {
+  return orderedKeys.map((key) => resultKeys.indexOf(key));
 }
 
 /**
@@ -770,6 +795,8 @@ export interface PanelRenderPlan {
   rawColumns: string[];
   xKey: string;
   yKeys: string[];
+  /** Each of `yKeys`' slot in `config.colors`; see `seriesColorSlots`. */
+  colorSlots: number[];
   /** The viewer sees "No data": no rows, or a funnel or heatmap that finds nothing to draw. */
   empty: boolean;
   /** Rows that draw something; 0 when `empty`. */
@@ -802,7 +829,7 @@ export function planPanelRender(
   const detected = detectKeys(rows, config, pivoted?.seriesKeys);
   const xKey = detected.xKey;
   const yKeys = orderPanelSeries(
-    limitChartRows(rows, panel.chartType),
+    limitChartRows(rows, panel.chartType, xKey),
     detected.yKeys,
     panel,
   );
@@ -842,9 +869,10 @@ export function planPanelRender(
     rawColumns,
     xKey,
     yKeys,
+    colorSlots: seriesColorSlots(yKeys, detected.yKeys),
     empty,
     renderedRowCount: empty ? 0 : (funnel?.items.length ?? rows.length),
-    pointLimit: empty ? null : chartPointLimit(rows.length, panel.chartType),
+    pointLimit: empty ? null : chartPointLimit(rows, panel.chartType, xKey),
     funnel,
     heatmap,
     missingKeys,

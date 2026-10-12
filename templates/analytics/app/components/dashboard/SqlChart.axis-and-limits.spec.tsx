@@ -19,6 +19,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, params?: Record<string, unknown>) =>
     params ? `${key} ${JSON.stringify(params)}` : key,
+  useFormatters: () => ({
+    formatNumber: (value: number) => value.toLocaleString("en-US"),
+  }),
 }));
 
 vi.mock("@/lib/demo-chart-trend", () => ({
@@ -203,7 +206,7 @@ describe("SqlChart axis labels, series order and point limits", () => {
 
     const note = container.querySelector("[data-chart-point-limit]");
     expect(note?.textContent).toBe(
-      'sqlDashboard.chartPointLimitNewest {"shown":400,"total":601}',
+      'sqlDashboard.chartPointLimitNewest {"shown":"400","total":"601"}',
     );
   });
 
@@ -216,7 +219,7 @@ describe("SqlChart axis labels, series order and point limits", () => {
 
     expect(
       container.querySelector("[data-chart-point-limit]")?.textContent,
-    ).toBe('sqlDashboard.chartPointLimitFirst {"shown":400,"total":450}');
+    ).toBe('sqlDashboard.chartPointLimitFirst {"shown":"400","total":"450"}');
   });
 
   it("adds no note when every point is drawn", async () => {

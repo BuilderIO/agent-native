@@ -1,5 +1,5 @@
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedExtension,
   ExtensionSlot,
@@ -1160,6 +1160,7 @@ function ConfigWarning({ keys }: { keys: string[] }) {
 
 function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
   const t = useT();
+  const { formatNumber } = useFormatters();
   return (
     <p
       data-chart-point-limit
@@ -1169,7 +1170,10 @@ function ChartPointLimitNote({ limit }: { limit: ChartPointLimit }) {
         limit.keeps === "newest"
           ? "sqlDashboard.chartPointLimitNewest"
           : "sqlDashboard.chartPointLimitFirst",
-        { shown: limit.shown, total: limit.total },
+        {
+          shown: formatNumber(limit.shown),
+          total: formatNumber(limit.total),
+        },
       )}
     </p>
   );
@@ -1272,8 +1276,8 @@ export function SqlChart({
         ? "area"
         : panel.chartType;
   const chartRows = useMemo(
-    () => limitChartRows(rows, chartType),
-    [chartType, rows],
+    () => limitChartRows(rows, chartType, xKey),
+    [chartType, rows, xKey],
   );
 
   if (isSection) {
@@ -1310,6 +1314,9 @@ export function SqlChart({
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;
+  const seriesColors = plan.colorSlots.map(
+    (slot) => colors[slot % colors.length],
+  );
   const yFormatter = panel.config?.yFormatter;
 
   const isMetric = panel.chartType === "metric";
@@ -1451,7 +1458,7 @@ export function SqlChart({
           rows={chartRows}
           xKey={xKey}
           yKeys={yKeys}
-          colors={colors}
+          colors={seriesColors}
           yFormatter={yFormatter}
           stacked={panel.config?.stacked === true}
           panel={panel}
@@ -1467,7 +1474,7 @@ export function SqlChart({
           rows={chartRows}
           xKey={xKey}
           yKeys={yKeys}
-          colors={colors}
+          colors={seriesColors}
           yFormatter={yFormatter}
           barKeys={panel.config?.barKeys ?? []}
           panel={panel}
@@ -1508,7 +1515,7 @@ export function SqlChart({
         rows={chartRows}
         xKey={xKey}
         yKeys={yKeys}
-        colors={colors}
+        colors={seriesColors}
         yFormatter={yFormatter}
         chartType={chartType}
         stacked={panel.config?.stacked === true}
@@ -2371,7 +2378,7 @@ function BarRenderer({
       showCustomLegend
     >
       <ChartResponsiveContainer>
-        <BarChart data={rows}>
+        <BarChart key={JSON.stringify(yKeys)} data={rows}>
           {categoryLabels ? (
             <CategoryXAxis
               dataKey={xKey}
@@ -2632,7 +2639,6 @@ function TimeSeriesRenderer({
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
                   stacked={stacked}
-                  seriesOrder={yKeys.map(seriesNameFormatter)}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2687,7 +2693,7 @@ function TimeSeriesRenderer({
       showCustomLegend
     >
       <ChartResponsiveContainer>
-        <AreaChart data={chartRows}>
+        <AreaChart key={JSON.stringify(yKeys)} data={chartRows}>
           {showFill && (
             <defs>
               {yKeys.map((key, i) => (

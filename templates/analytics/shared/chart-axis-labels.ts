@@ -37,6 +37,12 @@ export function trimToWidth(
 }
 
 const ISO_DATE_VALUE = /^\d{4}-\d{2}(-\d{2})?([ T]\d{2}:\d{2}.*)?$/;
+const PERIOD_VALUE = /^(\d{4}-?W\d{1,2}|\d{4}-?Q[1-4]|Q[1-4][ -]\d{4})$/i;
+const MONTH = "(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?";
+const MONTH_NAME_DATE = new RegExp(
+  `^(${MONTH}(\\s+\\d{1,2})?|\\d{1,2}\\s+${MONTH})(,?\\s+\\d{4})?$`,
+  "i",
+);
 
 function isOrdinalAxisValue(value: unknown): boolean {
   if (value instanceof Date) return true;
@@ -45,6 +51,8 @@ function isOrdinalAxisValue(value: unknown): boolean {
   const text = value.trim();
   return (
     ISO_DATE_VALUE.test(text) ||
+    PERIOD_VALUE.test(text) ||
+    MONTH_NAME_DATE.test(text) ||
     /^\d{8}$/.test(text) ||
     (text !== "" && Number.isFinite(Number(text)))
   );

@@ -764,6 +764,28 @@ describe("orderPanelSeries", () => {
 
     expect(plan.yKeys).toEqual(["analytics", "slides", "mail", "unknown"]);
   });
+
+  it("keeps each series' configured color when ranking moves it", () => {
+    const plan = planPanelRender(
+      [
+        { model: "a", sentiment: "positive", responses: 5 },
+        { model: "a", sentiment: "negative", responses: 20 },
+        { model: "b", sentiment: "positive", responses: 10 },
+        { model: "b", sentiment: "negative", responses: 18 },
+      ],
+      {
+        chartType: "bar",
+        config: {
+          stacked: true,
+          colors: ["#10b981", "#ef4444"],
+          pivot: { xKey: "model", seriesKey: "sentiment", valueKey: "responses" },
+        },
+      },
+    );
+
+    expect(plan.yKeys).toEqual(["negative", "positive"]);
+    expect(plan.colorSlots).toEqual([1, 0]);
+  });
 });
 
 describe("chart point limit", () => {
@@ -771,7 +793,7 @@ describe("chart point limit", () => {
     Array.from({ length: count }, (_, index) => ({ n: index }));
 
   it("keeps the newest points of a time series and says so", () => {
-    expect(chartPointLimit(601, "line")).toEqual({
+    expect(chartPointLimit(rows(601), "line")).toEqual({
       shown: 400,
       total: 601,
       keeps: "newest",
@@ -780,19 +802,35 @@ describe("chart point limit", () => {
   });
 
   it("keeps the first points of a category chart and says so", () => {
-    expect(chartPointLimit(450, "bar")).toEqual({
+    const categories = Array.from({ length: 450 }, (_, index) => ({
+      domain: `site-${index}.example`,
+    }));
+    expect(chartPointLimit(categories, "bar", "domain")).toEqual({
       shown: 400,
       total: 450,
       keeps: "first",
     });
-    expect(chartPointLimit(450, "stacked-bar")?.keeps).toBe("first");
-    const kept = limitChartRows(rows(450), "bar");
-    expect(kept[kept.length - 1]).toEqual({ n: 399 });
+    expect(chartPointLimit(categories, "stacked-bar", "domain")?.keeps).toBe(
+      "first",
+    );
+    const kept = limitChartRows(categories, "bar", "domain");
+    expect(kept[kept.length - 1]).toEqual({ domain: "site-399.example" });
+  });
+
+  it("keeps the newest points of a bar chart over dates", () => {
+    const days = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10),
+      count: index,
+    }));
+    expect(chartPointLimit(days, "bar", "date")?.keeps).toBe("newest");
+    const kept = limitChartRows(days, "bar", "date");
+    expect(kept[0]?.date).toBe("2025-02-20");
+    expect(kept[kept.length - 1]?.date).toBe("2026-03-26");
   });
 
   it("has no limit at or under the cap, or for tables", () => {
-    expect(chartPointLimit(400, "line")).toBeNull();
-    expect(chartPointLimit(5000, "table")).toBeNull();
+    expect(chartPointLimit(rows(400), "line")).toBeNull();
+    expect(chartPointLimit(rows(5000), "table")).toBeNull();
   });
 
   it("is part of the render plan", () => {

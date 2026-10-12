@@ -33,6 +33,13 @@ describe("isCategoryAxis", () => {
     expect(isCategoryAxis([null, "", "2026-09"])).toBe(false);
   });
 
+  it("treats weeks, quarters and month-name dates as ordinal", () => {
+    expect(isCategoryAxis(["2026-W40", "2026W41"])).toBe(false);
+    expect(isCategoryAxis(["2025-Q3", "Q4 2025"])).toBe(false);
+    expect(isCategoryAxis(["Oct 01", "Oct 2", "Sep 30, 2026"])).toBe(false);
+    expect(isCategoryAxis(["1 Oct 2026", "September 2026"])).toBe(false);
+  });
+
   it("treats any named value as a category", () => {
     expect(isCategoryAxis(["mail", "slides"])).toBe(true);
     expect(isCategoryAxis(["2026-09-08", "unknown"])).toBe(true);

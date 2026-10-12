@@ -21,6 +21,7 @@ import {
   chartPointLimit,
   limitChartRows,
   orderPanelSeries,
+  seriesColorSlots,
   type ChartPointLimit,
 } from "../../shared/panel-render-contract";
 import {
@@ -461,14 +462,17 @@ function buildChartInput(
   const xKey = detected.xKey;
   if (!xKey || detected.yKeys.length === 0) return null;
 
-  const visible = limitChartRows(rows, panel.chartType);
+  const visible = limitChartRows(rows, panel.chartType, xKey);
   const yKeys = orderPanelSeries(visible, detected.yKeys, panel);
   const labels = visible.map((row) =>
     typeof row[xKey] === "string"
       ? row[xKey]
-      : (JSON.stringify(row[xKey]) ?? ""),
+      : row[xKey] == null
+        ? ""
+        : (JSON.stringify(row[xKey]) ?? ""),
   );
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
+  const colorSlots = seriesColorSlots(plotted, detected.yKeys);
   const dualAxis = resolveDualAxis(plotted, config);
   const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
     dualAxis.formatterFor(key);
@@ -478,11 +482,11 @@ function buildChartInput(
     series: plotted.map((key, index) => ({
       label: formatReportSeriesLabel(panel, key),
       data: visible.map((row) => toNumber(row[key])),
-      color: chartColor(config, index),
+      color: chartColor(config, colorSlots[index]),
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
       ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
     })),
-    pointLimit: chartPointLimit(rows.length, panel.chartType),
+    pointLimit: chartPointLimit(rows, panel.chartType, xKey),
   };
 }
 

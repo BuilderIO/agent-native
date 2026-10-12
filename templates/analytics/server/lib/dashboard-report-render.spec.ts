@@ -905,4 +905,50 @@ describe("report chart parity with the dashboard", () => {
       "other",
     ]);
   });
+
+  it("keeps each stacked series' configured color after ranking", async () => {
+    await renderReportEmail({
+      snapshot: {
+        ...snapshotOf([
+          panel({
+            id: "feedback",
+            chartType: "bar",
+            config: {
+              stacked: true,
+              colors: ["#10b981", "#ef4444"],
+              pivot: {
+                xKey: "model",
+                seriesKey: "sentiment",
+                valueKey: "responses",
+              },
+            },
+          }),
+        ]),
+        filters: { f_timeRange: "all" },
+      },
+      panelData: new Map([
+        [
+          "feedback",
+          {
+            status: "rows" as const,
+            rows: [
+              { model: "a", sentiment: "positive", responses: 5 },
+              { model: "a", sentiment: "negative", responses: 20 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; color: string }>;
+    };
+    expect(
+      chartInput.series.map((entry) => [entry.label, entry.color]),
+    ).toEqual([
+      ["negative", "#ef4444"],
+      ["positive", "#10b981"],
+    ]);
+  });
 });
