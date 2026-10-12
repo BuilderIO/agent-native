@@ -4,6 +4,8 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
+  CollabBaseVersionConflictError,
+  applyTextToYDoc,
   applyText,
   hasCollabState,
   loadAwarenessRowsStrict,
@@ -35,6 +37,7 @@ import {
   lockPreparedSourceCollaboration,
   lockDesignFilesTable,
   readPreparedSourceText,
+  SourceWorkspaceEditConflictError,
   withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
@@ -655,15 +658,16 @@ async function withPreparedDesignVersionSourceFilesWithAccess<T>(
     .select({ id: schema.designFiles.id })
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, designId));
-  const fileIds = rows.map((row) => row.id).sort();
+  const fileIds = rows.map((row) => row.id);
   if (fileIds.some((id) => typeof id !== "string" || id.length === 0)) {
     throw new DesignVersionCheckpointChangedError();
   }
+  fileIds.sort(compareDesignFileIds);
 
   const sourceFileIds = new Set(fileIds);
-  const lockFileIds = [
-    ...new Set([...fileIds, ...additionalLockFileIds]),
-  ].sort();
+  const lockFileIds = [...new Set([...fileIds, ...additionalLockFileIds])].sort(
+    compareDesignFileIds,
+  );
   const leases = new Map<string, PreparedYDocMutationLease>();
   const acquire = async (index: number): Promise<T> => {
     if (index >= lockFileIds.length) return work({ fileIds, leases });
@@ -734,7 +738,7 @@ async function readDesignVersionSourceRows(
     .from(schema.designFiles)
     .where(eq(schema.designFiles.designId, designId));
   const sortedRows = [...fileRows].sort((left, right) =>
-    left.id.localeCompare(right.id),
+    compareDesignFileIds(left.id, right.id),
   );
   const currentFileIds = sortedRows.map((file) => file.id);
   if (
@@ -749,11 +753,11 @@ async function readDesignVersionSourceRows(
   const storedFiles: SnapshotFile[] = [];
   for (const file of sortedRows) {
     const lease = prepared.leases.get(file.id);
-    if (!lease || lease.baseVersion === null) {
+    if (!lease) {
       throw new DesignVersionCheckpointChangedError();
     }
-    if (!(await hasCollabState(file.id))) {
-      throw new DesignVersionCheckpointChangedError();
+    if (lease.baseVersion === null || !(await hasCollabState(file.id))) {
+      throw new DesignVersionSourceCollaborationNeedsSeedError();
     }
 
     const liveContent = readPreparedSourceText(lease);
@@ -991,6 +995,85 @@ function versionFromLatest(
   };
 }
 
+function compareDesignFileIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+class DesignVersionSourceCollaborationNeedsSeedError extends Error {
+  constructor() {
+    super("Design source collaboration state must be seeded before capture.");
+    this.name = "DesignVersionSourceCollaborationNeedsSeedError";
+  }
+}
+
+async function seedDesignVersionSourceCollaboration(
+  designId: string,
+  accessLevel: "editor" | "viewer",
+): Promise<void> {
+  await withPreparedDesignVersionSourceFilesWithAccess(
+    designId,
+    async (prepared) =>
+      withDesignSourceMutationTransaction(designId, async (transaction) => {
+        await assertAccess("design", designId, accessLevel);
+        const fileRows = await transaction
+          .select()
+          .from(schema.designFiles)
+          .where(eq(schema.designFiles.designId, designId))
+          .for("update");
+        const sortedRows = [...fileRows].sort((left, right) =>
+          compareDesignFileIds(left.id, right.id),
+        );
+        if (
+          sortedRows.length !== prepared.fileIds.length ||
+          sortedRows.some((file, index) => file.id !== prepared.fileIds[index])
+        ) {
+          throw new DesignVersionCheckpointChangedError();
+        }
+
+        const transactionExec = getDesignSourceMutationExec(
+          transaction as object,
+        );
+        for (const file of sortedRows) {
+          const lease = prepared.leases.get(file.id);
+          if (!lease) throw new DesignVersionCheckpointChangedError();
+
+          let collaboration: Awaited<
+            ReturnType<typeof lockPreparedSourceCollaboration>
+          >;
+          try {
+            collaboration = await lockPreparedSourceCollaboration(
+              transactionExec,
+              file.id,
+              lease,
+            );
+          } catch (error) {
+            if (
+              lease.baseVersion === null &&
+              error instanceof SourceWorkspaceEditConflictError
+            ) {
+              throw new DesignVersionCheckpointChangedError();
+            }
+            throw error;
+          }
+          if (!collaboration.needsSeed) continue;
+
+          const storedContent = file.content ?? "";
+          applyTextToYDoc(lease.doc, "content", storedContent, "agent");
+          try {
+            await lease.persist(transactionExec, storedContent);
+          } catch (error) {
+            if (error instanceof CollabBaseVersionConflictError) {
+              throw new DesignVersionCheckpointChangedError();
+            }
+            throw error;
+          }
+        }
+      }),
+    [],
+    accessLevel,
+  );
+}
+
 async function prepareDesignVersionCheckpointWithAccess(
   designId: string,
   options: PreparedDesignVersionCheckpoint["options"],
@@ -998,13 +1081,23 @@ async function prepareDesignVersionCheckpointWithAccess(
 ): Promise<PreparedDesignVersionCheckpoint> {
   const readRows = (prepared: PreparedDesignVersionSourceFiles) =>
     readDesignVersionSourceRows(designId, options, prepared);
-  const rows =
+  const withPreparedSourceFiles =
     accessContract === "creative-context-read"
-      ? await withPreparedDesignVersionSourceFilesForCreativeContextCapture(
-          designId,
-          readRows,
-        )
-      : await withPreparedDesignVersionSourceFiles(designId, readRows);
+      ? withPreparedDesignVersionSourceFilesForCreativeContextCapture
+      : withPreparedDesignVersionSourceFiles;
+  let rows: DesignVersionSourceRows;
+  try {
+    rows = await withPreparedSourceFiles(designId, readRows);
+  } catch (error) {
+    if (!(error instanceof DesignVersionSourceCollaborationNeedsSeedError)) {
+      throw error;
+    }
+    await seedDesignVersionSourceCollaboration(
+      designId,
+      accessContract === "creative-context-read" ? "viewer" : "editor",
+    );
+    rows = await withPreparedSourceFiles(designId, readRows);
+  }
   const capture = await buildDesignVersionSourceCapture(
     designId,
     options,
@@ -1163,13 +1256,15 @@ async function readPreparedCheckpointSourceInTransaction(
     .where(eq(schema.designFiles.designId, designId))
     .orderBy(schema.designFiles.id)
     .for("update");
-  const storedFiles: SnapshotFile[] = fileRows.map((file) => ({
-    id: file.id,
-    filename: file.filename,
-    fileType: file.fileType,
-    content: file.content,
-    source: "stored",
-  }));
+  const storedFiles: SnapshotFile[] = fileRows
+    .map((file) => ({
+      id: file.id,
+      filename: file.filename,
+      fileType: file.fileType,
+      content: file.content,
+      source: "stored" as const,
+    }))
+    .sort((left, right) => compareDesignFileIds(left.id, right.id));
   if (
     storedFiles.length !== preparedFiles.fileIds.length ||
     storedFiles.some(

@@ -33,7 +33,18 @@ const captureMocks = vi.hoisted(() => ({
   failReturningAfterInsert: false,
   sourceMutationActive: false,
   transactionRollbackMode: "confirmed" as "confirmed" | "unknown",
-  collaborationVersion: 1,
+  collaborationVersion: 1 as number | null,
+  collaborationContent: "<main>Hello</main>" as string | null,
+  emptyCollaborationRow: false,
+  concurrentCollaborationSeed: false,
+  SourceWorkspaceEditConflictError: class SourceWorkspaceEditConflictError extends Error {
+    readonly statusCode = 409;
+
+    constructor(message = "Source file changed.") {
+      super(message);
+      this.name = "SourceWorkspaceEditConflictError";
+    }
+  },
   hasCollabState: vi.fn(),
   rejectSourceMutationAccess: false,
   acceptedAccessRole: null as "editor" | "viewer" | null,
@@ -71,6 +82,13 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/collab", () => ({
   AGENT_CLIENT_ID: "agent-client",
   applyText: vi.fn(),
+  applyTextToYDoc: vi.fn(
+    (_doc: unknown, _field: string, content: string, _source: string) => {
+      captureMocks.liveSnapshot.files = captureMocks.liveSnapshot.files.map(
+        (file) => ({ ...file, content }),
+      );
+    },
+  ),
   hasCollabState: captureMocks.hasCollabState,
   loadAwarenessRowsStrict: vi.fn(),
   seedFromText: vi.fn(),
@@ -88,7 +106,14 @@ vi.mock("@agent-native/core/collab", () => ({
               ?.content ?? "",
         }),
       },
-      persist: vi.fn(),
+      persist: vi.fn(async () => {
+        captureMocks.collaborationVersion =
+          (captureMocks.collaborationVersion ?? 0) + 1;
+        captureMocks.collaborationContent =
+          captureMocks.liveSnapshot.files.find((file) => file.id === _fileId)
+            ?.content ?? "";
+        captureMocks.emptyCollaborationRow = false;
+      }),
     }),
 }));
 
@@ -108,14 +133,39 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("nanoid", () => ({ nanoid: captureMocks.nanoid }));
 
 vi.mock("../source-workspace.js", () => ({
+  SourceWorkspaceEditConflictError:
+    captureMocks.SourceWorkspaceEditConflictError,
   lockDesignSourceMutation: vi.fn(),
   getDesignSourceMutationExec: vi.fn(() => ({
     execute: vi.fn(async () => ({ rows: [] })),
   })),
-  lockPreparedSourceCollaboration: vi.fn(async () => ({
-    hasState: true,
-    needsSeed: false,
-  })),
+  lockPreparedSourceCollaboration: vi.fn(
+    async (
+      _transaction: unknown,
+      _fileId: string,
+      lease: { baseVersion: number | null },
+    ) => {
+      if (
+        captureMocks.concurrentCollaborationSeed &&
+        lease.baseVersion === null
+      ) {
+        captureMocks.collaborationVersion = 1;
+        captureMocks.collaborationContent = "<main>Peer content</main>";
+        captureMocks.emptyCollaborationRow = false;
+        throw new captureMocks.SourceWorkspaceEditConflictError(
+          "The source file's live collaboration document changed while it was being read. Re-read the design and retry.",
+        );
+      }
+      if (lease.baseVersion !== captureMocks.collaborationVersion) {
+        throw new Error("Source collaboration version changed.");
+      }
+      const hasState =
+        captureMocks.collaborationContent !== null &&
+        captureMocks.collaborationContent.length > 0 &&
+        !captureMocks.emptyCollaborationRow;
+      return { hasState, needsSeed: !hasState };
+    },
+  ),
   readPreparedSourceText: (lease: {
     doc: { getText: () => { toString: () => string } };
   }) => lease.doc.getText().toString(),
@@ -271,6 +321,8 @@ vi.mock("../db/index.js", () => {
   return { getDb: () => db, schema };
 });
 
+import { applyTextToYDoc } from "@agent-native/core/collab";
+
 import {
   __clearEditorCheckpointSkipsForTests,
   createDesignChatBeginningSnapshot,
@@ -296,8 +348,17 @@ beforeEach(() => {
   captureMocks.sourceMutationActive = false;
   captureMocks.transactionRollbackMode = "confirmed";
   captureMocks.collaborationVersion = 1;
+  captureMocks.collaborationContent = "<main>Hello</main>";
+  captureMocks.emptyCollaborationRow = false;
+  captureMocks.concurrentCollaborationSeed = false;
   captureMocks.hasCollabState.mockReset();
-  captureMocks.hasCollabState.mockResolvedValue(true);
+  captureMocks.hasCollabState.mockImplementation(
+    async () =>
+      captureMocks.collaborationContent !== null &&
+      captureMocks.collaborationContent.length > 0 &&
+      !captureMocks.emptyCollaborationRow,
+  );
+  vi.mocked(applyTextToYDoc).mockClear();
   captureMocks.rejectSourceMutationAccess = false;
   captureMocks.acceptedAccessRole = null;
   captureMocks.rejectPersistence = false;
@@ -321,10 +382,19 @@ beforeEach(() => {
     return { resource: { ...captureMocks.design } };
   });
   captureMocks.buildDesignSnapshot.mockReset();
-  captureMocks.buildDesignSnapshot.mockImplementation(async () => {
-    captureMocks.sourceMutationEvents.push("snapshot");
-    return captureMocks.liveSnapshot;
-  });
+  captureMocks.buildDesignSnapshot.mockImplementation(
+    async (
+      _designId: string,
+      _designData: unknown,
+      options?: { preparedFiles?: typeof captureMocks.liveSnapshot.files },
+    ) => {
+      captureMocks.sourceMutationEvents.push("snapshot");
+      return {
+        ...captureMocks.liveSnapshot,
+        files: options?.preparedFiles ?? captureMocks.liveSnapshot.files,
+      };
+    },
+  );
   captureMocks.nanoid.mockReset();
   captureMocks.nanoid.mockImplementation(
     () => `design-version-${captureMocks.revisions.length + 1}`,
@@ -483,6 +553,101 @@ describe("parseDesignVersionSnapshot", () => {
 });
 
 describe("createDesignVersionSnapshot", () => {
+  it("seeds a legacy stored source before capturing its first checkpoint", async () => {
+    captureMocks.collaborationVersion = null;
+    captureMocks.collaborationContent = null;
+
+    await createDesignVersionSnapshot("design-1", {
+      label: "Legacy source baseline",
+    });
+
+    expect(applyTextToYDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      "content",
+      "<main>Hello</main>",
+      "agent",
+    );
+    expect(captureMocks.collaborationVersion).toBe(1);
+    expect(captureMocks.collaborationContent).toBe("<main>Hello</main>");
+    expect(captureMocks.revisions).toHaveLength(1);
+    expect(
+      JSON.parse(captureMocks.revisions[0]!.snapshot as string).files,
+    ).toMatchObject([{ content: "<main>Hello</main>" }]);
+  });
+
+  it("seeds an existing empty collaboration row from locked stored content", async () => {
+    captureMocks.collaborationVersion = 3;
+    captureMocks.collaborationContent = "";
+    captureMocks.emptyCollaborationRow = true;
+
+    await createDesignVersionSnapshot("design-1", {
+      label: "Empty collaboration baseline",
+    });
+
+    expect(applyTextToYDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      "content",
+      "<main>Hello</main>",
+      "agent",
+    );
+    expect(captureMocks.collaborationVersion).toBe(4);
+    expect(captureMocks.collaborationContent).toBe("<main>Hello</main>");
+    expect(captureMocks.revisions).toHaveLength(1);
+  });
+
+  it("preserves a concurrent first collaboration seed and returns a retryable conflict", async () => {
+    captureMocks.collaborationVersion = null;
+    captureMocks.collaborationContent = null;
+    captureMocks.concurrentCollaborationSeed = true;
+
+    await expect(
+      createDesignVersionSnapshot("design-1", {
+        label: "Concurrent legacy baseline",
+      }),
+    ).rejects.toBeInstanceOf(DesignVersionCheckpointChangedError);
+
+    expect(captureMocks.collaborationContent).toBe("<main>Peer content</main>");
+    expect(applyTextToYDoc).not.toHaveBeenCalled();
+    expect(captureMocks.revisions).toHaveLength(0);
+  });
+
+  it("uses one deterministic ordering for mixed-case source file ids", async () => {
+    const previousSnapshot = captureMocks.liveSnapshot;
+    try {
+      captureMocks.liveSnapshot = {
+        ...captureMocks.liveSnapshot,
+        files: [
+          {
+            id: "a",
+            filename: "lower.html",
+            fileType: "html",
+            content: "<main>lower</main>",
+            source: "stored",
+          },
+          {
+            id: "A",
+            filename: "upper.html",
+            fileType: "html",
+            content: "<main>upper</main>",
+            source: "stored",
+          },
+        ],
+      };
+
+      await createDesignVersionSnapshot("design-1", {
+        label: "Mixed-case sources",
+      });
+
+      expect(
+        JSON.parse(captureMocks.revisions[0]!.snapshot as string).files.map(
+          (file: { id: string }) => file.id,
+        ),
+      ).toEqual(["A", "a"]);
+    } finally {
+      captureMocks.liveSnapshot = previousSnapshot;
+    }
+  });
+
   it("allows viewer-authorized Creative Context capture while normal checkpoints require editor access", async () => {
     captureMocks.acceptedAccessRole = "viewer";
 
@@ -1047,7 +1212,8 @@ describe("createDesignVersionSnapshot", () => {
     };
     putPrivateBlob.mockImplementation(async () => {
       captureMocks.sourceMutationEvents.push("blob-upload-outside");
-      captureMocks.collaborationVersion += 1;
+      captureMocks.collaborationVersion =
+        (captureMocks.collaborationVersion ?? 0) + 1;
       return blob;
     });
     deletePrivateBlob.mockImplementation(async () => {
