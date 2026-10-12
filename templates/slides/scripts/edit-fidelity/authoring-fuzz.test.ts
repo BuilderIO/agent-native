@@ -1218,19 +1218,6 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
     ),
   ).toBe(true);
   expect(
-    isExpectedSaveReloadAbort(
-      "/_agent-native/browser-sessions/session-id/requests/claim",
-      "Load request cancelled",
-      "save/reload",
-      "POST",
-      true,
-      100,
-      false,
-      false,
-      false,
-    ),
-  ).toBe(false);
-  expect(
     isExpectedSameOriginSaveReloadAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
       "Load request cancelled",
@@ -1328,6 +1315,22 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
       100,
       false,
       true,
+    ),
+  ).toBe(false);
+});
+
+it("does not suppress cross-origin request aborts", () => {
+  expect(
+    isExpectedSaveReloadAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+      false,
+      false,
+      false,
     ),
   ).toBe(false);
 });
@@ -1760,6 +1763,7 @@ it("correlates a poll error to one successful claim that finished just before re
     completedSuccessfullyBeforeNavigation: true,
     completedBeforeNavigationAgeMs: 4,
     requestStartedDuringNavigation: false,
+    requestStartedAfterNavigation: false,
   };
 
   expect(
@@ -1813,6 +1817,44 @@ it("correlates a poll error to one successful claim that finished just before re
   expect(
     isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
       { ...completedClaim, method: "GET" },
+    ]),
+  ).toBe(false);
+});
+
+it("keeps poll errors visible when a new claim starts after reload navigation", () => {
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const completedClaim = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 120,
+    settledAgeMs: 12,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestWasPendingAtNavigation: false,
+    requestFinishedSuccessfully: true,
+    completedSuccessfullyBeforeNavigation: true,
+    completedBeforeNavigationAgeMs: 4,
+    requestStartedDuringNavigation: false,
+    requestStartedAfterNavigation: false,
+    competingClaimStartedAfterNavigation: true,
+  };
+  const postNavigationClaim = {
+    ...completedClaim,
+    ageMs: 150,
+    settledAgeMs: 4,
+    requestWasPendingAtNavigation: false,
+    requestFinishedSuccessfully: false,
+    completedSuccessfullyBeforeNavigation: false,
+    requestStartedAfterNavigation: true,
+    competingClaimStartedAfterNavigation: false,
+  };
+
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+      postNavigationClaim,
     ]),
   ).toBe(false);
 });

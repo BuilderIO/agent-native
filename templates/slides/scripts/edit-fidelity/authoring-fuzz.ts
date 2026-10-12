@@ -358,6 +358,7 @@ type WatchedRequestNavigationCandidate = {
   completedSuccessfullyBeforeNavigation?: boolean;
   completedBeforeNavigationAgeMs?: number;
   requestStartedDuringNavigation?: boolean;
+  requestStartedAfterNavigation?: boolean;
   competingRequestStartedAfterNavigation?: boolean;
   competingClaimStartedAfterNavigation?: boolean;
   competingRegistrationStartedAfterNavigation?: boolean;
@@ -372,6 +373,7 @@ function isExpectedWatchedRequestNavigationAbort(
   return (
     candidate.requestWasPendingAtNavigation === true &&
     candidate.requestStartedDuringNavigation !== true &&
+    candidate.requestStartedAfterNavigation !== true &&
     candidate.competingRequestStartedAfterNavigation !== true &&
     candidate.sameOrigin === true &&
     (!rejectCompetingClaim ||
@@ -461,6 +463,7 @@ function isExpectedCompletedClaimBeforeReload(
     candidate.completedSuccessfullyBeforeNavigation === true &&
     candidate.requestWasPendingAtNavigation === false &&
     candidate.requestStartedDuringNavigation !== true &&
+    candidate.requestStartedAfterNavigation !== true &&
     candidate.competingClaimStartedAfterNavigation !== true &&
     candidate.method === browserSessionClaimRequestRule.method &&
     matchesPath &&
@@ -619,6 +622,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     sameOrigin?: boolean;
     requestWasPendingAtReloadNavigation?: boolean;
     requestStartedDuringNavigation?: boolean;
+    requestStartedAfterNavigation?: boolean;
     requestFinishedSuccessfully?: boolean;
     competingRequestStartedAfterNavigation?: boolean;
     competingClaimStartedAfterNavigation?: boolean;
@@ -1253,11 +1257,11 @@ export async function runAuthoringFuzz(
     completedSuccessfullyBeforeNavigation: boolean;
     completedBeforeNavigationAgeMs: number | null;
     requestStartedDuringNavigation: boolean;
+    requestStartedAfterNavigation: boolean;
   };
   const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
   let reloadNavigationStartedAt: number | null = null;
-  // Diagnostic only: reloadNavigationStartedAt resets after each reload, but a
-  // late failure can still be logged after that. This keeps the latest start.
+  // Keep the latest start after openSlide returns to correlate late poll errors.
   let lastReloadStartedAt: number | null = null;
   const hasCompetingClaimStartedAfterNavigation = (request: any) => {
     const url = new URL(request.url());
@@ -1267,7 +1271,8 @@ export async function runAuthoringFuzz(
       ([otherRequest, otherCandidate]) => {
         if (
           otherRequest === request ||
-          !otherCandidate.requestStartedDuringNavigation
+          (!otherCandidate.requestStartedDuringNavigation &&
+            !otherCandidate.requestStartedAfterNavigation)
         ) {
           return false;
         }
@@ -1341,6 +1346,7 @@ export async function runAuthoringFuzz(
           completedSuccessfullyBeforeNavigation,
           completedBeforeNavigationAgeMs,
           requestStartedDuringNavigation,
+          requestStartedAfterNavigation,
         },
       ]) => {
         const url = request.url();
@@ -1359,6 +1365,7 @@ export async function runAuthoringFuzz(
             ? {}
             : { completedBeforeNavigationAgeMs }),
           requestStartedDuringNavigation,
+          requestStartedAfterNavigation,
           competingClaimStartedAfterNavigation:
             hasCompetingClaimStartedAfterNavigation(request),
         };
@@ -1499,14 +1506,21 @@ export async function runAuthoringFuzz(
     ) {
       watchedRequests.set(request, startedAt);
     }
-    if (
+    const requestStartedDuringNavigation =
       activePhase === "save/reload" &&
       reloadNavigationStartedAt !== null &&
       startedAt >= reloadNavigationStartedAt &&
       startedAt - reloadNavigationStartedAt <
         reloadNavigationAbortMaxRequestAgeMs &&
-      isBrowserSessionPath(requestUrl.pathname)
-    ) {
+      isBrowserSessionPath(requestUrl.pathname);
+    const requestStartedAfterNavigation =
+      activePhase === "save/reload" &&
+      reloadNavigationStartedAt === null &&
+      lastReloadStartedAt !== null &&
+      startedAt >= lastReloadStartedAt &&
+      startedAt - lastReloadStartedAt < reloadNavigationConsoleGraceMs &&
+      isBrowserSessionPath(requestUrl.pathname);
+    if (requestStartedDuringNavigation || requestStartedAfterNavigation) {
       reloadNavigationRequests.set(request, {
         startedAt,
         settledAt: null,
@@ -1515,7 +1529,8 @@ export async function runAuthoringFuzz(
         requestWasPendingAtNavigation: false,
         completedSuccessfullyBeforeNavigation: false,
         completedBeforeNavigationAgeMs: null,
-        requestStartedDuringNavigation: true,
+        requestStartedDuringNavigation,
+        requestStartedAfterNavigation,
       });
     }
     if (!traceEnabled) return;
@@ -5325,6 +5340,7 @@ export async function runAuthoringFuzz(
           completedSuccessfullyBeforeNavigation: false,
           completedBeforeNavigationAgeMs: null,
           requestStartedDuringNavigation: false,
+          requestStartedAfterNavigation: false,
         });
         if (traceEnabled) {
           console.log(
@@ -5351,6 +5367,7 @@ export async function runAuthoringFuzz(
           completedSuccessfullyBeforeNavigation: true,
           completedBeforeNavigationAgeMs,
           requestStartedDuringNavigation: false,
+          requestStartedAfterNavigation: false,
         });
       }
       recentlyCompletedBrowserSessionClaims.clear();
