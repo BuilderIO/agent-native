@@ -1923,6 +1923,22 @@ describe("AgentKitClient", () => {
     },
   );
 
+  it("reports completed tool-call history without an assistant message link", async () => {
+    const messages = await assistantPartsAfterToolHistory({
+      beforeFollowup(client) {
+        delete client.getThread("thread-1").tools["call-search"]!.messageId;
+      },
+      finalParts: [{ type: "text", text: "The release is ready." }],
+    });
+
+    expect(
+      messages.find((message) => message.id === "assistant-1")?.parts,
+    ).toContainEqual({
+      type: "text",
+      text: "Some tool-call history was omitted to keep the added history under 256 KiB and 64 calls.",
+    });
+  });
+
   it("keeps the user's prompt last when unorderable tool history is omitted", async () => {
     const messages = await assistantPartsAfterToolHistory({
       omitToolStarted: true,

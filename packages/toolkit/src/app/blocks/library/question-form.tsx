@@ -441,7 +441,7 @@ function QuestionFormReadInner({
   title,
   ctx,
 }: BlockReadProps<QuestionFormData>) {
-  const questions = data.questions;
+  const questions = data.questions === undefined ? [] : data.questions;
   const [answers, setAnswers] = useState<QuestionAnswers>(() =>
     defaultQuestionAnswers(questions),
   );
@@ -550,23 +550,24 @@ export function QuestionFormEdit({
   onChange,
   editable,
 }: BlockEditProps<QuestionFormData>) {
+  const questions = data.questions === undefined ? [] : data.questions;
   const updateQuestion = (
     questionId: string,
     patch: Partial<QuestionFormQuestion>,
   ) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) =>
+      questions: questions.map((question) =>
         question.id === questionId ? { ...question, ...patch } : question,
       ),
     });
 
   const addQuestion = () => {
-    if (data.questions.length >= 40) return;
+    if (questions.length >= 40) return;
     onChange({
       ...data,
       questions: [
-        ...data.questions,
+        ...questions,
         {
           id: newLocalId("question"),
           title: "New question",
@@ -578,12 +579,10 @@ export function QuestionFormEdit({
   };
 
   const removeQuestion = (questionId: string) => {
-    if (data.questions.length <= 1) return;
+    if (questions.length <= 1) return;
     onChange({
       ...data,
-      questions: data.questions.filter(
-        (question) => question.id !== questionId,
-      ),
+      questions: questions.filter((question) => question.id !== questionId),
     });
   };
 
@@ -611,7 +610,7 @@ export function QuestionFormEdit({
   ) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) =>
+      questions: questions.map((question) =>
         question.id === questionId
           ? {
               ...question,
@@ -626,7 +625,7 @@ export function QuestionFormEdit({
   const addOption = (questionId: string) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) =>
+      questions: questions.map((question) =>
         question.id === questionId && (question.options?.length ?? 0) < 40
           ? {
               ...question,
@@ -642,7 +641,7 @@ export function QuestionFormEdit({
   const removeOption = (questionId: string, optionId: string) =>
     onChange({
       ...data,
-      questions: data.questions.map((question) => {
+      questions: questions.map((question) => {
         if (question.id !== questionId) return question;
         const nextOptions = (question.options ?? []).filter(
           (option) => option.id !== optionId,
@@ -654,7 +653,7 @@ export function QuestionFormEdit({
   return (
     <div className="grid gap-6" data-plan-interactive>
       <div className="grid gap-4">
-        {data.questions.map((question, index) => {
+        {questions.map((question, index) => {
           const options = question.options ?? [];
           return (
             <article
@@ -663,7 +662,7 @@ export function QuestionFormEdit({
             >
               <div className="mb-4 flex items-center justify-between gap-3">
                 <span className={inlineLabelClass}>Question {index + 1}</span>
-                {data.questions.length > 1 && (
+                {questions.length > 1 && (
                   <button
                     type="button"
                     aria-label={`Delete question ${index + 1}`}
@@ -851,7 +850,7 @@ export function QuestionFormEdit({
       <button
         type="button"
         className="inline-flex h-9 w-fit items-center gap-1.5 rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
-        disabled={!editable || data.questions.length >= 40}
+        disabled={!editable || questions.length >= 40}
         onClick={addQuestion}
       >
         <IconPlus className="size-4" />

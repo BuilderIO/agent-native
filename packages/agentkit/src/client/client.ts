@@ -1944,6 +1944,18 @@ function messagesWithToolCallHistory(
       )
     );
   });
+  const representedToolCallIds = new Set<string>();
+  for (const represented of existingToolHistoryPartsByMessageId.values()) {
+    for (const id of represented.callIds) {
+      if (represented.resultIds.has(id)) representedToolCallIds.add(id);
+    }
+  }
+  const unlinkedCallsOmitted = toolCalls.some(
+    (toolCall) =>
+      toolCall.status !== "running" &&
+      !representedToolCallIds.has(toolCall.id) &&
+      !(toolCall.messageId && assistantMessageIds.has(toolCall.messageId)),
+  );
   const historyPartsByMessageId = new Map<string, OrderedToolHistoryPart[]>();
   const selectedCalls: Array<{
     messageId: string;
@@ -1954,7 +1966,9 @@ function messagesWithToolCallHistory(
   const historySizer = createProjectedToolHistorySizer(assistantMessageCopies);
   const recentCalls = eligibleCalls.slice(-MAX_TOOL_HISTORY_CALLS);
   let omittedHistory =
-    sourceOmitted || recentCalls.length < eligibleCalls.length;
+    sourceOmitted ||
+    unlinkedCallsOmitted ||
+    recentCalls.length < eligibleCalls.length;
   let omissionMessageId = sourceTruncated
     ? firstAssistantMessageId
     : selection.omissionMessageId;
@@ -1962,9 +1976,10 @@ function messagesWithToolCallHistory(
     omissionMessageId = undefined;
   }
   if (!omissionMessageId && omittedHistory) {
-    omissionMessageId = sourceOmitted
-      ? firstAssistantMessageId
-      : (eligibleCalls[0]?.messageId ?? firstAssistantMessageId);
+    omissionMessageId =
+      sourceOmitted || unlinkedCallsOmitted
+        ? firstAssistantMessageId
+        : (eligibleCalls[0]?.messageId ?? firstAssistantMessageId);
   }
 
   for (let index = recentCalls.length - 1; index >= 0; index--) {

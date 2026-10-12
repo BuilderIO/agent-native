@@ -1870,6 +1870,17 @@ function mergeAgentKitHistoryArray(
         !preferIncomingSnapshotEntry(kind, entry, merged[index]);
       if (preferIncoming || preferCurrentMessageId) {
         merged[index] = entry;
+      } else if (kind === "toolCall") {
+        const existingMessageId = merged[index]?.messageId;
+        const incomingMessageId = entry?.messageId;
+        if (
+          (typeof existingMessageId !== "string" ||
+            existingMessageId.trim().length === 0) &&
+          typeof incomingMessageId === "string" &&
+          incomingMessageId.trim().length > 0
+        ) {
+          merged[index] = { ...merged[index], messageId: incomingMessageId };
+        }
       }
     }
   }
