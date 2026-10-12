@@ -132,6 +132,26 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
+  it("marks exact-cap scans complete including a final empty directory", () => {
+    for (const emptyDirectory of [false, true]) {
+      const root = workspace();
+      const baselineFile = path.join(root, "baseline.json");
+      writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+      const functionsDir = build(root, "functions");
+      emitFunction(functionsDir, "server", 7 * MB);
+      const chunks = path.join(functionsDir, "server", "_chunks");
+      mkdirSync(chunks);
+      for (let i = 0; i < 4095 - Number(emptyDirectory); i++)
+        writeFileSync(path.join(chunks, `module-${i}.mjs`), "x");
+      if (emptyDirectory) mkdirSync(path.join(chunks, "empty"));
+      const checked = runGuard(functionsDir, baselineFile, [], "chat");
+      assert.equal(checked.status, 1);
+      const inventory = chunkInventory(checked.output);
+      assert.equal(inventory.entriesScanned, 4096);
+      assert.equal(inventory.scanComplete, true);
+      assert.equal(inventory.entryLimitTruncated, false);
+    }
+  });
   it("counts private filename metadata without disclosing non-module or hidden paths", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");

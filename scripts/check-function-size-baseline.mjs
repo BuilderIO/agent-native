@@ -232,21 +232,15 @@ function reportGeneratedChunkInventory(functionDir) {
   let unsafePathsOmitted = false;
 
   function scanDirectory(fullDirectory, relativeParts, depth, summary) {
-    if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
-      entryLimitTruncated = true;
-      return;
-    }
-
     const directory = opendirSync(fullDirectory);
     try {
       while (true) {
+        const entry = directory.readSync();
+        if (!entry) return;
         if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
           entryLimitTruncated = true;
           return;
         }
-        const entry = directory.readSync();
-        if (!entry) return;
-
         entriesScanned++;
         const fullPath = path.join(fullDirectory, entry.name);
         const pathParts = [...relativeParts, entry.name];
