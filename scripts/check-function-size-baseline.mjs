@@ -211,6 +211,41 @@ function readBaseline() {
   return JSON.parse(readFileSync(BASELINE_FILE, "utf8"));
 }
 
+function reportGeneratedChunkInventory(functionDir) {
+  const files = [];
+  const missingDirectories = [];
+  let scanTruncated = false;
+  for (const directory of ["_chunks", "_libs"]) {
+    const fullDirectory = path.join(functionDir, directory);
+    if (!existsSync(fullDirectory)) {
+      missingDirectories.push(directory);
+      continue;
+    }
+    const entries = readdirSync(fullDirectory, { withFileTypes: true })
+      .filter(
+        (entry) => entry.isFile() && /^[a-zA-Z0-9_.-]+\.mjs$/.test(entry.name),
+      )
+      .sort((left, right) => left.name.localeCompare(right.name));
+    scanTruncated ||= entries.length > 512;
+    for (const entry of entries.slice(0, 512)) {
+      files.push({
+        path: `${directory}/${entry.name}`,
+        bytes: statSync(path.join(fullDirectory, entry.name)).size,
+      });
+    }
+  }
+  files.sort(
+    (left, right) =>
+      right.bytes - left.bytes || left.path.localeCompare(right.path),
+  );
+  const reported = files.slice(0, 20);
+  console.error(
+    `[chunk-inventory] ${JSON.stringify({ scanned: files.length, scannedBytes: files.reduce((total, file) => total + file.bytes, 0), reported: reported.length, truncated: scanTruncated || files.length > reported.length, scanTruncated, missingDirectories })}`,
+  );
+  for (const file of reported)
+    console.error(`[chunk-inventory] ${JSON.stringify(file)}`);
+}
+
 const site = arg("site");
 const functionsDir = arg("dir");
 const update = process.argv.includes("--update");
@@ -355,6 +390,9 @@ if (grown.length > 0) {
     console.error(
       `  - ${g.name}: ${mb(g.before)}MB -> ${mb(g.bytes)}MB (+${mb(g.bytes - g.before)}MB)`,
     );
+    if (site === "chat" && g.name === "server") {
+      reportGeneratedChunkInventory(path.join(functionsDir, g.name));
+    }
   }
   console.error(
     "\nEvery byte here is unzipped on each cold start, and Netlify uploads every\n" +
