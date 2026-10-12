@@ -4,21 +4,32 @@
  * placeholders, parsing stringified JSON, coercing types) before validating;
  * an entry registered here skips that repair and is validated with its own
  * validator instead, which returns an error message or null.
+ *
+ * The validator lives on the entry under a symbol rather than in a side table:
+ * registries copy entries with object spread as they filter them, and spread
+ * keeps own symbol properties, so the copy reaching the loop stays strict.
  */
-const strictToolInputValidators = new WeakMap<
-  object,
-  (input: unknown) => string | null
->();
+const STRICT_TOOL_INPUT = Symbol("agent-native.strictToolInput");
+
+type StrictToolInputValidator = (input: unknown) => string | null;
 
 export function registerStrictToolInput(
   entry: object,
-  validate: (input: unknown) => string | null,
+  validate: StrictToolInputValidator,
 ): void {
-  strictToolInputValidators.set(entry, validate);
+  Object.defineProperty(entry, STRICT_TOOL_INPUT, {
+    value: validate,
+    enumerable: true,
+  });
 }
 
 export function getStrictToolInputValidator(
   entry: object | undefined,
-): ((input: unknown) => string | null) | undefined {
-  return entry ? strictToolInputValidators.get(entry) : undefined;
+): StrictToolInputValidator | undefined {
+  const validate = entry
+    ? (entry as { [STRICT_TOOL_INPUT]?: unknown })[STRICT_TOOL_INPUT]
+    : undefined;
+  return typeof validate === "function"
+    ? (validate as StrictToolInputValidator)
+    : undefined;
 }

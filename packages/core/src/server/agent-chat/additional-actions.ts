@@ -58,6 +58,9 @@ const MAX_SCHEMA_DEPTH = 24;
 const MAX_ADDITIONAL_ACTIONS = 128;
 const MAX_TOTAL_SCHEMA_JSON_CHARS = 512_000;
 const MAX_REPORTED_SKIPS = 1_000;
+// Validation can evaluate a shared `$ref` target once per use, so the cap is on
+// subschemas after expansion, not on the schema's written size.
+const MAX_SCHEMA_EXPANDED_NODES = 5_000;
 // C0/C1 controls other than tab and newline, zero-width characters, and bidi
 // overrides: invisible in logs and tool lists, but read by the model.
 const HIDDEN_TEXT_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g;
@@ -187,10 +190,10 @@ export async function resolveAppAdditionalActions(
     );
   }
   const names = Object.keys(entries);
-  for (const name of names.slice(MAX_ADDITIONAL_ACTIONS)) {
+  if (names.length > MAX_ADDITIONAL_ACTIONS) {
     reportSkip(
-      name,
-      `is past the first ${MAX_ADDITIONAL_ACTIONS} entries the resolver returned`,
+      names[MAX_ADDITIONAL_ACTIONS],
+      `is the first of ${names.length - MAX_ADDITIONAL_ACTIONS} entries past the ${MAX_ADDITIONAL_ACTIONS} a resolver may return`,
     );
   }
   const added: Record<string, ActionEntry> = {};
@@ -363,7 +366,10 @@ function rejectParameterSchema(
       ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_JSON_CHARS}-character budget shared by this request's schemas`
       : `has a tool schema larger than ${MAX_SCHEMA_JSON_CHARS} characters`;
   }
-  const rejection = rejectSchemaKeywords(parameters, parameters, new Set());
+  const rejection = rejectSchemaKeywords(parameters, parameters, {
+    expanded: 0,
+    refStack: new Set(),
+  });
   if (rejection) return rejection;
   schemaBudget.remaining -= size;
   return null;
@@ -410,26 +416,44 @@ function measureSchema(
  * Walks every location Ajv may evaluate as a schema: the subschema keywords
  * and the target of each local `$ref`, which can point anywhere in the
  * document, including under keys no keyword names.
+ *
+ * Each `$ref` is expanded where it is used, as validation evaluates it, so a
+ * small schema that references the same definition several times per level
+ * shows its exponential validation cost here and is rejected. A `$ref` back
+ * into a schema it is already inside is not expanded again: that recursion
+ * can only go as deep as the input data.
  */
 function rejectSchemaKeywords(
   schema: unknown,
   root: Record<string, unknown>,
-  visited: Set<object>,
+  walk: { expanded: number; refStack: Set<object> },
 ): string | null {
-  if (!isPlainRecord(schema) || visited.has(schema)) return null;
-  visited.add(schema);
+  if (!isPlainRecord(schema)) return null;
+  walk.expanded += 1;
+  if (walk.expanded > MAX_SCHEMA_EXPANDED_NODES) {
+    return `has a tool schema that expands to more than ${MAX_SCHEMA_EXPANDED_NODES} subschemas through $ref`;
+  }
   for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
     if (Object.hasOwn(schema, keyword)) {
       return `has a tool schema that uses "${keyword}", which app actions may not use`;
     }
   }
   const children: unknown[] = [];
+  let refTarget: object | undefined;
   if (Object.hasOwn(schema, "$ref")) {
     const target = resolveLocalRef(root, schema.$ref);
     if (target === undefined) {
-      return "has a tool schema with a $ref that does not point inside the schema";
+      return 'has a tool schema with a $ref that is not "#" or an unencoded JSON pointer inside the schema';
     }
-    children.push(target);
+    if (isPlainRecord(target) && !walk.refStack.has(target)) {
+      refTarget = target;
+    }
+  }
+  if (refTarget) {
+    walk.refStack.add(refTarget);
+    const rejection = rejectSchemaKeywords(refTarget, root, walk);
+    walk.refStack.delete(refTarget);
+    if (rejection) return rejection;
   }
   for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);
   for (const keyword of SUBSCHEMA_LIST_KEYWORDS) {
@@ -441,23 +465,26 @@ function rejectSchemaKeywords(
     }
   }
   for (const child of children) {
-    const rejection = rejectSchemaKeywords(child, root, visited);
+    const rejection = rejectSchemaKeywords(child, root, walk);
     if (rejection) return rejection;
   }
   return null;
 }
 
+/**
+ * Ajv percent-decodes the whole fragment before splitting it into pointer
+ * segments, so an encoded `/` addresses a different location than a
+ * segment-by-segment reading would. Encoded refs are refused rather than
+ * reimplementing that decoding.
+ */
 function resolveLocalRef(root: Record<string, unknown>, ref: unknown): unknown {
   if (ref === "#") return root;
-  if (typeof ref !== "string" || !ref.startsWith("#/")) return undefined;
+  if (typeof ref !== "string" || !ref.startsWith("#/") || ref.includes("%")) {
+    return undefined;
+  }
   let target: unknown = root;
   for (const raw of ref.slice(2).split("/")) {
-    let segment: string;
-    try {
-      segment = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
-    } catch {
-      return undefined;
-    }
+    const segment = raw.replace(/~1/g, "/").replace(/~0/g, "~");
     if (
       !target ||
       typeof target !== "object" ||

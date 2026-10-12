@@ -5,6 +5,7 @@ import {
   type ActionEntry,
   runAgentLoop,
 } from "../../agent/production-agent.js";
+import { filterActionsForAgentDiscovery } from "../../agent/tool-search.js";
 import { registerActionAccessChecker } from "../../authorization/action-access-runtime.js";
 import { hashEmail } from "../../mcp-client/remote-store.js";
 import { runWithRequestContext } from "../request-context.js";
@@ -267,6 +268,46 @@ describe("resolveAppAdditionalActions", () => {
               type: "object",
               properties: { a: { $ref: "#a" } },
             }),
+            "schema-encoded-ref": schemaEntry({
+              type: "object",
+              properties: { a: { $ref: "#/x/a%2Fb" } },
+              x: {
+                "a/b": { type: "string" },
+                a: { b: { type: "string", pattern: "^(a+)+$" } },
+              },
+            }),
+            "schema-ref-fanout": schemaEntry({
+              type: "object",
+              properties: { a: { $ref: "#/$defs/d0" } },
+              $defs: Object.fromEntries(
+                Array.from({ length: 20 }, (_, i) => [
+                  `d${i}`,
+                  i === 19
+                    ? { type: "string" }
+                    : {
+                        anyOf: [
+                          { $ref: `#/$defs/d${i + 1}` },
+                          { $ref: `#/$defs/d${i + 1}` },
+                        ],
+                      },
+                ]),
+              ),
+            }),
+            "schema-recursive-ref": schemaEntry({
+              type: "object",
+              properties: { tree: { $ref: "#/$defs/node" } },
+              $defs: {
+                node: {
+                  type: "object",
+                  properties: {
+                    children: {
+                      type: "array",
+                      items: { $ref: "#/$defs/node" },
+                    },
+                  },
+                },
+              },
+            }),
             "schema-property-names": schemaEntry({
               type: "object",
               properties: {
@@ -282,7 +323,10 @@ describe("resolveAppAdditionalActions", () => {
         {},
       );
 
-      expect(Object.keys(added)).toEqual(["schema-property-names"]);
+      expect(Object.keys(added)).toEqual([
+        "schema-recursive-ref",
+        "schema-property-names",
+      ]);
     });
 
     it("bounds the whole registry, not just each schema", async () => {
@@ -296,6 +340,11 @@ describe("resolveAppAdditionalActions", () => {
       );
       expect(Object.keys(counted)).toHaveLength(128);
       expect(counted["many-128"]).toBeUndefined();
+      expect(
+        vi
+          .mocked(console.warn)
+          .mock.calls.filter(([message]) => String(message).includes("many-")),
+      ).toHaveLength(1);
 
       const large = (i: number) =>
         entry("x", {
@@ -580,6 +629,8 @@ describe("resolveAppAdditionalActions", () => {
         },
       };
       const events: any[] = [];
+      // Chat filters the registry for discovery, copying every entry.
+      const discoverable = await filterActionsForAgentDiscovery(added);
 
       await asAlice(() =>
         runAgentLoop({
@@ -588,7 +639,7 @@ describe("resolveAppAdditionalActions", () => {
           systemPrompt: "system",
           tools: [],
           messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-          actions: added,
+          actions: discoverable,
           ownerEmail: "alice@example.com",
           orgId: "acme",
           send: (event) => events.push(event),
