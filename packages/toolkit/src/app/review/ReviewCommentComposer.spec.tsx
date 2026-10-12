@@ -174,6 +174,38 @@ describe("ReviewCommentComposer actions", () => {
     act(() => aliceOption?.click());
   });
 
+  it("opens the mention picker from the toolbar button", () => {
+    act(() => {
+      root.render(
+        <ReviewCommentComposer
+          value=""
+          onChange={() => {}}
+          onSubmit={() => {}}
+          showCommentTools
+          mentionOptions={[{ label: "Alice", email: "alice@example.com" }]}
+        />,
+      );
+    });
+
+    const mentionButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Mention someone"]',
+    );
+    expect(mentionButton).toBeTruthy();
+    act(() => {
+      const pointerDown = new Event("pointerdown", { bubbles: true });
+      Object.defineProperties(pointerDown, {
+        button: { value: 0 },
+        ctrlKey: { value: false },
+      });
+      mentionButton!.dispatchEvent(pointerDown);
+      mentionButton!.click();
+    });
+
+    expect(
+      document.querySelector('input[aria-label="Mention someone"]'),
+    ).not.toBeNull();
+  });
+
   it("ignores composing @ keys and email address boundaries", () => {
     const mention = { label: "Alice", email: "alice@example.com" };
     const onChange = vi.fn();

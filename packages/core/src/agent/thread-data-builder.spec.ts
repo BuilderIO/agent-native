@@ -2124,6 +2124,47 @@ describe("mergeThreadDataForClientSave", () => {
     ]);
   });
 
+  it("keeps a running tool call's assistant link when a snapshot completes it", () => {
+    const merged = mergeThreadDataForClientSave(
+      {
+        agentKit: {
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "write",
+              input: { path: "skills/example.md" },
+              status: "running",
+              messageId: "assistant-1",
+            },
+          ],
+        },
+      },
+      {
+        agentKit: {
+          _snapshotDelta: true,
+          toolCalls: [
+            {
+              id: "call-1",
+              name: "write",
+              input: { path: "skills/example.md" },
+              output: "saved",
+              status: "completed",
+            },
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.toolCalls).toEqual([
+      expect.objectContaining({
+        id: "call-1",
+        output: "saved",
+        status: "completed",
+        messageId: "assistant-1",
+      }),
+    ]);
+  });
+
   it("merges widgets by globally unique ID across message changes", () => {
     const existingWidget = {
       messageId: "assistant-before-continuation",

@@ -26,7 +26,8 @@ function flattenBlocks(blocks: PlanBlock[]): PlanBlock[] {
   const visit = (block: PlanBlock) => {
     result.push(block);
     if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
+      const tabs = block.data.tabs === undefined ? [] : block.data.tabs;
+      for (const tab of tabs) {
         for (const child of tab.blocks) visit(child);
       }
     }
