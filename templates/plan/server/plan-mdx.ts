@@ -1360,17 +1360,26 @@ function preserveMissingAuthoringField(
 ): PlanBlock {
   const field = requiredAuthoringFieldByBlockType[block.type];
   if (!field) return block;
-  const fieldValue = attributeValue(findAttribute(node, field));
-  if (
-    (field === "code" && typeof fieldValue === "string") ||
-    (field !== "code" && Array.isArray(fieldValue))
-  ) {
-    return block;
+  const attribute = findAttribute(node, field);
+  const data = { ...block.data } as Record<string, unknown>;
+  if (!attribute) {
+    delete data[field];
+    return { ...block, data } as PlanBlock;
   }
 
-  const data = { ...block.data } as Record<string, unknown>;
-  delete data[field];
-  return { ...block, data } as PlanBlock;
+  const fieldValue = attributeValue(attribute);
+  const valid =
+    field === "code"
+      ? typeof fieldValue === "string"
+      : Array.isArray(fieldValue);
+  if (!valid) {
+    const expected = field === "code" ? "a string" : "an array";
+    throw new Error(
+      `Plan MDX <${elementName(node) ?? block.type}> attribute "${field}" must resolve to ${expected}.`,
+    );
+  }
+
+  return block;
 }
 
 function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {

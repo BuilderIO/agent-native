@@ -24,6 +24,13 @@ function findBlock(content: PlanContent, id: string) {
   return content.blocks.find((block) => block.id === id);
 }
 
+async function replacePlanSource(planSource: string) {
+  return applyPlanMdxSourcePatches(
+    { "plan.mdx": "---\nversion: 2\n---\n\n# Old plan\n" },
+    [{ op: "replace-file", file: "plan.mdx", content: planSource }],
+  );
+}
+
 describe("stored legacy defaults in MDX source", () => {
   it("preserves legacy block types through export, source patches, and re-import", async () => {
     const content = storedPlanContentSchema.parse({
@@ -129,6 +136,76 @@ describe("stored legacy defaults in MDX source", () => {
       { id: "legacy-code", data: { code: "" } },
     ]);
   });
+
+  it.each([
+    {
+      field: "items",
+      previousBlock: {
+        id: "checklist",
+        type: "checklist",
+        data: { items: [{ id: "item", label: "Keep this" }] },
+      },
+      source: '<Checklist id="checklist" data={{}} />',
+    },
+    {
+      field: "code",
+      previousBlock: {
+        id: "annotated",
+        type: "annotated-code",
+        data: { code: "const keep = true;" },
+      },
+      source: '<AnnotatedCode id="annotated" data={{}} />',
+    },
+  ])(
+    "rejects source replacement that omits populated $field",
+    async ({ field, previousBlock, source }) => {
+      const previous = planContentSchema.parse({
+        version: 2,
+        blocks: [previousBlock],
+      });
+      const folder = await replacePlanSource(
+        ["---", "version: 2", "---", "", source].join("\n"),
+      );
+
+      await expect(
+        parsePlanMdxFolder(folder, {
+          allowStoredLegacyDefaults: true,
+          validateAuthoringChangesAgainst: previous,
+        }),
+      ).rejects.toThrow(new RegExp(`require data\\.${field}`));
+    },
+  );
+
+  it.each([
+    {
+      block: { id: "legacy-checklist", type: "checklist", data: {} },
+      source: '<Checklist id="legacy-checklist" items="not-an-array" />',
+      message: /attribute "items" must resolve to an array/,
+    },
+    {
+      block: { id: "legacy-code", type: "annotated-code", data: {} },
+      source: '<AnnotatedCode id="legacy-code" code={42} />',
+      message: /attribute "code" must resolve to a string/,
+    },
+  ])(
+    "rejects wrong-typed authored fields on unchanged legacy blocks",
+    async ({ block, source, message }) => {
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [block],
+      });
+      const folder = await replacePlanSource(
+        ["---", "version: 2", "---", "", source].join("\n"),
+      );
+
+      await expect(
+        parsePlanMdxFolder(folder, {
+          allowStoredLegacyDefaults: true,
+          validateAuthoringChangesAgainst: previous,
+        }),
+      ).rejects.toThrow(message);
+    },
+  );
 
   it.each([
     ["checklist", '<Checklist id="new-checklist" />', "items"],

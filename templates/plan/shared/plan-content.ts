@@ -2600,6 +2600,8 @@ const prototypeScreenPatchSchema = z
     message: "Patch must include at least one prototype screen field.",
   });
 
+const rawPlanBlockSchema = z.record(z.string(), z.unknown());
+
 const planContentPatchUnion = z.discriminatedUnion("op", [
   z
     .object({
@@ -2666,7 +2668,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-block"),
     blockId: idSchema,
-    block: planBlockSchema,
+    block: rawPlanBlockSchema,
   }),
   z.object({
     op: z.literal("update-block"),
@@ -2675,7 +2677,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("replace-blocks"),
-    blocks: z.array(planBlockSchema).max(200),
+    blocks: z.array(rawPlanBlockSchema).max(200),
   }),
   z.object({
     op: z.literal("update-rich-text"),
@@ -2876,6 +2878,30 @@ export const agentPlanIncrementalContentPatchesSchema = z
       "resend the full plan; use get-visual-plan for context and keep each call incremental.",
   );
 
+function assertReplacementPatchAuthoringInput(
+  patches: unknown,
+  previous: PlanContent,
+) {
+  if (!Array.isArray(patches)) return;
+
+  const assertBlock = (block: unknown) => {
+    assertPlanContentAuthoringChanges(
+      { version: previous.version, blocks: [block] } as PlanContent,
+      previous,
+    );
+  };
+
+  for (const patch of patches) {
+    if (!patch || typeof patch !== "object") continue;
+    const record = patch as Record<string, unknown>;
+    if (record.op === "replace-block") {
+      assertBlock(record.block);
+    } else if (record.op === "replace-blocks" && Array.isArray(record.blocks)) {
+      for (const block of record.blocks) assertBlock(block);
+    }
+  }
+}
+
 export function applyPlanContentPatches(
   content: PlanContent,
   patches: PlanContentPatch[],
@@ -2883,8 +2909,22 @@ export function applyPlanContentPatches(
   const previous = storedPlanContentSchema.parse(content);
   const next = cloneJson(previous);
   let pendingVisualRenderMode: PlanVisualCanvasMode | undefined;
+  assertReplacementPatchAuthoringInput(patches, previous);
 
-  for (const patch of planContentPatchesSchema.parse(patches)) {
+  const parsedPatches = planContentPatchesSchema.parse(patches).map((patch) => {
+    if (patch.op === "replace-block") {
+      return { ...patch, block: planBlockSchema.parse(patch.block) };
+    }
+    if (patch.op === "replace-blocks") {
+      return {
+        ...patch,
+        blocks: patch.blocks.map((block) => planBlockSchema.parse(block)),
+      };
+    }
+    return patch;
+  });
+
+  for (const patch of parsedPatches) {
     if (patch.op === "set-metadata") {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.brief !== undefined) next.brief = patch.brief;

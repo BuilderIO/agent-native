@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyPlanContentPatches,
   planContentSchema,
+  planContentPatchesSchema,
   storedPlanContentSchema,
   type PlanContent,
   type PlanWireframeNode,
@@ -1025,6 +1026,112 @@ describe("canvas frame / annotation patch interactions", () => {
 });
 
 describe("replace-blocks and replace-block validation", () => {
+  it.each([
+    [
+      "replace-block checklist",
+      (block: unknown) => ({
+        op: "replace-block",
+        blockId: "checklist",
+        block,
+      }),
+      {
+        id: "checklist",
+        type: "checklist",
+        data: {},
+      },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "replace-block annotated-code",
+      (block: unknown) => ({
+        op: "replace-block",
+        blockId: "annotated-code",
+        block,
+      }),
+      {
+        id: "annotated-code",
+        type: "annotated-code",
+        data: {},
+      },
+      /annotated-code blocks require data\.code/,
+    ],
+    [
+      "replace-blocks checklist",
+      (block: unknown) => ({ op: "replace-blocks", blocks: [block] }),
+      {
+        id: "checklist",
+        type: "checklist",
+        data: {},
+      },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "replace-blocks annotated-code",
+      (block: unknown) => ({ op: "replace-blocks", blocks: [block] }),
+      {
+        id: "annotated-code",
+        type: "annotated-code",
+        data: {},
+      },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "preserves omitted fields through %s parsing",
+    (_label, makePatch, block, message) => {
+      const previous = planContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "checklist",
+            type: "checklist",
+            data: { items: [{ id: "item", label: "Keep this" }] },
+          },
+          {
+            id: "annotated-code",
+            type: "annotated-code",
+            data: { code: "const keep = true;" },
+          },
+        ],
+      });
+      const rawPatch = makePatch(block);
+      const parsedPatches = planContentPatchesSchema.parse([rawPatch]);
+
+      expect(
+        "block" in (parsedPatches[0] ?? {})
+          ? (parsedPatches[0] as { block: unknown }).block
+          : (parsedPatches[0] as { blocks: unknown[] }).blocks[0],
+      ).toEqual(block);
+      expect(() => applyPlanContentPatches(previous, parsedPatches)).toThrow(
+        message,
+      );
+    },
+  );
+
+  it("keeps unchanged legacy defaults through replacement patch parsing", () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-checklist", type: "checklist", data: {} },
+        { id: "legacy-code", type: "annotated-code", data: {} },
+      ],
+    });
+    const patches = planContentPatchesSchema.parse([
+      {
+        op: "replace-blocks",
+        blocks: [
+          { id: "legacy-checklist", type: "checklist", data: {} },
+          { id: "legacy-code", type: "annotated-code", data: {} },
+        ],
+      },
+    ]);
+
+    const next = applyPlanContentPatches(previous, patches);
+    expect(next.blocks).toMatchObject([
+      { id: "legacy-checklist", data: { items: [] } },
+      { id: "legacy-code", data: { code: "" } },
+    ]);
+  });
+
   it("rejects incomplete authored blocks in append and replacement patches", () => {
     const incompleteQuestionBlock = {
       id: "incomplete-questions",
@@ -1044,7 +1151,7 @@ describe("replace-blocks and replace-block validation", () => {
           blocks: [incompleteQuestionBlock],
         },
       ]),
-    ).toThrow(/question-form blocks require at least one questions entry/i);
+    ).toThrow(/question-form blocks require data\.questions/i);
   });
 
   it("replace-blocks rejects a set with duplicate ids", () => {
