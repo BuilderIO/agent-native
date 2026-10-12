@@ -689,9 +689,7 @@ function resolvePersistedRunId(
     return { runId: null, ambiguous: true };
   }
   if (eventsTruncated) {
-    return explicitRunId
-      ? { runId: explicitRunId, ambiguous: false }
-      : { runId: null, ambiguous: true };
+    return { runId: null, ambiguous: true };
   }
   if (explicitRunId) return { runId: explicitRunId, ambiguous: false };
   return eventRunId

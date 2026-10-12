@@ -937,12 +937,12 @@ test("caps assistant relations, snapshot messages, events, parts, and compared c
   assert.equal(summary.eventsCount, 1_026);
   assert.equal(summary.eventsScanned, 1_024);
   assert.equal(summary.eventsTruncated, true);
-  assert.equal(summary.relations[0]?.runIdPresent, true);
-  assert.equal(summary.relations[0]?.sameRunSnapshotCandidateCount, 1);
+  assert.equal(summary.relations[0]?.runIdPresent, false);
+  assert.equal(summary.relations[0]?.sameRunSnapshotCandidateCount, 0);
   assert.equal(summary.relations[0]?.rootContentTruncated, true);
   assert.equal(summary.relations[0]?.rootPartsTruncated, true);
   assert.equal(summary.relations[0]?.rootToolPartCount, 1_023);
-  assert.equal(summary.relations[0]?.snapshotContentTruncatedCount, 1);
+  assert.equal(summary.relations[0]?.snapshotContentTruncatedCount, 0);
   assert.equal(summary.relations[0]?.exactTextMatchCount, 0);
   assert.equal(summary.relations[0]?.prefixCompatibleTextMatchCount, 0);
   assert.equal(summary.relations[1]?.runIdPresent, false);
@@ -954,6 +954,49 @@ test("caps assistant relations, snapshot messages, events, parts, and compared c
     describePersisted(view),
     /PRIVATE_(?:ROOT|SNAPSHOT|LATE|LONG|OTHER|SHORT|BOUND)/,
   );
+});
+
+test("treats explicit run attribution as ambiguous when event conflicts may be beyond the cap", () => {
+  const view = inspectPersistedThread({
+    threadData: JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "root",
+            role: "assistant",
+            metadata: { runId: "run-one" },
+            content: [{ type: "text", text: "answer" }],
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "snapshot",
+            role: "assistant",
+            metadata: { runId: "run-one" },
+            parts: [{ type: "text", text: "answer" }],
+          },
+        ],
+        events: [
+          ...Array.from({ length: 1024 }, () => ({ type: "run.started" })),
+          {
+            type: "message.completed",
+            runId: "run-other",
+            message: { id: "root", role: "assistant" },
+          },
+        ],
+      },
+    }),
+  });
+  assert.equal(view.kind, "ok");
+  if (view.kind !== "ok") return;
+  assert.equal(view.assistantRelations.relations[0]?.runIdAmbiguous, true);
+  assert.equal(
+    view.assistantRelations.relations[0]?.sameRunSnapshotCandidateCount,
+    0,
+  );
+  assert.equal(view.assistantRelations.relations[0]?.exactTextMatchCount, 0);
 });
 
 test("an unreadable persisted thread is not mistaken for an empty one", () => {
