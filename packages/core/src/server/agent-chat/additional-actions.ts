@@ -458,9 +458,11 @@ function rejectSchemaKeywords(
   root: Record<string, unknown>,
   walk: SchemaWalk,
 ): string | null {
-  if (!isPlainRecord(schema)) return null;
+  if (schema === undefined) return null;
+  // Boolean subschemas are compiled and evaluated too, so they count.
   walk.expanded += 1;
   if (walk.expanded > walk.limit) return "too-expanded";
+  if (!isPlainRecord(schema)) return null;
   for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
     if (Object.hasOwn(schema, keyword)) {
       return `has a tool schema that uses "${keyword}", which app actions may not use`;

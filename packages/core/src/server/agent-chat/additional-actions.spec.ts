@@ -409,6 +409,25 @@ describe("resolveAppAdditionalActions", () => {
       );
       expect(Object.keys(expanded)).toHaveLength(4);
 
+      const booleans = await resolveAppAdditionalActions(
+        config({
+          resolver: () => ({
+            "boolean-branches": entry("x", {
+              tool: {
+                description: "x",
+                parameters: {
+                  type: "object",
+                  anyOf: Array.from({ length: 6_000 }, () => true),
+                },
+              },
+            }),
+          }),
+        }),
+        alice,
+        {},
+      );
+      expect(booleans).toEqual({});
+
       // Rejected schemas draw from the same budget as accepted ones.
       const rejectedLate = (i: number) =>
         entry("x", {

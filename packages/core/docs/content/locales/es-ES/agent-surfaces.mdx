@@ -240,7 +240,10 @@ puede ver; o cuando la definición de su herramienta no es utilizable. Las
 descripciones pierden los caracteres de control ocultos y se limitan en
 longitud. `parameters` debe ser un esquema JSON acotado con raíz `object` que no
 use `pattern`, `patternProperties`, `$id`, anclas ni un `$ref` que sea recursivo
-o apunte fuera del esquema.
+o apunte fuera del esquema. Los indicadores como `readOnly` y `access` son
+declaraciones propias de tu aplicación, en las que el framework confía igual que
+en `run`: establécelos según lo que hace tu código, nunca a partir de metadatos
+que haya registrado un usuario.
 
 Cada entrada queda vinculada al llamador para el que se resolvió. Toda llamada,
 sea cual sea el despachador que la realice, se niega a ejecutarse para un

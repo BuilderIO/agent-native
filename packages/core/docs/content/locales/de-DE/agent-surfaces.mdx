@@ -239,7 +239,10 @@ unbrauchbar ist. Aus Beschreibungen werden verborgene Steuerzeichen entfernt,
 und sie werden in der Länge begrenzt. `parameters` muss ein begrenztes
 JSON-Schema mit einem `object`-Wurzelelement sein, das weder `pattern`,
 `patternProperties`, `$id`, Anker noch ein `$ref` verwendet, das rekursiv ist
-oder außerhalb des Schemas verweist.
+oder außerhalb des Schemas verweist. Flags wie `readOnly` und `access` sind die
+eigenen Deklarationen deiner App, denen das Framework so vertraut wie `run`:
+Setze sie anhand dessen, was dein Code tut, niemals anhand von Metadaten, die
+ein Benutzer registriert hat.
 
 Jeder Eintrag ist an den Aufrufer gebunden, für den er aufgelöst wurde. Jeder
 Aufruf, egal welcher Dispatcher ihn ausführt, weigert sich, für einen anderen

@@ -230,7 +230,10 @@ actions hidden from the agent; when it is an `mcp__` name the caller cannot
 see; or when its tool definition is unusable. Descriptions lose hidden control
 characters and are capped. `parameters` must be a bounded JSON schema with an
 `object` root that does not use `pattern`, `patternProperties`, `$id`, anchors,
-or a `$ref` that is recursive or points outside the schema.
+or a `$ref` that is recursive or points outside the schema. Flags such as
+`readOnly` and `access` are your app's own declarations, which the framework
+trusts as it trusts `run`: set them from what your code does, never from
+metadata a user registered.
 
 Each entry is bound to the caller it was resolved for. Every call, whichever
 dispatcher makes it, refuses to run for a different user or organization,

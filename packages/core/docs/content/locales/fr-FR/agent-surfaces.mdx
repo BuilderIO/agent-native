@@ -238,7 +238,11 @@ peut pas voir ; ou lorsque la définition de son outil est inutilisable. Les
 descriptions perdent leurs caractères de contrôle cachés et sont plafonnées.
 `parameters` doit être un schéma JSON borné dont la racine est de type `object`
 et qui n’utilise ni `pattern`, ni `patternProperties`, ni `$id`, ni ancres, ni
-`$ref` récursif ou pointant hors du schéma.
+`$ref` récursif ou pointant hors du schéma. Les indicateurs comme `readOnly` et
+`access` sont les propres déclarations de votre application, auxquelles le
+framework fait confiance comme il fait confiance à `run` : définissez-les
+d’après ce que fait votre code, jamais à partir de métadonnées enregistrées par
+un utilisateur.
 
 Chaque entrée est liée à l’appelant pour lequel elle a été résolue. Chaque
 appel, quel que soit le dispatcher qui l’effectue, refuse de s’exécuter pour un
