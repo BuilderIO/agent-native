@@ -1283,6 +1283,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     ageMs: 100,
+    sameOrigin: true,
     requestWasPendingAtReloadNavigation: true,
   };
 
@@ -1296,6 +1297,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
       {
         ...candidate,
         requestFinishedSuccessfully: true,
+        responseStatus: 204,
         settledAgeMs: 13,
       },
     ]),
@@ -1305,6 +1307,7 @@ it("ignores only WebKit CORS console errors for requests canceled by reload", ()
       {
         ...candidate,
         requestFinishedSuccessfully: true,
+        responseStatus: 204,
         settledAgeMs: 1_000,
       },
     ]),
@@ -1530,6 +1533,27 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
     ]),
   ).toBe(false);
   expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...claimCandidate,
+        requestFinishedSuccessfully: true,
+        sameOrigin: true,
+        responseStatus: 200,
+        settledAgeMs: 13,
+      },
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(pollWarning, "save/reload", [
+      {
+        ...claimCandidate,
+        requestFinishedSuccessfully: true,
+        responseStatus: 503,
+        settledAgeMs: 13,
+      },
+    ]),
+  ).toBe(false);
+  expect(
     isExpectedSaveReloadBrowserSessionConsoleError(
       heartbeatWarning,
       "save/reload",
@@ -1614,6 +1638,67 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
       "save/reload",
       [{ ...registrationCandidate, ageMs: 9_000 }],
     ),
+  ).toBe(false);
+});
+
+it("correlates a poll error to one successful claim that finished just before reload", () => {
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  const completedClaim = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 120,
+    settledAgeMs: 12,
+    sameOrigin: true,
+    responseStatus: 200,
+    requestWasPendingAtNavigation: false,
+    requestFinishedSuccessfully: true,
+    completedSuccessfullyBeforeNavigation: true,
+    completedBeforeNavigationAgeMs: 4,
+    requestStartedDuringNavigation: false,
+  };
+
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, responseStatus: 500 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, sameOrigin: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, completedBeforeNavigationAgeMs: 250 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, settledAgeMs: 1_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, competingClaimStartedAfterNavigation: true },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      completedClaim,
+      { ...completedClaim, url: `${completedClaim.url}?second` },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionConsoleError(warning, "save/reload", [
+      { ...completedClaim, method: "GET" },
+    ]),
   ).toBe(false);
 });
 
@@ -1863,6 +1948,7 @@ it("requires the scaled profile to render below 0.99 after viewport setup", asyn
 
 it("checks the rendered slide scale when the scaled profile is requested", async () => {
   const page = {
+    url: () => "http://localhost:5173/",
     on: () => {},
     off: () => {},
     evaluate: async () => {},

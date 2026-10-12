@@ -267,6 +267,14 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+function isBrowserSessionClaimRequest(method: string, pathname: string) {
+  const matchesPath =
+    typeof browserSessionClaimRequestRule.path === "string"
+      ? browserSessionClaimRequestRule.path === pathname
+      : browserSessionClaimRequestRule.path.test(pathname);
+  return matchesPath && browserSessionClaimRequestRule.method === method;
+}
+
 type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
@@ -277,6 +285,7 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
+const reloadNavigationSuccessfulClaimGraceMs = 250;
 
 const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
   path: "/_agent-native/browser-sessions",
@@ -336,8 +345,13 @@ type WatchedRequestNavigationCandidate = {
   method: string;
   ageMs: number;
   settledAgeMs?: number;
+  responseStatus?: number;
+  sameOrigin?: boolean;
   requestWasPendingAtNavigation?: boolean;
   requestFinishedSuccessfully?: boolean;
+  completedSuccessfullyBeforeNavigation?: boolean;
+  completedBeforeNavigationAgeMs?: number;
+  requestStartedDuringNavigation?: boolean;
   competingRequestStartedAfterNavigation?: boolean;
   competingClaimStartedAfterNavigation?: boolean;
   competingRegistrationStartedAfterNavigation?: boolean;
@@ -353,6 +367,10 @@ function isExpectedWatchedRequestNavigationAbort(
     candidate.competingRequestStartedAfterNavigation !== true &&
     (candidate.requestFinishedSuccessfully !== true ||
       (allowFinishedRequestGrace &&
+        candidate.sameOrigin === true &&
+        candidate.responseStatus !== undefined &&
+        candidate.responseStatus >= 200 &&
+        candidate.responseStatus < 300 &&
         candidate.settledAgeMs !== undefined &&
         candidate.settledAgeMs >= 0 &&
         candidate.settledAgeMs < reloadNavigationConsoleGraceMs)) &&
@@ -405,11 +423,46 @@ export function isExpectedWatchedRequestCorsError(
 function hasExactlyOneExpectedBrowserSessionAbort(
   candidates: WatchedRequestNavigationCandidate[],
   rules: readonly SaveReloadRequestAbortRule[],
+  allowFinishedRequestGrace = false,
 ) {
   return (
     candidates.filter((candidate) =>
-      isExpectedWatchedRequestNavigationAbort(candidate, rules),
+      isExpectedWatchedRequestNavigationAbort(
+        candidate,
+        rules,
+        allowFinishedRequestGrace,
+      ),
     ).length === 1
+  );
+}
+
+function isExpectedCompletedClaimBeforeReload(
+  candidate: WatchedRequestNavigationCandidate,
+) {
+  const matchesPath =
+    typeof browserSessionClaimRequestRule.path === "string"
+      ? browserSessionClaimRequestRule.path === candidate.pathname
+      : browserSessionClaimRequestRule.path.test(candidate.pathname);
+  return (
+    candidate.completedSuccessfullyBeforeNavigation === true &&
+    candidate.requestWasPendingAtNavigation === false &&
+    candidate.requestStartedDuringNavigation !== true &&
+    candidate.competingClaimStartedAfterNavigation !== true &&
+    candidate.method === browserSessionClaimRequestRule.method &&
+    matchesPath &&
+    candidate.sameOrigin === true &&
+    candidate.ageMs >= 0 &&
+    candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+    candidate.responseStatus !== undefined &&
+    candidate.responseStatus >= 200 &&
+    candidate.responseStatus < 300 &&
+    candidate.completedBeforeNavigationAgeMs !== undefined &&
+    candidate.completedBeforeNavigationAgeMs >= 0 &&
+    candidate.completedBeforeNavigationAgeMs <
+      reloadNavigationSuccessfulClaimGraceMs &&
+    candidate.settledAgeMs !== undefined &&
+    candidate.settledAgeMs >= 0 &&
+    candidate.settledAgeMs < reloadNavigationConsoleGraceMs
   );
 }
 
@@ -426,10 +479,29 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
           "[Agent-Native browser session] heartbeat failed: TypeError: Load failed"
         ? [browserSessionRegistrationRequestRule]
         : null;
+  const isPollFailure =
+    message ===
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+  if (
+    isPollFailure &&
+    candidates.some(
+      (candidate) =>
+        candidate.completedSuccessfullyBeforeNavigation === true &&
+        candidate.competingClaimStartedAfterNavigation === true,
+    )
+  ) {
+    return false;
+  }
   return (
     activePhase === "save/reload" &&
     rules !== null &&
-    hasExactlyOneExpectedBrowserSessionAbort(candidates, rules)
+    (hasExactlyOneExpectedBrowserSessionAbort(
+      candidates,
+      rules,
+      isPollFailure,
+    ) ||
+      (isPollFailure &&
+        candidates.filter(isExpectedCompletedClaimBeforeReload).length === 1))
   );
 }
 
@@ -533,6 +605,7 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
     method: string;
     ageMs: number;
     settledAgeMs?: number;
+    responseStatus?: number;
     requestWasPendingAtReloadNavigation?: boolean;
     requestFinishedSuccessfully?: boolean;
     competingRequestStartedAfterNavigation?: boolean;
@@ -1143,20 +1216,32 @@ export async function runAuthoringFuzz(
   }
   const editor: Locator = page.locator(editorSelector);
   const slideContent: Locator = page.locator(slideContentSelector);
+  const authoringPageOrigin = new URL(page.url()).origin;
   const pageErrors: string[] = [];
   const pendingRequests = new Map<
     any,
     { method: string; path: string; startedAt: number }
   >();
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
-  const reloadNavigationRequests = new Map<
+  const inFlightBrowserSessionClaims = new Map<
     any,
-    {
-      startedAt: number;
-      settledAt: number | null;
-      finishedSuccessfully: boolean;
-    }
+    { startedAt: number; responseStatus: number | null }
   >();
+  const recentlyCompletedBrowserSessionClaims = new Map<
+    any,
+    { startedAt: number; settledAt: number; responseStatus: number }
+  >();
+  type ReloadNavigationRequest = {
+    startedAt: number;
+    settledAt: number | null;
+    finishedSuccessfully: boolean;
+    responseStatus: number | null;
+    requestWasPendingAtNavigation: boolean;
+    completedSuccessfullyBeforeNavigation: boolean;
+    completedBeforeNavigationAgeMs: number | null;
+    requestStartedDuringNavigation: boolean;
+  };
+  const reloadNavigationRequests = new Map<any, ReloadNavigationRequest>();
   let reloadNavigationStartedAt: number | null = null;
   // Diagnostic only: reloadNavigationStartedAt resets after each reload, but a
   // late failure can still be logged after that. This keeps the latest start.
@@ -1169,6 +1254,24 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
+  for (const [request, startedAt] of watchedRequests.entries()) {
+    if (
+      !isBrowserSessionClaimRequest(
+        request.method(),
+        new URL(request.url()).pathname,
+      )
+    ) {
+      continue;
+    }
+    const claim = { startedAt, responseStatus: null };
+    inFlightBrowserSessionClaims.set(request, claim);
+    void request
+      .response()
+      .then((response: any) => {
+        if (response) claim.responseStatus = response.status();
+      })
+      .catch(() => undefined);
+  }
   const onConsole = (message: any) => {
     if (
       traceEnabled &&
@@ -1193,18 +1296,51 @@ export async function runAuthoringFuzz(
     const now = Date.now();
     const reloadNavigationCandidates = [
       ...reloadNavigationRequests.entries(),
-    ].map(([request, { startedAt, settledAt, finishedSuccessfully }]) => {
-      const url = request.url();
-      return {
-        url,
-        pathname: new URL(url).pathname,
-        method: request.method(),
-        ageMs: now - startedAt,
-        ...(settledAt === null ? {} : { settledAgeMs: now - settledAt }),
-        requestFinishedSuccessfully: finishedSuccessfully,
-        requestWasPendingAtNavigation: true,
-      };
-    });
+    ].map(
+      ([
+        request,
+        {
+          startedAt,
+          settledAt,
+          finishedSuccessfully,
+          responseStatus,
+          requestWasPendingAtNavigation,
+          completedSuccessfullyBeforeNavigation,
+          completedBeforeNavigationAgeMs,
+          requestStartedDuringNavigation,
+        },
+      ]) => {
+        const url = request.url();
+        return {
+          url,
+          pathname: new URL(url).pathname,
+          method: request.method(),
+          ageMs: now - startedAt,
+          sameOrigin: new URL(url).origin === authoringPageOrigin,
+          ...(settledAt === null ? {} : { settledAgeMs: now - settledAt }),
+          ...(responseStatus === null ? {} : { responseStatus }),
+          requestFinishedSuccessfully: finishedSuccessfully,
+          requestWasPendingAtNavigation,
+          completedSuccessfullyBeforeNavigation,
+          ...(completedBeforeNavigationAgeMs === null
+            ? {}
+            : { completedBeforeNavigationAgeMs }),
+          requestStartedDuringNavigation,
+          competingClaimStartedAfterNavigation:
+            isBrowserSessionClaimRequest(
+              request.method(),
+              new URL(url).pathname,
+            ) &&
+            [...reloadNavigationRequests.entries()].some(
+              ([otherRequest, otherCandidate]) =>
+                otherRequest !== request &&
+                otherCandidate.requestStartedDuringNavigation &&
+                otherRequest.method() === request.method() &&
+                new URL(otherRequest.url()).pathname === new URL(url).pathname,
+            ),
+        };
+      },
+    );
     // Captured now, not when the log runs: Firefox normalization finishes
     // asynchronously, after reload state may have been reset. Offsets use the
     // latest reload start, which is never reset (negative = started before it).
@@ -1274,6 +1410,7 @@ export async function runAuthoringFuzz(
       reloadNavigationRequests.has(request);
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    inFlightBrowserSessionClaims.delete(request);
     const url = request.url();
     const pathname = new URL(url).pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
@@ -1317,6 +1454,12 @@ export async function runAuthoringFuzz(
   const onRequest = (request: any) => {
     const requestUrl = new URL(request.url());
     const startedAt = Date.now();
+    if (isBrowserSessionClaimRequest(request.method(), requestUrl.pathname)) {
+      inFlightBrowserSessionClaims.set(request, {
+        startedAt,
+        responseStatus: null,
+      });
+    }
     if (
       [
         "/_agent-native/actions/get-lab-states",
@@ -1338,6 +1481,11 @@ export async function runAuthoringFuzz(
         startedAt,
         settledAt: null,
         finishedSuccessfully: false,
+        responseStatus: null,
+        requestWasPendingAtNavigation: true,
+        completedSuccessfullyBeforeNavigation: false,
+        completedBeforeNavigationAgeMs: null,
+        requestStartedDuringNavigation: true,
       });
     }
     if (!traceEnabled) return;
@@ -1360,14 +1508,50 @@ export async function runAuthoringFuzz(
   const onRequestSettled = (request: any) => {
     pendingRequests.delete(request);
     watchedRequests.delete(request);
+    const settledAt = Date.now();
+    const claim = inFlightBrowserSessionClaims.get(request);
+    if (claim) {
+      if (
+        claim.responseStatus !== null &&
+        claim.responseStatus >= 200 &&
+        claim.responseStatus < 300
+      ) {
+        for (const [
+          completedRequest,
+          completedClaim,
+        ] of recentlyCompletedBrowserSessionClaims.entries()) {
+          if (
+            settledAt - completedClaim.settledAt >=
+            reloadNavigationSuccessfulClaimGraceMs
+          ) {
+            recentlyCompletedBrowserSessionClaims.delete(completedRequest);
+          }
+        }
+        recentlyCompletedBrowserSessionClaims.set(request, {
+          startedAt: claim.startedAt,
+          settledAt,
+          responseStatus: claim.responseStatus,
+        });
+      }
+      inFlightBrowserSessionClaims.delete(request);
+    }
     const candidate = reloadNavigationRequests.get(request);
     // WebKit can deliver the fetch error after Playwright's requestfinished event.
     if (candidate) {
-      candidate.settledAt = Date.now();
+      candidate.settledAt = settledAt;
       candidate.finishedSuccessfully = true;
+      candidate.responseStatus =
+        claim?.responseStatus ?? candidate.responseStatus;
     }
   };
   const onResponse = (response: any) => {
+    const request = response.request();
+    const claim = inFlightBrowserSessionClaims.get(request);
+    if (claim) claim.responseStatus = response.status();
+    const navigationCandidate = reloadNavigationRequests.get(request);
+    if (navigationCandidate) {
+      navigationCandidate.responseStatus = response.status();
+    }
     if (traceEnabled) {
       const responseUrl = new URL(response.url());
       if (
@@ -5105,6 +5289,12 @@ export async function runAuthoringFuzz(
           startedAt,
           settledAt: null,
           finishedSuccessfully: false,
+          responseStatus:
+            inFlightBrowserSessionClaims.get(request)?.responseStatus ?? null,
+          requestWasPendingAtNavigation: true,
+          completedSuccessfullyBeforeNavigation: false,
+          completedBeforeNavigationAgeMs: null,
+          requestStartedDuringNavigation: false,
         });
         if (traceEnabled) {
           console.log(
@@ -5112,6 +5302,28 @@ export async function runAuthoringFuzz(
           );
         }
       }
+      for (const [request, claim] of recentlyCompletedBrowserSessionClaims) {
+        const completedBeforeNavigationAgeMs =
+          reloadNavigationStartedAt - claim.settledAt;
+        if (
+          completedBeforeNavigationAgeMs < 0 ||
+          completedBeforeNavigationAgeMs >=
+            reloadNavigationSuccessfulClaimGraceMs
+        ) {
+          continue;
+        }
+        reloadNavigationRequests.set(request, {
+          startedAt: claim.startedAt,
+          settledAt: claim.settledAt,
+          finishedSuccessfully: true,
+          responseStatus: claim.responseStatus,
+          requestWasPendingAtNavigation: false,
+          completedSuccessfullyBeforeNavigation: true,
+          completedBeforeNavigationAgeMs,
+          requestStartedDuringNavigation: false,
+        });
+      }
+      recentlyCompletedBrowserSessionClaims.clear();
     });
     reloadNavigationStartedAt = null;
     assertAuthoringPersistence(persistence);
