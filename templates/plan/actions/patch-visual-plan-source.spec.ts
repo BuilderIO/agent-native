@@ -295,18 +295,9 @@ describe("patch-visual-plan-source guardrails", () => {
     expect(dbUpdateMock).toHaveBeenCalled();
   });
 
-  it("rejects new incomplete blocks during a legacy-preserving source edit", async () => {
-    parsePlanMdxFolderMock.mockResolvedValueOnce({
-      ...populatedContent(),
-      blocks: [
-        ...populatedContent().blocks,
-        {
-          id: "new-questions",
-          type: "question-form",
-          data: { questions: [] },
-        },
-      ],
-    });
+  it("validates source field presence against the loaded plan before defaults", async () => {
+    const previous = populatedContent();
+    loadPlanBundleMock.mockResolvedValueOnce(bundleWith(previous));
 
     await expect(
       runAction({
@@ -319,11 +310,15 @@ describe("patch-visual-plan-source guardrails", () => {
           },
         ],
       }),
-    ).rejects.toThrow(
-      /question-form blocks require at least one questions entry/,
+    ).resolves.toMatchObject({ planId: "plan_test" });
+
+    expect(parsePlanMdxFolderMock).toHaveBeenCalledWith(
+      { "plan.mdx": "# Updated plan" },
+      {
+        allowStoredLegacyDefaults: true,
+        validateAuthoringChangesAgainst: previous,
+      },
     );
-    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
-    expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 
   it("allows an explicitly destructive replacement and logs only bounded metadata", async () => {

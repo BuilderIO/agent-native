@@ -36,10 +36,7 @@ import {
   planStatusSchema,
   writeEvent,
 } from "../server/plans.js";
-import {
-  assertPlanContentAuthoringChanges,
-  type PlanContent,
-} from "../shared/plan-content.js";
+import { type PlanContent } from "../shared/plan-content.js";
 
 export default defineAction({
   description:
@@ -110,10 +107,10 @@ export default defineAction({
       content = await parsePlanMdxFolder(args.mdx, {
         allowStoredLegacyDefaults: previousContent != null,
         salvageInvalidBlocks: args.kind === "recap",
+        ...(args.kind !== "recap" || previousContent != null
+          ? { validateAuthoringChangesAgainst: previousContent ?? null }
+          : {}),
       });
-      if (previousContent) {
-        assertPlanContentAuthoringChanges(content, previousContent);
-      }
       if (args.kind === "recap") {
         assertRecapWireframesHaveContent(content);
       }

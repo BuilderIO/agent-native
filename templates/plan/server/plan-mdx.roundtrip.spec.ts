@@ -99,6 +99,63 @@ describe("stored legacy defaults in MDX source", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("validates raw MDX fields before applying stored defaults", async () => {
+    const previous = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy-checklist", type: "checklist", data: {} },
+        { id: "legacy-code", type: "annotated-code", data: {} },
+      ],
+    });
+    const folder = {
+      "plan.mdx": [
+        "---",
+        "version: 2",
+        "---",
+        "",
+        '<Checklist id="legacy-checklist" />',
+        '<AnnotatedCode id="legacy-code" />',
+      ].join("\n"),
+    };
+
+    const parsed = await parsePlanMdxFolder(folder, {
+      allowStoredLegacyDefaults: true,
+      validateAuthoringChangesAgainst: previous,
+    });
+
+    expect(parsed.blocks).toMatchObject([
+      { id: "legacy-checklist", data: { items: [] } },
+      { id: "legacy-code", data: { code: "" } },
+    ]);
+  });
+
+  it.each([
+    ["checklist", '<Checklist id="new-checklist" />', "items"],
+    ["annotated code", '<AnnotatedCode id="new-code" />', "code"],
+  ])(
+    "rejects new MDX blocks with omitted %s fields",
+    async (_label, block, field) => {
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          { id: "intro", type: "rich-text", data: { markdown: "Body" } },
+        ],
+      });
+
+      await expect(
+        parsePlanMdxFolder(
+          {
+            "plan.mdx": ["---", "version: 2", "---", "", block].join("\n"),
+          },
+          {
+            allowStoredLegacyDefaults: true,
+            validateAuthoringChangesAgainst: previous,
+          },
+        ),
+      ).rejects.toThrow(new RegExp(`require data\\.${field}`));
+    },
+  );
 });
 
 describe("plan MDX round-trip fidelity per block type", () => {

@@ -23,6 +23,9 @@ const loadPlanBundleMock = vi.hoisted(() => vi.fn());
 const notifyPlanCommentRecipientsMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
 const createPlanVersionSnapshotMock = vi.hoisted(() => vi.fn());
+const normalizePlanContentMock = vi.hoisted(() =>
+  vi.fn((content: unknown) => content),
+);
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
@@ -105,7 +108,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/plan-content.js", () => ({
-  normalizePlanContent: vi.fn((content: unknown) => content),
+  normalizePlanContent: (content: unknown) => normalizePlanContentMock(content),
   sanitizeStoredPlanHtml: vi.fn((html: string) => html),
   serializePlanContent: vi.fn((content: unknown) => content),
 }));
@@ -325,6 +328,8 @@ describe("update-visual-plan comments", () => {
     resolveAccessMock.mockReset();
     createPlanVersionSnapshotMock.mockReset();
     createPlanVersionSnapshotMock.mockResolvedValue({ created: true });
+    normalizePlanContentMock.mockReset();
+    normalizePlanContentMock.mockImplementation((content: unknown) => content);
     delete process.env.AUTH_MODE;
     delete process.env.PLAN_LOCAL_MODE;
   });
@@ -1529,6 +1534,84 @@ describe("update-visual-plan comments", () => {
     });
     expect(updateWhereMock).toHaveBeenCalled();
   });
+
+  it.each([
+    ["a JSON string", JSON.stringify({ version: 2, blocks: [] })],
+    ["an envelope with defaulted blocks", { version: 2 }],
+  ])("accepts full content replacement from %s", async (_label, content) => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    normalizePlanContentMock.mockImplementation((input: unknown) =>
+      storedPlanContentSchema.parse(input),
+    );
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+    const action = updateVisualPlan as unknown as {
+      schema: { parse: (input: unknown) => unknown };
+      run: (input: unknown) => Promise<unknown>;
+    };
+    const args = action.schema.parse({
+      planId: "plan_public",
+      expectedUpdatedAt: baseUpdatedAt,
+      content,
+      contentPatches: [],
+      sections: [],
+      comments: [],
+      consumedCommentIds: [],
+    });
+
+    await expect(action.run(args)).resolves.toMatchObject({
+      planId: "plan_public",
+    });
+  });
+
+  it.each([
+    [
+      "checklist items",
+      { id: "new-checklist", type: "checklist", data: {} },
+      /checklist blocks require data\.items/,
+    ],
+    [
+      "annotated-code code",
+      { id: "new-annotated-code", type: "annotated-code", data: {} },
+      /annotated-code blocks require data\.code/,
+    ],
+  ])(
+    "validates omitted %s in JSON-string replacements",
+    async (_label, block, message) => {
+      request.email = "editor@example.com";
+      useSuccessfulDb();
+      const previous = storedPlanContentSchema.parse({
+        version: 2,
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Existing content." },
+          },
+        ],
+      });
+      loadPlanBundleMock.mockResolvedValue(planBundle({ content: previous }));
+      const action = updateVisualPlan as unknown as {
+        schema: { parse: (input: unknown) => unknown };
+        run: (input: unknown) => Promise<unknown>;
+      };
+      const args = action.schema.parse({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        content: JSON.stringify({
+          version: 2,
+          blocks: [previous.blocks[0], block],
+        }),
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      });
+
+      await expect(action.run(args)).rejects.toThrow(message);
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects new incomplete fields in full replacements", async () => {
     request.email = "editor@example.com";

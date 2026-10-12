@@ -26,10 +26,7 @@ import {
   planPath,
   writeEvent,
 } from "../server/plans.js";
-import {
-  assertPlanContentAuthoringChanges,
-  type PlanContent,
-} from "../shared/plan-content.js";
+import { type PlanContent } from "../shared/plan-content.js";
 
 const agentPlanMdxSourcePatchesSchema = z
   .array(
@@ -319,8 +316,8 @@ export default defineAction({
     const nextMdx = await applyPlanMdxSourcePatches(currentMdx, args.patches);
     const nextContent = await parsePlanMdxFolder(nextMdx, {
       allowStoredLegacyDefaults: true,
+      validateAuthoringChangesAgainst: bundle.plan.content,
     });
-    assertPlanContentAuthoringChanges(nextContent, bundle.plan.content);
     const beforeCounts = planSurfaceCounts(bundle.plan.content);
     const afterCounts = planSurfaceCounts(nextContent);
     assertNoUnexpectedSurfaceCollapse(

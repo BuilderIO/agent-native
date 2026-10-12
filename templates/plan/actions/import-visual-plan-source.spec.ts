@@ -199,6 +199,55 @@ describe("import-visual-plan-source stored legacy defaults", () => {
     expect(updateMock).not.toHaveBeenCalled();
   });
 
+  it("rejects new blocks whose required fields were hidden by stored defaults", async () => {
+    await expect(
+      runAction({
+        planId: "plan-legacy",
+        mdx: {
+          "plan.mdx": [
+            "---",
+            'title: "Legacy plan"',
+            "version: 2",
+            "---",
+            "",
+            '<Checklist id="new-checklist" />',
+          ].join("\n"),
+        },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      message: expect.stringContaining("checklist blocks require data.items"),
+    });
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves omitted required fields on unchanged legacy source blocks", async () => {
+    const result = await runAction({
+      planId: "plan-legacy",
+      mdx: {
+        "plan.mdx": [
+          "---",
+          'title: "Legacy plan"',
+          "version: 2",
+          "---",
+          "",
+          '<QuestionForm id="questions" />',
+          '<TabsBlock id="tabs" />',
+          '<DataModel id="model" />',
+        ].join("\n"),
+      },
+    });
+
+    expect(result).toMatchObject({ planId: "plan-legacy" });
+    expect(state.content).toMatchObject({
+      blocks: [
+        { id: "questions", data: { questions: [] } },
+        { id: "tabs", data: { tabs: [] } },
+        { id: "model", data: { entities: [] } },
+      ],
+    });
+  });
+
   it("rejects clearing a previously populated question array during replacement", async () => {
     const previous = storedPlanContentSchema.parse({
       version: 2,

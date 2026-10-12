@@ -52,7 +52,7 @@ import {
 } from "../server/plans.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
-  assertPlanContentAuthoringChanges,
+  assertPlanContentAuthoringInput,
   applyPlanContentPatches,
   findBlock,
   planContentPatchesSchema,
@@ -760,8 +760,9 @@ export default defineAction({
           statusCode: 422,
         });
       }
-      assertPlanContentAuthoringChanges(
-        args.content as PlanContent,
+      assertPlanContentAuthoringInput(
+        args.content,
+        nextContent,
         bundleAtLoad?.plan.content,
       );
     }

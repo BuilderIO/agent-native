@@ -2066,13 +2066,18 @@ function validateAuthoringBlocks(
           previousBlock?.type === type
             ? (previousBlock.data as Record<string, unknown>)[required.field]
             : undefined;
-        const preservesLegacyEmptyArray =
-          required.nonEmpty &&
-          Array.isArray(fieldValue) &&
-          fieldValue.length === 0 &&
-          Array.isArray(previousFieldValue) &&
-          previousFieldValue.length === 0;
-        if (fieldValue === undefined) {
+        const previousFieldIsLegacyDefault =
+          (Array.isArray(previousFieldValue) &&
+            previousFieldValue.length === 0) ||
+          previousFieldValue === "";
+        const preservesLegacyDefault =
+          previousBlock?.type === type &&
+          previousFieldIsLegacyDefault &&
+          (fieldValue === undefined ||
+            (required.nonEmpty &&
+              Array.isArray(fieldValue) &&
+              fieldValue.length === 0));
+        if (fieldValue === undefined && !preservesLegacyDefault) {
           context.addIssue({
             code: "custom",
             path: fieldPath,
@@ -2082,7 +2087,7 @@ function validateAuthoringBlocks(
           required.nonEmpty &&
           Array.isArray(fieldValue) &&
           fieldValue.length === 0 &&
-          !preservesLegacyEmptyArray
+          !preservesLegacyDefault
         ) {
           context.addIssue({
             code: "custom",
@@ -2156,15 +2161,30 @@ export function parsePlanContentAuthoringChanges(
   previous: PlanContent,
 ): PlanContent {
   const parsed = storedPlanContentSchema.parse(input);
-  const authoringInput = typeof input === "string" ? JSON.parse(input) : input;
+  assertPlanContentAuthoringInput(input, parsed, previous);
+  return parsed;
+}
+
+export function assertPlanContentAuthoringInput(
+  input: unknown,
+  normalized: PlanContent,
+  previous: PlanContent | null | undefined,
+): void {
+  let authoringInput = input;
+  if (typeof input === "string") {
+    try {
+      authoringInput = JSON.parse(input);
+    } catch {
+      authoringInput = normalized;
+    }
+  }
   const candidate =
     authoringInput &&
     typeof authoringInput === "object" &&
     Array.isArray((authoringInput as { blocks?: unknown }).blocks)
       ? (authoringInput as PlanContent)
-      : parsed;
+      : normalized;
   assertPlanContentAuthoringChanges(candidate, previous);
-  return parsed;
 }
 
 export function assertPlanContentAuthoringChanges(

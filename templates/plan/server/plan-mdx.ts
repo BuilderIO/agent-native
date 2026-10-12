@@ -22,6 +22,7 @@ import {
 } from "../shared/plan-assets.js";
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import {
+  assertPlanContentAuthoringChanges,
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
   planContentSchema,
@@ -1284,6 +1285,7 @@ function parseBlocksFromNodes(
     firstMarkdownBlockId?: string;
     markdownBlockIds?: string[];
     markdownBlocks?: MarkdownBlockState[];
+    preserveAuthoringFieldPresence?: boolean;
   } = {},
 ): PlanBlock[] {
   const parsedNodes: ParsedPlanNode[] = [];
@@ -1296,7 +1298,15 @@ function parseBlocksFromNodes(
   };
 
   for (const [index, child] of (nodes ?? []).entries()) {
-    const block = parseBlock(child, `${idContext}-${index}`);
+    const parsedBlock = parseBlock(
+      child,
+      `${idContext}-${index}`,
+      options.preserveAuthoringFieldPresence,
+    );
+    const block =
+      parsedBlock && options.preserveAuthoringFieldPresence
+        ? preserveMissingAuthoringField(parsedBlock, child)
+        : parsedBlock;
     if (block) {
       flushLoose();
       parsedNodes.push({ type: "block", block });
@@ -1331,6 +1341,36 @@ function elementName(node: MdxNode | undefined): string | undefined {
     node?.type === "mdxJsxTextElement"
     ? node.name
     : undefined;
+}
+
+const requiredAuthoringFieldByBlockType: Partial<
+  Record<PlanBlock["type"], string>
+> = {
+  checklist: "items",
+  "question-form": "questions",
+  "visual-questions": "questions",
+  tabs: "tabs",
+  "data-model": "entities",
+  "annotated-code": "code",
+};
+
+function preserveMissingAuthoringField(
+  block: PlanBlock,
+  node: MdxNode,
+): PlanBlock {
+  const field = requiredAuthoringFieldByBlockType[block.type];
+  if (!field) return block;
+  const fieldValue = attributeValue(findAttribute(node, field));
+  if (
+    (field === "code" && typeof fieldValue === "string") ||
+    (field !== "code" && Array.isArray(fieldValue))
+  ) {
+    return block;
+  }
+
+  const data = { ...block.data } as Record<string, unknown>;
+  delete data[field];
+  return { ...block, data } as PlanBlock;
 }
 
 function findAttribute(node: MdxNode, name: string): MdxAttribute | undefined {
@@ -1447,7 +1487,11 @@ function suggestBlockTag(name: string): string | undefined {
   return undefined;
 }
 
-function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
+function parseBlock(
+  node: MdxNode,
+  idContext = "block",
+  preserveAuthoringFieldPresence = false,
+): PlanBlock | null {
   const rawName = elementName(node);
   const dispatchNode: MdxNode = rawName
     ? normalizeBlockAliasNode(node, rawName)
@@ -1455,7 +1499,11 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
   const name = dispatchNode.name;
   node = dispatchNode;
   if (name === "Columns") {
-    const parsed = parseReadableColumnsBlock(node, idContext);
+    const parsed = parseReadableColumnsBlock(
+      node,
+      idContext,
+      preserveAuthoringFieldPresence,
+    );
     if (parsed) return parsed;
   }
   if (name && WIREFRAME_ONLY_COMPONENTS.has(name)) {
@@ -1639,6 +1687,7 @@ function parseBlock(node: MdxNode, idContext = "block"): PlanBlock | null {
 function parseReadableColumnsBlock(
   node: MdxNode,
   idContext: string,
+  preserveAuthoringFieldPresence = false,
 ): PlanBlock | null {
   const columnNodes = (node.children ?? []).filter(
     (child) => elementName(child) === "Column",
@@ -1658,7 +1707,10 @@ function parseReadableColumnsBlock(
           blocks: parseBlocksFromNodes(
             column.children,
             `${idContext}-${base.id}-${id}`,
-            { firstMarkdownBlockId: stringAttr(column, "contentId") },
+            {
+              firstMarkdownBlockId: stringAttr(column, "contentId"),
+              preserveAuthoringFieldPresence,
+            },
           ),
         };
       }),
@@ -1731,6 +1783,7 @@ export async function parsePlanMdxFolder(
   options: {
     allowStoredLegacyDefaults?: boolean;
     salvageInvalidBlocks?: boolean;
+    validateAuthoringChangesAgainst?: PlanContent | null;
   } = {},
 ): Promise<PlanContent> {
   const files = planMdxFileSchema.parse(folder);
@@ -1744,6 +1797,8 @@ export async function parsePlanMdxFolder(
   const blocks = parseBlocksFromNodes(planTree.children, "plan-block", {
     markdownBlockIds: state?.markdownBlockIds,
     markdownBlocks: state?.markdownBlocks,
+    preserveAuthoringFieldPresence:
+      options.validateAuthoringChangesAgainst !== undefined,
   });
 
   const canvas = files["canvas.mdx"]
@@ -1772,7 +1827,16 @@ export async function parsePlanMdxFolder(
     canvas,
     blocks,
   };
-  const normalized = normalizePlanContent(content, options);
+  if (options.validateAuthoringChangesAgainst !== undefined) {
+    assertPlanContentAuthoringChanges(
+      content,
+      options.validateAuthoringChangesAgainst,
+    );
+  }
+  const normalized = normalizePlanContent(content, {
+    allowStoredLegacyDefaults: options.allowStoredLegacyDefaults,
+    salvageInvalidBlocks: options.salvageInvalidBlocks,
+  });
   if (!normalized)
     throw new Error("MDX source did not parse into valid plan content.");
   return normalized;
