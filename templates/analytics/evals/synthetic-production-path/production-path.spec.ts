@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -26,18 +27,33 @@ const syntheticData = vi.hoisted(() => {
     ownerEmail: "synthetic-eval@example.invalid",
     orgId: "org_synthetic_eval",
     dictionaryEntries: {
-      "data-dict-fixture-approved-monthly-group-count": {
-        id: "fixture-approved-monthly-group-count",
-        metric: "Monthly Group Member Count",
+      "data-dict-fixture-approved-monthly-organization-user-count": {
+        id: "fixture-approved-monthly-organization-user-count",
+        metric: "Monthly Organization User Count",
         definition:
-          "Daily-built per calendar month and group. Completed months use the last calendar day; the current month is partial through today. The headline count excludes records marked as test members; the test-member count includes them and is not an employee roster. A group key may identify a nested group.",
+          "Daily-built per calendar month and organization. Completed months use the last calendar day; the current month is partial through today. The headline count excludes records marked as test members; the test-member count includes them and is not a person roster.",
         source: "fixture_warehouse",
         sourceKind: "code",
         entryType: "model",
-        table: "fixture_warehouse.monthly_group_member_counts",
-        columnsUsed: "month_start, group_key, member_count, test_member_count",
-        grain: "One row per month_start per group_key",
+        table: "fixture_warehouse.monthly_org_user_counts",
+        columnsUsed:
+          "month_start, organization_key, member_count, test_member_count",
+        grain: "One row per month_start per organization_key",
         semanticScope: "membership",
+        approved: true,
+      },
+      "data-dict-fixture-builder-product-users": {
+        id: "fixture-builder-product-users",
+        metric: "Builder.io Product User Records",
+        definition:
+          "Synthetic customer identity records for Builder.io product users.",
+        source: "fixture_warehouse",
+        sourceKind: "code",
+        entryType: "model",
+        table: "fixture_warehouse.builder_product_users",
+        columnsUsed: "user_key, account_key, created_at",
+        grain: "One row per user_key",
+        semanticScope: "product_user",
         approved: true,
       },
     },
@@ -52,20 +68,36 @@ const syntheticData = vi.hoisted(() => {
       ],
       entries: [
         {
-          id: "fixture-group-member-roles",
-          metric: "Group Member Roles",
+          id: "fixture-organization-member-roles",
+          metric: "Organization Member Roles",
           definition:
-            "One row per member-to-group association, including the assigned group role.",
+            "One row per member-to-organization association, including the assigned organization role.",
           source: "fixture_warehouse",
           sourceKind: "code",
           entryType: "model",
           status: "active",
           semanticScope: "membership",
-          grain: "One row per member_key per group_key",
-          primaryEntity: "group membership",
-          table: "fixture_warehouse.group_member_roles",
-          columnsUsed: "member_key, group_key, role_code",
-          sourcePath: "fixtures/models/group_member_roles.sql",
+          grain: "One row per member_key per organization_key",
+          primaryEntity: "organization membership",
+          table: "fixture_warehouse.organization_member_roles",
+          columnsUsed: "member_key, organization_key, role_code",
+          sourcePath: "fixtures/models/organization_member_roles.sql",
+        },
+        {
+          id: "fixture-product-activity-events",
+          metric: "Product Activity Event Records",
+          definition:
+            "Synthetic product usage events with one row per actor and event timestamp.",
+          source: "fixture_warehouse",
+          sourceKind: "code",
+          entryType: "model",
+          status: "active",
+          semanticScope: "product_activity",
+          grain: "One row per event_key",
+          primaryEntity: "product activity event",
+          table: "fixture_warehouse.product_activity_events",
+          columnsUsed: "user_key, event_name, event_timestamp",
+          sourcePath: "fixtures/models/product_activity_events.sql",
         },
       ],
       scanSummary: {
@@ -140,7 +172,8 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
   defaultEmbeddingFamily: () => null,
 }));
 
-const FIXTURE_REVISION = "synthetic-group-membership-v1";
+const FIXTURE_REVISION = "synthetic-analytics-retrieval-v2";
+const BASELINE_GIT_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
 const ACTION_ALLOWLIST = ["find-data"] as const;
 const ANALYTICS_PROJECT_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -159,16 +192,28 @@ type SyntheticCase = {
 
 const SYNTHETIC_CASES: readonly SyntheticCase[] = [
   {
-    id: "role-aware-group-membership-source",
+    id: "current-organization-role-roster",
     prompt:
-      "Find the catalog reference for a group's current member roster with assigned roles. Metadata only; do not report live counts or values.",
-    expectedTable: "fixture_warehouse.group_member_roles",
+      "Find the catalog reference for the current user roster by organization with assigned roles. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.organization_member_roles",
   },
   {
-    id: "monthly-group-member-count-source",
+    id: "monthly-organization-user-count",
     prompt:
-      "Find the catalog reference for monthly member counts by group. Metadata only; do not report live counts or values.",
-    expectedTable: "fixture_warehouse.monthly_group_member_counts",
+      "Find the catalog reference for monthly user counts by organization. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.monthly_org_user_counts",
+  },
+  {
+    id: "active-product-users-map-to-activity",
+    prompt:
+      "Find the catalog reference for active product users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.product_activity_events",
+  },
+  {
+    id: "builder-product-users-map-to-identities",
+    prompt:
+      "Find the catalog reference for Builder.io product users. Metadata only; do not report live counts or values.",
+    expectedTable: "fixture_warehouse.builder_product_users",
   },
 ];
 
@@ -183,9 +228,11 @@ type SafeReasonCode =
   | "usage_missing"
   | "guard_not_applied";
 
+type EvalPhase = "before" | "after";
+
 export type PrivacySafeEvalRow = {
   case_id: string;
-  phase: "candidate";
+  phase: EvalPhase;
   git_revision: string;
   code_revision: string;
   fixture_revision: string;
@@ -239,16 +286,42 @@ const SAFE_REASON_CODES = new Set<SafeReasonCode>([
   "guard_not_applied",
 ]);
 
-function candidatePhase(requested: string | undefined): "candidate" {
-  if (requested === "before") {
+function requestedEvalPhase(requested: string | undefined): EvalPhase {
+  if (requested === undefined || requested === "after") return "after";
+  if (requested === "before") return "before";
+  throw new Error("Unsupported Analytics eval phase.");
+}
+
+function currentGitRevision(): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: ANALYTICS_PROJECT_ROOT,
+    encoding: "utf8",
+  }).trim();
+}
+
+function assertEvalProvenance(
+  phase: EvalPhase,
+  actualGitRevision: string,
+  requestedGitRevision: string,
+): void {
+  if (!/^[a-f0-9]{40}$/.test(requestedGitRevision)) {
+    throw new Error("Analytics eval output requires a pinned Git revision.");
+  }
+  if (requestedGitRevision !== actualGitRevision) {
     throw new Error(
-      "Pinned baseline execution is not supported by this harness; emit candidate rows only.",
+      "Analytics eval Git revision does not match this checkout.",
     );
   }
-  if (requested && requested !== "candidate") {
-    throw new Error("Unsupported Analytics eval phase.");
+  if (phase === "before" && actualGitRevision !== BASELINE_GIT_REVISION) {
+    throw new Error(
+      "Before-phase output requires the pinned baseline checkout.",
+    );
   }
-  return "candidate";
+  if (phase === "after" && actualGitRevision === BASELINE_GIT_REVISION) {
+    throw new Error(
+      "After-phase output cannot use the pinned baseline checkout.",
+    );
+  }
 }
 
 const SOURCE_FILES = [
@@ -305,7 +378,7 @@ export function renderPrivacySafeEvalCsv(
     }
     if (
       !/^[a-z0-9_-]+$/.test(row.case_id) ||
-      row.phase !== "candidate" ||
+      (row.phase !== "before" && row.phase !== "after") ||
       !/^(?:[a-f0-9]{40}|working-tree)$/.test(row.git_revision) ||
       !/^sha256:[a-f0-9]{64}$/.test(row.code_revision) ||
       row.fixture_revision !== FIXTURE_REVISION ||
@@ -550,7 +623,10 @@ async function runOnce(testCase: SyntheticCase) {
   return { report, output: capture.output, receipt: capture.receipt };
 }
 
-async function makeRows(gitRevision: string): Promise<PrivacySafeEvalRow[]> {
+async function makeRows(
+  gitRevision: string,
+  phase: EvalPhase,
+): Promise<PrivacySafeEvalRow[]> {
   const revision = await codeRevision();
   const rows: PrivacySafeEvalRow[] = [];
   for (const testCase of SYNTHETIC_CASES) {
@@ -562,7 +638,7 @@ async function makeRows(gitRevision: string): Promise<PrivacySafeEvalRow[]> {
       const successful = report.results[0]?.passed === true;
       rows.push({
         case_id: testCase.id,
-        phase: "candidate",
+        phase,
         git_revision: gitRevision,
         code_revision: revision,
         fixture_revision: FIXTURE_REVISION,
@@ -597,8 +673,10 @@ describe("Analytics synthetic production-path retrieval harness", () => {
 
   it("keeps harness cases synthetic and writes only the approved CSV schema", async () => {
     expect(SYNTHETIC_CASES.map(({ id }) => id)).toEqual([
-      "role-aware-group-membership-source",
-      "monthly-group-member-count-source",
+      "current-organization-role-roster",
+      "monthly-organization-user-count",
+      "active-product-users-map-to-activity",
+      "builder-product-users-map-to-identities",
     ]);
     expect(
       SYNTHETIC_CASES.every(
@@ -606,56 +684,66 @@ describe("Analytics synthetic production-path retrieval harness", () => {
           !/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(prompt),
       ),
     ).toBe(true);
-    expect(() => candidatePhase("before")).toThrow(
-      "Pinned baseline execution is not supported",
-    );
-    const phase = candidatePhase(process.env.ANALYTICS_EVAL_PHASE);
+    const actualGitRevision = currentGitRevision();
+    if (actualGitRevision === BASELINE_GIT_REVISION) {
+      expect(() =>
+        assertEvalProvenance("after", actualGitRevision, actualGitRevision),
+      ).toThrow("After-phase output cannot use the pinned baseline");
+    } else {
+      expect(() =>
+        assertEvalProvenance("before", actualGitRevision, actualGitRevision),
+      ).toThrow("Before-phase output requires the pinned baseline");
+    }
+    const phase = requestedEvalPhase(process.env.ANALYTICS_EVAL_PHASE);
     const gitRevision =
-      process.env.ANALYTICS_EVAL_GIT_REVISION ?? "working-tree";
-    const rows = await makeRows(gitRevision);
-    expect(rows).toHaveLength(4);
+      process.env.ANALYTICS_EVAL_GIT_REVISION ?? actualGitRevision;
+    assertEvalProvenance(phase, actualGitRevision, gitRevision);
+    const rows = await makeRows(gitRevision, phase);
+    expect(rows).toHaveLength(SYNTHETIC_CASES.length * 2);
     expect(rows.every((row) => row.phase === phase)).toBe(true);
     expect(
-      rows.map(({ score, reason_code, expected_rank, hit_at_5 }) => ({
-        score,
-        reason_code,
-        expected_rank,
-        hit_at_5,
-      })),
-    ).toEqual([
-      {
-        score: 0,
-        reason_code: "ranked_below_1",
-        expected_rank: 2,
-        hit_at_5: true,
-      },
-      {
-        score: 0,
-        reason_code: "ranked_below_1",
-        expected_rank: 2,
-        hit_at_5: true,
-      },
-      {
-        score: 1,
-        reason_code: "rank_1",
-        expected_rank: 1,
-        hit_at_5: true,
-      },
-      {
-        score: 1,
-        reason_code: "rank_1",
-        expected_rank: 1,
-        hit_at_5: true,
-      },
-    ]);
+      rows.every(
+        (row) =>
+          row.find_data_calls === 1 &&
+          row.other_action_calls === 0 &&
+          row.failed_action_calls === 0 &&
+          row.completed &&
+          !row.aborted,
+      ),
+    ).toBe(true);
+    if (phase === "after") {
+      expect(
+        rows.map(
+          ({ case_id, run, score, reason_code, expected_rank, hit_at_5 }) => ({
+            case_id,
+            run,
+            score,
+            reason_code,
+            expected_rank,
+            hit_at_5,
+          }),
+        ),
+      ).toEqual(
+        SYNTHETIC_CASES.flatMap(({ id }) =>
+          [1, 2].map((run) => ({
+            case_id: id,
+            run,
+            score: 1,
+            reason_code: "rank_1",
+            expected_rank: 1,
+            hit_at_5: true,
+          })),
+        ),
+      );
+    }
     const csv = renderPrivacySafeEvalCsv(rows);
     const [header, ...body] = csv.split("\n");
     expect(header).toBe(CSV_COLUMNS.join(","));
-    expect(body).toHaveLength(4);
+    expect(body).toHaveLength(rows.length);
     expect(body.join("\n")).not.toMatch(
       /synthetic-eval@example\.invalid|org_synthetic_eval/i,
     );
-    expect(rows.every((row) => row.phase === "candidate")).toBe(true);
+    expect(rows.every((row) => row.phase === phase)).toBe(true);
     expect(rows.every((row) => row.code_revision.startsWith("sha256:"))).toBe(
       true,
     );
@@ -738,7 +826,7 @@ describe("Analytics synthetic production-path retrieval harness", () => {
 
     const mislabeled = { ...unsafe };
     delete (mislabeled as Partial<typeof unsafe>).prompt;
-    (mislabeled as { phase: string }).phase = "before";
+    (mislabeled as { phase: string }).phase = "candidate";
     expect(() =>
       renderPrivacySafeEvalCsv([mislabeled as unknown as PrivacySafeEvalRow]),
     ).toThrow("invalid metric value");
