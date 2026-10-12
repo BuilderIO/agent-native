@@ -1460,6 +1460,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "visitor@example.com",
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
         getRequestOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => {
@@ -1471,6 +1472,7 @@ describe("AgentEngine registry", () => {
       });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => true,
+        isTransientDatabaseError: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
         }),
@@ -2088,6 +2090,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "brent@example.com",
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
         getRequestOrgId: () => undefined,
       }));
       const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
@@ -2266,6 +2269,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "brent@example.com",
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
         getRequestOrgId: () => undefined,
       }));
       const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
@@ -2949,6 +2953,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
         getRequestOrgId: () => undefined,
       }));
       const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
@@ -3027,6 +3032,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
         getRequestOrgId: () => undefined,
       }));
       const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
@@ -3079,6 +3085,7 @@ describe("AgentEngine registry", () => {
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
       }));
       const readAppSecret = vi.fn(async () => null);
       const readAppSecrets = vi.fn(readAppSecretsFromSingles(readAppSecret));
@@ -3287,6 +3294,7 @@ describe("AgentEngine registry", () => {
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
+        getRequestBuilderStorageCredentialOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) =>

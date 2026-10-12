@@ -511,7 +511,7 @@ describe("canAuthorizeBuilderApiRequest", () => {
     );
   });
 
-  it("uses the explicit storage grant org without changing normal personal scope", async () => {
+  it("uses only the explicit storage grant org for OAuth asset access", async () => {
     getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     getBuilderOAuthSessionMock.mockResolvedValue({
@@ -526,6 +526,30 @@ describe("canAuthorizeBuilderApiRequest", () => {
       "user@example.com",
       "storage-org",
       ASSETS_WRITE,
+      { orgOnly: true },
+    );
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      { orgOnly: true },
+    );
+  });
+
+  it("does not use a personal OAuth grant when storage scope has no selected org", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(null);
+    hasBuilderOAuthSessionMock.mockResolvedValue(false);
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      false,
+    );
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      { orgOnly: true },
+    );
+    expect(getBuilderOAuthSessionMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
     );
   });
 
