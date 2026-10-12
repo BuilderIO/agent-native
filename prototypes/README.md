@@ -10,6 +10,10 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 | [Design](design/) | `templates/design` | https://claude.ai/artifact/MC9u3UmtuV3vbB865gU1kH |
 | [Slides](slides/) | `templates/slides` | https://claude.ai/artifact/SKFFSBvDk1xP5GQuBMFhm5 |
 
+## Working on one
+
+Ask the agent to open, change, republish, or Figma-sync a prototype; the `prototypes` skill (`.agents/skills/prototypes/`) has the workflow. `figma` in each `prototype.json` names the app's page in the Agent-Native Figma file and the sections the prototype maps to.
+
 ## Layout
 
 ```

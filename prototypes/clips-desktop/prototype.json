@@ -1,4 +1,13 @@
 {
   "template": "clips",
-  "tokens": ["templates/clips/desktop/src/tailwind.css", "templates/clips/desktop/src/styles.css"]
+  "tokens": [
+    "templates/clips/desktop/src/tailwind.css",
+    "templates/clips/desktop/src/styles.css"
+  ],
+  "figma": {
+    "file": "oJQ7t9q4e8oHzLZKuki7k1",
+    "page": "Clips",
+    "pageId": "14:25",
+    "sections": {}
+  }
 }
