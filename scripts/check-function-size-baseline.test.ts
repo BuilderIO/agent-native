@@ -82,6 +82,22 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
+  it("preserves size guidance when a generated directory is malformed", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    writeFileSync(
+      path.join(functionsDir, "server", "_chunks"),
+      "PRIVATE_BUILD_CONTENT",
+    );
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    assert.match(checked.output, /chunk-inventory.*"failed":true/);
+    assert.match(checked.output, /re-record with --update/);
+    assert.doesNotMatch(checked.output, /PRIVATE_BUILD_CONTENT|Error: ENOTDIR/);
+  });
   it("reports capped generated chunk byte inventory on Chat growth without bundle content", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");

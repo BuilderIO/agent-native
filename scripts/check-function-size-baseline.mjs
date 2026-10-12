@@ -391,7 +391,13 @@ if (grown.length > 0) {
       `  - ${g.name}: ${mb(g.before)}MB -> ${mb(g.bytes)}MB (+${mb(g.bytes - g.before)}MB)`,
     );
     if (site === "chat" && g.name === "server") {
-      reportGeneratedChunkInventory(path.join(functionsDir, g.name));
+      try {
+        reportGeneratedChunkInventory(path.join(functionsDir, g.name));
+      } catch {
+        console.error(
+          '[chunk-inventory] {"failed":true,"reason":"inventory-unavailable"}',
+        );
+      }
     }
   }
   console.error(
