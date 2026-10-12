@@ -798,8 +798,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     changedSpecRegressions,
-    /^        timeout-minutes: 7$/m,
-    "the changed-spec diagnostic step must fit inside its 9-minute job after setup",
+    /^        timeout-minutes: 12$/m,
+    "the changed-spec diagnostic step must fit inside its 16-minute job after setup",
   );
   assert.match(
     changedSpecRegressions,
@@ -1171,8 +1171,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
   assert.ok(
-    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 9,
-    `changed-spec diagnostics must have the exact nine-minute cap (got ${diagnosticJobTimeout})`,
+    Number.isInteger(diagnosticJobTimeout) && diagnosticJobTimeout === 16,
+    `changed-spec diagnostics must have the exact sixteen-minute cap (got ${diagnosticJobTimeout})`,
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
@@ -1188,9 +1188,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(changedSpecStepTimeout) &&
-      changedSpecStepTimeout === 7 &&
-      diagnosticJobTimeout >= changedSpecStepTimeout + 2,
-    `changed-spec diagnostics need the exact seven-minute cap and two minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
+      changedSpecStepTimeout === 12 &&
+      diagnosticJobTimeout >= changedSpecStepTimeout + 4,
+    `changed-spec diagnostics need the exact twelve-minute cap and four minutes for setup (job ${diagnosticJobTimeout}, step ${changedSpecStepTimeout})`,
   );
   const coreShardEntries = [
     ...coreJob.matchAll(
