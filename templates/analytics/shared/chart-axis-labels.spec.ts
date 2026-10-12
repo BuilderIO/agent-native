@@ -40,6 +40,11 @@ describe("isCategoryAxis", () => {
     expect(isCategoryAxis(["1 Oct 2026", "September 2026"])).toBe(false);
   });
 
+  it("does not read words that start with a month as dates", () => {
+    expect(isCategoryAxis(["Marketing", "Nova", "Octopus"])).toBe(true);
+    expect(isCategoryAxis(["Juniper", "Decks"])).toBe(true);
+  });
+
   it("treats any named value as a category", () => {
     expect(isCategoryAxis(["mail", "slides"])).toBe(true);
     expect(isCategoryAxis(["2026-09-08", "unknown"])).toBe(true);

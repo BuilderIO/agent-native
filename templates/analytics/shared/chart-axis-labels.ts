@@ -38,7 +38,8 @@ export function trimToWidth(
 
 const ISO_DATE_VALUE = /^\d{4}-\d{2}(-\d{2})?([ T]\d{2}:\d{2}.*)?$/;
 const PERIOD_VALUE = /^(\d{4}-?W\d{1,2}|\d{4}-?Q[1-4]|Q[1-4][ -]\d{4})$/i;
-const MONTH = "(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?";
+const MONTH =
+  "(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sept?(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\\.?";
 const MONTH_NAME_DATE = new RegExp(
   `^(${MONTH}(\\s+\\d{1,2})?|\\d{1,2}\\s+${MONTH})(,?\\s+\\d{4})?$`,
   "i",

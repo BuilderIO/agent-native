@@ -778,7 +778,11 @@ describe("orderPanelSeries", () => {
         config: {
           stacked: true,
           colors: ["#10b981", "#ef4444"],
-          pivot: { xKey: "model", seriesKey: "sentiment", valueKey: "responses" },
+          pivot: {
+            xKey: "model",
+            seriesKey: "sentiment",
+            valueKey: "responses",
+          },
         },
       },
     );
