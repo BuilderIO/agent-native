@@ -515,7 +515,6 @@ export interface PersistedAssistantRelation {
   rootContentTruncated: boolean;
   rootPartsTruncated: boolean;
   snapshotContentTruncatedCount: number;
-  ambiguousSnapshotRunIdCount: number;
 }
 
 export interface PersistedAssistantRelations {
@@ -530,6 +529,7 @@ export interface PersistedAssistantRelations {
   snapshotMessagesScanned: number;
   snapshotMessagesTruncated: boolean;
   snapshotAssistantCount: number;
+  ambiguousSnapshotRunIdCount: number;
   eventsPresent: boolean;
   eventsCount: number;
   eventsScanned: number;
@@ -537,8 +537,14 @@ export interface PersistedAssistantRelations {
   relations: PersistedAssistantRelation[];
 }
 
+export type PersistedUnreadableReason =
+  | "invalid-json"
+  | "response-shape"
+  | "messages-shape"
+  | "unknown";
+
 export type PersistedThread =
-  | { kind: "unreadable"; reason: string }
+  | { kind: "unreadable"; reason: PersistedUnreadableReason }
   | {
       kind: "ok";
       title: string;
@@ -600,6 +606,26 @@ function nonemptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function persistedRunIdCandidates(
+  message: Record<string, unknown>,
+): Set<string> {
+  const metadata = asRecord(message.metadata);
+  const custom = asRecord(metadata?.custom);
+  const customRunError = asRecord(custom?.runError);
+  const metadataRunError = asRecord(metadata?.runError);
+  return new Set(
+    [
+      metadata?.runId,
+      custom?.runId,
+      customRunError?.runId,
+      metadataRunError?.runId,
+    ].flatMap((value) => {
+      const runId = nonemptyString(value);
+      return runId ? [runId] : [];
+    }),
+  );
+}
+
 interface EventRunIdIndex {
   runIdsByMessageId: Map<string, Set<string>>;
   ambiguousMessageIds: Set<string>;
@@ -642,7 +668,7 @@ function resolvePersistedRunId(
   eventRunIds: EventRunIdIndex,
   eventsTruncated: boolean,
 ): { runId: string | null; ambiguous: boolean } {
-  const explicitRunId = nonemptyString(asRecord(message.metadata)?.runId);
+  const explicitRunIds = persistedRunIdCandidates(message);
   const messageId = nonemptyString(message.id);
   const observedRunIds = messageId
     ? eventRunIds.runIdsByMessageId.get(messageId)
@@ -650,25 +676,24 @@ function resolvePersistedRunId(
   const ambiguous = Boolean(
     messageId && eventRunIds.ambiguousMessageIds.has(messageId),
   );
-  if (ambiguous || (observedRunIds?.size ?? 0) > 1) {
+  if (ambiguous || explicitRunIds.size > 1 || (observedRunIds?.size ?? 0) > 1) {
     return { runId: null, ambiguous: true };
   }
+  const explicitRunId = explicitRunIds.values().next().value as
+    | string
+    | undefined;
   const eventRunId = observedRunIds?.values().next().value as
     | string
     | undefined;
+  if (explicitRunId && eventRunId && eventRunId !== explicitRunId) {
+    return { runId: null, ambiguous: true };
+  }
   if (eventsTruncated) {
-    if (explicitRunId && eventRunId && eventRunId !== explicitRunId) {
-      return { runId: null, ambiguous: true };
-    }
     return explicitRunId
       ? { runId: explicitRunId, ambiguous: false }
       : { runId: null, ambiguous: true };
   }
-  if (explicitRunId) {
-    return eventRunId && eventRunId !== explicitRunId
-      ? { runId: null, ambiguous: true }
-      : { runId: explicitRunId, ambiguous: false };
-  }
+  if (explicitRunId) return { runId: explicitRunId, ambiguous: false };
   return eventRunId
     ? { runId: eventRunId, ambiguous: false }
     : { runId: null, ambiguous: false };
@@ -840,7 +865,6 @@ function inspectPersistedAssistantRelations(
       rootContentTruncated: rootContent.contentTruncated,
       rootPartsTruncated: rootContent.partsTruncated,
       snapshotContentTruncatedCount,
-      ambiguousSnapshotRunIdCount,
     };
   });
 
@@ -856,6 +880,7 @@ function inspectPersistedAssistantRelations(
     snapshotMessagesScanned: snapshotMessagesScanned.length,
     snapshotMessagesTruncated,
     snapshotAssistantCount: snapshotAssistants.length,
+    ambiguousSnapshotRunIdCount,
     eventsPresent: Array.isArray(eventsValue),
     eventsCount: events.length,
     eventsScanned: eventsScanned.length,
@@ -869,19 +894,15 @@ function inspectPersistedAssistantRelations(
  * read it" is its own result: a changed storage shape must not look like a
  * thread with no messages.
  */
-export function inspectPersistedThread(body: unknown): PersistedThread {
+function inspectPersistedThreadValue(body: unknown): PersistedThread {
   const record = asRecord(body);
-  if (!record)
-    return { kind: "unreadable", reason: "response is not an object" };
+  if (!record) return { kind: "unreadable", reason: "response-shape" };
   let data: unknown = record.threadData;
   if (typeof data === "string") {
     try {
       data = JSON.parse(data);
-    } catch (error) {
-      return {
-        kind: "unreadable",
-        reason: `threadData is not JSON (${error instanceof Error ? error.message : String(error)})`,
-      };
+    } catch {
+      return { kind: "unreadable", reason: "invalid-json" };
     }
   }
   const dataRecord = asRecord(data);
@@ -892,7 +913,7 @@ export function inspectPersistedThread(body: unknown): PersistedThread {
       ? agentKit.messages
       : null;
   if (!raw) {
-    return { kind: "unreadable", reason: "threadData has no messages array" };
+    return { kind: "unreadable", reason: "messages-shape" };
   }
   const messages: PersistedMessage[] = raw.map((item) => {
     const wrapper = asRecord(item);
@@ -921,8 +942,24 @@ export function inspectPersistedThread(body: unknown): PersistedThread {
   };
 }
 
+export function inspectPersistedThread(body: unknown): PersistedThread {
+  try {
+    return inspectPersistedThreadValue(body);
+  } catch {
+    return { kind: "unreadable", reason: "unknown" };
+  }
+}
+
 export function describePersisted(view: PersistedThread): string {
-  if (view.kind === "unreadable") return "unreadable";
+  if (view.kind === "unreadable") {
+    const reason =
+      view.reason === "invalid-json" ||
+      view.reason === "response-shape" ||
+      view.reason === "messages-shape"
+        ? view.reason
+        : "unknown";
+    return `unreadable reason=${reason}`;
+  }
   return `titleLength=${view.title.length}ch messageCount=${view.messageCount} messages=[${view.messages.map((message) => `${message.role}:${message.status}[${message.text.length}ch]`).join(", ")}]${view.unsettled.length ? ` UNSETTLED=${view.unsettled.join(",")}` : ""} assistantRelations=${JSON.stringify(view.assistantRelations)}`;
 }
 

@@ -554,9 +554,9 @@ test("summarizes bounded root-to-snapshot assistant relations without private va
       rootContentTruncated: false,
       rootPartsTruncated: false,
       snapshotContentTruncatedCount: 0,
-      ambiguousSnapshotRunIdCount: 0,
     },
   ]);
+  assert.equal(view.assistantRelations.ambiguousSnapshotRunIdCount, 0);
   assert.equal(view.assistantRelations.rootMessageCount, 1);
   assert.equal(view.assistantRelations.snapshotMessageCount, 3);
 
@@ -570,6 +570,109 @@ test("summarizes bounded root-to-snapshot assistant relations without private va
     /PRIVATE_(?:TITLE|ROOT|ANSWER|REASONING|TOOL|PARENT|EXACT|PREFIX|DIFFERENT|OTHER)/,
   );
   assert.doesNotMatch(description, /projector/i);
+});
+
+test("uses repository-supported run ID metadata and rejects disagreements", () => {
+  const view = inspectPersistedThread({
+    title: "PRIVATE_METADATA_TITLE",
+    threadData: JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "PRIVATE_CUSTOM_ROOT_ID",
+            role: "assistant",
+            metadata: { custom: { runId: "PRIVATE_CUSTOM_RUN" } },
+            content: [{ type: "text", text: "PRIVATE_CUSTOM_ANSWER" }],
+          },
+        },
+        {
+          message: {
+            id: "PRIVATE_ERROR_ROOT_ID",
+            role: "assistant",
+            metadata: { runError: { runId: "PRIVATE_ERROR_RUN" } },
+            content: [{ type: "text", text: "PRIVATE_ERROR_ANSWER" }],
+          },
+        },
+        {
+          message: {
+            id: "PRIVATE_CONFLICT_ROOT_ID",
+            role: "assistant",
+            metadata: {
+              runId: "PRIVATE_DIRECT_RUN",
+              custom: { runId: "PRIVATE_CUSTOM_CONFLICT_RUN" },
+            },
+            content: [{ type: "text", text: "PRIVATE_CONFLICT_ANSWER" }],
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "PRIVATE_CUSTOM_SNAPSHOT_ID",
+            role: "assistant",
+            metadata: {
+              custom: { runError: { runId: "PRIVATE_CUSTOM_RUN" } },
+            },
+            parts: [{ type: "text", text: "PRIVATE_CUSTOM_ANSWER" }],
+          },
+          {
+            id: "PRIVATE_ERROR_SNAPSHOT_ID",
+            role: "assistant",
+            metadata: { custom: { runId: "PRIVATE_ERROR_RUN" } },
+            parts: [{ type: "text", text: "PRIVATE_ERROR_ANSWER" }],
+          },
+          {
+            id: "PRIVATE_CONFLICT_SNAPSHOT_ID",
+            role: "assistant",
+            metadata: { runId: "PRIVATE_DIRECT_RUN" },
+            parts: [{ type: "text", text: "PRIVATE_CONFLICT_ANSWER" }],
+          },
+        ],
+        events: [
+          {
+            type: "message.completed",
+            runId: "PRIVATE_DIRECT_RUN",
+            message: {
+              id: "PRIVATE_CONFLICT_ROOT_ID",
+              role: "assistant",
+            },
+          },
+        ],
+      },
+    }),
+  });
+
+  assert.equal(view.kind, "ok");
+  if (view.kind !== "ok") return;
+  assert.deepEqual(
+    view.assistantRelations.relations.map((relation) => ({
+      runIdPresent: relation.runIdPresent,
+      runIdAmbiguous: relation.runIdAmbiguous,
+      sameRunSnapshotCandidateCount: relation.sameRunSnapshotCandidateCount,
+      exactTextMatchCount: relation.exactTextMatchCount,
+    })),
+    [
+      {
+        runIdPresent: true,
+        runIdAmbiguous: false,
+        sameRunSnapshotCandidateCount: 1,
+        exactTextMatchCount: 1,
+      },
+      {
+        runIdPresent: true,
+        runIdAmbiguous: false,
+        sameRunSnapshotCandidateCount: 1,
+        exactTextMatchCount: 1,
+      },
+      {
+        runIdPresent: false,
+        runIdAmbiguous: true,
+        sameRunSnapshotCandidateCount: 0,
+        exactTextMatchCount: 0,
+      },
+    ],
+  );
+  assert.doesNotMatch(describePersisted(view), /PRIVATE_/);
 });
 
 test("uses only unique bounded message events when explicit run metadata is missing", () => {
@@ -661,13 +764,13 @@ test("uses only unique bounded message events when explicit run metadata is miss
 
   assert.equal(view.kind, "ok");
   if (view.kind !== "ok") return;
+  assert.equal(view.assistantRelations.ambiguousSnapshotRunIdCount, 1);
   assert.deepEqual(
     view.assistantRelations.relations.map((relation) => ({
       runIdPresent: relation.runIdPresent,
       runIdAmbiguous: relation.runIdAmbiguous,
       sameRunSnapshotCandidateCount: relation.sameRunSnapshotCandidateCount,
       exactTextMatchCount: relation.exactTextMatchCount,
-      ambiguousSnapshotRunIdCount: relation.ambiguousSnapshotRunIdCount,
     })),
     [
       {
@@ -675,23 +778,25 @@ test("uses only unique bounded message events when explicit run metadata is miss
         runIdAmbiguous: false,
         sameRunSnapshotCandidateCount: 1,
         exactTextMatchCount: 1,
-        ambiguousSnapshotRunIdCount: 1,
       },
       {
         runIdPresent: false,
         runIdAmbiguous: true,
         sameRunSnapshotCandidateCount: 0,
         exactTextMatchCount: 0,
-        ambiguousSnapshotRunIdCount: 1,
       },
       {
         runIdPresent: false,
         runIdAmbiguous: false,
         sameRunSnapshotCandidateCount: 0,
         exactTextMatchCount: 0,
-        ambiguousSnapshotRunIdCount: 1,
       },
     ],
+  );
+  assert.ok(
+    view.assistantRelations.relations.every(
+      (relation) => !("ambiguousSnapshotRunIdCount" in relation),
+    ),
   );
 });
 
@@ -753,7 +858,7 @@ test("treats conflicting explicit and event run metadata as ambiguous", () => {
   assert.doesNotMatch(describePersisted(view), /PRIVATE_/);
 });
 
-test("caps assistant relations, snapshot messages, events, and compared content", () => {
+test("caps assistant relations, snapshot messages, events, parts, and compared content", () => {
   const longRootText = `${"R".repeat(16_384)}PRIVATE_ROOT_TAIL`;
   const longSnapshotText = `${"R".repeat(16_384)}PRIVATE_SNAPSHOT_TAIL`;
   const rootMessages = Array.from({ length: 35 }, (_, index) => ({
@@ -765,12 +870,16 @@ test("caps assistant relations, snapshot messages, events, and compared content"
         : index === 1
           ? { metadata: { runId: "PRIVATE_LATE_EVENT_EXPLICIT_RUN" } }
           : {}),
-      content: [
-        {
-          type: "text",
-          text: index === 0 ? longRootText : "PRIVATE_SHORT_ROOT",
-        },
-      ],
+      content:
+        index === 0
+          ? [
+              { type: "text", text: longRootText },
+              ...Array.from({ length: 1_024 }, (_, partIndex) => ({
+                type: "tool-call",
+                toolCallId: `PRIVATE_ROOT_PART_${partIndex}`,
+              })),
+            ]
+          : [{ type: "text", text: "PRIVATE_SHORT_ROOT" }],
     },
   }));
   const snapshotMessages = Array.from({ length: 257 }, (_, index) => ({
@@ -828,7 +937,11 @@ test("caps assistant relations, snapshot messages, events, and compared content"
   assert.equal(summary.eventsCount, 1_026);
   assert.equal(summary.eventsScanned, 1_024);
   assert.equal(summary.eventsTruncated, true);
+  assert.equal(summary.relations[0]?.runIdPresent, true);
+  assert.equal(summary.relations[0]?.sameRunSnapshotCandidateCount, 1);
   assert.equal(summary.relations[0]?.rootContentTruncated, true);
+  assert.equal(summary.relations[0]?.rootPartsTruncated, true);
+  assert.equal(summary.relations[0]?.rootToolPartCount, 1_023);
   assert.equal(summary.relations[0]?.snapshotContentTruncatedCount, 1);
   assert.equal(summary.relations[0]?.exactTextMatchCount, 0);
   assert.equal(summary.relations[0]?.prefixCompatibleTextMatchCount, 0);
@@ -844,14 +957,45 @@ test("caps assistant relations, snapshot messages, events, and compared content"
 });
 
 test("an unreadable persisted thread is not mistaken for an empty one", () => {
-  assert.equal(inspectPersistedThread("nope").kind, "unreadable");
+  assert.deepEqual(inspectPersistedThread("nope"), {
+    kind: "unreadable",
+    reason: "response-shape",
+  });
+  const invalidJson = inspectPersistedThread({
+    title: "PRIVATE_INVALID_JSON_TITLE",
+    threadData: '{"private":"PRIVATE_PARSE_VALUE"',
+  });
+  assert.deepEqual(invalidJson, {
+    kind: "unreadable",
+    reason: "invalid-json",
+  });
   assert.equal(
-    inspectPersistedThread({ title: "t", threadData: "{" }).kind,
-    "unreadable",
+    describePersisted(invalidJson),
+    "unreadable reason=invalid-json",
   );
+  const messagesShape = inspectPersistedThread({
+    title: "PRIVATE_MESSAGES_TITLE",
+    threadData: JSON.stringify({ private: "PRIVATE_SHAPE_VALUE" }),
+  });
+  assert.deepEqual(messagesShape, {
+    kind: "unreadable",
+    reason: "messages-shape",
+  });
   assert.equal(
-    inspectPersistedThread({ title: "t", threadData: "{}" }).kind,
-    "unreadable",
+    describePersisted(messagesShape),
+    "unreadable reason=messages-shape",
+  );
+  const unreadableProperty = Object.defineProperty({}, "threadData", {
+    get() {
+      throw new Error("PRIVATE_UNEXPECTED_READ_FAILURE");
+    },
+  });
+  const unknown = inspectPersistedThread(unreadableProperty);
+  assert.deepEqual(unknown, { kind: "unreadable", reason: "unknown" });
+  assert.equal(describePersisted(unknown), "unreadable reason=unknown");
+  assert.doesNotMatch(
+    [invalidJson, messagesShape, unknown].map(describePersisted).join(" "),
+    /PRIVATE_/,
   );
   const settled = inspectPersistedThread({
     title: "t",
