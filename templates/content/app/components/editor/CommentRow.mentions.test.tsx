@@ -144,6 +144,24 @@ describe("sent comment mentions", () => {
     expect(host.textContent).not.toContain("](");
   });
 
+  it("leaves an @name in inline code or a URL as code and as the address", () => {
+    const pills = render(
+      "Ask @Sam about `@Sam` and https://medium.com/@Sam",
+      JSON.stringify([
+        { kind: "person", email: "sam@example.com", name: "Sam" },
+      ]),
+    );
+
+    expect(pills.map((pill) => spokenText(pill))).toEqual(["@Sam"]);
+    expect(host.querySelector("code")?.textContent).toBe("@Sam");
+    expect(
+      [...host.querySelectorAll("a[href^='https://medium.com']")].map(
+        (link) => [link.getAttribute("href"), link.textContent],
+      ),
+    ).toEqual([["https://medium.com/@Sam", "https://medium.com/@Sam"]]);
+    expect(host.textContent).not.toContain("](");
+  });
+
   it("never turns markup in a name or comment into elements", () => {
     const pills = render(
       "<b>bold</b> @<img src=x>",

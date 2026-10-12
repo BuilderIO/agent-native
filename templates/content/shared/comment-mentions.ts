@@ -151,13 +151,49 @@ function isNameCharacter(character: string | undefined): boolean {
   return character !== undefined && NAME_CHARACTER.test(character);
 }
 
+const URL_START = /[a-z][a-z\d+.-]*:\/\/|\bwww\./i;
+
+/**
+ * Whether the `@` at `at` is part of a URL, as in `https://x.com/@Sam`: a URL
+ * runs to the next whitespace, so look for its start in the run before `@`.
+ */
+function isInUrl(text: string, at: number): boolean {
+  let from = at;
+  while (from > 0 && !/\s/.test(text[from - 1]!)) from -= 1;
+  return URL_START.test(text.slice(from, at));
+}
+
+/**
+ * Markdown's inline code spans: a run of backticks through the next run of the
+ * same length. A run nothing closes is literal backticks.
+ */
+function codeSpans(text: string): { start: number; end: number }[] {
+  const runs = [...text.matchAll(/`+/g)];
+  const spans: { start: number; end: number }[] = [];
+  for (let open = 0; open < runs.length; open += 1) {
+    const fence = runs[open]![0];
+    const close = runs.findIndex(
+      (run, index) => index > open && run[0] === fence,
+    );
+    if (close === -1) continue;
+    spans.push({
+      start: runs[open]!.index,
+      end: runs[close]!.index + fence.length,
+    });
+    open = close;
+  }
+  return spans;
+}
+
 /**
  * Where stored mentions' `@name`s appear in the text. A name counts only as a
  * whole token, so `@Sam` is not inside `@Samantha` or `me@Sam.com`, and where
- * two names start at the same `@` the longer wins. The k-th `@name` is the
- * k-th mention listed under that name and later ones repeat the last, so two
- * people who share a name each keep their own pill. Saving and rendering both
- * use this, so a pill is drawn exactly where a saved mention is.
+ * two names start at the same `@` the longer wins. An `@name` in inline code
+ * or a URL is code or part of the address, never a mention. The k-th `@name`
+ * is the k-th mention listed under that name and later ones repeat the last,
+ * so two people who share a name each keep their own pill. Saving and
+ * rendering both use this, so a pill is drawn exactly where a saved mention
+ * is.
  */
 export function findCommentMentions(
   text: string,
@@ -170,20 +206,26 @@ export function findCommentMentions(
     }
   }
   const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  const code = codeSpans(text);
+  const isInCode = (at: number) =>
+    code.some((span) => span.start < at && at < span.end);
   const seen = new Map<string, number>();
   const matches: CommentMentionMatch[] = [];
   let start = text.indexOf("@");
   while (start !== -1) {
-    const name = isNameCharacter(text[start - 1])
-      ? undefined
-      : names.find(
-          (candidate) =>
-            text.startsWith(candidate, start + 1) &&
-            !(
-              isNameCharacter(candidate[candidate.length - 1]) &&
-              isNameCharacter(text[start + 1 + candidate.length])
-            ),
-        );
+    const name =
+      isNameCharacter(text[start - 1]) ||
+      isInCode(start) ||
+      isInUrl(text, start)
+        ? undefined
+        : names.find(
+            (candidate) =>
+              text.startsWith(candidate, start + 1) &&
+              !(
+                isNameCharacter(candidate[candidate.length - 1]) &&
+                isNameCharacter(text[start + 1 + candidate.length])
+              ),
+          );
     if (name === undefined) {
       start = text.indexOf("@", start + 1);
       continue;

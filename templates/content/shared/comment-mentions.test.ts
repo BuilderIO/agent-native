@@ -140,6 +140,25 @@ describe("comment mentions", () => {
     expect(commentMentionsForText("Ask @Samantha", [sam])).toBeUndefined();
   });
 
+  it("never matches an @name in inline code or a URL", () => {
+    const sam = {
+      kind: "person" as const,
+      email: "sam@example.com",
+      name: "Sam",
+    };
+    const text =
+      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, or www.example.com/@Sam. A lone ` leaves @Sam";
+
+    expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
+      4,
+      text.lastIndexOf("@Sam"),
+    ]);
+    expect(mentionsMissingFromText("See `@Sam`", [sam])).toEqual([sam]);
+    expect(
+      commentMentionsForText("https://example.com/@Sam", [sam]),
+    ).toBeUndefined();
+  });
+
   it("keeps agents on one model from different providers apart", () => {
     const one = {
       kind: "agent" as const,
