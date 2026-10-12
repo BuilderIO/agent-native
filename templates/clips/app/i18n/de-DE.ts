@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind aktivieren",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Rewind speichert lokal einen Verlauf deines Bildschirms, damit du die letzten Minuten vor einer Aufnahme einbeziehen kannst. Filmmaterial wird nur hochgeladen, wenn du es einbeziehst oder freigibst.",
+      "Standardmäßig deaktiviert. Wenn aktiviert, bleibt der Bildschirmverlauf auf diesem Gerät und wird nur hochgeladen, wenn du ihn in eine Aufnahme einfügst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:

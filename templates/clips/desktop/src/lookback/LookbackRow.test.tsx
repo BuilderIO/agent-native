@@ -132,7 +132,7 @@ describe("LookbackRow with Rewind off", () => {
     expect(menuItemTexts()).toEqual([]);
     expect(document.body.textContent).toContain("Turn on Rewind");
     expect(document.body.textContent).toContain(
-      "Rewind keeps a local history of your screen",
+      "Off by default. When on, screen history stays on this device and uploads only when you add it to a recording.",
     );
 
     const turnOn = buttonWithText("Turn on Rewind");

@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activar Rewind",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
-      "Rewind guarda un historial local de tu pantalla para que puedas incluir los últimos minutos antes de una grabación. El material solo se sube cuando lo incluyes o lo apruebas.",
+      "Desactivado de forma predeterminada. Al activarlo, el historial de pantalla permanece en este dispositivo y solo se sube si lo incluyes en una grabación.",
     requestFailed:
       "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
     localOnlyUnavailable:

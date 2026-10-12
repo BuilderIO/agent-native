@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activer Rewind",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Rewind conserve un historique local de votre écran afin que vous puissiez inclure les dernières minutes avant un enregistrement. Les séquences vidéo ne sont envoyées que si vous les incluez ou les approuvez.",
+      "Désactivé par défaut. Une fois activé, l’historique de l’écran reste sur cet appareil et n’est envoyé que si vous l’incluez dans un enregistrement.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:

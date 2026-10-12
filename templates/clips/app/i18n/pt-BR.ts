@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Ativar o Rewind",
     rewindOffTitle: "Ativar o Rewind",
     rewindOffBody:
-      "O Rewind mantém um histórico local da sua tela para que você possa incluir os últimos minutos antes de uma gravação. As imagens só são enviadas quando você as inclui ou aprova.",
+      "Desativado por padrão. Quando ativado, o histórico da tela fica neste dispositivo e só é enviado se você o incluir em uma gravação.",
     requestFailed:
       "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
     localOnlyUnavailable:
