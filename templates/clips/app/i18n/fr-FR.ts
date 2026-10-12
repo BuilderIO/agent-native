@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activer Rewind",
     rewindOffTitle: "Activer Rewind",
     rewindOffBody:
-      "Désactivé par défaut. Une fois activé, l’historique de l’écran reste sur cet appareil et n’est envoyé que si vous l’incluez dans un enregistrement.",
+      "Désactivé par défaut. L’historique de l’écran reste sur cet appareil jusqu’à ce que vous l’ajoutiez à un enregistrement ou approuviez une demande de partage.",
     requestFailed:
       "Impossible d'inclure le temps d'écran antérieur. L'enregistrement continue sans lui.",
     localOnlyUnavailable:

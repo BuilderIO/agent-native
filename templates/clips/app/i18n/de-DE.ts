@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind aktivieren",
     rewindOffTitle: "Rewind aktivieren",
     rewindOffBody:
-      "Standardmäßig deaktiviert. Wenn aktiviert, bleibt der Bildschirmverlauf auf diesem Gerät und wird nur hochgeladen, wenn du ihn in eine Aufnahme einfügst.",
+      "Standardmäßig deaktiviert. Der Bildschirmverlauf bleibt auf diesem Gerät, bis du ihn einer Aufnahme hinzufügst oder eine Freigabeanfrage bestätigst.",
     requestFailed:
       "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
     localOnlyUnavailable:

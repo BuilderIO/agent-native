@@ -19,7 +19,7 @@ const messages = {
     turnOnRewind: "Activar Rewind",
     rewindOffTitle: "Activar Rewind",
     rewindOffBody:
-      "Desactivado de forma predeterminada. Al activarlo, el historial de pantalla permanece en este dispositivo y solo se sube si lo incluyes en una grabación.",
+      "Desactivado de forma predeterminada. El historial de pantalla permanece en este dispositivo hasta que lo añades a una grabación o apruebas una solicitud para compartirlo.",
     requestFailed:
       "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
     localOnlyUnavailable:

@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Rewind 켜기",
     rewindOffTitle: "Rewind 켜기",
     rewindOffBody:
-      "기본적으로 꺼져 있습니다. 켜면 화면 기록은 이 기기에 저장되고 녹화에 포함할 때만 업로드됩니다.",
+      "기본적으로 꺼져 있습니다. 화면 기록은 녹화에 포함하거나 공유 요청을 승인할 때까지 이 기기에 보관됩니다.",
     requestFailed:
       "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
     localOnlyUnavailable:

@@ -17,7 +17,7 @@ const messages = {
     turnOnRewind: "Turn on Rewind",
     rewindOffTitle: "Turn on Rewind",
     rewindOffBody:
-      "Off by default. When on, screen history stays on this device and uploads only when you add it to a recording.",
+      "Off by default. Screen history stays on this device until you add it to a recording or approve a request to share it.",
     requestFailed:
       "Couldn't include earlier screen time. The recording continues without it.",
     localOnlyUnavailable:
