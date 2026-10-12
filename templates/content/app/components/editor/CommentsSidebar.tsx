@@ -35,7 +35,10 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
-import { commentMentionsForText } from "@shared/comment-mentions";
+import {
+  commentMentionsForText,
+  findCommentMentions,
+} from "@shared/comment-mentions";
 import { suggestionDiffParts } from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
@@ -2920,11 +2923,21 @@ function SuggestionThreadView({
             replyDrafts.isSubmitting(suggestion.threadId)
           )
             return;
-          const replyMentions = mentions.flatMap((mention) =>
-            mention.kind !== "agent" && draft.includes(`@${mention.name}`)
-              ? [{ email: mention.email, label: mention.name }]
-              : [],
-          );
+          const replyMentions = [
+            ...new Map(
+              findCommentMentions(draft, mentions.map(draftMention)).flatMap(
+                ({ mention }) =>
+                  mention.kind === "person"
+                    ? [
+                        [
+                          mention.email,
+                          { email: mention.email, label: mention.name },
+                        ] as const,
+                      ]
+                    : [],
+              ),
+            ).values(),
+          ];
           const payload = JSON.stringify({
             commentId: root.id,
             body: draft.trim(),

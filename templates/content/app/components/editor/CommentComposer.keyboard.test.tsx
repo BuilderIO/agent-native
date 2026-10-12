@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
+import type { MentionEntry } from "./comment-drafts";
 import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
 
 const mentionMembers = vi.hoisted(() => ({
@@ -80,9 +81,11 @@ describe("CommentComposer rich recipient", () => {
   function Owner({
     initialAi = null,
     initialValue = "Review this",
+    mentions = [],
   }: {
     initialAi?: CommentAiDraft | null;
     initialValue?: string;
+    mentions?: MentionEntry[];
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
@@ -98,7 +101,7 @@ describe("CommentComposer rich recipient", () => {
         onChange={setValue}
         onSubmit={submit}
         onEscape={escape}
-        mentions={[]}
+        mentions={mentions}
         onMentionsChange={vi.fn()}
         onAiSubmit={aiSubmit}
         aiDraft={aiDraft}
@@ -444,6 +447,69 @@ describe("CommentComposer rich recipient", () => {
     before.setStart(editor(), 0);
     before.setEndBefore(chips[0]!);
     expect(before.toString()).toBe("See `@GPT-5.6 Luna`, then ask ");
+  });
+
+  it("restores a saved AI draft's chip at its whole name, after a longer name", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-prefix"
+          initialValue="Compare @GPT-5.6 Lunar, then ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const chips = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(chips).toHaveLength(1);
+    const before = document.createRange();
+    before.setStart(editor(), 0);
+    before.setEndBefore(chips[0]!);
+    expect(before.toString()).toBe("Compare @GPT-5.6 Lunar, then ask ");
+  });
+
+  it("restores a saved AI draft's chip after a person chip with the same name", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="restored-shared-name"
+          initialValue="Ask @GPT-5.6 Luna to check this@GPT-5.6 Luna"
+          mentions={[{ email: "luna@example.test", name: "GPT-5.6 Luna" }]}
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const person = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-member"]',
+    );
+    const ai = editor().querySelectorAll(
+      '[data-mention-ref-type="content-comment-ai-recipient"]',
+    );
+    expect(person).toHaveLength(1);
+    expect(ai).toHaveLength(1);
+    const between = document.createRange();
+    between.setStartAfter(person[0]!);
+    between.setEndBefore(ai[0]!);
+    expect(between.toString()).toBe(" to check this");
   });
 
   it("replaces an existing AI recipient when another model is selected", async () => {

@@ -159,6 +159,22 @@ describe("comment mentions", () => {
     ).toBeUndefined();
   });
 
+  it("reads a long run of @s in a URL or code without rescanning it", () => {
+    const sam = {
+      kind: "person" as const,
+      email: "sam@example.com",
+      name: "Sam",
+    };
+    const text = `https://x.com/${"@".repeat(100_000)} ${"`@` ".repeat(30_000)}@Sam`;
+
+    const started = performance.now();
+    const starts = findCommentMentions(text, [sam]).map(({ start }) => start);
+    const elapsedMs = performance.now() - started;
+
+    expect(starts).toEqual([text.length - 4]);
+    expect(elapsedMs).toBeLessThan(1_000);
+  });
+
   it("keeps agents on one model from different providers apart", () => {
     const one = {
       kind: "agent" as const,

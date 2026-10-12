@@ -155,13 +155,21 @@ function isNameCharacter(character: string | undefined): boolean {
 const URL_START = /\/\/|\bwww\./i;
 
 /**
- * Whether the `@` at `at` is part of a URL, as in `https://x.com/@Sam`: a URL
- * runs to the next whitespace, so look for its start in the run before `@`.
+ * Where URLs run in the text, as in `https://x.com/@Sam`: from just past a URL
+ * start to the next whitespace.
  */
-function isInUrl(text: string, at: number): boolean {
-  let from = at;
-  while (from > 0 && !/\s/.test(text[from - 1]!)) from -= 1;
-  return URL_START.test(text.slice(from, at));
+function urlRanges(text: string): { start: number; end: number }[] {
+  const ranges: { start: number; end: number }[] = [];
+  for (const run of text.matchAll(/\S+/g)) {
+    const url = URL_START.exec(run[0]);
+    if (url) {
+      ranges.push({
+        start: run.index + url.index + url[0].length,
+        end: run.index + run[0].length,
+      });
+    }
+  }
+  return ranges;
 }
 
 /**
@@ -170,16 +178,20 @@ function isInUrl(text: string, at: number): boolean {
  */
 function codeSpans(text: string): { start: number; end: number }[] {
   const runs = [...text.matchAll(/`+/g)];
+  const nextOfLength: number[] = [];
+  const later = new Map<number, number>();
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const length = runs[index]![0].length;
+    nextOfLength[index] = later.get(length) ?? -1;
+    later.set(length, index);
+  }
   const spans: { start: number; end: number }[] = [];
   for (let open = 0; open < runs.length; open += 1) {
-    const fence = runs[open]![0];
-    const close = runs.findIndex(
-      (run, index) => index > open && run[0] === fence,
-    );
+    const close = nextOfLength[open]!;
     if (close === -1) continue;
     spans.push({
       start: runs[open]!.index,
-      end: runs[close]!.index + fence.length,
+      end: runs[close]!.index + runs[close]![0].length,
     });
     open = close;
   }
@@ -188,12 +200,33 @@ function codeSpans(text: string): { start: number; end: number }[] {
 
 /**
  * Tests whether an `@` in `text` is literal: in inline code or a URL, where it
- * is code or part of the address, never a mention.
+ * is code or part of the address, never a mention. Every comment write runs
+ * this, so it reads the text once; a scan per `@` is quadratic in a long run
+ * of `@`s.
  */
 export function literalAtSignTest(text: string): (at: number) => boolean {
-  const code = codeSpans(text);
-  return (at) =>
-    code.some((span) => span.start < at && at < span.end) || isInUrl(text, at);
+  const literal = new Uint8Array(text.length);
+  for (const span of codeSpans(text)) literal.fill(1, span.start + 1, span.end);
+  for (const url of urlRanges(text)) literal.fill(1, url.start, url.end);
+  return (at) => literal[at] === 1;
+}
+
+/**
+ * Whether `@name` at `at` is the whole name, so `@Sam` is not the start of
+ * `@Samantha`.
+ */
+export function isMentionNameAt(
+  text: string,
+  at: number,
+  name: string,
+): boolean {
+  return (
+    text.startsWith(name, at + 1) &&
+    !(
+      isNameCharacter(name[name.length - 1]) &&
+      isNameCharacter(text[at + 1 + name.length])
+    )
+  );
 }
 
 /**
@@ -217,6 +250,7 @@ export function findCommentMentions(
     }
   }
   const names = [...byName.keys()].sort((a, b) => b.length - a.length);
+  if (!names.length) return [];
   const isLiteral = literalAtSignTest(text);
   const seen = new Map<string, number>();
   const matches: CommentMentionMatch[] = [];
@@ -225,14 +259,7 @@ export function findCommentMentions(
     const name =
       isNameCharacter(text[start - 1]) || isLiteral(start)
         ? undefined
-        : names.find(
-            (candidate) =>
-              text.startsWith(candidate, start + 1) &&
-              !(
-                isNameCharacter(candidate[candidate.length - 1]) &&
-                isNameCharacter(text[start + 1 + candidate.length])
-              ),
-          );
+        : names.find((candidate) => isMentionNameAt(text, start, candidate));
     if (name === undefined) {
       start = text.indexOf("@", start + 1);
       continue;

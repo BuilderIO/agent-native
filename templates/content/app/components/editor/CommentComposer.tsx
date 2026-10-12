@@ -12,6 +12,7 @@ import {
 import {
   commentMentionKey,
   findCommentMentions,
+  isMentionNameAt,
   literalAtSignTest,
   type CommentAgentMention,
 } from "@shared/comment-mentions";
@@ -207,18 +208,22 @@ function textReferences(
   // appended after the text, so it can follow a word directly.
   const ai = aiReference(aiDraft);
   const isLiteral = literalAtSignTest(text);
-  let start = text.indexOf(`@${ai.label}`);
-  while (start >= 0 && isLiteral(start)) {
-    start = text.indexOf(`@${ai.label}`, start + 1);
-  }
-  const end = start + 1 + ai.label.length;
-  if (
-    start >= 0 &&
-    !references.some(
-      (reference) => reference.start < end && start < reference.end,
-    )
+  for (
+    let start = text.indexOf(`@${ai.label}`);
+    start >= 0;
+    start = text.indexOf(`@${ai.label}`, start + 1)
   ) {
-    references.push({ start, end, reference: ai });
+    const end = start + 1 + ai.label.length;
+    if (
+      !isLiteral(start) &&
+      isMentionNameAt(text, start, ai.label) &&
+      !references.some(
+        (reference) => reference.start < end && start < reference.end,
+      )
+    ) {
+      references.push({ start, end, reference: ai });
+      break;
+    }
   }
   return references;
 }
