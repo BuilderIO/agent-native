@@ -45,7 +45,7 @@ function loadChanges(): Change[] {
 }
 
 // The tokens come from the code, never from copies: the toolkit's shared tokens and its Tailwind @theme
-// (the --color-* names), then the template's own theme. Only exact `:root`, `.dark`, and `@theme` rules
+// (the --color-* names), then the template's own theme. Only exact `:root`, `.dark`, `.light`, and `@theme` rules
 // (and `:root` inside `@supports`) are read, and only their custom properties. `.dark` becomes the prototype's dark selectors, since a prototype follows the
 // viewer's color scheme or the review strip's Theme switch instead of a class.
 const repo = join(kit, "../..");
@@ -96,6 +96,9 @@ function tokensCss(template: string): string {
   const supports: string[] = [];
   for (const source of TOKEN_SOURCES(template)) {
     const css = read(join(repo, source)).replace(/\/\*[\s\S]*?\*\//g, "");
+    const root: string[] = [];
+    const lightOnly: string[] = [];
+    const darkOnly: string[] = [];
     for (const rule of topLevelRules(css)) {
       // AgentKit scopes its chat tokens to `:where(.agentkit-chat)`; they're var() chains, so :root is safe.
       if (
@@ -103,9 +106,11 @@ function tokensCss(template: string): string {
         rule.selector === ":where(.agentkit-chat)" ||
         rule.selector.startsWith("@theme")
       )
-        light.push(...customProperties(rule.body));
+        root.push(...customProperties(rule.body));
       else if (rule.selector === ".dark")
-        dark.push(...customProperties(rule.body));
+        darkOnly.push(...customProperties(rule.body));
+      else if (rule.selector === ".light")
+        lightOnly.push(...customProperties(rule.body));
       else if (rule.selector.startsWith("@supports")) {
         const inner = topLevelRules(rule.body).filter(
           (r) => r.selector === ":root",
@@ -115,6 +120,15 @@ function tokensCss(template: string): string {
             `${rule.selector} { :root { ${customProperties(r.body).join("; ")}; } }`,
           );
       }
+    }
+    // A theme that ships dark puts its dark palette on :root and the light one on `.light` (Slides does):
+    // there, :root is the dark theme and light is :root with `.light` on top.
+    if (lightOnly.length) {
+      light.push(...root, ...lightOnly);
+      dark.push(...root, ...darkOnly);
+    } else {
+      light.push(...root);
+      dark.push(...darkOnly);
     }
   }
   if (!light.length)

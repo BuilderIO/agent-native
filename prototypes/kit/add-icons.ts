@@ -1,7 +1,14 @@
 // Copies Tabler outline icons into a prototype's icons.json, which the build merges over kit/icons.json.
-// Run: node prototypes/kit/add-icons.ts <name> <icon> [<icon>…]   (Tabler names, e.g. player-record)
+// Run: node prototypes/kit/add-icons.ts <name> <icon> [<icon>…]   (Tabler names, e.g. player-record;
+// a -filled name such as star-filled takes the filled variant)
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,7 +33,7 @@ function tablerDir(): string {
       .filter((d) => d.startsWith("@tabler+icons@"))
       .sort()
       .pop();
-    if (pkg) return join(pnpm, pkg, "node_modules/@tabler/icons/icons/outline");
+    if (pkg) return join(pnpm, pkg, "node_modules/@tabler/icons/icons");
   }
   throw new Error(
     "No @tabler/icons package found; run pnpm install in the main checkout",
@@ -34,23 +41,36 @@ function tablerDir(): string {
 }
 
 const dir = tablerDir();
+mkdirSync(join(kit, "..", name), { recursive: true });
 const file = join(kit, "..", name, "icons.json");
 const icons: Record<string, string> = existsSync(file)
   ? JSON.parse(readFileSync(file, "utf8"))
   : {};
 const missing: string[] = [];
 for (const icon of wanted) {
-  const svg = join(dir, `${icon}.svg`);
+  const filled = icon.endsWith("-filled");
+  const svg = join(
+    dir,
+    filled ? "filled" : "outline",
+    `${filled ? icon.slice(0, -"-filled".length) : icon}.svg`,
+  );
   if (!existsSync(svg)) {
     missing.push(icon);
     continue;
   }
-  icons[icon] = readFileSync(svg, "utf8")
+  let body = readFileSync(svg, "utf8")
     .replace(/^[\s\S]*?<svg[^>]*>/, "")
     .replace(/<\/svg>\s*$/, "")
     .replace(/<path stroke="none" d="M0 0h24v24H0z" fill="none"\s*\/>/, "")
     .replace(/\s+/g, " ")
     .trim();
+  // The kit draws icons as strokes (svg.i has fill: none), so a filled icon paints its own shapes.
+  if (filled)
+    body = body.replace(
+      /<(path|circle|rect|ellipse|polygon)\b/g,
+      '<$1 fill="currentColor" stroke="none"',
+    );
+  icons[icon] = body;
 }
 writeFileSync(file, JSON.stringify(icons, null, 0) + "\n");
 console.log(`${name}/icons.json: ${Object.keys(icons).length} icons.`);

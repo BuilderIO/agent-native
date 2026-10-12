@@ -11,7 +11,7 @@
 }
 html, body { height: 100%; }
 [hidden] { display: none !important; }
-body { background: var(--color-background); color: var(--color-foreground); font-family: var(--font); font-size: 12px; overflow: hidden; -webkit-font-smoothing: antialiased; }
+body { margin: 0; background: var(--color-background); color: var(--color-foreground); font-family: var(--font); font-size: 12px; overflow: hidden; -webkit-font-smoothing: antialiased; }
 * { box-sizing: border-box; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 input { font: inherit; color: inherit; }

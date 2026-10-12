@@ -1,3 +1,5 @@
+/* Menu density defaults to the Design editor's (12/16 text, 28px rows, 3px inset); a prototype sets
+   --kit-menu-font, --kit-menu-line, --kit-menu-row, --kit-menu-padding, and --kit-menu-item-radius for its own. */
 /* Shared controls: the review strip and its chips, icon buttons, buttons, the segmented control, menus,
    the click-away scrim, and toasts. Colors come from the code's tokens; --kit-accent is the prototype's accent. */
 .review { height: 36px; display: flex; align-items: center; gap: 8px; padding-inline: 12px; border-bottom: 1px solid var(--color-border); background: var(--color-muted); font-size: 12px; }
@@ -25,8 +27,8 @@
 /* menus: Nova dropdown. Full-bleed 28px rows, no inner padding, dividers edge to edge. */
 /* The editor's menu density, from CanvasContextMenu.tsx: 3px inset, 28px rows of 12px text with 4px corners,
    inset separators, 11px muted shortcuts. Same structure as the toolkit's shadcn DropdownMenu, at the editor's scale. */
-.menu { position: fixed; z-index: 50; background: var(--color-popover); color: var(--color-foreground); border: 1px solid var(--color-border); border-radius: 6px; padding: 3px; min-width: 128px; box-shadow: 0 4px 16px rgb(0 0 0 / 16%), 0 0 0 .5px rgb(0 0 0 / 8%); font-size: 12px; line-height: 16px; overflow: hidden; animation: swap .12s ease-out; }
-.menu button { width: 100%; height: 28px; padding: 0 8px; border-radius: 4px; display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
+.menu { position: fixed; z-index: 50; background: var(--color-popover); color: var(--color-foreground); border: 1px solid var(--color-border); border-radius: 6px; padding: var(--kit-menu-padding, 3px); min-width: 128px; box-shadow: 0 4px 16px rgb(0 0 0 / 16%), 0 0 0 .5px rgb(0 0 0 / 8%); font-size: var(--kit-menu-font, 12px); line-height: var(--kit-menu-line, 16px); overflow: hidden; animation: swap .12s ease-out; }
+.menu button { width: 100%; height: var(--kit-menu-row, 28px); padding: 0 8px; border-radius: var(--kit-menu-item-radius, 4px); display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap; }
 .menu button:hover, .menu button:focus-visible, .menu button.open { background: var(--color-accent); outline: none; }
 .menu button[disabled] { opacity: .35; cursor: default; background: none; }
 .menu button.two { height: auto; min-height: 40px; padding-block: 5px; align-items: flex-start; }

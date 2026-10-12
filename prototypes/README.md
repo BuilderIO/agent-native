@@ -6,6 +6,7 @@ Clickable prototypes of the Agent-Native templates, one folder each. Each builds
 | --- | --- | --- |
 | [Chat](chat/) | `templates/chat` | https://claude.ai/artifact/GqQxZw4AtoKkQFit9gtGH5 |
 | [Design](design/) | `templates/design` | https://claude.ai/artifact/MC9u3UmtuV3vbB865gU1kH |
+| [Slides](slides/) | `templates/slides` | https://claude.ai/artifact/SKFFSBvDk1xP5GQuBMFhm5 |
 
 ## Layout
 
@@ -15,7 +16,7 @@ kit/              shared by every prototype
   ui.css, ui.ts   the review strip, buttons, segmented control, menus, toasts, ic() and $
   settings.*      the toolkit's Settings shell; settings.json holds the shared pages
   changes.ts      the Changes drawer
-  icons.json      the Tabler icons prototypes draw with (add any a prototype needs)
+  icons.json      the Tabler icons prototypes draw with; add more per prototype with add-icons.ts (a -filled name takes the filled variant)
   build.ts        builds one prototype
 <name>/
   source.html     the prototype
@@ -35,7 +36,7 @@ This writes `design/dist/index.html`. To publish, ask Claude to publish that fil
 
 ## Tokens come from the code
 
-The build reads the design tokens from the code every time: the toolkit's tokens and Tailwind theme (`packages/toolkit/src/app/styles/tokens/agent-kit.css` and `agent-native.css`) and the template's theme (`templates/<template>/app/global.css`), in light and dark. Use the code's names in prototype CSS: `--color-border`, `--color-muted-foreground`, `--color-accent`, and the template's own, such as `--design-editor-accent-color`. Don't copy values into a prototype. If a prototype needs a token the code doesn't have, define it in `kit/base.css` or the prototype's own `:root` and mark it as not in the code yet.
+The build reads the design tokens from the code every time (including themes that ship dark, with light on `.light`): the toolkit's tokens and Tailwind theme (`packages/toolkit/src/app/styles/tokens/agent-kit.css` and `agent-native.css`) and the template's theme (`templates/<template>/app/global.css`), in light and dark. Use the code's names in prototype CSS: `--color-border`, `--color-muted-foreground`, `--color-accent`, and the template's own, such as `--design-editor-accent-color`. Don't copy values into a prototype. If a prototype needs a token the code doesn't have, define it in `kit/base.css` or the prototype's own `:root` and mark it as not in the code yet.
 
 ## When you change a prototype
 
@@ -52,6 +53,6 @@ One plain sentence per change, in the past tense, saying what changed for someon
 1. Create `prototypes/<name>/` with `source.html`, `prototype.json`, and a `changes.json` holding its first entry.
 2. In `source.html`, put `__KIT_HEAD__` after the `<title>`, `__KIT_SCRIPT__` before the prototype's own `<script>`, and call `kitChangesInit(button)` on the button that opens the Changes drawer.
 3. Draw icons with `ic("name")` and menus with `openMenu(anchor, items)`, both from `kit/ui.ts`; use `__LOGO__` for the logo. Any other `__NAME__` placeholder is filled from `<name>/name.json`.
-4. Set `--kit-accent` in the prototype's `:root` to the template's accent token. Shared pieces a second prototype needs go in the kit, not copied between prototypes.
+4. Set `--kit-accent` in the prototype's `:root` to the template's accent token, and the `--kit-menu-*` density variables if the app's menus aren't the Design editor's 12px/28px rows. Shared pieces a second prototype needs go in the kit, not copied between prototypes.
 5. For Settings, add `settings.json` with the app's own pages (General, What's new, Labs if it has any); a page with the same id as a kit page replaces it. Call `kitSettingsInit({ app, mcpName, mcpUrl })` once, then `openSettings(page)` opens it, and ⌘, works. Shared pages write `{app}` and `{mcpUrl}` where they mean the current app.
 6. Build it, publish it, and add it to the table above.
