@@ -160,9 +160,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivationChecking":
     "Comprobando si se pueden crear cuentas nuevas.",
   "onboarding.builderActivationUnavailable":
-    "Esta aplicación no permite crear cuentas nuevas. Puedes conectar una cuenta existente.",
+    "Crea una cuenta o inicia sesión para conectar Builder.io.",
   "onboarding.builderActivationUnavailableInMode":
-    "La activación de una cuenta nueva no está disponible en este modo. Aún puedes conectar una cuenta existente.",
+    "Crea una cuenta o inicia sesión para conectar Builder.io.",
   "onboarding.builderActivationCheckFailed":
     "No se pudo comprobar si esta aplicación permite crear cuentas nuevas.",
 
@@ -177,6 +177,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Política de privacidad",
   "onboarding.builderConsentAnd": "y",
   "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.builderConnect": "Conectar Builder.io",
   "onboarding.builderActivating":
     "Activando los créditos gratuitos de Builder.io",
   "onboarding.builderConnecting":

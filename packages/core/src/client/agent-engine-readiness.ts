@@ -509,6 +509,16 @@ async function ensureStoreReadiness(
         if (store.inFlight === request) store.inFlight = null;
         return ensureStoreReadiness(store);
       }
+      if (
+        nextState === "unavailable" &&
+        (store.state === "configured" || store.state === "missing")
+      ) {
+        // A failed refresh is not evidence that the last confirmed readiness
+        // changed. Keep the UI decision stable and leave the cache expired so
+        // the hook's retry performs another probe.
+        store.resolvedAt = 0;
+        return nextState;
+      }
       store.resolvedAt = Date.now();
       publish(store, nextState);
       return nextState;
