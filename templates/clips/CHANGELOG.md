@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-12
+
+### Fixed
+
+- The Rewind popover fits in the tray and explains that screen history stays on-device until included in a recording or approved for sharing.
+
 ## 2026-10-11
 
 ### Improved

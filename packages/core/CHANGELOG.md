@@ -51,6 +51,28 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.207.1
+
+### Patch Changes
+
+- a784860: Record agent_connected through first-party tracking after successful MCP and OAuth connections, with durable reconnect deduplication and user, app, and client attribution.
+- 29ad75e: Expose strict-context private storage readiness for authenticated workflows.
+- f1324b1: Collapse duplicate assistant snapshots when hydrating a durable completed reply.
+- 1c4a192: Keep blank paragraph separators free of indentation when rendering multiline changelog entries.
+- 9b463c8: Prefer a unique exact same-run assistant snapshot when projecting a durable root alongside partial segments, without collapsing separate snapshot messages.
+- 5989b7f: Preserve eligible action-query results across cold cache restores and prevent denied records from returning through pending storage reads or inheriting another auth scope’s persistence permission.
+- 5619bf5: Avoid rendering a durable submitted user twice when merged thread history already includes its explicitly linked AgentKit message.
+- Release all public npm packages with a patch version bump.
+- 77c15ee: Recover AgentKit run cursors from trusted protocol metadata, compact omitted event ranges, and retry transient first-run status failures.
+- d62d56e: Prevent repeated copies of the current user message from reappearing in chat history.
+- 1c4a192: Expose inline payload sanitization for application selection context publishers.
+- 8c97965: Keep personal attachment ownership separate from the active organization's storage credentials.
+- 77c15ee: Preserve compacted chat event cursors when restoring and appending thread history.
+- Updated dependencies
+- Updated dependencies [77c15ee]
+  - @agent-native/agentkit@0.207.1
+  - @agent-native/recap-cli@0.5.70
+
 ## 0.207.0
 
 ### Minor Changes
@@ -4015,11 +4037,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - ca9ee7e: Merge same-day changelog categories without duplicating headings.
-
-## 0.167.0
-
-### Minor Changes
-
-- 3a7a8f0: support deterministic environment aliases and JSON fragments for public Agent-Native config
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
