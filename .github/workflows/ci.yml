@@ -710,7 +710,7 @@ jobs:
             exit 2
           fi
           listed_tests_file="$RUNNER_TEMP/design-autolayout-vertical-test-list.txt"
-          pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list > "$listed_tests_file" 2>&1
+          pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list --reporter=list > "$listed_tests_file" 2>&1
           matching_tests=$(grep -F -c "$vertical_test" "$listed_tests_file" || true)
           if [[ "$matching_tests" != "1" ]]; then
             echo "::error::Expected exactly one vertical auto-layout test title match, found $matching_tests."

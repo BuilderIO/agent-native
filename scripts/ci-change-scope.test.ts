@@ -952,7 +952,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
         'printf \'%s\\n\' "${existing_changed_specs[@]}" | grep -Fqx "$vertical_spec"',
       ) &&
       verticalAutoLayoutWorkflow.includes(
-        'pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list',
+        'pnpm exec playwright test "$vertical_spec" --grep "$vertical_test$" --list --reporter=list',
       ) &&
       verticalAutoLayoutWorkflow.includes(
         'if [[ "$matching_tests" != "1" ]]; then',
