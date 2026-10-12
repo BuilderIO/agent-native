@@ -1215,6 +1215,7 @@ function initialSourceOwnershipJson(html: string): string {
       })),
     });
   } catch {
+    console.warn("Design could not capture initial source ownership");
     return "";
   }
 }

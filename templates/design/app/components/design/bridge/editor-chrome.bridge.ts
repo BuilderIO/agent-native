@@ -8565,6 +8565,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }
       return snapshot;
     } catch (_error) {
+      console.warn("Design could not read initial source ownership");
       return null;
     }
   }

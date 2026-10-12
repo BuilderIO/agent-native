@@ -6979,6 +6979,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         return snapshot;
       } catch (_error) {
+        console.warn("Design could not read initial source ownership");
         return null;
       }
     }
