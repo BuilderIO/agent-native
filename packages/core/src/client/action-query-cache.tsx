@@ -155,8 +155,11 @@ function beginDurableClearIntent(): ClearIntent | undefined {
     if (local.getItem(key) !== value)
       throw new Error("Unable to persist cache clear intent");
     intent = { key, value };
-  } catch {
-    // Rotating the epoch still invalidates previously stored records.
+  } catch (error) {
+    console.warn(
+      "Unable to persist cache clear intent; trying epoch invalidation",
+      error,
+    );
   }
   try {
     const epoch = newCacheToken();
@@ -164,8 +167,11 @@ function beginDurableClearIntent(): ClearIntent | undefined {
     if (local.getItem(CACHE_EPOCH_KEY) !== epoch)
       throw new Error("Unable to persist cache epoch");
     epochAdvanced = true;
-  } catch {
-    // A durable marker still keeps cold binds behind a full clear.
+  } catch (error) {
+    console.warn(
+      "Unable to persist cache epoch; relying on clear intent",
+      error,
+    );
   }
   if (intent || epochAdvanced) return intent;
   cacheSafetyUnavailable = true;
@@ -184,8 +190,11 @@ function removeCompletedClearIntents(intents: ClearIntent[]): void {
         local.removeItem(intent.key);
       }
     }
-  } catch {
-    // A retained intent makes the next bind repeat the safe clear.
+  } catch (error) {
+    console.warn(
+      "Unable to remove completed cache clear intent; later binds will retry",
+      error,
+    );
   }
 }
 
