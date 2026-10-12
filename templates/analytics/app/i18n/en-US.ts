@@ -1868,8 +1868,13 @@ export default {
     presetWeekdays: "Weekdays at 06:00",
     presetWeekly: "Weekly on Monday at 06:00",
     status: "Status",
+    unsafeEntriesOmitted: "Entries omitted by safety checks",
+    unsafeFieldsOmitted: "Fields omitted by safety checks",
+    truncatedFields: "Truncated fields",
     unresolvedTrackingCallSites: "Unresolved tracking calls",
     unresolvedTrackingCallSitesUnavailable: "Unavailable",
+    sourceIndexCoverageCaveat:
+      "Safety checks may withhold entries or fields, and truncation or unresolved tracking calls may limit coverage.",
     dynamicTrackingCoverageCaveat:
       "Calls with runtime-computed event names are excluded; aliases or other tracking APIs may be missed.",
     overviewFailed: "Build state could not be loaded.",

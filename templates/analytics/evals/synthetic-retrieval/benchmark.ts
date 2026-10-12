@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 import { rankAnalyticsQueryCatalog } from "../../server/lib/analytics-query-catalog";
 
 export const BENCHMARK_TITLE = "SYNTHETIC: Analytics retrieval benchmark";
-export const BASELINE_REVISION = "bdd2cfccb528339cc47e19aeaff9bf3e367374f1";
+export const BASELINE_REVISION = "8ff15a5577e6530316d59c4e4b2aa751a8f56a63";
+export const DBT_SCHEMA_REVISION = "000d5e351b5be91166610a4acf1b10fea565fcff";
 export const CSV_PATH = fileURLToPath(
   new URL("./SYNTHETIC-analytics-retrieval.csv", import.meta.url),
 );
@@ -38,6 +39,7 @@ export type SyntheticBenchmarkRow = {
   query: string;
   expectedCandidateId: string;
   baselineRevision: string;
+  dbtSchemaRevision: string;
   baselineTopCandidateId: string;
   baselineCandidateIds: string;
   baselineExpectedRank: string;
@@ -147,15 +149,15 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
     dashboards: [],
   },
   {
-    id: "builder-users-organization-vs-connect",
-    query: "organization Builder.io users",
+    id: "organization-users-vs-connect",
+    query: "organization users",
     expectedCandidateId: "dictionary:synthetic-membership-distribution",
     note: "Synthetic retrieval case: organization membership should outrank an equally matching Connect-labelled example.",
     dictionaryEntries: [
       {
         id: "synthetic-membership-distribution",
-        metric: "Builder.io User Distribution by Organization",
-        definition: "Builder.io users organization membership records.",
+        metric: "User Distribution by Organization",
+        definition: "Users organization membership records.",
         table: "synthetic_user_organization_role",
         semanticScope: "membership",
         sourceKind: "sigma",
@@ -165,11 +167,116 @@ export const SYNTHETIC_CASES: SyntheticCase[] = [
       },
       {
         id: "synthetic-connect-membership",
-        metric: "Builder.io Users Organization Connect",
-        definition: "Builder.io users organization membership records.",
+        metric: "Users Organization Connection",
+        definition: "Users organization membership records.",
         table: "synthetic_user_organization_role",
         semanticScope: "membership",
         sourceKind: "sigma",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "organization-roster-roles-vs-monthly-count",
+    query: "current organization user roster with assigned roles",
+    expectedCandidateId: "dictionary:synthetic-user-organization-role-bridge",
+    note: "A current role-aware roster needs user-organization membership rows; the approved monthly aggregate is not a roster.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-monthly-user-count",
+        metric: "Organization Monthly User Count",
+        definition:
+          "Daily-built per date month and organization. Completed months use the last calendar day; the current month is partial through today. The main user count excludes members with @builder.io addresses; the internal-user count records them and is not a staff roster. Organization ID may identify a child workspace.",
+        table: "dbt_mart.aggregate_monthly_users_per_org",
+        columnsUsed: "date_month, org_id, user_count, internal_user_count",
+        grain: "One row per date_month per org_id",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        approved: true,
+      },
+      {
+        id: "synthetic-user-organization-role-bridge",
+        metric: "Organization User Roles",
+        definition:
+          "One row per users.organizations array element, including the organization role.",
+        table: "dbt_intermediate.user_organization_role",
+        columnsUsed: "user_id, organization_id, organization_role",
+        grain: "One row per users.organizations array element",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "organization-user-activity-vs-membership",
+    query: "which users in organizations triggered events",
+    expectedCandidateId: "dictionary:synthetic-organization-user-events",
+    note: "An event question about users and organizations should retrieve product activity instead of membership metadata.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-organization-user-membership",
+        metric: "Organization User Role Membership",
+        definition:
+          "One row per users.organizations array element, including the organization role.",
+        table: "dbt_intermediate.user_organization_role",
+        columnsUsed: "user_id, organization_id, organization_role",
+        grain: "One row per users.organizations array element",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: true,
+      },
+      {
+        id: "synthetic-organization-user-events",
+        metric: "Organization User Product Activity Events",
+        definition: "User events triggered inside organizations.",
+        table: "synthetic_organization_user_events",
+        semanticScope: "product_activity",
+        sourceIndex: true,
+        aiGenerated: true,
+        approved: false,
+      },
+    ],
+    dashboards: [],
+  },
+  {
+    id: "aggregate-wording-keeps-monthly-count",
+    query: "which organization had the highest monthly user count",
+    expectedCandidateId: "dictionary:synthetic-monthly-user-count",
+    note: "Aggregate wording must keep the approved monthly count available even when the question uses 'which'.",
+    dictionaryEntries: [
+      {
+        id: "synthetic-monthly-user-count",
+        metric: "Organization Monthly User Count",
+        definition:
+          "Daily-built per date month and organization. Completed months use the last calendar day; the current month is partial through today. The main user count excludes members with @builder.io addresses; the internal-user count records them and is not a staff roster. Organization ID may identify a child workspace.",
+        table: "dbt_mart.aggregate_monthly_users_per_org",
+        columnsUsed: "date_month, org_id, user_count, internal_user_count",
+        grain: "One row per date_month per org_id",
+        semanticScope: "membership",
+        sourceKind: "dbt",
+        sourceIndex: true,
+        approved: true,
+      },
+      {
+        id: "synthetic-user-organization-role-bridge",
+        metric: "Organization User Roles",
+        definition:
+          "One row per users.organizations array element, including the organization role.",
+        table: "dbt_intermediate.user_organization_role",
+        columnsUsed: "user_id, organization_id, organization_role",
+        grain: "One row per users.organizations array element",
+        semanticScope: "membership",
+        sourceKind: "dbt",
         sourceIndex: true,
         aiGenerated: true,
         approved: false,
@@ -188,9 +295,21 @@ const MEASURED_ORIGIN_MAIN_RANKINGS: Record<string, string[]> = {
     "dictionary:synthetic-approved-workflow-completions",
     "dictionary:synthetic-generated-workflow-completions",
   ],
-  "builder-users-organization-vs-connect": [
-    "dictionary:synthetic-connect-membership",
+  "organization-users-vs-connect": [
     "dictionary:synthetic-membership-distribution",
+    "dictionary:synthetic-connect-membership",
+  ],
+  "organization-roster-roles-vs-monthly-count": [
+    "dictionary:synthetic-monthly-user-count",
+    "dictionary:synthetic-user-organization-role-bridge",
+  ],
+  "organization-user-activity-vs-membership": [
+    "dictionary:synthetic-organization-user-membership",
+    "dictionary:synthetic-organization-user-events",
+  ],
+  "aggregate-wording-keeps-monthly-count": [
+    "dictionary:synthetic-monthly-user-count",
+    "dictionary:synthetic-user-organization-role-bridge",
   ],
 };
 
@@ -237,6 +356,7 @@ export function computeSyntheticBenchmark(): SyntheticBenchmarkRow[] {
       query: testCase.query,
       expectedCandidateId: testCase.expectedCandidateId,
       baselineRevision: BASELINE_REVISION,
+      dbtSchemaRevision: DBT_SCHEMA_REVISION,
       baselineTopCandidateId: baselineIds[0] ?? "",
       baselineCandidateIds: baselineIds.join(";"),
       baselineExpectedRank: baselineRank,
@@ -265,6 +385,7 @@ export function renderSyntheticBenchmarkCsv(
     "query",
     "expectedCandidateId",
     "baselineRevision",
+    "dbtSchemaRevision",
     "baselineTopCandidateId",
     "baselineCandidateIds",
     "baselineExpectedRank",
@@ -282,6 +403,7 @@ export function renderSyntheticBenchmarkCsv(
     "query",
     "expected_candidate_id",
     "baseline_revision",
+    "dbt_schema_revision",
     "baseline_top_candidate_id",
     "baseline_candidate_ids",
     "baseline_expected_rank",

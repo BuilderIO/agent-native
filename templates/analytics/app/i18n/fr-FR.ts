@@ -1945,8 +1945,13 @@ export default {
     presetWeekdays: "Jours ouvrés à 06:00",
     presetWeekly: "Chaque lundi à 06:00",
     status: "Statut",
+    unsafeEntriesOmitted: "Entrées omises par les contrôles de sécurité",
+    unsafeFieldsOmitted: "Champs omis par les contrôles de sécurité",
+    truncatedFields: "Champs tronqués",
     unresolvedTrackingCallSites: "Appels de suivi non résolus",
     unresolvedTrackingCallSitesUnavailable: "Indisponible",
+    sourceIndexCoverageCaveat:
+      "Les contrôles de sécurité peuvent omettre des entrées ou des champs ; les champs tronqués et les appels de suivi non résolus peuvent aussi limiter la couverture.",
     dynamicTrackingCoverageCaveat:
       "Les appels dont le nom d’événement est calculé à l’exécution sont exclus ; les alias et autres API de suivi peuvent ne pas être détectés.",
     overviewFailed: "L’état de la création n’a pas pu être chargé.",

@@ -1926,8 +1926,13 @@ export default {
     presetWeekdays: "Entre semana a las 06:00",
     presetWeekly: "Semanal los lunes a las 06:00",
     status: "Estado",
+    unsafeEntriesOmitted: "Entradas omitidas por controles de seguridad",
+    unsafeFieldsOmitted: "Campos omitidos por controles de seguridad",
+    truncatedFields: "Campos truncados",
     unresolvedTrackingCallSites: "Llamadas de seguimiento sin resolver",
     unresolvedTrackingCallSitesUnavailable: "No disponible",
+    sourceIndexCoverageCaveat:
+      "Los controles de seguridad pueden omitir entradas o campos; los campos truncados y las llamadas de seguimiento sin resolver también pueden limitar la cobertura.",
     dynamicTrackingCoverageCaveat:
       "Se excluyen las llamadas cuyos nombres de evento se calculan en tiempo de ejecución; es posible que no se detecten alias u otras API de seguimiento.",
     overviewFailed: "No se pudo cargar el estado de la compilación.",

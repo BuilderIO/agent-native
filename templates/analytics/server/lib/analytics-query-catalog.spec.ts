@@ -151,6 +151,492 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("requires row-level role evidence for workspace roster questions", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly User Count",
+          definition:
+            "Monthly snapshot of user count per organization, captured at month end.",
+          table: "dbt_mart.aggregate_monthly_users_per_org",
+          columnsUsed: "date_month, org_id, user_count",
+          semanticScope: "membership",
+          approved: true,
+          updateFrequency: "Monthly",
+        },
+        {
+          id: "dbt-workspace-member-role-bridge",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+        {
+          id: "dbt-core-users",
+          metric: "Workspace user dimension",
+          definition: "Core user attributes keyed by user id.",
+          table: "dbt_mart.dim_users_core",
+          columnsUsed: "user_id, user_email",
+          grain: "One row per user",
+          primaryEntity: "user",
+          semanticScope: "person",
+          approved: true,
+        },
+        {
+          id: "dbt-organizations",
+          metric: "Workspace organization dimension",
+          definition: "Organization attributes keyed by organization id.",
+          table: "dbt_mart.dim_organizations",
+          columnsUsed: "org_id, organization_name",
+          grain: "One row per organization",
+          primaryEntity: "organization",
+          semanticScope: "organization",
+          approved: true,
+        },
+      ],
+    });
+
+    const ids = results.map((candidate) =>
+      candidate.kind === "data-dictionary"
+        ? candidate.id
+        : candidate.dashboardId,
+    );
+    expect(ids[0]).toBe("dbt-workspace-member-role-bridge");
+    expect(ids).toEqual(["dbt-workspace-member-role-bridge"]);
+    expect(ids).not.toContain("approved-monthly-workspace-user-count");
+  });
+
+  it("rejects inferred active-user activity while retaining a daily-refreshed current roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "active-users-by-workspace",
+          metric: "Active users by workspace",
+          definition:
+            "Current active users associated with each workspace, with their role and membership grain.",
+          table: "active_users_by_org",
+          columnsUsed: "user_id, org_id, role",
+          grain: "One row per user-organization membership",
+        },
+        {
+          id: "daily-refreshed-current-workspace-roles",
+          metric: "Current workspace user roles",
+          definition:
+            "Current snapshot of latest workspace memberships and assigned roles; refreshes daily.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          updateFrequency: "Daily",
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      ),
+    ).toEqual(["daily-refreshed-current-workspace-roles"]);
+  });
+
+  it("keeps approved monthly metrics for explicit month-count questions", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly workspace user count",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly workspace user count",
+          definition: "Month-end count of users by workspace.",
+          table: "workspace_user_monthly_rollup",
+          columnsUsed: "workspace_id, month, user_count",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "dbt-workspace-member-role-bridge",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "approved-monthly-workspace-user-count",
+      approved: true,
+    });
+  });
+
+  it("keeps an approved monthly count for a ranked aggregate question", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "which organization had the highest monthly user count",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly User Count",
+          definition: "Monthly snapshot of user count per organization.",
+          table: "dbt_mart.aggregate_monthly_users_per_org",
+          columnsUsed: "date_month, org_id, user_count",
+          semanticScope: "membership",
+          approved: true,
+          updateFrequency: "Monthly",
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "approved-monthly-workspace-user-count",
+      approved: true,
+    });
+  });
+
+  it("keeps the role source for a role breakdown when the approved aggregate lacks role", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "count of workspace users by role",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly workspace user count",
+          definition: "Month-end count of users by workspace.",
+          table: "workspace_user_monthly_rollup",
+          columnsUsed: "workspace_id, month, user_count",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "dbt-workspace-member-role-bridge",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      ),
+    ).toEqual(["dbt-workspace-member-role-bridge"]);
+  });
+
+  it("prefers an approved aggregate when it contains the requested role dimension", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly workspace user count by role",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count-by-role",
+          metric: "Monthly workspace user count by role",
+          definition: "Month-end user counts by workspace and assigned role.",
+          table: "workspace_user_role_monthly_rollup",
+          columnsUsed: "workspace_id, month, role, user_count",
+          grain: "One row per workspace, month, and role",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "dbt-workspace-member-role-bridge",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including the assigned role.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "approved-monthly-workspace-user-count-by-role",
+      approved: true,
+    });
+  });
+
+  it("does not offer an aggregate when no roster metadata is available", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "approved-monthly-workspace-user-count",
+          metric: "Monthly workspace user count",
+          definition: "Month-end count of users by workspace.",
+          table: "workspace_user_monthly_rollup",
+          columnsUsed: "workspace_id, month, user_count",
+          grain: "One row per workspace per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not use disconnected user and organization dimensions for a role roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-core-users",
+          metric: "Workspace user dimension",
+          definition: "Core user attributes keyed by user id.",
+          table: "dbt_mart.dim_users_core",
+          columnsUsed: "user_id, user_email",
+          grain: "One row per user",
+          primaryEntity: "user",
+          semanticScope: "person",
+          approved: true,
+        },
+        {
+          id: "dbt-organizations",
+          metric: "Workspace organization dimension",
+          definition: "Organization attributes keyed by organization id.",
+          table: "dbt_mart.dim_organizations",
+          columnsUsed: "org_id, organization_name",
+          grain: "One row per organization",
+          primaryEntity: "organization",
+          semanticScope: "organization",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not combine one-sided user and organization dimensions into a roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-core-users",
+          metric: "Workspace user dimension",
+          definition: "Core user attributes keyed by user id.",
+          table: "dbt_mart.dim_users_core",
+          columnsUsed: "user_id, workspace_id, user_email",
+          grain: "One row per user",
+          primaryEntity: "user",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "dbt-workspaces",
+          metric: "Workspace dimension",
+          definition: "Workspace attributes keyed by workspace id.",
+          table: "dbt_mart.dim_workspaces",
+          columnsUsed: "workspace_id, workspace_name",
+          grain: "One row per workspace",
+          primaryEntity: "workspace",
+          semanticScope: "organization",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not use product activity rows as a user-organization roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "product-event-actors",
+          metric: "Workspace User Event Actors",
+          definition: "One row per product event actor and organization.",
+          table: "analytics_product_events",
+          columnsUsed: "user_id, workspace_id, organization_role, event_name",
+          grain: "One row per event",
+          semanticScope: "product_activity",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("requires membership relation evidence for dashboard roster panels", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current organization user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "product-events",
+          title: "Organization user activity",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "event-actors",
+                title: "User roles by organization",
+                sql: "SELECT user_id, organization_id, organization_role FROM product_events",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not treat monthly membership snapshots as a current roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "monthly-user-workspace-role-snapshot",
+          metric: "Workspace user roles",
+          definition:
+            "Month-end snapshot of user-workspace memberships and assigned roles.",
+          table: "workspace_user_roles_history",
+          columnsUsed: "user_id, workspace_id, role, snapshot_month",
+          grain: "One row per user-workspace membership per month",
+          semanticScope: "membership",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("lets explicit membership grain override an incidental member count column", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "dbt-workspace-member-role-bridge-with-count",
+          metric: "Workspace user roles",
+          definition:
+            "One row per user-workspace membership, including assigned role and a member count attribute.",
+          table: "workspace_member_role_bridge",
+          columnsUsed: "user_id, workspace_id, role, member_count",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-workspace-member-role-bridge-with-count",
+      sourceKind: "dbt",
+    });
+  });
+
+  it("does not mistake a last-access timestamp for a role field", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "workspace-member-access-events",
+          metric: "Workspace member access events",
+          definition: "A row records when a user last accessed a workspace.",
+          table: "workspace_member_access_events",
+          columnsUsed: "user_id, workspace_id, last_access_at",
+          grain: "One row per user-workspace membership",
+          semanticScope: "membership",
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("does not use an aggregated dashboard as a user-role roster", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "current workspace user roster with roles",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "workspace-role-summary",
+          title: "Workspace User Roles",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "role-counts",
+                title: "Users by role",
+                sql: "SELECT workspace_id, user_id, role, COUNT(*) AS member_count FROM memberships GROUP BY workspace_id, user_id, role",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it("uses one transitive trust and scope order across catalog kinds", () => {
     const dashboards = [
       {
@@ -323,6 +809,42 @@ describe("analytics query catalog", () => {
       id: "builder-users-by-organization",
       semanticScope: "membership",
     });
+  });
+
+  it("prefers an exact activity scope over approved membership fallback data", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "which users in organizations triggered events",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "organization-user-membership",
+          metric: "Organization User Role Membership",
+          definition: "One row per user-organization membership with a role.",
+          table: "synthetic_user_organization_role",
+          columnsUsed: "user_id, organization_id, organization_role",
+          grain: "One row per user-organization membership",
+          semanticScope: "membership",
+          approved: true,
+        },
+        {
+          id: "organization-user-events",
+          metric: "Organization User Product Activity Events",
+          definition: "User events triggered inside organizations.",
+          table: "synthetic_organization_user_events",
+          semanticScope: "product_activity",
+          sourceIndex: true,
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+      ),
+    ).toEqual(["organization-user-events"]);
   });
 
   it("penalizes off-topic terms in metric names when query coverage is equal", () => {

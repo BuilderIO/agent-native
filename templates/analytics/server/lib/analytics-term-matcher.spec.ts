@@ -80,7 +80,29 @@ describe("Analytics term matching", () => {
     expect(semanticScopeForSearch("Builder users in organizations")).toBe(
       "membership",
     );
-    expect(semanticScopeForSearch("workspace member roles")).toBe("membership");
+    expect(semanticScopeForSearch("workspace member roles")).toBe(
+      "membership_roster",
+    );
+    expect(semanticScopeForSearch("monthly user count by organization")).toBe(
+      "membership",
+    );
+    expect(
+      semanticScopeForSearch(
+        "which organization had the highest monthly user count",
+      ),
+    ).toBe("membership");
+    expect(
+      semanticScopeForSearch("which users in organizations triggered events"),
+    ).toBe("product_activity");
+    expect(
+      semanticScopeForSearch("Builder.io product monthly active user count"),
+    ).toBe("product_user");
+    expect(semanticScopeForSearch("monthly active users by region")).toBe(
+      "product_activity",
+    );
+    expect(semanticScopeForSearch("who has access to the workspace")).toBe(
+      "membership_roster",
+    );
     expect(semanticScopeForSearch("Agent-Native Analytics users")).toBe(
       "analytics_user",
     );
@@ -88,6 +110,9 @@ describe("Analytics term matching", () => {
       0,
     );
     expect(semanticScopeCompatibility("membership", "person")).toBe(2);
+    expect(semanticScopeCompatibility("membership", "membership_roster")).toBe(
+      0,
+    );
     expect(semanticScopeForSearch("product user dimension")).toBe(
       "product_user",
     );

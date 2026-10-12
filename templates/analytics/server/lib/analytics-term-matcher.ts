@@ -250,6 +250,8 @@ export function relevanceTerms(search: string): string[] {
 export function semanticScopeForSearch(value: string): string {
   const terms = new Set(searchTerms(value));
   const has = (...values: string[]) => values.some((term) => terms.has(term));
+  const isBuilderProductUserQuery =
+    has("builder", "product") && has("user", "person", "people", "member");
   if (
     ((has("agent") && has("native")) || has("analytics", "analytic")) &&
     has("user", "person", "people", "member")
@@ -262,7 +264,6 @@ export function semanticScopeForSearch(value: string): string {
     has(
       "event",
       "activity",
-      "active",
       "usage",
       "feature",
       "funnel",
@@ -270,9 +271,26 @@ export function semanticScopeForSearch(value: string): string {
       "activation",
       "adoption",
       "action",
-    )
+    ) ||
+    (has("active") && !isBuilderProductUserQuery)
   ) {
     return "product_activity";
+  }
+  const asksForMembershipRows =
+    /\b(?:role|roles|permission|permissions|access|roster|list|row|rows|record|records|who|which)\b/i.test(
+      value,
+    );
+  const asksForAggregate =
+    /\b(?:how many|counts?|number of|total|highest|lowest|most|fewest|average|avg|median|sum|trend|rate|percentage|share|distribution)\b/i.test(
+      value,
+    );
+  if (
+    asksForMembershipRows &&
+    !asksForAggregate &&
+    has("organization", "org", "company", "workspace", "team") &&
+    (has("user", "person", "people", "member") || /\bwho\b/i.test(value))
+  ) {
+    return "membership_roster";
   }
   if (
     has("organization", "org", "company", "workspace", "team") &&
@@ -302,9 +320,21 @@ export function semanticScopeCompatibility(
 ): number {
   if (candidateScope === "unknown" || requestedScope === "unknown") return 1;
   if (candidateScope === requestedScope) return 2;
+  if (requestedScope === "membership_roster") return 0;
+  if (
+    candidateScope === "membership_roster" &&
+    requestedScope === "membership"
+  ) {
+    return 1;
+  }
   if (
     requestedScope === "person" &&
-    ["product_user", "analytics_user", "membership"].includes(candidateScope)
+    [
+      "product_user",
+      "analytics_user",
+      "membership",
+      "membership_roster",
+    ].includes(candidateScope)
   ) {
     return 2;
   }

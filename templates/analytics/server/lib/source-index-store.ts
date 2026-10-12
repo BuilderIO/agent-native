@@ -36,6 +36,25 @@ export type SourceIndexRead =
   | { status: "invalid" }
   | { status: "available"; bundle: SourceIndexBundle };
 
+export type SourceIndexScanCoverage = {
+  unsafeEntriesOmitted: number | null;
+  unsafeFieldsOmitted: number | null;
+  truncatedFields: number | null;
+  unresolvedTrackingCallSites: number | null;
+};
+
+export function sourceIndexScanCoverage(
+  bundle: SourceIndexBundle,
+): SourceIndexScanCoverage {
+  const summary = bundle.scanSummary;
+  return {
+    unsafeEntriesOmitted: summary?.unsafeEntriesOmitted ?? null,
+    unsafeFieldsOmitted: summary?.unsafeFieldsOmitted ?? null,
+    truncatedFields: summary?.truncatedFields ?? null,
+    unresolvedTrackingCallSites: summary?.unresolvedTrackingCallSites ?? null,
+  };
+}
+
 const sourceIndexCache = new Map<
   string,
   { expiresAt: number; result: SourceIndexRead }
