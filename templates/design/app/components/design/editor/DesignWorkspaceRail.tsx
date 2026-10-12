@@ -6,6 +6,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconStack2,
+  IconTimelineEvent,
 } from "@tabler/icons-react";
 import { useRef, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -48,12 +49,16 @@ export function DesignWorkspaceRail({
   account,
   activePanel,
   disabledPanels,
+  motionOpen,
+  onMotionToggle,
   projectMenu,
   onPanelChange,
 }: {
   account?: DesignWorkspaceRailAccount | null;
   activePanel: DesignLeftPanel | null;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  motionOpen?: boolean;
+  onMotionToggle?: () => void;
   projectMenu: ReactNode;
   onPanelChange: (panel: DesignLeftPanel | null) => void;
 }) {
@@ -143,6 +148,36 @@ export function DesignWorkspaceRail({
             </Tooltip>
           );
         })}
+        {onMotionToggle ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("designEditor.motion.dockLabel")}
+                aria-current={motionOpen ? "page" : undefined}
+                onClick={onMotionToggle}
+                className="design-workspace-rail-item group flex w-full cursor-pointer flex-col items-center gap-0.5 p-1 text-[11px] leading-4 text-foreground outline-none"
+              >
+                <span
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-md transition-colors group-focus-visible:ring-1 group-focus-visible:ring-[var(--design-editor-accent-color)]",
+                    motionOpen
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
+                      : "group-hover:bg-[var(--design-editor-layer-hover-color)]",
+                  )}
+                >
+                  <IconTimelineEvent className="size-5" stroke={1.5} />
+                </span>
+                <span className="w-full truncate px-0.5 text-center">
+                  {t("designEditor.motion.dockLabel")}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("designEditor.motion.dockLabel")}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
       <div className="flex-1" />
       <div className="flex w-full shrink-0 flex-col items-center gap-1 p-2">

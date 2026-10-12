@@ -276,6 +276,10 @@ export function isDocsPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
 
   if (normalized.startsWith(".changeset/")) return true;
+  // Prototypes are standalone design artifacts (one HTML page each, published as Claude artifacts) that no
+  // workspace imports, so no build, typecheck, or test can be affected by them; classing them as docs keeps a
+  // prototype-only change off the full CI run that an unknown root path otherwise forces.
+  if (normalized.startsWith("prototypes/")) return true;
   if (DOCS_SUPPORT_PATHS.has(normalized)) return true;
   if (DOCS_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
     return DOCS_CONTENT_EXTENSIONS.has(extname(normalized).toLowerCase());

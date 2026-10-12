@@ -11,8 +11,13 @@ const mocks = vi.hoisted(() => {
     variables: undefined as unknown,
     mutate: vi.fn(),
     reset: vi.fn(),
+    onPersisted: undefined as ((orgId: string | null) => void) | undefined,
   });
-  type MutateOptions = { onSuccess?: () => void; onSettled?: () => void };
+  type MutateOptions = {
+    onError?: () => void;
+    onSuccess?: () => void;
+    onSettled?: () => void;
+  };
   const succeed = (_value: unknown, options?: MutateOptions) => {
     options?.onSuccess?.();
     options?.onSettled?.();
@@ -47,7 +52,12 @@ vi.mock("@agent-native/core/client/org", () => ({
   useCreateOrg: () => mocks.createOrg,
   useJoinByDomain: () => mocks.joinByDomain,
   useOrg: mocks.useOrg,
-  useSwitchOrg: () => mocks.switchOrg,
+  useSwitchOrg: (options?: {
+    onPersisted?: (orgId: string | null) => void;
+  }) => {
+    mocks.switchOrg.onPersisted = options?.onPersisted;
+    return mocks.switchOrg;
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -118,6 +128,7 @@ describe("OrgSwitcher (account menu)", () => {
       mutation.mutate.mockReset();
       mutation.mutate.mockImplementation(mocks.succeed);
       mutation.reset.mockReset();
+      mutation.onPersisted = undefined;
     }
     mocks.useSession.mockReturnValue({
       session: { email: "owner@example.com", name: "Session Name" },
@@ -767,6 +778,96 @@ describe("OrgSwitcher (account menu)", () => {
       expect.any(Object),
     );
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes explicit selections on persistence and leaves reopened menus open", async () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    let currentOptions: Parameters<typeof mocks.succeed>[1] = undefined;
+    mocks.switchOrg.mutate.mockImplementationOnce((_orgId, options) => {
+      currentOptions = options;
+    });
+
+    render(<OrgSwitcher />);
+    openMenu();
+    await select("Acme");
+
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    act(() => mocks.switchOrg.onPersisted?.("org-1"));
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    expect(currentOptions?.onSuccess).toBeDefined();
+
+    openMenu();
+    act(() => currentOptions?.onSuccess?.());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+
+    let otherOptions: Parameters<typeof mocks.succeed>[1] = undefined;
+    mocks.switchOrg.mutate.mockImplementationOnce((_orgId, options) => {
+      otherOptions = options;
+    });
+    await select("Globex");
+
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    act(() => mocks.switchOrg.onPersisted?.("org-2"));
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    openMenu();
+    act(() => otherOptions?.onSuccess?.());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("retries recovery after a failed Personal selection on the same mount", async () => {
+    mocks.useOrg.mockReturnValue({
+      data: { ...ownerOrg, orgId: null, orgName: null, role: null },
+      isLoading: false,
+    });
+    const attempts: Array<Parameters<typeof mocks.succeed>[1]> = [];
+    mocks.switchOrg.mutate.mockImplementation((_orgId, options) => {
+      attempts.push(options);
+    });
+
+    render(<OrgSwitcher />);
+    expect(attempts).toHaveLength(1);
+    openMenu();
+
+    act(() => attempts[0]?.onError?.());
+    act(() => attempts[0]?.onSettled?.());
+    expect(attempts).toHaveLength(1);
+
+    await select("Acme");
+    expect(attempts).toHaveLength(2);
+    act(() => attempts[1]?.onError?.());
+
+    expect(attempts).toHaveLength(3);
+    expect(attempts[2]?.onSuccess).toBeUndefined();
+    expect(attempts[2]?.onSettled).toBeDefined();
+
+    act(() => attempts[2]?.onError?.());
+    act(() => attempts[2]?.onSettled?.());
+    expect(attempts).toHaveLength(3);
+  });
+
+  it("keeps same-target personal recovery separate from explicit selection", async () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        orgId: null,
+        orgName: null,
+        role: null,
+      },
+      isLoading: false,
+    });
+    mocks.switchOrg.mutate.mockImplementationOnce(() => {});
+
+    render(<OrgSwitcher />);
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledWith(
+      "org-1",
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
+    openMenu();
+    await select("Acme");
+
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(1);
+    act(() => mocks.switchOrg.onPersisted?.("org-1"));
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
   });
 
   it("accepts invitations and joins domain matches from the menu", async () => {

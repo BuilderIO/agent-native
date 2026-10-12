@@ -99,6 +99,7 @@ export function renderLeftSidebar({
 }) {
   const {
     searchParams,
+    hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
     viewMode,
@@ -116,12 +117,15 @@ export function renderLeftSidebar({
   const {
     activeLeftPanel,
     setActiveLeftPanel,
+    setActiveInspectorTab,
     collapseLeftPanel,
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
     codeWorkbenchOpenedRef,
     startSidebarResize,
+    motionDockOpen,
+    setMotionDockOpenAnimated,
   } = editorHistory;
   const { canEditDesign, browserTabId } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
@@ -182,6 +186,18 @@ export function renderLeftSidebar({
           <DesignWorkspaceRail
             account={hostEmbeddedEditor ? null : session}
             activePanel={activeLeftPanel}
+            motionOpen={motionDockOpen}
+            onMotionToggle={
+              !hostOwnsChrome &&
+              SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+              !initialGenerationChromeLimited &&
+              activeFileId
+                ? () => {
+                    if (!motionDockOpen) setActiveInspectorTab("motion");
+                    setMotionDockOpenAnimated(!motionDockOpen);
+                  }
+                : undefined
+            }
             disabledPanels={
               initialGenerationChromeLimited
                 ? INITIAL_GENERATION_DISABLED_LEFT_PANELS

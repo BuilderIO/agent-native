@@ -3734,6 +3734,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
       var target = unwrapTextOverlay(hit);
+      if (typeof target.matches === "function" && target.matches("span[data-agent-native-motion-text-unit]")) {
+        var sourceTextTarget = target.parentElement;
+        while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
+          if (sourceTextTarget.hasAttribute("data-agent-native-node-id") && !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")) {
+            target = sourceTextTarget;
+            break;
+          }
+          sourceTextTarget = sourceTextTarget.parentElement;
+        }
+      }
       var textPrimitive = nativeTextPrimitiveForHit(target);
       if (textPrimitive) target = textPrimitive;
       if (!descendIntoGroup) {

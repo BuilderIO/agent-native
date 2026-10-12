@@ -7,6 +7,19 @@ import {
   type InteractionState,
 } from "@shared/interaction-states";
 import type { LayoutGrid } from "@shared/layout-grid";
+import type {
+  MotionAnimationStyleDefinition,
+  MotionAnimationStyleMetadata,
+  MotionAnimationStyleTrackDefinition,
+} from "@shared/motion-animation-styles";
+import type { MotionAudioClip } from "@shared/motion-code";
+import type { MotionEasingVariable } from "@shared/motion-easing";
+import type {
+  MotionNativeStyleInstance,
+  MotionNativeStyleKey,
+} from "@shared/motion-native-style";
+import type { MotionTextAnimation } from "@shared/motion-text-code";
+import type { MotionPropertyPreset } from "@shared/motion-timeline";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -20,6 +33,7 @@ import {
   IconPlus,
   IconRefresh,
   IconTarget,
+  IconTimelineEvent,
   IconTrash,
   IconVector,
 } from "@tabler/icons-react";
@@ -58,8 +72,10 @@ import {
 import type { UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 import { runInIdleSlices } from "@/pages/design-editor/idle-slices";
+import type { MotionAnimationStyle } from "@/pages/design-editor/motion-animation-style";
 import type { EditorMode } from "@/pages/design-editor/types";
 
+import { AnimationStyleBrowser } from "./AnimationStyleBrowser";
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
 import {
   alpineDataValueLiteral,
@@ -138,6 +154,7 @@ import {
   LayoutContextProperties,
   LayoutGuideProperties,
 } from "./edit-panel/layout-properties";
+import { MotionDimensionsProperties } from "./edit-panel/motion-inspector-properties";
 import {
   ColorInput,
   InspectorActionPairGrid,
@@ -205,6 +222,13 @@ import {
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
+import { MotionAudioTracks } from "./MotionAudioTracks";
+import { AddTrackMenu, getMotionDockPrimaryStyles } from "./MotionDock";
+import {
+  MotionNativeStyleEditor,
+  type MotionNativeStyleIdentity,
+} from "./MotionNativeStyleEditor";
+import { MotionTextAnimationEditor } from "./MotionTextAnimationEditor";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
 import type { SubtreeColorStylesRead } from "./multi-screen/read-portable-style-snapshot";
@@ -299,7 +323,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-export type InspectorTab = "design" | "tweaks" | "comments" | "code";
+export type InspectorTab = "design" | "motion" | "tweaks" | "comments" | "code";
 
 export type DesignViewMode = "single" | "overview";
 
@@ -379,6 +403,7 @@ interface EditPanelProps {
   readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
+  motionInspectorEnabled?: boolean;
   tweaksEnabled?: boolean;
   tweaks?: TweakDefinition[];
   tweakValues?: Record<string, string | number | boolean>;
@@ -458,6 +483,40 @@ interface EditPanelProps {
     keyframedProperties: readonly string[];
   };
   onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
+  motionSelectedTarget?: {
+    nodeId: string;
+    label: string;
+    isText?: boolean;
+    isPath?: boolean;
+  } | null;
+  onMotionOriginEditingChange?: (open: boolean) => void;
+  onCreateMotionTrack?: (preset: MotionPropertyPreset) => void;
+  onCreateMotionStyle?: (style: MotionAnimationStyle) => void;
+  motionNativeStyles?: MotionNativeStyleInstance[];
+  motionEasingVariables?: MotionEasingVariable[];
+  onMotionEasingVariablesChange?: (variables: MotionEasingVariable[]) => void;
+  onCreateMotionNativeStyle?: (styleKey: MotionNativeStyleKey) => void;
+  onMotionNativeStyleChange?: (
+    instance: MotionNativeStyleInstance,
+    identity: MotionNativeStyleIdentity,
+  ) => void;
+  onRemoveMotionNativeStyle?: (identity: MotionNativeStyleIdentity) => void;
+  motionAnimationStyles?: MotionAnimationStyleDefinition[];
+  motionAnimationStyleTargetTracks?: MotionAnimationStyleTrackDefinition[];
+  onApplyMotionAnimationStyle?: (style: MotionAnimationStyleDefinition) => void;
+  onSaveMotionAnimationStyle?: (
+    metadata: MotionAnimationStyleMetadata,
+    tracks: MotionAnimationStyleTrackDefinition[],
+  ) => void;
+  onCreateMotionTextAnimation?: () => void;
+  motionTextAnimations?: MotionTextAnimation[];
+  onMotionTextAnimationsChange?: (animations: MotionTextAnimation[]) => void;
+  motionAudioClips?: MotionAudioClip[];
+  onMotionAudioClipsChange?: (clips: MotionAudioClip[]) => void;
+  motionAudioPlayheadMs?: number;
+  motionAudioDurationMs?: number;
+  onMotionAudioDurationChange?: (durationMs: number) => void;
+  motionWriteUnavailable?: boolean;
   breakpointContext?: {
     breakpointWidths: readonly number[];
     baseWidthPx: number;
@@ -1477,6 +1536,7 @@ function ScreenGeometryProperties({
 function InspectorTabsHeader({
   activeTab,
   readOnly,
+  motionInspectorEnabled,
   onActiveTabChange,
   trailing,
   commentsCount = 0,
@@ -1486,6 +1546,7 @@ function InspectorTabsHeader({
 }: {
   activeTab: InspectorTab;
   readOnly: boolean;
+  motionInspectorEnabled: boolean;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
   commentsCount?: number;
@@ -1519,6 +1580,17 @@ function InspectorTabsHeader({
                   className="design-sidebar-section-title h-6 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
                 >
                   {t("navigation.brand")}
+                </TabsTrigger>
+              ) : null}
+              {motionInspectorEnabled ? (
+                <TabsTrigger
+                  value="motion"
+                  data-design-inspector-tab="motion"
+                  aria-label={t("designEditor.motion.tabLabel")}
+                  className="design-sidebar-section-title flex h-6 items-center gap-1 rounded-md px-1.5 py-1 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-selection-color)] data-[state=active]:text-[var(--design-editor-accent-color)] data-[state=active]:shadow-none"
+                >
+                  <IconTimelineEvent className="size-3.5" aria-hidden="true" />
+                  {t("designEditor.motion.tabLabel")}
                 </TabsTrigger>
               ) : null}
               <TabsTrigger
@@ -2330,6 +2402,7 @@ export const EditPanel = memo(function EditPanel({
   readOnly = false,
   activeTab = "design",
   onActiveTabChange,
+  motionInspectorEnabled = false,
   tweaksEnabled = true,
   tweaks = [],
   tweakValues = {},
@@ -2381,6 +2454,29 @@ export const EditPanel = memo(function EditPanel({
   onEditCode,
   motionKeyframeState,
   onToggleMotionKeyframe,
+  motionSelectedTarget,
+  onMotionOriginEditingChange,
+  onCreateMotionTrack,
+  onCreateMotionStyle,
+  motionNativeStyles = [],
+  motionEasingVariables = [],
+  onMotionEasingVariablesChange,
+  onCreateMotionNativeStyle,
+  onMotionNativeStyleChange,
+  onRemoveMotionNativeStyle,
+  motionAnimationStyles = [],
+  motionAnimationStyleTargetTracks = [],
+  onApplyMotionAnimationStyle,
+  onSaveMotionAnimationStyle,
+  onCreateMotionTextAnimation,
+  motionTextAnimations,
+  onMotionTextAnimationsChange,
+  motionAudioClips,
+  onMotionAudioClipsChange,
+  motionAudioPlayheadMs = 0,
+  motionAudioDurationMs = 1000,
+  onMotionAudioDurationChange,
+  motionWriteUnavailable = false,
   breakpointContext,
 }: EditPanelProps) {
   const recentFillColorRef = useRef<string | undefined>(undefined);
@@ -2392,6 +2488,8 @@ export const EditPanel = memo(function EditPanel({
   const [interactionState, setInteractionState] =
     useState<ActiveInteractionState>(null);
   const [interactionStateMenuOpen, setInteractionStateMenuOpen] =
+    useState(false);
+  const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =
     useState(false);
 
   const effectiveSelectedElements = useMemo(
@@ -2671,13 +2769,15 @@ export const EditPanel = memo(function EditPanel({
   const motionKeyframeFieldContext = useMemo(():
     | MotionKeyframeFieldContext
     | undefined => {
-    if (!motionKeyframeState || selectedCount > 1) return undefined;
+    if (selectedCount > 1 || !onToggleMotionKeyframe) return undefined;
+    const hasTimeline = motionKeyframeState?.hasTimeline === true;
+    if (!hasTimeline && activeTab !== "motion") return undefined;
     return {
-      hasTimeline: motionKeyframeState.hasTimeline,
-      keyframedProperties: motionKeyframeState.keyframedProperties,
+      hasTimeline: true,
+      keyframedProperties: motionKeyframeState?.keyframedProperties ?? [],
       onToggle: onToggleMotionKeyframe,
     };
-  }, [motionKeyframeState, selectedCount, onToggleMotionKeyframe]);
+  }, [motionKeyframeState, onToggleMotionKeyframe, activeTab, selectedCount]);
 
   const onStyleChange = useCallback<StyleChangeHandler>(
     (property, value, meta) => {
@@ -2794,9 +2894,13 @@ export const EditPanel = memo(function EditPanel({
   const resolvedActiveTab: InspectorTab =
     readOnly && (activeTab === "design" || activeTab === "tweaks")
       ? "code"
-      : !tweaksEnabled && activeTab === "tweaks"
-        ? "design"
-        : activeTab;
+      : activeTab === "motion" && !motionInspectorEnabled
+        ? readOnly
+          ? "code"
+          : "design"
+        : !tweaksEnabled && activeTab === "tweaks"
+          ? "design"
+          : activeTab;
 
   const showFramePresets =
     !readOnly &&
@@ -2816,6 +2920,7 @@ export const EditPanel = memo(function EditPanel({
         <InspectorTabsHeader
           activeTab={resolvedActiveTab}
           readOnly={readOnly}
+          motionInspectorEnabled={motionInspectorEnabled}
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
           commentsCount={reviewCommentsCount}
@@ -2828,7 +2933,31 @@ export const EditPanel = memo(function EditPanel({
           <FramePresetsPanel
             onPick={(preset) => onCreateScreenFromPreset?.(preset)}
           />
-        ) : resolvedActiveTab === "design" ? (
+        ) : resolvedActiveTab === "motion" && readOnly ? (
+          <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <PanelSection title={t("designEditor.motion.animations")}>
+              {motionSelectedTarget ? (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  {motionSelectedTarget.label}
+                </p>
+              ) : (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  {t("designEditor.motion.emptyStateNoSelection")}
+                </p>
+              )}
+            </PanelSection>
+            <MotionAudioTracks
+              surface="inspector"
+              clips={motionAudioClips ?? []}
+              playheadMs={motionAudioPlayheadMs}
+              timelineDurationMs={motionAudioDurationMs}
+              timelineScaleDurationMs={motionAudioDurationMs}
+              readOnly={readOnly || motionWriteUnavailable}
+              onClipsChange={onMotionAudioClipsChange}
+              onDurationChange={onMotionAudioDurationChange}
+            />
+          </div>
+        ) : resolvedActiveTab === "design" || resolvedActiveTab === "motion" ? (
           <>
             <SelectionHeader
               element={inspectorElement}
@@ -2971,6 +3100,14 @@ export const EditPanel = memo(function EditPanel({
                 </div>
               ) : null}
 
+              {resolvedActiveTab === "motion" && !inspectorElement ? (
+                <PanelSection title={t("designEditor.motion.animations")}>
+                  <p className="px-3 py-2 text-xs text-muted-foreground">
+                    {t("designEditor.motion.emptyStateNoSelection")}
+                  </p>
+                </PanelSection>
+              ) : null}
+
               {!inspectorElement && selectedScreenGeometry ? (
                 <>
                   <ScreenGeometryProperties
@@ -3110,7 +3247,8 @@ export const EditPanel = memo(function EditPanel({
                 />
               ) : null}
 
-              {shouldRenderInteractionStatePanel ? (
+              {resolvedActiveTab !== "motion" &&
+              shouldRenderInteractionStatePanel ? (
                 <InteractionStatePanel
                   activeState={interactionState}
                   onActiveStateChange={handleInteractionStateChange}
@@ -3123,6 +3261,131 @@ export const EditPanel = memo(function EditPanel({
 
               {inspectorElement && (
                 <>
+                  {resolvedActiveTab === "motion" ||
+                  (selectedCount > 0 && motionSelectedTarget) ? (
+                    <PanelSection
+                      title={t("designEditor.motion.animations")}
+                      actions={
+                        motionSelectedTarget ? (
+                          <div className="flex items-center gap-1">
+                            <Popover
+                              open={animationStyleBrowserOpen}
+                              onOpenChange={setAnimationStyleBrowserOpen}
+                            >
+                              <PopoverTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[11px]"
+                                  aria-label={t(
+                                    "designEditor.motion.animationStyles.title",
+                                  )}
+                                  aria-expanded={animationStyleBrowserOpen}
+                                  disabled={motionWriteUnavailable}
+                                >
+                                  <IconGridDots
+                                    aria-hidden="true"
+                                    className="size-3.5"
+                                  />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                align="end"
+                                side="left"
+                                className="w-[244px] p-0"
+                              >
+                                <div className="h-[min(480px,calc(100dvh-4rem))]">
+                                  <AnimationStyleBrowser
+                                    styles={motionAnimationStyles}
+                                    basicStyles={getMotionDockPrimaryStyles(t)}
+                                    selectedTargetTracks={
+                                      motionAnimationStyleTargetTracks
+                                    }
+                                    disabled={motionWriteUnavailable}
+                                    onApply={(style) => {
+                                      onApplyMotionAnimationStyle?.(style);
+                                    }}
+                                    onApplyPreset={(style) =>
+                                      onCreateMotionStyle?.(style)
+                                    }
+                                    onSaveStyle={(metadata, tracks) =>
+                                      onSaveMotionAnimationStyle?.(
+                                        metadata,
+                                        tracks,
+                                      )
+                                    }
+                                    onClose={() =>
+                                      setAnimationStyleBrowserOpen(false)
+                                    }
+                                    t={t}
+                                  />
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                            <AddTrackMenu
+                              selectedTarget={motionSelectedTarget}
+                              disabledProperties={
+                                selectedCount === 1
+                                  ? motionKeyframeState?.keyframedProperties
+                                  : undefined
+                              }
+                              disabledReason={
+                                motionWriteUnavailable
+                                  ? t(
+                                      "designEditor.motion.sourceWriteUnavailable",
+                                    )
+                                  : undefined
+                              }
+                              onCreateTrack={
+                                onCreateMotionTrack ?? (() => undefined)
+                              }
+                              onCreateStyle={onCreateMotionStyle}
+                              onCreateNativeStyle={onCreateMotionNativeStyle}
+                              onCreateText={onCreateMotionTextAnimation}
+                            />
+                          </div>
+                        ) : null
+                      }
+                    >
+                      {resolvedActiveTab === "motion" &&
+                      !motionSelectedTarget ? (
+                        <p className="px-3 py-2 text-xs text-muted-foreground">
+                          {t("designEditor.motion.emptyStateNoSelection")}
+                        </p>
+                      ) : null}
+                      {motionSelectedTarget ? (
+                        <MotionNativeStyleEditor
+                          styles={motionNativeStyles}
+                          targetNodeId={motionSelectedTarget.nodeId}
+                          disabled={motionWriteUnavailable}
+                          easingVariables={motionEasingVariables}
+                          onEasingVariablesChange={
+                            onMotionEasingVariablesChange
+                          }
+                          onChange={(instance, identity) =>
+                            onMotionNativeStyleChange?.(instance, identity)
+                          }
+                          onRemove={(identity) =>
+                            onRemoveMotionNativeStyle?.(identity)
+                          }
+                          t={t}
+                        />
+                      ) : null}
+                    </PanelSection>
+                  ) : null}
+                  {selectedCount === 1 &&
+                  motionSelectedTarget?.isText &&
+                  (motionTextAnimations?.length ?? 0) > 0 ? (
+                    <MotionTextAnimationEditor
+                      animations={motionTextAnimations ?? []}
+                      onChange={(animations) =>
+                        onMotionTextAnimationsChange?.(animations)
+                      }
+                      disabled={motionWriteUnavailable}
+                      t={t}
+                    />
+                  ) : null}
                   <PositionLayoutProperties
                     key={`position:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
@@ -3132,8 +3395,11 @@ export const EditPanel = memo(function EditPanel({
                     alignSelectionDisabled={alignSelectionDisabled}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
+                    motionInspector={resolvedActiveTab === "motion"}
+                    onMotionOriginEditingChange={onMotionOriginEditingChange}
                   />
-                  {activeTool === "scale" &&
+                  {resolvedActiveTab !== "motion" &&
+                  activeTool === "scale" &&
                   scaleToolControls &&
                   effectiveSelectedElements.length === 1 ? (
                     <ScaleProperties
@@ -3144,16 +3410,45 @@ export const EditPanel = memo(function EditPanel({
                       controls={scaleToolControls}
                     />
                   ) : null}
-                  <LayoutContextProperties
-                    key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
-                    element={stateResolvedInspectorElement ?? inspectorElement}
-                    onStyleChange={onStyleChange}
-                    onStylesChange={onStylesChange}
-                    onDisableAutoLayout={onDisableAutoLayout}
-                    onApplyLayoutFlow={onApplyLayoutFlow}
-                    motionKeyframeContext={motionKeyframeFieldContext}
-                    breakpointOverrideContext={breakpointOverrideFieldContext}
-                  />
+                  {resolvedActiveTab === "motion" ? (
+                    <MotionDimensionsProperties
+                      key={`motion-dimensions:${inspectorElementSectionKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={onStylesChange}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                      breakpointOverrideContext={breakpointOverrideFieldContext}
+                    >
+                      <LayoutContextProperties
+                        key={`motion-auto-layout:${inspectorElementSectionKey}`}
+                        element={
+                          stateResolvedInspectorElement ?? inspectorElement
+                        }
+                        onStyleChange={onStyleChange}
+                        onStylesChange={onStylesChange}
+                        onDisableAutoLayout={onDisableAutoLayout}
+                        onApplyLayoutFlow={onApplyLayoutFlow}
+                        showContainerSizing={false}
+                        motionInspector
+                        motionKeyframeContext={motionKeyframeFieldContext}
+                      />
+                    </MotionDimensionsProperties>
+                  ) : (
+                    <LayoutContextProperties
+                      key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
+                      element={
+                        stateResolvedInspectorElement ?? inspectorElement
+                      }
+                      onStyleChange={onStyleChange}
+                      onStylesChange={onStylesChange}
+                      onDisableAutoLayout={onDisableAutoLayout}
+                      onApplyLayoutFlow={onApplyLayoutFlow}
+                      motionKeyframeContext={motionKeyframeFieldContext}
+                      breakpointOverrideContext={breakpointOverrideFieldContext}
+                    />
+                  )}
                   <AppearanceProperties
                     key={`appearance:${inspectorElementSectionKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
@@ -3170,7 +3465,7 @@ export const EditPanel = memo(function EditPanel({
                     cornerRadiusDisabled={selectionIsBoxlessText}
                     onVectorPointRadiusChange={onVectorPointRadiusChange}
                   />
-                  {selectionHasTextElement ? (
+                  {resolvedActiveTab !== "motion" && selectionHasTextElement ? (
                     <TypographyProperties
                       key={`typography:${inspectorElementSectionKey}`}
                       element={
@@ -3185,18 +3480,20 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : null}
                   {selectionIsGroup ? (
-                    <GroupFillProperties
-                      key={`group-fill:${inspectorElementSectionKey}`}
-                      scopes={selectionColorScopes}
-                      documentColors={documentColorPalette}
-                      disabled={readOnly || Boolean(interactionState)}
-                      onStylesChange={
-                        readOnly || interactionState
-                          ? undefined
-                          : onGroupFillStylesChange
-                      }
-                      mostRecentFillColor={recentFillColorRef.current}
-                    />
+                    resolvedActiveTab === "motion" ? null : (
+                      <GroupFillProperties
+                        key={`group-fill:${inspectorElementSectionKey}`}
+                        scopes={selectionColorScopes}
+                        documentColors={documentColorPalette}
+                        disabled={readOnly || Boolean(interactionState)}
+                        onStylesChange={
+                          readOnly || interactionState
+                            ? undefined
+                            : onGroupFillStylesChange
+                        }
+                        mostRecentFillColor={recentFillColorRef.current}
+                      />
+                    )
                   ) : (
                     <FillProperties
                       key={`fill:${inspectorElementSectionKey}`}
@@ -3230,20 +3527,35 @@ export const EditPanel = memo(function EditPanel({
                     glslShaderContext={glslShaderContext}
                     motionKeyframeContext={motionKeyframeFieldContext}
                   />
-                  <SelectionColorsProperties
-                    elements={effectiveSelectedElements}
-                    scopes={selectionColorScopes}
-                    readSubtreeColorStyles={readSubtreeColorStyles}
-                    onColorTarget={onSelectionColorTarget}
-                    canSelectColorTarget={canSelectSelectionColorTarget}
-                    onColorPickerOpenChange={onSelectionColorPickerOpenChange}
-                    onColorChange={
-                      readOnly || interactionState
-                        ? undefined
-                        : onSelectionColorChange
-                    }
-                  />
-                  {selectionHasContainerElement ? (
+                  {resolvedActiveTab === "motion" ? (
+                    <MotionAudioTracks
+                      surface="inspector"
+                      clips={motionAudioClips ?? []}
+                      playheadMs={motionAudioPlayheadMs}
+                      timelineDurationMs={motionAudioDurationMs}
+                      timelineScaleDurationMs={motionAudioDurationMs}
+                      readOnly={readOnly || motionWriteUnavailable}
+                      onClipsChange={onMotionAudioClipsChange}
+                      onDurationChange={onMotionAudioDurationChange}
+                    />
+                  ) : null}
+                  {resolvedActiveTab !== "motion" ? (
+                    <SelectionColorsProperties
+                      elements={effectiveSelectedElements}
+                      scopes={selectionColorScopes}
+                      readSubtreeColorStyles={readSubtreeColorStyles}
+                      onColorTarget={onSelectionColorTarget}
+                      canSelectColorTarget={canSelectSelectionColorTarget}
+                      onColorPickerOpenChange={onSelectionColorPickerOpenChange}
+                      onColorChange={
+                        readOnly || interactionState
+                          ? undefined
+                          : onSelectionColorChange
+                      }
+                    />
+                  ) : null}
+                  {resolvedActiveTab !== "motion" &&
+                  selectionHasContainerElement ? (
                     <LayoutGuideProperties
                       element={
                         stateResolvedInspectorElement ?? inspectorElement

@@ -40,7 +40,17 @@ function argsFor(overrides: Partial<Args> = {}): Args {
     id: "design-1",
     isSignedIn: true,
     mode: "edit" as Args["mode"],
+    motionAutoKeyframeEnabled: false,
     motionDockOpen: false,
+    motionDockLiveState: {
+      previewing: false,
+      selectedTrackId: null,
+      selectedKeyframeIds: [],
+    },
+    motionDurationMs: 2000,
+    motionPlayhead: 0,
+    motionPlaybackMode: "once",
+    motionTimelineId: null,
     pendingPersistedSelectionWriteRef: { current: null },
     persistedSelectionContextRef: { current: null },
     persistedSelectionStateRef: { current: null },
@@ -92,6 +102,42 @@ describe("runPublishAgentSelectionContext layout grid", () => {
     ).not.toThrow();
     expect(publishedSelection().layoutGrid).toBeNull();
     expect(publishedSelection().activeFileId).toBeNull();
+  });
+
+  it("publishes the live Motion timeline and keyframe selection", () => {
+    runPublishAgentSelectionContext(
+      argsFor({
+        motionAutoKeyframeEnabled: true,
+        motionDockOpen: true,
+        motionDockLiveState: {
+          previewing: true,
+          selectedTrackId: "node-1\u001ftranslate",
+          selectedKeyframeIds: [
+            '["node-1\\u001ftranslate",0.5]',
+            '["node-1\\u001ftranslate",1]',
+          ],
+        },
+        motionDurationMs: 3600,
+        motionPlayhead: 0.5,
+        motionPlaybackMode: "ping-pong",
+        motionTimelineId: "timeline-1",
+      }),
+    );
+
+    expect(publishedSelection().motion).toEqual({
+      previewing: true,
+      playheadMs: 1800,
+      durationMs: 3600,
+      timelineId: "timeline-1",
+      playbackMode: "ping-pong",
+      autoKeyframe: true,
+      selectedTrackId: "node-1\u001ftranslate",
+      selectedKeyframeId: null,
+      selectedKeyframeIds: [
+        '["node-1\\u001ftranslate",0.5]',
+        '["node-1\\u001ftranslate",1]',
+      ],
+    });
   });
 });
 

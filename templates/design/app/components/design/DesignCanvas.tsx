@@ -26,6 +26,7 @@ import {
 } from "@shared/canvas-math";
 import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
+import type { MotionEasingVariable } from "@shared/motion-easing";
 import {
   appendPenNode,
   clonePenPath,
@@ -61,6 +62,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -163,7 +165,14 @@ import {
 } from "./design-canvas/iframe-pan";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
-import type { MotionTrackWire } from "./design-canvas/motion-types";
+import {
+  applyMotionPathEdit,
+  parseMotionPathEditMessage,
+} from "./design-canvas/motion-path-edit";
+import type {
+  MotionPathTracksChangeResult,
+  MotionTrackWire,
+} from "./design-canvas/motion-types";
 import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
@@ -888,8 +897,17 @@ interface DesignCanvasProps {
   nodeRewriteCanvasTarget?: boolean;
   onPrototypeNavigate?: (screen: string, href: string) => void;
   motionTracks?: MotionTrackWire[];
+  motionEasingVariables?: MotionEasingVariable[];
   motionDefaultEase?: string;
   motionDurationMs?: number;
+  motionPathEditingEnabled?: boolean;
+  motionPathTargetNodeId?: string | null;
+  motionOriginEditingEnabled?: boolean;
+  motionOriginTargetNodeId?: string | null;
+  onMotionPathTracksChange?: (
+    tracks: MotionTrackWire[],
+    targetNodeId: string,
+  ) => MotionPathTracksChangeResult | void;
   previewWidthPx?: number;
   previewHeightPx?: number;
   shaderFillPreview?: {
@@ -1503,8 +1521,14 @@ export function DesignCanvas({
   nodeRewriteCanvasTarget = false,
   onPrototypeNavigate,
   motionTracks,
+  motionEasingVariables,
   motionDefaultEase,
   motionDurationMs,
+  motionPathEditingEnabled = false,
+  motionPathTargetNodeId = null,
+  motionOriginEditingEnabled = false,
+  motionOriginTargetNodeId = null,
+  onMotionPathTracksChange,
   previewWidthPx,
   previewHeightPx,
   onComponentSourceJump,
@@ -3628,6 +3652,30 @@ export function DesignCanvas({
   const liveEditBridgeConfigurationPending =
     liveEditFrameRequiresBridge && !usesLiveEditInjectedBridge;
   const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  const [motionOriginMarkerPosition, setMotionOriginMarkerPosition] = useState<{
+    targetNodeId: string;
+    x: number;
+    y: number;
+    viewportWidth: number;
+    viewportHeight: number;
+  } | null>(null);
+  const motionOriginPointerIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!motionOriginEditingEnabled) {
+      setMotionOriginMarkerPosition(null);
+      return;
+    }
+    const refreshPortalPosition = () =>
+      setMotionOriginMarkerPosition((current) =>
+        current ? { ...current } : current,
+      );
+    window.addEventListener("scroll", refreshPortalPosition, true);
+    window.addEventListener("resize", refreshPortalPosition);
+    return () => {
+      window.removeEventListener("scroll", refreshPortalPosition, true);
+      window.removeEventListener("resize", refreshPortalPosition);
+    };
+  }, [motionOriginEditingEnabled]);
   const [loadedPreviewDocumentIdentity, setLoadedPreviewDocumentIdentity] =
     useState<string | null>(null);
   const loadedPreviewDocumentIdentityRef = useRef(
@@ -3794,6 +3842,113 @@ export function DesignCanvas({
         });
       const trusted = trustedCurrentFrame || trustedLateLiveEditReady;
       if (!trusted) {
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "motion-origin-marker-position"
+      ) {
+        if (e.data.visible !== true) {
+          setMotionOriginMarkerPosition(null);
+          return;
+        }
+        const targetNodeId = e.data.targetNodeId;
+        const x = Number(e.data.x);
+        const y = Number(e.data.y);
+        const viewportWidth = Number(e.data.viewportWidth);
+        const viewportHeight = Number(e.data.viewportHeight);
+        if (
+          !motionOriginEditingEnabled ||
+          typeof targetNodeId !== "string" ||
+          targetNodeId !== motionOriginTargetNodeId ||
+          !Number.isFinite(x) ||
+          !Number.isFinite(y) ||
+          !(viewportWidth > 0) ||
+          !(viewportHeight > 0)
+        ) {
+          return;
+        }
+        setMotionOriginMarkerPosition((current) => {
+          if (
+            current?.targetNodeId === targetNodeId &&
+            current.x === x &&
+            current.y === y &&
+            current.viewportWidth === viewportWidth &&
+            current.viewportHeight === viewportHeight
+          ) {
+            return current;
+          }
+          return { targetNodeId, x, y, viewportWidth, viewportHeight };
+        });
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
+        e.data?.type === "motion-path-edit" &&
+        motionPathEditingEnabled &&
+        !readOnly &&
+        editMode &&
+        !interactMode &&
+        onMotionPathTracksChange
+      ) {
+        const edit = parseMotionPathEditMessage(e.data, motionPathTargetNodeId);
+        if (!edit) return;
+        const trackIndex = motionTracks?.findIndex(
+          (track) =>
+            track.targetNodeId === edit.targetNodeId &&
+            track.property === "translate",
+        );
+        if (trackIndex === undefined || trackIndex < 0 || !motionTracks) return;
+        const updated = applyMotionPathEdit(motionTracks[trackIndex], edit);
+        if (!updated) return;
+        const nextTracks = [...motionTracks];
+        nextTracks[trackIndex] = updated;
+        const changeResult = onMotionPathTracksChange(
+          nextTracks,
+          edit.targetNodeId,
+        );
+        if (changeResult?.status === "unsupported") {
+          const iframeWindow = iframeRef.current?.contentWindow;
+          iframeWindow?.postMessage(
+            {
+              type: "motion-load-tracks",
+              tracks: motionTracks.map(
+                ({ nativeStyleIndex: _index, ...track }) => track,
+              ),
+              easingVariables: motionEasingVariables,
+              defaultEase: motionDefaultEase,
+              durationMs: motionDurationMs,
+            },
+            "*",
+          );
+          iframeWindow?.postMessage(
+            {
+              type: "motion-path-editing",
+              enabled:
+                motionPathEditingEnabled &&
+                !readOnly &&
+                editMode &&
+                !interactMode &&
+                typeof motionPathTargetNodeId === "string",
+              targetNodeId: motionPathTargetNodeId ?? null,
+            },
+            "*",
+          );
+          iframeWindow?.postMessage(
+            {
+              type: "motion-origin-editing",
+              enabled:
+                motionOriginEditingEnabled &&
+                !readOnly &&
+                editMode &&
+                !interactMode &&
+                typeof motionOriginTargetNodeId === "string",
+              targetNodeId: motionOriginTargetNodeId ?? null,
+            },
+            "*",
+          );
+          toast.error(t("designEditor.motion.pathEditAmbiguous"));
+        }
         return;
       }
       if (
@@ -5530,6 +5685,15 @@ export function DesignCanvas({
     deviceFrame,
     onPrototypeNavigate,
     onComponentSourceJump,
+    motionPathEditingEnabled,
+    motionPathTargetNodeId,
+    motionOriginEditingEnabled,
+    motionOriginTargetNodeId,
+    motionTracks,
+    motionEasingVariables,
+    motionDefaultEase,
+    motionDurationMs,
+    onMotionPathTracksChange,
     isEmbeddedFrame,
     sourceType,
     bridgeUrl,
@@ -5544,6 +5708,7 @@ export function DesignCanvas({
     flushPendingOneShotMessages,
     postOneShotBridgeMessage,
     iframeDocumentIdentity,
+    t,
   ]);
 
   // Mirror the selection down only when it changes, so stale re-posts can't
@@ -5561,6 +5726,50 @@ export function DesignCanvas({
   selectedSelectorRef.current = selectedSelector;
   const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
   selectedSelectorCandidatesRef.current = selectedSelectorCandidates;
+
+  const sendMotionPathEditingState = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "motion-path-editing",
+        enabled:
+          motionPathEditingEnabled &&
+          !readOnly &&
+          editMode &&
+          !interactMode &&
+          typeof motionPathTargetNodeId === "string",
+        targetNodeId: motionPathTargetNodeId ?? null,
+      },
+      "*",
+    );
+  }, [
+    editMode,
+    interactMode,
+    motionPathEditingEnabled,
+    motionPathTargetNodeId,
+    readOnly,
+  ]);
+
+  const sendMotionOriginEditingState = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        type: "motion-origin-editing",
+        enabled:
+          motionOriginEditingEnabled &&
+          !readOnly &&
+          editMode &&
+          !interactMode &&
+          typeof motionOriginTargetNodeId === "string",
+        targetNodeId: motionOriginTargetNodeId ?? null,
+      },
+      "*",
+    );
+  }, [
+    editMode,
+    interactMode,
+    motionOriginEditingEnabled,
+    motionOriginTargetNodeId,
+    readOnly,
+  ]);
 
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
@@ -5677,7 +5886,10 @@ export function DesignCanvas({
       iframe.contentWindow?.postMessage(
         {
           type: "motion-load-tracks",
-          tracks: motionTracks,
+          tracks: motionTracks.map(
+            ({ nativeStyleIndex: _index, ...track }) => track,
+          ),
+          easingVariables: motionEasingVariables,
           defaultEase: motionDefaultEase,
           durationMs: motionDurationMs,
         },
@@ -5686,6 +5898,8 @@ export function DesignCanvas({
     } else {
       iframe.contentWindow?.postMessage({ type: "motion-preview-clear" }, "*");
     }
+    sendMotionPathEditingState();
+    sendMotionOriginEditingState();
     if (shaderFillPreview) {
       iframe.contentWindow?.postMessage(
         {
@@ -5723,8 +5937,11 @@ export function DesignCanvas({
     isEmbeddedFrame,
     lockedSelectors,
     motionTracks,
+    motionEasingVariables,
     motionDefaultEase,
     motionDurationMs,
+    sendMotionPathEditingState,
+    sendMotionOriginEditingState,
     scaleMode,
     selectedSelector,
     selectedSelectorCandidates,
@@ -5829,14 +6046,26 @@ export function DesignCanvas({
       win.postMessage(
         {
           type: "motion-load-tracks",
-          tracks: motionTracks,
+          tracks: motionTracks.map(
+            ({ nativeStyleIndex: _index, ...track }) => track,
+          ),
+          easingVariables: motionEasingVariables,
           defaultEase: motionDefaultEase,
           durationMs: motionDurationMs,
         },
         "*",
       );
     }
-  }, [motionTracks, motionDefaultEase, motionDurationMs]);
+    sendMotionPathEditingState();
+    sendMotionOriginEditingState();
+  }, [
+    motionTracks,
+    motionEasingVariables,
+    motionDefaultEase,
+    motionDurationMs,
+    sendMotionPathEditingState,
+    sendMotionOriginEditingState,
+  ]);
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -7667,6 +7896,130 @@ export function DesignCanvas({
     [content],
   );
 
+  const dispatchMotionOriginPointer = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    phase: "down" | "move" | "up" | "cancel",
+  ) => {
+    const frame = iframeRef.current;
+    const frameWindow = frame?.contentWindow;
+    const frameRect = frame?.getBoundingClientRect();
+    if (
+      !frameWindow ||
+      !frameRect ||
+      frameRect.width <= 0 ||
+      frameRect.height <= 0
+    ) {
+      return;
+    }
+    frameWindow.postMessage(
+      {
+        type: "motion-origin-pointer",
+        phase,
+        pointerId: event.pointerId,
+        x:
+          ((event.clientX - frameRect.left) / frameRect.width) *
+          frameWindow.innerWidth,
+        y:
+          ((event.clientY - frameRect.top) / frameRect.height) *
+          frameWindow.innerHeight,
+      },
+      "*",
+    );
+  };
+
+  const handleMotionOriginPointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (event.button !== 0 || !motionOriginEditingEnabled) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    motionOriginPointerIdRef.current = event.pointerId;
+    dispatchMotionOriginPointer(event, "down");
+  };
+
+  const handleMotionOriginPointerMove = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (motionOriginPointerIdRef.current !== event.pointerId) return;
+    dispatchMotionOriginPointer(event, "move");
+  };
+
+  const finishMotionOriginPointer = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    phase: "up" | "cancel",
+  ) => {
+    if (motionOriginPointerIdRef.current !== event.pointerId) return;
+    dispatchMotionOriginPointer(event, phase);
+    motionOriginPointerIdRef.current = null;
+  };
+
+  const motionOriginFrameRect = iframeRef.current?.getBoundingClientRect();
+  const motionOriginProxy =
+    motionOriginEditingEnabled &&
+    !readOnly &&
+    editMode &&
+    !interactMode &&
+    typeof document !== "undefined" &&
+    document.body &&
+    motionOriginFrameRect &&
+    motionOriginFrameRect.width > 0 &&
+    motionOriginFrameRect.height > 0 &&
+    motionOriginMarkerPosition?.targetNodeId === motionOriginTargetNodeId
+      ? createPortal(
+          <button
+            type="button"
+            data-motion-origin-proxy
+            aria-hidden="true"
+            tabIndex={-1}
+            onPointerDown={handleMotionOriginPointerDown}
+            onPointerMove={handleMotionOriginPointerMove}
+            onPointerUp={(event) => finishMotionOriginPointer(event, "up")}
+            onPointerCancel={(event) =>
+              finishMotionOriginPointer(event, "cancel")
+            }
+            onLostPointerCapture={(event) => {
+              if (motionOriginPointerIdRef.current === event.pointerId) {
+                finishMotionOriginPointer(event, "cancel");
+              }
+            }}
+            className="fixed z-[2147483647] grid size-4 -translate-x-1/2 -translate-y-1/2 cursor-move place-items-center rounded-full border-2 border-[var(--design-editor-accent-color,Highlight)] bg-[Canvas] p-0 touch-none"
+            style={{
+              left:
+                motionOriginFrameRect.left +
+                (motionOriginMarkerPosition.x /
+                  motionOriginMarkerPosition.viewportWidth) *
+                  motionOriginFrameRect.width,
+              top:
+                motionOriginFrameRect.top +
+                (motionOriginMarkerPosition.y /
+                  motionOriginMarkerPosition.viewportHeight) *
+                  motionOriginFrameRect.height,
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 size-full overflow-visible"
+              viewBox="0 0 16 16"
+            >
+              <circle
+                cx="8"
+                cy="8"
+                r="2"
+                fill="var(--design-editor-accent-color,Highlight)"
+              />
+              <path
+                d="M4 8h8M8 4v8"
+                fill="none"
+                stroke="var(--design-editor-accent-color,Highlight)"
+                strokeWidth="1"
+              />
+            </svg>
+          </button>,
+          document.body,
+        )
+      : null;
+
   const iframeElement = (
     <div
       data-review-canvas-id={reviewCanvasId}
@@ -7848,6 +8201,7 @@ export function DesignCanvas({
           title={t("designEditor.designPreview")}
         />
       )}
+      {motionOriginProxy}
       {externalPreviewUrl &&
       !previewFrameLoaded &&
       !liveEditConnectionFailed ? (

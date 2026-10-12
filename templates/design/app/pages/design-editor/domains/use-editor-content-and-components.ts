@@ -11,13 +11,29 @@ import {
 } from "@shared/component-model";
 import type { A11yFinding } from "@shared/design-review";
 import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
-import type { MotionEase } from "@shared/motion-timeline";
+import type { MotionAnimationStyleDefinition } from "@shared/motion-animation-styles";
+import type { MotionAudioClip } from "@shared/motion-code";
+import type { MotionNativeStyleInstance } from "@shared/motion-native-style";
+import { motionNativeStyleWithPositionTrack } from "@shared/motion-native-style-runtime";
+import type {
+  MotionTextAnimation,
+  MotionTextDocument,
+} from "@shared/motion-text-code";
+import {
+  motionTimelineDurationForContent,
+  type MotionPlaybackMode,
+} from "@shared/motion-timeline";
 import { sourcePositionPrecision } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 
+import type {
+  MotionPathTracksChangeResult,
+  MotionTrackWire,
+} from "@/components/design/design-canvas/motion-types";
+import { motionPathTrackForTarget } from "@/components/design/design-canvas/motion-types";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
 import { waitForShaderWriteToSettle } from "@/components/design/inspector/GlslShaderPanel";
@@ -67,7 +83,17 @@ import {
   type ContentHistorySelectionAfterMap,
   reserveLinkedComponentContentHistory,
 } from "../history";
-import { applyMotionAutoKeyframesForStyles } from "../motion-state";
+import {
+  isLocalhostWriteConsentError,
+  type LocalhostWriteConsentRequestOutcome,
+} from "../localhost-consent-request";
+import {
+  applyMotionStyleKeyframeEdit,
+  motionSourceWriteCapabilityAllowsTargets,
+  type MotionSourceWriteCapabilitySnapshot,
+  motionSourcePreviewProofForTargets,
+  motionTextAnimationsFromDockTracks,
+} from "../motion-state";
 import { projectRelativeSourcePath } from "../pending-edits";
 import { isScreenRootElementInfo } from "../selection-state";
 import {
@@ -85,19 +111,12 @@ import type { EditorHistory } from "./use-editor-history";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
 
 type RequestLocalhostWrite = (opts: {
+  connectionId?: string;
   files: string[];
   onGranted: LocalhostWriteConsentPayload["onGranted"];
   onCancel?: () => void;
-}) => void;
-
-function isLocalhostWriteConsentError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "LocalWriteConsentRequiredError" ||
-      error.name === "WriteConsentRequiredError" ||
-      /write-consent grant|grant expired/i.test(error.message))
-  );
-}
+  onError?: LocalhostWriteConsentPayload["onError"];
+}) => LocalhostWriteConsentRequestOutcome;
 
 type LinkedComponentQueueRuntime = Omit<
   LinkedComponentMutationQueueArgs,
@@ -224,11 +243,23 @@ export function useEditorContentAndComponents({
   const {
     setContentRenderRevision,
     motionTimelineId,
+    motionTimelineFilePath,
     setMotionTimelineId,
     motionTracks,
     setMotionTracks,
+    motionAnimationStyles,
+    setMotionAnimationStyles,
+    motionNativeStyles,
+    setMotionNativeStyles,
+    motionAudioClips,
+    setMotionAudioClips,
+    motionEasingVariables,
+    motionTextDocument,
+    setMotionTextDocument,
     motionDurationMs,
     setMotionDurationMs,
+    motionPlaybackMode,
+    setMotionPlaybackMode,
     motionDefaultEase,
     motionPlayhead,
     motionAutoKeyframeEnabled,
@@ -239,6 +270,7 @@ export function useEditorContentAndComponents({
     setMotionHydrationFingerprint,
     motionAutosaveRevisionRef,
     motionAutosaveFailedRevisionRef,
+    lastScheduledMotionAutosaveFileVersionRef,
     lastScheduledMotionAutosaveRevisionRef,
     previousMotionFileIdRef,
     collabContentRef,
@@ -250,8 +282,81 @@ export function useEditorContentAndComponents({
     selectedCanvasSelector,
     designReviewPanelEnabled,
     replacePreviewContent,
+    sourceCapabilities,
+    activeRuntimeCodeLayerProjection,
   } = editorLiveEditsAndPresence;
-
+  const selectedMotionProofNodeId =
+    selectedMotionTargetNodeId ??
+    selectedCodeLayerNode?.dataAttributes["data-agent-native-node-id"]?.trim();
+  const motionProofTargetNodeIds = useMemo(
+    () => [
+      ...new Set([
+        ...motionTracks.map((track) => track.targetNodeId),
+        ...(motionTextDocument?.animations.map(
+          (animation) => animation.targetNodeId,
+        ) ?? []),
+        ...(selectedMotionProofNodeId ? [selectedMotionProofNodeId] : []),
+      ]),
+    ],
+    [motionTracks, motionTextDocument, selectedMotionProofNodeId],
+  );
+  const motionPreviewProjection =
+    activeRuntimeCodeLayerProjection ?? activeCodeLayerProjection;
+  const localhostMotionProof =
+    activeCanvasSourceType === "localhost"
+      ? motionSourcePreviewProofForTargets(
+          motionPreviewProjection,
+          motionProofTargetNodeIds,
+        )
+      : null;
+  const { data: motionSourceCapabilityResult } = useActionQuery<{
+    sourceWriteCapability?: MotionSourceWriteCapabilitySnapshot | null;
+  }>(
+    "get-motion-timeline",
+    {
+      designId: id ?? "",
+      sourceRef: activeFile?.id ?? "",
+      targetNodeIds: motionProofTargetNodeIds,
+      ...(localhostMotionProof
+        ? {
+            previewModulePath: localhostMotionProof.modulePath,
+            previewModuleVersionHash: localhostMotionProof.moduleVersionHash,
+          }
+        : {}),
+    },
+    {
+      enabled: Boolean(
+        id &&
+        activeFile?.id &&
+        canEditDesign &&
+        activeCanvasSourceType === "localhost" &&
+        activeCodeLayerProjection.source.connectionId &&
+        localhostMotionProof &&
+        motionProofTargetNodeIds.length > 0,
+      ),
+      refetchOnMount: "always",
+    },
+  );
+  const motionSourceTargetsWritable =
+    activeCanvasSourceType !== "localhost" ||
+    motionSourceWriteCapabilityAllowsTargets(
+      motionSourceCapabilityResult?.sourceWriteCapability,
+      localhostMotionProof,
+      motionProofTargetNodeIds,
+    );
+  const motionControlsWritable =
+    (activeCanvasSourceType === "inline" &&
+      sourceCapabilities.includes("writeMotion")) ||
+    (activeCanvasSourceType === "localhost" &&
+      Boolean(activeCodeLayerProjection.source.connectionId) &&
+      Boolean(localhostMotionProof) &&
+      motionSourceTargetsWritable);
+  const writeMotionAvailable =
+    (activeCanvasSourceType === "inline" &&
+      sourceCapabilities.includes("writeMotion")) ||
+    (activeCanvasSourceType === "localhost" &&
+      Boolean(activeCodeLayerProjection.source.connectionId) &&
+      Boolean(localhostMotionProof));
   const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
   const [uiHidden, setUiHidden] = useState(false);
   const motionLivePlayheadRef = useRef<number | null>(null);
@@ -462,6 +567,18 @@ export function useEditorContentAndComponents({
 
   const pruneMotionTracksByNodeId = useCallback(
     (nodeIdsToRemove: Set<string>) => {
+      const textAnimations = motionTextDocument?.animations ?? [];
+      const remainingTextAnimations = textAnimations.filter(
+        (animation) => !nodeIdsToRemove.has(animation.targetNodeId),
+      );
+      if (remainingTextAnimations.length !== textAnimations.length) {
+        setMotionTextDocument(
+          remainingTextAnimations.length > 0
+            ? { version: 1, animations: remainingTextAnimations }
+            : null,
+        );
+        markMotionTracksDirty();
+      }
       setMotionTracks((current) => {
         const next = current.filter(
           (track) => !nodeIdsToRemove.has(track.targetNodeId),
@@ -471,23 +588,229 @@ export function useEditorContentAndComponents({
         return next;
       });
     },
-    [markMotionTracksDirty],
+    [markMotionTracksDirty, motionTextDocument, setMotionTextDocument],
   );
 
   const handleMotionTracksChange = useCallback(
     (tracks: MotionDockTrack[]) => {
+      if (!writeMotionAvailable || activeCanvasSourceType !== "inline") return;
       setMotionTracks(tracks);
       markMotionTracksDirty();
     },
-    [markMotionTracksDirty],
+    [markMotionTracksDirty, writeMotionAvailable],
+  );
+
+  const handleMotionDockTracksChange = useCallback(
+    (tracks: MotionDockTrack[]) => {
+      if (!writeMotionAvailable) return;
+      const cssTracks = tracks.filter((track) => !track.isTextAnimation);
+      setMotionTracks(cssTracks);
+
+      const nextAnimations = motionTextAnimationsFromDockTracks(
+        motionTextDocument,
+        tracks,
+      );
+      const nextDocument =
+        nextAnimations.length > 0
+          ? { version: 1 as const, animations: nextAnimations }
+          : null;
+      if (JSON.stringify(nextDocument) !== JSON.stringify(motionTextDocument)) {
+        setMotionTextDocument(nextDocument);
+      }
+      markMotionTracksDirty();
+    },
+    [
+      markMotionTracksDirty,
+      motionTextDocument,
+      setMotionTextDocument,
+      setMotionTracks,
+      writeMotionAvailable,
+    ],
+  );
+
+  const handleMotionAudioClipsChange = useCallback(
+    (audioClips: MotionAudioClip[]) => {
+      if (!writeMotionAvailable) return;
+      setMotionAudioClips(audioClips);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty, setMotionAudioClips, writeMotionAvailable],
+  );
+
+  const handleMotionCanvasPathTracksChange = useCallback(
+    (
+      tracks: MotionTrackWire[],
+      targetNodeId: string,
+    ): MotionPathTracksChangeResult | void => {
+      if (!writeMotionAvailable) return;
+      const updatedPositionTrack = motionPathTrackForTarget(
+        tracks,
+        targetNodeId,
+      );
+      if (!updatedPositionTrack) {
+        return {
+          status: "unsupported",
+          reason: "ambiguous-position-source",
+        };
+      }
+      if (updatedPositionTrack.nativeStyleIndex !== undefined) {
+        const styleIndex = updatedPositionTrack.nativeStyleIndex;
+        const currentStyle = motionNativeStyles[styleIndex];
+        if (
+          !currentStyle ||
+          currentStyle.styleKey !== "Position" ||
+          currentStyle.targetNodeId !== targetNodeId
+        ) {
+          return {
+            status: "unsupported",
+            reason: "ambiguous-position-source",
+          };
+        }
+        let updatedStyle: MotionNativeStyleInstance;
+        try {
+          updatedStyle = motionNativeStyleWithPositionTrack(
+            currentStyle,
+            updatedPositionTrack,
+          );
+        } catch {
+          return {
+            status: "unsupported",
+            reason: "ambiguous-position-source",
+          };
+        }
+        if (JSON.stringify(currentStyle) === JSON.stringify(updatedStyle)) {
+          return { status: "updated" };
+        }
+        setMotionNativeStyles((current) =>
+          current.map((style, index) =>
+            index === styleIndex ? updatedStyle : style,
+          ),
+        );
+        markMotionTracksDirty();
+        return { status: "updated" };
+      }
+
+      const currentPositionTrack = motionTracks.find(
+        (track) =>
+          track.targetNodeId === targetNodeId && track.property === "translate",
+      );
+      if (
+        !currentPositionTrack ||
+        JSON.stringify(currentPositionTrack.keyframes) ===
+          JSON.stringify(updatedPositionTrack.keyframes)
+      ) {
+        return currentPositionTrack ? { status: "updated" } : undefined;
+      }
+      setMotionTracks((current) =>
+        current.map((track) =>
+          track.targetNodeId === targetNodeId && track.property === "translate"
+            ? { ...track, keyframes: updatedPositionTrack.keyframes }
+            : track,
+        ),
+      );
+      markMotionTracksDirty();
+      return { status: "updated" };
+    },
+    [
+      markMotionTracksDirty,
+      motionNativeStyles,
+      motionTracks,
+      setMotionNativeStyles,
+      setMotionTracks,
+      writeMotionAvailable,
+    ],
+  );
+
+  const handleMotionPlaybackModeChange = useCallback(
+    (mode: MotionPlaybackMode) => {
+      if (!writeMotionAvailable) return;
+      setMotionPlaybackMode(mode);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty, setMotionPlaybackMode, writeMotionAvailable],
+  );
+
+  const handleMotionAnimationStyleSaved = useCallback(
+    (style: MotionAnimationStyleDefinition) => {
+      if (!writeMotionAvailable) return;
+      setMotionAnimationStyles((current) => {
+        if (current.some((existing) => existing.id === style.id)) {
+          return current.map((existing) =>
+            existing.id === style.id ? style : existing,
+          );
+        }
+        return [...current, style];
+      });
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty, setMotionAnimationStyles, writeMotionAvailable],
+  );
+
+  const handleMotionAnimationStyleRemoved = useCallback(
+    (styleId: string) => {
+      if (!writeMotionAvailable) return;
+      setMotionAnimationStyles((current) => {
+        const next = current.filter((style) => style.id !== styleId);
+        return next.length === current.length ? current : next;
+      });
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty, setMotionAnimationStyles, writeMotionAvailable],
+  );
+
+  const handleMotionTextDocumentChange = useCallback(
+    (textDocument: MotionTextDocument | null) => {
+      if (!writeMotionAvailable) return;
+      setMotionTextDocument(textDocument);
+      markMotionTracksDirty();
+    },
+    [markMotionTracksDirty, setMotionTextDocument, writeMotionAvailable],
+  );
+
+  const handleMotionTextAnimationsChange = useCallback(
+    (targetNodeId: string, targetAnimations: MotionTextAnimation[]) => {
+      if (!writeMotionAvailable) return;
+      const animations = motionTextDocument?.animations ?? [];
+      const nextAnimations: MotionTextAnimation[] = [];
+      let inserted = false;
+      for (const animation of animations) {
+        if (animation.targetNodeId !== targetNodeId) {
+          nextAnimations.push(animation);
+          continue;
+        }
+        if (!inserted) {
+          nextAnimations.push(...targetAnimations);
+          inserted = true;
+        }
+      }
+      if (!inserted) nextAnimations.push(...targetAnimations);
+      handleMotionTextDocumentChange(
+        nextAnimations.length > 0
+          ? { version: 1, animations: nextAnimations }
+          : null,
+      );
+    },
+    [handleMotionTextDocumentChange, motionTextDocument, writeMotionAvailable],
   );
 
   const handleMotionDurationChange = useCallback(
     (durationMs: number) => {
-      setMotionDurationMs(durationMs);
+      if (!writeMotionAvailable) return;
+      setMotionDurationMs(
+        motionTimelineDurationForContent(
+          durationMs,
+          motionTracks,
+          motionTextDocument?.animations ?? [],
+        ),
+      );
       markMotionTracksDirty();
     },
-    [markMotionTracksDirty],
+    [
+      markMotionTracksDirty,
+      motionTracks,
+      motionTextDocument?.animations,
+      writeMotionAvailable,
+    ],
   );
 
   const upsertMotionKeyframesFromStyles = useCallback(
@@ -496,7 +819,9 @@ export function useEditorContentAndComponents({
       elementInfo?: ElementInfo,
       selector?: string,
     ) => {
-      if (!motionDockOpen || !motionAutoKeyframeEnabled) return;
+      if (!writeMotionAvailable || !motionDockOpen) {
+        return;
+      }
       const info = elementInfo ?? selectedElement ?? undefined;
       const targetNode = info
         ? resolveCodeLayerNodeFromElementInfo(activeCodeLayerProjection, info)
@@ -512,19 +837,23 @@ export function useEditorContentAndComponents({
       if (!targetNodeId) return;
 
       const activePlayhead = motionLivePlayheadRef.current ?? motionPlayhead;
-      let changed = false;
+      const edit = {
+        targetNodeId,
+        label: targetNode?.layerName || info?.tagName || "Selected element",
+        styles,
+        computedStyles: info?.computedStyles,
+        playhead: activePlayhead,
+        timelineDurationMs: motionDurationMs,
+        defaultEase: motionDefaultEase,
+        autoKeyframeEnabled: motionAutoKeyframeEnabled,
+      };
+      if (applyMotionStyleKeyframeEdit(motionTracks, edit) === motionTracks) {
+        return;
+      }
       setMotionTracks((current) => {
-        const next = applyMotionAutoKeyframesForStyles(current, {
-          targetNodeId,
-          styles,
-          playheadT: activePlayhead,
-          timelineDurationMs: motionDurationMs,
-          defaultEase: motionDefaultEase as MotionEase,
-        });
-        changed = next !== current;
-        return next;
+        return applyMotionStyleKeyframeEdit(current, edit);
       });
-      if (changed) markMotionTracksDirty();
+      markMotionTracksDirty();
     },
     [
       activeCodeLayerProjection,
@@ -534,13 +863,16 @@ export function useEditorContentAndComponents({
       motionDockOpen,
       motionDurationMs,
       motionPlayhead,
+      motionTracks,
       selectedCodeLayerNode,
       selectedElement,
+      writeMotionAvailable,
     ],
   );
 
   const handleToggleMotionKeyframe = useCallback(
-    (cssProperty: string) =>
+    (cssProperty: string) => {
+      if (!writeMotionAvailable) return;
       runToggleMotionKeyframe(
         {
           canEditDesign,
@@ -554,7 +886,8 @@ export function useEditorContentAndComponents({
           setMotionTracks,
         },
         cssProperty,
-      ),
+      );
+    },
     [
       canEditDesign,
       markMotionTracksDirty,
@@ -564,6 +897,7 @@ export function useEditorContentAndComponents({
       selectedElement?.computedStyles,
       selectedElement?.tagName,
       selectedMotionTargetNodeId,
+      writeMotionAvailable,
     ],
   );
 
@@ -1146,6 +1480,8 @@ export function useEditorContentAndComponents({
   useEffect(
     () =>
       runMotionAutosave({
+        activeCanvasSourceType,
+        activeCodeLayerProjection: motionPreviewProjection,
         activeContent,
         activeFile,
         applyFileContentUpdate,
@@ -1154,6 +1490,7 @@ export function useEditorContentAndComponents({
         getScreenContent,
         id,
         lastLocalContentRef,
+        lastScheduledMotionAutosaveFileVersionRef,
         lastScheduledMotionAutosaveRevisionRef,
         latestActiveContentRef,
         motionAutosaveFailedRevisionRef,
@@ -1164,8 +1501,16 @@ export function useEditorContentAndComponents({
         motionAutosaveTimerRef,
         motionDefaultEase,
         motionDurationMs,
+        motionPlaybackMode,
         motionTimelineId,
+        motionTimelineFilePath,
         motionTracks,
+        motionAnimationStyles,
+        motionNativeStyles,
+        motionAudioClips,
+        motionEasingVariables,
+        motionProofTargetNodeIds,
+        motionTextDocument,
         motionTracksDirty,
         previousMotionFileIdRef,
         queryClient,
@@ -1174,11 +1519,19 @@ export function useEditorContentAndComponents({
         setMotionHydrationFingerprint,
         setMotionTimelineId,
         setMotionTracksDirty,
+        requestLocalhostWrite: (opts) =>
+          requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
+        writeMotionAvailable,
+        sourceWriteUnavailableMessage: t(
+          "designEditor.motion.sourceWriteUnavailable",
+        ),
       }),
     [
       activeFile?.id,
       activeFile?.updatedAt,
       activeContent,
+      activeCanvasSourceType,
+      motionPreviewProjection,
       applyFileContentUpdate,
       applyMotionEdit,
       clearMotionAutosaveTimer,
@@ -1188,12 +1541,23 @@ export function useEditorContentAndComponents({
       motionAutosavePending,
       motionDefaultEase,
       motionDurationMs,
+      motionPlaybackMode,
       motionTimelineId,
+      motionTimelineFilePath,
       motionTracks,
+      motionAnimationStyles,
+      motionNativeStyles,
+      motionAudioClips,
+      motionEasingVariables,
+      motionProofTargetNodeIds,
+      motionTextDocument,
       motionTracksDirty,
+      writeMotionAvailable,
       queryClient,
+      t,
       removeMotionTimeline,
       removeMotionTimelineMutation.isPending,
+      requestLocalhostWriteRef,
     ],
   );
 
@@ -1422,7 +1786,16 @@ export function useEditorContentAndComponents({
     selectedComponentLocalSource,
     markMotionTracksDirty,
     pruneMotionTracksByNodeId,
+    motionControlsWritable,
     handleMotionTracksChange,
+    handleMotionDockTracksChange,
+    handleMotionAudioClipsChange,
+    handleMotionCanvasPathTracksChange,
+    handleMotionPlaybackModeChange,
+    handleMotionAnimationStyleSaved,
+    handleMotionAnimationStyleRemoved,
+    handleMotionTextDocumentChange,
+    handleMotionTextAnimationsChange,
     handleMotionDurationChange,
     upsertMotionKeyframesFromStyles,
     handleToggleMotionKeyframe,
