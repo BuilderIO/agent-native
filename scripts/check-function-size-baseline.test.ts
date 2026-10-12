@@ -132,6 +132,25 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
+  it("counts private filename metadata without disclosing non-module or hidden paths", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    const libs = path.join(functionsDir, "server", "_libs");
+    mkdirSync(libs);
+    writeFileSync(path.join(libs, "PRIVATE.json"), "123");
+    writeFileSync(path.join(libs, ".PRIVATE.mjs"), "1234");
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    assert.equal(chunkInventory(checked.output).scannedBytes, 7);
+    assert.doesNotMatch(checked.output, /PRIVATE/);
+    assert.equal(
+      chunkInventoryFiles(checked.output).every((file) => file.pathOmitted),
+      true,
+    );
+  });
   it("reports safe scoped paths and omits unsafe path segments", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");

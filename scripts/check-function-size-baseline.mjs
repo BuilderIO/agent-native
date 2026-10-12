@@ -295,13 +295,16 @@ function reportGeneratedChunkInventory(functionDir) {
           continue;
         }
 
-        const safePath = pathParts.every(
-          (segment) =>
-            segment !== "." &&
-            segment !== ".." &&
-            GENERATED_PATH_SEGMENT.test(segment) &&
-            !GENERATED_PATH_CONTROL_CHARACTERS.test(segment),
-        );
+        const safePath =
+          entry.name.endsWith(".mjs") &&
+          pathParts.every(
+            (segment) =>
+              segment !== "." &&
+              segment !== ".." &&
+              !segment.startsWith(".") &&
+              GENERATED_PATH_SEGMENT.test(segment) &&
+              !GENERATED_PATH_CONTROL_CHARACTERS.test(segment),
+          );
         if (!safePath) unsafePathsOmitted = true;
 
         files.push({
