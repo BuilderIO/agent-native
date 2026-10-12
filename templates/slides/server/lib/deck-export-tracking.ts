@@ -54,7 +54,9 @@ export function trackDeckExported(
   if (
     event.exportFormat === "pptx" &&
     event.renderLocation === "server" &&
-    (inGoogleSlidesBuildStep() || pptxDownloadRegeneration.getStore() === true)
+    (inGoogleSlidesBuildStep() ||
+      (event.status === "completed" &&
+        pptxDownloadRegeneration.getStore() === true))
   ) {
     return;
   }

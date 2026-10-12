@@ -48,6 +48,7 @@ describe("export-pptx action", () => {
   beforeEach(() => {
     mocks.track.mockReset();
     vi.stubEnv("NETLIFY", "1");
+    vi.spyOn(fs, "readdirSync").mockReturnValue([] as never);
     vi.spyOn(fs, "mkdirSync").mockImplementation(() => undefined);
     vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
   });
@@ -190,7 +191,9 @@ describe("export-pptx action", () => {
 
     expect(result.buffer).toBeInstanceOf(Buffer);
     expect(result.filename).toBe("requested-export.pptx");
-    expect(result.filePath).toContain("requested-export.pptx");
+    expect(result).not.toHaveProperty("filePath");
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
+    expect(fs.mkdirSync).not.toHaveBeenCalled();
   });
 
   it("persists exports in the hosted runtime directory for later downloads", async () => {

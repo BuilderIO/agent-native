@@ -16,6 +16,8 @@ import {
 import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
 import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
+  isHostedSlidesRuntime,
+  pruneHostedPptxExports,
   safeGeneratedFilename,
   tenantExportDir,
 } from "../server/lib/tenant-files.js";
@@ -1956,11 +1958,18 @@ export default defineAction({
       ? downloadContext.slidesPptxDownloadFilename
       : safeGeneratedFilename(row.title, ".pptx");
 
-    // Hosted temp storage is per instance, so retries can rebuild after a cold start.
     const exportDir = tenantExportDir(userEmail);
-    fs.mkdirSync(exportDir, { recursive: true });
-    const filePath = path.join(exportDir, filename);
-    fs.writeFileSync(filePath, buffer);
+    if (!downloadContext) {
+      fs.mkdirSync(exportDir, { recursive: true });
+      fs.writeFileSync(path.join(exportDir, filename), buffer);
+    }
+    if (isHostedSlidesRuntime()) {
+      pruneHostedPptxExports(
+        exportDir,
+        Date.now(),
+        downloadContext ? undefined : filename,
+      );
+    }
 
     trackDeckExported(
       {
@@ -1975,7 +1984,7 @@ export default defineAction({
 
     return {
       downloadUrl: getExportUrl(filename, { deckId, includeNotes }),
-      ...(downloadContext ? { buffer, filePath } : {}),
+      ...(downloadContext ? { buffer } : {}),
       filename,
       slideCount: slides.length,
       ...(backgroundGradientsFlattened > 0

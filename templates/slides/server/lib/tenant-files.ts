@@ -1,6 +1,10 @@
 import crypto from "crypto";
+import fs from "fs";
 import os from "os";
 import path from "path";
+
+export const HOSTED_PPTX_EXPORT_TTL_MS = 24 * 60 * 60 * 1_000;
+export const MAX_HOSTED_PPTX_EXPORTS_PER_TENANT = 20;
 
 export function tenantFileKey(email: string): string {
   return crypto
@@ -57,6 +61,54 @@ export function tenantExportDir(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   return path.join(exportRootDir(cwd, env), tenantFileKey(email));
+}
+
+export function pruneHostedPptxExports(
+  exportDir: string,
+  now = Date.now(),
+  protectedFilename?: string,
+): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(exportDir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+
+  const pptxFiles: Array<{ name: string; mtimeMs: number }> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".pptx") {
+      continue;
+    }
+    try {
+      pptxFiles.push({
+        name: entry.name,
+        mtimeMs: fs.statSync(path.join(exportDir, entry.name)).mtimeMs,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  pptxFiles.sort((left, right) => {
+    if (left.name === protectedFilename) return -1;
+    if (right.name === protectedFilename) return 1;
+    return right.mtimeMs - left.mtimeMs;
+  });
+  const cutoff = now - HOSTED_PPTX_EXPORT_TTL_MS;
+
+  for (const [index, file] of pptxFiles.entries()) {
+    if (
+      (file.name !== protectedFilename && file.mtimeMs < cutoff) ||
+      index >= MAX_HOSTED_PPTX_EXPORTS_PER_TENANT
+    ) {
+      try {
+        fs.unlinkSync(path.join(exportDir, file.name));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+  }
 }
 
 export function safeGeneratedFilename(title: string, ext: ".html" | ".pptx") {
