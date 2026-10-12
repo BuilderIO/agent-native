@@ -8,7 +8,7 @@ import {
   postAction,
   setBaseURL,
 } from "./drag-and-drop.shared";
-import { appPath, gotoEditor } from "./helpers";
+import { appPath, resetPersistedCanvasState } from "./helpers";
 
 const HOME_HTML = `<!doctype html><html lang="en"><head><title>Home</title></head><body><main>Home</main></body></html>`;
 
@@ -162,7 +162,11 @@ test("editor checkpoints survive browser restart and restore screen identity", a
   const restartedPage = await page.context().newPage();
   await page.close();
   try {
-    await gotoEditor(restartedPage, designId);
+    // The only screen left is URL-backed, and its preview has no local
+    // credentials in a fresh page, so gotoEditor's wait for selectable preview
+    // nodes can never pass. History restore only needs the editor chrome.
+    await resetPersistedCanvasState(restartedPage);
+    await openEditor(restartedPage, designId);
     await expect(layerRow(restartedPage, "Home")).toHaveCount(0);
     await openHistory(restartedPage);
 
