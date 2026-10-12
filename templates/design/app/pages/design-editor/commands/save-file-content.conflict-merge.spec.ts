@@ -387,6 +387,21 @@ describe("runSaveFileContent request body", () => {
     expect(args.rollbackPendingLocalFileContent).not.toHaveBeenCalled();
   });
 
+  it("does not resend the whole document when the server skips the patch's stale revision", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async () => ({
+        updated: true,
+        skippedStaleOperation: true,
+        versionHash: sourceContentHash(BASE),
+      }),
+    });
+
+    await runSaveFileContent(args, pending);
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mutateAsync.mock.calls[0]![0].contentPatch).toBeDefined();
+  });
+
   it("resends the whole document once when the server rejects the patch's result hash", async () => {
     const { args, pending, mutateAsync } = setup({
       mutate: async (input) => {

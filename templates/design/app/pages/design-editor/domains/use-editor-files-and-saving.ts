@@ -63,6 +63,7 @@ import {
   flushCommitsOnInput,
 } from "../commit-after-paint";
 import {
+  clearAcknowledgedDesignDataOperationsThroughRevision,
   rebaseDesignDataWithPendingOperations,
   type PendingDesignDataOperations,
 } from "../data-operations";
@@ -307,6 +308,16 @@ export function useEditorFilesAndSaving({
         ...result.rebased.map(({ entry }) => entry),
         ...result.dropped.map(({ entry }) => entry),
       ]) {
+        if (
+          entry.actionName === "update-design" &&
+          entry.operationSource === designSaveOperationSourceRef.current
+        ) {
+          frameGeometryOperationsInFlightRef.current =
+            clearAcknowledgedDesignDataOperationsThroughRevision(
+              frameGeometryOperationsInFlightRef.current,
+              entry.operationRevision,
+            );
+        }
         if (
           shouldClearLatestUnloadSaveForOutboxEntry(
             latestFileSaveForUnloadRef.current[entry.resourceId],
@@ -1045,8 +1056,8 @@ export function useEditorFilesAndSaving({
       }
     }
   }, [serverFiles]);
-  // A get-design response can predate a geometry save still in flight, so
-  // that save's operations stay on top of whatever the server sent.
+  // A get-design response can predate a geometry save still in flight or
+  // queued for retry, so its operations stay on top of what the server sent.
   const designDataJson = useMemo(
     () =>
       rebaseDesignDataWithPendingOperations(

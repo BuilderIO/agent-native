@@ -123,6 +123,7 @@ import {
   findInteractDevicePreset,
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
+import { classifyDesignSaveFailure } from "../save-failure";
 import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
@@ -613,6 +614,8 @@ export function useEditorActiveScreenAndGeometry({
         .then(async () => {
           let outboxEntry: ReturnType<typeof createFrameGeometryOutboxEntry> =
             null;
+          let journaled = false;
+          let queuedForRetry = false;
           try {
             const rejectedAssignments = stripRejectedRestoreClaimAssignments(
               operationsForRevision,
@@ -626,7 +629,7 @@ export function useEditorActiveScreenAndGeometry({
               operationSource,
             );
             if (!outboxEntry) return;
-            await journalOutboxEntry(outboxEntry);
+            journaled = await journalOutboxEntry(outboxEntry);
             await saveDesignDataAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
               clearAcknowledgedDesignDataOperationsThroughRevision(
@@ -752,12 +755,17 @@ export function useEditorActiveScreenAndGeometry({
               }
               reportSaveFailure(reconciledEntryRetryFailure?.error ?? error);
             }
+            queuedForRetry =
+              journaled &&
+              classifyDesignSaveFailure(error, navigator.onLine) === "offline";
           } finally {
-            frameGeometryOperationsInFlightRef.current =
-              clearAcknowledgedDesignDataOperationsThroughRevision(
-                frameGeometryOperationsInFlightRef.current,
-                revision,
-              );
+            if (!queuedForRetry) {
+              frameGeometryOperationsInFlightRef.current =
+                clearAcknowledgedDesignDataOperationsThroughRevision(
+                  frameGeometryOperationsInFlightRef.current,
+                  revision,
+                );
+            }
           }
         });
       frameGeometryMutationChainRef.current = current;

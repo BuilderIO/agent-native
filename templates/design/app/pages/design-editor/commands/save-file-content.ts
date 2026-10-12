@@ -467,10 +467,13 @@ export function runSaveFileContent(
               throw error;
             })
         : undefined;
+      const patchResult = result as
+        | { versionHash?: unknown; skippedStaleOperation?: boolean }
+        | undefined;
       if (
         contentPatch === undefined ||
-        (result as { versionHash?: unknown } | undefined)?.versionHash !==
-          contentPatch.resultHash
+        (!patchResult?.skippedStaleOperation &&
+          patchResult?.versionHash !== contentPatch.resultHash)
       ) {
         result = await updateFileMutation.mutateAsync({
           ...request,
