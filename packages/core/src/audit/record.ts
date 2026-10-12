@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
+import { committedActionAuditOutcome } from "./committed-outcome.js";
 import {
   deriveActorKind,
   isAuditDisabled,
@@ -46,6 +47,49 @@ function errorCode(error: unknown): string | null {
     if (typeof e.name === "string") return e.name;
   }
   return "error";
+}
+
+/**
+ * Reserved argument a health or capability probe sends as its only argument
+ * (`{ "__probe__": true }`) to check that an action route is deployed and the
+ * token is accepted. The call is expected to be rejected, so it is not a
+ * failure worth a row; the PR recap workflow alone sends ~700 a day.
+ */
+export const AUDIT_PROBE_ARG = "__probe__";
+
+// Exact shape, rejected before the action ran: a probe that executed (even one
+// that then threw), or one carrying real arguments, is recorded like any call
+// so the marker cannot hide a change. A default `z.object` strips the marker,
+// so an action whose arguments are all optional really runs on a probe.
+function isRejectedProbe(
+  args: unknown,
+  status: AuditStatus,
+  error: unknown,
+): boolean {
+  if (status !== "error" || !isBadRequest(error)) return false;
+  if (!args || typeof args !== "object") return false;
+  const keys = Object.keys(args);
+  return (
+    !Array.isArray(args) &&
+    keys.length === 1 &&
+    (args as Record<string, unknown>)[AUDIT_PROBE_ARG] === true
+  );
+}
+
+function isBadRequest(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as {
+    name?: unknown;
+    message?: unknown;
+    statusCode?: unknown;
+    status?: unknown;
+  };
+  return (
+    e.name === "ZodError" ||
+    (e.statusCode ?? e.status) === 400 ||
+    (typeof e.message === "string" &&
+      e.message.startsWith("Invalid action parameters"))
+  );
 }
 
 function isRefusal(error: unknown): boolean {
@@ -103,11 +147,17 @@ export async function recordActionAudit(
 
     const caller = ctx?.caller ?? "http";
     const actorEmail = ctx?.userEmail ?? null;
+    const committed =
+      input.status === "error"
+        ? committedActionAuditOutcome(input.error)
+        : undefined;
     // A refused call is an attempt worth seeing, not a failure.
-    const status: AuditStatus =
-      input.status === "error" && isRefusal(input.error)
+    const status: AuditStatus = committed
+      ? "success"
+      : input.status === "error" && isRefusal(input.error)
         ? "denied"
         : input.status;
+    if (isRejectedProbe(input.args, status, input.error)) return;
     const meta: AuditCallMeta = {
       status,
       caller,
@@ -115,8 +165,9 @@ export async function recordActionAudit(
       orgId: ctx?.orgId ?? null,
     };
 
-    const target = safeTarget(input.config, input.args, input.result, meta);
-    const summary = safeSummary(input.config, input.args, input.result, meta);
+    const result = committed ? committed.result : input.result;
+    const target = safeTarget(input.config, input.args, result, meta);
+    const summary = safeSummary(input.config, input.args, result, meta);
 
     const recordInputs = input.config?.recordInputs !== false;
     const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
@@ -129,7 +180,7 @@ export async function recordActionAudit(
       createdAt: Date.now(),
       action: actionName,
       caller,
-      actorKind: deriveActorKind(caller, actorEmail),
+      actorKind: deriveActorKind(caller, actorEmail, ctx?.orgId),
       actorEmail,
       orgId: ctx?.orgId ?? null,
       threadId: ctx?.threadId ?? null,

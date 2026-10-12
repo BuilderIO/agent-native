@@ -475,6 +475,14 @@ describe("RecordingRecovery", () => {
     expect(buttons(copy.retry)[0].disabled).toBe(true);
   });
 
+  it("never lists the recording being captured right now as recoverable", () => {
+    props.uploads = [browser, native];
+    props.activeRecordingId = browser.recordingId;
+    renderPage();
+    expect(host.querySelectorAll('[role="listitem"]')).toHaveLength(1);
+    expect(host.textContent).not.toContain(browser.recordingId);
+  });
+
   it("keeps ongoing retry cancellable when revisiting recovery and hides its prior failure", () => {
     props.uploads = [native];
     props.retryingUploadId = "native:native-clip";

@@ -439,6 +439,100 @@ describe("SlideCommentsPanel", () => {
     expect(screen.queryByText("comments.noCommentsYet")).toBeNull();
   });
 
+  it("hands selection back when the selected thread is resolved so it collapses into the resolved disclosure", () => {
+    const thread = (resolved: boolean) => ({
+      threadId: "thread-1",
+      resolved,
+      quotedText: null,
+      comments: [
+        {
+          id: "comment-1",
+          author_email: "other@example.com",
+          author_name: "Other",
+          created_at: "2026-08-13T00:00:00.000Z",
+          content: "Please check this value",
+        },
+      ],
+    });
+    commentQueryState = { data: [thread(false)], isError: false };
+    resolveComment
+      .mockReset()
+      .mockImplementation(
+        (_args: unknown, options: { onSuccess?: () => void }) =>
+          options.onSuccess?.(),
+      );
+    const onThreadResolved = vi.fn();
+    const props = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      canComment: true,
+      canEdit: false,
+      currentUserEmail: "writer@example.com",
+      pendingComment: null,
+      onPendingDone: vi.fn(),
+      onClose: vi.fn(),
+      onThreadResolved,
+    };
+
+    const view = render(
+      <SlideCommentsPanel {...props} selectedThreadId="thread-1" />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+    expect(onThreadResolved).toHaveBeenCalledWith("thread-1");
+
+    commentQueryState = { data: [thread(true)], isError: false };
+    view.rerender(<SlideCommentsPanel {...props} selectedThreadId={null} />);
+    expect(
+      view.container.querySelector('[data-slide-comment-thread="thread-1"]'),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show resolved comments" }),
+    ).toBeTruthy();
+  });
+
+  it("does not clear selection when resolving fails or an unselected thread is resolved", () => {
+    commentQueryState = {
+      data: [
+        {
+          threadId: "thread-1",
+          resolved: false,
+          quotedText: null,
+          comments: [
+            {
+              id: "comment-1",
+              author_email: "other@example.com",
+              author_name: "Other",
+              created_at: "2026-08-13T00:00:00.000Z",
+              content: "Please check this value",
+            },
+          ],
+        },
+      ],
+      isError: false,
+    };
+    resolveComment.mockReset();
+    const onThreadResolved = vi.fn();
+
+    render(
+      <SlideCommentsPanel
+        deckId="deck-1"
+        slideId="slide-1"
+        canComment
+        canEdit={false}
+        currentUserEmail="writer@example.com"
+        pendingComment={null}
+        onPendingDone={vi.fn()}
+        onClose={vi.fn()}
+        selectedThreadId="thread-1"
+        onThreadResolved={onThreadResolved}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+
+    expect(resolveComment).toHaveBeenCalled();
+    expect(onThreadResolved).not.toHaveBeenCalled();
+  });
+
   it("keeps the add-reaction picker available from the smile affordance", () => {
     commentQueryState = {
       data: [

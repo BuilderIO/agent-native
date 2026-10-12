@@ -47,7 +47,8 @@ pnpm action search-documents --query "project plan" --format json
 
 ### get-document
 
-Get a single document by ID with full content.
+Get a single document by ID with full content and description. MCP callers read
+the complete values from `structuredContent`; the text preview may be shortened.
 
 ```bash
 pnpm action get-document --id abc123
@@ -66,6 +67,10 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
+If the result has `creativeContextProjectionStatus: "pending"`, the Page is
+already committed. Retry the same arguments with the returned `id` to repair
+its Creative Context projection; do not create another Page.
+
 When a user asks for a Page in an interactive Content conversation, creation is
 not a complete handoff. After `create-document` succeeds, call `navigate` with
 the returned document `id`, then call `view-screen` and compare its document ID
@@ -83,6 +88,51 @@ or `spaceName` the page is created in the caller's Personal workspace, so read
 the returned `spaceId` before telling the user where the page landed. The
 Workspaces catalog is not a create target: its rows only list workspaces, and
 `add-database-item` against it is rejected.
+
+### update-document
+
+Update a page's or database's metadata while preserving omitted fields. To
+replace its guidance, pass only `id` and `description`; an empty string clears
+the description. For a database, use its backing `documentId`, not its collection
+`databaseId`. The saved description is returned in MCP `structuredContent`.
+Agent responses contain metadata only; `get-document` returns the body.
+This does not change the Markdown body; body edits use `edit-document`.
+
+### import-content
+
+Turn Markdown files the user hands over into new pages. Prefer it to
+`create-document` whenever the source is a file: it takes the title from
+frontmatter or the first heading, keeps the original file, uploads referenced
+images, records "Imported from <file>" in History, and names everything that
+did not come across.
+
+```bash
+pnpm action import-content --dryRun true --parentId abc123 --files '[{"name":"guide.md","text":"# Guide\n..."},{"name":"logo.png"}]'
+pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey guide-1 --files '[{"name":"guide.md","text":"..."},{"name":"logo.png","url":"https://..."}]'
+```
+
+Run the dry run first and tell the user each page's `status` and `notes`
+before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
+image named in `uploads` has a `url`; leave an image nobody can supply out of
+`files`, and its references become visible placeholders on the page. Other
+formats come back in `skipped` as not supported yet. Pass an
+`idempotencyKey` on every apply, and reuse it only to retry the same files,
+with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
+some pages landed before a failure: its `details` name the `importId` and
+created page ids (with `documentIdsComplete: false`, more may exist), and the
+same call again finishes the import. `IMPORT_PAGE_TRASHED` means the import
+was undone or its pages trashed; restore them, or import with a new key.
+
+`undo-content-import --importId <id>` moves the import's pages to Trash. It
+needs only editor access, not the admin access `delete-document` needs,
+because it moves only pages the caller imported that nobody has changed since.
+It refuses with `IMPORT_PAGE_CHANGED` when a page was edited, moved, or given
+child pages since; ask before using `delete-document` instead.
+`IMPORT_IN_PROGRESS` means the import is still adding pages; undo it again once
+it finishes. While the Import dialog is open,
+`view-screen` returns `contentImport` with its status, destination, file
+names, and counts, never file contents. `import-content-source` is unrelated:
+it syncs a connected local folder.
 
 ### edit-document
 
@@ -132,6 +182,12 @@ and a `proposalId`. To add another
 find/replace call to that proposal, pass its `proposalId`, the same `summary`,
 and a fresh `idempotencyKey`. Retry the same call with its original key.
 An unchanged replacement creates no suggestion and reports an error.
+Inside tables, callouts, toggles, and columns, suggest text: edit a cell, or
+edit or add a paragraph in a callout, toggle, or column. Keep each `find`
+within one cell or one frame, and make one call per cell. A `find`/`replace`
+that changes text on both sides of a cell or frame edge, adds or removes
+table rows or cells or a column, or changes a callout's icon, a toggle's
+title, or an image, fails with `suggestion_structure_unsupported`.
 
 Use `suggest-document-edit` for every suggested body edit. The generic
 `create-resource-suggestion` action remains for advanced proposals that build
@@ -143,9 +199,14 @@ complete current and proposed Markdown in `before.markdown` and
 
 Use `list-resource-suggestions` to inspect pending and historical proposals.
 Only accept or reject when the user has asked for that decision and the caller
-has editor authority; call `decide-resource-suggestion` with a fresh
-idempotency key and the suggestion's `baseRevision` as `observedBase`. A stale
-result means canonical Content was not overwritten. Suggested edits are
+has editor authority. A suggestion's author may instead withdraw their own
+pending suggestion with comment access (`decision: "withdrawn"`); withdrawn
+suggestions leave the Page unchanged and drop out of review. Call
+`decide-resource-suggestion` with a fresh idempotency key and the suggestion's
+`baseRevision` as `observedBase`. An accept that fails with `suggestion_stale`
+didn't land because the text around it changed; the Page is unchanged and the
+suggestion stays pending, so tell the user which suggestion it was instead of
+counting it as accepted. Suggested edits are
 unavailable for local-file, source-owned, externally linked, or trashed Pages,
 Collection Pages, Pages with inline databases, and collection-item Pages without
 an accessible primary Blocks field.
@@ -158,17 +219,23 @@ pnpm action suggest-document-edit --id abc123 \
 
 ### delete-document
 
-Move a document and all its children to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored.
+Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
+collection membership remain intact so the subtree can be restored. Agents pass
+the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
+idempotency key. A conflict means the page changed: read it again before
+deciding to trash it. Collection pages use `delete-content-database` instead.
 
 ```bash
-pnpm action delete-document --id abc123
+pnpm action delete-document --id abc123 \
+  --expectedUpdatedAt '<updatedAt>' --idempotencyKey '<uuid>'
 ```
 
-Restore the root subtree, or permanently delete it only after it is in Trash:
+Restore the receipt's `trashRootId` with its `trashedAt` (also listed by
+`list-content-trash`), or permanently delete it only after it is in Trash:
 
 ```bash
-pnpm action restore-document --id abc123
+pnpm action restore-document --id abc123 \
+  --expectedTrashedAt '<trashedAt>' --idempotencyKey '<uuid>'
 pnpm action plan-content-trash-purge --mode selection --documentIds '["abc123"]'
 pnpm action permanently-delete-document --id abc123 --planId '<reviewed plan ID>' --scopeToken '<opaque plan token>'
 ```
@@ -324,7 +391,7 @@ failures stop the run.
 | "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
 | "Create a page about X"   | `create-document`, then `navigate --documentId <returned id>` and verify with `view-screen` |
 | "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
-| "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
+| "Delete this page"        | ID and `updatedAt` from `<current-screen>`, `delete-document --id ... --expectedUpdatedAt ... --idempotencyKey ...` |
 
 ## Common Tasks
 
@@ -335,8 +402,9 @@ failures stop the run.
 | "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
 | "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
 | "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
-| "Delete this page"           | `view-screen` to get ID, then `delete-document --id ...`                            |
+| "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
+| "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                |
 | "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.

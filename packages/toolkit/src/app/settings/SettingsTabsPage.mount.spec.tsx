@@ -21,16 +21,21 @@ describe("SettingsTabsPage app mount preservation", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
-  it("keeps an omitted workspace mount when a settings tab is selected", () => {
+  it("uses the projected workspace mount when a settings tab is selected", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
       "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
       JSON.stringify([{ id: "content", path: "/content" }]),
     );
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = { workspaceAppPath: "/dispatch" };
     window.history.replaceState(null, "", "/dispatch/settings");
 
     act(() => {

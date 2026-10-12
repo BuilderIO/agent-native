@@ -1,4 +1,4 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 // Mail requires a Google connection to read/send emails, so the onboarding
 // page only offers "Sign in with Google" — no email/password account
@@ -11,7 +11,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 // works on first sign-in — no separate "Connect Google" page needed.
 // The template-specific routes under `/_agent-native/google/*` remain
 // available for "add another account" flows.
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
   workspaceAppPublicPaths: ["/"],
@@ -28,7 +28,8 @@ export default createAuthPlugin({
   ],
   marketing: {
     appName: "Mail",
-    learnMoreUrl: "https://agent-native.com/apps/mail",
+    learnMoreUrl:
+      "https://agent-native.com/apps/mail?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",

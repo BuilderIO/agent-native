@@ -12,6 +12,7 @@ import {
 } from "../../agentkit/react/context.js";
 import { ActionCard } from "../chat/widgets/ActionCard.js";
 import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
+import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 
 type ApprovalSlotProps = AgentKitRenderProps<AgentApprovalRequest> & {
   runId: string;
@@ -160,6 +161,7 @@ function SimpleToolApproval({
       />
       {resolution.error ? (
         <p
+          {...SESSION_REPLAY_MASK_PROPS}
           role="alert"
           className="agentkit-command-error block px-3 pb-3 text-xs"
         >

@@ -2,6 +2,11 @@ import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
+import {
+  gmailCooldownFromError,
+  gmailReadState,
+  type GmailReadState,
+} from "@shared/gmail-freshness";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
   ComposeAttachment,
@@ -91,7 +96,12 @@ function assertActionSuccess<T>(result: T): T {
   return result;
 }
 
-export type ApiError = Error & { status?: number; retryAfterMs?: number };
+export type ApiError = Error & {
+  status?: number;
+  retryAfterMs?: number;
+  errorCode?: string;
+  cooldownUntil?: number;
+};
 
 export async function apiFetch<T>(
   url: string,
@@ -121,6 +131,13 @@ export async function apiFetch<T>(
       retryAfter > 0
     ) {
       error.retryAfterMs = retryAfter * 1000;
+    }
+    if (typeof body?.errorCode === "string") error.errorCode = body.errorCode;
+    if (typeof body?.retryAfterMs === "number" && body.retryAfterMs > 0) {
+      error.retryAfterMs = body.retryAfterMs;
+    }
+    if (typeof body?.cooldownUntil === "number") {
+      error.cooldownUntil = body.cooldownUntil;
     }
     throw error;
   }
@@ -1165,6 +1182,8 @@ export interface EmailsPage {
   nextPageToken?: string;
   totalEstimate?: number;
   accountErrors?: AccountError[];
+  /** Present when the page came from the synced store during a cooldown. */
+  read?: GmailReadState;
   providerSnapshotId?: number;
   suppressionFence?: number;
 }
@@ -1190,12 +1209,13 @@ export function emailListRefetchInterval(
   state: { status: string; fetchFailureCount: number; error: unknown },
   search?: string,
 ): number | false {
-  if (
-    search ||
-    isAuthFailure(state.error) ||
-    (state.error as { status?: unknown } | undefined)?.status === 429
-  ) {
-    return false;
+  if (search || isAuthFailure(state.error)) return false;
+  if ((state.error as { status?: unknown } | undefined)?.status === 429) {
+    // Gmail named when it is ready again: look once then, never sooner.
+    const cooldown = gmailCooldownFromError(state.error, Date.now());
+    return cooldown
+      ? Math.min(cooldown.retryAfterMs + 1_000, 5 * 60_000)
+      : false;
   }
   const base = 2 * 60_000;
   if (state.status === "error") {
@@ -1349,6 +1369,10 @@ export function useEmails(
       providerSnapshotId === lastProviderSnapshotId.current
     )
       return;
+    // Rows served from the synced store while Gmail cools down are not
+    // evidence of what Gmail lists.
+    const firstPage = q.data.pages[0] as EmailsPage | undefined;
+    if (firstPage?.read && firstPage.read.freshness !== "live") return;
     lastProviderSnapshotId.current = providerSnapshotId;
     reconcileSuppressionEvidence(q.data.pages, view, label, search);
     if (!search) reconcileOptimisticOverrides(q.data.pages);
@@ -1379,9 +1403,27 @@ export function useEmails(
 
   const canPaginate = !q.isPlaceholderData;
   const hasCurrentQueryData = Boolean(q.data) && !q.isPlaceholderData;
+  const pageRead = hasCurrentQueryData
+    ? (q.data?.pages[0] as EmailsPage | undefined)?.read
+    : undefined;
+  // A cooldown that failed a refetch must not blank the list it already has:
+  // keep the rows and report them as stale until Gmail is ready again.
+  const refetchCooldown =
+    q.isError && hasCurrentQueryData
+      ? gmailCooldownFromError(q.error, q.errorUpdatedAt)
+      : undefined;
+  const read: GmailReadState | undefined =
+    refetchCooldown && q.data
+      ? gmailReadState(
+          refetchCooldown,
+          pageRead?.staleSince ?? q.dataUpdatedAt,
+          q.errorUpdatedAt,
+        )
+      : pageRead;
 
   return {
     data,
+    read,
     isLoading: q.isLoading,
     isFetching: q.isFetching,
     isRefetching: q.isRefetching,

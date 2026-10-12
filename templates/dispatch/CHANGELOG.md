@@ -3,6 +3,38 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-08
+
+### Removed
+
+- Removed the deprecated standalone integrations page; legacy links now open the Settings integrations tab.
+
+## 2026-10-06
+
+### Fixed
+
+- Signing in to another app through Dispatch no longer leaves the used activation code in that app's address bar.
+- Historical usage without billing metadata is shown as unclassified.
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Cross-app calls continue working when apps use different local organization IDs.
+- Restored default apps in Dispatch and kept their links on the current environment.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-01
+
+### Improved
+
+- Dispatch workspace pages show content-shaped skeletons while loading
+
+### Fixed
+
+- Dispatch pages load without repeated dependency re-optimization during development
+
 ## 2026-09-30
 
 ### Improved

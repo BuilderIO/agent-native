@@ -1,10 +1,12 @@
+import { emitChatFirstOpenApp } from "@agent-native/core/client/agent-chat";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 // @vitest-environment happy-dom
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AdminShell } from "../admin-navigation";
 import { Tooltip, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -26,10 +28,25 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
+  workspaceAppsError: null as Error | null,
+  workspaceAppsLoading: false,
+  connectedApps: [] as Array<Record<string, unknown>>,
+  connectedAppsError: null as Error | null,
+  connectedAppsLoading: false,
+  appState: {} as Record<string, unknown>,
+  appStatePromises: {} as Record<string, Promise<unknown>>,
   basePath: "",
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
+}));
+const workspaceAppNavigation = vi.hoisted(() => ({
+  navigateToWorkspaceApp: vi.fn((_href: string) => true),
+}));
+
+vi.mock("../../lib/workspace-apps", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/workspace-apps")>()),
+  navigateToWorkspaceApp: workspaceAppNavigation.navigateToWorkspaceApp,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
@@ -99,15 +116,50 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  useActionQuery: (action: string) => ({
-    data:
-      action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
-    isLoading: false,
-  }),
+  useActionQuery: (action: string) => {
+    const workspaceAppsQuery = action === "list-workspace-apps";
+    const connectedAppsQuery = action === "list-connected-agents";
+    const error = workspaceAppsQuery
+      ? clientState.workspaceAppsError
+      : connectedAppsQuery
+        ? clientState.connectedAppsError
+        : null;
+    return {
+      data: workspaceAppsQuery
+        ? clientState.workspaceApps
+        : connectedAppsQuery
+          ? clientState.connectedApps
+          : undefined,
+      error,
+      isError: Boolean(error),
+      isLoading: workspaceAppsQuery
+        ? clientState.workspaceAppsLoading
+        : connectedAppsQuery
+          ? clientState.connectedAppsLoading
+          : false,
+    };
+  },
   useActionMutation: () => ({
     mutateAsync: clientState.createEmbedSessionMutateAsync,
   }),
 }));
+
+vi.mock(
+  "@agent-native/core/client/application-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/client/application-state")
+    >()),
+    readClientAppState: async (key: string) =>
+      (await clientState.appStatePromises[key]) ??
+      clientState.appState[key] ??
+      null,
+    writeClientAppState: async (key: string, value: unknown) => {
+      clientState.appState[key] = value;
+      return value;
+    },
+  }),
+);
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
@@ -169,6 +221,15 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
     onChange(location.pathname);
   }, [location.pathname, onChange]);
   return null;
+}
+
+function ChatRouteSwitcher({ target }: { target: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(target)}>
+      Switch chat
+    </button>
+  );
 }
 
 describe("Dispatch navigation paths", () => {
@@ -304,6 +365,14 @@ describe("Dispatch NavContent", () => {
       },
     ];
     clientState.workspaceApps = [];
+    clientState.workspaceAppsError = null;
+    clientState.workspaceAppsLoading = false;
+    clientState.connectedApps = [];
+    clientState.connectedAppsError = null;
+    clientState.connectedAppsLoading = false;
+    clientState.appState = {};
+    clientState.appStatePromises = {};
+    workspaceAppNavigation.navigateToWorkspaceApp.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -357,6 +426,328 @@ describe("Dispatch NavContent", () => {
     } finally {
       window.history.replaceState({}, "", "/");
     }
+  });
+
+  it("opens mounted apps when optional connected-app discovery fails", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsError = new Error("Connected apps unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/mounted-optional-error"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("opens a loaded mounted app while optional built-in discovery is loading", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsLoading = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/mounted-while-loading"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "mail" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("opens a connected built-in when mounted workspace-app discovery fails", async () => {
+    clientState.workspaceAppsError = new Error("Workspace apps unavailable");
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/builtin-mounted-error"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "clips" });
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("retries an app open after connected built-in discovery recovers", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsError = new Error("Connected apps unavailable");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/discovery-retry"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "clips" });
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    clientState.connectedAppsError = null;
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+  });
+
+  it("keeps hidden Dispatch registered for agent app targets", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        path: "/dispatch",
+        url: "https://dispatch.agent-native.com",
+        isDispatch: true,
+        status: "ready",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "dispatch" });
+    });
+
+    expect(container.querySelector(".dispatch-chat-first-notice")).toBeNull();
+  });
+
+  it("does not restore a deferred pane after switching chats", async () => {
+    clientState.connectedAppsLoading = true;
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+    const onPathChange = vi.fn();
+    const renderLayout = () => (
+      <MemoryRouter initialEntries={["/chat/pane-restore"]}>
+        <Layout extensions={{ chatFirst: true }}>
+          <ChatRouteSwitcher target="/chat/next-chat" />
+        </Layout>
+        <LocationProbe onChange={onPathChange} />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      root.render(renderLayout());
+    });
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+    expect(onPathChange).toHaveBeenLastCalledWith("/chat/next-chat");
+
+    clientState.connectedAppsLoading = false;
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    await act(async () => {
+      root.render(renderLayout());
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+  });
+
+  it("ignores pane hydration that finishes after switching chats", async () => {
+    let resolvePaneState!: (value: unknown) => void;
+    clientState.appStatePromises[CHAT_FIRST_PANE_STATE_KEY] = new Promise(
+      (resolve) => {
+        resolvePaneState = resolve;
+      },
+    );
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    const onPathChange = vi.fn();
+    const renderLayout = () => (
+      <MemoryRouter initialEntries={["/chat/pane-read-hydration"]}>
+        <Layout extensions={{ chatFirst: true }}>
+          <ChatRouteSwitcher target="/chat/new-scope" />
+        </Layout>
+        <LocationProbe onChange={onPathChange} />
+      </MemoryRouter>
+    );
+
+    await act(async () => {
+      root.render(renderLayout());
+    });
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Switch chat")
+        ?.click();
+    });
+    expect(onPathChange).toHaveBeenLastCalledWith("/chat/new-scope");
+
+    await act(async () => {
+      resolvePaneState({ appId: "clips", path: "/inbox" });
+    });
+
+    expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+  });
+
+  it("opens connected built-ins from the chat-first app rail", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/rail-built-in"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      const clipsApp = container.querySelector<HTMLElement>(
+        '[data-chat-first-app][data-app-id="clips"]',
+      );
+      const openButton =
+        clipsApp?.querySelector<HTMLButtonElement>("button") ??
+        (clipsApp as HTMLButtonElement | null);
+      openButton?.click();
+    });
+
+    expect(workspaceAppNavigation.navigateToWorkspaceApp).toHaveBeenCalledWith(
+      "https://clips.agent-native.com/home",
+    );
+  });
+
+  it("restores a mounted pane without waiting for optional built-in discovery", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "mail",
+        name: "Mail",
+        path: "/mail",
+        url: "/mail",
+        status: "ready",
+      },
+    ];
+    clientState.connectedAppsLoading = true;
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "mail",
+      path: "/inbox",
+    };
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/review-fixture"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
   });
 
   it("puts Overview before Chat in the primary navigation", async () => {

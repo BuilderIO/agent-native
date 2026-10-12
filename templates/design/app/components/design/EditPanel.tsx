@@ -170,6 +170,7 @@ import {
 import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
+  type CapturedSelectionColorScopeIdentity,
   type BreakpointOverrideFieldContext,
   type CapturedStyleTarget,
   type MotionKeyframeFieldContext,
@@ -205,6 +206,8 @@ import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
+import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
+import type { SubtreeColorStylesRead } from "./multi-screen/read-portable-style-snapshot";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
   clampScreenDimension,
@@ -339,6 +342,7 @@ interface EditPanelProps {
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
@@ -360,6 +364,7 @@ interface EditPanelProps {
   onSelectionColorTarget?: (color: string) => void;
   canSelectSelectionColorTarget?: (color: string) => boolean;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
   onGroupFillStylesChange?: (
     styles: Record<string, string>,
     meta?: StyleChangeMeta,
@@ -1124,6 +1129,7 @@ function ScreenGeometryProperties({
       url?: string;
       connectionId?: string;
     },
+    onSettled?: () => void,
   ) => void;
   onScreenUrlChange?: (screenId: string, url: string) => void;
   onAddLocalhostScreen?: () => void;
@@ -1141,6 +1147,7 @@ function ScreenGeometryProperties({
   const [sourceMode, setSourceMode] = useState<"static" | "url">(
     persistedSourceType,
   );
+  const staticSourceTransitionInFlightRef = useRef(false);
   const [sourceUrlDraft, setSourceUrlDraft] = useState(
     selectedScreenSource?.url ?? "",
   );
@@ -1158,6 +1165,12 @@ function ScreenGeometryProperties({
     selectedScreenSource?.connectionId,
     selectedScreenSource?.url,
   ]);
+
+  useEffect(() => {
+    if (!screenSourcePending || persistedSourceType === "static") {
+      staticSourceTransitionInFlightRef.current = false;
+    }
+  }, [persistedSourceType, screen.id, screenSourcePending]);
 
   const commitUrl = useCallback(
     (nextConnectionId = connectionDraft) => {
@@ -1226,6 +1239,7 @@ function ScreenGeometryProperties({
           <SubsectionLabel>{t("editPanel.screenSource.title")}</SubsectionLabel>
           <Tabs
             value={sourceMode}
+            activationMode="manual"
             onValueChange={(value) => {
               const nextMode = value as "static" | "url";
               if (nextMode === "url") {
@@ -1236,8 +1250,21 @@ function ScreenGeometryProperties({
                 setSourceMode("static");
                 return;
               }
+              if (
+                screenSourcePending ||
+                staticSourceTransitionInFlightRef.current
+              ) {
+                return;
+              }
+              staticSourceTransitionInFlightRef.current = true;
               setSourceMode("url");
-              onScreenSourceChange?.(screen.id, { sourceType: "static" });
+              onScreenSourceChange?.(
+                screen.id,
+                { sourceType: "static" },
+                () => {
+                  staticSourceTransitionInFlightRef.current = false;
+                },
+              );
             }}
             className="w-full"
           >
@@ -1296,7 +1323,9 @@ function ScreenGeometryProperties({
                     : t("editPanel.screenSource.update")}
                 </Button>
               </div>
-              {localhostConnections.length > 1 ? (
+              {localhostConnections.length > 1 ||
+              (!selectedScreenSource?.connectionId &&
+                localhostConnections.length > 0) ? (
                 <Select
                   value={connectionDraft}
                   onValueChange={(next) => {
@@ -1809,6 +1838,33 @@ function ExportPreviewDisclosure({
   );
 }
 
+const NO_SELECTION_ELEMENTS: ElementInfo[] = [];
+
+export function withCapturedSelectionColorScopeIdentities(
+  scopes: SelectionColorScope[],
+  meta?: StyleChangeMeta,
+): StyleChangeMeta | undefined {
+  if (!meta?.requirePersistedSourceAcceptance) return meta;
+
+  const identities: CapturedSelectionColorScopeIdentity[] = scopes
+    .map(({ fileId, sourceId, selector, wholeDocument }) => ({
+      fileId,
+      ...(sourceId !== undefined ? { sourceId } : {}),
+      ...(selector !== undefined ? { selector } : {}),
+      ...(wholeDocument !== undefined ? { wholeDocument } : {}),
+    }))
+    .sort((left, right) => {
+      const leftKey = JSON.stringify(left);
+      const rightKey = JSON.stringify(right);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+
+  return {
+    ...meta,
+    capturedSelectionColorScopeIdentities: identities,
+  };
+}
+
 export function SelectionColorsProperties({
   elements,
   scopes,
@@ -1818,6 +1874,7 @@ export function SelectionColorsProperties({
   onColorPickerOpenChange,
   colors: providedColors,
   title,
+  readSubtreeColorStyles,
 }: {
   elements: ElementInfo[];
   scopes?: SelectionColorScope[];
@@ -1827,10 +1884,22 @@ export function SelectionColorsProperties({
   onColorPickerOpenChange?: (from: string, open: boolean) => void;
   colors?: SelectionColorValue[];
   title?: string;
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
 }) {
   const [expanded, setExpanded] = useState(false);
   const t = useT();
-  const colors = providedColors ?? selectionColorValues(elements, scopes);
+  // Scoped reads never look at elements, which some callers rebuild per render.
+  const colorElements = scopes?.length ? NO_SELECTION_ELEMENTS : elements;
+  const colors = useMemo(
+    () =>
+      providedColors ??
+      selectionColorValues(
+        colorElements,
+        scopes,
+        expanded ? readSubtreeColorStyles : undefined,
+      ),
+    [providedColors, colorElements, scopes, expanded, readSubtreeColorStyles],
+  );
   const onColorPickerOpenChangeRef = useRef(onColorPickerOpenChange);
   onColorPickerOpenChangeRef.current = onColorPickerOpenChange;
   const scopeIdentity = JSON.stringify({
@@ -2087,6 +2156,11 @@ function GroupFillProperties({
 }) {
   const model = useMemo(() => selectionFillModel(scopes), [scopes]);
   const styles = useMemo(() => selectionFillInspectorStyles(model), [model]);
+  const metadataForFillUpload = useCallback(
+    (meta?: StyleChangeMeta) =>
+      withCapturedSelectionColorScopeIdentities(scopes, meta),
+    [scopes],
+  );
   const element = useMemo<ElementInfo>(
     () => ({
       tagName: "div",
@@ -2104,18 +2178,39 @@ function GroupFillProperties({
   );
   const onStyleChange = useCallback<StyleChangeHandler>(
     (property, value, meta) =>
-      onStylesChange?.({ ...styles, [property]: value }, meta),
-    [onStylesChange, styles],
+      onStylesChange?.(
+        { ...styles, [property]: value },
+        metadataForFillUpload(meta),
+      ),
+    [metadataForFillUpload, onStylesChange, styles],
   );
   const onBatchStyleChange = useCallback<StylesChangeHandler>(
-    (nextStyles, meta) => onStylesChange?.({ ...styles, ...nextStyles }, meta),
-    [onStylesChange, styles],
+    (nextStyles, meta) =>
+      onStylesChange?.(
+        { ...styles, ...nextStyles },
+        metadataForFillUpload(meta),
+      ),
+    [metadataForFillUpload, onStylesChange, styles],
   );
   const onAddFill = useCallback(() => {
     if (disabled || !onStylesChange) return null;
     const added = selectionFillAddedStyles(model, mostRecentFillColor);
     return onStylesChange(added.styles) ? added.open : null;
   }, [disabled, model, mostRecentFillColor, onStylesChange]);
+  const uploadScopeKey = JSON.stringify(
+    scopes
+      .map((scope) => [
+        scope.fileId,
+        scope.sourceId ?? "",
+        scope.selector ?? "",
+        scope.wholeDocument === true,
+      ])
+      .sort((left, right) => {
+        const leftKey = JSON.stringify(left);
+        const rightKey = JSON.stringify(right);
+        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+      }),
+  );
 
   return (
     <FillProperties
@@ -2126,6 +2221,7 @@ function GroupFillProperties({
       hideAddFill={disabled}
       cancelOpacityGestureOnHistoryUndo={!disabled}
       onAddFill={onAddFill}
+      uploadScopeKey={uploadScopeKey}
     />
   );
 }
@@ -2142,25 +2238,47 @@ function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
       setPalette(NO_DOCUMENT_COLORS);
       return;
     }
-    let next = 0;
-    return runInIdleSlices((deadline) => {
-      do {
-        const file = files[next];
-        if (!file) {
-          const read = extractDocumentColorPalette(files, undefined, cache);
-          setPalette((current) =>
-            current.length === read.length &&
-            current.every((color, index) => color === read[index])
-              ? current
-              : read,
-          );
-          return true;
-        }
-        next += 1;
-        documentFileColorCounts(file, cache);
-      } while (performance.now() < deadline);
-      return false;
+    const publish = () => {
+      const read = extractDocumentColorPalette(files, undefined, cache);
+      setPalette((current) =>
+        current.length === read.length &&
+        current.every((color, index) => color === read[index])
+          ? current
+          : read,
+      );
+    };
+    const uncounted = files.filter(
+      (file) => cache.get(file.id)?.content !== file.content,
+    );
+    let active = true;
+    let stopIdleScan: (() => void) | undefined;
+    // A large screen takes ~100ms to scan, so workers count colors off the
+    // main thread; anything they cannot answer is scanned here when idle.
+    void requestDocumentColorCounts(uncounted).then((results) => {
+      if (!active) return;
+      const unscanned = uncounted.filter((file, index) => {
+        const counts = results[index];
+        if (counts) cache.set(file.id, { content: file.content, counts });
+        return !counts;
+      });
+      let next = 0;
+      stopIdleScan = runInIdleSlices((deadline) => {
+        do {
+          const file = unscanned[next];
+          if (!file) {
+            publish();
+            return true;
+          }
+          next += 1;
+          documentFileColorCounts(file, cache);
+        } while (performance.now() < deadline);
+        return false;
+      });
     });
+    return () => {
+      active = false;
+      stopIdleScan?.();
+    };
   }, [files]);
   return palette;
 }
@@ -2201,6 +2319,7 @@ export const EditPanel = memo(function EditPanel({
   onSelectionColorTarget,
   canSelectSelectionColorTarget,
   onSelectionColorPickerOpenChange,
+  readSubtreeColorStyles,
   onGroupFillStylesChange: onGroupFillStylesChangeProp,
   viewMode,
   mode,
@@ -2357,12 +2476,15 @@ export const EditPanel = memo(function EditPanel({
     return {
       designId,
       fileId,
+      content: fileId === boardFileId ? undefined : activeContent,
       nodeId,
       selector: inspectorElement?.selector,
       onApplied: onShaderSourceApplied,
       onEditCode,
     };
   }, [
+    activeContent,
+    boardFileId,
     designId,
     fileId,
     selectedCount,
@@ -2393,6 +2515,10 @@ export const EditPanel = memo(function EditPanel({
       onEditCode,
     ]);
   const documentColorPalette = useDocumentColorPalette(files);
+  const selectedScreenElements = useMemo(
+    () => (selectedScreenElement ? [selectedScreenElement] : []),
+    [selectedScreenElement],
+  );
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
@@ -2913,10 +3039,12 @@ export const EditPanel = memo(function EditPanel({
                       <FillProperties
                         key={`fill:${selectedScreenElementSectionKey}`}
                         element={selectedScreenElement}
+                        uploadScopeKey={selectedScreenElementSectionKey}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
                         documentColorPalette={documentColorPalette}
                         glslShaderContext={screenGlslShaderContext}
+                        readSubtreeColorStyles={readSubtreeColorStyles}
                       />
                       <StrokeProperties
                         key={`stroke:${selectedScreenElementSectionKey}`}
@@ -2932,8 +3060,9 @@ export const EditPanel = memo(function EditPanel({
                         glslShaderContext={screenGlslShaderContext}
                       />
                       <SelectionColorsProperties
-                        elements={[selectedScreenElement]}
+                        elements={selectedScreenElements}
                         scopes={selectionColorScopes}
+                        readSubtreeColorStyles={readSubtreeColorStyles}
                         onColorTarget={onSelectionColorTarget}
                         canSelectColorTarget={canSelectSelectionColorTarget}
                         onColorPickerOpenChange={
@@ -3082,6 +3211,7 @@ export const EditPanel = memo(function EditPanel({
                       motionKeyframeContext={motionKeyframeFieldContext}
                       breakpointOverrideContext={breakpointOverrideFieldContext}
                       hideAddFill={selectionIsTextOnly}
+                      readSubtreeColorStyles={readSubtreeColorStyles}
                     />
                   )}
                   <StrokeProperties
@@ -3103,6 +3233,7 @@ export const EditPanel = memo(function EditPanel({
                   <SelectionColorsProperties
                     elements={effectiveSelectedElements}
                     scopes={selectionColorScopes}
+                    readSubtreeColorStyles={readSubtreeColorStyles}
                     onColorTarget={onSelectionColorTarget}
                     canSelectColorTarget={canSelectSelectionColorTarget}
                     onColorPickerOpenChange={onSelectionColorPickerOpenChange}

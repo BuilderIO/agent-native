@@ -1,4 +1,3 @@
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { Navigate } from "react-router";
 
 import { useEditionsLab } from "@/hooks/use-editions-lab";
@@ -41,11 +40,15 @@ export const meta: Route.MetaFunction = ({ loaderData }) => {
 };
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <EditionRouteContent />;
 }
 
-export default function EditionRoute() {
+function EditionRouteContent() {
   const editionsEnabled = useEditionsLab();
   if (!editionsEnabled) return <Navigate to="/plans" replace />;
   return <EditionPage />;
+}
+
+export default function EditionRoute() {
+  return <EditionRouteContent />;
 }

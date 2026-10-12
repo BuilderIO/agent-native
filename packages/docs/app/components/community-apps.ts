@@ -1,5 +1,7 @@
 export type CommunityAppStatus = "new" | "comingSoon";
 
+export const SHOW_COMMUNITY_APPS = false;
+
 export interface CommunityApp {
   slug: string;
   name: string;

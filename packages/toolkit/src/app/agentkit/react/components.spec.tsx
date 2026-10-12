@@ -17,6 +17,8 @@ import {
 import { ToolkitProvider } from "../../../provider.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentActivityGroup,
+  AgentConnectionErrorView,
   AgentKitComposer,
   AgentKitChat,
   type AgentKitComposerProps,
@@ -28,9 +30,51 @@ import {
 } from "./components.js";
 import {
   AgentKitProvider,
+  useAgentKit,
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentKitRoot } from "./root.js";
+
+describe("AgentConnectionErrorView replay privacy", () => {
+  it("masks connection and recovery messages while preserving the headline and reconnect control", () => {
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-example" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-example">
+        <AgentConnectionErrorView
+          error={{
+            code: "runtime_error",
+            message: "Example Person's connection failed.",
+            retryable: true,
+          }}
+          threadId="thread-example"
+          recover={async () => {}}
+          recovering={false}
+          recoveryError={new Error("Example Document recovery failed.")}
+        />
+      </AgentKitProvider>,
+    );
+    expect(html).toContain(
+      '<span data-an-mask="">Example Person&#x27;s connection failed.</span>',
+    );
+    expect(html).toContain(
+      '<span data-an-mask="" class="agentkit-command-error">Example Document recovery failed.</span>',
+    );
+    expect(html).toContain("<strong>Something went wrong</strong>");
+    expect(html).toContain("Reconnect");
+  });
+});
+
+function withAiReadiness(transport: AgentTransport): AgentTransport {
+  return { ...transport, assertAiSetupReady: async () => {} };
+}
 
 describe("AgentMessageActions request IDs", () => {
   it("prefers an explicit request ID and never uses the local message ID", () => {
@@ -211,6 +255,35 @@ describe("AgentKitChat", () => {
     expect(html).toContain('data-product-surface="true"');
   });
 
+  it("forwards an explicit no-shared-readiness setting to custom transports", async () => {
+    let controller: ReturnType<typeof useAgentKit>["controller"] | undefined;
+    function ControllerProbe() {
+      controller = useAgentKit().controller;
+      return null;
+    }
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+
+    renderToStaticMarkup(
+      <AgentKitRoot
+        transport={transport}
+        clientOptions={{ aiSetupReadiness: "not-applicable" }}
+        threadId="thread-1"
+        load="manual"
+      >
+        <ControllerProbe />
+      </AgentKitRoot>,
+    );
+
+    if (!controller) throw new Error("AgentKitRoot did not create a client.");
+    await expect(controller.assertAiSetupReady()).resolves.toBeUndefined();
+  });
+
   it("renders agent-authored suggestions only after the runtime publishes them", async () => {
     const transport: AgentTransport = {
       capabilities: { suggestions: true },
@@ -251,7 +324,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Prepare the release",
@@ -277,6 +352,9 @@ describe("AgentKitChat", () => {
 
     expect(styles).toContain('[data-agent-composer-slot="root"]');
     expect(styles).toContain('[data-agent-message-queue="true"]');
+    expect(styles).toMatch(
+      /\[data-agent-message-queue="true"\]\[data-agent-message-queue-variant="recessed"\] \{[\s\S]*border: 0;[\s\S]*border-radius: var\(--agentkit-radius-inner\) var\(--agentkit-radius-inner\) 0 0;/,
+    );
     expect(styles).toContain("margin: 0 auto;");
     expect(styles).not.toContain("margin: 0 auto -1rem;");
     expect(styles).toContain('[data-agent-native-composer-popover="true"]');
@@ -398,6 +476,12 @@ describe("AgentKitChat", () => {
     expect(styles).not.toMatch(
       /var\(--(?:background|foreground|card|popover|muted|border|primary|destructive|ring)(?:,|\))/,
     );
+    expect(styles).toContain(
+      '[data-agent-native-mention-popover="true"]\n  > div\n  > div\n  > div:not(:has([data-mention-index]))',
+    );
+    expect(styles).not.toContain(
+      '[data-agent-native-composer-popover="true"]\n  > div\n  > div\n  > div:not(:has([data-mention-index]))',
+    );
     const composerFocusRule = styles.match(
       /\.agentkit-composer\[data-agent-composer-slot="root"\]:focus-within \{([^}]*)\}/,
     )?.[1];
@@ -465,13 +549,18 @@ describe("AgentKitChat", () => {
       'execMode={executionMode === "plan" ? "plan" : "build"}',
     );
     expect(source).toContain("mode: executionMode");
-    expect(source).toContain("control.steerQueued(item.id)");
+    expect(source).toContain(
+      "control.steerQueued(item.id, { interruptActiveRun: true })",
+    );
+    expect(source).toContain(
+      "...(options.steer ? { interruptActiveRun: true } : {}),",
+    );
     expect(source).toContain("control.removeQueued(item.id)");
-    expect(source).toContain("await onBeforeSubmit()");
+    expect(source).toContain("control.sendMessage({");
     expect(source).toContain(
       "await onSubmitOverride(text, files, references, submitOptions)",
     );
-    expect(source).toContain("await control.removeQueued(item.id)");
+    expect(source).not.toContain("await submitMessage(item.text, [], [],");
     expect(source).toContain("pending={command.pending || Boolean(disabled)}");
     expect(source).toContain(
       "const submissionBlocked = Boolean(submissionDisabled) || command.pending",
@@ -588,7 +677,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Review the release",
@@ -613,6 +704,307 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Read framework contracts");
     expect(html).toContain("Agent-Native");
     expect(html.match(/Read framework contracts/g)).toHaveLength(1);
+  });
+
+  it("names a delegated app once per interaction row and shows why it failed", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const transport: AgentTransport = {
+      capabilities: { multiAgentActivity: true },
+      async startRun() {
+        return { runId: "run-delegated-failure" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-1",
+          runId: "run-delegated-failure",
+          occurredAt: "2026-10-06T00:00:00.000Z",
+        };
+        yield { ...base, id: "event-1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 2,
+          type: "agent.registered",
+          agent: {
+            id: "call-ok",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "working",
+            origin: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 3,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-ok:delegated:1",
+            kind: "delegated",
+            agentId: "call-ok",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 4,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-ok:completed:2",
+            kind: "completed",
+            agentId: "call-ok",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-5",
+          sequence: 5,
+          type: "agent.registered",
+          agent: {
+            id: "call-bad",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "failed",
+            origin: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-6",
+          sequence: 6,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-bad:failed:3",
+            kind: "failed",
+            agentId: "call-bad",
+            detail: "Needs setup first",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield { ...base, id: "event-7", sequence: 7, type: "run.completed" };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    // The prompt must not contain the app name: the feed renders it as text.
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Ask the app",
+    });
+    await run.completed;
+
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-1">
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    // Each row is a flat div, so its markup ends at the first closing tag.
+    const rows = html
+      .split('<div class="agentkit-agent-interaction"')
+      .slice(1)
+      .map((markup) => markup.split("</div>")[0]);
+
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.match(/Brain/g)).toHaveLength(1);
+      expect(row).not.toContain("agentkit-object");
+    }
+    expect(rows[0]).toContain("delegated work");
+    expect(rows[1]).toContain("finished");
+    expect(rows[2]).toContain("needs attention");
+    expect(rows[2]).toContain("Needs setup first");
+  });
+
+  it("names a delegated app once in its activity, task, and message rows", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const transport: AgentTransport = {
+      capabilities: { multiAgentActivity: true },
+      async startRun() {
+        return { runId: "run-delegated-rows" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-1",
+          runId: "run-delegated-rows",
+          occurredAt: "2026-10-06T00:00:00.000Z",
+        };
+        yield { ...base, id: "event-1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 2,
+          type: "agent.registered",
+          agent: {
+            id: "call-1",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "working",
+            origin: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-3",
+          sequence: 3,
+          type: "agent.interaction",
+          interaction: {
+            id: "call-1:message:3",
+            kind: "messaged",
+            agentId: "call-1",
+            detail: "Found the runtime boundary.",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-4",
+          sequence: 4,
+          type: "activity.started",
+          activity: {
+            id: "call-1:progress",
+            kind: "agent",
+            label: "processing",
+            detail: "Reading the contract",
+            status: "running",
+            agentId: "call-1",
+            scope: "external",
+            source: app,
+          },
+        };
+        yield {
+          ...base,
+          id: "event-5",
+          sequence: 5,
+          type: "task.created",
+          task: {
+            id: "remote-task-1",
+            title: "Brain",
+            kind: "delegated-agent",
+            status: "running",
+            assignedAgentId: "call-1",
+            source: app,
+          },
+        };
+        yield { ...base, id: "event-6", sequence: 6, type: "run.completed" };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Ask the app",
+    });
+    await run.completed;
+
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-1">
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    // Each row is a flat div, so its markup ends at the first closing tag.
+    const row = (className: string) => {
+      const markup = html.match(
+        new RegExp(`<div class="${className}"[^]*?</div>`),
+      )?.[0];
+      expect(markup, className).toBeDefined();
+      return markup!;
+    };
+    const message = row("agentkit-agent-interaction");
+    const activity = row("agentkit-activity-row");
+    const task = row("agentkit-task-row");
+
+    for (const markup of [message, activity, task]) {
+      expect(markup.match(/Brain/g)).toHaveLength(1);
+      expect(markup).not.toContain("agentkit-object");
+    }
+    expect(message).toContain("sent a message");
+    expect(message).toContain("Found the runtime boundary");
+    expect(activity).toContain("Working");
+    expect(activity).toContain("Reading the contract");
+  });
+
+  it("names a delegated app once in a repeated activity cluster", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const transport: AgentTransport = {
+      capabilities: { multiAgentActivity: true },
+      async startRun() {
+        return { runId: "run-delegated-cluster" };
+      },
+      async *subscribeToRun() {
+        const base = {
+          threadId: "thread-1",
+          runId: "run-delegated-cluster",
+          occurredAt: "2026-10-06T00:00:00.000Z",
+        };
+        yield { ...base, id: "event-1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "event-2",
+          sequence: 2,
+          type: "agent.registered",
+          agent: {
+            id: "call-1",
+            name: "Brain",
+            kind: "delegated-agent",
+            status: "working",
+            origin: app,
+          },
+        };
+        for (const [index, id] of ["call-1:a", "call-1:b"].entries()) {
+          yield {
+            ...base,
+            id: `event-${index + 3}`,
+            sequence: index + 3,
+            type: "activity.completed",
+            activity: {
+              id,
+              kind: "agent",
+              label: "processing",
+              status: "completed",
+              agentId: "call-1",
+              scope: "external",
+              source: app,
+            },
+          };
+        }
+        yield { ...base, id: "event-5", sequence: 5, type: "run.completed" };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Ask the app",
+    });
+    await run.completed;
+
+    // The chat feed lists delegated activities itself; the group is where a
+    // delegated app's repeated activities cluster.
+    const html = renderToStaticMarkup(
+      <AgentKitProvider controller={client} threadId="thread-1">
+        <AgentActivityGroup runId="run-delegated-cluster" />
+      </AgentKitProvider>,
+    );
+    const summary = html.match(
+      /<summary class="agentkit-activity-row">[^]*?<\/summary>/,
+    )?.[0];
+
+    expect(summary).toContain("×2");
+    expect(summary).toContain("Working");
+    expect(summary?.match(/Brain/g)).toHaveLength(1);
+    expect(summary).not.toContain("agentkit-object");
   });
 
   it("distinguishes run state, searches, and MCP tools in activity traces", async () => {
@@ -685,7 +1077,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Search the docs and Slack",
@@ -729,7 +1123,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const html = renderToStaticMarkup(
@@ -847,6 +1243,20 @@ describe("AgentKitChat", () => {
           updatedAt: "2026-08-29T00:00:00.000Z",
           messages: [
             {
+              id: "user-context",
+              role: "user",
+              status: "complete",
+              parts: [{ type: "text", text: "Authored request" }],
+              metadata: {
+                contextItems: [
+                  {
+                    title: "Internal source",
+                    context: "private message context",
+                  },
+                ],
+              },
+            },
+            {
               id: "assistant-1",
               role: "assistant",
               parts: [
@@ -880,7 +1290,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
     const run = await client.sendMessage({
       threadId: "thread-1",
@@ -943,7 +1355,7 @@ describe("AgentKitChat", () => {
                 },
                 {
                   type: "text",
-                  text: "Also tell @Steve.",
+                  text: "Also tell @Steve about any @builder.io booking.",
                 },
                 {
                   type: "file",
@@ -969,7 +1381,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const htmlWithoutNavigation = renderToStaticMarkup(
@@ -1022,7 +1436,12 @@ describe("AgentKitChat", () => {
 
     expect(htmlWithComposer).toContain('aria-label="Edit message"');
     expect(htmlWithComposer).toContain('data-mention-label="latest run"');
-    expect(htmlWithComposer).toContain('data-mention-label="Steve"');
+    // Plain "@word" text is not a reference, so it stays literal text.
+    expect(htmlWithComposer).not.toContain('data-mention-label="Steve"');
+    expect(htmlWithComposer).not.toContain('data-mention-label="builder"');
+    expect(htmlWithComposer).toContain(
+      "Also tell @Steve about any @builder.io booking.",
+    );
     expect(htmlWithComposer).toContain('aria-label="Preview latest-run.png"');
     expect(htmlWithComposer).toContain("Pasted text");
     expect(htmlWithComposer).toContain("agentkit-file--pasted-text");
@@ -1211,7 +1630,9 @@ describe("AgentKitChat", () => {
         </output>
       );
     }
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-tool-result",
       text: "Search the docs",
@@ -1284,8 +1705,13 @@ describe("AgentKitChat", () => {
             {
               id: "queued-1",
               threadId: "thread-slots",
-              text: "Check the deployment",
+              text: "Check the deployment\n<context>private context</context>",
               createdAt: "2026-08-29T00:00:00.000Z",
+              metadata: {
+                contextItems: [
+                  { title: "Internal source", context: "private slot context" },
+                ],
+              },
             },
           ],
           events: [
@@ -1316,7 +1742,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-slots");
 
     const html = renderToStaticMarkup(
@@ -1338,15 +1766,26 @@ describe("AgentKitChat", () => {
             <div data-slot="transcript">{children}</div>
           ),
           footer: ({ children }) => <div data-slot="footer">{children}</div>,
-          queue: ({ items }) => <div data-slot="queue">{items[0]?.text}</div>,
+          queue: ({ items }) => (
+            <div data-slot="queue">
+              {items[0]?.text}
+              {JSON.stringify(items[0]?.metadata)}
+            </div>
+          ),
           suggestions: ({ suggestions }) => (
             <div data-slot="suggestions">{suggestions[0]?.label}</div>
           ),
           messageSupplement: ({ value }) => (
-            <div data-slot="message-supplement">{value.role}</div>
+            <div data-slot="message-supplement">
+              {value.role}
+              {JSON.stringify(value.metadata)}
+            </div>
           ),
-          messageActions: ({ threadId }) => (
-            <div data-slot="message-actions">{threadId}</div>
+          messageActions: ({ threadId, value }) => (
+            <div data-slot="message-actions">
+              {threadId}
+              {JSON.stringify(value.metadata)}
+            </div>
           ),
         }}
         registry={{
@@ -1373,6 +1812,9 @@ describe("AgentKitChat", () => {
     }
     expect(html).toContain('aria-label="Release room"');
     expect(html).toContain("Check the deployment");
+    expect(html).not.toContain("private context");
+    expect(html).not.toContain("private slot context");
+    expect(html).not.toContain("private message context");
     expect(html).toContain("Review the release");
     expect(html).toContain('data-registry="widget"');
     expect(html).toContain("Workspace health");
@@ -1400,7 +1842,9 @@ describe("AgentKitChat", () => {
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-design-system");
     const CustomIconButton = vi.fn(({ label, icon }: IconButtonProps) => (
       <button type="button" aria-label={label} data-design-system="icon">
@@ -1454,13 +1898,28 @@ describe("AgentKitChat", () => {
                   text: "Private chain of thought.",
                   visibility: "hidden",
                 },
+                {
+                  type: "text",
+                  format: "markdown",
+                  text: "Assistant reply\n<context>private assistant context</context>",
+                },
               ],
+              metadata: {
+                contextItems: [
+                  {
+                    title: "Internal source",
+                    context: "private assistant metadata context",
+                  },
+                ],
+              },
             },
           ],
         };
       },
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     await client.loadThread("thread-1");
 
     const html = renderToStaticMarkup(
@@ -1476,6 +1935,114 @@ describe("AgentKitChat", () => {
     expect(html).toContain("Reviewed release boundaries");
     expect(html).toContain("Checking release boundaries.");
     expect(html).not.toContain("Private chain of thought.");
+    expect(html).toContain("Assistant reply");
+    expect(html).not.toContain("private assistant context");
+
+    const textSlot = vi.fn(({ value }: { value: { text: string } }) => (
+      <span data-custom-text="true">{value.text}</span>
+    ));
+    const textSlotHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ text: textSlot }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(textSlotHtml).toContain('data-custom-text="true"');
+    expect(textSlotHtml).not.toContain("private assistant context");
+    expect(textSlot.mock.calls[0]?.[0]).toMatchObject(
+      expect.objectContaining({
+        value: expect.objectContaining({ text: "Assistant reply" }),
+      }),
+    );
+
+    const visibleText = (value: {
+      parts: Array<{ type: string; text?: string }>;
+    }) =>
+      value.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+    const messageSlot = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-custom-message="true">{visibleText(value)}</span>,
+    );
+    const messageSlotHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ message: messageSlot }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(messageSlotHtml).toContain('data-custom-message="true"');
+    expect(messageSlotHtml).not.toContain("private assistant context");
+
+    const messageSupplement = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-message-supplement="true">{visibleText(value)}</span>,
+    );
+    const messageActions = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => <span data-message-actions="true">{visibleText(value)}</span>,
+    );
+    const wholeMessageSlotsHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ messageSupplement, messageActions }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(wholeMessageSlotsHtml).not.toContain("private assistant context");
+    expect(visibleText(messageSupplement.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
+    expect(visibleText(messageActions.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
+    expect(
+      JSON.stringify(messageSupplement.mock.calls[0]![0].value),
+    ).not.toContain("private assistant metadata context");
+    expect(
+      JSON.stringify(messageActions.mock.calls[0]![0].value),
+    ).not.toContain("private assistant metadata context");
+
+    const messageActionsTrailing = vi.fn(
+      ({
+        value,
+      }: {
+        value: { parts: Array<{ type: string; text?: string }> };
+      }) => (
+        <span data-message-actions-trailing="true">{visibleText(value)}</span>
+      ),
+    );
+    const trailingSlotsHtml = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-1"
+        slots={{ messageActionsTrailing }}
+      >
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    expect(trailingSlotsHtml).not.toContain("private assistant context");
+    expect(visibleText(messageActionsTrailing.mock.calls[0]![0].value)).toBe(
+      "Assistant reply",
+    );
 
     const activeHtml = renderToStaticMarkup(
       <AgentKitProvider
@@ -1593,7 +2160,9 @@ describe("AgentKitChat", () => {
       },
       async cancelRun() {},
     };
-    const client = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport: withAiReadiness(transport),
+    });
     const run = await client.sendMessage({
       threadId: "thread-1",
       text: "Run the dashboard checks",
@@ -1609,7 +2178,10 @@ describe("AgentKitChat", () => {
     expect(defaultHtml.match(/class="agentkit-run-failure"/g)).toHaveLength(1);
     expect(defaultHtml).toContain('data-run-id="run-failure"');
     expect(defaultHtml).toContain('data-error-code="tool_timeout"');
-    expect(defaultHtml).toContain("The dashboard check timed out.");
+    expect(defaultHtml).toContain(
+      '<span data-an-mask="">The dashboard check timed out.</span>',
+    );
+    expect(defaultHtml).toContain("<strong>Run failed</strong>");
 
     const slotCalls: AgentRunFailureRenderProps[] = [];
     const RunFailure = (props: AgentRunFailureRenderProps) => {
@@ -1633,4 +2205,106 @@ describe("AgentKitChat", () => {
       { error: failure, runId: "run-failure", threadId: "thread-1" },
     ]);
   });
+
+  it.each([
+    { label: "with no work", work: false },
+    { label: "after its last work", work: true },
+  ])(
+    "keeps a failed run's card in its own turn, above a newer turn ($label)",
+    async ({ work }) => {
+      const transport: AgentTransport = {
+        async startRun(input) {
+          return {
+            runId: input.messages.length === 1 ? "run-failed" : "run-next",
+          };
+        },
+        async *subscribeToRun({ runId }) {
+          const base = {
+            threadId: "thread-1",
+            runId,
+            occurredAt:
+              runId === "run-failed"
+                ? "2026-10-05T17:01:00.000Z"
+                : "2026-10-05T17:11:00.000Z",
+          };
+          yield { ...base, id: `${runId}-1`, sequence: 1, type: "run.started" };
+          if (runId === "run-failed") {
+            let sequence = 1;
+            if (work) {
+              yield {
+                ...base,
+                id: `${runId}-work`,
+                sequence: ++sequence,
+                type: "activity.started",
+                activity: {
+                  id: "activity-1",
+                  kind: "tool",
+                  label: "Charging the card",
+                  status: "running",
+                },
+              };
+            }
+            yield {
+              ...base,
+              id: `${runId}-failed`,
+              sequence: ++sequence,
+              type: "run.failed",
+              error: {
+                code: "stale_run",
+                message: "The agent stopped before it could finish.",
+                retryable: true,
+              },
+            };
+            return;
+          }
+          yield {
+            ...base,
+            id: `${runId}-reply`,
+            sequence: 2,
+            type: "message.completed",
+            message: {
+              id: "assistant-next",
+              role: "assistant",
+              parts: [{ type: "text", text: "Newer answer" }],
+            },
+          };
+          yield {
+            ...base,
+            id: `${runId}-done`,
+            sequence: 3,
+            type: "run.completed",
+          };
+        },
+        async cancelRun() {},
+      };
+      let clock = "2026-10-05T17:00:00.000Z";
+      const client = new AgentKitClient({
+        transport: withAiReadiness(transport),
+        now: () => clock,
+      });
+      await (
+        await client.sendMessage({ threadId: "thread-1", text: "First turn" })
+      ).completed;
+      clock = "2026-10-05T17:10:00.000Z";
+      await (
+        await client.sendMessage({ threadId: "thread-1", text: "Next turn" })
+      ).completed;
+
+      const html = renderToStaticMarkup(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+
+      const order = [
+        "First turn",
+        ...(work ? ["Charging the card"] : []),
+        'data-run-id="run-failed"',
+        "Next turn",
+        "Newer answer",
+      ].map((text) => html.indexOf(text));
+      expect(order.every((index) => index >= 0)).toBe(true);
+      expect(order).toEqual([...order].sort((left, right) => left - right));
+    },
+  );
 });

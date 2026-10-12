@@ -1,9 +1,17 @@
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { describe, expect, it } from "vitest";
 
 import {
+  TAB_ID,
   createEditorSaveOperationSource,
   shouldCheckpointAgentContent,
 } from "./editor-session";
+
+describe("TAB_ID", () => {
+  it("uses the same browser source as shared sync activity detection", () => {
+    expect(TAB_ID).toBe(getBrowserTabId());
+  });
+});
 
 describe("createEditorSaveOperationSource", () => {
   it("changes across editor remounts while retaining the browser-tab prefix", () => {

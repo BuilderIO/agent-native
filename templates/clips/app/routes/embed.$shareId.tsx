@@ -1,7 +1,6 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { isImageRecording } from "@shared/recording-kind";
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
@@ -16,6 +15,7 @@ import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { withMediaVersion } from "@/lib/media-url";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
@@ -269,9 +269,11 @@ export default function EmbedRoute() {
 
   if (dataQ.isLoading) {
     return (
-      // guard:allow-raw-color — standalone embeds must match the black player backdrop
-      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-background/70 dark:text-foreground/70">
-        <DefaultSpinner height="100%" />
+      // guard:allow-raw-color — standalone embeds use the black media backdrop
+      <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
+        <div aria-busy="true" className="h-full w-full">
+          <Skeleton className="h-full w-full rounded-none" />
+        </div>
       </div>
     );
   }

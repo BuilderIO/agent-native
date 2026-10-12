@@ -27,6 +27,7 @@ import {
 } from "@tabler/icons-react";
 import { type ReactNode } from "react";
 
+import { AccessRequestsSection } from "./AccessRequestsSection.js";
 import { AgentShareSection } from "./AgentShareSection.js";
 
 export interface ShareDialogProps {
@@ -83,6 +84,12 @@ export function ShareDialog({
   });
   if (!open) return null;
   const dialogTitle = title ?? controller.title;
+  const accessRequests = controller.canManage ? (
+    <AccessRequestsSection
+      resourceType={resourceType}
+      resourceId={resourceId}
+    />
+  ) : null;
   const showTabList =
     controller.tabs.length > 1 || controller.tabs[0]?.value !== "link";
 
@@ -132,12 +139,17 @@ export function ShareDialog({
 
       <div className="px-5 py-4">
         {controller.tabsEnabled && controller.activeTab === "link" ? (
-          <LinkTab controller={controller} extras={linkTabExtras} />
+          <LinkTab
+            controller={controller}
+            extras={linkTabExtras}
+            accessRequests={accessRequests}
+          />
         ) : null}
         {!controller.tabsEnabled || controller.activeTab === "invite" ? (
           <InviteTab
             controller={controller}
             showVisibility={!controller.tabsEnabled}
+            accessRequests={accessRequests}
           />
         ) : null}
         {controller.tabsEnabled && controller.activeTab === "embed"
@@ -184,9 +196,11 @@ function TabTrigger({
 function LinkTab({
   controller,
   extras,
+  accessRequests,
 }: {
   controller: ShareDialogController;
   extras?: ReactNode;
+  accessRequests: ReactNode;
 }) {
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
@@ -218,7 +232,11 @@ function LinkTab({
           </div>
         </div>
       </div>
-      <InviteTab controller={controller} showVisibility={false} />
+      <InviteTab
+        controller={controller}
+        showVisibility={false}
+        accessRequests={accessRequests}
+      />
       {extras}
     </div>
   );
@@ -227,9 +245,11 @@ function LinkTab({
 function InviteTab({
   controller,
   showVisibility,
+  accessRequests,
 }: {
   controller: ShareDialogController;
   showVisibility: boolean;
+  accessRequests: ReactNode;
 }) {
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
@@ -255,6 +275,8 @@ function InviteTab({
           </div>
         </div>
       ) : null}
+
+      {accessRequests}
 
       <div className="space-y-4">
         <div className="text-sm font-semibold">

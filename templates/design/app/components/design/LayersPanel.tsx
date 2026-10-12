@@ -74,6 +74,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
+import { isFlowDisplay } from "@/pages/design-editor/live-layer-move-layout";
 
 export type LayersPanelNodeType =
   | "file"
@@ -111,8 +112,11 @@ export interface LayersPanelNode {
     justifyContent?: string;
     isFlexContainer?: boolean;
     isGridContainer?: boolean;
+    parentDisplay?: string;
   };
   children?: LayersPanelNode[];
+  /** Has layers that are only built once the row is expanded. */
+  childrenPending?: boolean;
   detail?: string;
   badge?: string | number;
   hidden?: boolean;
@@ -250,6 +254,7 @@ export interface FlatLayerRow {
   ancestorIds: string[];
   hasChildren: boolean;
   canAcceptChildren: boolean;
+  siblingsInLayoutOrder: boolean;
 }
 
 const CONTAINER_TYPES = new Set<LayersPanelNodeType | undefined>([
@@ -453,6 +458,22 @@ function filterNode(
   return null;
 }
 
+// As in Figma: auto-layout children list in layout order, everything else
+// lists topmost (last DOM child) first.
+function siblingsListInLayoutOrder(siblings: readonly LayersPanelNode[]) {
+  return (
+    siblings.length > 0 &&
+    siblings.every((node) => isFlowDisplay(node.layout?.parentDisplay))
+  );
+}
+
+function childrenListInLayoutOrder(node: LayersPanelNode): boolean {
+  return (
+    Boolean(node.layout?.isFlexContainer || node.layout?.isGridContainer) ||
+    siblingsListInLayoutOrder(node.children ?? [])
+  );
+}
+
 export function flattenRows(
   nodes: LayersPanelNode[],
   expandedIds: ReadonlySet<string>,
@@ -461,13 +482,26 @@ export function flattenRows(
   parentKey = "root",
   ancestorIds: string[] = [],
   rows: FlatLayerRow[] = [],
+  siblingsInLayoutOrder = siblingsListInLayoutOrder(nodes),
 ) {
-  const displayOrder = [...nodes].reverse();
-  displayOrder.forEach((node, index) => {
+  const displayOrder = siblingsInLayoutOrder ? nodes : [...nodes].reverse();
+  const siblingCounts = new Map<string, number>();
+  for (const node of nodes) {
+    siblingCounts.set(node.id, (siblingCounts.get(node.id) ?? 0) + 1);
+  }
+  const duplicateSiblingIndexes = new Map<string, number>();
+  displayOrder.forEach((node) => {
     const children = node.children ?? [];
-    const hasChildren = children.length > 0;
+    const hasChildren = children.length > 0 || node.childrenPending === true;
     const canAcceptChildren = CONTAINER_TYPES.has(node.type);
-    const rowKey = `${parentKey}/${node.id}:${index}`;
+    const duplicateIndex =
+      siblingCounts.get(node.id) === 1
+        ? null
+        : (duplicateSiblingIndexes.get(node.id) ?? 0) + 1;
+    if (duplicateIndex !== null) {
+      duplicateSiblingIndexes.set(node.id, duplicateIndex);
+    }
+    const rowKey = `${parentKey}/${node.id}${duplicateIndex ? `#${duplicateIndex}` : ""}`;
     rows.push({
       node,
       rowKey,
@@ -475,6 +509,7 @@ export function flattenRows(
       ancestorIds,
       hasChildren,
       canAcceptChildren,
+      siblingsInLayoutOrder,
     });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
@@ -485,6 +520,7 @@ export function flattenRows(
         rowKey,
         [...ancestorIds, node.id],
         rows,
+        childrenListInLayoutOrder(node),
       );
     }
   });
@@ -501,7 +537,13 @@ export function mapPanelPlacementToDomPlacement(
 
 export function mapPanelMoveIntentToDomIntent(
   intent: LayersPanelMoveIntent,
+  targetRow: Pick<FlatLayerRow, "node" | "siblingsInLayoutOrder">,
 ): LayersPanelMoveIntent {
+  const receiverInLayoutOrder =
+    intent.placement === "inside"
+      ? childrenListInLayoutOrder(targetRow.node)
+      : targetRow.siblingsInLayoutOrder;
+  if (receiverInLayoutOrder) return intent;
   return {
     ...intent,
     draggedIds: [...intent.draggedIds].reverse(),
@@ -568,28 +610,72 @@ export function nextAutoExpandedIds(args: {
   return changed ? Array.from(next) : null;
 }
 
-function collectAncestorIds(
+type LayerSubtreeIndex = {
+  ids: string[];
+  parentIndexes: number[];
+  indexesById: Map<string, number[]>;
+};
+
+// Keyed by each root's children: file and screen wrappers are rebuilt every
+// render, but the layer nodes under them keep identity for untouched screens.
+const layerSubtreeIndexCache = new WeakMap<
+  LayersPanelNode,
+  LayerSubtreeIndex
+>();
+
+function layerSubtreeIndex(subtree: LayersPanelNode): LayerSubtreeIndex {
+  const cached = layerSubtreeIndexCache.get(subtree);
+  if (cached) return cached;
+  const ids: string[] = [];
+  const parentIndexes: number[] = [];
+  const indexesById = new Map<string, number[]>();
+
+  function visit(node: LayersPanelNode): number {
+    const childIndexes = (node.children ?? []).map(visit);
+    const index = ids.push(node.id) - 1;
+    parentIndexes.push(-1);
+    childIndexes.forEach((childIndex) => {
+      parentIndexes[childIndex] = index;
+    });
+    const sameIdIndexes = indexesById.get(node.id);
+    if (sameIdIndexes) {
+      sameIdIndexes.push(index);
+    } else {
+      indexesById.set(node.id, [index]);
+    }
+    return index;
+  }
+
+  visit(subtree);
+  const built = { ids, parentIndexes, indexesById };
+  layerSubtreeIndexCache.set(subtree, built);
+  return built;
+}
+
+export function collectAncestorIds(
   nodes: LayersPanelNode[],
   targetIds: ReadonlySet<string>,
 ): string[] {
+  if (targetIds.size === 0) return [];
+  const targets = [...targetIds];
   const ancestors = new Set<string>();
 
-  function visit(node: LayersPanelNode, path: string[]): boolean {
-    const children = node.children ?? [];
-    let containsSelectedChild = false;
-    children.forEach((child) => {
-      if (visit(child, [...path, node.id])) {
-        containsSelectedChild = true;
-      }
+  nodes.forEach((root) => {
+    root.children?.forEach((child) => {
+      const { ids, parentIndexes, indexesById } = layerSubtreeIndex(child);
+      const hits = targets
+        .flatMap((id) => indexesById.get(id) ?? [])
+        .sort((a, b) => a - b);
+      hits.forEach((hit) => {
+        const path: string[] = [];
+        for (let i = parentIndexes[hit]; i !== -1; i = parentIndexes[i]) {
+          path.push(ids[i]);
+        }
+        ancestors.add(root.id);
+        path.reverse().forEach((id) => ancestors.add(id));
+      });
     });
-    const containsSelected = targetIds.has(node.id) || containsSelectedChild;
-    if (containsSelected) {
-      path.forEach((id) => ancestors.add(id));
-    }
-    return containsSelected;
-  }
-
-  nodes.forEach((node) => visit(node, []));
+  });
   return Array.from(ancestors);
 }
 
@@ -923,6 +1009,10 @@ function LayersPanelImpl(
         .map((node) => node.id),
     [visibleRows],
   );
+  const selectableVisibleIdsRef = useRef(selectableVisibleIds);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  selectableVisibleIdsRef.current = selectableVisibleIds;
+  onSelectionChangeRef.current = onSelectionChange;
 
   visibleRowsRef.current = visibleRows;
   rootsRef.current = roots;
@@ -978,7 +1068,7 @@ function LayersPanelImpl(
     const frame = window.requestAnimationFrame(() => {
       rowElementRefs.current
         .get(selectedScrollRowKey)
-        ?.querySelector<HTMLElement>("[data-layer-row-name]")
+        ?.querySelector<HTMLElement>("[data-layer-row-icon]")
         ?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
@@ -1002,29 +1092,34 @@ function LayersPanelImpl(
         range: options.range,
         currentSelectedIds,
         anchor: lastSelectionAnchorRef.current,
-        selectableVisibleIds,
+        selectableVisibleIds: selectableVisibleIdsRef.current,
         visibleRows: visibleRowsRef.current,
-        anchorFallbackSelectedIds: selectedIds,
+        anchorFallbackSelectedIds: selectedIdsRef.current,
       });
       lastSelectionAnchorRef.current = nextAnchor;
       lastPanelSelectionSignatureRef.current = nextIds.join("\0");
-      onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
+      onSelectionChangeRef.current(nextIds, {
+        id,
+        selectedIds: nextIds,
+        ...options,
+      });
     },
-    [onSelectionChange, selectableVisibleIds, selectedIds],
+    [],
   );
 
-  const commitRename = useCallback(
-    (id: string) => {
-      const nextName = renameDraft.trim();
-      if (nextName) {
-        onRename?.(id, nextName);
-      }
-      setRenamingId(null);
-      setRenameDraft("");
-      renameOriginalNameRef.current = "";
-    },
-    [onRename, renameDraft],
-  );
+  const renameDraftRef = useRef(renameDraft);
+  const onRenameRef = useRef(onRename);
+  renameDraftRef.current = renameDraft;
+  onRenameRef.current = onRename;
+  const commitRename = useCallback((id: string) => {
+    const nextName = renameDraftRef.current.trim();
+    if (nextName) {
+      onRenameRef.current?.(id, nextName);
+    }
+    setRenamingId(null);
+    setRenameDraft("");
+    renameOriginalNameRef.current = "";
+  }, []);
 
   const pendingRenameFocusIdRef = useRef<string | null>(null);
 
@@ -1090,7 +1185,9 @@ function LayersPanelImpl(
     if (!rowKey) return;
     const frame = window.requestAnimationFrame(() => {
       const rowElement = rowElementRefs.current.get(rowKey);
-      rowElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      rowElement
+        ?.querySelector<HTMLElement>("[data-layer-row-icon]")
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
       rowElement
         ?.querySelector<HTMLInputElement>("input")
         ?.focus({ preventScroll: true });
@@ -1305,7 +1402,7 @@ function LayersPanelImpl(
         ref={layersPanelRef}
         data-layers-panel
         className={cn(
-          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-row-height:24px] [--design-section-height:28px]",
+          "[--design-baseline-unit:4px] [--design-control-height:20px] [--design-icon-size:12px] [--design-section-height:28px]",
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[11px] font-normal text-foreground",
           className,
         )}
@@ -1652,8 +1749,8 @@ function LayerRowIndentSlots({
           key={index}
           data-layer-row-indent
           className={cn(
-            "flex h-full shrink-0 items-center justify-center",
-            index === count - 1 ? "w-5" : "w-3",
+            "flex h-full w-6 shrink-0 items-center",
+            index === count - 1 ? "justify-start" : "justify-center",
           )}
         >
           {index === count - 1 ? control : null}
@@ -1674,7 +1771,7 @@ function LayerDropIndicator({
     <span
       data-layer-drop-indicator={placement}
       className={cn(
-        "pointer-events-none absolute left-0 right-2 z-10 flex h-px",
+        "pointer-events-none absolute left-2.5 right-2 z-10 flex h-px",
         placement === "before" ? "top-0" : "bottom-0",
       )}
     >
@@ -1897,7 +1994,7 @@ const LayerRow = memo(function LayerRow({
       ),
       duplicate: event.altKey,
     } satisfies LayersPanelMoveIntent;
-    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent, row);
     if (canMoveLayer && !canMoveLayer(moveIntent)) {
       clearStaleIndicatorForThisRow();
       return;
@@ -1978,7 +2075,7 @@ const LayerRow = memo(function LayerRow({
               ),
               duplicate: event.altKey,
             } satisfies LayersPanelMoveIntent);
-      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent, row);
       if (!canMoveLayer || canMoveLayer(moveIntent)) {
         onMoveLayer(moveIntent);
       }
@@ -2070,7 +2167,7 @@ const LayerRow = memo(function LayerRow({
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[11px] bg-[var(--design-editor-panel-bg)]",
+              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pl-2.5 pr-[var(--design-baseline-half)] text-[11px] [--design-icon-size:16px] bg-[var(--design-editor-panel-bg)]",
               !isSelected && !isInSelectedSubtree && "rounded-[4px]",
               isSelectionBlockStart && isSelectionBlockEnd && "rounded-[4px]",
               isSelectionBlockStart &&
@@ -2112,7 +2209,7 @@ const LayerRow = memo(function LayerRow({
                     data-layer-row-chevron={
                       isExpanded ? "expanded" : "collapsed"
                     }
-                    className="size-5 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     aria-label={isExpanded ? labels.collapse : labels.expand}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -2124,13 +2221,10 @@ const LayerRow = memo(function LayerRow({
                     }}
                   >
                     {isExpanded ? (
-                      <IconChevronDown
-                        className="!size-2.5"
-                        strokeWidth={1.8}
-                      />
+                      <IconChevronDown className="!size-3" strokeWidth={1.8} />
                     ) : (
                       <IconChevronRight
-                        className="!size-2.5 rtl:-scale-x-100"
+                        className="!size-3 rtl:-scale-x-100"
                         strokeWidth={1.8}
                       />
                     )}
@@ -2145,7 +2239,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-[var(--design-baseline-unit)] rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-0 flex-1 items-center gap-2 rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
@@ -2341,15 +2435,6 @@ const LayerRow = memo(function LayerRow({
             preventContextMenuFocusRestoreRef.current = false;
           }}
         >
-          {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
-              replace — Bring to front, Send to back — Group selection,
-              (Ungroup, container rows only), Frame selection, Rename —
-              Show/Hide, Lock/Unlock — Flip horizontal, Flip vertical. Real
-              Figma has no Duplicate/Delete/Paste-here on this menu (those
-              are keyboard-only there — see ⌘D/Delete). Each item only
-              renders when its callback prop is provided, so the menu
-              degrades gracefully before every callback is wired up from the
-              caller. */}
           {onCopyLayer ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
@@ -2446,8 +2531,8 @@ const LayerRow = memo(function LayerRow({
             </ContextMenuItem>
           ) : null}
 
-          {/* Real Figma only shows Ungroup on a container row — a plain row
-              never gets it, even when the callback is wired up. */}
+          {/* Only container rows expose Ungroup; plain rows do not show it, even
+              when the callback is wired up. */}
           {canUngroupThisRow ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"

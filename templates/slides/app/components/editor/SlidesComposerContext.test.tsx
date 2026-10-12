@@ -512,56 +512,32 @@ describe("Slides context readiness and identity", () => {
     ).toBe(JSON.stringify(initialSelection));
   });
 
-  it("tracks the automatic recent deck separately from a chosen deck", async () => {
-    const { result } = renderHook(() =>
-      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
-    );
-    await waitFor(() =>
-      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
-    );
-    expect(result.current.automaticReferenceDeckId).toBe(deck.id);
-
-    const presentation = picker(result.current, "deck").presentation;
-    if (
-      !presentation ||
-      presentation === "submenu" ||
-      presentation.mode !== "multiple"
-    )
-      throw new Error("Missing deck picker");
-    await act(async () =>
-      presentation.onAttach([{ id: deck.id, title: deck.title }], request()),
-    );
-
-    expect(result.current.automaticReferenceDeckId).toBeNull();
-  });
-
-  it("preserves automatic-deck provenance when another context is saved", async () => {
-    const { result, unmount } = renderHook(() =>
-      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
-    );
-    await waitFor(() =>
-      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
-    );
-
-    await act(async () =>
-      picker(result.current, "website").onSelect!(
-        { id: "https://example.com/reference", title: "Reference site" },
-        request(),
-      ),
-    );
-
+  it("removes legacy automatic recent decks and keeps explicit references", async () => {
+    const explicitReference = {
+      source: "website" as const,
+      id: "https://example.com/reference",
+      title: "Reference site",
+      url: "https://example.com/reference",
+    };
     const storageKey = "slides-home-context:one@example.test:one";
-    expect(result.current.automaticReferenceDeckId).toBe(deck.id);
-    expect(
-      JSON.parse(window.localStorage.getItem(storageKey) ?? "null"),
-    ).toMatchObject({ automaticReferenceDeckId: deck.id });
-    unmount();
-
-    const restored = renderHook(() =>
-      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        designSystemId: null,
+        references: [{ source: "slides" as const, ...deck }, explicitReference],
+        automaticReferenceDeckId: deck.id,
+      }),
     );
+    const { result } = renderHook(() => useSlidesComposerContext(defaults));
+
     await waitFor(() =>
-      expect(restored.result.current.automaticReferenceDeckId).toBe(deck.id),
+      expect(result.current.selection.references).toEqual([explicitReference]),
+    );
+    expect(result.current.automaticReferenceDeckId).toBeNull();
+    expect(callAction).not.toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      { id: deck.id },
+      expect.anything(),
     );
   });
 
@@ -573,7 +549,10 @@ describe("Slides context readiness and identity", () => {
         useSlidesComposerContext({
           ...defaults,
           active,
-          defaultReferenceDeck: deck,
+          initialSelection: {
+            designSystemId: null,
+            references: [{ source: "slides", id: deck.id, title: deck.title }],
+          },
         }),
       { initialProps: { active: true } },
     );
@@ -602,7 +581,13 @@ describe("Slides context readiness and identity", () => {
       }),
     );
     const { result } = renderHook(() =>
-      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
+      useSlidesComposerContext({
+        ...defaults,
+        initialSelection: {
+          designSystemId: null,
+          references: [{ source: "slides", id: deck.id, title: deck.title }],
+        },
+      }),
     );
     await waitFor(() =>
       expect(result.current.props.contextItems[0]?.status).toBe("pending"),
@@ -644,7 +629,13 @@ describe("Slides context readiness and identity", () => {
       }),
     );
     const { result } = renderHook(() =>
-      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
+      useSlidesComposerContext({
+        ...defaults,
+        initialSelection: {
+          designSystemId: null,
+          references: [{ source: "slides", id: deck.id, title: deck.title }],
+        },
+      }),
     );
     await waitFor(() =>
       expect(result.current.props.contextItems[0]?.status).toBe("pending"),
@@ -659,12 +650,15 @@ describe("Slides context readiness and identity", () => {
     ).toContain('"references":[]');
   });
   it("resets selection for another identity and rejects an in-flight send", async () => {
-    const { result, rerender } = renderHook(() =>
-      useSlidesComposerContext({
-        ...defaults,
-        defaultReferenceDeck:
-          identity.email === "one@example.test" ? deck : undefined,
+    window.localStorage.setItem(
+      "slides-home-context:one@example.test:one",
+      JSON.stringify({
+        designSystemId: null,
+        references: [{ source: "slides", id: deck.id, title: deck.title }],
       }),
+    );
+    const { result, rerender } = renderHook(() =>
+      useSlidesComposerContext(defaults),
     );
     await waitFor(() =>
       expect(result.current.props.contextItems[0]?.status).toBe("ready"),

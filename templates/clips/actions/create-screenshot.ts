@@ -118,9 +118,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     // The same check a new recording gets: the folder has to be the
@@ -175,7 +176,7 @@ export default defineAction({
       videoSizeBytes: bytes.byteLength,
       hasAudio: false,
       hasCamera: false,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       width: args.width,
       height: args.height,
       ownerEmail,

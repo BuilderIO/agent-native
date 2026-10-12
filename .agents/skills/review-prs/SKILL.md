@@ -3,8 +3,8 @@ name: review-prs
 description: >-
   Review recent BuilderIO/agent-native human pull requests, approve eligible
   internal PRs, and merge changes that are ready by Steve's bar. Use for
-  scheduled or manual PR sweeps; flag unresolved major product or UX decisions
-  to Steve.
+  scheduled or manual PR sweeps; flag external non-bug work and unresolved major
+  product or UX decisions to Steve.
 user-invocable: true
 scope: dev
 metadata:
@@ -19,10 +19,11 @@ internal author policy below. Treat approval as a trust decision. Never
 approve an external or unverified author.
 
 Approval and merge readiness are separate. A **Ready to merge by Steve's bar**
-result means merge the PR under the guarded merge procedure below. Do not hand
-it off because `REVIEW_REQUIRED` is set, the author is external, or another
-human approval is absent. Escalate only unresolved major product or UX
-decisions to Steve.
+result means merge the PR under the guarded merge procedure below. For a
+confirmed external author, only a clear bug fix enters evidence review and the
+possible merge flow; external authors are never eligible for an approval
+review. Surface other external work for Steve's explicit approval before a full
+review or merge; a scheduled or manual sweep is not that approval.
 
 ## Selection and evidence
 
@@ -45,8 +46,12 @@ author and draft state:
    membership, or source links; do not take any review action; and do not add
    them to the end-of-run recap.
 
- - For remaining human PRs, read the current review summary to determine
-   whether the PR already has a current, non-dismissed `APPROVED` review.
+ - Verify each remaining human author's current BuilderIO membership using the
+   organization membership API below. For a confirmed nonmember, apply the
+   external-contribution scope gate before reading review summaries or entering
+   the evidence sweep. For all PRs that pass that gate, read the current review
+   summary to determine whether the PR already has a current, non-dismissed
+   `APPROVED` review.
 
  - Reuse that review as the code assessment only after verifying the reviewer
    is a different, current BuilderIO member and is eligible under the PR's
@@ -56,11 +61,11 @@ author and draft state:
    newer commit, comment, review, or check result exists; the PR still enters
    the merge-readiness pass and recap.
 
-All remaining non-draft human PRs enter the evidence sweep below. For
-PRs with a verified eligible current-head approval and no newer event, skip
-duplicate code review but check merge readiness and merge when ready. Eligible
-Liam PRs with only older-head approvals enter the sweep so the current head can
-be reviewed.
+All non-draft human PRs that pass the author and external-scope gates enter the
+evidence sweep below. For PRs with a verified eligible current-head approval and
+no newer event, skip duplicate code review but check merge readiness and merge
+when ready. Eligible Liam PRs with only older-head approvals enter the sweep so
+the current head can be reviewed.
 
 For every PR you inspect, read:
 
@@ -91,6 +96,27 @@ infer membership from a display name, email, company claim, branch name,
 `authorAssociation`, or a familiar-looking bot. If author membership cannot be
 verified, do not approve. External authors are never auto-approved, even when
 the patch looks safe or the issue is obviously valid.
+
+## External-contribution scope gate
+
+For an author the membership API confirms is not a current BuilderIO member,
+continue into the normal evidence sweep only for a clear bug fix: a change that
+corrects a specific reported or reproducible defect by restoring intended
+behavior. A feature, improvement, refactor, new or changed product behavior, or
+mixed bug-fix-and-enhancement scope is not a clear bug fix. If the title, issue,
+and initial diff do not establish a clear bug fix, treat it as non-bug work.
+
+For external non-bug work, stop before the full code review, approval or review
+action, merge-readiness disposition, author-facing draft, or merge. Report it to
+Steve as **Needs Steve's approval for scope**, with the PR link, author, stated
+scope, and why it is not a clear bug fix. Wait for Steve's explicit go-ahead on
+that PR before continuing. Invoking or scheduling `review-prs`, approving a
+different PR, or prior approval of another external contribution does not
+authorize it. If membership is unknown, use the existing unknown-membership
+policy; do not classify the author as external. The scope gate does not apply
+solely because membership could not be verified. Keep the no-approval outcome,
+report the missing membership check, and assess merge readiness under the
+existing unknown-membership policy.
 
 ## Liamdebeasi approval policy
 
@@ -258,9 +284,11 @@ the major product/UX decision above.
 
 For a PR that passes the applicable gate and lacks a current-head approval,
 submit one GitHub approval review and record the approval URL in the recap.
-Do not duplicate an existing current-head approval. Do not add a tag,
-assignment, mention, or explanatory comment unless the invocation explicitly
-asks for it.
+Do not duplicate an existing current-head approval. This skill reviews other
+people's PRs: do not add a tag, assignment, mention, or explanatory comment
+unless the current invocation explicitly authorizes that communication on the
+exact PR. This does not add a separate authorization step for replies required
+on the active user's own PR under `/ship`, `/ship-now`, or `/babysit-pr`.
 
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
@@ -268,8 +296,12 @@ merge scope and must remain completely untouched.
 For a PR that fails an approval gate, do not submit an approval. Flag the exact
 concern and the evidence needed to resolve it. External or unverified authors
 never receive an approval review, but their PRs can still be merged when they
-meet the readiness gate below. If GitHub or organization membership is
-unavailable, preserve the no-approval outcome and name the missing check.
+meet the readiness gate below. Confirmed external bug fixes must also pass the
+external-contribution scope gate; confirmed external non-bug work remains
+stopped at Steve's approval gate. For unknown membership, do not apply the
+external scope gate solely because verification failed; preserve the
+no-approval outcome, assess readiness under the existing unknown-membership
+policy, and name the missing check.
 
 ## Merge-ready disposition and handoff
 
@@ -402,11 +434,27 @@ event is newer than Steve's request; bot activity alone does not reopen the
 handoff.
 
 If no prior Steve request is awaiting an update and this would be Steve's first
-comment on that PR, begin the draft by thanking the contributor. Do not repeat
-a thank-you on a follow-up. Do not draft a duplicate request when an existing
-Steve comment already covers it; link or summarize that request instead.
-Drafts are for the user to review and are never posted by this skill unless
-the current invocation explicitly authorizes posting.
+comment on that PR, begin the draft with a warm thank-you that tags the author
+using the exact GitHub `author.login` from the live PR metadata, for example:
+
+```text
+Thanks for the contribution @username!
+
+Couple requests. Can you please [make the specific update] so [the intended
+behavior or outcome] is preserved?
+```
+
+Replace `username` with the PR author's actual login and the bracketed text with
+the evidence-backed request; do not use a display name, guess the handle, or
+leave placeholders in the draft. Put the thank-you on its own line, then state
+the concrete request in a friendly, conversational way (for example, "Couple
+requests. Can you please ...?"). Keep the technical request specific,
+actionable, and supported by the diff or source evidence; ask for a regression
+test when appropriate to the code change rather than as a blanket requirement.
+Do not repeat a thank-you on a follow-up. Do not draft a duplicate request when
+an existing Steve comment already covers it; link or summarize that request
+instead. Drafts are for the user to review and are never posted by this skill
+unless the current invocation explicitly authorizes posting.
 
 For a material UX change, inspect the PR body and conversation for screenshots
 of the changed product UI and report which surface changed. A missing screenshot
@@ -423,8 +471,10 @@ Do not apply author-reply or screenshot requests to PRs that were auto-approved
 under an explicit exception; keep their existing recap and approval behavior
 unchanged.
 
-This handoff is measured by `pr-review-handoff`; first-contact thanks also
-contribute to the existing `feedback-reply-tone` measure.
+Measure this handoff with `pr-review-handoff`; first-contact thanks with
+`feedback-reply-tone`, and reply-detail corrections with
+`feedback-reply-detail`. Verify the latter with
+`node scripts/agent-friction-report.mjs --weeks 2 --pattern feedback-reply-detail`.
 
 ## Worktrees and PR provenance
 

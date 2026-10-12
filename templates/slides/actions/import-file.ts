@@ -23,6 +23,7 @@ import {
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import {
   buildSourceImportMetadata,
   mergeSourceImportMetadata,
@@ -42,12 +43,37 @@ import {
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
 import {
+  normalizeSlideTransition,
+  type SlideTransitionType,
+} from "../shared/slide-transitions.js";
+import {
   assertDeckWriteApplied,
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
+
+// Importing into a deck appends slides to it: a content edit, never a
+// creation (the deck's row, and its deck_created, already exist).
+function trackImportedIntoDeck(
+  deckId: string,
+  format: "pptx" | "docx" | "pdf",
+  slidesAdded: number,
+  source: Parameters<typeof trackSlides>[2],
+): void {
+  trackSlides(
+    "deck_edited",
+    {
+      output_id: deckId,
+      output_type: "deck",
+      edit_mode: `import_${format}`,
+      change_kinds: ["add_slide"],
+      slides_changed: slidesAdded,
+    },
+    source,
+  );
+}
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
@@ -107,8 +133,8 @@ export default defineAction({
         "Maximum extracted source characters to return when not importing directly into a deck (default 60000).",
       ),
   }),
-  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }) => {
-    const uploaded = await readUserUploadedFile(filePath);
+  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }, ctx) => {
+    const uploaded = await readUserUploadedFile(filePath, ctx);
     const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
     const fileBuffer = uploaded.data;
     const filename = uploaded.filename;
@@ -270,6 +296,7 @@ export default defineAction({
           fallbackTitle,
           presentation.theme,
         );
+        trackImportedIntoDeck(deckId, "pptx", slides.length, ctx);
         return {
           format: "pptx",
           title: importedTitle,
@@ -337,6 +364,7 @@ export default defineAction({
           doc.text,
           fallbackTitle,
         );
+        trackImportedIntoDeck(deckId, "docx", slides.length, ctx);
         return {
           format: "docx",
           title: importedTitle,
@@ -370,7 +398,7 @@ export default defineAction({
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        return importPdfPagesWithFidelity({
+        const imported = await importPdfPagesWithFidelity({
           fileBuffer,
           title: "",
           deckId,
@@ -378,6 +406,8 @@ export default defineAction({
           canvasFactory,
           fallbackTitle: title,
         });
+        trackImportedIntoDeck(deckId, "pdf", imported.slideCount, ctx);
+        return imported;
       }
 
       const pdf = new PDFParse({
@@ -773,7 +803,7 @@ async function buildPptxSlide(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
     splitByParagraph?: boolean;
   };
   imageSkippedCount: number;
@@ -794,7 +824,9 @@ async function buildPptxSlide(
       content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
-      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.transition
+        ? { transition: normalizeSlideTransition(slide.transition) }
+        : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     imageSkippedCount: uploadedImages.imageSkippedCount,
@@ -886,7 +918,8 @@ async function appendDeckSlides(
     content: string;
     layout: string;
     notes?: string;
-    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    transition?: SlideTransitionType;
+    transitionSpeed?: number;
     splitByParagraph?: boolean;
   }>,
   source: string,

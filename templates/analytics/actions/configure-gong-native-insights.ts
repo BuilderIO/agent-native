@@ -5,7 +5,7 @@ import { writeGongNativeInsightsPolicy } from "../server/lib/gong-native-policy"
 
 export default defineAction({
   description:
-    "Enable or disable paid Gong native semantic operations for the current workspace. Enabling this permits individually authorized gong-native-insights calls to consume Gong credits; it does not send a Gong request by itself. Disable it to fail closed for every semantic request while keeping raw Gong evidence actions available.",
+    "Enable or disable paid Gong native semantic operations for the current workspace. Enabling this permits individually authorized run-gong-native-insight calls to consume Gong credits; it does not send a Gong request by itself. Disable it to fail closed for every semantic request while keeping raw Gong evidence actions available.",
   schema: z.object({
     enabled: z
       .boolean()

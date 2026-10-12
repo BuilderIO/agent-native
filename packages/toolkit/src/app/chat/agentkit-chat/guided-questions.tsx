@@ -1,5 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
+  isLocalRuntimeEngine,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
@@ -440,6 +441,7 @@ export interface GuidedQuestionFlowProps {
   isSubmitting?: boolean;
   isSubmissionBlocked?: boolean;
   providerStatus?: AgentEngineConfiguredState;
+  modelListUnavailable?: boolean;
   onRetryProviderStatus?: () => void;
   showProviderStatusGate?: boolean;
   className?: string;
@@ -447,9 +449,11 @@ export interface GuidedQuestionFlowProps {
 
 export function GuidedQuestionProviderGate({
   providerStatus,
+  modelListUnavailable = false,
   onRetry,
 }: {
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable?: boolean;
   onRetry?: () => void;
 }) {
   const t = useT();
@@ -469,14 +473,22 @@ export function GuidedQuestionProviderGate({
       className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
       role="status"
     >
-      <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-      <button
-        type="button"
-        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onRetry}
-      >
-        {t("agentChat.common.retry")}
-      </button>
+      <span>
+        {t(
+          modelListUnavailable
+            ? "agentChat.setup.modelListUnavailable"
+            : "agentChat.setup.providerStatusUnavailable",
+        )}
+      </span>
+      {onRetry ? (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onRetry}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -492,6 +504,7 @@ export function GuidedQuestionFlow({
   isSubmitting = false,
   isSubmissionBlocked = false,
   providerStatus = "configured",
+  modelListUnavailable = false,
   onRetryProviderStatus,
   showProviderStatusGate = true,
   className,
@@ -570,6 +583,7 @@ export function GuidedQuestionFlow({
           <div className="guided-question-provider-gate mt-3">
             <GuidedQuestionProviderGate
               providerStatus={providerStatus}
+              modelListUnavailable={modelListUnavailable}
               onRetry={onRetryProviderStatus}
             />
           </div>
@@ -1055,7 +1069,7 @@ export interface UseGuidedQuestionFlowOptions {
    */
   browserTabId?: string;
   threadId?: string;
-  providerStatusChecksEnabled?: boolean;
+  engine?: string;
   providerStatus?: AgentEngineConfiguredState;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
@@ -1078,14 +1092,21 @@ export interface UseGuidedQuestionFlowOptions {
   }) => void | Promise<{ delivered: boolean }>;
 }
 
+export type PendingQuestionRefetchResult =
+  | { status: "pending" }
+  | { status: "none" }
+  | { status: "error"; error: unknown };
+
 function payloadBelongsToThread(
   payload: GuidedQuestionPayload,
   threadId: string | undefined,
 ): boolean {
+  const requestedThread = threadId?.trim();
   const asker =
     typeof payload.threadId === "string" ? payload.threadId.trim() : "";
   if (!asker) return true;
-  return asker === (threadId ?? "").trim();
+  if (!requestedThread) return false;
+  return asker === requestedThread;
 }
 
 export function useGuidedQuestionFlow({
@@ -1093,7 +1114,7 @@ export function useGuidedQuestionFlow({
   stateKey = "show-questions",
   browserTabId,
   threadId,
-  providerStatusChecksEnabled = true,
+  engine,
   providerStatus: providedProviderStatus,
   queryKey = ["show-questions"],
   refetchInterval = false,
@@ -1106,6 +1127,7 @@ export function useGuidedQuestionFlow({
 }: UseGuidedQuestionFlowOptions = {}) {
   const queryClient = useQueryClient();
   const [payload, setPayload] = useState<GuidedQuestionPayload | null>(null);
+  const queryGenerationRef = useRef(0);
   const normalizedBrowserTabId = useMemo(
     () => normalizeBrowserTabId(browserTabId),
     [browserTabId],
@@ -1141,19 +1163,19 @@ export function useGuidedQuestionFlow({
     queryKey: resolvedQueryKey,
     enabled,
     queryFn: async () => {
+      const queryGeneration = queryGenerationRef.current;
       const read = async (key: string) => {
-        const parsed = await readClientAppState<GuidedQuestionPayload>(
-          key,
-        ).catch(() => null);
+        const parsed = await readClientAppState<GuidedQuestionPayload>(key);
         if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
           return parsed;
         }
         return null;
       };
-      return (
-        (normalizedBrowserTabId ? await read(scopedKey) : null) ??
-        (await read(stateKey))
-      );
+      const scopedPayload = normalizedBrowserTabId
+        ? await read(scopedKey)
+        : null;
+      const result = scopedPayload ?? (await read(stateKey));
+      return queryGeneration === queryGenerationRef.current ? result : null;
     },
     refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
@@ -1184,21 +1206,22 @@ export function useGuidedQuestionFlow({
   const needsAgentProvider = Boolean(
     visiblePayload?.questions.length && !visiblePayload.clientResolveId,
   );
+  const providerChecksEnabled = !isLocalRuntimeEngine(engine);
   const queriedProviderStatus = useAgentEngineConfigured(
     enabled &&
       needsAgentProvider &&
-      providerStatusChecksEnabled &&
+      providerChecksEnabled &&
       providedProviderStatus === undefined,
     { tabId: browserTabId, threadId },
   );
-  const providerStatus = providerStatusChecksEnabled
+  const providerStatus = providerChecksEnabled
     ? (providedProviderStatus ?? queriedProviderStatus.state)
     : "configured";
   const isSubmissionBlocked =
     enabled &&
     needsAgentProvider &&
-    providerStatusChecksEnabled &&
-    providerStatus !== "configured";
+    providerChecksEnabled &&
+    providerStatus === "missing";
   const retryProviderStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -1208,6 +1231,8 @@ export function useGuidedQuestionFlow({
   const submissionInFlightRef = useRef(false);
 
   const clear = useCallback(() => {
+    // A read already in flight may return the submitted question after clear.
+    queryGenerationRef.current += 1;
     setPayload(null);
     queryClient.setQueryData(resolvedQueryKey, null);
     const del = (key: string) => deleteClientAppState(key).catch(() => {});
@@ -1324,19 +1349,26 @@ export function useGuidedQuestionFlow({
     skipMessage,
   ]);
 
-  const refetchPendingQuestion = useCallback(async () => {
+  const refetchPendingQuestionStatus = useCallback(async () => {
     const result = await refetch();
     if (result.status === "error") {
-      return true;
+      return { status: "error", error: result.error } as const;
     }
     const latest = result.data ?? null;
-    return Boolean(
+    const hasPendingQuestion = Boolean(
       latest &&
       payloadBelongsToThread(latest, threadId) &&
       Array.isArray(latest.questions) &&
       latest.questions.length > 0,
     );
+    return hasPendingQuestion
+      ? ({ status: "pending" } as const)
+      : ({ status: "none" } as const);
   }, [refetch, threadId]);
+  const refetchPendingQuestion = useCallback(async () => {
+    const result = await refetchPendingQuestionStatus();
+    return result.status !== "none";
+  }, [refetchPendingQuestionStatus]);
 
   return {
     payload: visiblePayload,
@@ -1353,5 +1385,6 @@ export function useGuidedQuestionFlow({
     handleSubmit,
     handleSkip,
     refetchPendingQuestion,
+    refetchPendingQuestionStatus,
   };
 }

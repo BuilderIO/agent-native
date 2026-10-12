@@ -5,6 +5,7 @@ import { sanitizeCaptureForStorage } from "./capture-sanitization.js";
 import {
   classifyWithJev,
   clearJevScoreCache,
+  isTransientJevFailure,
   jevSensitivityDecision,
   requestJevSensitivityScores,
   resolveClassifierPreference,
@@ -86,7 +87,15 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+async function settleWithRetryTimers<T>(pending: Promise<T>): Promise<T> {
+  vi.useFakeTimers({ toFake: ["setTimeout"] });
+  const settled = pending.finally(() => vi.useRealTimers());
+  await vi.runAllTimersAsync();
+  return settled;
+}
 
 describe("classifier preference", () => {
   it("defaults to Jev and honours an explicit choice", () => {
@@ -199,6 +208,20 @@ describe("probability to disposition mapping", () => {
     expect(decision.disposition).toBe("quarantined");
     expect(decision.safeContent).toBe("");
     expect(decision.safeSegments).toEqual([]);
+  });
+});
+
+describe("credential-only pre-screen", () => {
+  it("keeps a keyword-bearing line Jev scored as safe", () => {
+    const decision = jevSensitivityDecision(scoresWith(), {
+      judgedContent:
+        "We're investigating the checkout outage from this morning.",
+      capturedAt: CAPTURED_AT,
+      truncated: false,
+    });
+
+    expect(decision.disposition).toBe("allowed");
+    expect(decision.safeContent).toContain("investigating the checkout outage");
   });
 });
 
@@ -335,6 +358,24 @@ describe("review fixes", () => {
     expect(outcome.decision?.categoryScores?.[WORKSPACE_RULE_QUESTION]).toBe(
       0.95,
     );
+  });
+});
+
+describe("transient Jev failures", () => {
+  it("retries timeouts, rate limits, and server errors soon", () => {
+    for (const status of [408, 429, 500, 503]) {
+      expect(isTransientJevFailure("jev-http-" + status), String(status)).toBe(
+        true,
+      );
+    }
+  });
+
+  it("leaves other client errors to the normal sync schedule", () => {
+    for (const status of [400, 401, 403, 404]) {
+      expect(isTransientJevFailure("jev-http-" + status), String(status)).toBe(
+        false,
+      );
+    }
   });
 });
 
@@ -506,19 +547,20 @@ describe("end to end classification", () => {
     expect(outcome.decision?.categories).toEqual(["performance"]);
   });
 
-  it("never sends deterministically sensitive lines to Jev", async () => {
+  it("sends HR-keyword lines to Jev for judgment but never credential lines", async () => {
     resolveSourceCredential.mockResolvedValue("not-a-real-key");
     const fetchMock = vi.fn(async () => jevResponse(scoresWith()));
     vi.stubGlobal("fetch", fetchMock);
 
     await runJevClassification({
       ...input,
-      content: `${CLEAN_BODY}\nHer salary and retention bonus were adjusted.`,
+      content: `${CLEAN_BODY}\nHer salary and retention bonus were adjusted.\napi key: not-a-real-secret-value`,
     });
 
     const body = JSON.parse(fetchCallArgs(fetchMock).init.body as string);
     expect(body.state.body).toContain("ship the retrieval API");
-    expect(body.state.body).not.toContain("salary");
+    expect(body.state.body).toContain("salary");
+    expect(body.state.body).not.toContain("not-a-real-secret-value");
   });
 
   it("reuses the cached verdict for identical content", async () => {
@@ -534,13 +576,14 @@ describe("end to end classification", () => {
 
   it("reports a transport failure instead of a clean verdict", async () => {
     resolveSourceCredential.mockResolvedValue("not-a-real-key");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response),
+    const fetchMock = vi.fn(
+      async () => ({ ok: false, status: 500 }) as unknown as Response,
     );
+    vi.stubGlobal("fetch", fetchMock);
 
-    const outcome = await runJevClassification(input);
+    const outcome = await settleWithRetryTimers(runJevClassification(input));
 
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(outcome.configured).toBe(true);
     expect(outcome.decision).toBeUndefined();
     expect(outcome.failureReason).toBe("jev-http-500");
@@ -558,7 +601,7 @@ describe("end to end classification", () => {
       })),
     );
 
-    const outcome = await runJevClassification(input);
+    const outcome = await settleWithRetryTimers(runJevClassification(input));
 
     expect(outcome.failureReason).toBe("jev-invalid-response");
     expect(JSON.stringify(outcome)).not.toContain("private response detail");
@@ -573,7 +616,7 @@ describe("end to end classification", () => {
 
     expect(outcome).toEqual({
       configured: false,
-      failureReason: "jev-credential-unavailable",
+      failureReason: "jev-credential-lookup-failed",
     });
     expect(JSON.stringify(outcome)).not.toContain("private credential detail");
   });
@@ -587,10 +630,40 @@ describe("end to end classification", () => {
       vi.fn(async () => Promise.reject(timeout)),
     );
 
-    const outcome = await runJevClassification(input);
+    const outcome = await settleWithRetryTimers(runJevClassification(input));
 
     expect(outcome.failureReason).toBe("jev-timeout");
     expect(JSON.stringify(outcome)).not.toContain("request URL");
+  });
+
+  it("recovers when Jev times out once and then answers", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const timeout = new Error("timed out");
+    timeout.name = "TimeoutError";
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValue(jevResponse(scoresWith()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await settleWithRetryTimers(runJevClassification(input));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(outcome.failureReason).toBeUndefined();
+    expect(outcome.decision?.disposition).toBe("allowed");
+  });
+
+  it("does not retry a rejected credential", async () => {
+    resolveSourceCredential.mockResolvedValue("not-a-real-key");
+    const fetchMock = vi.fn(
+      async () => ({ ok: false, status: 401 }) as unknown as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await runJevClassification(input);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(outcome.failureReason).toBe("jev-http-401");
   });
 
   it("judges a long capture in consecutive windows and allows it when each is clean", async () => {
@@ -654,14 +727,16 @@ describe("end to end classification", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(jevResponse(scoresWith()))
-        .mockResolvedValueOnce({ ok: false, status: 502 }),
+        .mockResolvedValue({ ok: false, status: 502 })
+        .mockResolvedValueOnce(jevResponse(scoresWith())),
     );
 
-    const outcome = await runJevClassification({
-      ...input,
-      content: longCleanBody(50_000),
-    });
+    const outcome = await settleWithRetryTimers(
+      runJevClassification({
+        ...input,
+        content: longCleanBody(50_000),
+      }),
+    );
 
     expect(outcome.decision).toBeUndefined();
     expect(outcome.failureReason).toBe("jev-http-502");

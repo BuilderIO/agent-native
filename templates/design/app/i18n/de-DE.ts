@@ -1,4 +1,79 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Beobachtete Sitzungsreferenz",
+    sessionsOfAll: "{count} Sitzungen · {percent} aller",
+    sessionsOfAppRoot:
+      "{count} Sitzungen · {percent} der {app}-Kohorte (n={rootCount})",
+    sessionsOfPrevious: "{count} Sitzungen · {percent} des vorherigen Schritts",
+    sessionsOfParent: "{count} Sitzungen · {percent} von {label}",
+    observedContinuation:
+      "Gleiche Aufzeichnung · Beispiel {fromExample} → Beispiel {toExample}",
+    observedContinuationCompact: "Bsp. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} Sitzungen · {percent} dieses Schritts",
+    partialSample: "Teilstichprobe",
+    continuedOnUnpictured:
+      "Fortsetzung auf nicht gezeigten Pfaden: {count} · {percent} dieses Schritts",
+    noLaterStepObserved: "Kein späterer Schritt beobachtet",
+    examplePosition: "Galerie {current} von {total}",
+    sourceExampleLabel: "Quelle",
+    showExample: "Quellbeispiel {current} anzeigen",
+    screenshotExamples: "Screenshot-Beispiele",
+    screenshotAlt:
+      "{label}, Quellbeispiel {source}, Galerieposition {current} von {total}, aufgenommen am {date}",
+    screenshotMissing: "Kein Screenshot aufgenommen",
+    recordingUnavailable: "nicht verfügbar",
+    recordingGap: "Aufzeichnungslücke",
+    recordingGapDuration: "Aufzeichnungslücke · {duration}",
+    eventTime: "Ereigniszeit (UTC)",
+    generationCompletedEvent: "generation_completed-Ereignis (UTC)",
+    replayObservation: "Replay-Beobachtung",
+    utcTimestamp: "UTC-Zeitstempel",
+    recordingId: "Aufzeichnungs-ID",
+    replayOffset: "Replay-Versatz",
+    replayOffsetUnavailable: "nicht verfügbar",
+    replaySeek: "Replay-Suchposition",
+    checkpointSeekTarget: "Suchziel des Prüfpunkts",
+    analyticsCheckpointOffset: "Analytics-Prüfpunktversatz",
+    replayObserved: "Replay beobachtet",
+    screenshotCaptured: "Screenshot aufgenommen",
+    screenshotExportTimestamp: "UTC-Zeitstempel des Screenshot-Exports",
+    output: "Ergebnis",
+    outputTitle: "Ergebnistitel",
+    observedState: "Beobachteter Zustand",
+    actorRecording: "Akteur (Aufzeichnung)",
+    actorSource: "Akteurquelle",
+    recordingMetadata: "Aufzeichnungsmetadaten",
+    evidence: "Nachweis",
+    generationCompletedEvidence: "generation_completed-Ereignis",
+    renderedOutputEvidence:
+      "gerendertes Ergebnis beobachtet; kein Abschlussereignis behauptet",
+    openFullPrompt: "Vollständigen Prompt öffnen",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (Englisch)",
+    promptSource: "Prompt (Quelle)",
+    source: "Quelle",
+    promptNotCaptured: "Prompt nicht erfasst",
+    actorUnavailable: "Akteur nicht verfügbar",
+    replayDetails: "Replay- und Quelldetails",
+    sourceApp: "Quell-App",
+    route: "Aktuelle Route bei der Aufnahme",
+    routeUnavailable: "nicht verfügbar",
+    captureSourceFingerprint: "Fingerprint der Aufnahmequelle",
+    captureSourceUnavailable: "nicht angegeben",
+    recordingStarted: "Aufzeichnung gestartet",
+    appBandHeading: "{app} · {count} Sitzungen",
+    journeyTitleSummary: "{app} · {from} bis {to} · {count} Sitzungen{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} bis {to} · getrennte Kohorten je App{partial}",
+    sessionCount: "{count} Sitzungen",
+    otherPaths: "Andere Pfade",
+    otherBranchesShown: "{shown} von {total} Zweigen angezeigt",
+    otherBranchDetailsUnavailable:
+      "Branchendetails sind in diesem Journey-Baum nicht verfügbar",
+    otherBranchSourceKey: "Quellschlüssel des Schritts: {key}",
+    htmlLanguage: "de-DE",
+  },
   composer: { menu: { integrations: "Integrationen" } },
   creativeContext: {
     title: "Bibliothek",
@@ -152,7 +227,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Startseite",
     templates: "Vorlagen",
     designSystems: "Designsysteme",
     setupDesignSystem: "Designsystem einrichten",
@@ -175,6 +250,9 @@ export default {
     labDesignReviewTools: "Tools zur Designprüfung",
     labDesignReviewToolsDescription:
       "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
+    labMotion: "Motion-Design",
+    labMotionDescription:
+      "Erstelle und bearbeite Keyframe-Animationen in deinen Designs.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
@@ -216,7 +294,7 @@ export default {
       tokenLabel: "Figma-Zugriffstoken",
       tokenPlaceholder: "Figma-Zugriffstoken einfügen",
       connecting: "Verbindung wird hergestellt…",
-      connect: "Verbinden",
+      connect: "Figma verbinden",
       getToken: "Token abrufen",
       importFrame: "Frame importieren",
       chooseFrame: "Frame wählen",
@@ -224,6 +302,19 @@ export default {
       exportSvg: "SVG exportieren",
       actionsPrefill: "Prüfen und senden",
       retry: "Erneut versuchen",
+      currentDesign: "das aktuelle Design",
+      chooseDesign:
+        "ein Design (frag mich bei Bedarf, welches ich verwenden soll)",
+      importFramePrompt:
+        "Importiere diesen Figma-Frame in {{destination}} und nenne Inhalte, die nicht übernommen werden konnten: {{url}}",
+      importFilePrompt:
+        "Öffne diese Figma-Datei, liste die obersten Frames auf und frage mich, welchen Frame ich importieren soll: {{url}}",
+      inspectFramePrompt:
+        "Untersuche diesen Figma-Frame und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      inspectFilePrompt:
+        "Untersuche diese Figma-Datei und fasse Struktur, Komponenten, Stile und wiederverwendbare Tokens zusammen: {{url}}",
+      exportSvgPrompt:
+        "Exportiere den aktuellen Design-Bildschirm als SVG zur Verwendung in Figma und nenne die Teile, die zu statischem SVG-Inhalt werden.",
     },
   },
   common: {
@@ -695,13 +786,16 @@ export default {
         "Für den Sprung zur Quelle ist eine verbundene App erforderlich",
     },
     leftRail: {
-      file: "Datei",
-      agent: "Agent",
+      layers: "Ebenen",
+      agent: "Agenten",
       assets: "Ressourcen",
       import: "Import",
       tools: "Werkzeuge",
       tokens: "Design-Tokens",
       label: "Design-Arbeitsbereich",
+      account: "Konto",
+      collapse: "Seitenleiste einklappen",
+      expand: "Seitenleiste ausklappen",
     },
     breakpointBar: {
       base: "Basis",
@@ -737,6 +831,7 @@ export default {
       exit: "Responsive-Vorschau verlassen",
     },
     motion: {
+      openDock: "Motion",
       dockLabel: "Bewegungsleiste",
       collapseDock: "Bewegungsleiste einklappen",
       play: "Abspielen",
@@ -793,12 +888,10 @@ export default {
       "{{path}} wurde seit dem Öffnen auf der Festplatte geändert. Bildschirm neu laden und erneut versuchen.",
     applyToSourceError: "Speichern in Quelle fehlgeschlagen: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Tokens importieren",
       importTitle: "Tokens importieren",
       importHint:
@@ -810,6 +903,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Eingefügte Tokens importieren",
       importedCount: "{{count}} Tokens importiert",
+      count: "{{count}} Tokens",
+      search: "Tokens suchen",
+      noMatches: "Keine passenden Tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -857,6 +953,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
       figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
+      figmaPasteUploadImage: "Bild hochladen",
+      figmaPasteUploadImageFor: "„{{name}}“ hochladen",
+      figmaPasteImageFallbackName: "Bild {{index}}",
+      figmaPasteUploadImageSuccess: "Bild eingefügt",
+      figmaPasteUploadImageInvalid:
+        "Wähle eine Bilddatei, z. B. SVG, PNG oder JPG.",
+      figmaPasteUploadImageError: "Das Bild konnte nicht eingefügt werden",
       figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
       figmaHydrationDialogDescription:
         "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
@@ -944,6 +1047,9 @@ export default {
         figmaPasteFailed: "Figma-Einfügeimport fehlgeschlagen",
         uploadFailed: "Dateiupload fehlgeschlagen",
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
+        unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
+        importBusy:
+          "Ein anderer Import läuft gerade. Schließe ihn ab oder brich ihn ab.",
         figFileTooLarge:
           "Diese .fig-Datei ist zu groß – Uploads sind auf {{max}} MB begrenzt. Kopiere in Figma nur den gewünschten Frame in eine neue Datei und exportiere diese als .fig, oder nutze „Aus Figma einfügen“.",
       },
@@ -956,6 +1062,8 @@ export default {
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Versuchen Sie es erneut, um mit demselben Prompt fortzufahren.",
     generationStoppedCheckAgent:
       "Die Generierung wurde vor dem Erstellen von Dateien gestoppt. Prüfen Sie die Agentenmeldung oder versuchen Sie es erneut.",
+    invalidCanvasDimensions:
+      "Die angeforderte Leinwandgröße wird nicht unterstützt. Verwenden Sie positive Pixelmaße innerhalb der Editorgrenzen.",
     notFound: "Design nicht gefunden",
     backToDesigns: "Zurück zu Designs",
     designNotFoundDescription:
@@ -985,7 +1093,17 @@ export default {
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
-    clickToRename: "Zum Umbenennen klicken",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
+      allDesigns: "Alle Designs",
+      rename: "Umbenennen",
+      duplicate: "Duplizieren",
+      versionHistory: "Versionsverlauf",
+      import: "Importieren…",
+      delete: "Löschen",
+      deleteError: "Dieses Design konnte nicht gelöscht werden",
+    },
     collaborators: "Mitwirkende",
     share: "Teilen",
     signUpToSave: "Registrieren",
@@ -1008,6 +1126,10 @@ export default {
       interact: "Interact",
       screens: "Bildschirme",
     },
+    topBar: {
+      modeDesign: "Design",
+      modeSwitch: "Editor-Modus",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1028,6 +1150,10 @@ export default {
     keyboardShortcuts: {
       title: "Tastenkürzel",
       close: "Schließen: Tastenkürzel",
+      search: "Suchen",
+      searchLabel: "Tastenkürzel suchen",
+      categoriesLabel: "Kategorien der Tastenkürzel",
+      empty: "Keine Tastenkürzel passen zu „{{query}}“",
       codeContext: "Code",
       screenContext: "Screens",
       nudgeAmount: {
@@ -1060,12 +1186,6 @@ export default {
         leftBracket: "Linke eckige Klammer",
         rightBracket: "Rechte eckige Klammer",
       },
-      descriptions: {
-        toggleUi:
-          "Drücke jetzt, um die Bereiche auszublenden und dich auf deine Arbeit zu konzentrieren",
-        undo: "Mache die letzte Designänderung rückgängig",
-        redo: "Stelle die soeben rückgängig gemachte Designänderung wieder her",
-      },
       categories: {
         essential: "Grundlagen",
         tools: "Werkzeuge",
@@ -1097,6 +1217,7 @@ export default {
         showLayers: "Ebenen",
         showAssets: "Ressourcen",
         toggleUi: "View",
+        toggleMinimalUi: "Minimale Oberfläche",
         toggleComments: "Kommentar anheften",
         zoomIn: "Vergrößern",
         zoomOut: "Verkleinern",
@@ -1184,6 +1305,8 @@ export default {
     downloadFigmaSvg: "Für Figma herunterladen (SVG)",
     downloadZip: "ZIP herunterladen",
     downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
+    publishApp: "App veröffentlichen",
+    exportOptions: "Exportoptionen",
     exportHtml: "HTML exportieren",
     exportPdf: "PDF exportieren",
     copyCodingHandoff: "Code-Übergabe kopieren",
@@ -1385,6 +1508,16 @@ export default {
         "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
       pngSaveError: "PNG konnte nicht gespeichert werden",
       pngExportError: "PNG konnte nicht exportiert werden",
+      exportTooLarge:
+        "Der Export ist zu groß. Anfragen sind auf 5 MB begrenzt. Verkleinern Sie eingebettete Ressourcen oder Rasterabmessungen und versuchen Sie es erneut.",
+      exportResourcesUnavailable:
+        "Der Export konnte nicht exakt gerendert werden, weil Bilder, Schriftarten oder Stylesheets nicht verfügbar sind. Prüfen Sie diese Ressourcen und versuchen Sie es erneut.",
+      exportTimedOut:
+        "Der Export hat das Zeitlimit überschritten. Versuchen Sie es erneut oder verkleinern Sie das Design.",
+      exportBusy:
+        "Ein anderer Export wird gerade gerendert. Warten Sie kurz und versuchen Sie es erneut.",
+      exportChromiumUnavailable:
+        "Der Export ist nicht verfügbar, weil der Renderer nicht gestartet werden konnte. Versuchen Sie es später erneut.",
       pdfExportError: "PDF konnte nicht exportiert werden",
       pdfDownloaded: "PDF heruntergeladen",
       pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
@@ -1517,6 +1650,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und setze Lokales Netzwerk auf Zulassen.",
       permissionPromptRetry: "Verbindung wiederholen",
+      previewCredentialsUnavailableTitle:
+        "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
+      previewCredentialsUnavailableDescription:
+        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+      publicPreviewUnavailableDescription:
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+      previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {
@@ -1527,6 +1667,7 @@ export default {
     fork: "Abzweigen",
     fullView: "Vollansicht",
     preview: "Vorschau",
+    focusScreen: "Bildschirm fokussieren",
     openAndDuplicate:
       "{{display}} auswählen. Verwenden Sie Interagieren zum fokussierten Scrollen.",
     openAndPreview:
@@ -1601,8 +1742,12 @@ export default {
     assetAdded: "Asset hinzugefügt",
     assetsNoImageUrl: "Assets hat keine Bild-URL zurückgegeben.",
     failedToUploadFile: "Datei konnte nicht hochgeladen werden",
+    imageAttachmentUnavailable:
+      "Dieses Bild konnte nicht für den Upload vorbereitet werden. Versuche es mit einem JPG-, PNG-, GIF- oder WebP-Bild.",
+    imageAttachmentTooLarge:
+      "Bilder dürfen jeweils bis zu {{perFile}} MB groß sein und insgesamt {{total}} MB umfassen.",
     attachmentsTooLarge:
-      "Diese Anhänge sind zu groß. Uploads sind auf insgesamt {{max}} MB begrenzt – hänge weniger oder kleinere Dateien an.",
+      "Bilder werden automatisch optimiert. Optimierte Bilder und andere Dateien dürfen zusammen höchstens {{max}} MB groß sein.",
     failedToSubmitPrompt: "Prompt konnte nicht gesendet werden",
     skipPrompt: "Prompt überspringen",
     startBlankCanvas: "Mit leerer Zeichenfläche beginnen",
@@ -1768,9 +1913,9 @@ export default {
     designPromptTitle: "Lass uns dein erstes Design erstellen",
     recent: "Zuletzt verwendet",
     browseAllTemplates: "Alle ansehen",
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
-    pageTitle: "Designs",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
+    pageTitle: "Startseite",
     searchPlaceholder: "Designs suchen...",
     newDesign: "Neue Design",
     newDesignLower: "Neues Design",
@@ -1779,6 +1924,9 @@ export default {
     allAuthors: "Alle Autoren",
     me: "Ich",
     designFilter: "Designfilter",
+    ownedByAnyone: "Beliebiger Eigentümer",
+    ownedByMe: "Mir gehörend",
+    sharedWithMe: "Mit mir geteilt",
     mine: "Meine",
     all: "Alle",
     showMineDesigns: "Meine Designs anzeigen",
@@ -1813,6 +1961,7 @@ export default {
       "Wählen Sie einen Ausgangspunkt oder schreiben Sie Ihre eigene Aufforderung.",
     searchNoResultsTitle: "Keine Designs entsprechen dieser Suche",
     searchNoResultsDescription: "Versuche es mit einer anderen Suche.",
+    noDesignsMatchFilter: "Keine Designs entsprechen dem aktuellen Filter.",
     starterSaas: "SaaS-Landingpage",
     starterDashboard: "Dashboard",
     starterPricing: "Preisseite",
@@ -2044,6 +2193,16 @@ export default {
       "Code- und Repository-Indizierung erfordert den Builder Enterprise-Plan",
   },
   designSystems: {
+    comingSoonTitle: "Designsysteme kommen bald",
+    waitlist: {
+      join: "Warteliste beitreten",
+      joining: "Wird eingetragen…",
+      joined: "Sie stehen auf der Warteliste",
+      error:
+        "Sie konnten nicht zur Warteliste hinzugefügt werden. Bitte versuchen Sie es erneut.",
+      unavailable:
+        "Die Anmeldung zur Warteliste ist derzeit nicht verfügbar. Bitte versuchen Sie es später erneut.",
+    },
     deleteError: "Das Designsystem konnte nicht gelöscht werden",
     updateSuccess: "Designsystem aktualisiert",
     updateError: "Das Designsystem konnte nicht aktualisiert werden",

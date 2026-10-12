@@ -78,8 +78,8 @@ beforeEach(() => {
     {
       id: "video-storage",
       service: "storage",
-      required: true,
-      suggested: false,
+      required: false,
+      suggested: true,
     },
     { id: "voice-input", service: "voice", required: false, suggested: true },
     { id: "image-generation", service: "images", required: false },
@@ -234,7 +234,7 @@ describe("getInfrastructureStatus", () => {
   it("tags services from the app profile", () => {
     expect(getInfrastructureStatus().setupTags).toEqual({
       model: "required",
-      storage: "required",
+      storage: "recommended",
       voice: "recommended",
       images: null,
       embeddings: "recommended",

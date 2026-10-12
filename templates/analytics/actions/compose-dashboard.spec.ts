@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sameJsonValue } from "./dashboard-mutation-api";
+
 interface SavedDashboard {
   config: Record<string, unknown>;
 }
@@ -9,13 +11,14 @@ const store = new Map<string, SavedDashboard>();
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   upsertDashboard: vi.fn(),
-  upsertDashboardWithRetry: vi.fn(),
+  upsertDashboardWithRetryOutcome: vi.fn(),
+  verifyPanelWrite: vi.fn(),
   hasCollabState: vi.fn(async () => false),
   applyText: vi.fn(async () => undefined),
   seedFromText: vi.fn(async () => undefined),
 }));
 
-function defaultUpsertDashboardWithRetry(
+function defaultUpsertDashboardWithRetryOutcome(
   id: string,
   ctx: unknown,
   mutate: (existing: any) =>
@@ -33,8 +36,12 @@ function defaultUpsertDashboardWithRetry(
       );
     }
     const { kind, body } = await mutate(existing);
+    const didWrite = !sameJsonValue(existing.config, body);
     await mocks.upsertDashboard(id, kind, body, ctx);
-    return { ...existing, kind, config: body };
+    return {
+      dashboard: { ...existing, kind, config: body },
+      didWrite,
+    };
   })();
 }
 
@@ -67,15 +74,28 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/collab", () => ({
   applyText: mocks.applyText,
+  getText: vi.fn(async () => ""),
   hasCollabState: mocks.hasCollabState,
   seedFromText: mocks.seedFromText,
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
+  assertDashboardEditable: vi.fn(async () => undefined),
   getDashboard: mocks.getDashboard,
   upsertDashboard: mocks.upsertDashboard,
-  upsertDashboardWithRetry: mocks.upsertDashboardWithRetry,
+  upsertDashboardWithRetryOutcome: mocks.upsertDashboardWithRetryOutcome,
 }));
+
+// Panel verification has its own specs; here it only has to let a save through.
+vi.mock(
+  "../server/lib/dashboard-panel-verification",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/lib/dashboard-panel-verification")
+    >()),
+    verifyPanelWrite: mocks.verifyPanelWrite,
+  }),
+);
 
 const { default: composeDashboard } = await import("./compose-dashboard");
 const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES, listMetricKeys } =
@@ -105,21 +125,29 @@ const LARGE_METRICS = [
   "clip-share-signups-30d",
 ];
 
-const SIGNED_IN_ACTIVITY_METRICS = [
+const SIGNED_IN_SESSION_ACTIVITY_METRICS = [
   "repeat-users",
   "recurring-users-by-template",
   "recurring-users-by-template-bar",
+  "dau-over-time",
+  "wau-over-time",
+];
+const CONTENT_OR_CHAT_RETENTION_METRICS = [
   "retention-over-time",
   "one-day-retention-by-template",
   "seven-day-retention-by-template",
-  "dau-over-time",
-  "wau-over-time",
 ];
 
 beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
   mocks.hasCollabState.mockResolvedValue(false);
+  mocks.verifyPanelWrite.mockResolvedValue({
+    verified: null,
+    verification: null,
+    proof: [],
+    unverified: [],
+  });
   mocks.getDashboard.mockImplementation(async (id: string) => {
     const saved = store.get(id);
     return saved ? { kind: "sql", config: saved.config } : null;
@@ -134,8 +162,8 @@ beforeEach(() => {
       };
     },
   );
-  mocks.upsertDashboardWithRetry.mockImplementation(
-    defaultUpsertDashboardWithRetry,
+  mocks.upsertDashboardWithRetryOutcome.mockImplementation(
+    defaultUpsertDashboardWithRetryOutcome,
   );
 });
 
@@ -369,8 +397,8 @@ describe("compose-dashboard", () => {
     }
   });
 
-  it("counts retention and active-user panels from signed-in session activity", () => {
-    for (const metric of SIGNED_IN_ACTIVITY_METRICS) {
+  it("counts active-user panels from signed-in session activity", () => {
+    for (const metric of SIGNED_IN_SESSION_ACTIVITY_METRICS) {
       const panel = buildPanel(metric)!;
       expect(panel.sql).toContain(
         "event_name IN ('session status', 'session_status')",
@@ -384,6 +412,20 @@ describe("compose-dashboard", () => {
       expect(panel.sql).toContain("NULLIF(user_key");
       expect(panel.sql).toContain("lower(COALESCE");
       expect(panel.sql).toContain("<> 'docs'");
+    }
+  });
+
+  it("counts retention from authenticated content and chat activity", () => {
+    for (const metric of CONTENT_OR_CHAT_RETENTION_METRICS) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("'auth_user_id'");
+      expect(panel.sql).toContain("'action_completed'");
+      expect(panel.sql).toContain("'generation_completed'");
+      expect(panel.sql).toContain("'run_started'");
+      expect(panel.sql).not.toContain(
+        "event_name IN ('session status', 'session_status')",
+      );
+      expect(panel.sql).not.toContain("signed_in = 'true'");
     }
   });
 
@@ -609,7 +651,7 @@ describe("compose-dashboard", () => {
     };
 
     let mutateCallCount = 0;
-    mocks.upsertDashboardWithRetry.mockImplementationOnce(
+    mocks.upsertDashboardWithRetryOutcome.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
         await mutate({ kind: "sql", config: beforeConcurrentWrite });
@@ -619,7 +661,10 @@ describe("compose-dashboard", () => {
           config: afterConcurrentWrite,
         });
         await mocks.upsertDashboard(id, kind, body, ctx);
-        return { kind, config: body };
+        return {
+          dashboard: { kind, config: body },
+          didWrite: true,
+        };
       },
     );
 

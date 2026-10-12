@@ -80,11 +80,11 @@ it("renames through the current command without breaking the next linked propert
       setSelectedLayerIdsState: vi.fn(),
     } as unknown as Parameters<typeof runLayerRename>[0],
     node.id,
-    "Temporary rename oracle",
+    "Temporary rename sample",
   );
   expect(applyFileContentUpdate).toHaveBeenCalledOnce();
   expect(content).toContain(
-    'data-agent-native-layer-name="Temporary rename oracle"',
+    'data-agent-native-layer-name="Temporary rename sample"',
   );
   expect(content).toContain(
     'data-agent-native-component-source-node-id="label"',

@@ -6,14 +6,15 @@ import {
   type Response,
 } from "@playwright/test";
 
-import { DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
+import { DESIGN_MOTION_LAB, DESIGN_REVIEW_TOOLS_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
-import { FIXTURE_HTML, seedComponentVariantMetadata } from "./global-setup";
+import { FIXTURE_HTML } from "./global-setup";
 import { designFrame, enableLab, gotoEditor, selectByText } from "./helpers";
 
 let designId: string;
 let fileId: string;
 let baseURLForActions: string;
+let restoreMotionLabAfterTest: (() => Promise<void>) | null = null;
 
 async function postAction(
   request: APIRequestContext,
@@ -33,6 +34,47 @@ async function postAction(
     );
   }
   return response.json();
+}
+
+async function setLabEnabled(
+  page: Page,
+  key: string,
+  enabled: boolean,
+): Promise<() => Promise<void>> {
+  const response = await page.request.get(
+    `${baseURLForActions}/_agent-native/actions/get-lab-states`,
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-lab-states failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const states = await response.json();
+  const previousEnabled = states[key]?.enabled;
+  if (typeof previousEnabled !== "boolean") {
+    throw new Error(`get-lab-states did not return a state for ${key}`);
+  }
+  const updated = await postAction(page.request, "set-lab", { key, enabled });
+  expect(updated.enabled).toBe(enabled);
+  return async () => {
+    const restored = await postAction(page.request, "set-lab", {
+      key,
+      enabled: previousEnabled,
+    });
+    expect(restored.enabled).toBe(previousEnabled);
+  };
+}
+
+async function openMotionDockFromMenu(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Motion", exact: true }).click();
+}
+
+async function enterDesignEditMode(page: Page): Promise<void> {
+  const modeButton = page.locator('[data-design-mode="edit"]');
+  await expect(modeButton).toBeVisible();
+  await modeButton.click();
+  await expect(modeButton).toHaveAttribute("aria-pressed", "true");
 }
 
 test.beforeAll(async ({ request }, workerInfo) => {
@@ -57,7 +99,7 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fileId = file.id;
   if (!fileId) throw new Error("create-file did not return an id");
   await postAction(request, "index-components", { designId });
-  await seedComponentVariantMetadata(designId);
+  await postAction(request, "seed-e2e-component-variants", { designId });
 });
 
 test.afterAll(async ({ request }) => {
@@ -65,9 +107,16 @@ test.afterAll(async ({ request }) => {
   await postAction(request, "delete-design", { id: designId }).catch(() => {});
 });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith("Motion ")) return;
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
+});
+
+test.afterEach(async () => {
+  if (!restoreMotionLabAfterTest) return;
+  await restoreMotionLabAfterTest();
+  restoreMotionLabAfterTest = null;
 });
 
 async function selectedElementBackgroundImage(page: Page): Promise<string> {
@@ -94,6 +143,70 @@ async function waitForAction(
     `${actionName} failed: ${response.status()} ${await response.text()}`,
   ).toBe(true);
   return response;
+}
+
+async function prepareMotionTest(
+  page: Page,
+  motionLabEnabled: boolean,
+): Promise<void> {
+  const timelineUrl = new URL(
+    `${baseURLForActions}/_agent-native/actions/get-motion-timeline`,
+  );
+  timelineUrl.searchParams.set("designId", designId);
+  timelineUrl.searchParams.set("sourceRef", fileId);
+  const timelineResponse = await page.request.get(timelineUrl.toString());
+  if (!timelineResponse.ok()) {
+    throw new Error(
+      `get-motion-timeline failed: ${timelineResponse.status()} ${await timelineResponse.text()}`,
+    );
+  }
+  const timelineResult = (await timelineResponse.json()) as {
+    timelines?: Array<{ id?: unknown }>;
+  };
+  for (const timeline of timelineResult.timelines ?? []) {
+    if (typeof timeline.id !== "string") continue;
+    await postAction(page.request, "remove-motion-timeline", {
+      designId,
+      timelineId: timeline.id,
+      fileId,
+    });
+  }
+
+  await postAction(page.request, "update-file", {
+    id: fileId,
+    content: FIXTURE_HTML,
+  });
+  restoreMotionLabAfterTest = await setLabEnabled(
+    page,
+    DESIGN_MOTION_LAB.key,
+    motionLabEnabled,
+  );
+  await gotoEditor(page, designId);
+  await enterDesignEditMode(page);
+}
+
+async function addOpacityTrack(page: Page): Promise<Response> {
+  await page
+    .locator('[aria-label="Motion dock"]')
+    .first()
+    .getByRole("button", { name: "Add motion", exact: true })
+    .last()
+    .click();
+  return waitForAction(page, "apply-motion-edit", async () => {
+    await page.getByRole("menuitem", { name: "Opacity", exact: true }).click();
+  });
+}
+
+async function expectMotionEditDoesNotSendContent(
+  response: Response,
+): Promise<void> {
+  const requestBody = JSON.parse(
+    response.request().postData() ?? "{}",
+  ) as Record<string, unknown>;
+  expect(requestBody.includeContent).toBe(false);
+  expect(
+    ((await response.json()) as Record<string, unknown>).patchedContent,
+  ).toBeUndefined();
 }
 
 async function selectedComponentVariant(page: Page): Promise<string | null> {
@@ -248,101 +361,53 @@ async function runReviewPanelAudit(page: Page): Promise<void> {
     .toContain("focus-visible:ring-2");
 }
 
-test("Motion dock autosaves track edits to CSS and reopens them", async ({
+test("Motion lab-off hides the dock and menu entry", async ({ page }) => {
+  await prepareMotionTest(page, false);
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "Motion", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("menuitem", { name: "Back to designs", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  const workspaceRail = page.locator('nav[aria-label="Design workspace"]');
+  await expect(
+    workspaceRail.getByRole("button", { name: /^(Layers|File)$/ }),
+  ).toBeVisible();
+  await expect(
+    workspaceRail.getByRole("button", { name: "Agents" }),
+  ).toBeVisible();
+  await expect(
+    workspaceRail.getByRole("button", { name: "Tokens" }),
+  ).toBeVisible();
+});
+
+test("Motion dock autosaves an opacity track to CSS and reopens it", async ({
   page,
 }) => {
+  await prepareMotionTest(page, true);
   await selectByText(page, "Alpha Button", { screenId: fileId });
 
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  const motionRailButton = page.getByRole("button", {
-    name: "Motion",
-    exact: true,
-  });
-  await expect(motionRailButton).toBeVisible();
-  await expect
-    .poll(async () => {
-      const [triggerBox, railBox] = await Promise.all([
-        motionRailButton.boundingBox(),
-        page.locator('nav[aria-label="Design workspace"]').boundingBox(),
-      ]);
-      if (!triggerBox || !railBox) return false;
-      return (
-        triggerBox.x >= railBox.x &&
-        triggerBox.x + triggerBox.width <= railBox.x + railBox.width &&
-        railBox.y + railBox.height - (triggerBox.y + triggerBox.height) <= 16
-      );
-    })
-    .toBe(true);
-  await motionRailButton.click();
+  await openMotionDockFromMenu(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await page
     .getByRole("button", { name: "Collapse motion dock", exact: true })
     .click();
-  await expect
-    .poll(
-      async () => {
-        const [dockCount, launcherVisible, dockState] = await Promise.all([
-          page.locator('[aria-label="Motion dock"]').count(),
-          motionRailButton.isVisible(),
-          page
-            .locator('[aria-label="Motion dock"]')
-            .first()
-            .evaluate((node) => {
-              const element = node as HTMLElement;
-              const style = window.getComputedStyle(element);
-              return {
-                height: element.style.height,
-                opacity: style.opacity,
-                position: style.position,
-              };
-            })
-            .catch(() => null),
-        ]);
-        return {
-          dockCount,
-          launcherVisible,
-          heightIsZero: dockState?.height === "0px",
-          opacity: dockState?.opacity ?? null,
-          position: dockState?.position ?? null,
-        };
-      },
-      { timeout: 150, intervals: [20, 20, 20, 20, 20] },
-    )
-    .toEqual({
-      dockCount: 1,
-      launcherVisible: true,
-      heightIsZero: false,
-      opacity: "1",
-      position: "absolute",
-    });
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
-  await motionRailButton.click();
+  await openMotionDockFromMenu(page);
   await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
   await expect(
-    page.getByText("Pick a property to add the first track.", { exact: false }),
+    page.getByText("Pick a property to add the first track.", {
+      exact: false,
+    }),
   ).toBeVisible();
 
+  const motionResponse = await addOpacityTrack(page);
+  await expectMotionEditDoesNotSendContent(motionResponse);
   const motionDock = page.locator('[aria-label="Motion dock"]').first();
-  await motionDock
-    .getByRole("button", { name: "Add motion", exact: true })
-    .last()
-    .click();
-  const motionResponse = await waitForAction(
-    page,
-    "apply-motion-edit",
-    async () => {
-      await page
-        .getByRole("menuitem", { name: "Opacity", exact: true })
-        .click();
-    },
-  );
-  const motionRequestBody = JSON.parse(
-    motionResponse.request().postData() ?? "{}",
-  ) as Record<string, unknown>;
-  expect(motionRequestBody.includeContent).toBe(false);
-  expect(
-    ((await motionResponse.json()) as Record<string, unknown>).patchedContent,
-  ).toBeUndefined();
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
@@ -367,16 +432,24 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     )
     .toContain("e2e-alpha-button");
 
-  const overviewMotionButton = page.getByRole("button", {
-    name: "Motion",
-    exact: true,
-  });
-  await expect(overviewMotionButton).toBeVisible();
-  await overviewMotionButton.click();
+  await openMotionDockFromMenu(page);
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
+});
 
+test("Motion duration edits play and persist after reopening", async ({
+  page,
+}) => {
+  await prepareMotionTest(page, true);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+  await openMotionDockFromMenu(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
+
+  const motionResponse = await addOpacityTrack(page);
+  await expectMotionEditDoesNotSendContent(motionResponse);
+  const motionDock = page.locator('[aria-label="Motion dock"]').first();
   const durationInput = motionDock.getByLabel("Duration in ms");
   await durationInput.fill("4000");
   await durationInput.press("Tab");
@@ -400,12 +473,7 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
     .click();
   await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
 
-  const reopenMotionDockButton = page.getByRole("button", {
-    name: "Motion",
-    exact: true,
-  });
-  await expect(reopenMotionDockButton).toBeVisible();
-  await reopenMotionDockButton.click();
+  await openMotionDockFromMenu(page);
   await expect(
     motionDock.getByRole("button", { name: "Alpha Button" }),
   ).toBeVisible();
@@ -421,6 +489,37 @@ test("Motion dock autosaves track edits to CSS and reopens them", async ({
         .count(),
     )
     .toBe(1);
+});
+
+test("Motion lab-off hides the dock after a saved track", async ({ page }) => {
+  await prepareMotionTest(page, true);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await openMotionDockFromMenu(page);
+  const motionResponse = await addOpacityTrack(page);
+  await expectMotionEditDoesNotSendContent(motionResponse);
+  await gotoEditor(page, designId);
+  await expect
+    .poll(() =>
+      designFrame(page, fileId)
+        .locator("style[data-agent-native-motion]")
+        .count(),
+    )
+    .toBe(1);
+  await openMotionDockFromMenu(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toBeVisible();
+
+  const disabledAfterSave = await postAction(page.request, "set-lab", {
+    key: DESIGN_MOTION_LAB.key,
+    enabled: false,
+  });
+  expect(disabledAfterSave.enabled).toBe(false);
+  await gotoEditor(page, designId);
+  await enterDesignEditMode(page);
+  await expect(page.locator('[aria-label="Motion dock"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "Motion", exact: true }),
+  ).toHaveCount(0);
 });
 
 // Not label drift, not missing WebGL, and not a crash: the transient preview
@@ -457,4 +556,60 @@ test.fixme("shader fill preview opens when the paint surface is reachable", asyn
   const box = await shaderPreview.boundingBox();
   expect(box?.width ?? 0).toBeGreaterThan(80);
   expect(box?.height ?? 0).toBeGreaterThan(40);
+});
+
+test("DesignCanvas preserves source-token literals and installs its bridge", async ({
+  page,
+}) => {
+  const headToken = "__INITIAL_SOURCE_HEAD__";
+  const ownershipToken = "__INITIAL_SOURCE_OWNERSHIP__";
+  const bodyClass = `${headToken} ${ownershipToken}`;
+  const bodyStyle = `--source-head-token: ${headToken}; --source-ownership-token: ${ownershipToken};`;
+  const probeClass = ownershipToken;
+  const probeStyle = `--source-head-token: ${headToken}; --source-ownership-token: ${ownershipToken};`;
+  const authoredHtml = `<!doctype html>
+<html>
+  <head>
+    <meta name="source-token-head-probe" content="${ownershipToken}">
+    <meta name="source-token-head-literal" content="${headToken}">
+  </head>
+  <body class="${bodyClass}" style="${bodyStyle}">
+    <button id="source-token-probe" data-agent-native-node-id="source-token-probe" class="${probeClass}" style="${probeStyle}">Bridge ready</button>
+  </body>
+</html>`;
+
+  await postAction(page.request, "update-file", {
+    id: fileId,
+    content: authoredHtml,
+  });
+  await gotoEditor(page, designId);
+
+  const frame = designFrame(page, fileId);
+  const body = frame.locator("body");
+  const bridgeReady = () =>
+    body.evaluate((element) => {
+      const frameWindow = element.ownerDocument.defaultView as
+        | (Window & { __anEditorChromeBridge?: boolean })
+        | null;
+      return frameWindow?.__anEditorChromeBridge === true;
+    });
+
+  await expect(frame.locator("#source-token-probe")).toHaveText("Bridge ready");
+  await expect.poll(bridgeReady).toBe(true);
+  await expect(
+    frame.locator('meta[name="source-token-head-probe"]'),
+  ).toHaveAttribute("content", ownershipToken);
+  await expect(
+    frame.locator('meta[name="source-token-head-literal"]'),
+  ).toHaveAttribute("content", headToken);
+  await expect(body).toHaveAttribute("class", bodyClass);
+  await expect(body).toHaveAttribute("style", bodyStyle);
+  await expect(frame.locator("#source-token-probe")).toHaveAttribute(
+    "class",
+    probeClass,
+  );
+  await expect(frame.locator("#source-token-probe")).toHaveAttribute(
+    "style",
+    probeStyle,
+  );
 });

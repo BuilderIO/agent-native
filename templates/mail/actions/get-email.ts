@@ -3,6 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
 import {
   gmailGetMessage,
   GmailQuotaCooldownError,
@@ -64,6 +65,7 @@ export default defineAction({
         : email;
     }
 
+    await assertGmailNotCoolingDown([requestedAccount]);
     const { clients, errors } = await getClientsWithErrors(ownerEmail, [
       requestedAccount,
     ]);

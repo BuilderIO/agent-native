@@ -5,6 +5,7 @@ const mockReadAppSecretMeta = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockGetRequestUserEmail = vi.fn();
 const mockResolveCredentialForScope = vi.fn();
+const mockReadOrgMemberRole = vi.fn();
 
 vi.mock("./storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -14,6 +15,11 @@ vi.mock("./storage.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   getRequestUserEmail: (...args: any[]) => mockGetRequestUserEmail(...args),
+  getRequestContext: () => undefined,
+}));
+
+vi.mock("../server/personal-provider-key-policy.js", () => ({
+  readOrgMemberRole: (...args: any[]) => mockReadOrgMemberRole(...args),
 }));
 
 vi.mock("../credentials/index.js", () => ({
@@ -47,6 +53,7 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     mockReadAppSecret.mockResolvedValue(null);
     mockReadAppSecretMeta.mockResolvedValue(null);
     mockResolveCredentialForScope.mockResolvedValue(undefined);
+    mockReadOrgMemberRole.mockResolvedValue("member");
   });
 
   it("falls back from user scope to active org scope", async () => {
@@ -133,6 +140,25 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     expect(mockResolveCredentialForScope).not.toHaveBeenCalled();
   });
 
+  it("returns the org value ahead of an owner's or admin's own", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope }) =>
+      scope === "user"
+        ? { value: "personal-token" }
+        : { value: "shared-token" },
+    );
+    for (const role of ["owner", "admin"]) {
+      mockReadOrgMemberRole.mockResolvedValue(role);
+      const result = await resolveKeyReferencesWithRequestScopes(
+        "Bearer ${keys.GITHUB_TOKEN}",
+        "alice@example.test",
+      );
+      expect(result.resolved).toBe("Bearer shared-token");
+      expect(result.resolvedKeys).toEqual([
+        { name: "GITHUB_TOKEN", scope: "org", scopeId: "org_123" },
+      ]);
+    }
+  });
+
   it("falls back to a legacy user credential after scoped secrets miss", async () => {
     mockResolveCredentialForScope.mockImplementation(async (_key, { scope }) =>
       scope === "user" ? "legacy-user-token" : undefined,
@@ -183,6 +209,30 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
       orgId: "org_123",
       scope: "org",
     });
+  });
+
+  it("orders legacy credentials org-first for an owner or admin", async () => {
+    mockResolveCredentialForScope.mockImplementation(async (_key, { scope }) =>
+      scope === "user" ? "legacy-personal-token" : "legacy-org-token",
+    );
+    for (const role of ["owner", "admin"]) {
+      mockReadOrgMemberRole.mockResolvedValue(role);
+      const result = await resolveKeyReferencesWithRequestScopes(
+        "Bearer ${keys.GITHUB_TOKEN}",
+        "alice@example.test",
+      );
+      expect(result.resolved).toBe("Bearer legacy-org-token");
+      expect(result.resolvedKeys).toEqual([
+        { name: "GITHUB_TOKEN", scope: "org", scopeId: "org_123" },
+      ]);
+    }
+
+    mockReadOrgMemberRole.mockResolvedValue("member");
+    const member = await resolveKeyReferencesWithRequestScopes(
+      "Bearer ${keys.GITHUB_TOKEN}",
+      "alice@example.test",
+    );
+    expect(member.resolved).toBe("Bearer legacy-personal-token");
   });
 
   it("reads allowlists from the resolved scope", async () => {

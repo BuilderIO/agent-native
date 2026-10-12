@@ -89,6 +89,7 @@ async function oldestMailAccountCandidates(
             ON LOWER(mail_sync_accounts.owner_email) = LOWER(COALESCE(oauth_tokens.owner, oauth_tokens.account_id))
             AND LOWER(mail_sync_accounts.account_email) = LOWER(oauth_tokens.account_id)
           WHERE oauth_tokens.provider = ?
+            AND COALESCE(mail_sync_accounts.status, 'idle') <> 'needs_reauth'
           ORDER BY COALESCE(mail_sync_accounts.${attemptColumnName}, 0),
                    LOWER(COALESCE(oauth_tokens.owner, oauth_tokens.account_id)),
                    LOWER(oauth_tokens.account_id)

@@ -442,6 +442,15 @@ const enUS = {
     initialUpdatedAfter: "Initial updated-after",
     granolaDescription:
       "Granola Enterprise API returns Team-space notes; private notes are outside the API scope.",
+    zoomMeetingIds: "Approved recurring meeting series",
+    zoomMeetingIdsDescription:
+      "Required. One Zoom meeting ID per line for each recurring series whose owner opted in (spaces are fine). Every occurrence keeps the same ID.",
+    zoomLookbackDays: "Lookback days",
+    zoomIncludeSummaries: "Import AI Companion summaries",
+    invalidZoomMeetingIds:
+      "Not valid Zoom meeting IDs: {{entries}}. Use the number from the meeting invite, like 123 4567 8901.",
+    zoomDescription:
+      "Every hour, Brain imports transcripts (and summaries, if turned on) only from the approved series. Other meetings in the Zoom account are never downloaded. Changing the list re-scans the lookback window.",
     approvedRepositories: "Approved repositories",
     githubRepositoriesDescription:
       "Brain imports bounded issue and pull request context from these repositories using the workspace GitHub credential.",
@@ -670,6 +679,7 @@ const enUS = {
     defaultTitle: {
       slack: "Slack knowledge channels",
       granola: "Granola team notes",
+      zoom: "Zoom meeting transcripts",
       github: "GitHub product repos",
       clips: "Clips exports",
       generic: "Generic transcript webhook",
@@ -3095,6 +3105,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "خطاف ويب للنص العام",
         github: "GitHub ريبوش المنتج",
         granola: "Granola ملاحظات الفريق",
+        zoom: "نصوص اجتماعات Zoom",
         manual: "الواردات اليدوية",
         slack: "Slack قنوات المعرفة",
       },
@@ -3511,6 +3522,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "Generischer Transkript-Webhook",
         github: "GitHub Produkt-Repos",
         granola: "Granola Teamnotizen",
+        zoom: "Zoom-Meeting-Transkripte",
         manual: "Manuelle Importe",
         slack: "Slack Wissenskanäle",
       },
@@ -3936,6 +3948,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "Webhook de transcripción genérico",
         github: "GitHub repositorios de productos",
         granola: "Granola notas del equipo",
+        zoom: "Transcripciones de reuniones de Zoom",
         manual: "Importaciones manuales",
         slack: "Slack canales de conocimiento",
       },
@@ -4361,6 +4374,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "Webhook de transcription générique",
         github: "Dépôts de produits GitHub",
         granola: "Notes de l'équipe Granola",
+        zoom: "Transcriptions de réunions Zoom",
         manual: "Importations manuelles",
         slack: "Slack canaux de connaissances",
       },
@@ -4767,6 +4781,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "जेनेरिक ट्रांसक्रिप्ट वेबहुक",
         github: "GitHub उत्पाद रिपो",
         granola: "Granola टीम नोट्स",
+        zoom: "Zoom मीटिंग ट्रांसक्रिप्ट",
         manual: "मैन्युअल आयात",
         slack: "Slack ज्ञान चैनल",
       },
@@ -5166,6 +5181,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "一般的なトランスクリプト Webhook",
         github: "GitHub 製品リポジトリ",
         granola: "Granola チームのメモ",
+        zoom: "Zoom ミーティングの文字起こし",
         manual: "手動インポート",
         slack: "Slack ナレッジ チャネル",
       },
@@ -5571,6 +5587,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "일반 성적표 웹훅",
         github: "GitHub 제품 저장소",
         granola: "Granola 팀 노트",
+        zoom: "Zoom 회의 대본",
         manual: "수동 가져오기",
         slack: "Slack 지식 채널",
       },
@@ -5983,6 +6000,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "Webhook de transcrição genérica",
         github: "GitHub repositórios de produtos",
         granola: "Granola notas da equipe",
+        zoom: "Transcrições de reuniões do Zoom",
         manual: "Importações manuais",
         slack: "Slack canais de conhecimento",
       },
@@ -6371,6 +6389,7 @@ const exactEnglishDebtOverrides: Partial<
         generic: "通用转录 Webhook",
         github: "GitHub 产品存储库",
         granola: "Granola 团队笔记",
+        zoom: "Zoom 会议转录",
         manual: "手动导入",
         slack: "Slack 知识渠道",
       },
@@ -7202,6 +7221,128 @@ const privacySearchLocalizationOverrides: Partial<
   },
 };
 
+const zoomSourceLocalizationOverrides: Partial<
+  Record<LocaleCode, DeepPartial<Messages>>
+> = {
+  "ar-SA": {
+    sources: {
+      zoomMeetingIds: "سلاسل الاجتماعات المتكررة المعتمدة",
+      zoomMeetingIdsDescription:
+        "مطلوب. معرّف اجتماع Zoom واحد في كل سطر لكل سلسلة متكررة وافق مالكها على الانضمام (المسافات مسموحة). تحتفظ كل جلسة بنفس المعرّف.",
+      zoomLookbackDays: "عدد أيام الرجوع",
+      zoomIncludeSummaries: "استيراد ملخصات AI Companion",
+      invalidZoomMeetingIds:
+        "معرّفات اجتماعات Zoom غير صالحة: {{entries}}. استخدم الرقم الموجود في دعوة الاجتماع، مثل 123 4567 8901.",
+      zoomDescription:
+        "كل ساعة، يستورد Brain النصوص (والملخصات إذا كانت مفعّلة) من السلاسل المعتمدة فقط. لا يتم تنزيل أي اجتماعات أخرى في حساب Zoom. يؤدي تغيير القائمة إلى إعادة فحص فترة الرجوع.",
+    },
+  },
+  "de-DE": {
+    sources: {
+      zoomMeetingIds: "Freigegebene wiederkehrende Meeting-Serien",
+      zoomMeetingIdsDescription:
+        "Erforderlich. Eine Zoom-Meeting-ID pro Zeile für jede wiederkehrende Serie, deren Verantwortliche zugestimmt haben (Leerzeichen sind erlaubt). Jeder Termin behält dieselbe ID.",
+      zoomLookbackDays: "Rückblick in Tagen",
+      zoomIncludeSummaries: "AI Companion-Zusammenfassungen importieren",
+      invalidZoomMeetingIds:
+        "Keine gültigen Zoom-Meeting-IDs: {{entries}}. Verwende die Nummer aus der Meeting-Einladung, z. B. 123 4567 8901.",
+      zoomDescription:
+        "Brain importiert stündlich Transkripte (und, falls aktiviert, Zusammenfassungen) nur aus den freigegebenen Serien. Andere Meetings im Zoom-Konto werden nie heruntergeladen. Eine Änderung der Liste durchsucht den Rückblickzeitraum erneut.",
+    },
+  },
+  "es-ES": {
+    sources: {
+      zoomMeetingIds: "Series de reuniones periódicas aprobadas",
+      zoomMeetingIdsDescription:
+        "Obligatorio. Un ID de reunión de Zoom por línea para cada serie periódica cuyo propietario haya dado su aprobación (se admiten espacios). Cada sesión mantiene el mismo ID.",
+      zoomLookbackDays: "Días hacia atrás",
+      zoomIncludeSummaries: "Importar resúmenes de AI Companion",
+      invalidZoomMeetingIds:
+        "ID de reunión de Zoom no válidos: {{entries}}. Usa el número de la invitación, como 123 4567 8901.",
+      zoomDescription:
+        "Cada hora, Brain importa transcripciones (y resúmenes, si están activados) solo de las series aprobadas. Nunca se descargan otras reuniones de la cuenta de Zoom. Al cambiar la lista se vuelve a revisar el periodo hacia atrás.",
+    },
+  },
+  "fr-FR": {
+    sources: {
+      zoomMeetingIds: "Séries de réunions récurrentes approuvées",
+      zoomMeetingIdsDescription:
+        "Obligatoire. Un ID de réunion Zoom par ligne pour chaque série récurrente dont le propriétaire a donné son accord (les espaces sont acceptés). Chaque occurrence conserve le même ID.",
+      zoomLookbackDays: "Jours d'historique",
+      zoomIncludeSummaries: "Importer les résumés AI Companion",
+      invalidZoomMeetingIds:
+        "ID de réunion Zoom non valides : {{entries}}. Utilisez le numéro de l'invitation, par exemple 123 4567 8901.",
+      zoomDescription:
+        "Chaque heure, Brain importe les transcriptions (et les résumés, s'ils sont activés) uniquement des séries approuvées. Les autres réunions du compte Zoom ne sont jamais téléchargées. Modifier la liste réanalyse la période d'historique.",
+    },
+  },
+  "hi-IN": {
+    sources: {
+      zoomMeetingIds: "स्वीकृत दोहराई जाने वाली मीटिंग सीरीज़",
+      zoomMeetingIdsDescription:
+        "ज़रूरी। हर उस दोहराई जाने वाली सीरीज़ के लिए एक पंक्ति में एक Zoom मीटिंग ID जिसके मालिक ने सहमति दी है (स्पेस चल सकते हैं)। हर मीटिंग की ID वही रहती है।",
+      zoomLookbackDays: "पीछे देखने के दिन",
+      zoomIncludeSummaries: "AI Companion सारांश इंपोर्ट करें",
+      invalidZoomMeetingIds:
+        "अमान्य Zoom मीटिंग ID: {{entries}}। आमंत्रण में दिया नंबर इस्तेमाल करें, जैसे 123 4567 8901।",
+      zoomDescription:
+        "Brain हर घंटे केवल स्वीकृत सीरीज़ से ट्रांसक्रिप्ट (और चालू होने पर सारांश) आयात करता है। Zoom खाते की अन्य मीटिंग कभी डाउनलोड नहीं होतीं। सूची बदलने पर पीछे देखने की अवधि फिर से स्कैन होती है।",
+    },
+  },
+  "ja-JP": {
+    sources: {
+      zoomMeetingIds: "承認済みの定期ミーティング",
+      zoomMeetingIdsDescription:
+        "必須。主催者が同意した定期ミーティングごとに、1 行に 1 つ Zoom ミーティング ID を入力します（スペース可）。各回は同じ ID を使い続けます。",
+      zoomLookbackDays: "さかのぼる日数",
+      zoomIncludeSummaries: "AI Companion の要約をインポート",
+      invalidZoomMeetingIds:
+        "無効な Zoom ミーティング ID: {{entries}}。招待に記載された番号（例: 123 4567 8901）を使用してください。",
+      zoomDescription:
+        "Brain は 1 時間ごとに、承認済みの定期ミーティングからのみ文字起こし（有効な場合は要約も）を取り込みます。Zoom アカウント内のほかのミーティングはダウンロードしません。一覧を変更すると、さかのぼる期間を再スキャンします。",
+    },
+  },
+  "ko-KR": {
+    sources: {
+      zoomMeetingIds: "승인된 반복 회의 시리즈",
+      zoomMeetingIdsDescription:
+        "필수. 소유자가 동의한 반복 시리즈마다 한 줄에 하나씩 Zoom 회의 ID를 입력하세요(공백 허용). 모든 회차는 같은 ID를 유지합니다.",
+      zoomLookbackDays: "조회 기간(일)",
+      zoomIncludeSummaries: "AI Companion 요약 가져오기",
+      invalidZoomMeetingIds:
+        "유효하지 않은 Zoom 회의 ID: {{entries}}. 초대장의 번호(예: 123 4567 8901)를 사용하세요.",
+      zoomDescription:
+        "Brain은 매시간 승인된 시리즈에서만 대본(켜져 있으면 요약도)을 가져옵니다. Zoom 계정의 다른 회의는 다운로드하지 않습니다. 목록을 변경하면 조회 기간을 다시 검사합니다.",
+    },
+  },
+  "pt-BR": {
+    sources: {
+      zoomMeetingIds: "Séries de reuniões recorrentes aprovadas",
+      zoomMeetingIdsDescription:
+        "Obrigatório. Um ID de reunião do Zoom por linha para cada série recorrente cujo responsável autorizou (espaços são permitidos). Cada ocorrência mantém o mesmo ID.",
+      zoomLookbackDays: "Dias de retrospectiva",
+      zoomIncludeSummaries: "Importar resumos do AI Companion",
+      invalidZoomMeetingIds:
+        "IDs de reunião do Zoom inválidos: {{entries}}. Use o número do convite, como 123 4567 8901.",
+      zoomDescription:
+        "A cada hora, o Brain importa transcrições (e resumos, se ativados) somente das séries aprovadas. Outras reuniões da conta do Zoom nunca são baixadas. Alterar a lista verifica novamente o período de retrospectiva.",
+    },
+  },
+  "zh-CN": {
+    sources: {
+      zoomMeetingIds: "已批准的周期性会议系列",
+      zoomMeetingIdsDescription:
+        "必填。每行一个 Zoom 会议 ID，对应主持人已同意加入的周期性会议系列（可包含空格）。每次会议的 ID 保持不变。",
+      zoomLookbackDays: "回溯天数",
+      zoomIncludeSummaries: "导入 AI Companion 摘要",
+      invalidZoomMeetingIds:
+        "无效的 Zoom 会议 ID：{{entries}}。请使用会议邀请中的号码，例如 123 4567 8901。",
+      zoomDescription:
+        "Brain 每小时仅从已批准的系列导入转录（开启后也导入摘要）。Zoom 账户中的其他会议绝不会被下载。更改列表会重新扫描回溯期。",
+    },
+  },
+};
+
 function deepMergeMessages<T extends Record<string, unknown>>(
   base: T,
   overrides: DeepPartial<T> | undefined,
@@ -7235,10 +7376,13 @@ export const messagesByLocale = Object.fromEntries(
       ? messages
       : deepMergeMessages(
           deepMergeMessages(
-            messages,
-            exactEnglishDebtOverrides[locale as LocaleCode],
+            deepMergeMessages(
+              messages,
+              exactEnglishDebtOverrides[locale as LocaleCode],
+            ),
+            privacySearchLocalizationOverrides[locale as LocaleCode],
           ),
-          privacySearchLocalizationOverrides[locale as LocaleCode],
+          zoomSourceLocalizationOverrides[locale as LocaleCode],
         ),
   ]),
 ) as Record<LocaleCode, Messages>;

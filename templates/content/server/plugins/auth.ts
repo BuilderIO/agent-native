@@ -1,12 +1,13 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { DOCUMENT_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Content",
-    learnMoreUrl: "https://agent-native.com/apps/content",
+    learnMoreUrl:
+      "https://agent-native.com/apps/content?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [

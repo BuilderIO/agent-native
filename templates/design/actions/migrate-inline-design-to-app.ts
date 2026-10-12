@@ -41,20 +41,18 @@
  * The caller should offer `connect-builder-app` to surface the CTA first.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
 } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
-import "../server/db/index.js";
+import { createDesignVersionSnapshotWithSourceMutationLock } from "../server/lib/design-versions.js";
 import {
   resolveBuilderStatus,
   buildMigrationSeed,
@@ -89,57 +87,18 @@ async function snapshotDesign(
   designId: string,
   label: string,
 ): Promise<string> {
-  const db = getDb();
-  const versionId = nanoid();
-  const now = new Date().toISOString();
-
-  const files = await db
-    .select({
-      filename: schema.designFiles.filename,
-      content: schema.designFiles.content,
-      fileType: schema.designFiles.fileType,
-    })
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
-
-  // Also capture the design data blob (tweaks, source type, etc.).
-  // guard:allow-unscoped — the action's run() resolves and asserts editor
-  // access on the design (resolveAccess + assertAccess "design", designId)
-  // before this snapshot helper runs; reads only the addressed design row by id.
-  const [design] = await db
-    .select({ data: schema.designs.data, title: schema.designs.title })
-    .from(schema.designs)
-    .where(eq(schema.designs.id, designId))
-    .limit(1);
-
-  const snapshot = JSON.stringify({
+  const version = await createDesignVersionSnapshotWithSourceMutationLock(
     designId,
-    label,
-    capturedAt: now,
-    designData: design?.data ?? "{}",
-    files: files.map((f) => ({
-      filename: f.filename,
-      fileType: f.fileType,
-      content: f.content,
-    })),
-  });
-
-  await db.insert(schema.designVersions).values({
-    id: versionId,
-    designId,
-    label,
-    snapshot,
-    createdAt: now,
-  });
-
-  return versionId;
+    { label },
+  );
+  return version.id;
 }
 
 export default defineAction({
   description:
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
     "by handing the design's HTML and tokens to the Builder cloud agent. " +
-    "Requires Builder.io (free tier available) to be connected (credentials + branch project ID). " +
+    "Use Builder.io (free tier available) with configured credentials and a branch project ID. " +
     "When Builder is NOT configured returns a connect CTA — never throws. " +
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
@@ -168,7 +127,7 @@ export default defineAction({
   run: async ({ designId, brandKitSummary, branchName }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
 
@@ -204,14 +163,13 @@ export default defineAction({
             kind: "connect-builder" as const,
             label: "Make this a real app",
             description:
-              "Connect Builder.io (free tier available) to migrate this design to a real React app " +
+              "Use Builder.io (free tier available) to migrate this design to a real React app " +
               "with components, props, data states, branches, and deploys.",
-            primaryAction: "Connect Builder.io",
+            primaryAction: "Use Builder.io",
             connectUrl,
           },
           message:
-            "Builder is not connected (free tier available). Call connect-builder-app to start " +
-            "the OAuth flow, then retry migrate-inline-design-to-app.",
+            "Builder is not connected. Direct the user to the in-app Use Builder.io choice to create and activate in one click or sign in to an existing account, then retry migrate-inline-design-to-app.",
         };
       }
 

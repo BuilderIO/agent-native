@@ -1,8 +1,35 @@
+// @vitest-environment happy-dom
+
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string, options?: { defaultValue?: string }) => {
+    if (options?.defaultValue) return options.defaultValue;
+    if (key === "agentChat.onboarding.builderCreateAndActivate") {
+      return "Create and activate";
+    }
+    if (key === "agentChat.onboarding.builderExistingAccount") {
+      return "I have a Builder.io account";
+    }
+    return key;
+  },
+}));
+
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: { capabilities: [] },
+  }),
+}));
 
 import {
+  CodeProviderNotice,
   findRunsThatBecameUnread,
   getProviderGate,
   getCodeAgentPickerOptions,
@@ -27,6 +54,39 @@ import {
 import type { CodeAgentModelOption } from "./types.js";
 import type { CodeAgentRun } from "./types.js";
 import type { CodeAgentTranscriptEvent } from "./types.js";
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  vi.restoreAllMocks();
+});
+
+function click(element: HTMLElement) {
+  act(() => {
+    element.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+async function finishLazyLoad(text: string) {
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(document.body.textContent).toContain(text);
+  });
+}
 
 const extension: CodeAgentsNewSessionExtension = {
   active: true,
@@ -86,6 +146,81 @@ describe("CodeAgentsApp worktree recovery", () => {
 });
 
 describe("CodeAgentsApp credential recovery", () => {
+  it("shows the shared chooser before one-click activation or local sign-in", async () => {
+    const flow = {
+      connecting: false,
+      configured: false,
+      accountExists: false,
+      error: null,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      start: vi.fn(),
+    } as unknown as React.ComponentProps<
+      typeof CodeProviderNotice
+    >["builderConnectFlow"];
+    const connectExistingAccount = vi.fn();
+    const openBuilder = vi.spyOn(window, "open");
+    const renderNotice = () =>
+      root.render(
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(CodeProviderNotice, {
+            className: "provider-notice",
+            title: "Connect AI",
+            description: "Use Builder.io or add custom keys to start coding.",
+            builderConnectFlow: flow,
+            primaryActionLabel: "Use Builder.io",
+            onPrimaryAction: connectExistingAccount,
+          }),
+        ),
+      );
+    act(renderNotice);
+
+    const getTrigger = () =>
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Use Builder.io"),
+      );
+    expect(getTrigger()).toBeDefined();
+    click(getTrigger()!);
+    await finishLazyLoad("Create and activate");
+    expect(document.body.textContent).toContain("I have a Builder.io account");
+    expect(flow.start).not.toHaveBeenCalled();
+    expect(connectExistingAccount).not.toHaveBeenCalled();
+    expect(openBuilder).not.toHaveBeenCalled();
+
+    const createAndActivate = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Create and activate"));
+    expect(createAndActivate).toBeDefined();
+    click(createAndActivate!);
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: true });
+    expect(connectExistingAccount).not.toHaveBeenCalled();
+    expect(openBuilder).not.toHaveBeenCalled();
+
+    act(() => {
+      flow.connecting = true;
+      renderNotice();
+    });
+    expect(document.body.querySelector('[role="status"]')).not.toBeNull();
+    act(() => {
+      flow.connecting = false;
+      flow.configured = true;
+      renderNotice();
+    });
+
+    click(getTrigger()!);
+    await finishLazyLoad("I have a Builder.io account");
+    const signIn = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("I have a Builder.io account"),
+    );
+    expect(signIn).toBeDefined();
+    click(signIn!);
+    expect(connectExistingAccount).toHaveBeenCalledOnce();
+    expect(flow.start).toHaveBeenCalledTimes(1);
+    expect(openBuilder).not.toHaveBeenCalled();
+  });
+
   it("blocks only a confirmed missing provider and exempts local terminal and Portal targets", () => {
     const missingProvider = {
       status: "ok" as const,
@@ -480,7 +615,7 @@ describe("code-agent model selection", () => {
   it("defaults an empty selection to Luna with high effort", () => {
     expect(normalizeModelSelection({}, [])).toEqual({
       engine: "ai-sdk:openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       effort: "high",
     });
   });

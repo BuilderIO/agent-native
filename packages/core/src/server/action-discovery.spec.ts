@@ -71,6 +71,24 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves Standard Schema metadata from static action entries", () => {
+    const schema = {
+      "~standard": { validate: async () => ({ value: {} }) },
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "schema-read": {
+        default: {
+          tool: { description: "Schema read", parameters: {} },
+          schema,
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["schema-read"].schema).toBe(schema);
+  });
+
   it("preserves explicit MCP annotations from static action entries", () => {
     const mcpAnnotations = {
       readOnlyHint: false,
@@ -158,6 +176,38 @@ describe("action discovery", () => {
     });
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
+
+  it("preserves the explicit changeEvents opt-out", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "save-position": {
+        default: {
+          tool: { description: "Save position", parameters: {} },
+          changeEvents: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["save-position"].changeEvents).toBe(false);
+  });
+
+  it("preserves the declared changeResource", () => {
+    const changeResource = (input: { id: string }) => ({
+      resourceType: "document",
+      resourceId: input.id,
+    });
+    const registry = loadActionsFromStaticRegistry({
+      "update-doc": {
+        default: {
+          tool: { description: "Update doc", parameters: {} },
+          changeResource,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["update-doc"].changeResource).toBe(changeResource);
   });
 
   it("preserves request-scoped action discovery predicates", () => {
@@ -439,8 +489,27 @@ describe("action discovery", () => {
     expect(out).toContain("hello Ada Lovelace");
   });
 
-  it("converts arbitrary key/value params into --key value CLI tokens", async () => {
+  it("preserves a quoted option-like value in string CLI args", async () => {
     const seenArgs: string[][] = [];
+    const registry = loadActionsFromStaticRegistry({
+      content: {
+        default: async (args: string[]) => {
+          seenArgs.push(args);
+        },
+      },
+    });
+    const content = "---\nname: spell-check\n---\n# Spell check";
+
+    await registry["content"].run({
+      args: `--content '${content}' --verbose`,
+    });
+
+    expect(seenArgs[0]).toEqual([`--content=${content}`, "--verbose"]);
+  });
+
+  it("preserves arbitrary key/value params in CLI tokens", async () => {
+    const seenArgs: string[][] = [];
+    const content = "---\nname: spell-check\n---\n# Spell check";
     const registry = loadActionsFromStaticRegistry({
       "kv-action": {
         default: async (args: string[]) => {
@@ -449,8 +518,18 @@ describe("action discovery", () => {
       },
     });
 
-    await registry["kv-action"].run({ id: "abc", title: "Hi there" });
-    expect(seenArgs[0]).toEqual(["--id", "abc", "--title", "Hi there"]);
+    await registry["kv-action"].run({
+      id: "abc",
+      title: "Hi there",
+      content,
+    });
+    expect(seenArgs[0]).toEqual([
+      "--id",
+      "abc",
+      "--title",
+      "Hi there",
+      `--content=${content}`,
+    ]);
   });
 
   it(
@@ -658,6 +737,8 @@ describe("action discovery", () => {
         "create-org-service-token",
         "list-org-service-tokens",
         "revoke-org-service-token",
+        "set-service-principal-policy",
+        "set-service-principal-lifecycle",
       ],
     };
 

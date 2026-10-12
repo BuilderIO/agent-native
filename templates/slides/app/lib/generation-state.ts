@@ -37,6 +37,45 @@ export function shouldShowNewDeckGeneratingOverlay({
   );
 }
 
+/**
+ * Keep recovery controls visible when an empty prompted deck has a confirmed
+ * failure or a started run whose outcome could not be confirmed.
+ */
+export type NewDeckGenerationRecoveryState = "failed" | "outcome_unresolved";
+
+export function getNewDeckGenerationRecoveryState({
+  slideCount,
+  hasGenerationContext,
+  failureCode,
+  isNewDeckCreation,
+  phase,
+  generating,
+  waitingOnQuestions,
+}: {
+  slideCount: number;
+  hasGenerationContext: boolean;
+  failureCode: unknown;
+  isNewDeckCreation: boolean;
+  phase: NewDeckGenerationPhase;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+}): NewDeckGenerationRecoveryState | null {
+  if (
+    slideCount !== 0 ||
+    !hasGenerationContext ||
+    generating ||
+    waitingOnQuestions
+  ) {
+    return null;
+  }
+  if (failureCode === "outcome_unresolved") return "outcome_unresolved";
+  if (typeof failureCode === "string") return "failed";
+  if (!isNewDeckCreation) return null;
+  if (phase === "abandoned") return "failed";
+  if (phase === "started") return "outcome_unresolved";
+  return null;
+}
+
 export function shouldShowNewDeckGeneratingProgress({
   generating,
   isNewDeckCreation,

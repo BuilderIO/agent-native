@@ -1,5 +1,4 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
@@ -34,14 +33,6 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
   throw withSsrHtmlContentType(redirect(buildTarget(url)), {
     varyByQuery: true,
   });
-}
-
-export function HydrateFallback() {
-  return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <DefaultSpinner />
-    </div>
-  );
 }
 
 export default function HomeRoute() {

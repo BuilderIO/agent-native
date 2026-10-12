@@ -5,10 +5,12 @@ const mocks = vi.hoisted(() => ({
     kind: "auth-plugin",
     options,
   })),
+  registerAuthPublicPaths: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   createAuthPlugin: mocks.createAuthPlugin,
+  registerAuthPublicPaths: mocks.registerAuthPublicPaths,
 }));
 
 import authPlugin from "./auth.js";
@@ -42,6 +44,16 @@ describe("design auth plugin", () => {
         publicPaths: expect.arrayContaining(["/api/design-agent-context.json"]),
       }),
     );
+  });
+
+  it("registers only the storyboard upload route for its own A2A verifier", () => {
+    expect(mocks.registerAuthPublicPaths).toHaveBeenCalledOnce();
+    expect(mocks.registerAuthPublicPaths).toHaveBeenCalledWith([
+      "/api/session-replay-storyboard",
+    ]);
+
+    const options = mocks.createAuthPlugin.mock.calls[0]?.[0];
+    expect(options.publicPaths).not.toContain("/api/session-replay-storyboard");
   });
 
   it("does not expose review comment mutations", () => {

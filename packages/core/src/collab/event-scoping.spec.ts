@@ -195,11 +195,24 @@ describe("access-aware sharee delivery (SYNC-CACHE variant)", () => {
     expect(resolveAccessMock).not.toHaveBeenCalled();
   });
 
-  it("org member still receives synchronously via orgId without resolveAccess", () => {
+  it("org membership does not bypass resource access checks", async () => {
     resolveAccessMock.mockResolvedValue({ role: "viewer", resource: {} });
     const event = { ...resourceEvent, owner: undefined, orgId: "org-acme" };
+    expect(canSeeChangeForUser(event, "bob@acme.com", "org-acme")).toBe(false);
+    await flushAsync();
+    expect(resolveAccessMock).toHaveBeenCalledWith("document", "doc-res-1", {
+      userEmail: "bob@acme.com",
+      orgId: "org-acme",
+    });
     expect(canSeeChangeForUser(event, "bob@acme.com", "org-acme")).toBe(true);
-    expect(resolveAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("denies an org member without resource access", async () => {
+    resolveAccessMock.mockResolvedValue(null);
+    const event = { ...resourceEvent, owner: undefined, orgId: "org-acme" };
+    expect(canSeeChangeForUser(event, "bob@acme.com", "org-acme")).toBe(false);
+    await flushAsync();
+    expect(canSeeChangeForUser(event, "bob@acme.com", "org-acme")).toBe(false);
   });
 
   it("sharee with viewer access: miss returns false, then true after background check", async () => {

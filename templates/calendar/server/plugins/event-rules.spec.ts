@@ -826,7 +826,11 @@ describe("calendar event rules sweep", () => {
     );
 
     const first = runCalendarEventRulesOnce();
-    const second = runCalendarEventRulesOnce();
+    // Overlap across processes: each has its own in-flight guard, so only the
+    // durable RSVP claim keeps the second sweep from sending another response.
+    vi.resetModules();
+    const otherProcess = await import("./event-rules.js");
+    const second = otherProcess.runCalendarEventRulesOnce();
     await vi.waitFor(() => expect(mocks.getEvent).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => {
       expect(
@@ -914,5 +918,104 @@ describe("calendar event rules sweep", () => {
     );
     expect(request.state.events[0]).not.toHaveProperty("attendees");
     expect(JSON.stringify(request)).not.toContain("guest@example.com");
+  });
+
+  describe("runtime setting write volume", () => {
+    const runtimeWrites = () =>
+      mocks.mutateUserSetting.mock.calls.filter(
+        ([, key]) => key === "calendar-event-rules-runtime",
+      ).length;
+
+    it("writes the runtime setting once for repeated sweeps with the same outcome", async () => {
+      const { owner, settingsByOwner } = configureOwnerSweep();
+      mocks.requestJevThroughBuilder.mockResolvedValue({
+        answers: { event_0_0: { noul: 0 } },
+      });
+
+      await runCalendarEventRulesOnce();
+      const writesAfterFirstSweep = runtimeWrites();
+      const stored = structuredClone(
+        settingsByOwner[owner]["calendar-event-rules-runtime"],
+      );
+      expect(writesAfterFirstSweep).toBeGreaterThan(0);
+
+      for (let sweep = 0; sweep < 5; sweep++) {
+        await runCalendarEventRulesOnce();
+      }
+
+      expect(runtimeWrites()).toBe(writesAfterFirstSweep);
+      expect(settingsByOwner[owner]["calendar-event-rules-runtime"]).toEqual(
+        stored,
+      );
+      expect(mocks.calendarListEvents).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not write at all for a user with no rules on any sweep", async () => {
+      const { owner, settingsByOwner } = configureOwnerSweep({ rules: {} });
+
+      for (let sweep = 0; sweep < 5; sweep++) {
+        await runCalendarEventRulesOnce();
+      }
+
+      expect(runtimeWrites()).toBe(0);
+      expect(settingsByOwner[owner]["calendar-event-rules-runtime"]).toEqual(
+        {},
+      );
+      expect(mocks.calendarListEvents).not.toHaveBeenCalled();
+    });
+
+    it("records a repeated failure once instead of rewriting it every sweep", async () => {
+      const { owner, settingsByOwner } = configureOwnerSweep();
+      mocks.getClientsForAccountsWithErrors.mockRejectedValue(
+        new Error("Google is unavailable"),
+      );
+
+      for (let sweep = 0; sweep < 4; sweep++) {
+        await expect(runCalendarEventRulesOnce()).rejects.toThrow();
+      }
+
+      expect(runtimeWrites()).toBe(1);
+      expect(
+        settingsByOwner[owner]["calendar-event-rules-runtime"],
+      ).toMatchObject({ lastError: "Google is unavailable" });
+    });
+
+    it("clears a recorded error with one write and then stops writing", async () => {
+      const { owner, settingsByOwner } = configureOwnerSweep({
+        rules: {},
+        runtime: { lastError: "old failure" },
+      });
+
+      await runCalendarEventRulesOnce();
+      await runCalendarEventRulesOnce();
+
+      expect(runtimeWrites()).toBe(1);
+      expect(
+        settingsByOwner[owner]["calendar-event-rules-runtime"],
+      ).not.toHaveProperty("lastError");
+    });
+  });
+
+  it("skips a user whose sweep is still running in this process", async () => {
+    configureOwnerSweep();
+    let finishRsvp!: () => void;
+    mocks.rsvpEvent.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRsvp = resolve;
+        }),
+    );
+
+    const first = runCalendarEventRulesOnce();
+    await vi.waitFor(() => expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1));
+    await runCalendarEventRulesOnce();
+
+    expect(mocks.getClientsForAccountsWithErrors).toHaveBeenCalledTimes(1);
+    finishRsvp();
+    await first;
+
+    // Once the sweep ends the user is eligible again (it is simply not due yet).
+    await runCalendarEventRulesOnce();
+    expect(mocks.getClientsForAccountsWithErrors).toHaveBeenCalledTimes(1);
   });
 });

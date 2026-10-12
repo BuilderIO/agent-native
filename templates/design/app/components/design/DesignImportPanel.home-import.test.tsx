@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  claimFigImportToast,
   clearPendingDesignImport,
   readPendingDesignImport,
   setPendingDesignImport,
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   error: vi.fn(),
   success: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
   onImport: vi.fn(),
   queryClient: { invalidateQueries: vi.fn().mockResolvedValue(undefined) },
   fileStorageStatus: {
@@ -52,7 +55,13 @@ vi.mock("@agent-native/toolkit/app/chat/FileStorageSetupPopover", () => ({
 }));
 vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
 vi.mock("sonner", () => ({
-  toast: { error: mocks.error, success: mocks.success, warning: vi.fn() },
+  toast: {
+    error: mocks.error,
+    success: mocks.success,
+    warning: vi.fn(),
+    loading: mocks.loading,
+    dismiss: mocks.dismiss,
+  },
 }));
 vi.mock("@/lib/fig-client-import", () => ({
   prepareFigImport: (...args: unknown[]) => mocks.prepare(...args),
@@ -149,6 +158,64 @@ describe("home-picked .fig handoff", () => {
     expect(readPendingDesignImport("home-design")).toBeUndefined();
     await remount();
     expect(mocks.prepare).toHaveBeenCalledOnce();
+  });
+  it("shows a loading toast for the whole import and dismisses it when the import finishes", async () => {
+    let finishDecode!: () => void;
+    mocks.prepare.mockImplementation(async (_file, onProgress) => {
+      onProgress({ phase: "decoding" });
+      await new Promise<void>((resolve) => (finishDecode = resolve));
+      return prepared();
+    });
+    await render();
+    await vi.waitFor(() =>
+      expect(mocks.loading).toHaveBeenLastCalledWith(
+        "designEditor.import.figImportAnalyzing",
+        { id: "design-fig-import-progress", description: "picked.fig" },
+      ),
+    );
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    await act(async () => finishDecode());
+    await vi.waitFor(() => expect(mocks.onImport).toHaveBeenCalledOnce());
+    expect(mocks.dismiss).toHaveBeenCalledWith("design-fig-import-progress");
+  });
+  it("keeps the toast current after the panel unmounts and never dismisses a newer import's toast", async () => {
+    let report!: (progress: Record<string, unknown>) => void;
+    let finishImport!: () => void;
+    mocks.import.mockImplementation(async ({ onProgress }) => {
+      report = onProgress;
+      await new Promise<void>((resolve) => (finishImport = resolve));
+      return { designId: "home-design", files: [] };
+    });
+    await render();
+    await vi.waitFor(() => expect(report).toBeTypeOf("function"));
+    await act(async () => root.unmount());
+
+    report({ phase: "saving", ratio: 0.5, saved: 2, total: 4 });
+    expect(mocks.loading).toHaveBeenLastCalledWith(
+      "designEditor.import.figImportSaving",
+      { id: "design-fig-import-progress", description: "picked.fig" },
+    );
+
+    claimFigImportToast();
+    mocks.loading.mockClear();
+    report({ phase: "saving", ratio: 0.9, saved: 4, total: 4 });
+    await act(async () => finishImport());
+    await vi.waitFor(() => expect(mocks.success).toHaveBeenCalled());
+    expect(mocks.loading).not.toHaveBeenCalled();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+
+    root = createRoot(container);
+  });
+  it("rejects files over the browser limit before decoding with the translated size message", async () => {
+    const huge = new File(["fig"], "huge.fig");
+    Object.defineProperty(huge, "size", { value: 3 * 1024 ** 3 });
+    setPendingDesignImport("home-design", { kind: "file", file: huge });
+    await render();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.uploadFailed",
+      { description: "designEditor.import.errors.figFileTooLarge" },
+    );
+    expect(mocks.prepare).not.toHaveBeenCalled();
   });
   it("does not auto-repeat a failed import after rerender or remount and retries the same file only on request", async () => {
     mocks.import.mockRejectedValueOnce(

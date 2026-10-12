@@ -352,6 +352,25 @@ describe("workspace app routes", () => {
     }
   });
 
+  it("preserves configured built-in launch paths over canonical defaults", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      undefined,
+      ["clips"],
+      [
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com/recordings",
+          source: "builtin",
+        },
+      ],
+    );
+
+    expect(apps.find((app) => app.id === "clips")?.url).toBe(
+      "https://clips.agent-native.com/recordings",
+    );
+  });
+
   it("lets a mounted workspace app override a default row", () => {
     const apps = mergeChatFirstWorkspaceApps(
       [
@@ -382,6 +401,40 @@ describe("workspace app routes", () => {
     expect(apps.map((app) => [app.id, app.source])).toEqual([
       ["mail", "builtin"],
       ["crm", "workspace"],
+    ]);
+  });
+
+  it("adds every configured first-party app to the launcher", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [],
+      ["mail", "clips", "slides"],
+      [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://mail.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com",
+          source: "builtin",
+        },
+        {
+          id: "slides",
+          name: "Slides",
+          url: "https://slides.agent-native.com",
+          source: "builtin",
+        },
+      ],
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["mail", "clips", "slides"]);
+    expect(apps.map((app) => app.source)).toEqual([
+      "builtin",
+      "builtin",
+      "builtin",
     ]);
   });
 

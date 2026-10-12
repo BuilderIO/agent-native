@@ -40,16 +40,12 @@ Even when invoked alone, this workflow asks at most three new clarification
 questions per run across all threads, ranked by which answer would unblock a
 safe fix.
 
-If this workflow earlier added `👀` before recognizing an item was out of
-scope, keep our eye and mark the unfixed item with `🎫`. Record **Skipped**
-with one brief status reply if the thread lacks it, not a question. If this
-workflow already posted a mistaken reply, edit it to that disposition.
+If this workflow eyed an out-of-scope item, keep the eye and post one concise
+**Skipped** reply if needed. Apply `review-latest-feedback`'s Reaction gate
+before `🎫`. Correct any mistaken reply to **Skipped**.
 New messages must pass the clear-bug gate before any external write.
 
-Use the disposition-specific reaction contract from `review-latest-feedback`:
-add `👀` when claiming, `✅` for verified fixes, and `🎫` for items left
-unfixed. Mixed threads get both status reactions. Reactions are never removed;
-newer thread evidence determines the current disposition.
+Follow `review-latest-feedback` for status reactions; never remove reactions.
 
 Follow `review-latest-feedback` for ownership and cluster status; a claimed
 report keeps its `👀`, and an unresolved eye cannot be taken over.
@@ -134,10 +130,9 @@ progress** retain `👀` after the report has been claimed.
 after the report has been claimed.
 Terminal dispositions: **Fixed**, **Shipped**, **Live verified**,
 **Open - no question**, **Resolved elsewhere**, **Skipped**, **Clustered**, and
-**Abandoned - no answer in 4 days**, each with required evidence and `👀`; add
-`✅` only for verified fixes and `🎫` for unfixed items. An already-eyed
-out-of-scope item keeps its eye and gets one concise **Skipped** reply if the
-thread lacks that status.
+**Abandoned - no answer in 4 days**, each with required evidence and `👀`. Follow
+`review-latest-feedback` for `✅`/`🎫`. An already-eyed skipped item gets one
+concise **Skipped** reply if absent.
 **Fixed** closes the issue after a verified
 source fix merges; publication, beta, and live verification follow separately.
 **In progress** is an open ownership state. Do not send an interim progress
@@ -166,10 +161,8 @@ closure; keep the eye while waiting. The next
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
 
-That obligation expires after four days, standalone runs included: keep our
-`👀`, add `🎫` for the unfixed item, and post **Abandoned - no answer in 4
-days** once if the thread lacks that status. Ask nothing further; carry any
-active bug forward.
+After four days, keep `👀` and post **Abandoned - no answer in 4 days** once.
+Apply `review-latest-feedback`'s Reaction gate; carry active bugs forward.
 
 **In progress** is also an open state. It records that the thread already has
 real ownership or an active fix, so the invoking identity must not ask the
@@ -331,8 +324,9 @@ identity:
   accessible source, and never write “not fixed yet” without a real question
   that unblocks the fix. If a linked source is inaccessible, ask for access or
   a fresh/replacement link instead of requesting its contents again. If no
-  reporter detail would unblock the work, keep our `👀`, add `🎫`, record
-  **Open - no question**, and post that status once if the thread lacks it.
+  reporter detail would unblock work, keep `👀`, and record/post **Open - no
+  question**; post once if absent. Apply `review-latest-feedback`'s Reaction
+  gate before `🎫`.
 - When a request ID would help, make the path easy and optional: “at the end of
   the chat, hit the three dots and share the request ID if that option is
   available.” Pair it with the useful surface link when one exists, such as a
@@ -342,18 +336,20 @@ identity:
   vague unresolved wording and edit or remove it. Re-read the affected threads
   after each edit. Unclaimed subjective/product/policy items get no reply. If
   an item was claimed before being skipped, preserve its eye and ensure one
-  concise **Skipped** status reply. Add `✅` only for verified fixes and `🎫`
-  to items left unfixed.
+  concise **Skipped** status reply. Follow `review-latest-feedback` for
+  `✅`/`🎫`.
 
 A useful reply shape is:
 
 ```text
 ty for the feedback - [short plain-language status].
 
-  [if a merged app fix uses the beta publisher: the fix merged and should be
-  live on beta in the next few hours.]
-  [if the report is mixed: name each unfixed item and why; ask one targeted
-  question if needed, or say clear deferred work will be ticketed.]
+  [if the merged app fix's beta publisher is queued or running: say the fix
+  should be on beta within about 24 hours; if it succeeded, say it is published;
+  if it failed or is missing, state the next action without an ETA.]
+  [if the report is mixed: name each unfixed item and why; state the human
+  action or owner still needed, link an existing ticket if available, and ask
+  one targeted question only if its answer would unblock the work.]
   [if in progress: we're already looking into this and will follow up once the
   fix is verified.]
   [if clarification is needed: if you can share the one missing detail, that

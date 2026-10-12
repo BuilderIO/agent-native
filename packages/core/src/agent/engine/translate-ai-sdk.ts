@@ -35,6 +35,8 @@ export function engineToolsToAISDK(
     result[providerName] = {
       description: tool.description,
       inputSchema: jsonSchema ? jsonSchema(rawSchema) : rawSchema,
+      // Gateways may normalize an omitted flag into required optional fields.
+      strict: false,
     };
   }
   return result;

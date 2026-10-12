@@ -29,9 +29,18 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => ({
   >()),
   trackEvent: mocks.track,
 }));
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/mcp-app-host")
+  >()),
+  useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
+  useIsMcpDirectoryWidgetWriteEmbed: () => false,
+}));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
+  useLocale: () => ({ locale: "en-US" }),
 }));
 vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
@@ -70,6 +79,37 @@ describe("DocumentToolbar clipboard behavior", () => {
   let root: Root;
   let queryClient: QueryClient;
 
+  function renderToolbar(suggesting = false, readOnly = false) {
+    root.render(
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(DocumentToolbar, {
+              documentId: "clipboard-fixture",
+              utilityPanel: null,
+              onUtilityPanelChange: () => {},
+              readOnly,
+              isFavorite: true,
+              onToggleFavorite: vi.fn(),
+              canSuggest: true,
+              suggesting,
+              onCaptureEditorSelection: mocks.captureSelection,
+              onPreserveEditorSelection: mocks.preserveSelection,
+              onRestoreEditorSelection: mocks.restoreSelection,
+              onSuggestingChange: mocks.suggestingChange,
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
   beforeEach(async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
@@ -89,32 +129,7 @@ describe("DocumentToolbar clipboard behavior", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    await act(async () => {
-      root.render(
-        createElement(
-          MemoryRouter,
-          null,
-          createElement(
-            TooltipProvider,
-            null,
-            createElement(
-              QueryClientProvider,
-              { client: queryClient },
-              createElement(DocumentToolbar, {
-                documentId: "clipboard-fixture",
-                utilityPanel: null,
-                onUtilityPanelChange: () => {},
-                canSuggest: true,
-                onCaptureEditorSelection: mocks.captureSelection,
-                onPreserveEditorSelection: mocks.preserveSelection,
-                onRestoreEditorSelection: mocks.restoreSelection,
-                onSuggestingChange: mocks.suggestingChange,
-              }),
-            ),
-          ),
-        ),
-      );
-    });
+    await act(async () => renderToolbar());
   });
 
   afterEach(async () => {
@@ -220,6 +235,34 @@ describe("DocumentToolbar clipboard behavior", () => {
     expect(mocks.track).not.toHaveBeenCalled();
   });
 
+  it("hides share and favorite mutations in a read-only widget", async () => {
+    await act(async () => renderToolbar(false, true));
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("editor.toolbar.share"),
+      ),
+    ).toBe(false);
+
+    const moreActions = container.querySelector<HTMLButtonElement>(
+      '[aria-label="editor.toolbar.morePageActions"]',
+    );
+    expect(moreActions).not.toBeNull();
+    await act(async () => {
+      moreActions!.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      moreActions!.click();
+    });
+    expect(container.textContent).not.toContain("editor.toolbar.pin");
+    expect(container.textContent).not.toContain("editor.toolbar.unpin");
+    expect(container.textContent).not.toContain("editor.toolbar.suggestEdits");
+  });
+
   it("keeps local-file documents on their local page link", async () => {
     mocks.copy.mockResolvedValue(true);
     await act(async () => {
@@ -276,7 +319,7 @@ describe("DocumentToolbar clipboard behavior", () => {
       container.querySelector('[aria-label="editor.toolbar.copyLink"]'),
     ).toBeNull();
   });
-  it("captures the editor selection before pointer-opening Suggest edits", async () => {
+  it("clears superseded Suggest edits focus timers before unmounting", async () => {
     const editor = document.createElement("div");
     editor.tabIndex = 0;
     document.body.append(editor);
@@ -308,9 +351,53 @@ describe("DocumentToolbar clipboard behavior", () => {
       candidate.textContent?.includes("editor.toolbar.suggestEdits"),
     );
     expect(item).not.toBeUndefined();
-    await act(async () => item!.click());
-    expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
-    expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    const setTimeout = vi.spyOn(window, "setTimeout");
+    const clearTimeout = vi.spyOn(window, "clearTimeout");
+    try {
+      await act(async () => item!.click());
+      expect(mocks.suggestingChange).toHaveBeenCalledWith(true);
+      expect(mocks.restoreSelection).toHaveBeenCalledTimes(1);
+
+      const focusTimeouts = () =>
+        setTimeout.mock.calls.flatMap(([, delay], index) =>
+          delay === 50 ? [setTimeout.mock.results[index]?.value] : [],
+        );
+      const [firstFocusTimeout] = focusTimeouts();
+      expect(firstFocusTimeout).toBeDefined();
+
+      await act(async () => renderToolbar(true));
+      const secondTrigger = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.toolbar.morePageActions"]',
+      )!;
+      await act(async () => {
+        secondTrigger.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+      });
+      const secondItem = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((candidate) =>
+        candidate.textContent?.includes("editor.toolbar.stopSuggesting"),
+      );
+      expect(secondItem).not.toBeUndefined();
+      await act(async () => secondItem!.click());
+      expect(mocks.suggestingChange).toHaveBeenLastCalledWith(false);
+
+      const [, secondFocusTimeout] = focusTimeouts();
+      expect(secondFocusTimeout).toBeDefined();
+      expect(clearTimeout).toHaveBeenCalledWith(firstFocusTimeout);
+
+      await act(async () => root.render(null));
+
+      expect(clearTimeout).toHaveBeenCalledWith(secondFocusTimeout);
+    } finally {
+      vi.useRealTimers();
+    }
 
     editor.remove();
   });

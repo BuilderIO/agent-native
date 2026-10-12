@@ -56,6 +56,7 @@ import {
   markAllUnreadReadForAccount,
   startWatch,
 } from "./google-auth.js";
+import { clearSyncAccountReauth } from "./inbox-store.js";
 import { getMailProviderApiRuntime } from "./provider-api.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -146,6 +147,7 @@ vi.mock("./google-api.js", () => ({
 
 vi.mock("./inbox-store.js", () => ({
   readInboxThreads: vi.fn(),
+  clearSyncAccountReauth: vi.fn(),
 }));
 
 vi.mock("../db/index.js", async (importOriginal) => {
@@ -1085,6 +1087,41 @@ describe("getClientForConnectedAccount ownership", () => {
       "owner@example.com",
     );
     expect(listOAuthAccounts).not.toHaveBeenCalled();
+  });
+
+  it("force-refreshes a token Google rejected even though it looks unexpired", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "shared@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "rejected-token",
+          refresh_token: "owner-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+    const refreshToken = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network error"))
+      .mockResolvedValueOnce({ access_token: "fresh-token", expires_in: 3600 });
+    vi.mocked(createOAuth2Client).mockReturnValue({ refreshToken } as any);
+
+    // A transient refresh failure must not hand back the rejected token.
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "shared@example.com", {
+        forceRefresh: true,
+      }),
+    ).rejects.toThrow("network error");
+    await expect(
+      getClientForConnectedAccount("owner@example.com", "shared@example.com", {
+        forceRefresh: true,
+      }),
+    ).resolves.toEqual({
+      accessToken: "fresh-token",
+      email: "shared@example.com",
+    });
+    expect(refreshToken).toHaveBeenCalledTimes(2);
   });
 
   it("does not borrow a matching OAuth row owned by another user", async () => {
@@ -2736,6 +2773,11 @@ describe("Google OAuth URL construction", () => {
         refresh_token: "gmail-refresh-token",
         scope: "https://www.googleapis.com/auth/gmail.readonly",
       }),
+      "owner@example.com",
+    );
+    // A fresh credential lets sync retry an account marked needs_reauth.
+    expect(clearSyncAccountReauth).toHaveBeenCalledWith(
+      "owner@example.com",
       "owner@example.com",
     );
   });

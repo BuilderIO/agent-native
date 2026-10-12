@@ -469,7 +469,7 @@ const messages = {
         "送信する前に宛先を追加するか、入力中のテキストを消してください。",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "生成を使う前に、Builder.io（無料プランあり）または別の AI エンジンを使用してください。",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -717,7 +717,7 @@ const messages = {
       connectJevToRunTriage: "トリアージを実行するにはJevを接続",
       freeBuilderOrApiKey: "Builder.ioなら無料、またはAPIキーを追加。",
       jevAvailabilityFailed: "Jev の利用可否を確認できませんでした。",
-      connectBuilder: "Builder.ioを接続",
+      connectBuilder: "Builder.ioを使用",
       addJevApiKey: "APIキーを追加",
     },
     draftQueue: {

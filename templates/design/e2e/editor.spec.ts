@@ -1,6 +1,7 @@
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { test, expect } from "@playwright/test";
 
+import enUS from "../app/i18n/en-US";
 import {
   canvasZoom,
   readSeedDesignId,
@@ -72,11 +73,24 @@ test("editor renders the toolbar and the design iframe content", async ({
   page,
 }) => {
   const toolbar = page.locator("[data-design-bottom-toolbar]");
-  for (const tool of ["Move", "Frame", "Text", "Pen", "Edit", "Interact"]) {
+  for (const tool of ["Move", "Frame", "Text", "Pen"]) {
     await expect(
       toolbar.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
+  const modeSwitch = page.locator(
+    "[data-design-top-bar] [data-design-mode-switch]",
+  );
+  await expect(modeSwitch.locator("[data-design-mode]")).toHaveText([
+    "Interact",
+    "Design",
+    "Annotate",
+  ]);
+  await expect(modeSwitch.locator('[data-design-mode="edit"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(toolbar.locator("[data-design-mode]")).toHaveCount(0);
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
   const nodeCount = await designFrame(page)
     .locator("h1, h2, p, button")
@@ -91,7 +105,10 @@ test("agent rail keeps the shared chat header and conversation tabs", async ({
     '[data-design-chrome-region="workspace-rail"]',
   );
   await workspaceRail
-    .getByRole("button", { name: "Agent", exact: true })
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
@@ -138,7 +155,10 @@ test("agent rail stays contained at a narrow viewport", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page
     .locator('[data-design-chrome-region="workspace-rail"]')
-    .getByRole("button", { name: "Agent", exact: true })
+    .getByRole("button", {
+      name: enUS.designEditor.leftRail.agent,
+      exact: true,
+    })
     .click();
 
   const agentPanel = page.locator("[data-design-agent-panel]");
@@ -160,9 +180,7 @@ test("designs list shared sidebar stays contained at normal and narrow widths", 
   await page.getByRole("button", { name: "Toggle agent", exact: true }).click();
   const sidebar = page.locator('[data-agent-sidebar-state="open"]');
   await expect(sidebar).toBeVisible();
-  await expect(
-    sidebar.getByRole("button", { name: "New chat", exact: true }),
-  ).toBeVisible();
+  await expect(sidebar.locator('button[aria-label="New chat"]')).toBeVisible();
   await expect(
     sidebar.getByRole("button", {
       name: "Agent panel options",
@@ -276,37 +294,71 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
   }
 });
 
-test("right rail actions row keeps the Share button inside the panel", async ({
+test("visual-edit route has no top bar and keeps Share, zoom and the mode tabs", async ({
+  page,
+}) => {
+  await page.goto(appPath(`/visual-edit/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("[data-design-top-bar]")).toHaveCount(0);
+  await expect(
+    rightPanel.getByRole("button", { name: /^share/i }).first(),
+  ).toBeVisible();
+  await expect(
+    rightPanel.getByRole("button", { name: /^\d+%$/ }),
+  ).toBeVisible();
+  const toolbar = page.locator("[data-design-bottom-toolbar]");
+  for (const tab of ["Annotate", "Edit", "Interact"]) {
+    await expect(
+      toolbar.getByRole("button", { name: tab, exact: true }),
+    ).toBeVisible();
+  }
+});
+
+test("top bar is 48px and keeps Share, presence and zoom inside the bar", async ({
   page,
 }, testInfo) => {
-  const actionsRow = page.locator(
-    '[data-design-chrome-region="right-toolbar-actions"]',
-  );
-  await expect(actionsRow).toBeVisible();
+  const topBar = page.locator("[data-design-top-bar]");
+  await expect(topBar).toBeVisible();
+  const barBox = await topBar.boundingBox();
+  if (!barBox) throw new Error("missing top bar box");
+  expect(barBox.y).toBe(0);
+  expect(barBox.height).toBe(48);
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox();
+  if (!leftShellBox) throw new Error("missing left shell box");
+  expect(leftShellBox.y).toBe(0);
+  expect(barBox.x).toBe(leftShellBox.x + leftShellBox.width);
 
   await expect(
     page.getByRole("button", { name: "Add to Context" }),
   ).toHaveCount(0);
 
-  const shareButton = page
+  const shareButton = topBar
     .getByRole("button", { name: /^share(?: \(.+\))?$/i })
     .first();
   await expect(shareButton).toBeVisible();
-
-  const rowBox = await actionsRow.boundingBox();
   const shareBox = await shareButton.boundingBox();
-  if (!rowBox || !shareBox) throw new Error("missing right rail action boxes");
-
-  expect(shareBox.width).toBeGreaterThan(0);
-  expect(shareBox.x).toBeGreaterThanOrEqual(rowBox.x - 1);
+  if (!shareBox) throw new Error("missing Share box");
+  expect(shareBox.x).toBeGreaterThanOrEqual(barBox.x - 1);
   expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
-    rowBox.x + rowBox.width + 1,
+    barBox.x + barBox.width + 1,
   );
   expect(
-    await actionsRow.evaluate((node) => node.scrollWidth - node.clientWidth),
+    await topBar.evaluate((node) => node.scrollWidth - node.clientWidth),
   ).toBeLessThanOrEqual(1);
+  await expect(topBar.getByRole("button", { name: /^\d+%$/ })).toBeVisible();
 
-  await cdpScreenshot(page, testInfo.outputPath("editor-share-toolbar.png"));
+  // The rail no longer carries the moved controls.
+  const rightPanel = page.locator('[data-design-chrome-region="right-panel"]');
+  await expect(rightPanel.getByRole("button", { name: /^share/i })).toHaveCount(
+    0,
+  );
+
+  await cdpScreenshot(page, testInfo.outputPath("editor-top-bar.png"));
 });
 
 test("screen overview adds and targets frames from the unified breakpoint control", async ({
@@ -331,8 +383,25 @@ test("screen overview adds and targets frames from the unified breakpoint contro
     await route.fulfill({ response });
   });
 
-  const breakpointControl = page.locator("[data-breakpoint-device-control]");
   try {
+    const fixtureDesignId = await createFixtureDesign(
+      page,
+      "E2E Unified Breakpoint Control",
+    );
+    await page.setViewportSize({ width: 1800, height: 1000 });
+    await page.goto(
+      appPath(`/design/${fixtureDesignId}?view=overview&zoom=24`),
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(page.locator("[data-screen-shell]").first()).toBeVisible();
+    await page
+      .locator("aside")
+      .first()
+      .getByRole("button", { name: "All screens", exact: true })
+      .click();
+    await expect(page.locator("[data-screen-card]").first()).toBeVisible();
+
+    const breakpointControl = page.locator("[data-breakpoint-device-control]");
     await expect(
       breakpointControl.getByRole("button", { name: "Base" }),
     ).toHaveAttribute("aria-pressed", "true");
@@ -524,7 +593,21 @@ test("screen overview lets users select elements inside the active screen", asyn
 
   await frameTitle.click();
   await expect.poll(frameTitleColor).toBe(accentColor);
-  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  // Clicking the title fits the camera to the Screen, so the heading moves.
+  // Wait for it to settle before aiming the next click at it.
+  let settled = box!;
+  await expect
+    .poll(async () => {
+      const next = (await target.boundingBox())!;
+      const stable = next.x === settled.x && next.y === settled.y;
+      settled = next;
+      return stable;
+    })
+    .toBe(true);
+  await page.mouse.click(
+    settled.x + settled.width / 2,
+    settled.y + settled.height / 2,
+  );
 
   const selected = await waitForBridge(page, "element-select");
   const payload = selected?.payload ?? selected;
@@ -603,7 +686,18 @@ test("left sidebar switches between all screens and focused screens", async ({
   const screenCards = page.locator("[data-screen-card]");
   await expect(screenCards.first()).toBeVisible();
 
+  // A row focuses its Screen on the overview canvas: the Screen is selected and
+  // "All screens" stays current. Interact is what leaves the overview.
   await homeScreen.click();
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]').first(),
+  ).toContainText("Home");
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(homeScreen).toHaveAttribute("aria-current", "page");
   await expect(allScreens).not.toHaveAttribute("aria-current", "page");
   await expect(

@@ -46,6 +46,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../../db/request-pool-context.js";
 
 export type SandboxExecutionStatus =
   | "queued"
@@ -114,10 +115,12 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
+    _initPromise = retainRequestDbPoolScope(
+      _doEnsureTable().catch((err) => {
+        _initPromise = undefined;
+        throw err;
+      }),
+    );
   }
   return _initPromise;
 }

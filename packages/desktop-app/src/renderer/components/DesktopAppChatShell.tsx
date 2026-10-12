@@ -5,6 +5,7 @@ import {
   AgentSidebar,
 } from "@agent-native/toolkit/app/chat";
 import { preloadAgentChatSurface } from "@agent-native/toolkit/app/chat/AgentSidebar";
+import type { BuilderConnectTransport } from "@agent-native/toolkit/app/settings";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -180,6 +181,41 @@ export default function DesktopAppChatShell({
   const [localCodeChange, setLocalCodeChange] = useState<LocalCodeChangeState>({
     status: "idle",
   });
+  const builderConnectTransport = useMemo<BuilderConnectTransport>(
+    () => ({
+      async readStatus({ connectAttemptId }) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api) return null;
+        const result = await api.getBuilderConnectionStatus(connectAttemptId);
+        return result.state === "unavailable" ? null : result.status;
+      },
+      async activateAccount(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api) {
+          return {
+            ok: false,
+            code: "desktop_bridge_unavailable",
+            message: "Restart Agent-Native Desktop to continue.",
+          };
+        }
+        return api.activateBuilderAccount({
+          ...request,
+          scope: request.scope ?? undefined,
+        });
+      },
+      async openConnectUrl(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api) {
+          return {
+            ok: false,
+            error: "Restart Agent-Native Desktop to continue.",
+          };
+        }
+        return api.openBuilderConnectUrl(request);
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     try {
@@ -587,9 +623,7 @@ export default function DesktopAppChatShell({
               agentChatSurface="desktop"
               desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
               desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-              onConnectProvider={() => {
-                void window.electronAPI?.codeAgents?.connectBuilderProvider?.();
-              }}
+              builderConnectTransport={builderConnectTransport}
               showTabBar
               restoreActiveThread={false}
               suppressInlineOpenApp

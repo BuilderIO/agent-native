@@ -1,6 +1,33 @@
 import { z } from "zod";
 
+import { BUILDER_MODEL_CONFIG } from "../agent/model-config.js";
+
+// Typed against the Builder catalog: the classifier runs on the gateway, so a
+// retired id must break the build instead of every classification.
+const DEFAULT_INFERRED_SENTIMENT_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
+
 export const observabilityConfig = z.object({
+  release: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_RELEASE"],
+      doc: "Release name stamped verbatim on server error reports. Unset, the deploy's build id is used.",
+    }),
+  buildId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_BUILD_ID"],
+      doc: "Deploy id or commit the server was built from (the build bakes it from the platform's deploy and commit variables), used to name the release on error reports when no explicit release is set.",
+    }),
   enabled: z
     .boolean()
     .default(true)
@@ -37,7 +64,7 @@ export const observabilityConfig = z.object({
     .default(false)
     .meta({
       env: ["AGENT_NATIVE_OBSERVABILITY_CAPTURE_TOOL_RESULTS"],
-      doc: "Include tool results and error text on tool spans.",
+      doc: "Include tool results and full error bodies on tool spans. Off, a failed tool still keeps a bounded first line of its error with credentials, emails, and opaque ids redacted.",
     }),
   mcpEvents: z
     .boolean()
@@ -83,7 +110,11 @@ export const observabilityConfig = z.object({
   inferredSentimentSampleRate: z.number().min(0).max(1).optional().meta({
     doc: "Deterministic fraction of eligible user messages to classify, 0 to 1.",
   }),
-  inferredSentimentModel: z.string().min(1).default("gpt-5-6-luna").meta({
-    doc: "Model used by the managed sentiment classifier.",
-  }),
+  inferredSentimentModel: z
+    .string()
+    .min(1)
+    .default(DEFAULT_INFERRED_SENTIMENT_MODEL)
+    .meta({
+      doc: "Model used by the managed sentiment classifier.",
+    }),
 });

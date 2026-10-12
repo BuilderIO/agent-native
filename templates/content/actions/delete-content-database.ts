@@ -22,6 +22,12 @@ export default defineAction({
     "Move one exact ordinary collection to recoverable Trash using its fresh configuration revision and an idempotency key; preserve records for restoration and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   agentInputSchema: setupLifecycleSchema,
   schema: z.union([
     setupLifecycleSchema,

@@ -43,7 +43,7 @@ async function getToken(
     tokens?.access_token &&
     (!tokens.expiry_date || Date.now() < tokens.expiry_date - 5 * 60 * 1000)
   ) {
-    registerGmailAccountToken(
+    await registerGmailAccountToken(
       tokens.access_token,
       ownerEmail,
       accountId,

@@ -13,6 +13,11 @@ import {
   runSkills,
   VISUAL_RECAP_SKILL_MD,
 } from "./skills.js";
+import {
+  CHAT_STARTER_SKILLS,
+  BUILDER_CODE_STARTER_SKILLS,
+} from "./workspace-skill-policy.js";
+import { WORKSPACE_SKILLS } from "./workspace-skill-policy.js";
 
 const tmpRoots: string[] = [];
 const PLANS_SKILL_NAMES = ["visual-plan", "visual-recap", "visualize-repo"];
@@ -184,7 +189,8 @@ describe("agent-native skills", () => {
         "utf-8",
       );
       expect(config).toContain("clips-screen-memory");
-      expect(config).toContain(path.resolve(store));
+      // A TOML basic string escapes Windows backslashes the way JSON does.
+      expect(config).toContain(JSON.stringify(path.resolve(store)));
       expect(result.commands).toContain(
         "npx @agent-native/core@latest mcp install-screen-memory --client codex --scope user",
       );
@@ -3096,10 +3102,128 @@ describe("agent-native skills", () => {
     ).toBe(true);
   });
 
+  it("refreshes Chat workspace skills without restoring omitted defaults", async () => {
+    const root = tmpDir();
+    const shared = path.join(root, "packages", "shared");
+    const app = path.join(root, "apps", "chat");
+    const sharedSkills = path.join(shared, ".agents", "skills");
+    const appSkills = path.join(app, ".agents", "skills");
+    fs.mkdirSync(path.join(root, "apps"), { recursive: true });
+    fs.cpSync(
+      path.join(
+        workspaceRoot(),
+        "packages",
+        "core",
+        "src",
+        "templates",
+        "workspace-core",
+        ".agents",
+        "skills",
+      ),
+      sharedSkills,
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "my-workspace",
+          "agent-native": { workspaceCore: "@my/shared" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      path.join(shared, "package.json"),
+      JSON.stringify({ name: "@my/shared" }, null, 2),
+    );
+    fs.mkdirSync(app, { recursive: true });
+    fs.writeFileSync(
+      path.join(app, "package.json"),
+      JSON.stringify(
+        {
+          name: "roomwise",
+          "agent-native": {
+            scaffold: { template: "chat", frameworkSkills: "default" },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.cpSync(
+      path.join(workspaceRoot(), "templates", "chat", ".agents", "skills"),
+      appSkills,
+      { recursive: true },
+    );
+    for (const skill of ["portability", "workspace-conventions"]) {
+      fs.cpSync(
+        path.join(
+          workspaceRoot(),
+          "packages",
+          "core",
+          "src",
+          "templates",
+          "workspace-core",
+          ".agents",
+          "skills",
+          skill,
+        ),
+        path.join(appSkills, skill),
+        { recursive: true },
+      );
+    }
+    fs.writeFileSync(
+      path.join(sharedSkills, "actions", "SKILL.md"),
+      "old actions skill\n",
+    );
+    fs.rmSync(path.join(appSkills, "actions"), {
+      recursive: true,
+      force: true,
+    });
+    fs.symlinkSync(
+      path.relative(appSkills, path.join(sharedSkills, "actions")),
+      path.join(appSkills, "actions"),
+      "dir",
+    );
+
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(JSON.parse(stdout.join(""))).toMatchObject({
+      scaffold: [{ status: "current" }],
+      updated: 1,
+    });
+    expect(fs.lstatSync(path.join(appSkills, "actions")).isSymbolicLink()).toBe(
+      true,
+    );
+    for (const skill of ["portability", "workspace-conventions"]) {
+      expect(fs.lstatSync(path.join(appSkills, skill)).isSymbolicLink()).toBe(
+        true,
+      );
+    }
+    expect(
+      fs.readFileSync(path.join(appSkills, "actions", "SKILL.md"), "utf-8"),
+    ).toContain("# Agent Actions");
+    expect(fs.existsSync(path.join(appSkills, "turn-into-app"))).toBe(false);
+  });
+
   it("updates generated standalone headless scaffold skills", async () => {
     const root = tmpDir();
     fs.mkdirSync(path.join(root, "actions"), { recursive: true });
     fs.mkdirSync(path.join(root, ".agents", "skills", "agent-native-docs"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(root, ".agents", "skills", "actions"), {
       recursive: true,
     });
     fs.writeFileSync(
@@ -3119,6 +3243,10 @@ describe("agent-native skills", () => {
       path.join(root, ".agents", "skills", "agent-native-docs", "SKILL.md"),
       "old docs skill\n",
     );
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "actions", "SKILL.md"),
+      "old actions skill\n",
+    );
 
     await runSkills(["update", "scaffold", "--scope", "project"], {
       baseDir: root,
@@ -3131,8 +3259,366 @@ describe("agent-native skills", () => {
         "utf-8",
       ),
     ).toContain("# Agent-Native Docs");
+    expect(
+      fs.readFileSync(
+        path.join(root, ".agents", "skills", "actions", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("# Agent Actions");
+    expect(
+      fs.existsSync(path.join(root, ".agents", "skills", "performance")),
+    ).toBe(false);
     expect(fs.existsSync(path.join(root, "CLAUDE.md"))).toBe(true);
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
+  });
+
+  it.each([
+    {
+      template: "chat",
+      frameworkSkills: "default",
+      sourceTemplates: ["chat"],
+      refreshedSkill: "build-an-app",
+      omittedSkill: "agent-engines",
+    },
+    {
+      template: "default",
+      frameworkSkills: "default",
+      sourceTemplates: ["default"],
+      refreshedSkill: "build-an-app",
+      omittedSkill: "turn-into-skill",
+    },
+    {
+      template: "headless",
+      frameworkSkills: "headless",
+      sourceTemplates: ["headless"],
+      refreshedSkill: "self-modifying-code",
+      omittedSkill: "build-an-app",
+    },
+    ...[
+      "analytics",
+      "assets",
+      "brain",
+      "calendar",
+      "content",
+      "crm",
+      "design",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "tasks",
+    ].map((template) => ({
+      template,
+      frameworkSkills: "default",
+      sourceTemplates: ["workspace-core"],
+      refreshedSkill: "turn-into-skill",
+      omittedSkill: "build-an-app",
+    })),
+    {
+      template: "clips",
+      frameworkSkills: "default",
+      sourceTemplates: ["workspace-core"],
+      refreshedSkill: "a2a-protocol",
+      omittedSkill: "build-an-app",
+    },
+    {
+      template: "dispatch",
+      frameworkSkills: "default",
+      sourceTemplates: ["workspace-core"],
+      refreshedSkill: "adding-workspace-apps",
+      omittedSkill: "review-prs",
+    },
+    {
+      template: "factory",
+      frameworkSkills: "default",
+      sourceTemplates: ["workspace-core", "factory"],
+      refreshedSkill: "review-prs",
+      omittedSkill: "build-an-app",
+    },
+    {
+      template: "builder-code-starter",
+      frameworkSkills: "default",
+      sourceTemplates: ["builder-code-starter", "chat"],
+      refreshedSkill: "authentication",
+      omittedSkill: "turn-into-app",
+    },
+  ])(
+    "refreshes only installed skills in the $template scaffold",
+    async ({
+      template,
+      frameworkSkills,
+      sourceTemplates,
+      refreshedSkill,
+      omittedSkill,
+    }) => {
+      const root = tmpDir();
+      const targetSkills = path.join(root, ".agents", "skills");
+      const repoRoot = workspaceRoot();
+      for (const skill of ["actions", refreshedSkill]) {
+        fs.mkdirSync(path.join(targetSkills, skill), { recursive: true });
+        fs.writeFileSync(
+          path.join(targetSkills, skill, "SKILL.md"),
+          `old ${skill}\n`,
+        );
+      }
+      fs.mkdirSync(path.join(targetSkills, "app-local-guide"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(targetSkills, "app-local-guide", "SKILL.md"),
+        "app-owned guide\n",
+      );
+      fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+      fs.mkdirSync(path.join(root, "actions"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify(
+          {
+            name: `${template}-app`,
+            dependencies: { "@agent-native/core": "latest" },
+            "agent-native": {
+              scaffold: { template, frameworkSkills },
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      for (const sourceTemplate of sourceTemplates) {
+        if (sourceTemplate === "headless") {
+          fs.writeFileSync(
+            path.join(root, "actions", "hello.ts"),
+            "export {};\n",
+          );
+        }
+      }
+
+      const stdout: string[] = [];
+      vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        stdout.push(String(chunk));
+        return true;
+      });
+      await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+        baseDir: root,
+        runCommand: async () => 0,
+      });
+
+      expect(
+        fs.readFileSync(path.join(targetSkills, "actions", "SKILL.md"), "utf8"),
+      ).toContain("# Agent Actions");
+      expect(
+        fs.readFileSync(
+          path.join(targetSkills, refreshedSkill, "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe(
+        fs.readFileSync(
+          path.join(
+            repoRoot,
+            "packages/core/src/templates",
+            sourceTemplates.find((sourceTemplate) =>
+              fs.existsSync(
+                path.join(
+                  repoRoot,
+                  "packages/core/src/templates",
+                  sourceTemplate,
+                  ".agents/skills",
+                  refreshedSkill,
+                  "SKILL.md",
+                ),
+              ),
+            )!,
+            ".agents/skills",
+            refreshedSkill,
+            "SKILL.md",
+          ),
+          "utf8",
+        ),
+      );
+      expect(fs.existsSync(path.join(targetSkills, omittedSkill))).toBe(false);
+      expect(
+        fs.readFileSync(
+          path.join(targetSkills, "app-local-guide", "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe("app-owned guide\n");
+      expect(JSON.parse(stdout.join(""))).toMatchObject({
+        found: 1,
+        updated: 1,
+      });
+    },
+  );
+
+  it("prefers builder-code-starter skill overrides and inherits the rest from Chat", async () => {
+    const root = tmpDir();
+    const targetSkills = path.join(root, ".agents", "skills");
+    const bundled = path.join(workspaceRoot(), "packages/core/src/templates");
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "app",
+          dependencies: { "@agent-native/core": "latest" },
+          "agent-native": {
+            scaffold: {
+              template: "builder-code-starter",
+              frameworkSkills: "default",
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    for (const skill of [
+      "storing-data",
+      "security",
+      "multi-app-workspace",
+      "turn-into-app",
+      "self-modifying-code",
+    ]) {
+      fs.mkdirSync(path.join(targetSkills, skill), { recursive: true });
+      fs.writeFileSync(
+        path.join(targetSkills, skill, "SKILL.md"),
+        `old ${skill}\n`,
+      );
+    }
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    const read = (dir: string, skill: string) =>
+      fs.readFileSync(path.join(dir, skill, "SKILL.md"), "utf8");
+    const builderCodeSkills = path.join(
+      bundled,
+      "builder-code-starter/.agents/skills",
+    );
+    const chatSkills = path.join(bundled, "chat/.agents/skills");
+    // The layer stores storing-data as a patch over Chat's copy.
+    expect(read(targetSkills, "storing-data")).toContain(
+      "managed Drizzle scaffold is the only app migration path",
+    );
+    expect(read(chatSkills, "storing-data")).not.toContain(
+      "managed Drizzle scaffold is the only app migration path",
+    );
+    expect(read(targetSkills, "security")).toBe(read(chatSkills, "security"));
+    expect(read(targetSkills, "multi-app-workspace")).toBe(
+      read(builderCodeSkills, "multi-app-workspace"),
+    );
+    // Skills outside the policy stay app-owned and untouched.
+    expect(read(targetSkills, "turn-into-app")).toBe("old turn-into-app\n");
+    expect(read(targetSkills, "self-modifying-code")).toBe(
+      "old self-modifying-code\n",
+    );
+    expect(fs.existsSync(path.join(targetSkills, "performance"))).toBe(false);
+    for (const excluded of [
+      "turn-into-app",
+      "turn-into-skill",
+      "workspace-conventions",
+      "self-modifying-code",
+    ]) {
+      expect(BUILDER_CODE_STARTER_SKILLS).not.toContain(excluded);
+    }
+  });
+
+  it("refreshes existing Chat scaffold skills without adding omitted skills", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "roomwise-app",
+          dependencies: { "@agent-native/core": "latest" },
+          "agent-native": {
+            scaffold: { template: "chat", frameworkSkills: "default" },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(path.join(root, "app", "routes", "database.tsx"), "\n");
+    fs.writeFileSync(path.join(root, "app", "routes", "_index.tsx"), "\n");
+    fs.writeFileSync(
+      path.join(root, "actions", "view-screen.ts"),
+      "export {};\n",
+    );
+    fs.cpSync(
+      path.join(workspaceRoot(), "templates", "chat", ".agents", "skills"),
+      path.join(root, ".agents", "skills"),
+      { recursive: true },
+    );
+    fs.rmSync(path.join(root, ".agents", "skills", "performance"), {
+      recursive: true,
+      force: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "actions", "SKILL.md"),
+      "old actions skill\n",
+    );
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "build-an-app", "SKILL.md"),
+      "old build guide\n",
+    );
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(JSON.parse(stdout.join(""))).toMatchObject({
+      scaffold: [
+        { status: "current", skillCount: CHAT_STARTER_SKILLS.length - 1 },
+      ],
+      updated: 1,
+    });
+    expect(
+      fs.readFileSync(
+        path.join(root, ".agents", "skills", "actions", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toContain("# Agent Actions");
+    expect(
+      fs.readFileSync(
+        path.join(root, ".agents", "skills", "build-an-app", "SKILL.md"),
+        "utf-8",
+      ),
+    ).toBe(
+      fs.readFileSync(
+        path.join(
+          workspaceRoot(),
+          "packages",
+          "core",
+          "src",
+          "templates",
+          "chat",
+          ".agents",
+          "skills",
+          "build-an-app",
+          "SKILL.md",
+        ),
+        "utf-8",
+      ),
+    );
+    expect(
+      fs.existsSync(path.join(root, ".agents", "skills", "performance")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(root, ".agents", "skills", "notifications")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(root, ".agents", "skills", "turn-into-app")),
+    ).toBe(false);
   });
 
   it("does not overwrite same-named skills in an unmarked UI template", async () => {

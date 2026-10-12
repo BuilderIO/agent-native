@@ -24,13 +24,53 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, lt, notInArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { ensureRecordingThumbnail } from "../lib/ensure-recording-thumbnail.js";
+import {
+  ensureRecordingThumbnail,
+  markThumbnailFailed,
+  type EnsureRecordingThumbnailResult,
+} from "../lib/ensure-recording-thumbnail.js";
+import { claimLease, countAttempt } from "../lib/recording-leases.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const STALE_THRESHOLD_MS = 5 * 60 * 1000;
 const BATCH_SIZE = 10;
+// Every warm instance runs this timer. Without the lease each one retried the
+// same unrecoverable recordings forever, so attempts were neither spaced nor
+// counted once; with it one instance per interval sweeps.
+const SWEEP_LEASE_KEY = "thumbnail-sweeper";
+const SWEEP_LEASE_MS = SWEEP_INTERVAL_MS - 30_000;
+const SWEEP_ATTEMPTS_PREFIX = "thumbnail-sweeper-attempts:";
+const MAX_SWEEP_ATTEMPTS = 5;
 let skippingLogged = false;
 let running = false;
+
+// Only a failure that belongs to the recording (its media is gone or cannot be
+// decoded) counts toward giving up. A storage or network outage, a race, or a
+// thrown infra error says nothing about it; counting those marked every
+// pending recording `failed` for good after a 25-minute storage outage.
+function countsTowardGivingUp(result: EnsureRecordingThumbnailResult): boolean {
+  return (
+    result.status === "skipped-frame-extraction" ||
+    (result.status === "skipped-media-fetch" && !result.transient)
+  );
+}
+
+// A recording the sweeper cannot recover must leave the candidate set: only a
+// terminal `failed` status does that, and nothing else ends the retries.
+async function recordFailedAttempt(
+  recordingId: string,
+  reason: string,
+): Promise<void> {
+  const attempts = await countAttempt(`${SWEEP_ATTEMPTS_PREFIX}${recordingId}`);
+  if (attempts < MAX_SWEEP_ATTEMPTS) return;
+  console.warn(
+    `[thumbnail-sweeper] giving up on ${recordingId} after ${attempts} attempts (${reason})`,
+  );
+  await markThumbnailFailed(
+    recordingId,
+    `thumbnail-sweeper gave up after ${attempts} attempts (${reason})`,
+  );
+}
 
 export async function runThumbnailSweepOnce(): Promise<void> {
   await runWithRequestContext({}, async () => {
@@ -88,11 +128,14 @@ export async function runThumbnailSweepOnce(): Promise<void> {
             console.log(
               `[thumbnail-sweeper] recovered ${recording.id}: ${result.status}`,
             );
+            if (countsTowardGivingUp(result)) {
+              await recordFailedAttempt(recording.id, result.status);
+            }
           },
         );
       } catch (err: any) {
         console.warn(
-          `[thumbnail-sweeper] failed to recover ${recording.id}:`,
+          `[thumbnail-sweeper] failed to recover ${recording.id}; retrying next sweep:`,
           err?.message ?? err,
         );
       }
@@ -116,7 +159,8 @@ export default function registerThumbnailSweeperJob(): void {
   setInterval(() => {
     if (running) return;
     running = true;
-    runThumbnailSweepOnce()
+    claimLease(SWEEP_LEASE_KEY, SWEEP_LEASE_MS)
+      .then((lease) => (lease ? runThumbnailSweepOnce() : undefined))
       .catch((err) =>
         console.error("[thumbnail-sweeper] interval failed:", err),
       )

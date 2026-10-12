@@ -1,6 +1,7 @@
 export type {
   SpanType,
   SpanStatus,
+  SpanErrorDetail,
   TraceSpan,
   TraceSummary,
   FeedbackType,
@@ -61,6 +62,9 @@ export {
   getExperimentResults,
   getObservabilityOverview,
 } from "./store.js";
+
+export { buildFailureContext, withFailureContext } from "./failure-context.js";
+export type { FailureContext } from "../shared/failure-report.js";
 
 export { createObservabilityPlugin } from "./plugin.js";
 export { createObservabilityHandler } from "./routes.js";

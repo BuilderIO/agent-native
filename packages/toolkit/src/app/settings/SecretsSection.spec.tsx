@@ -2,6 +2,7 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,8 +12,16 @@ import { SecretsSection } from "./SecretsSection.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
+const { mountFailurePaths } = vi.hoisted(() => ({
+  mountFailurePaths: new Set<string>(),
+}));
+
 vi.mock("@agent-native/core/client/api-path", () => ({
-  agentNativePath: (path: string) => path,
+  agentNativePath: (path: string) => {
+    if (mountFailurePaths.has(path))
+      throw new Error("Workspace mount unavailable");
+    return path;
+  },
   appMountedPath: (path: string) => path,
 }));
 
@@ -81,9 +90,15 @@ function renderSecretsSection(root: Root, focusKey?: string) {
       catalog={toolkitI18nCatalog}
       persistPreference={false}
     >
-      <TooltipProvider>
-        <SecretsSection focusKey={focusKey} />
-      </TooltipProvider>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <TooltipProvider>
+          <SecretsSection focusKey={focusKey} />
+        </TooltipProvider>
+      </QueryClientProvider>
     </AgentNativeI18nProvider>,
   );
 }
@@ -110,11 +125,21 @@ async function openRow(label: string) {
   await click(toggle);
 }
 
-function mockFetchWithSecrets(secrets: unknown[]) {
+const adminOrgMe = {
+  email: "admin@example.test",
+  orgId: "org-1",
+  orgName: "Acme",
+  role: "admin",
+  icon: null,
+  iconRevision: 0,
+};
+
+function mockFetchWithSecrets(secrets: unknown[], orgMe: unknown = adminOrgMe) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
+      if (url.endsWith("/org/me")) return Response.json(orgMe);
       if (url.endsWith("/secrets/adhoc")) {
         return Response.json([
           {
@@ -140,6 +165,7 @@ describe("SecretsSection", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mountFailurePaths.clear();
     vi.stubGlobal(
       "ResizeObserver",
       class ResizeObserver {
@@ -158,6 +184,7 @@ describe("SecretsSection", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    mountFailurePaths.clear();
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -173,6 +200,9 @@ describe("SecretsSection", () => {
     const fetchMock = vi.fn<typeof fetch>((input, init) => {
       if (String(input).endsWith("/secrets/adhoc")) {
         return Promise.resolve(Response.json([]));
+      }
+      if (String(input).endsWith("/org/me")) {
+        return Promise.resolve(Response.json(adminOrgMe));
       }
       secretRequests += 1;
       if (secretRequests === 1) {
@@ -214,6 +244,101 @@ describe("SecretsSection", () => {
     expect(secretRequests).toBe(2);
     expect(container.textContent).toContain("OpenAI API key");
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("surfaces a synchronous ad hoc secret path failure and retries it", async () => {
+    mountFailurePaths.add("/_agent-native/secrets/adhoc");
+
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+    expect(container.textContent).not.toContain("CUSTOM_TOKEN");
+
+    mountFailurePaths.clear();
+    await click(findButton("Retry"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toContain("CUSTOM_TOKEN");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("surfaces and recovers from a synchronous custom-key save path failure", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await openNewMenu();
+    const customItem = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).find((item) => item.textContent?.includes("Custom key"));
+    await click(customItem);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Key name"]',
+    );
+    const valueInput = container.querySelector<HTMLInputElement>(
+      '[aria-label="Secret value"]',
+    );
+    expect(nameInput).toBeTruthy();
+    expect(valueInput).toBeTruthy();
+    await act(async () => {
+      const setInputValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setInputValue.call(nameInput, "CUSTOM_TOOL_KEY");
+      nameInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      setInputValue.call(valueInput, "safe-test-value");
+      valueInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    mountFailurePaths.add("/_agent-native/secrets/adhoc");
+    await click(findButton("Save"));
+    expect(container.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+
+    mountFailurePaths.clear();
+    await click(findButton("Save"));
+    expect(container.textContent).toContain("Key saved");
+  });
+
+  it("surfaces and recovers from a synchronous secret save path failure", async () => {
+    await act(async () => {
+      renderSecretsSection(root);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await openRow("OpenAI API key");
+    await click(findButton("Rotate"));
+
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="OpenAI API key"]',
+    );
+    expect(input).toBeTruthy();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "replacement-test-key");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    mountFailurePaths.add("/_agent-native/secrets");
+    await click(findButton("Save"));
+    expect(container.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+
+    mountFailurePaths.clear();
+    await click(findButton("Save"));
+    expect(container.textContent).toContain("Saved");
   });
 
   it("aborts the request on unmount without logging a load error", async () => {
@@ -340,6 +465,24 @@ describe("SecretsSection", () => {
     expect(container.querySelector('[aria-label="Key name"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Secret value"]')).toBeTruthy();
     expect(container.querySelector('[aria-label="Scope"]')).toBeTruthy();
+    expect(
+      container.querySelector('[aria-label="Scope"]')?.textContent,
+    ).toContain("Workspace");
+  });
+
+  it("saves a member's custom key personally without a scope picker", async () => {
+    mockFetchWithSecrets(registeredSecrets, { ...adminOrgMe, role: "member" });
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+    await openNewMenu();
+    const customItem = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).find((item) => item.textContent?.includes("Custom key"));
+    await click(customItem);
+
+    expect(container.querySelector('[aria-label="Key name"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Scope"]')).toBeNull();
   });
 
   it("filters the key list as you search", async () => {

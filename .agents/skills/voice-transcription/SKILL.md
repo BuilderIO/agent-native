@@ -50,7 +50,7 @@ from the dictation providers below. It prefers the authenticated user's
 complete Builder connection and the Builder-managed metered gateway. A scoped
 `OPENAI_API_KEY` is the fallback when Builder is not connected. The server owns
 the `gpt-realtime-2.1` session configuration and keeps credentials out of
-browser code. If neither provider is configured, show **Connect Builder** as
+browser code. If neither provider is configured, show **Use Builder.io** as
 the primary microphone-popover action and OpenAI key setup as the secondary
 action before requesting microphone permission.
 

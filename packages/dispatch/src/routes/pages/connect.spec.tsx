@@ -7,11 +7,18 @@ import ConnectRoute from "./connect";
 
 const connectState = vi.hoisted(() => ({
   enabled: false,
+  status: "ready" as "loading" | "ready",
   useQuery: vi.fn(() => ({ data: [], isLoading: false, isError: false })),
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => connectState.enabled,
+  useFeatureFlagState: () => ({
+    enabled: connectState.enabled,
+    status: connectState.status,
+  }),
+}));
+vi.mock("../../components/dispatch-shell", () => ({
+  DispatchShell: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -26,6 +33,7 @@ describe("ConnectRoute", () => {
 
   beforeEach(() => {
     connectState.enabled = false;
+    connectState.status = "ready";
     connectState.useQuery.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -40,6 +48,13 @@ describe("ConnectRoute", () => {
   it("renders nothing and does not fetch when the labs flag is off", async () => {
     await act(async () => root.render(<ConnectRoute />));
     expect(container.innerHTML).toBe("");
+    expect(connectState.useQuery).not.toHaveBeenCalled();
+  });
+
+  it("shows the page skeleton while the labs flag is loading", async () => {
+    connectState.status = "loading";
+    await act(async () => root.render(<ConnectRoute />));
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(connectState.useQuery).not.toHaveBeenCalled();
   });
 });

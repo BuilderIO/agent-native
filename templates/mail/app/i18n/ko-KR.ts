@@ -463,7 +463,7 @@ const messages = {
         "보내기 전에 받는 사람을 추가하거나 입력 중인 텍스트를 지우세요.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "생성을 사용하기 전에 Builder.io(무료 티어 이용 가능) 또는 다른 AI 엔진을 사용하세요.",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -709,7 +709,7 @@ const messages = {
       connectJevToRunTriage: "분류를 실행하려면 Jev를 연결하세요",
       freeBuilderOrApiKey: "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
       jevAvailabilityFailed: "Jev 사용 가능 여부를 확인할 수 없습니다.",
-      connectBuilder: "Builder.io 연결",
+      connectBuilder: "Builder.io 사용",
       addJevApiKey: "API 키 추가",
     },
     draftQueue: {

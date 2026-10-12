@@ -33,7 +33,7 @@ La app se abre automáticamente en tu navegador. La grabación funciona sin ning
 
 <Callout tone="info">
 
-La grabación, la transcripción y los títulos/resúmenes de IA necesitan que el almacenamiento de archivos y los créditos de IA estén configurados antes de que funcionen de principio a fin. Conecta Builder.io desde **Settings** para ambos a la vez (su plan gratuito incluye créditos de IA gestionados), o conecta almacenamiento compatible con S3 por separado y usa tu propia clave de Groq para la transcripción. Consulta [Transcripción y metadatos de IA](/docs/template-clips-features#transcription-and-ai-metadata).
+La grabación, la transcripción y los títulos/resúmenes de IA necesitan que el almacenamiento de archivos y los créditos de IA estén configurados antes de que funcionen de principio a fin. Usa Builder.io desde **Settings** para ambos a la vez (su plan gratuito incluye créditos de IA gestionados), o conecta almacenamiento compatible con S3 por separado y usa tu propia clave de Groq para la transcripción. Consulta [Transcripción y metadatos de IA](/docs/template-clips-features#transcription-and-ai-metadata).
 
 </Callout>
 
@@ -91,11 +91,21 @@ Cada operación es un archivo TypeScript en `templates/clips/actions/`, montado 
 
 ### Memoria de pantalla (Rewind)
 
-| Action                                                                                                                          | What it does                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Lee el búfer local de Rewind                                                |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | El flujo de revisión y aprobación para añadir historial de Rewind a un clip |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Aplica una extensión aprobada; primero fuerza el clip a privado             |
+| Action                                                                                                                          | What it does                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Lee el búfer local de Rewind                                                                                                                                                                    |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | Acciones de compatibilidad obsoletas. Se eliminó la opción del editor que las usaba; para el tiempo de pantalla anterior, usa `request-recording-context`                                       |
+| `apply-rewind-extension`                                                                                                        | Acción de compatibilidad obsoleta. Aplica una extensión aprobada para la opción del editor eliminada                                                                                            |
+| `make-recording-private-for-rewind`                                                                                             | Hace primero privado el clip                                                                                                                                                                    |
+| `request-recording-context`                                                                                                     | Solo el propietario. Pide tiempo de pantalla anterior antes de que empezara un clip; el clip pasa a ser privado                                                                                 |
+| `request-recording-context` (`deviceId`)                                                                                        | Opcional. Marca el elemento con el dispositivo que grabó el clip, para que solo la aplicación de escritorio de ese dispositivo lo exporte. Sin este valor, no hay ningún dispositivo registrado |
+| `list-recording-context`                                                                                                        | El elemento activo de tiempo de pantalla anterior del clip: sus ventanas temporales y su estado (acceso de Viewer)                                                                              |
+| `list-pending-recording-context`                                                                                                | Elementos pendientes de los clips que son tuyos, para el worker de exportación de la aplicación de escritorio                                                                                   |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | Opcional. Con `deviceId`, devuelve solo los elementos que capturó este dispositivo y los elementos sin dispositivo registrado. Sin él, la lista no se filtra (clientes antiguos)                |
+| `update-recording-context`                                                                                                      | El worker de escritorio marca un elemento como `processing`, `ready` o `failed`                                                                                                                 |
+| `set-recording-context-window`                                                                                                  | Recorta un elemento dentro de su ventana temporal original de 5 minutos; vuelve a `pending` y se vuelve a exportar                                                                              |
+| `remove-recording-context`                                                                                                      | Solo el propietario. Quita un elemento y envía a la papelera su grabación del material. La vista de edición de la aplicación de escritorio y el panel de la pestaña Transcript lo llaman        |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | Solo aplicación de escritorio (comandos de Tauri, no acciones). Crea o elimina una vista previa local de una ventana temporal. Nunca se sube                                                    |
 
 ### Entre apps y estadísticas
 
@@ -123,6 +133,19 @@ Cada operación es un archivo TypeScript en `templates/clips/actions/`, montado 
 | `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | Reanuda la reproducción; transcripción completa y diagnósticos                                         |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | El flujo de incrustación anónimo para terceros. Consulta [Incrustar Clips](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | El lanzador de informes de errores incrustado y los diagnósticos de la extensión de Chrome             |
+
+## Diagnósticos del navegador
+
+La extensión de Chrome añade diagnósticos de consola y de red a una grabación, y `save-browser-diagnostics` los guarda. Cada entrada de consola y de red incluye un `tabId`.
+
+| Tema           | Comportamiento                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Pestañas       | Hasta cinco por grabación: la pestaña inicial y, después, las pestañas activas en los últimos 10 minutos, de la más reciente a la más antigua. También se vincula una pestaña a la que el usuario cambie durante la grabación. |
+| Más de cinco   | Se desvincula la pestaña menos activa recientemente, excepto la que tiene el foco. Sus entradas hasta ese momento permanecen en la grabación.                                                                                  |
+| Retrospectiva  | Hasta 30 segundos antes de que empezara la grabación, limitado por el historial de consola de la propia página y por la lista de tiempos de recursos. Estas entradas tienen un `elapsedMs` negativo.                           |
+| `tabId`        | Presente en cada entrada de consola y de red.                                                                                                                                                                                  |
+| `method`       | `"UNKNOWN"` en las entradas de red de la retrospectiva, que proceden de los tiempos de recursos y no tienen método HTTP. Las solicitudes en vivo indican el método.                                                            |
+| No se recopila | Cuerpos y encabezados de solicitudes y respuestas. Las entradas de consola y de red se redactan antes de subirlas.                                                                                                             |
 
 ## Modelo de datos
 

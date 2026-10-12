@@ -88,6 +88,31 @@ describe("settings store", () => {
     expect(result).toEqual({ value: "dark" });
   });
 
+  it("rejects nested inline image bytes before setting writes", async () => {
+    await putSetting("safe", { nested: { enabled: true } });
+    await expect(getSetting("safe")).resolves.toEqual({
+      nested: { enabled: true },
+    });
+
+    const unsafe = {
+      nested: {
+        attachment: { type: "image", data: "data:image/png;base64,ZmFrZQ==" },
+      },
+    };
+    rawClient.execute.mockClear();
+    await expect(putSetting("unsafe", unsafe)).rejects.toThrow(/stores inline/);
+    expect(rawClient.execute).not.toHaveBeenCalled();
+
+    await expect(
+      mutateSetting("safe", () => ({ settings: unsafe })),
+    ).rejects.toThrow(/stores inline/);
+    const writes = rawClient.execute.mock.calls.filter(([input]) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      return /^\s*(insert|update|delete)\b/i.test(sql);
+    });
+    expect(writes).toHaveLength(0);
+  });
+
   it("returns null for a missing key", async () => {
     const result = await getSetting("does-not-exist");
     expect(result).toBeNull();
@@ -168,6 +193,46 @@ describe("settings store", () => {
     );
 
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
+  });
+
+  it("does not write or publish a change when the updater returns the stored value", async () => {
+    const { getSettingsEmitter } = await import("./store.js");
+    const events: unknown[] = [];
+    const listener = (event: unknown) => events.push(event);
+    getSettingsEmitter().on("settings", listener);
+    try {
+      await putSetting("steady", { value: 1, nested: { a: [1, 2] } });
+      const before = await pglite.query(
+        "SELECT updated_at FROM settings WHERE key = ?",
+        ["steady"],
+      );
+      events.length = 0;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          mutateSetting("steady", (current) => ({ ...current! })),
+        ),
+      );
+
+      expect(results).toEqual(
+        Array(5).fill({ value: 1, nested: { a: [1, 2] } }),
+      );
+      expect(events).toEqual([]);
+      expect(
+        (
+          await pglite.query("SELECT updated_at FROM settings WHERE key = ?", [
+            "steady",
+          ])
+        ).rows,
+      ).toEqual(before.rows);
+
+      await mutateSetting("steady", (current) => ({ ...current!, value: 2 }));
+      expect(events).toHaveLength(1);
+      expect(await getSetting("steady")).toMatchObject({ value: 2 });
+    } finally {
+      getSettingsEmitter().off("settings", listener);
+    }
   });
 
   it("lists and isolates keys by prefix", async () => {

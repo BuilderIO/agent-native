@@ -3,7 +3,12 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 
-export type JobLastStatus = "success" | "error" | "running" | "skipped";
+export type JobLastStatus =
+  | "success"
+  | "error"
+  | "running"
+  | "skipped"
+  | "paused";
 export type JobTriggerType = "schedule" | "event" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
@@ -15,9 +20,24 @@ export interface JobFrontmatter {
   orgId?: string;
   runAs?: "creator" | "shared";
   lastRun?: string;
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
+  /** Typed code of the last failure; `consecutiveFailures` counts this code. */
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  /** The event whose failure the streak last counted; its retries do not count again. */
+  lastFailedEventId?: string;
+  /**
+   * Set together with `enabled: false` when the framework paused the
+   * automation after repeated identical failures. Absent for a pause the
+   * owner chose.
+   */
+  pausedReason?: string;
+  pausedAt?: string;
   nextRun?: string;
   originScopeId?: string;
   deliveryPlatform?: string;
@@ -133,9 +153,17 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "orgId",
   "runAs",
   "lastRun",
+  "lastHistoryId",
+  "lastRunManual",
+  "lastRunAdvanceSchedule",
   "lastCheck",
   "lastStatus",
   "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
   "nextRun",
   "originScopeId",
   "deliveryPlatform",
@@ -309,6 +337,15 @@ function parseKnownField(
     case "lastRun":
       meta.lastRun = value;
       break;
+    case "lastHistoryId":
+      meta.lastHistoryId = value || undefined;
+      break;
+    case "lastRunManual":
+      meta.lastRunManual = value === "true";
+      break;
+    case "lastRunAdvanceSchedule":
+      meta.lastRunAdvanceSchedule = value !== "false";
+      break;
     case "lastCheck":
       meta.lastCheck = value;
       break;
@@ -317,6 +354,21 @@ function parseKnownField(
       break;
     case "lastError":
       meta.lastError = value;
+      break;
+    case "lastErrorCode":
+      meta.lastErrorCode = value || undefined;
+      break;
+    case "consecutiveFailures":
+      meta.consecutiveFailures = parsePositiveInteger(value);
+      break;
+    case "lastFailedEventId":
+      meta.lastFailedEventId = value || undefined;
+      break;
+    case "pausedReason":
+      meta.pausedReason = value || undefined;
+      break;
+    case "pausedAt":
+      meta.pausedAt = value || undefined;
       break;
     case "nextRun":
       meta.nextRun = value;
@@ -528,9 +580,21 @@ export function buildJobResourceContent(
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
   pushString(lines, "timezone", meta.timezone);
   pushString(lines, "lastRun", meta.lastRun);
+  pushString(lines, "lastHistoryId", meta.lastHistoryId);
+  if (meta.lastRunManual !== undefined)
+    lines.push(`lastRunManual: ${meta.lastRunManual}`);
+  if (meta.lastRunAdvanceSchedule !== undefined)
+    lines.push(`lastRunAdvanceSchedule: ${meta.lastRunAdvanceSchedule}`);
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
+  pushString(lines, "lastErrorCode", meta.lastErrorCode);
+  if (meta.consecutiveFailures !== undefined) {
+    lines.push(`consecutiveFailures: ${meta.consecutiveFailures}`);
+  }
+  pushString(lines, "lastFailedEventId", meta.lastFailedEventId);
+  pushString(lines, "pausedReason", meta.pausedReason);
+  pushString(lines, "pausedAt", meta.pausedAt);
   pushString(lines, "nextRun", meta.nextRun);
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
@@ -559,9 +623,17 @@ export function buildJobResourceContent(
 
 export type JobExecutionFrontmatterPatch = {
   lastRun?: string;
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
+  lastErrorCode?: string;
+  consecutiveFailures?: number;
+  lastFailedEventId?: string;
+  pausedReason?: string;
+  pausedAt?: string;
   nextRun?: string;
   remoteRequestId?: string;
   remoteCommandId?: string;
@@ -569,6 +641,54 @@ export type JobExecutionFrontmatterPatch = {
   remoteAutomationRunId?: string;
   remoteAdvanceSchedule?: boolean;
 };
+
+export const JOB_EXECUTION_FRONTMATTER_KEYS: ReadonlySet<string> = new Set<
+  keyof JobExecutionFrontmatterPatch
+>([
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+]);
+
+const FRONTMATTER_KEY_RE = /^([A-Za-z][A-Za-z0-9_]*):/;
+
+function frontmatterKeys(content: string): Set<string> {
+  const keys = new Set<string>();
+  const match = content.match(FRONTMATTER_RE);
+  if (!match) return keys;
+  for (const line of match[1].split(/\r?\n/)) {
+    const key = FRONTMATTER_KEY_RE.exec(line)?.[1];
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Frontmatter keys present in `before` and gone from `after`, ignoring the
+ * execution bookkeeping a run adds and clears. A job whose file loses its
+ * editor-owned fields still schedules and runs, so nothing else notices.
+ */
+export function droppedJobFrontmatterKeys(
+  before: string,
+  after: string,
+): string[] {
+  const kept = frontmatterKeys(after);
+  return [...frontmatterKeys(before)].filter(
+    (key) => !kept.has(key) && !JOB_EXECUTION_FRONTMATTER_KEYS.has(key),
+  );
+}
 
 function jobFrontmatterBounds(content: string): {
   newline: string;

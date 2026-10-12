@@ -13,6 +13,7 @@ import {
   getSsrBetaRedirectScriptBody,
   SSR_BETA_REDIRECT_MARKER,
 } from "./ssr-beta-redirect.js";
+import { SESSION_NAVIGATION_FLAG } from "./ssr-session-bootstrap.js";
 
 function createStorage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -44,7 +45,9 @@ function runScript({
   workspaceAppMountPaths,
   sessionProbe,
   sessionBootstrap,
+  navigationStarted,
 }: {
+  navigationStarted?: string;
   href: string | { current: string };
   embedded?: boolean;
   localStorage?: ReturnType<typeof createStorage>;
@@ -96,6 +99,9 @@ function runScript({
     ...(sessionBootstrap
       ? { __agentNativeSessionBootstrap: sessionBootstrap }
       : {}),
+    ...(navigationStarted
+      ? { [SESSION_NAVIGATION_FLAG]: navigationStarted }
+      : {}),
   } as Record<string, unknown>;
   window.parent = embedded ? {} : window;
 
@@ -128,6 +134,7 @@ function runScript({
       sessionRead: window.__agentNativeSessionBootstrap as
         | Promise<unknown>
         | undefined,
+      navigationClaim: window[SESSION_NAVIGATION_FLAG] as string | undefined,
     }));
 }
 
@@ -146,6 +153,22 @@ describe("getSsrBetaRedirectScript", () => {
       "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
     expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
+    expect(result.navigationClaim).toBe(
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+    );
+  });
+
+  it("stands down when this page load already started another navigation", async () => {
+    const result = await runScript({
+      href: "https://plan.agent-native.com/",
+      localStorage: createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      }),
+      navigationStarted: "/home",
+    });
+
+    expect(result.redirectedTo).toBeNull();
+    expect(result.navigationClaim).toBe("/home");
   });
 
   describe("one session read per page", () => {

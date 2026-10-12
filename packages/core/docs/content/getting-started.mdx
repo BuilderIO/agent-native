@@ -20,8 +20,7 @@ In this guide, you'll create an agent with a chat UI and call its included
 - [Node.js](https://nodejs.org) 22.22 or later
 - [pnpm](https://pnpm.io) available on your `PATH` (run `corepack enable` in
   the generated app if it is not)
-- An LLM connection for the agent: Builder.io, an Anthropic or OpenAI API key,
-  or a local Ollama model
+- Optional while setting up; required to run the agent: Builder.io, an Anthropic/OpenAI key, or local Ollama
 
 ## Create an agent
 
@@ -37,6 +36,14 @@ pnpm install
 The template gives your agent a browser UI, authentication, durable
 conversations, live sync, application context, and an `actions/` directory. It
 also includes a small `hello` action that you'll use throughout this guide.
+
+<Callout tone="info">
+
+If these commands fail with peer dependency errors, an outdated copy of a
+package in your npx cache may be the cause. Run `npx clear-npx-cache` to clear
+the cache, then run the commands again.
+
+</Callout>
 
 ## Start the development server
 
@@ -56,11 +63,12 @@ enter an email or password for local development.
 
 </Callout>
 
-## Connect an LLM
+## Connect an LLM (optional) {#connect-an-llm}
 
-Next, connect an LLM. Select **Connect Builder.io** to use free credits, or
-select **Custom keys**, choose a provider, and enter the requested connection
-details.
+Connect with **Use Builder.io**, add a personal or organization key through
+**Custom keys**, or set a provider key in `.env` for local development and in
+the deployment environment for app-wide use on self-hosted apps. See the [LLM
+provider setup](/docs/environment-variables#llm-provider-keys).
 
 ## Run the action from the agent
 
@@ -68,7 +76,7 @@ An action is a typed function that your React UI can call from code and agents
 can use as a tool. The Chat template includes a simple `hello` action so you
 can try the pattern before writing one yourself.
 
-In the agent panel, ask:
+In the prompt on the **Get started** page, ask:
 
 > Call the hello action for Alex.
 

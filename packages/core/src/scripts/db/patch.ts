@@ -1,11 +1,15 @@
 import path from "node:path";
 
-import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";
+import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
 import {
   assertNoRawDbAccessControlPatchTarget,
   assertNoSensitiveFrameworkTables,
+  finalRawDbSql,
+  readRawDbPatchStatement,
+  validateRawDbPatchWhere,
+  verifyRawDbStatement,
 } from "./safety.js";
 import { buildScopingPostgres } from "./scoping.js";
 
@@ -50,33 +54,6 @@ interface RunOptions {
 
 function isValidIdentifier(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
-}
-
-function validateWhere(where: string): void {
-  if (where.includes(";")) fail("--where must not contain ';'");
-  const stripped = where
-    .replace(/'(?:''|[^'])*'/g, "''")
-    .replace(/"(?:""|[^"])*"/g, '""')
-    .toUpperCase();
-  const blocked = [
-    " INSERT ",
-    " UPDATE ",
-    " DELETE ",
-    " DROP ",
-    " ALTER ",
-    " CREATE ",
-    " TRUNCATE ",
-    " GRANT ",
-    " REVOKE ",
-    "--",
-    "/*",
-  ];
-  const padded = ` ${stripped} `;
-  for (const keyword of blocked) {
-    if (padded.includes(keyword)) {
-      fail(`--where must not contain "${keyword.trim()}"`);
-    }
-  }
 }
 
 function parseEdits(parsed: Record<string, string>): TextEdit[] {
@@ -414,10 +391,24 @@ Options:
   if (!isValidIdentifier(table) || !isValidIdentifier(column)) {
     fail("--table and --column must be plain identifiers");
   }
-  validateWhere(where);
+  validateRawDbPatchWhere(where);
   assertNoSensitiveFrameworkTables(table, "patch");
   assertNoRawDbAccessControlPatchTarget(table, column);
-  assertNoSensitiveFrameworkTables(where, "read");
+  // `--where` is spliced into both statements, so each is read as a whole.
+  const select = finalRawDbSql(
+    readRawDbPatchStatement(
+      `SELECT "${column}" AS __val FROM "${table}" WHERE ${where}`,
+      "select",
+    ).sql,
+    "read",
+  );
+  const update = finalRawDbSql(
+    readRawDbPatchStatement(
+      `UPDATE "${table}" SET "${column}" = ? WHERE ${where}`,
+      "update",
+    ).sql,
+    "patch",
+  );
 
   const jsonOps = parseJsonOps(parsed);
   const options: RunOptions = {
@@ -440,8 +431,10 @@ Options:
       const scoping = await buildScopingPostgres(tx);
       for (const statement of scoping.setup) await tx.unsafe(statement);
       try {
-        const selectSql = `SELECT "${column}" AS __val FROM "${table}" WHERE ${where}`;
-        const selected = await tx.unsafe(selectSql);
+        await verifyRawDbStatement(tx, select.statement);
+        const selected = await tx.unsafe(select.sql, [], {
+          singleStatement: true,
+        });
         if (selected.length === 0) {
           fail(
             `No rows matched: ${table} WHERE ${where}. ` +
@@ -461,12 +454,10 @@ Options:
         }
         const edited = applyEditsToValue(original, options);
         if (edited.applied > 0) {
-          await tx.unsafe(
-            toPostgresParams(
-              `UPDATE "${table}" SET "${column}" = ? WHERE ${where}`,
-            ),
-            [edited.content],
-          );
+          await verifyRawDbStatement(tx, update.statement);
+          await tx.unsafe(update.sql, [edited.content], {
+            singleStatement: true,
+          });
         }
         output = {
           table,

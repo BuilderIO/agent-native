@@ -17,6 +17,7 @@ const state = vi.hoisted(() => {
     },
     assertAccess: vi.fn(),
     resolveAccess: vi.fn(),
+    createDesignVersionSnapshotWithSourceMutationLock: vi.fn(),
     runBuilderAgent: vi.fn(),
     mutateDesignData: vi.fn(),
     nanoid: vi.fn(),
@@ -62,6 +63,11 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: state.mutateDesignData,
 }));
 
+vi.mock("../server/lib/design-versions.js", () => ({
+  createDesignVersionSnapshotWithSourceMutationLock:
+    state.createDesignVersionSnapshotWithSourceMutationLock,
+}));
+
 vi.mock("../shared/capability-resolver.js", () => ({
   resolveSourceCapabilities: vi.fn(() => ({})),
   resolveFusionCapabilities: vi.fn(() => ({})),
@@ -98,6 +104,12 @@ beforeEach(() => {
     state.events.push("snapshot");
   });
   state.nanoid.mockReturnValue("snapshot-id");
+  state.createDesignVersionSnapshotWithSourceMutationLock.mockImplementation(
+    async () => {
+      state.events.push("snapshot");
+      return { id: "snapshot-id", createdAt: "2026-07-09T12:00:00.000Z" };
+    },
+  );
   state.initialData = {
     sourceType: "fusion",
     branches: [branch("main")],
@@ -150,8 +162,13 @@ describe("Builder branch designs.data mutations", () => {
 
     expect(result).toMatchObject({
       ctaRequired: false,
-      versionId: "dv_snapshot-id",
+      versionId: "snapshot-id",
       branch: { branchName: "new-direction" },
+    });
+    expect(
+      state.createDesignVersionSnapshotWithSourceMutationLock,
+    ).toHaveBeenCalledWith("design-1", {
+      label: expect.stringMatching(/^Pre-branch snapshot/),
     });
     expect(state.events).toEqual(["snapshot", "builder", "mutate"]);
     expect(state.latestData.concurrentCanvasWrite).toEqual({ keep: true });

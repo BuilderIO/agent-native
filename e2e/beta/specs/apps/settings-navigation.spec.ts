@@ -1,6 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { collectAppPageErrors, renderedText } from "../../lib/app";
+import {
+  collectAppPageErrors,
+  pressUntilVisible,
+  renderedText,
+} from "../../lib/app";
 import {
   assertSignedInOnBeta,
   signedInContext,
@@ -74,12 +78,24 @@ async function expectSettingsOpened(page: Page, site: BetaSite, how: string) {
     activeSettingsNavItem(page, SETTINGS_DEFAULT_PAGE),
     `${how} on ${site.host} did not open Settings › Profile (landed on ${page.url()})`,
   ).toBeVisible({ timeout: 30_000 });
-  expect(
-    landsOnSettingsPage(new URL(page.url()).pathname, {
-      page: SETTINGS_DEFAULT_PAGE,
-    }),
-    `${how} on ${site.host} left the address at ${page.url()}`,
-  ).toBe(true);
+  // Some apps (Clips) open Settings through a legacy link, which the shell
+  // rewrites to the page's own path a moment after the nav item is marked
+  // current, so the address settles; it is not set when the page paints.
+  try {
+    await expect
+      .poll(
+        () =>
+          landsOnSettingsPage(new URL(page.url()).pathname, {
+            page: SETTINGS_DEFAULT_PAGE,
+          }),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  } catch (error) {
+    throw new Error(
+      `${how} on ${site.host} left the address at ${page.url()}, not ${newSettingsPath({ page: SETTINGS_DEFAULT_PAGE })}.\n${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   const body = await renderedText(page, `${site.host} Settings via ${how}`);
   expect(
     body,
@@ -187,14 +203,21 @@ for (const site of sites) {
         const { errors } = collectAppPageErrors(page, originFor(site));
         await openEntry(page, site);
 
-        await page.keyboard.press("ControlOrMeta+KeyK");
+        // The menu's own key handler attaches after the page paints, and the
+        // shortcut is ignored while a text field has focus, so the menu is
+        // opened with retries and a miss reports what held focus.
+        await pressUntilVisible(
+          page,
+          "ControlOrMeta+KeyK",
+          page.locator("[cmdk-input]").first(),
+        );
         const command = page
           .locator("[cmdk-item]")
           .filter({ hasText: /^\s*Settings/ })
           .first();
         await expect(
           command,
-          `${site.host} ⌘K menu has no Settings command, so there is no keyboard path to Settings where the browser keeps ⌘,`,
+          `${site.host} ⌘K menu opened but has no Settings command, so there is no keyboard path to Settings where the browser keeps ⌘,`,
         ).toBeVisible({ timeout: 15_000 });
         await command.click();
         await expectSettingsOpened(page, site, "⌘K › Settings");

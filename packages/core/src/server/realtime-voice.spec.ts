@@ -748,7 +748,7 @@ describe("realtime voice session route", () => {
         delegation: {
           type: "responses",
           responses: {
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             tool_choice: "auto",
             tools: [
               expect.objectContaining({ type: "function", name: "navigate" }),
@@ -847,7 +847,7 @@ describe("realtime voice session route", () => {
     const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
       ownerEvent,
     )) as { error: string };
-    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("Use Builder.io");
     expect(ownerResult.error).toContain("OpenAI API key");
   });
 
@@ -893,7 +893,7 @@ describe("realtime voice session route", () => {
         delegation: {
           type: "responses",
           responses: {
-            model: "gpt-5.6-luna",
+            model: "gpt-6-luna",
             tool_choice: "auto",
           },
         },
@@ -1138,6 +1138,136 @@ describe("realtime voice tool route", () => {
       output: "rare action complete",
     });
   });
+
+  it("expands tools discovered through queries or names, not only a single query", async () => {
+    const actions = discoveryActions();
+    const executeTool = vi.fn(
+      async (request: { name: string; args: Record<string, unknown> }) =>
+        request.name === "tool-search"
+          ? {
+              status: "completed" as const,
+              output: JSON.stringify({
+                results: [
+                  {
+                    name: request.args.names
+                      ? "other-rare-action"
+                      : "rare-action",
+                  },
+                ],
+              }),
+            }
+          : { status: "completed" as const, output: "done" },
+    );
+    const { handlers } = mount({ actions, executeTool });
+    const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+    let capability = await issueToolCapability(handlers);
+
+    for (const [args, expected] of [
+      [{ queries: ["rare capability"] }, "rare-action"],
+      [{ names: ["other-rare-action"] }, "other-rare-action"],
+    ] as const) {
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args,
+            callId: `call_${expected}`,
+            sessionId: "voice-session-batch",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        (search.expandedTools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual([expected]);
+      capability = adoptCapability(capability, search);
+    }
+
+    for (const name of ["rare-action", "other-rare-action"]) {
+      const call = await handler(
+        toolEvent(
+          {
+            name,
+            args: {},
+            callId: `call_use_${name}`,
+            sessionId: "voice-session-batch",
+          },
+          withToolCapability(capability),
+        ),
+      );
+      expect(call).toMatchObject({ status: "completed", output: "done" });
+    }
+
+    const blank = (await handler(
+      toolEvent(
+        {
+          name: "tool-search",
+          args: { queries: [" "], names: [] },
+          callId: "call_blank",
+          sessionId: "voice-session-batch",
+        },
+        withToolCapability(capability),
+      ),
+    )) as Record<string, unknown>;
+    expect(blank).not.toHaveProperty("expandedTools");
+  });
+
+  it.each([
+    ["a bare string queries", { queries: "rare capability" }, "rare-action"],
+    [
+      "a bare string names",
+      { names: "other-rare-action" },
+      "other-rare-action",
+    ],
+  ])(
+    "grants what the search returned for %s, as the search itself reads it",
+    async (_label, args, expected) => {
+      const executeTool = vi.fn(
+        async (request: { name: string; args: Record<string, unknown> }) =>
+          request.name === "tool-search"
+            ? {
+                status: "completed" as const,
+                output: JSON.stringify({ results: [{ name: expected }] }),
+              }
+            : { status: "completed" as const, output: "done" },
+      );
+      const { handlers } = mount({ actions: discoveryActions(), executeTool });
+      const handler = handlers.get(REALTIME_VOICE_TOOL_PATH)!;
+      const capability = await issueToolCapability(handlers);
+
+      const search = (await handler(
+        toolEvent(
+          {
+            name: "tool-search",
+            args,
+            callId: "call_string_form",
+            sessionId: "voice-session-string-form",
+          },
+          withToolCapability(capability),
+        ),
+      )) as Record<string, unknown>;
+      expect(
+        (search.expandedTools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        ),
+      ).toEqual([expected]);
+
+      const call = await handler(
+        toolEvent(
+          {
+            name: expected,
+            args: {},
+            callId: "call_use_string_form",
+            sessionId: "voice-session-string-form",
+          },
+          withToolCapability(adoptCapability(capability, search)),
+        ),
+      );
+      expect(call).toMatchObject({ status: "completed", output: "done" });
+    },
+  );
 
   it("does not expand menu searches and expires session grants", async () => {
     vi.useFakeTimers();

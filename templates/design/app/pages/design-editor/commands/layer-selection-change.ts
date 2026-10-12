@@ -33,7 +33,7 @@ export interface LayerSelectionChangeArgs {
   ) => ApplyFileContentUpdateResult;
   activeFile: DesignFile;
   clearPendingOverviewLayerSelectionTimer: () => void;
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;

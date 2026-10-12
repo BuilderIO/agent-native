@@ -412,6 +412,11 @@ The `TAB_ID` imported from `app/lib/tab-id.ts` is the framework's `getBrowserTab
 | `getNavigationState` — map the URL to semantic state   | `navigation` writes, tab-scoped plus a global fallback key                               |
 | `getCommandPath` — map a `navigate` command to a route | command polling, delete-after-read, duplicate-command protection, request-source tagging |
 
+Paths returned as strings are always local to this app, even when they start
+with another workspace app's mount. To navigate to a sibling app, return
+`{ type: "workspace-app", path: "/seo-application/settings" }` with the full
+mounted path.
+
 `useAgentRouteState` assumes React Router. When navigation does not live in the URL — a wizard step, a canvas selection, a non-router shell — drop down to the lower-level `useSemanticNavigationState` instead: you hand it a ready-made `state` value plus `navigationKeys`/`commandKeys` and an `onCommand` callback, and it stays completely agnostic about React Router.
 
 ## Jitter prevention {#jitter-prevention}

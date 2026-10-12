@@ -227,6 +227,19 @@ describe("rich text selection", () => {
     );
   });
 
+  it("does not normalize inline style spans in nested list blocks", () => {
+    const block = editable(
+      '<ul><li><span data-slide-inline-style="true" style="color: red;">outer</span><ul><li><p><strong><span data-slide-inline-style="true">nested </span><span data-slide-inline-style="true">text</span></strong></p></li></ul></li></ul>',
+    );
+    const outer = block.querySelector("li > span")!.firstChild as Text;
+    const nested = block.querySelector("ul ul")!;
+    const beforeNested = nested.innerHTML;
+
+    normalizeInlineTextSpans(block, [outer]);
+
+    expect(nested.innerHTML).toBe(beforeNested);
+  });
+
   it("toggles bold from the computed weight, writing 400 over a class", () => {
     const style = document.createElement("style");
     style.textContent = ".heavy { font-weight: 700; }";
@@ -395,6 +408,39 @@ describe("rich text selection", () => {
 });
 
 describe("setInlineTextLink", () => {
+  it("does not normalize an unrelated flex list row", () => {
+    const block = editable(
+      '<ul><li style="display: flex"><span data-slide-inline-style="true" style="font-weight: 700;">•</span><span data-slide-inline-style="true" style="font-weight: 700;"></span><span data-slide-inline-style="true" style="font-weight: 700;">label</span></li></ul><p>Link this</p>',
+    );
+    const list = block.querySelector("ul")!;
+    const before = list.innerHTML;
+    const text = block.querySelector("p")!.firstChild as Text;
+    rangeFor(text, 0, text, text.length);
+
+    setInlineTextLink(block, "https://example.com");
+
+    expect(list.innerHTML).toBe(before);
+  });
+
+  it("normalizes adjacent styled runs within a regular list item", () => {
+    const block = editable(
+      '<ul><li><span data-slide-inline-style="true" style="color: red;">a</span><span data-slide-inline-style="true" style="color: red;">b</span></li></ul>',
+    );
+    const item = block.querySelector("li")!;
+    const [first, second] = Array.from(
+      item.querySelectorAll("span"),
+      (span) => span.firstChild as Text,
+    );
+    rangeFor(first, 0, second, 1);
+
+    setInlineTextLink(block, "https://example.com");
+
+    expect(item.querySelectorAll("span[data-slide-inline-style]")).toHaveLength(
+      1,
+    );
+    expect(item.textContent).toBe("ab");
+  });
+
   it("links each selected run without splitting author elements", () => {
     const block = document.createElement("p");
     block.innerHTML = 'Read <em class="pill">the docs</em> now';
@@ -453,6 +499,23 @@ describe("normalizeSlideClipboardHtml", () => {
     expect(html).not.toContain("visibility:");
     expect(html).not.toContain("Spacer");
   });
+
+  it.each([
+    "transform:rotate(10deg);transform-origin:top left",
+    "rotate:20deg;translate:5px 5px;scale:1.2",
+  ])(
+    "drops how the source object was rotated, moved and scaled (%s)",
+    (painting) => {
+      const html = normalizeSlideClipboardHtml(
+        `<div style="position:absolute;left:10px;${painting}"><p>Hello</p></div>`,
+      );
+
+      expect(html).toContain("Hello");
+      for (const property of ["transform", "translate", "rotate", "scale"]) {
+        expect(html).not.toContain(`${property}:`);
+      }
+    },
+  );
 
   it("does not persist embedded clipboard image payloads", () => {
     const html = normalizeSlideClipboardHtml(

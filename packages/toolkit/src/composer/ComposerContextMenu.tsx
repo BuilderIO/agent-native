@@ -95,6 +95,8 @@ export interface ComposerContextMenuProps {
   onRestoreFocus?: () => void;
   contextButtonTooltipDisabled?: boolean;
   disabled?: boolean;
+  /** Runs this action or opens its picker as a dialog; each new object is a new request. */
+  openEntry?: { id: string } | null;
 }
 interface ComposerContextPage {
   id: string;
@@ -104,6 +106,19 @@ interface ComposerContextPage {
 interface ComposerContextDialogSession {
   id: string;
   scopeKey?: string;
+}
+
+// Without a dialog presentation a picker selects one item through onSelect,
+// which the dialog's single-select mode does too.
+function asDialogPicker(
+  picker: ComposerContextPickerConfig,
+): ComposerContextPickerConfig {
+  return typeof picker.presentation === "object"
+    ? picker
+    : ({
+        ...picker,
+        presentation: { type: "dialog", mode: "single" },
+      } as ComposerContextPickerConfig);
 }
 
 function findAction(
@@ -121,6 +136,58 @@ function findAction(
   }
 }
 
+export interface ComposerContextActionMatch {
+  action: ComposerContextMenuAction;
+  /** Category ids from the searched items down to the action. */
+  path: string[];
+  /** Labels of those categories, outermost first. */
+  categories: string[];
+}
+
+/** Every action under `items` that matches `query`; an empty query matches all. */
+export function searchComposerContextActions(
+  items: readonly ComposerContextMenuItem[],
+  query: string,
+): ComposerContextActionMatch[] {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const matches: ComposerContextActionMatch[] = [];
+  const visit = (
+    entries: readonly ComposerContextMenuItem[],
+    path: string[],
+    categories: string[],
+    searchable: string[],
+    disabled: boolean,
+  ) => {
+    for (const entry of entries) {
+      const text = [
+        ...searchable,
+        entry.label,
+        entry.description ?? "",
+        ...(entry.keywords ?? []),
+      ];
+      const entryDisabled = disabled || entry.disabled === true;
+      if (entry.children)
+        visit(
+          entry.children,
+          [...path, entry.id],
+          [...categories, entry.label],
+          text,
+          entryDisabled,
+        );
+      else if (
+        terms.every((term) => text.join(" ").toLocaleLowerCase().includes(term))
+      )
+        matches.push({
+          action: entryDisabled ? { ...entry, disabled: true } : entry,
+          path,
+          categories,
+        });
+    }
+  };
+  visit(items, [], [], [], false);
+  return matches;
+}
+
 export function getComposerContextMenuEntries(
   items: readonly ComposerContextMenuItem[],
   path: readonly string[],
@@ -132,33 +199,8 @@ export function getComposerContextMenuEntries(
     if (!category?.children || category.disabled) return [];
     scope = category.children;
   }
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return [...scope];
-  const matches: ComposerContextMenuItem[] = [];
-  const visit = (
-    entries: readonly ComposerContextMenuItem[],
-    ancestors: string[],
-    disabled = false,
-  ) => {
-    for (const entry of entries) {
-      const searchable = [
-        ...ancestors,
-        entry.label,
-        entry.description ?? "",
-        ...(entry.keywords ?? []),
-      ];
-      if (entry.children)
-        visit(entry.children, searchable, disabled || entry.disabled === true);
-      else if (
-        terms.every((term) =>
-          searchable.join(" ").toLocaleLowerCase().includes(term),
-        )
-      )
-        matches.push(disabled ? { ...entry, disabled: true } : entry);
-    }
-  };
-  visit(scope, []);
-  return matches;
+  if (!query.trim()) return [...scope];
+  return searchComposerContextActions(scope, query).map(({ action }) => action);
 }
 
 function ContextSubmenu({
@@ -263,6 +305,7 @@ export function ComposerContextMenu({
   onRestoreFocus,
   contextButtonTooltipDisabled = false,
   disabled,
+  openEntry,
 }: ComposerContextMenuProps) {
   const t = useComposerRuntimeAdapters().translate!;
   const allItems = [...menuActionItems, ...items];
@@ -359,15 +402,6 @@ export function ComposerContextMenu({
     [controlledOpen, dismissPage, onOpenChange, updatePath],
   );
   useEffect(() => {
-    if (open || !pendingAttachmentRequest.current) return;
-    const frame = window.requestAnimationFrame(() => {
-      if (!pendingAttachmentRequest.current) return;
-      pendingAttachmentRequest.current = false;
-      onAttachmentRequest?.();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [onAttachmentRequest, open]);
-  useEffect(() => {
     if (!disabled) return;
     pendingDialog.current = null;
     if (open) {
@@ -408,6 +442,35 @@ export function ComposerContextMenu({
     updatePath([...origin, action.id]);
     if (select && !action.picker) selectAction(action);
   };
+  const openRequestedEntry = (id: string) => {
+    if (disabled) return;
+    const action = findAction(allItems, id);
+    if (!action || action.disabled || action.render) {
+      reportError(
+        new Error(
+          t("agentChat.composer.contextActionFailed", {
+            defaultValue: "Could not add context.",
+          }),
+        ),
+      );
+      return;
+    }
+    setError(null);
+    if (!action.picker) {
+      selectAction(action);
+      return;
+    }
+    // A request starts outside the menu, so its picker opens as a dialog: a
+    // submenu opened programmatically loses focus to its parents and closes.
+    const session = { id: action.id, scopeKey: action.picker.scopeKey };
+    dialogRef.current = session;
+    setDialog(session);
+  };
+  const openRequestedEntryRef = useRef(openRequestedEntry);
+  openRequestedEntryRef.current = openRequestedEntry;
+  useEffect(() => {
+    if (openEntry) openRequestedEntryRef.current(openEntry.id);
+  }, [openEntry]);
   const currentAction = page ? findAction(allItems, page.id) : undefined;
   useEffect(() => {
     if (
@@ -624,13 +687,23 @@ export function ComposerContextMenu({
             maxHeight: placement.maxHeight,
             boxShadow: "none",
           }}
-          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col rounded-xl p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
+          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {
               event.preventDefault();
               setDialog(pendingDialog.current);
               pendingDialog.current = null;
+              return;
+            }
+            // Wait for the exit animation: the storage popover anchors to the
+            // focused element, and focus moving here would dismiss it.
+            if (pendingAttachmentRequest.current) {
+              event.preventDefault();
+              pendingAttachmentRequest.current = false;
+              restoreFocusOnClose.current = true;
+              triggerRef.current?.focus();
+              onAttachmentRequest?.();
               return;
             }
             if (!restoreFocusOnClose.current) event.preventDefault();
@@ -717,7 +790,7 @@ export function ComposerContextMenu({
         <ComposerContextPickerDialog
           key={JSON.stringify([dialog.id, dialogAction.picker.scopeKey])}
           title={dialogAction.label}
-          config={dialogAction.picker}
+          config={asDialogPicker(dialogAction.picker)}
           onClose={() => {
             if (dialogRef.current !== dialog) return;
             dialogRef.current = null;

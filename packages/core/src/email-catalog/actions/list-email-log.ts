@@ -42,7 +42,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Exclude resolved sender addresses containing this substring."),
-    status: z.enum(["sent", "failed"]).optional(),
+    status: z.enum(["sent", "failed", "suppressed"]).optional(),
     provider: z.string().optional(),
     sinceMs: z.coerce
       .number()

@@ -10,7 +10,11 @@ import {
   type PromptComposerProps,
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
-import type { TiptapComposerHandle } from "./TiptapComposer.js";
+import {
+  sameComposerDraft,
+  type ComposerDraftSnapshot,
+  type TiptapComposerHandle,
+} from "./TiptapComposer.js";
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -74,6 +78,43 @@ function send() {
 }
 
 describe("composer submission ownership", () => {
+  it("sends the current draft through the handle as if send were pressed", async () => {
+    const onSubmit = vi.fn();
+    await render({ onSubmit });
+
+    await act(async () => {
+      expect(await composerRef.current!.submit!()).toBe(true);
+    });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("Original draft");
+  });
+
+  it("tells a held-back send which draft it held, and exposes the live one to compare", async () => {
+    const onBeforeSubmit = vi.fn(async () => false);
+    await render({ onBeforeSubmit });
+
+    await act(async () => {
+      expect(await composerRef.current!.submit!()).toBe(false);
+    });
+
+    const held = onBeforeSubmit.mock.calls[0]?.[0] as ComposerDraftSnapshot;
+    expect(held).toEqual({
+      text: "Original draft",
+      referenceKeys: [],
+      attachmentIds: [],
+    });
+    expect(
+      sameComposerDraft(held, composerRef.current!.getDraftSnapshot!()),
+    ).toBe(true);
+
+    await act(async () => composerRef.current!.setText("Edited draft"));
+
+    expect(
+      sameComposerDraft(held, composerRef.current!.getDraftSnapshot!()),
+    ).toBe(false);
+  });
+
   it("clears at local acceptance while transport is unresolved and never clears the next draft", async () => {
     const transport = deferred();
     let options!: PromptComposerSubmitOptions;

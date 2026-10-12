@@ -29,8 +29,10 @@ import {
   default as importResourcePack,
 } from "./actions/import-resource-pack.js";
 import {
+  getFrontmatterValue,
   getResourceKind,
   isRemoteAgentPath,
+  parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
   parseSkillMetadata,
@@ -44,6 +46,7 @@ import {
   resourceGetByPath,
   resourcePut,
   resourcePutIfAbsent,
+  resourcePutIfCurrent,
   resourceDelete,
   resourceDeleteIfCurrent,
   resourceList,
@@ -64,6 +67,30 @@ import {
   WORKSPACE_OWNER,
   type ResourceMeta,
 } from "./store.js";
+
+function isSameSkillUpload(
+  incomingContent: string,
+  existingContent: string,
+  path: string,
+): boolean {
+  const incomingSkill = parseSkillMetadata(incomingContent, path);
+  const existingSkill = parseSkillMetadata(existingContent, path);
+  if (!incomingSkill || !existingSkill) return false;
+
+  const incomingName = incomingSkill.name.trim();
+  if (incomingName !== existingSkill.name.trim()) return false;
+
+  const incomingDeclaredName = getFrontmatterValue(
+    parseFrontmatter(incomingContent),
+    "name",
+  )?.trim();
+  const existingDeclaredName = getFrontmatterValue(
+    parseFrontmatter(existingContent),
+    "name",
+  )?.trim();
+
+  return Boolean(incomingDeclaredName) === Boolean(existingDeclaredName);
+}
 
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return sharedResourceOwner(await resolveOrgId(event));
@@ -488,6 +515,104 @@ export async function handleCreateResource(event: any) {
 
   const owner = await resolveOwner(event, body.shared);
 
+  if (body.uniqueSkillPath) {
+    const match = /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/.exec(
+      body.path,
+    );
+    if (!match) {
+      setResponseStatus(event, 400);
+      return { error: "uniqueSkillPath requires skills/<name>/SKILL.md" };
+    }
+
+    const writeOptions =
+      body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+    const organizationId = organizationIdFromResourceOwner(owner);
+    const uploaderEmail = organizationId
+      ? (await getOrgContext(event)).email
+      : undefined;
+    const content = body.content ?? "";
+    for (let suffix = 1; suffix <= 1000; suffix += 1) {
+      const path =
+        suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
+      const legacySharedResource = organizationId
+        ? await resourceGetByPath(SHARED_OWNER, path, { orgId: organizationId })
+        : null;
+      const personalResource = uploaderEmail
+        ? await resourceGetByPath(uploaderEmail, path, {
+            orgId: organizationId,
+          })
+        : null;
+      if (
+        personalResource &&
+        !isSameSkillUpload(content, personalResource.content, path)
+      ) {
+        continue;
+      }
+      if (
+        legacySharedResource &&
+        !(await resourceGetByPath(owner, path, { orgId: organizationId }))
+      ) {
+        continue;
+      }
+      let nextPath = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (!legacySharedResource) {
+          const resource = await resourcePutIfAbsent(
+            owner,
+            path,
+            content,
+            body.mimeType,
+            writeOptions,
+          );
+          if (resource) {
+            setResponseStatus(event, 201);
+            return resource;
+          }
+        }
+
+        const existing = await resourceGetByPath(owner, path, {
+          orgId: organizationId,
+        });
+        if (!existing) {
+          if (legacySharedResource) {
+            nextPath = true;
+            break;
+          }
+          continue;
+        }
+
+        if (!isSameSkillUpload(content, existing.content, path)) {
+          nextPath = true;
+          break;
+        }
+
+        const updated = await resourcePutIfCurrent({
+          owner,
+          path,
+          content,
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: existing.content,
+          mimeType: body.mimeType,
+          ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
+        });
+        if (updated) {
+          setResponseStatus(event, 200);
+          return updated;
+        }
+      }
+      if (!nextPath) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Could not update or find an available path for this skill",
+        };
+      }
+    }
+
+    setResponseStatus(event, 409);
+    return { error: "Could not find an available path for this skill" };
+  }
+
   if (body.ifNotExists) {
     const existing = await resourceGetByPath(owner, body.path);
     if (existing) {
@@ -770,7 +895,7 @@ export async function handleUploadResource(event: any) {
     setResponseStatus(event, 503);
     return {
       error:
-        "File storage is not configured. Connect Builder.io (free tier available) or register an S3/R2/GCS file upload provider before uploading binary resources.",
+        "File storage is not configured. Use Builder.io (free tier available) or register an S3/R2/GCS file upload provider before uploading binary resources.",
       storageSetupRequired: true,
     };
   }

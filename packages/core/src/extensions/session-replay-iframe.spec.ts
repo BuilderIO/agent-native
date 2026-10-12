@@ -129,6 +129,37 @@ describe("cooperative iframe session replay", () => {
     );
   });
 
+  it("finds the same injection point as masking every unparsed region", () => {
+    const maskedSearch = (html: string, pattern: RegExp) =>
+      html
+        .replace(
+          /<!--[\s\S]*?-->|<(script|style|title|textarea|xmp|noembed|noframes|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+          (region) => " ".repeat(region.length),
+        )
+        .replace(/<plaintext\b[^>]*>[\s\S]*$/i, (region) =>
+          " ".repeat(region.length),
+        )
+        .search(pattern);
+    const documents = [
+      "<html><head><script>var a='</head>'</script></head><body>x</body></html>",
+      "<html><!-- </head> --><head><style>p{}</style><title></head></title></head><body></body></html>",
+      "<html><body><iframe><body></iframe><p>no head</p></body></html>",
+      "<html><plaintext></head><body></body></html>",
+      "<div>no document tags</div>",
+    ];
+    for (const html of documents) {
+      const bootstrap = injectSessionReplayIframeBootstrap("").length;
+      const injected = injectSessionReplayIframeBootstrap(html);
+      const head = maskedSearch(html, /<\/head\s*>/i);
+      const at = head >= 0 ? head : maskedSearch(html, /<body(?:\s[^>]*)?>/i);
+      const expectedAt = at >= 0 ? at : 0;
+      expect(injected.slice(0, expectedAt)).toBe(html.slice(0, expectedAt));
+      expect(injected.slice(expectedAt + bootstrap)).toBe(
+        html.slice(expectedAt),
+      );
+    }
+  });
+
   it("does not inject into a </head> inside any raw-text element", () => {
     for (const tag of ["xmp", "noembed", "noframes", "iframe"]) {
       const raw = `<${tag}></head></${tag}>`;

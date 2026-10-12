@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   builderBodyHydrationDisplayHydratedCount,
   builderBodyHydrationIsTerminalError,
-  createCollectionStarterIsVisible,
   databaseItemBodyHydrationIsPending,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
@@ -348,53 +347,10 @@ describe("body hydration editing gates", () => {
   it("treats the editor empty block sentinel as empty content", () => {
     expect(isEffectivelyEmptyDocumentContent("")).toBe(true);
     expect(isEffectivelyEmptyDocumentContent(" <empty-block/> ")).toBe(true);
-    expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
-  });
-
-  it("keeps the collection starter through title and focus changes while the body is empty", () => {
     expect(
-      createCollectionStarterIsVisible({
-        canEdit: true,
-        bodyHydrationPending: false,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        isCollectionItem: false,
-        content: "<empty-block/>",
-      }),
+      isEffectivelyEmptyDocumentContent("<empty-block/>\n <empty-block/>"),
     ).toBe(true);
-  });
-
-  it("hides the collection starter when the page is ineligible or has body content", () => {
-    expect(
-      createCollectionStarterIsVisible({
-        canEdit: false,
-        bodyHydrationPending: false,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        isCollectionItem: false,
-        content: "",
-      }),
-    ).toBe(false);
-    expect(
-      createCollectionStarterIsVisible({
-        canEdit: true,
-        bodyHydrationPending: true,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        isCollectionItem: false,
-        content: "",
-      }),
-    ).toBe(false);
-    expect(
-      createCollectionStarterIsVisible({
-        canEdit: true,
-        bodyHydrationPending: false,
-        isLocalFileDocument: false,
-        isDatabasePage: false,
-        isCollectionItem: false,
-        content: "Written body",
-      }),
-    ).toBe(false);
+    expect(isEffectivelyEmptyDocumentContent("Hydrated body")).toBe(false);
   });
 
   it("ignores untouched empty preview normalization before it can dirty-save", () => {

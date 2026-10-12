@@ -185,6 +185,8 @@ const messages = {
       changeStatistics: "Estadisticas de cambios",
       untitledPlan: "Plan sin titulo",
       saveFailed: "No se pudo guardar",
+      openFailed:
+        "Não foi possível abrir este plano para edição. Recarregue a página para tentar novamente.",
     },
     imageViewer: {
       actualSize: "Tamano real",
@@ -650,7 +652,12 @@ const messages = {
       createAccountFailed: "Não foi possível criar a conta.",
       emailSignInFailed: "Não é possível fazer login usando e-mail.",
       verifyEmail:
-        "Verifique seu e-mail para verificar sua conta e reabrir este link.",
+        "Confira seu e-mail e abra o link de verificação. Você voltará a este plano; se for solicitado, entre abaixo com o mesmo e-mail.",
+      resendVerification: "Reenviar e-mail de verificação",
+      resendingVerification: "Enviando e-mail de verificação…",
+      verificationEmailResent: "E-mail de verificação enviado.",
+      verificationEmailFailed:
+        "Não foi possível reenviar o e-mail de verificação. Tente novamente.",
       notFoundTitle: "Plano não encontrado",
       requestAccessTitle: "Solicite acesso a este programa",
       signInTitle: "Faça login para visualizar este plano",

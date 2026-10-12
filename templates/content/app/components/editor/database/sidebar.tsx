@@ -1,4 +1,3 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import type { IconValue } from "@agent-native/core/icons";
@@ -6,7 +5,6 @@ import type {
   ContentDatabaseItem,
   ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPageResponse,
-  ContentDatabaseNavigationSort,
   ContentDatabaseOpenPagesIn,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
@@ -63,13 +61,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { filesNavigationPageParams } from "@/lib/files-navigation";
+import {
+  filesNavigationPageParams,
+  useFilesNavigationPage,
+} from "@/lib/files-navigation";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 import {
   SIDEBAR_FILES_ROW_ELEMENT_TIMING,
@@ -143,8 +143,6 @@ export function navigationItemAsDatabaseItem(
 
 export function PagedContentFilesSidebarView({
   databaseId,
-  sort,
-  viewId,
   activeDocumentId,
   expandedDocumentIds,
   onDocumentExpandedChange,
@@ -159,10 +157,10 @@ export function PagedContentFilesSidebarView({
   untitledLabel,
   rootPlaceholder,
   onRootPageShown,
+  branchPlaceholders,
+  onBranchShown,
 }: {
   databaseId: string;
-  sort: ContentDatabaseNavigationSort;
-  viewId?: string;
   activeDocumentId?: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
@@ -180,6 +178,10 @@ export function PagedContentFilesSidebarView({
   rootPlaceholder?: SidebarRowsHint;
   /** Reports what the root page drew, for the next load's placeholder. */
   onRootPageShown?: (shown: SidebarRowsHint) => void;
+  /** Rows to hold while an open folder's first page loads, by folder ID. */
+  branchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  /** Reports what an open folder's first page drew. */
+  onBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
 }) {
   return (
     <nav
@@ -188,13 +190,13 @@ export function PagedContentFilesSidebarView({
       data-paged-files-navigation
     >
       <PagedContentFilesBranch
-        key={`${databaseId}:root:${sort}:${viewId ?? ""}`}
+        key={`${databaseId}:root`}
         databaseId={databaseId}
         parentId={null}
-        sort={sort}
-        viewId={viewId}
         rootPlaceholder={rootPlaceholder}
         onRootPageShown={onRootPageShown}
+        branchPlaceholders={branchPlaceholders}
+        onBranchShown={onBranchShown}
         depth={0}
         activeDocumentId={activeDocumentId}
         expandedDocumentIds={expandedDocumentIds}
@@ -229,14 +231,14 @@ function PagedContentFilesBranch({
   cursor?: string;
   rootPlaceholder?: SidebarRowsHint;
   onRootPageShown?: (shown: SidebarRowsHint) => void;
+  branchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  onBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
   precedingDocumentIds?: ReadonlySet<string>;
   /**
    * Reloads the branch from its first page. Returns false when an automatic
    * reload is refused because the branch reloaded itself moments ago.
    */
   reloadBranch?: (automatic: boolean) => boolean;
-  sort: ContentDatabaseNavigationSort;
-  viewId?: string;
   depth: number;
   activeDocumentId?: string | null;
   expandedDocumentIds: ReadonlySet<string>;
@@ -256,15 +258,13 @@ function PagedContentFilesBranch({
   const [continuationGeneration, setContinuationGeneration] = useState(0);
   const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
   const [reloadRefused, setReloadRefused] = useState(false);
-  const query = useActionQuery(
-    "query-content-database-items",
+  const query = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: props.databaseId,
       parentId: props.parentId,
-      sort: props.sort,
-      viewId: props.viewId,
       cursor,
     }),
+    props.expandedDocumentIds,
   );
   const data =
     query.data && !("available" in query.data)
@@ -328,45 +328,44 @@ function PagedContentFilesBranch({
   }, [rootRowsShown]);
 
   const firstRoot = props.depth === 0 && !cursor;
-  const rootRowCount =
-    firstRoot && data
+  const firstPageRowCount =
+    !cursor && data
       ? data.items.length +
         props.activePathDocuments.filter(
           (document) =>
-            document.parentId === null &&
+            document.parentId === props.parentId &&
             !data.items.some((item) => item.documentId === document.id),
         ).length
       : null;
-  const rootHasMore = Boolean(
+  const firstPageHasMore = Boolean(
     data?.pagination.hasMore && data.pagination.nextCursor,
   );
   useEffect(() => {
-    if (rootRowCount === null) return;
-    onRootPageShown?.({ rows: rootRowCount, more: rootHasMore });
+    if (firstPageRowCount === null) return;
+    const shown = { rows: firstPageRowCount, more: firstPageHasMore };
+    if (props.parentId === null) onRootPageShown?.(shown);
+    else props.onBranchShown?.(props.parentId, shown);
     // The callback identity changes per render; only what was drawn matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootRowCount, rootHasMore]);
+  }, [firstPageRowCount, firstPageHasMore]);
 
-  if (firstRoot && (query.isLoading || (cursorExpired && !reloadRefused))) {
+  if (query.isLoading || (cursorExpired && !reloadRefused)) {
+    // A first page holds the rows it drew last time, in the rows' own
+    // geometry, so the rows below it do not move when the page arrives.
+    const placeholder = cursor
+      ? undefined
+      : props.parentId === null
+        ? rootPlaceholder
+        : props.branchPlaceholders?.[props.parentId];
     return (
       <SidebarRowsSkeleton
         framed={false}
-        rows={rootPlaceholder?.rows ?? 3}
-        more={rootPlaceholder?.more}
-        firstRowProps={startupAnchor("sidebar-files-first-row")}
+        rows={placeholder?.rows ?? 3}
+        more={placeholder?.more}
+        firstRowProps={
+          firstRoot ? startupAnchor("sidebar-files-first-row") : undefined
+        }
       />
-    );
-  }
-  if (query.isLoading || (cursorExpired && !reloadRefused)) {
-    return (
-      <div aria-hidden="true" className="grid gap-1 p-1">
-        {[70, 55, 85].map((width) => (
-          <div key={width} className="flex h-7 items-center gap-1.5 px-1.5">
-            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
-            <Skeleton className="h-3 rounded" style={{ width: `${width}%` }} />
-          </div>
-        ))}
-      </div>
     );
   }
   if (query.isError || !data) {
@@ -468,7 +467,7 @@ function PagedContentFilesBranch({
             {expanded && navigationItem.hasChildren ? (
               <PagedContentFilesBranch
                 {...props}
-                key={`${props.databaseId}:${navigationItem.documentId}:${props.sort}:${props.viewId ?? ""}`}
+                key={`${props.databaseId}:${navigationItem.documentId}`}
                 parentId={navigationItem.documentId}
                 depth={props.depth + 1}
               />
@@ -1193,7 +1192,7 @@ function DatabaseSidebarRow({
     : t("sidebar.expandItem", { title });
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (active) revealActiveSidebarRow(rowRef.current);
+    if (active) return revealActiveSidebarRow(rowRef.current);
   }, [active]);
   const isLocalFile = item.document.source?.mode === "local-files";
   const canChangePage = canEdit && !isLocalFile && pageActions !== null;

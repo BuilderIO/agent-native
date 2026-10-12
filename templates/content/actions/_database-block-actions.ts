@@ -44,6 +44,7 @@ import {
   assertSchema,
   databaseMutationTargetSchema,
   digest,
+  isUniqueConstraintError,
   loadContext,
   revisionPropertyIds,
   rowSnapshot,
@@ -160,22 +161,6 @@ function contractError(
   statusCode = 409,
 ): never {
   throw new ActionContractError(message, { errorCode, details, statusCode });
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown };
-  const code =
-    typeof candidate?.code === "string"
-      ? candidate.code
-      : (JSON.stringify(candidate?.code) ?? "");
-  const message =
-    typeof candidate?.message === "string"
-      ? candidate.message
-      : (JSON.stringify(candidate?.message) ?? "");
-  return (
-    code === "23505" ||
-    /unique constraint|primary key constraint|duplicate key/i.test(message)
-  );
 }
 
 function databaseTarget(target: BlockTarget): DatabaseMutationTarget {

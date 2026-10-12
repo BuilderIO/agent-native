@@ -2,6 +2,8 @@ import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { DbExec } from "../db/client.js";
+import { withMcpCredentialIssuance } from "../mcp/credential-issuance.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -16,6 +18,53 @@ import {
   rekeyIdentityAfterEmailVerification,
   resumePendingIdentityRekeys,
 } from "./rekey.js";
+
+const issuanceDb = vi.hoisted(() => ({
+  exec: undefined as DbExec | undefined,
+}));
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>();
+  return { ...actual, getDbExec: () => issuanceDb.exec ?? actual.getDbExec() };
+});
+
+function issuanceExecutor(
+  pg: Awaited<ReturnType<typeof createTestPglite>>,
+): DbExec {
+  const wrap = (client: {
+    query(sql: string, args?: unknown[]): Promise<any>;
+  }): DbExec => ({
+    async execute(query) {
+      const statement =
+        typeof query === "string" ? { sql: query, args: [] } : query;
+      let index = 0;
+      const result = await client.query(
+        statement.sql.replace(/\?/g, () => `$${++index}`),
+        statement.args,
+      );
+      return {
+        rows: result.rows,
+        rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+      };
+    },
+  });
+  return {
+    ...wrap(pg.db),
+    transaction: (run) => pg.db.transaction((tx) => run(wrap(tx))),
+  };
+}
+
+async function seedIssuance(pg: Awaited<ReturnType<typeof createTestPglite>>) {
+  await seed(pg);
+  await pg.exec(`
+    ALTER TABLE org_members ADD COLUMN org_id TEXT;
+    ALTER TABLE org_members ADD COLUMN role TEXT;
+    ALTER TABLE org_members ADD COLUMN federation_removal_pending_at BIGINT;
+    UPDATE org_members SET org_id = 'org-1', role = 'member';
+    CREATE TABLE organizations (id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT);
+    INSERT INTO organizations VALUES ('org-1', NULL, NULL);
+    CREATE TABLE mcp_oauth_refresh_tokens (id TEXT PRIMARY KEY, owner_email TEXT, issued_for_email TEXT, org_id TEXT);
+  `);
+}
 
 function dbAdapter(
   db: {
@@ -181,6 +230,10 @@ async function seedEveryRegisteredIdentityColumn(
         ["id", `${table}-fixture-${rowNumber++}`],
         [entry.column, oldEmail],
       ]);
+      if (table === "mcp_oauth_codes" || table === "mcp_oauth_refresh_tokens") {
+        values.set("owner_email", oldEmail);
+        values.set("issued_for_email", oldEmail);
+      }
       if (entry.mode === "user-share") {
         values.set("principal_type", "user");
         values.set("resource_id", `${table}-resource-${rowNumber}`);
@@ -224,7 +277,435 @@ async function seedEveryRegisteredIdentityColumn(
   }
 }
 
+describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
+  it("retains OAuth issuance identity on offboarding while permitting email rekey", () => {
+    for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+      expect(
+        IDENTITY_REKEY_COLUMNS.find(
+          (entry) =>
+            entry.table === table && entry.column === "issued_for_email",
+        ),
+      ).toMatchObject({ offboard: "retain" });
+    }
+  });
+
+  it("never hands framework MCP credentials to the successor", () => {
+    const policy = (table: string) =>
+      IDENTITY_REKEY_COLUMNS.find(
+        (entry) => entry.table === table && entry.column === "owner_email",
+      )?.offboard;
+    // Connect tokens must not be deleted: a missing row reads as "not
+    // revoked". Refresh tokens are revoked too, which keeps their record.
+    for (const table of ["mcp_connect_tokens", "mcp_oauth_refresh_tokens"])
+      expect(policy(table), table).toBe("revoke");
+    for (const table of ["mcp_oauth_codes", "mcp_device_codes"])
+      expect(policy(table), table).toBe("delete");
+  });
+});
+
 describe("rekeyIdentity", () => {
+  it("locks memberships in organization/id order before every credential scan", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      await pg.exec(`
+        ALTER TABLE org_members ADD COLUMN org_id TEXT;
+        UPDATE org_members SET org_id = 'org-c';
+        INSERT INTO org_members VALUES
+          ('member-z', 'old@example.test', 'org-b'),
+          ('member-a', 'old@example.test', 'org-a');
+        CREATE TABLE mcp_oauth_codes (id TEXT PRIMARY KEY, owner_email TEXT, issued_for_email TEXT);
+        CREATE TABLE mcp_oauth_refresh_tokens (id TEXT PRIMARY KEY, owner_email TEXT, issued_for_email TEXT);
+        CREATE TABLE mcp_connect_tokens (id TEXT PRIMARY KEY, owner_email TEXT, created_by TEXT);
+        INSERT INTO mcp_oauth_refresh_tokens VALUES ('grant-1', 'old@example.test', 'old@example.test');
+      `);
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+        ),
+      );
+      const membershipLock = calls.findIndex(
+        ({ sql }) =>
+          /FROM "?org_members"?/.test(sql) && sql.includes("FOR UPDATE"),
+      );
+      const credentialScans = calls.flatMap(({ sql }, index) =>
+        sql.startsWith("SELECT") &&
+        /FROM (?:"?mcp_(?:oauth_codes|oauth_refresh_tokens|connect_tokens)"?|public\.oauth_tokens)/.test(
+          sql,
+        )
+          ? [index]
+          : [],
+      );
+      expect(membershipLock).toBeGreaterThanOrEqual(0);
+      expect(calls[membershipLock]).toMatchObject({
+        sql: expect.stringMatching(/ORDER BY "?org_id"?, "?id"? FOR UPDATE/),
+        args: ["old@example.test"],
+      });
+      expect(credentialScans.length).toBeGreaterThanOrEqual(4);
+      expect(credentialScans.every((index) => index > membershipLock)).toBe(
+        true,
+      );
+      expect(
+        await pg
+          .prepare(
+            "SELECT owner_email, issued_for_email FROM mcp_oauth_refresh_tokens",
+          )
+          .all(),
+      ).toEqual([
+        {
+          owner_email: "new@example.test",
+          issued_for_email: "new@example.test",
+        },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("rekeys a grant issued first into an initially empty store without stranding its issuance binding", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seedIssuance(pg);
+      issuanceDb.exec = issuanceExecutor(pg);
+      expect(
+        await pg.prepare("SELECT id FROM mcp_oauth_refresh_tokens").all(),
+      ).toEqual([]);
+      await withMcpCredentialIssuance(
+        { orgId: "org-1", email: "old@example.test" },
+        (tx) =>
+          tx.execute({
+            sql: "INSERT INTO mcp_oauth_refresh_tokens VALUES (?, ?, ?, ?)",
+            args: ["grant-1", "old@example.test", "old@example.test", "org-1"],
+          }),
+      );
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      expect(
+        await pg
+          .prepare(
+            "SELECT owner_email, issued_for_email FROM mcp_oauth_refresh_tokens",
+          )
+          .all(),
+      ).toEqual([
+        {
+          owner_email: "new@example.test",
+          issued_for_email: "new@example.test",
+        },
+      ]);
+    } finally {
+      issuanceDb.exec = undefined;
+      await pg.close();
+    }
+  });
+
+  it("refuses an old-owner grant when rekey commits between authority validation and the issuance lock", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seedIssuance(pg);
+      const exec = issuanceExecutor(pg);
+      issuanceDb.exec = exec;
+      const execute = exec.execute.bind(exec);
+      let renamed = false;
+      vi.spyOn(exec, "execute").mockImplementation(async (query) => {
+        const result = await execute(query);
+        const sql = typeof query === "string" ? query : query.sql;
+        if (
+          !renamed &&
+          sql.includes("SELECT role, federation_removal_pending_at")
+        ) {
+          expect(result.rows).toHaveLength(1);
+          renamed = true;
+          await pg.db.transaction((tx) =>
+            rekeyIdentity(
+              dbAdapter(tx),
+              "old@example.test",
+              "new@example.test",
+            ),
+          );
+        }
+        return result;
+      });
+      const issue = vi.fn(async (tx: DbExec) =>
+        tx.execute({
+          sql: "INSERT INTO mcp_oauth_refresh_tokens VALUES (?, ?, ?, ?)",
+          args: [
+            "stale-grant",
+            "old@example.test",
+            "old@example.test",
+            "org-1",
+          ],
+        }),
+      );
+      await expect(
+        withMcpCredentialIssuance(
+          { orgId: "org-1", email: "old@example.test" },
+          issue,
+        ),
+      ).rejects.toMatchObject({ reason: "not-member" });
+      expect(renamed).toBe(true);
+      expect(issue).not.toHaveBeenCalled();
+      expect(
+        await pg.prepare("SELECT id FROM mcp_oauth_refresh_tokens").all(),
+      ).toEqual([]);
+      await withMcpCredentialIssuance(
+        { orgId: "org-1", email: "new@example.test" },
+        (tx) =>
+          tx.execute({
+            sql: "INSERT INTO mcp_oauth_refresh_tokens VALUES (?, ?, ?, ?)",
+            args: [
+              "renamed-grant",
+              "new@example.test",
+              "new@example.test",
+              "org-1",
+            ],
+          }),
+      );
+      expect(
+        await pg
+          .prepare(
+            "SELECT owner_email, issued_for_email FROM mcp_oauth_refresh_tokens",
+          )
+          .all(),
+      ).toEqual([
+        {
+          owner_email: "new@example.test",
+          issued_for_email: "new@example.test",
+        },
+      ]);
+    } finally {
+      issuanceDb.exec = undefined;
+      await pg.close();
+    }
+  });
+
+  it("takes the issuance lock of both addresses in a fixed order before the membership fence", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+        ),
+      );
+      const identityLocks = calls.flatMap(({ sql, args }, index) =>
+        sql.includes("pg_advisory_xact_lock")
+          ? [{ index, key: String(args[0]) }]
+          : [],
+      );
+      const membershipLock = calls.findIndex(
+        ({ sql }) =>
+          /FROM "?org_members"?/.test(sql) && sql.includes("FOR UPDATE"),
+      );
+      expect(identityLocks.map(({ key }) => key)).toEqual([
+        expect.stringContaining("new@example.test"),
+        expect.stringContaining("old@example.test"),
+      ]);
+      expect(membershipLock).toBeGreaterThan(identityLocks[1].index);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("refuses Personal issuance for a renamed-away address until an account holds it again", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seedIssuance(pg);
+      issuanceDb.exec = issuanceExecutor(pg);
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      const issue = (id: string) =>
+        vi.fn(async (tx: DbExec) =>
+          tx.execute({
+            sql: "INSERT INTO mcp_oauth_refresh_tokens VALUES (?, ?, ?, ?)",
+            args: [id, "old@example.test", "old@example.test", null],
+          }),
+        );
+      // A session or consent for the old address validated before the rekey
+      // committed reaches issuance afterwards.
+      const stale = issue("stale-grant");
+      await expect(
+        withMcpCredentialIssuance(
+          { orgId: null, email: "old@example.test" },
+          stale,
+        ),
+      ).rejects.toMatchObject({ reason: "not-member" });
+      expect(stale).not.toHaveBeenCalled();
+      expect(
+        await pg.prepare("SELECT id FROM mcp_oauth_refresh_tokens").all(),
+      ).toEqual([]);
+
+      await pg.exec(`INSERT INTO "user" VALUES ('u2', 'old@example.test')`);
+      await withMcpCredentialIssuance(
+        { orgId: null, email: "old@example.test" },
+        issue("reregistered-grant"),
+      );
+      expect(
+        await pg
+          .prepare("SELECT id, owner_email FROM mcp_oauth_refresh_tokens")
+          .all(),
+      ).toEqual([
+        { id: "reregistered-grant", owner_email: "old@example.test" },
+      ]);
+    } finally {
+      issuanceDb.exec = undefined;
+      await pg.close();
+    }
+  });
+
+  it.each([false, true])(
+    "rekeys valid OAuth owner bindings without admitting legacy or mismatched grants (account already updated: %s)",
+    async (accountAlreadyUpdated) => {
+      const pg = await createTestPglite();
+      try {
+        await seed(pg);
+        if (accountAlreadyUpdated) {
+          await pg.exec(
+            `UPDATE "user" SET email = 'new@example.test' WHERE id = 'u1'`,
+          );
+        }
+        for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+          await pg.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, owner_email TEXT, issued_for_email TEXT);
+          INSERT INTO ${table} VALUES
+            ('valid', 'old@example.test', 'old@example.test'),
+            ('legacy', 'old@example.test', NULL),
+            ('mismatch', 'old@example.test', 'new@example.test'),
+            ('other-mismatch', 'new@example.test', 'old@example.test');`);
+        }
+        await pg.db.transaction((tx) =>
+          rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test", {
+            accountAlreadyUpdated,
+          }),
+        );
+        for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+          expect(
+            await pg
+              .prepare(
+                `SELECT id, owner_email, issued_for_email FROM ${table} ORDER BY id`,
+              )
+              .all(),
+          ).toEqual([
+            {
+              id: "legacy",
+              owner_email: "new@example.test",
+              issued_for_email: null,
+            },
+            {
+              id: "mismatch",
+              owner_email: "new@example.test",
+              issued_for_email: null,
+            },
+            {
+              id: "other-mismatch",
+              owner_email: "new@example.test",
+              issued_for_email: "old@example.test",
+            },
+            {
+              id: "valid",
+              owner_email: "new@example.test",
+              issued_for_email: "new@example.test",
+            },
+          ]);
+        }
+      } finally {
+        await pg.close();
+      }
+    },
+  );
+
+  it("keeps dry-run fenced but leaves accounts, memberships and grant bindings unchanged", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seedIssuance(pg);
+      await pg.exec(
+        `INSERT INTO mcp_oauth_refresh_tokens VALUES ('grant-1', 'old@example.test', 'old@example.test', 'org-1')`,
+      );
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
+      const result = await pg.db.transaction((tx) =>
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+          { dryRun: true },
+        ),
+      );
+      expect(result.counts["mcp_oauth_refresh_tokens.owner_email"]).toBe(1);
+      expect(
+        calls.some(
+          ({ sql }) =>
+            /FROM "org_members"/.test(sql) && sql.includes("FOR UPDATE"),
+        ),
+      ).toBe(true);
+      expect(
+        calls.some(({ sql }) => /^(UPDATE|DELETE|INSERT|CREATE)/.test(sql)),
+      ).toBe(false);
+      expect(await pg.prepare('SELECT email FROM "user"').get()).toEqual({
+        email: "old@example.test",
+      });
+      expect(await pg.prepare("SELECT email FROM org_members").get()).toEqual({
+        email: "OLD@example.test",
+      });
+      expect(
+        await pg
+          .prepare(
+            "SELECT owner_email, issued_for_email FROM mcp_oauth_refresh_tokens",
+          )
+          .get(),
+      ).toEqual({
+        owner_email: "old@example.test",
+        issued_for_email: "old@example.test",
+      });
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("rekeys Personal bindings when the organization schema is absent", async () => {
+    const pg = await createTestPglite();
+    try {
+      await pg.exec(`
+        CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
+        INSERT INTO "user" VALUES ('u1', 'old@example.test');
+        CREATE TABLE mcp_oauth_refresh_tokens (id TEXT PRIMARY KEY, owner_email TEXT, issued_for_email TEXT, org_id TEXT);
+        INSERT INTO mcp_oauth_refresh_tokens VALUES ('personal-grant', 'old@example.test', 'old@example.test', NULL);
+      `);
+      const calls: Array<{ sql: string; args: unknown[] }> = [];
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(
+          dbAdapter(tx, calls),
+          "old@example.test",
+          "new@example.test",
+        ),
+      );
+      expect(calls.some(({ sql }) => /FROM "org_members"/.test(sql))).toBe(
+        false,
+      );
+      expect(await pg.prepare('SELECT email FROM "user"').get()).toEqual({
+        email: "new@example.test",
+      });
+      expect(
+        await pg
+          .prepare(
+            "SELECT owner_email, issued_for_email, org_id FROM mcp_oauth_refresh_tokens",
+          )
+          .get(),
+      ).toEqual({
+        owner_email: "new@example.test",
+        issued_for_email: "new@example.test",
+        org_id: null,
+      });
+    } finally {
+      await pg.close();
+    }
+  });
+
   it("moves every registered identity column, including denormalized secret scopes", async () => {
     const pg = await createTestPglite();
     try {

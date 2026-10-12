@@ -1,7 +1,49 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => {
+  const state = {
+    inMutation: false,
+    events: [] as string[],
+    insertedValues: null as Record<string, unknown> | null,
+  };
+  const insertQuery = {
+    values: vi.fn(async (values: Record<string, unknown>) => {
+      state.insertedValues = values;
+      state.events.push("insert");
+    }),
+  };
+  const tx = { insert: vi.fn(() => insertQuery) };
+  type Transaction = typeof tx;
+  const assertAccess = vi.fn(async () => {
+    state.events.push(state.inMutation ? "access-inside" : "access-outside");
+    return { role: "editor", resource: {} };
+  });
+  const withDesignSourceMutationTransaction = vi.fn(
+    async (
+      _designId: string,
+      callback: (transaction: Transaction) => Promise<unknown>,
+    ) => {
+      state.events.push("lock");
+      state.inMutation = true;
+      try {
+        return await callback(tx);
+      } finally {
+        state.inMutation = false;
+      }
+    },
+  );
+
+  return {
+    assertAccess,
+    insertQuery,
+    state,
+    tx,
+    withDesignSourceMutationTransaction,
+  };
+});
+
 vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn().mockResolvedValue({ role: "editor", resource: {} }),
+  assertAccess: mocks.assertAccess,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -9,20 +51,15 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => "org_1",
 }));
 
-let insertedValues: Record<string, unknown> | null = null;
-
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({
-    insert: (_table: unknown) => ({
-      values: (vals: Record<string, unknown>) => {
-        insertedValues = vals;
-        return Promise.resolve();
-      },
-    }),
-  }),
   schema: {
-    designState: {},
+    designState: { id: "designState.id" },
   },
+}));
+
+vi.mock("../server/source-workspace.js", () => ({
+  withDesignSourceMutationTransaction:
+    mocks.withDesignSourceMutationTransaction,
 }));
 
 vi.mock("nanoid", () => ({ nanoid: () => "test_id_123" }));
@@ -31,7 +68,13 @@ import { CAPTURE_DATA_MAX_BYTES } from "../shared/capture-sanitize.js";
 import action from "./create-design-state.js";
 
 beforeEach(() => {
-  insertedValues = null;
+  mocks.state.inMutation = false;
+  mocks.state.events.length = 0;
+  mocks.state.insertedValues = null;
+  mocks.assertAccess.mockClear();
+  mocks.insertQuery.values.mockClear();
+  mocks.tx.insert.mockClear();
+  mocks.withDesignSourceMutationTransaction.mockClear();
 });
 
 describe("create-design-state XSS sanitization", () => {
@@ -44,8 +87,8 @@ describe("create-design-state XSS sanitization", () => {
       captureData: { domHtml: '<script>alert("xss")</script><p>hi</p>' },
     });
 
-    expect(insertedValues).not.toBeNull();
-    const stored = insertedValues!.captureData as string;
+    expect(mocks.state.insertedValues).not.toBeNull();
+    const stored = mocks.state.insertedValues!.captureData as string;
     expect(stored).not.toContain("<script");
     expect(stored).toContain("<p>hi</p>");
   });
@@ -59,8 +102,8 @@ describe("create-design-state XSS sanitization", () => {
       fixtureData: { template: '<div onclick="steal()">click</div>' },
     });
 
-    expect(insertedValues).not.toBeNull();
-    const stored = insertedValues!.fixtureData as string;
+    expect(mocks.state.insertedValues).not.toBeNull();
+    const stored = mocks.state.insertedValues!.fixtureData as string;
     expect(stored).not.toContain("onclick");
     expect(stored).toContain("<div");
   });
@@ -74,8 +117,8 @@ describe("create-design-state XSS sanitization", () => {
       captureData: { html: '<a href="javascript:void(0)">link</a>' },
     });
 
-    expect(insertedValues).not.toBeNull();
-    const stored = insertedValues!.captureData as string;
+    expect(mocks.state.insertedValues).not.toBeNull();
+    const stored = mocks.state.insertedValues!.captureData as string;
     expect(stored).not.toContain("javascript:");
   });
 
@@ -88,11 +131,10 @@ describe("create-design-state XSS sanitization", () => {
       captureData: { route: "/dashboard", userId: "u_123" },
     });
 
-    expect(insertedValues).not.toBeNull();
-    const stored = JSON.parse(insertedValues!.captureData as string) as Record<
-      string,
-      unknown
-    >;
+    expect(mocks.state.insertedValues).not.toBeNull();
+    const stored = JSON.parse(
+      mocks.state.insertedValues!.captureData as string,
+    ) as Record<string, unknown>;
     expect(stored.route).toBe("/dashboard");
     expect(stored.userId).toBe("u_123");
   });
@@ -140,5 +182,24 @@ describe("create-design-state size cap", () => {
         captureData: { blob: borderlineString },
       }),
     ).resolves.toBeDefined();
+  });
+
+  it("rechecks editor access inside the source mutation lock before insertion", async () => {
+    await action.run({
+      designId: "design_1",
+      name: "Locked state",
+      breakpoint: "auto",
+    });
+
+    expect(mocks.withDesignSourceMutationTransaction).toHaveBeenCalledWith(
+      "design_1",
+      expect.any(Function),
+    );
+    expect(mocks.state.events).toEqual([
+      "access-outside",
+      "lock",
+      "access-inside",
+      "insert",
+    ]);
   });
 });

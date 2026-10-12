@@ -95,7 +95,7 @@ export interface AutomationRun {
   scope: string | null;
   runId: string | null;
   threadId: string | null;
-  status: "running" | "success" | "error" | "interrupted";
+  status: "running" | "success" | "error" | "interrupted" | "skipped";
   startedAt: number;
   finishedAt: number | null;
   error: string | null;

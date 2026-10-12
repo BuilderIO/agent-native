@@ -7,12 +7,13 @@ import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
 export default defineAction({
   description:
-    "List data programs for Analytics, scoped to what the caller can access.",
+    "List the saved Analytics data programs the caller can access. Use get-data-program to read one program's code and cached results.",
   schema: z.object({
     includeArchived: z.boolean().optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   run: async (args) => {
     const ctx = getCredentialContext();
     if (!ctx)

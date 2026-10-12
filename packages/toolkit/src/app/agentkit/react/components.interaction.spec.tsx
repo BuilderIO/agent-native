@@ -28,17 +28,211 @@ vi.mock("../../../design-system/index.js", async (importOriginal) => {
         "div",
         { className, onClick: () => onOpenChange?.(!open) },
         trigger,
-        open ? children : null,
+        // Clicks inside an open popover never toggle it, as in the real one.
+        open
+          ? createElement(
+              "div",
+              {
+                onClick: (event: { stopPropagation: () => void }) =>
+                  event.stopPropagation(),
+              },
+              children,
+            )
+          : null,
       ),
   };
 });
 
-import { AgentKitClient } from "@agent-native/agentkit/client";
+import { AgentKitClient as AgentKitClientImplementation } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
+import {
+  SESSION_REPLAY_BLOCK_ATTRIBUTE,
+  SESSION_REPLAY_MASK_ATTRIBUTE,
+} from "@agent-native/core/client/session-replay-privacy";
 
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
-import { AgentKitChat, AgentMessageActions } from "./components.js";
+import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
+import {
+  AgentActivityItem,
+  AgentInteractionItem,
+  AgentKitChat as AgentKitChatImplementation,
+  AgentMessageActions,
+} from "./components.js";
 import { AgentKitProvider } from "./context.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({ ...options, aiSetupReadiness: "not-applicable" });
+  }
+}
+
+type TestProviderStatus = "configured" | "unknown" | "missing" | "unavailable";
+
+type AgentKitChatTestProps = Parameters<
+  typeof AgentKitChatImplementation
+>[0] & {
+  testProviderStatus?: TestProviderStatus;
+  fetchTestProviderStatus?: () => Promise<TestProviderStatus>;
+};
+
+function AgentKitChat({
+  testProviderStatus = "configured",
+  fetchTestProviderStatus,
+  ...props
+}: AgentKitChatTestProps) {
+  return (
+    <ComposerRuntimeAdaptersProvider
+      adapters={{
+        models: {
+          useAgentEngineConfigured: () => ({
+            missing: testProviderStatus === "missing",
+            state: testProviderStatus,
+          }),
+          fetchAgentEngineConfiguredState: async () =>
+            fetchTestProviderStatus
+              ? fetchTestProviderStatus()
+              : testProviderStatus,
+        },
+      }}
+    >
+      <AgentKitChatImplementation {...props} />
+    </ComposerRuntimeAdaptersProvider>
+  );
+}
+
+describe("AgentActivityItem replay privacy", () => {
+  it.each(["failed", "completed"] as const)(
+    "hides only failed activity diagnostics (%s)",
+    async (status) => {
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-example" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+        },
+      });
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      try {
+        await act(async () =>
+          root.render(
+            <AgentKitProvider controller={client} threadId="thread-example">
+              <AgentActivityItem
+                value={{
+                  id: "activity-example",
+                  kind: "tool",
+                  label: "Example tool",
+                  status,
+                  detail: "Example Person's example notes.",
+                  summary: [
+                    { type: "text", text: "Example Document diagnostics." },
+                    {
+                      type: "citation",
+                      title: "Example report",
+                      url: "https://example.test/report?person=example",
+                    },
+                  ],
+                }}
+                threadId="thread-example"
+              />
+            </AgentKitProvider>,
+          ),
+        );
+        const disclosure = container.querySelector<HTMLButtonElement>(
+          "button[aria-expanded]",
+        )!;
+        expect(
+          disclosure.closest(`[${SESSION_REPLAY_MASK_ATTRIBUTE}]`),
+        ).toBeNull();
+        expect(
+          container
+            .querySelector(".agentkit-activity-label")
+            ?.closest(`[${SESSION_REPLAY_MASK_ATTRIBUTE}]`),
+        ).toBeNull();
+        const detail = container.querySelector(".agentkit-activity-detail");
+        expect(detail?.hasAttribute(SESSION_REPLAY_MASK_ATTRIBUTE)).toBe(
+          status === "failed",
+        );
+        expect(detail?.hasAttribute("title")).toBe(status !== "failed");
+        await act(async () => disclosure.click());
+        const summary = container.querySelector(".agentkit-activity-summary");
+        expect(summary?.textContent).toContain("Example Document diagnostics.");
+        expect(
+          summary
+            ?.querySelector('a[href^="https://example.test/report"]')
+            ?.closest(`[${SESSION_REPLAY_BLOCK_ATTRIBUTE}]`) !== null,
+        ).toBe(status === "failed");
+      } finally {
+        await act(async () => root.unmount());
+        await client.shutdown();
+        container.remove();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});
+
+describe("AgentInteractionItem replay privacy", () => {
+  it.each(["failed", "completed"] as const)(
+    "masks only failed interaction details (%s)",
+    async (kind) => {
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-example" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+        },
+      });
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      try {
+        await act(async () =>
+          root.render(
+            <AgentKitProvider controller={client} threadId="thread-example">
+              <AgentInteractionItem
+                value={{
+                  id: "interaction-example",
+                  kind,
+                  agentId: "agent-example",
+                  detail: "Example Person's example notes",
+                }}
+                threadId="thread-example"
+              />
+            </AgentKitProvider>,
+          ),
+        );
+        const detail = container.querySelector(
+          ".agentkit-agent-interaction-detail",
+        );
+        expect(detail?.textContent).toBe("Example Person's example notes");
+        expect(detail?.hasAttribute(SESSION_REPLAY_MASK_ATTRIBUTE)).toBe(
+          kind === "failed",
+        );
+        expect(detail?.hasAttribute("title")).toBe(kind !== "failed");
+        expect(
+          container
+            .querySelector(".agentkit-agent-interaction-label")
+            ?.closest(`[${SESSION_REPLAY_MASK_ATTRIBUTE}]`),
+        ).toBeNull();
+      } finally {
+        await act(async () => root.unmount());
+        await client.shutdown();
+        container.remove();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});
 
 describe("AgentKitChat interactions", () => {
   it("preserves host submission disablement", async () => {
@@ -95,8 +289,8 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
-  it("announces async preflight when the transcript slot is custom", async () => {
-    const preflight = Promise.withResolvers<boolean>();
+  it("keeps provider verification progress on the send button", async () => {
+    const preflight = Promise.withResolvers<TestProviderStatus>();
     const client = new AgentKitClient({
       transport: {
         async startRun() {
@@ -132,11 +326,13 @@ describe("AgentKitChat interactions", () => {
             }}
           >
             <AgentKitChat
+              testProviderStatus="unknown"
+              fetchTestProviderStatus={() => preflight.promise}
               composerProps={{
                 composerRef,
                 autoFocus: false,
                 modelStatusChecksEnabled: false,
-                onBeforeSubmit: () => preflight.promise,
+                requireAgentEngine: true,
                 voiceEnabled: false,
               }}
             />
@@ -157,23 +353,23 @@ describe("AgentKitChat interactions", () => {
       });
 
       expect(editor.textContent).toBe("");
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(
-        "Thinking",
-      );
       expect(send.disabled).toBe(true);
-      expect(send.getAttribute("aria-busy")).toBeNull();
-      expect(send.querySelector(".animate-spin")).toBeNull();
+      expect(send.getAttribute("aria-busy")).toBe("true");
+      expect(send.querySelector(".animate-spin")).not.toBeNull();
+      expect(container.querySelector('[role="status"]')).toBeNull();
 
       await act(async () => {
-        preflight.resolve(false);
+        preflight.resolve("configured");
         await preflight.promise;
       });
 
-      expect(editor.textContent).toBe("Check this message");
-      expect(send.disabled).toBe(false);
-      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(
+        container.querySelector('[data-role="user"]')?.textContent,
+      ).toContain("Check this message");
+      expect(send.getAttribute("aria-busy")).toBeNull();
+      expect(send.querySelector(".animate-spin")).toBeNull();
     } finally {
-      preflight.resolve(false);
+      preflight.resolve("configured");
       await act(async () => root.unmount());
       await client.shutdown();
       container.remove();
@@ -407,7 +603,12 @@ describe("AgentKitChat interactions", () => {
             {
               id: "user-edit",
               role: "user",
-              parts: [{ type: "text", text: "Original prompt" }],
+              parts: [
+                {
+                  type: "text",
+                  text: "Original prompt\n\n<context>private context</context>",
+                },
+              ],
             },
           ],
         };
@@ -475,9 +676,7 @@ describe("AgentKitChat interactions", () => {
           messages: expect.arrayContaining([
             expect.objectContaining({
               role: "user",
-              parts: expect.arrayContaining([
-                expect.objectContaining({ text: "Original prompt" }),
-              ]),
+              parts: [{ type: "text", text: "Original prompt" }],
             }),
           ]),
         }),
@@ -488,6 +687,102 @@ describe("AgentKitChat interactions", () => {
         root.unmount();
         await Promise.resolve();
       });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("blocks an edit before creating a fork when AI setup is missing", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const forkThread = vi.fn(async (input) => ({
+      id: `${input.threadId}-fork`,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }));
+    const startRun = vi.fn(async () => ({ runId: "run-edit-blocked" }));
+    const transport: AgentTransport = {
+      capabilities: { threadForking: true },
+      assertAiSetupReady,
+      forkThread,
+      startRun,
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [
+            {
+              id: "user-edit-blocked",
+              role: "user",
+              parts: [{ type: "text", text: "Keep my prompt" }],
+            },
+          ],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-edit-blocked");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-edit-blocked"
+            onThreadForked={vi.fn()}
+          >
+            <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Edit message"]')
+          ?.click();
+        await Promise.resolve();
+      });
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      expect(editor?.textContent).toBe("Keep my prompt");
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(forkThread).not.toHaveBeenCalled();
+      expect(startRun).not.toHaveBeenCalled();
+      expect(editor?.textContent).toBe("Keep my prompt");
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      await client.shutdown();
       container.remove();
       if (previousActEnvironment === undefined) {
         delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
@@ -716,6 +1011,103 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it.each([
+    ["resumes the stopped run's turn", true],
+    ["says so when the run can no longer be continued", false],
+  ])("Continue on a stopped run %s", async (_, accepted) => {
+    const continueRun = vi.fn(
+      async (
+        _input: Parameters<NonNullable<AgentTransport["continueRun"]>>[0],
+      ) => {
+        if (!accepted) throw new Error("This turn can no longer be continued.");
+        return { runId: "run-continued" };
+      },
+    );
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-crashed" };
+      },
+      async *subscribeToRun(input) {
+        if (input.runId !== "run-crashed") return;
+        const base = {
+          threadId: "thread-continue",
+          runId: "run-crashed",
+          occurredAt: "2026-10-05T00:00:00.000Z",
+        };
+        yield { ...base, id: "e1", sequence: 1, type: "run.started" };
+        yield {
+          ...base,
+          id: "e2",
+          sequence: 2,
+          type: "run.failed",
+          error: {
+            code: "stale_run",
+            message: "The agent stopped before it could finish.",
+            retryable: true,
+          },
+        };
+      },
+      continueRun,
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({
+      threadId: "thread-continue",
+      text: "Bill Ana and email her the invoice",
+    });
+    await run.completed.catch(() => undefined);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const continueButton = () =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          ".agentkit-run-failure button",
+        ),
+      ].find((button) => button.textContent === "Continue");
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-continue">
+            <AgentKitChat composer={false} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      expect(continueButton()).toBeDefined();
+
+      await act(async () => {
+        continueButton()?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(continueRun).toHaveBeenCalledWith(
+        { threadId: "thread-continue", runId: "run-crashed" },
+        expect.anything(),
+      );
+      expect(container.textContent?.includes("can't be continued")).toBe(
+        !accepted,
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("renders the default plus control and routes chat-wide file drops to the composer", async () => {
     const transport: AgentTransport = {
       capabilities: { uploads: true },
@@ -853,6 +1245,161 @@ describe("AgentKitChat interactions", () => {
       expect(onAttachmentError).toHaveBeenCalledWith(
         expect.stringContaining("too-large.txt"),
       );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("attaches dropped SVGs and names rejected drops without the accept list", async () => {
+    const transport: AgentTransport = {
+      capabilities: { uploads: true },
+      async startRun() {
+        return { runId: "run-svg" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const onAttachmentError = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const dropOnChat = async (file: File) => {
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { types: ["Files"], files: [file], dropEffect: "none" },
+      });
+      await act(async () => {
+        container.querySelector(".agentkit-chat")?.dispatchEvent(drop);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-svg">
+            <AgentKitChat composerProps={{ onAttachmentError }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      await dropOnChat(
+        new File(['<svg xmlns="http://www.w3.org/2000/svg"/>'], "logo.svg", {
+          type: "image/svg+xml",
+        }),
+      );
+      expect(container.textContent).toContain("logo.svg");
+      expect(onAttachmentError).not.toHaveBeenCalled();
+
+      await dropOnChat(
+        new File(["zip"], "archive.zip", { type: "application/zip" }),
+      );
+      expect(onAttachmentError).toHaveBeenCalledWith(
+        "archive.zip: Could not add the dropped file. Try a different format.",
+      );
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("masks the default composer's send and attachment errors", async () => {
+    const transport: AgentTransport = {
+      capabilities: { uploads: true },
+      async startRun() {
+        throw new Error("Jane Doe's notes are locked");
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const composerError = (text: string) =>
+      [...container.querySelectorAll(".agentkit-composer-error span")].find(
+        (span) => span.textContent?.includes(text),
+      );
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-errors">
+            <AgentKitChat
+              composerProps={{
+                initialText: "Summarize my notes",
+                modelStatusChecksEnabled: false,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+
+      const drop = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: {
+          types: ["Files"],
+          files: [
+            new File(["zip"], "Jane Doe taxes.zip", {
+              type: "application/zip",
+            }),
+          ],
+          dropEffect: "none",
+        },
+      });
+      await act(async () => {
+        container.querySelector(".agentkit-chat")?.dispatchEvent(drop);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        composerError("Jane Doe taxes.zip")?.hasAttribute(
+          SESSION_REPLAY_MASK_ATTRIBUTE,
+        ),
+      ).toBe(true);
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        composerError("Jane Doe's notes are locked")?.hasAttribute(
+          SESSION_REPLAY_MASK_ATTRIBUTE,
+        ),
+      ).toBe(true);
     } finally {
       await act(async () => {
         root.unmount();
@@ -1119,11 +1666,219 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it("fills the thumbs-down reason from chips and copies a report with the run, thread and note", async () => {
+    const assistantMessage = {
+      id: "assistant-report",
+      role: "assistant" as const,
+      status: "complete" as const,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      parts: [{ type: "text" as const, text: "All done" }],
+    };
+    const transport: AgentTransport = {
+      capabilities: { feedback: true },
+      async submitFeedback() {},
+      async startRun() {
+        return { runId: "run-report" };
+      },
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [assistantMessage],
+          events: [
+            {
+              id: "event-report",
+              threadId,
+              runId: "run-report",
+              sequence: 1,
+              occurredAt: "2026-09-26T00:00:00.000Z",
+              type: "message.completed",
+              message: assistantMessage,
+            },
+          ],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-report");
+    const buildFeedbackReport = vi.fn(
+      ({ runId, note }: { runId?: string; note: string }) =>
+        `report run=${runId} note=${note}`,
+    );
+    const writeText = vi.fn(async () => undefined);
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const buttonByText = (text: string) =>
+      Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent?.includes(text));
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-report"
+            buildFeedbackReport={buildFeedbackReport}
+          >
+            <AgentKitChat composer={false} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Not helpful"]')
+          ?.click();
+        await Promise.resolve();
+      });
+
+      // They sit inside the feedback form, so none may submit it.
+      expect(buttonByText("Misread my ask")?.type).toBe("button");
+      expect(buttonByText("Copy details")?.type).toBe("button");
+      await act(async () => {
+        buttonByText("Misread my ask")?.click();
+        buttonByText("Wrong numbers")?.click();
+        buttonByText("Misread my ask")?.click();
+      });
+      const textarea = document.body.querySelector<HTMLTextAreaElement>(
+        ".agentkit-feedback-popover textarea",
+      );
+      expect(textarea?.value).toBe("Misread my ask. Wrong numbers");
+
+      await act(async () => {
+        buttonByText("Copy details")?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(buildFeedbackReport).toHaveBeenCalledWith({
+        threadId: "thread-report",
+        runId: "run-report",
+        messageId: "assistant-report",
+        note: "Misread my ask. Wrong numbers",
+      });
+      expect(writeText).toHaveBeenCalledWith(
+        "report run=run-report note=Misread my ask. Wrong numbers",
+      );
+      expect(buttonByText("Copied")).toBeDefined();
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      await client.shutdown();
+      container.remove();
+      if (clipboardDescriptor) {
+        Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("offers no Copy details without a report builder", async () => {
+    const assistantMessage = {
+      id: "assistant-no-report",
+      role: "assistant" as const,
+      status: "complete" as const,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      parts: [{ type: "text" as const, text: "Answer" }],
+    };
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { feedback: true },
+        async submitFeedback() {},
+        async startRun() {
+          return { runId: "run-no-report" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        async getThreadSnapshot(threadId) {
+          return {
+            id: threadId,
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:00:00.000Z",
+            messages: [assistantMessage],
+          };
+        },
+      },
+    });
+    await client.loadThread("thread-no-report");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-no-report">
+            <AgentKitChat composer={false} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Not helpful"]')
+          ?.click();
+        await Promise.resolve();
+      });
+
+      expect(
+        document.body.querySelector(".agentkit-feedback-popover"),
+      ).not.toBeNull();
+      expect(document.body.textContent).not.toContain("Copy details");
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      await client.shutdown();
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it("falls back to plain-text clipboard copy when the host declines handling", async () => {
     const message = {
       id: "assistant-copy-fallback",
       role: "assistant" as const,
-      parts: [{ type: "text" as const, text: "Plain text answer" }],
+      parts: [
+        {
+          type: "text" as const,
+          text: "Plain text answer\n<context>private context</context>",
+        },
+      ],
     };
     const transport: AgentTransport = {
       async startRun() {
@@ -1209,12 +1964,12 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
-  it("keeps queue steering available during a run and moves queued items durably", async () => {
+  it("steers queue items with the button or empty Enter and moves items durably", async () => {
     const queuedMessages = [
       {
         id: "queued-first",
         threadId: "thread-queue",
-        text: "First",
+        text: "First\n\n<context>private source context</context>",
         createdAt: "2026-09-26T00:00:00.000Z",
       },
       {
@@ -1231,7 +1986,18 @@ describe("AgentKitChat interactions", () => {
           },
         ],
       },
+      {
+        id: "queued-third",
+        threadId: "thread-queue",
+        text: "Third",
+        createdAt: "2026-09-26T00:00:02.000Z",
+      },
     ];
+    const previousUserAgent = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    });
     const moveQueuedMessageToTop = vi.fn(async () => undefined);
     const steerQueuedMessage = vi.fn(async () => undefined);
     const transport: AgentTransport = {
@@ -1255,7 +2021,19 @@ describe("AgentKitChat interactions", () => {
           id: threadId,
           createdAt: "2026-09-26T00:00:00.000Z",
           updatedAt: "2026-09-26T00:00:00.000Z",
-          messages: [],
+          messages: [
+            {
+              id: "user-context",
+              role: "user" as const,
+              status: "complete" as const,
+              parts: [
+                {
+                  type: "text" as const,
+                  text: "Visible request\n\n<context>private source context</context>",
+                },
+              ],
+            },
+          ],
           activeRunIds: ["run-active"],
           runs: [
             {
@@ -1290,6 +2068,19 @@ describe("AgentKitChat interactions", () => {
         await Promise.resolve();
       });
       expect(
+        container.querySelector(".agentkit-user-message-text-content")
+          ?.textContent,
+      ).toContain("Visible request");
+      expect(
+        container.querySelector(".agentkit-user-message-text-content")
+          ?.textContent,
+      ).not.toContain("private source context");
+      const queueText =
+        container.querySelector('section[data-agent-message-queue="true"]')
+          ?.textContent ?? "";
+      expect(queueText).toContain("First");
+      expect(queueText).not.toContain("private source context");
+      expect(
         container
           .querySelector<HTMLImageElement>(
             'section[data-agent-message-queue="true"] img',
@@ -1300,7 +2091,7 @@ describe("AgentKitChat interactions", () => {
         container.querySelectorAll<HTMLButtonElement>(
           'section[data-agent-message-queue="true"] button',
         ),
-      ).find((button) => button.textContent?.trim() === "Steer");
+      ).find((button) => button.textContent?.trim() === "Send now");
       expect(steerButton?.disabled).toBe(false);
 
       await act(async () => {
@@ -1315,7 +2106,7 @@ describe("AgentKitChat interactions", () => {
         container.querySelectorAll<HTMLButtonElement>(
           'section[data-agent-message-queue="true"] button',
         ),
-      ).find((button) => button.textContent?.trim() === "Steer");
+      ).find((button) => button.textContent?.trim() === "Send now");
       expect(blockedSteerButton).toBeUndefined();
       expect(
         container.querySelector<HTMLButtonElement>(
@@ -1332,11 +2123,19 @@ describe("AgentKitChat interactions", () => {
         await Promise.resolve();
       });
 
+      const queueRows = container.querySelectorAll(
+        'section[data-agent-message-queue="true"] li',
+      );
+      expect(
+        queueRows[0]?.querySelector('button[aria-label="More actions"]'),
+      ).toBeNull();
+
       const moreActions = container.querySelectorAll<HTMLButtonElement>(
         'section[data-agent-message-queue="true"] button[aria-label="More actions"]',
       );
+      expect(moreActions).toHaveLength(2);
       await act(async () => {
-        moreActions[1]?.dispatchEvent(
+        moreActions[0]?.dispatchEvent(
           new PointerEvent("pointerdown", {
             bubbles: true,
             button: 0,
@@ -1348,7 +2147,7 @@ describe("AgentKitChat interactions", () => {
       await act(async () => {
         const moveToTop =
           document.body.querySelector<HTMLElement>('[role="menuitem"]');
-        expect(moveToTop?.textContent).toContain("Move to top");
+        expect(moveToTop?.textContent).toContain("Send next");
         moveToTop?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
@@ -1361,7 +2160,7 @@ describe("AgentKitChat interactions", () => {
       );
       expect(
         client.getThread("thread-queue").queuedMessages.map(({ id }) => id),
-      ).toEqual(["queued-second", "queued-first"]);
+      ).toEqual(["queued-second", "queued-first", "queued-third"]);
 
       await act(async () => {
         Array.from(
@@ -1369,7 +2168,7 @@ describe("AgentKitChat interactions", () => {
             'section[data-agent-message-queue="true"] button',
           ),
         )
-          .find((button) => button.textContent?.trim() === "Steer")
+          .find((button) => button.textContent?.trim() === "Send now")
           ?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
@@ -1377,6 +2176,56 @@ describe("AgentKitChat interactions", () => {
         expect.objectContaining({
           threadId: "thread-queue",
           messageId: "queued-second",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
+
+      await act(async () => {
+        const composer = container.querySelector<HTMLElement>(
+          ".agent-composer-prosemirror",
+        );
+        expect(composer?.textContent?.trim()).toBe("");
+        composer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(steerQueuedMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-queue",
+          messageId: "queued-first",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
+
+      const emptyComposer = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      await act(async () => {
+        emptyComposer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+            metaKey: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        steerQueuedMessage.mock.calls.map(([input]) => input.messageId),
+      ).toEqual(["queued-second", "queued-first", "queued-third"]);
+      expect(steerQueuedMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          threadId: "thread-queue",
+          messageId: "queued-third",
+          interruptActiveRun: true,
         }),
         expect.anything(),
       );
@@ -1392,6 +2241,10 @@ describe("AgentKitChat interactions", () => {
       } else {
         actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
       }
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: previousUserAgent,
+      });
     }
   });
 

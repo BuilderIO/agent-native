@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import {
   useBuilderConnectCardController,
   type BuilderConnectCardControllerOptions,
@@ -18,6 +20,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 describe("useBuilderConnectCardController", () => {
   let container: HTMLDivElement;
@@ -57,7 +61,16 @@ describe("useBuilderConnectCardController", () => {
   }
 
   function render(options?: BuilderConnectCardControllerOptions) {
-    act(() => root.render(<Harness options={options} />));
+    act(() =>
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={toolkitI18nCatalog}
+          persistPreference={false}
+        >
+          <Harness options={options} />
+        </AgentNativeI18nProvider>,
+      ),
+    );
     expect(viewModel).toBeDefined();
     return viewModel as BuilderConnectCardViewModel;
   }
@@ -66,16 +79,16 @@ describe("useBuilderConnectCardController", () => {
     const result = render();
 
     expect(result).toMatchObject({
-      title: "Builder connect",
+      title: "Use Builder.io",
       description:
-        "Connect Builder.io for managed model access, browser automation, and workspace identity. Free tier available.",
+        "Model access, browser automation, file storage, and workspace identity. Free tier available.",
       status: { kind: "ready", label: "Ready to connect" },
       configured: false,
       pending: false,
       error: null,
       orgName: null,
       action: {
-        label: "Connect Builder.io",
+        label: "Use Builder.io",
         pending: false,
         disabled: false,
       },
@@ -166,7 +179,7 @@ describe("useBuilderConnectCardController", () => {
         configured: false,
         status: { kind: "ready" },
         scope: "personal",
-        action: { label: "Connect Builder.io" },
+        action: { label: "Use Builder.io" },
       });
 
       act(() => result.action?.onPress(true));
@@ -231,7 +244,7 @@ describe("useBuilderConnectCardController", () => {
 
       expect(render({ scope: "personal" })).toMatchObject({
         configured: false,
-        action: { label: "Connect Builder.io" },
+        action: { label: "Use Builder.io" },
       });
     });
   });

@@ -9,6 +9,7 @@ import {
 import { emit } from "@agent-native/core/event-bus";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { captureRouteError } from "@agent-native/core/server";
+import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
@@ -36,6 +37,7 @@ import {
 } from "../server/lib/recording-failures.js";
 import {
   listRecordingChunkKeys,
+  recordingUploadBrowserSessionId,
   validateRecordingChunkKeys,
 } from "../server/lib/recording-upload-state.js";
 import {
@@ -54,6 +56,10 @@ import {
   markSeekableRepairPending,
 } from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
+import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
 import {
   probeHasAudioStream,
   remuxWebmToSeekable,
@@ -329,6 +335,7 @@ async function failStoredButUnservableRecording(params: {
   expectedUploadState: Record<string, unknown> | null;
   expectedVerificationState: Record<string, unknown> | null;
   failureReason: string;
+  browserSessionId?: string;
 }): Promise<boolean> {
   const {
     id,
@@ -338,6 +345,7 @@ async function failStoredButUnservableRecording(params: {
     expectedUploadState,
     expectedVerificationState,
     failureReason,
+    browserSessionId,
   } = params;
   const now = new Date().toISOString();
   const db = getDb();
@@ -407,7 +415,7 @@ async function failStoredButUnservableRecording(params: {
           : {}),
         recording_platform: failed[0]?.recordingPlatform ?? "unknown",
       },
-      recordingTrackingSource(ownerEmail),
+      recordingTrackingSource(ownerEmail, browserSessionId),
     );
   } catch {
     // coercion-ok: analytics is best-effort and must not change media recovery behavior.
@@ -418,6 +426,7 @@ async function failStoredButUnservableRecording(params: {
     uploadAttemptId: failed[0]?.uploadAttemptId,
     platform: failed[0]?.recordingPlatform,
     failureCode: "media_verification_failed",
+    browserSessionId,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
   return true;
@@ -504,6 +513,26 @@ async function persistPendingMediaVerification(params: {
   const nextAttemptAt = new Date(
     Date.now() + mediaVerificationRetryDelayMs(nextRetryAttempt),
   ).toISOString();
+  const existingVerificationMarker = parseMediaVerificationMarker(
+    expectedVerificationState,
+  );
+  const storedBrowserSessionId =
+    existingVerificationMarker?.recordingId === id &&
+    mediaVerificationMarkerMatchesUpload(
+      existingVerificationMarker,
+      uploadAttemptId,
+      uploadGenerationId,
+    )
+      ? stateString(expectedVerificationState, "browserSessionId")
+      : undefined;
+  const browserSessionId =
+    storedBrowserSessionId ??
+    recordingUploadBrowserSessionId(expectedUploadState, {
+      recordingId: id,
+      uploadAttemptId,
+      uploadGenerationId,
+    }) ??
+    getRequestContext()?.browserSessionId;
   const db = getDb();
   const persisted = await db
     .update(schema.recordings)
@@ -554,6 +583,7 @@ async function persistPendingMediaVerification(params: {
         mediaVerificationLastError: failureReason,
         uploadAttemptId,
         uploadGenerationId,
+        ...(browserSessionId ? { browserSessionId } : {}),
         videoUrl: media.videoUrl,
         videoSizeBytes: media.videoSizeBytes,
         sourceSizeBytes: media.sourceSizeBytes,
@@ -582,6 +612,7 @@ async function persistPendingMediaVerification(params: {
         leaseUntil: null,
         uploadAttemptId,
         uploadGenerationId,
+        ...(browserSessionId ? { browserSessionId } : {}),
         updatedAt: now,
       },
     },
@@ -789,6 +820,7 @@ async function markRecordingReady(params: {
   recordingGenerationId: string | null;
   existingTitle: string;
   seekableApplied: boolean;
+  browserSessionId?: string;
 }) {
   const {
     id,
@@ -806,6 +838,7 @@ async function markRecordingReady(params: {
     recordingGenerationId,
     existingTitle,
     seekableApplied,
+    browserSessionId,
   } = params;
   const db = getDb();
   const now = new Date().toISOString();
@@ -899,6 +932,22 @@ async function markRecordingReady(params: {
     };
   }
 
+  // Published as soon as the row is ready, before any follow-up work can
+  // fail: a client deletes its local copy only when these source bytes match.
+  await writeAppState(`recording-upload-${id}`, {
+    recordingId: id,
+    status: "ready",
+    progress: 100,
+    uploadAttemptId: recordingAttemptId,
+    uploadGenerationId: recordingGenerationId,
+    ...(browserSessionId ? { browserSessionId } : {}),
+    videoUrl,
+    videoSizeBytes,
+    sourceSizeBytes,
+    durationMs: finalDurationMs,
+    finishedAt: now,
+  });
+
   track(
     "recording_ready",
     {
@@ -915,7 +964,7 @@ async function markRecordingReady(params: {
       width: finalWidth,
       height: finalHeight,
     },
-    recordingTrackingSource(ownerEmail),
+    recordingTrackingSource(ownerEmail, browserSessionId),
   );
 
   await queueReadyRecordingThumbnail(id);
@@ -944,16 +993,6 @@ async function markRecordingReady(params: {
     });
   }
 
-  await writeAppState(`recording-upload-${id}`, {
-    recordingId: id,
-    status: "ready",
-    progress: 100,
-    videoUrl,
-    videoSizeBytes,
-    sourceSizeBytes,
-    durationMs: finalDurationMs,
-    finishedAt: now,
-  });
   await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
     console.warn("[finalize] failed to clear media verification marker", {
       id,
@@ -1045,6 +1084,7 @@ async function retryPendingMediaVerification(params: {
   uploadGenerationId: string | null;
   expectedUploadState: Record<string, unknown> | null;
   expectedVerificationState: Record<string, unknown>;
+  browserSessionId?: string;
 }) {
   const {
     id,
@@ -1056,6 +1096,7 @@ async function retryPendingMediaVerification(params: {
     uploadGenerationId,
     expectedUploadState,
     expectedVerificationState,
+    browserSessionId,
   } = params;
   const db = getDb();
   const [recording] = await db
@@ -1125,6 +1166,7 @@ async function retryPendingMediaVerification(params: {
       recordingAttemptId: uploadAttemptId,
       recordingGenerationId: uploadGenerationId,
       seekableApplied: candidate.seekableApplied,
+      browserSessionId,
     });
     if (result.status === "ready" && result.transitionedToReady) {
       queueBackgroundBuilderCompression({
@@ -1151,6 +1193,7 @@ async function retryPendingMediaVerification(params: {
         expectedUploadState,
         expectedVerificationState,
         failureReason: terminalReason,
+        browserSessionId,
       });
       if (!failed) {
         const [resolved] = await db
@@ -1323,7 +1366,11 @@ export default defineAction({
       if (generationId !== null && existing.status === "uploading") {
         const claimed = await db
           .update(schema.recordings)
-          .set({ status: "processing", updatedAt: new Date().toISOString() })
+          .set({
+            status: "processing",
+            uploadLeaseExpiresAt: uploadLeaseExpiry(),
+            updatedAt: new Date().toISOString(),
+          })
           .where(
             and(
               eq(schema.recordings.id, id),
@@ -1352,12 +1399,21 @@ export default defineAction({
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
+        const readyState = await readAppState(`recording-upload-${id}`);
         return {
           id,
           status: "ready" as const,
           videoUrl: existing.videoUrl,
           videoSizeBytes: existing.videoSizeBytes ?? 0,
-          sourceSizeBytes: existing.videoSizeBytes ?? 0,
+          // The received bytes, never the served size: a client compares this
+          // with its local copy, and 0 reads as "unverified", not a mismatch.
+          sourceSizeBytes:
+            stateNumber(
+              readyState && typeof readyState === "object"
+                ? (readyState as Record<string, unknown>)
+                : null,
+              "sourceSizeBytes",
+            ) ?? 0,
           durationMs: existing.durationMs ?? 0,
         };
       }
@@ -1417,6 +1473,15 @@ export default defineAction({
             : (existing.uploadAttemptId ?? null),
         recordingGenerationId: generationId,
         existingTitle: existing.title,
+        browserSessionId:
+          recordingUploadBrowserSessionId(uploadState, {
+            recordingId: id,
+            uploadAttemptId:
+              args.uploadAttemptId !== undefined
+                ? args.uploadAttemptId
+                : (existing.uploadAttemptId ?? null),
+            uploadGenerationId: generationId,
+          }) ?? getRequestContext()?.browserSessionId,
       };
 
       const pendingMedia = pendingMediaVerificationFromState(uploadState);
@@ -1456,6 +1521,14 @@ export default defineAction({
           uploadGenerationId: generationId,
           expectedUploadState: uploadState,
           expectedVerificationState: claimed,
+          browserSessionId:
+            stateString(claimed, "browserSessionId") ??
+            recordingUploadBrowserSessionId(uploadState, {
+              recordingId: id,
+              uploadAttemptId: existing.uploadAttemptId ?? null,
+              uploadGenerationId: generationId,
+            }) ??
+            getRequestContext()?.browserSessionId,
         });
       }
 
@@ -1719,12 +1792,23 @@ export default defineAction({
         );
       }
 
+      const uploadBrowserSessionId = recordingUploadBrowserSessionId(
+        uploadState,
+        {
+          recordingId: id,
+          uploadAttemptId: existing.uploadAttemptId ?? null,
+          uploadGenerationId: generationId,
+        },
+      );
       const processingUploadState = {
         recordingId: id,
         status: "processing",
         progress: 100,
         uploadAttemptId: existing.uploadAttemptId ?? null,
         uploadGenerationId: generationId,
+        ...(uploadBrowserSessionId
+          ? { browserSessionId: uploadBrowserSessionId }
+          : {}),
         updatedAt: new Date().toISOString(),
       };
       const processingStateWritten = await compareAndSetProcessingUploadState({
@@ -2148,6 +2232,7 @@ export default defineAction({
           .set({
             status: "uploading",
             failureReason: STORAGE_SETUP_REQUIRED_REASON,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             durationMs: finalDurationMs,
             width: finalWidth,
             height: finalHeight,

@@ -35,6 +35,8 @@ vi.mock("../db/index.js", () => ({
   },
 }));
 
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+
 import { notifyClients } from "./decks";
 
 describe("notifyClients", () => {
@@ -134,6 +136,29 @@ describe("notifyClients", () => {
       orgId: "org-1",
       deckId: "deck-1",
     });
+  });
+
+  it("stamps the writing tab so other viewers can tell it from their own echo", async () => {
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", run: { browserTabId: "tab-owner" } },
+      () =>
+        notifyClients("deck-1", { type: "deck-deleted", visibility: "public" }),
+    );
+
+    expect(mockRecordChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "deck-deleted",
+        requestSource: "tab-owner",
+      }),
+    );
+  });
+
+  it("leaves requestSource off events written outside a browser request", async () => {
+    await notifyClients("deck-1", { type: "deck-deleted", owner: "a@b.co" });
+
+    expect(mockRecordChange.mock.calls[0][0]).not.toHaveProperty(
+      "requestSource",
+    );
   });
 
   it("preserves public scope for deletion tombstones, skipping the row lookup", async () => {

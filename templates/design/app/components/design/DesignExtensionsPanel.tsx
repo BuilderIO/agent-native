@@ -123,6 +123,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
 
 interface DesignExtensionsPanelProps {
   context: DesignExtensionSlotContext;
+  motionLabEnabled: boolean;
   className?: string;
   hideAssetLibrary?: boolean;
   title?: string;
@@ -1360,6 +1361,7 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
 
 export function DesignExtensionsPanel({
   context,
+  motionLabEnabled,
   className,
   hideAssetLibrary = false,
   title,
@@ -1459,25 +1461,31 @@ export function DesignExtensionsPanel({
       icon: <IconAssembly className="size-3.5" />,
       panel: <TokenAuditorPanel context={context} />,
     },
-    {
-      id: "design.motion-presets",
-      label: "Motion Presets",
-      description: "One-click animation presets for elements",
-      category: "motion",
-      icon: <IconPlayerPlay className="size-3.5" />,
-      panel: <MotionPresetsPanel context={context} />,
-    },
+    ...(motionLabEnabled
+      ? [
+          {
+            id: "design.motion-presets" as const,
+            label: "Motion Presets",
+            description: "One-click animation presets for elements",
+            category: "motion" as const,
+            icon: <IconPlayerPlay className="size-3.5" />,
+            panel: <MotionPresetsPanel context={context} />,
+          },
+        ]
+      : []),
   ];
   const firstPartyRows = allFirstPartyRows.filter(
     (row) => !hideAssetLibrary || row.id !== "design.asset-library",
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
+  const visibleCategoryFilter =
+    !motionLabEnabled && categoryFilter === "motion" ? "all" : categoryFilter;
   const sourceMatches = (source: ToolSourceFilter) =>
     !enableExtensionDiscovery ||
     sourceFilter === "all" ||
     sourceFilter === source;
   const categoryMatches = (category: ToolCategoryFilter) =>
-    categoryFilter === "all" || categoryFilter === category;
+    visibleCategoryFilter === "all" || visibleCategoryFilter === category;
   const textMatches = (name: string, description?: string | null) => {
     if (!normalizedSearch) return true;
     return `${name} ${description ?? ""}`
@@ -1559,13 +1567,15 @@ export function DesignExtensionsPanel({
           ) : null}
           <ToolFilterMenu
             label="Category"
-            value={categoryFilter}
+            value={visibleCategoryFilter}
             onChange={setCategoryFilter}
             options={[
               { value: "all", label: "Category" },
               { value: "shader", label: "Shaders" },
               { value: "tokens", label: "Tokens" },
-              { value: "motion", label: "Motion" },
+              ...(motionLabEnabled
+                ? [{ value: "motion" as const, label: "Motion" }]
+                : []),
               ...(enableExtensionDiscovery
                 ? [{ value: "plugins" as const, label: "Plugins" }]
                 : []),

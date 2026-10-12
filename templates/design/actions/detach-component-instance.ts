@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -150,7 +150,7 @@ async function persistEdit(file: {
 
 export default defineAction({
   description:
-    "Detach a component instance (Figma's ⌥⌘B): strip the " +
+    "Detach a component instance: strip the " +
     "data-agent-native-component annotation and its data-agent-native-prop-* " +
     "overrides from the selected instance root so it becomes a plain, " +
     "unlinked element. Position, size, classes, text, and behavior are " +
@@ -182,7 +182,8 @@ export default defineAction({
   }),
   run: async ({ designId, nodeId, fileId, source }, context) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);

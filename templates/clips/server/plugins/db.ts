@@ -12,7 +12,10 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { uploadLeaseExpiry } from "../lib/upload-lease.js";
+import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../lib/upload-lease.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -1166,6 +1169,68 @@ export const migrations = runMigrations(
       version: 79,
       name: "screenshot-base-image",
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS base_image_url TEXT`,
+    },
+    {
+      version: 80,
+      name: "recording-waiting-storage-lease",
+      // Rows parked for storage were saved with no lease, which the reaper
+      // never selects, so they waited forever. Idempotent: NULL leases only.
+      // guard:allow-unscoped — startup migration backfills every owner's rows.
+      sql: `UPDATE recordings SET upload_lease_expires_at = '${waitingStorageLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status = 'uploading' AND failure_reason IS NOT NULL`,
+    },
+    {
+      version: 81,
+      name: "recording-context-items",
+      // Additive. Mirrors `recordingContextItems` in server/db/schema.ts; keep
+      // the partial unique index predicate identical to the schema's.
+      sql: `CREATE TABLE IF NOT EXISTS recording_context_items (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'screen_history',
+        label TEXT,
+        requested_seconds INTEGER NOT NULL,
+        original_started_at TEXT NOT NULL,
+        original_ended_at TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        media_recording_id TEXT,
+        duration_ms INTEGER,
+        width INTEGER,
+        height INTEGER,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_context_items_active_recording_unique_idx
+        ON recording_context_items (recording_id)
+        WHERE status <> 'removed';
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_idx
+        ON recording_context_items (created_at)
+        WHERE status = 'pending'`,
+    },
+    {
+      version: 82,
+      name: "recording-context-pending-footage",
+      // Additive. Mirrors `pendingMediaRecordingId` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS pending_media_recording_id TEXT`,
+    },
+    {
+      version: 83,
+      name: "recording-context-footage-indexes",
+      // Additive. The in-use check looks up items by either footage column.
+      // Mirrors the indexes on `recordingContextItems` in server/db/schema.ts.
+      sql: `CREATE INDEX IF NOT EXISTS recording_context_items_media_recording_idx
+        ON recording_context_items (media_recording_id);
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_media_recording_idx
+        ON recording_context_items (pending_media_recording_id)`,
+    },
+    {
+      version: 84,
+      name: "recording-context-captured-device",
+      // Additive. Mirrors `capturedDeviceId` in server/db/schema.ts. NULL rows
+      // predate device scoping and stay visible to every device's queue.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS captured_device_id TEXT`,
     },
   ],
   { table: "clips_migrations" },

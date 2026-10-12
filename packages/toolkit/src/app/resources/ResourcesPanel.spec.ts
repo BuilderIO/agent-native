@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,11 @@ const storageMocks = vi.hoisted(() => ({
   retry: null as (() => void) | null,
   dismiss: null as (() => void) | null,
   setup: null as (() => void) | null,
+}));
+const modelCatalogMocks = vi.hoisted(() => ({ load: vi.fn() }));
+
+vi.mock("@agent-native/core/client/use-chat-models", () => ({
+  loadChatModelCatalog: modelCatalogMocks.load,
 }));
 
 vi.mock("@agent-native/core/client/uploads/use-file-upload-status", () => ({
@@ -62,7 +67,16 @@ vi.mock("@agent-native/core/client/resources/use-builtin-capabilities", () => ({
   useBuiltinCapabilities: () => ({ data: undefined }),
   parseMcpBuiltinVirtualId: () => null,
 }));
-vi.mock("./ResourceTree.js", () => ({ ResourceTree: () => null }));
+vi.mock("./ResourceTree.js", async () => {
+  const React = await import("react");
+  return {
+    ResourceTree: ({ emptyStateAction }: { emptyStateAction?: ReactNode }) =>
+      React.createElement("div", null, emptyStateAction),
+  };
+});
+vi.mock("./McpIntegrationDialog.js", () => ({
+  McpIntegrationDialog: () => null,
+}));
 vi.mock("../chat/FileStorageSetupPopover.js", () => ({
   FileStorageSetupPopover: ({
     open,
@@ -83,6 +97,7 @@ vi.mock("../chat/FileStorageSetupPopover.js", () => ({
   },
 }));
 
+import type { ModelEngineConfig } from "@agent-native/core/agent/model-version";
 import type { TreeNode } from "@agent-native/core/client/resources/use-resources";
 
 import { isResourceRowReadOnly } from "./ResourceSettingsGroups.js";
@@ -453,6 +468,11 @@ describe("ResourcesPanel storage retries", () => {
     storageMocks.retry = null;
     storageMocks.dismiss = null;
     storageMocks.setup = null;
+    modelCatalogMocks.load.mockReset();
+    modelCatalogMocks.load.mockResolvedValue({
+      state: "unavailable",
+      enginesUnavailable: true,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -465,14 +485,18 @@ describe("ResourcesPanel storage retries", () => {
       .IS_REACT_ACT_ENVIRONMENT;
   });
 
-  function renderPanel() {
+  function renderPanel(
+    resourceFilter: "instructions" | "agents" = "instructions",
+    modelEngine?: ModelEngineConfig | null,
+  ) {
     act(() =>
       root.render(
         createElement(ResourcesPanel, {
           scope: "personal",
           showOnlyRequestedScope: true,
-          resourceFilter: "instructions",
+          resourceFilter,
           showMcpServers: false,
+          modelEngine,
         }),
       ),
     );
@@ -748,6 +772,104 @@ describe("ResourcesPanel storage retries", () => {
     expect(
       (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
     ).toBe("current.png");
+  });
+
+  it("offers the current Claude models when creating custom agents", () => {
+    renderPanel("agents", {
+      name: "anthropic",
+      label: "Anthropic",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: [
+        "claude-haiku-5-5",
+        "claude-sonnet-5-5",
+        "claude-fable-5",
+      ],
+    });
+    const addAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add agent"),
+    );
+    expect(addAgent).toBeDefined();
+    act(() => addAgent!.click());
+
+    const createAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create Custom Agent"),
+    );
+    expect(createAgent).toBeDefined();
+    act(() => createAgent!.click());
+
+    const fillForm = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Fill Form"),
+    );
+    expect(fillForm).toBeDefined();
+    act(() => fillForm!.click());
+
+    const modelPicker = document.querySelector("select")!;
+    expect(Array.from(modelPicker.options)).toContainEqual(
+      expect.objectContaining({
+        value: "claude-sonnet-5-5",
+        textContent: "Claude Sonnet 5.5",
+      }),
+    );
+    expect(Array.from(modelPicker.options)).toContainEqual(
+      expect.objectContaining({
+        value: "claude-haiku-5-5",
+        textContent: "Claude Haiku 5.5",
+      }),
+    );
+    expect(Array.from(modelPicker.options)).toContainEqual(
+      expect.objectContaining({
+        value: "claude-fable-5",
+        textContent: "Claude Fable 5",
+      }),
+    );
+  });
+
+  it("loads the model catalog only after opening the custom-agent form", async () => {
+    modelCatalogMocks.load.mockResolvedValue({
+      state: "available",
+      groups: [],
+      modelEngines: {},
+      currentModelEngine: {
+        name: "anthropic",
+        label: "Anthropic",
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+        selectableModels: ["claude-haiku-5-5", "claude-sonnet-5-5"],
+      },
+      defaultModel: "claude-sonnet-5-5",
+      loadLiveGroups: async () => null,
+    });
+    renderPanel("agents");
+    expect(modelCatalogMocks.load).not.toHaveBeenCalled();
+
+    const addAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add agent"),
+    );
+    expect(addAgent).toBeDefined();
+    act(() => addAgent!.click());
+    const createAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create Custom Agent"),
+    );
+    expect(createAgent).toBeDefined();
+    act(() => createAgent!.click());
+    expect(modelCatalogMocks.load).not.toHaveBeenCalled();
+
+    const fillForm = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Fill Form"),
+    );
+    expect(fillForm).toBeDefined();
+    await act(async () => {
+      fillForm!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(modelCatalogMocks.load).toHaveBeenCalledOnce();
+    expect(
+      Array.from(document.querySelector("select")!.options).map(
+        (option) => option.value,
+      ),
+    ).toContain("claude-haiku-5-5");
   });
 });
 

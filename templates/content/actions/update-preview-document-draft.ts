@@ -4,7 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, exists, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -57,6 +57,12 @@ export default defineAction({
         expectedContent: z.string().max(500_000),
         expectedEditorSessionId: z.string().min(1).max(200).optional(),
         expectedEditGeneration: z.number().int().nonnegative().optional(),
+        ifPageHoldsDraft: z
+          .literal(true)
+          .optional()
+          .describe(
+            "Delete only while the stored page's title and body equal the draft's.",
+          ),
       }),
     ])
     .superRefine((args, ctx) => {
@@ -108,6 +114,22 @@ export default defineAction({
                   eq(
                     schema.documentPreviewDrafts.editGeneration,
                     args.expectedEditGeneration,
+                  ),
+                ]
+              : []),
+            ...(args.ifPageHoldsDraft
+              ? [
+                  exists(
+                    db
+                      .select({ id: schema.documents.id })
+                      .from(schema.documents)
+                      .where(
+                        and(
+                          eq(schema.documents.id, args.documentId),
+                          eq(schema.documents.title, args.expectedTitle),
+                          eq(schema.documents.content, args.expectedContent),
+                        ),
+                      ),
                   ),
                 ]
               : []),

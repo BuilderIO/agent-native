@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
@@ -78,8 +78,9 @@ export default defineAction({
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
-      throw new Error(
+      fail(
         "Local plan folder editing is only available in local Plan runtime.",
+        { errorCode: "local_plan_runtime_required", statusCode: 412 },
       );
     }
 
@@ -90,8 +91,9 @@ export default defineAction({
     const currentComments = await readLocalPlanComments(current.folder);
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
-      throw new Error(
+      fail(
         "Local recap folders are read-only through this action; do not retry it. To change this recap, edit the folder's MDX files (plan.mdx / canvas.mdx / prototype.mdx) directly on disk, or re-run create-visual-recap to publish a fresh hosted recap.",
+        { errorCode: "local_recap_read_only", statusCode: 409 },
       );
     }
 

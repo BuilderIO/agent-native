@@ -1,15 +1,247 @@
 ---
 title: "Azure Static Web Apps"
-description: "Localized pointer to the the Nitro azure-swa preset."
+description: "Implante um app independente do Agent-Native no Azure Static Web Apps com a Static Web Apps CLI."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Azure Static Web Apps
 
-Read the [English Azure Static Web Apps guide](/docs/azure-static-web-apps) for the build steps and
-provider-specific production configuration.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`azure-swa`.
+O Azure Static Web Apps hospeda o seu app para você, então não há nenhum servidor para configurar
+ou manter em execução. Ele serve diretamente os arquivos estáticos do app e executa o
+servidor do app como Azure Functions gerenciadas, e dá ao app um endereço público com
+HTTPS.
+
+Este guia mostra como implantar um app independente do zero. Você vai
+criar o app, dar a ele um banco de dados de produção e um segredo de autenticação, preparar o
+banco de dados, fazer o build para o Azure, criar um static web app e, depois, enviar o
+build finalizado com a Static Web Apps CLI.
+
+<Callout tone="info">
+
+É necessário o Node.js `22.22+`.
+
+</Callout>
+
+Você também precisa de uma conta do Azure. Execute os comandos deste guia no seu próprio
+computador. Você faz o build do app com o Node.js, e a Static Web Apps CLI envia
+o build finalizado para o Azure.
+
+## Passo 1: Crie o app {#step-1-create-the-app}
+
+Crie o seu novo app independente. O exemplo abaixo cria um app a partir do template Chat,
+mas você pode começar de qualquer template. Entre na pasta do app e
+instale as dependências. `corepack enable` ativa a versão do `pnpm` que o app
+espera, então você não precisa instalar o `pnpm` por conta própria.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Se quiser, substitua `my-app` pelo nome do seu app. O restante deste guia
+considera que você está dentro da pasta do app.
+
+<Callout tone="info">
+
+Se esses comandos falharem com erros de dependências peer, a causa pode ser uma cópia desatualizada de um pacote no seu cache do npx. Execute `npx clear-npx-cache` para limpar o cache e depois execute os comandos novamente.
+
+</Callout>
+
+## Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
+
+O app lê as configurações de produção a partir de variáveis de ambiente:
+
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
+| `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
+
+Os exports abaixo fazem os comandos seguintes funcionarem neste shell. Antes de
+implantar, salve essas mesmas variáveis nas configurações de ambiente do projeto ou serviço do seu host.
+O Passo 5 mostra como salvá-las no Azure.
+
+### URL do banco de dados {#database-url}
+
+Durante o desenvolvimento local, o app armazena os dados em um banco de dados local quando
+`DATABASE_URL` não está definida. Um app implantado precisa de um banco de dados PostgreSQL real que
+mantenha os dados entre implantações. As Azure Functions não mantêm arquivos entre requisições,
+então o banco de dados precisa ficar fora do static web app. Copie a string de conexão
+do seu provedor e exporte-a:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Os [guias de provedores de banco de dados](/docs/neon) mostram onde encontrar a string de conexão
+de cada provedor, incluindo o
+[Azure Database for PostgreSQL](/docs/azure-postgresql).
+
+<Callout tone="warning">
+
+Escolha um provedor de PostgreSQL persistente, como Neon, Supabase ou Amazon RDS.
+
+</Callout>
+
+### Segredo de autenticação {#auth-secret}
+
+Gere este valor uma única vez e mantenha-o igual em todas as implantações.
+
+O app usa `BETTER_AUTH_SECRET` para assinar as sessões dos usuários. Se ele mudar, todos os
+usuários conectados são desconectados. O comando abaixo gera um valor aleatório:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Salve o valor gerado em um lugar seguro, como um gerenciador de senhas. Use o
+mesmo valor sempre que implantar.
+
+### URL pública {#public-url}
+
+É opcional. Defina-a ao usar um domínio personalizado, um proxy reverso ou um fluxo de autenticação ou OAuth
+que precise de uma origem pública fixa.
+
+`BETTER_AUTH_URL` é o endereço público que as pessoas usam para acessar o seu app. Sem
+ela, o app descobre o próprio endereço a partir de cada requisição recebida. Isso normalmente
+funciona bem no endereço que o Azure fornece, mas defina-a quando conectar um domínio
+personalizado, para que os links de login e os redirecionamentos de OAuth usem esse domínio.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Passo 3: Execute as migrações {#step-3-migrate}
+
+As migrações criam e atualizam as tabelas de que o app precisa no seu banco de dados. Execute
+isto antes da primeira implantação:
+
+```bash
+pnpm migrate:production
+```
+
+O comando é executado no seu computador e se conecta ao banco de dados de produção com
+a `DATABASE_URL` que você exportou no Passo 2. Execute-o novamente depois de atualizar o
+app e antes de implantar a nova versão.
+
+## Passo 4: Faça o build {#step-4-build}
+
+### Faça o build do app {#build-the-app}
+
+Faça o build do app para o Azure Static Web Apps:
+
+```bash
+NITRO_PRESET=azure-swa pnpm build
+```
+
+`NITRO_PRESET=azure-swa` faz o build do app no formato que o Azure Static Web Apps
+espera. O build grava os arquivos estáticos em `.output/public` e as funções
+do servidor em `.output/server`. Ele também grava um arquivo `staticwebapp.config.json`
+na pasta do app, que informa ao Azure como rotear as requisições e qual versão
+do Node.js executa o servidor.
+
+### Defina o runtime da API {#set-the-api-runtime}
+
+O Azure executa o servidor do app na versão do Node.js indicada no
+`staticwebapp.config.json`. O build escolhe essa versão a partir do campo
+`engines` do `package.json`, mas só quando o campo é exatamente `20` ou
+`22`. Um app novo exige `>=22.22.0`, então o build grava o Node.js 18
+no lugar, que é antigo demais para o app e não é mais suportado pelo Azure.
+
+Depois de cada build, defina a versão como Node.js 22:
+
+```bash
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+```
+
+O comando altera só a configuração `apiRuntime` e mantém o restante do
+arquivo que o build gravou. O build reescreve o arquivo a cada vez, então execute este
+comando depois de cada build, antes de implantar.
+
+## Passo 5: Crie o static web app e salve os segredos {#step-5-create-the-static-web-app-and-save-the-secrets}
+
+No portal do Azure, crie um novo **Static Web App**. Escolha uma assinatura,
+um grupo de recursos, um nome e um plano. Em **Deployment details**, escolha **Other**,
+porque você envia o build por conta própria em vez de conectar um repositório do
+GitHub.
+
+Copie o token de implantação na página **Overview** do app, em **Manage
+deployment token**, e exporte-o:
+
+```bash
+export SWA_CLI_DEPLOYMENT_TOKEN='your-deployment-token'
+```
+
+A Static Web Apps CLI lê essa variável no Passo 6. Mantenha o token em sigilo,
+porque qualquer pessoa que o tenha pode implantar no seu app.
+
+Depois, salve as duas variáveis obrigatórias. No portal do Azure, abra o static web
+app, vá para **Settings** > **Environment variables**, escolha o ambiente **Production**
+e adicione `DATABASE_URL` e `BETTER_AUTH_SECRET` com os valores
+que você exportou no Passo 2. Se você definir `BETTER_AUTH_URL`, adicione-a da mesma forma.
+O Azure passa esses valores para as funções do servidor do app como variáveis
+de ambiente.
+
+## Passo 6: Implante {#step-6-deploy}
+
+<Steps>
+
+### Envie o build
+
+A partir da pasta do app, envie os arquivos estáticos e as funções do servidor para
+produção:
+
+```bash
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+`.output/public` contém os arquivos estáticos, e `--api-location .output/server`
+aponta para as funções do servidor. `--swa-config-location .` aponta para a pasta do app,
+onde o build gravou `staticwebapp.config.json`. Sem essa opção, o Azure
+não vê o runtime da API do Passo 4. `--env production` publica no seu
+endereço de produção em vez de em um ambiente de preview.
+
+### Abra o app
+
+Quando o comando termina, ele mostra o endereço do app, que termina em
+`azurestaticapps.net`. Abra-o e crie a primeira conta.
+
+</Steps>
+
+## Implante atualizações {#deploy-updates}
+
+Para publicar uma nova versão, execute as migrações, faça o build novamente e envie o build:
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=azure-swa pnpm build
+
+node -e "const fs = require('node:fs'); const file = 'staticwebapp.config.json'; const config = JSON.parse(fs.readFileSync(file, 'utf8')); config.platform = { ...config.platform, apiRuntime: 'node:22' }; fs.writeFileSync(file, JSON.stringify(config, null, 2));"
+
+npx @azure/static-web-apps-cli deploy .output/public --api-location .output/server --swa-config-location . --env production
+```
+
+Exporte `SWA_CLI_DEPLOYMENT_TOKEN` novamente em um novo shell. As variáveis de ambiente
+salvas continuam no static web app, então você não precisa repetir o Passo 5.
+
+## Limites de requisição {#request-limits}
+
+O Azure Static Web Apps encerra qualquer requisição ao servidor do app depois de 45 segundos,
+e não oferece suporte a WebSockets. O Agent-Native já encerra um turno de chat depois de
+cerca de 40 segundos e o continua a partir do navegador, então turnos longos do agente ainda
+terminam, mas são executados em várias etapas em vez de uma só. Se o seu app precisar de requisições
+longas, use um host sem esse limite, como [Node.js](/docs/node-js) ou
+[Docker](/docs/docker).
+
+## O que vem a seguir {#whats-next}
+
+- [**Node.js**](/docs/node-js) - execute o app em uma máquina que você gerencia
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção
+- [**Implantação**](/docs/deployment) - compare destinos de hospedagem e pré-requisitos

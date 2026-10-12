@@ -416,10 +416,12 @@ export class McpClientManager {
     );
     let handshakeComplete = false;
     let callbackError: unknown;
+    let callbackErrorsAreHttp400 = true;
     const recordConnectionError: ErrorSink = (error) => {
       const message = formatMcpConnectError(error);
       entry.error = message;
       callbackError ??= error;
+      callbackErrorsAreHttp400 &&= httpStatusFromError(error) === 400;
       if (handshakeComplete) this.emitChange();
       if (this.debug) {
         console.warn(
@@ -439,7 +441,18 @@ export class McpClientManager {
         `MCP server ${entry.id} connect`,
         timeoutMs,
       );
-      if (callbackError) throw callbackError;
+      if (callbackError) {
+        // Auto-negotiation can report its rejected probe before fallback succeeds.
+        const negotiatedAfterProbe =
+          cfg.type === "http" &&
+          httpStatusFromError(callbackError) === 400 &&
+          callbackErrorsAreHttp400 &&
+          typeof client.getNegotiatedProtocolVersion === "function" &&
+          Boolean(client.getNegotiatedProtocolVersion());
+        if (!negotiatedAfterProbe) throw callbackError;
+        callbackError = undefined;
+        entry.error = undefined;
+      }
       const listed = await withConnectTimeout(
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,
@@ -689,6 +702,11 @@ export class McpClientManager {
 
   getToolsForServer(serverId: string): McpTool[] {
     return [...(this.servers.get(serverId)?.tools ?? [])];
+  }
+
+  /** The config the server's current tools were loaded from. */
+  getServerConfig(serverId: string): McpServerConfig | null {
+    return this.servers.get(serverId)?.config ?? null;
   }
 
   hasServer(serverId: string): boolean {
@@ -945,11 +963,13 @@ async function mintFirstPartyMcpIdentityToken(
   trust: { orgId: string; appId: string; url: string } | null,
 ): Promise<string | null> {
   if (!trust) return null;
-  const [{ getRequestOrgId, getRequestUserEmail }, { signA2AToken }] =
-    await Promise.all([
-      import("../server/request-context.js"),
-      import("../a2a/client.js"),
-    ]);
+  const [
+    { getRequestOrgId, getRequestUserEmail },
+    { getGlobalA2ASecret, signA2AOrganizationToken, signA2AToken },
+  ] = await Promise.all([
+    import("../server/request-context.js"),
+    import("../a2a/client.js"),
+  ]);
   const userEmail = getRequestUserEmail();
   const requestOrgId = getRequestOrgId();
   if (requestOrgId && requestOrgId !== trust.orgId) {
@@ -960,24 +980,25 @@ async function mintFirstPartyMcpIdentityToken(
   if (!(await isFirstPartyTrustCached({ ...trust, orgId }))) return null;
 
   const { orgDomain, orgSecret } = await resolveOrgSigningContext(orgId);
-  const subject =
-    userEmail && requestOrgId
-      ? userEmail
-      : (await import("../mcp/connect-store.js")).serviceIdentityEmail(
-          "mcp-client",
-          orgId,
-        );
-
-  return signA2AToken(subject, orgDomain, orgSecret, {
+  if (!orgDomain?.trim()) return null;
+  const extraClaims = {
+    jti: randomJti(),
+    scope: "mcp-connect",
+    agent_native_first_party_mcp: true,
+  };
+  const audience = firstPartyMcpAudienceForUrl(trust.url);
+  if (userEmail && requestOrgId && getGlobalA2ASecret()) {
+    return signA2AToken(userEmail, orgDomain, undefined, {
+      expiresIn: "5m",
+      audience,
+      preferGlobalSecret: true,
+      extraClaims,
+    });
+  }
+  return signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
     expiresIn: "5m",
-    audience: firstPartyMcpAudienceForUrl(trust.url),
-    preferGlobalSecret: !orgSecret,
-    extraClaims: {
-      jti: randomJti(),
-      scope: "mcp-connect",
-      org_id: orgId,
-      agent_native_first_party_mcp: true,
-    },
+    audience,
+    extraClaims,
   });
 }
 

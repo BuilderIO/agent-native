@@ -17,6 +17,7 @@ import type {
   AgentObjectReference,
   AgentParticipant,
   AgentRunStatus,
+  AgentRequestAttachment,
   AgentTask,
   AgentTaskGroup,
   AgentToolCall,
@@ -29,6 +30,8 @@ import type {
   FilePart,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+  AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
   AGENTKIT_PROTOCOL_VERSION,
   AgentProtocolValidationError,
   approvalResponseFromResume,
@@ -41,13 +44,29 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import {
-  BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
-  BACKGROUND_FUNCTION_WALL_MS,
-} from "../../app-config/run-lifecycle-invariants.js";
+  AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+  AUTO_CONTINUE_PROMPT,
+  AUTO_CONTINUE_REFUSAL_CODES,
+  CONTINUE_OF_RUN_METADATA_KEY,
+  CONTINUE_UNAVAILABLE_CODE,
+  type AutoContinueRefusalCode,
+} from "../../agent/auto-continue.js";
+import type { AgentChatAttachment } from "../../agent/types.js";
+import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
+import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
 } from "../chat-first-state.js";
+import {
+  decideAfterStreamClosed,
+  runOutcomeForCode,
+  type RunAuthorityRead,
+  type RunOutcomeReport,
+  type RunTerminalSource,
+  type StreamClosedDecision,
+  type TerminalDrain,
+} from "./run-outcome.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCapabilities,
@@ -63,7 +82,6 @@ import type {
   AgentChatRuntimeTurn,
   AgentChatRuntimeUsage,
 } from "./runtime.js";
-import { AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY } from "./runtime.js";
 
 export interface CreateAgentKitProtocolAdapterOptions {
   /** Stable clock used for event timestamps and thread fallbacks. */
@@ -86,6 +104,12 @@ export interface CreateAgentKitProtocolAdapterOptions {
         | "submitFeedback"
       >
   >;
+  /**
+   * Called once when a run reaches its terminal event, with how it ended and
+   * how that was established. Telemetry only: a throwing callback never
+   * changes the run.
+   */
+  readonly onRunOutcome?: (report: RunOutcomeReport) => void;
   /** Maximum replay events retained for each process-local run. */
   readonly maxRetainedEvents?: number;
   /**
@@ -99,6 +123,11 @@ export interface CreateAgentKitProtocolAdapterOptions {
    */
   readonly retainedRunTtlMs?: number;
   readonly metadata?: Record<string, unknown>;
+  /**
+   * Localized label of the status shown while a turn the server stopped at its
+   * time limit is being continued. Read each time it is shown.
+   */
+  readonly autoContinueLabel?: string;
 }
 
 export interface AgentKitProtocolAdapter extends AgentTransport {
@@ -130,14 +159,34 @@ interface ProtocolRun {
   usage?: AgentUsage;
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
+  activeMessageRole?: AgentChatRuntimeMessage["role"];
   activeMessageCompleted: boolean;
   runtimeSequence?: number;
   resumeAttempts?: number;
-  continuationStartedAtMs?: number;
-  resumeDeadlineAtMs?: number;
+  quietAuthorityReads?: number;
+  subscribeFailures?: number;
+  initialAuthorityRead?: RunAuthorityRead;
+  terminalDrain?: TerminalDrain;
+  readingTerminalDrain?: boolean;
+  successorWaitStartedAtMs?: number;
+  /** Time-limit stops already sent for continuation, with any refusal. */
+  autoContinueAsked?: Map<string, AutoContinueRefusalCode | null>;
+  /** How the terminal event was established; absent means the stream's own. */
+  terminalSource?: RunTerminalSource;
+  /** A stream of this run closed with no terminal event at least once. */
+  pipeClosedBeforeTerminal?: boolean;
+  /** Restored after a reload: its first "stream" is a placeholder, not a pipe. */
+  restoredWithoutStream?: boolean;
+  /**
+   * The runtime run's own interruption, held until the server says whether a
+   * newer run already carries the turn (the stale-run reaper starts one).
+   */
+  heldInterruption?: AgentError;
+  outcomeReported?: boolean;
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
+  pendingToolMessageAssociations: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
   terminalAppendDepth: number;
   pumpPromise: Promise<void> | null;
@@ -158,8 +207,6 @@ function isTerminalRunStatus(
   );
 }
 
-const TOOL_RESULT_MEDIA_TYPE = "application/x-agent-native-tool-result";
-const TOOL_CALL_MEDIA_TYPE = "application/x-agent-native-tool-call";
 const RUNTIME_PART_MEDIA_TYPE = "application/x-agent-native-runtime-part";
 const RUNTIME_EVENT_TYPE = "x-core.runtime-event";
 const RUNTIME_USAGE_EVENT_TYPE = "x-core.usage";
@@ -197,6 +244,105 @@ const DISCOVERABLE_CAPABILITIES = [
 ] as const satisfies readonly AgentCapabilityId[];
 
 export const AGENT_NATIVE_PROTOCOL_METADATA_KEY = "x-agent-native";
+
+function attachmentMediaType(part: FilePart): string | undefined {
+  const dataUrlMediaType = part.url
+    ? parseBase64DataUrl(part.url)?.mediaType
+    : undefined;
+  const declaredMediaType = part.mediaType
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  return (
+    dataUrlMediaType ??
+    (declaredMediaType && declaredMediaType !== "image"
+      ? declaredMediaType
+      : undefined)
+  );
+}
+
+function runtimeAttachmentFromFilePart(part: FilePart) {
+  const mediaType = attachmentMediaType(part);
+  const isImage =
+    mediaType?.startsWith("image/") === true ||
+    (!mediaType &&
+      part.mediaType?.split(";", 1)[0]?.trim().toLowerCase() === "image");
+  return {
+    type: isImage ? "image" : "file",
+    name: part.name,
+    ...(part.fileId ? { id: part.fileId } : {}),
+    ...(mediaType ? { mediaType, contentType: mediaType } : {}),
+    ...(part.url ? { url: part.url } : {}),
+  };
+}
+
+function runtimeRequestAttachments(args: {
+  message?: AgentMessage;
+  requestAttachments?: AgentRequestAttachment[];
+}): AgentChatAttachment[] {
+  const attachments: AgentChatAttachment[] =
+    args.message?.parts.flatMap((part) =>
+      part.type === "file" ? [runtimeAttachmentFromFilePart(part)] : [],
+    ) ?? [];
+  for (const requestAttachment of args.requestAttachments ?? []) {
+    const originalUrl = requestAttachment.referenceUrl;
+    const originalIndex = originalUrl
+      ? attachments.findIndex((attachment) => attachment.url === originalUrl)
+      : -1;
+    if (typeof requestAttachment.data === "string") {
+      const imageUrl = requestAttachment.url ?? originalUrl;
+      const keepsOriginalReference =
+        originalUrl !== undefined &&
+        imageUrl !== undefined &&
+        originalUrl !== imageUrl;
+      if (keepsOriginalReference) {
+        const original = originalIndex >= 0 ? attachments[originalIndex] : null;
+        const reference = {
+          type: "file",
+          name: original?.name || requestAttachment.name,
+          contentType: original?.contentType || requestAttachment.contentType,
+          url: originalUrl,
+          referenceOnly: true,
+        };
+        if (originalIndex >= 0) attachments.splice(originalIndex, 1, reference);
+        else attachments.push(reference);
+      }
+      const image = {
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        data: requestAttachment.data,
+        ...(imageUrl ? { url: imageUrl } : {}),
+      };
+      if (originalIndex >= 0 && !keepsOriginalReference) {
+        attachments.splice(originalIndex, 1, image);
+      } else {
+        attachments.push(image);
+      }
+      continue;
+    }
+
+    if (originalIndex >= 0 && originalUrl) {
+      const original = attachments[originalIndex]!;
+      attachments.splice(originalIndex, 1, {
+        type: "file",
+        name: original.name || requestAttachment.name,
+        contentType: original.contentType,
+        url: originalUrl,
+        referenceOnly: true,
+      });
+    }
+    if (typeof requestAttachment.url === "string") {
+      attachments.push({
+        type: "image",
+        name: requestAttachment.name,
+        contentType: requestAttachment.contentType,
+        url: requestAttachment.url,
+      });
+    }
+  }
+  return attachments;
+}
 
 /**
  * Structured Agent-Native references carried through the protocol's metadata
@@ -396,6 +542,16 @@ function setRuntimeRunIdMetadata(
   else observability.runtimeRunId = runtimeRunId;
 }
 
+function setRuntimeTurnIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  runtimeTurnId: string | undefined,
+): void {
+  const observability = agentNativeMetadata(metadata)?.observability;
+  if (!observability) return;
+  if (runtimeTurnId === undefined) delete observability.turnId;
+  else observability.turnId = runtimeTurnId;
+}
+
 function objectReference(value: unknown): AgentObjectReference | undefined {
   const object = asRecord(value);
   if (
@@ -447,6 +603,19 @@ function runtimeEventMessageId(
     if (messageId) return messageId;
   }
   return run.activeMessageCompleted ? undefined : run.activeMessageId;
+}
+
+function runtimeToolMessageId(
+  run: ProtocolRun,
+  ...metadata: Array<Record<string, unknown> | undefined>
+): string | undefined {
+  for (const value of metadata) {
+    const messageId = metadataString(value, "messageId");
+    if (messageId) return messageId;
+  }
+  return run.activeMessageRole === "assistant"
+    ? runtimeEventMessageId(run)
+    : undefined;
 }
 
 function runtimeAnnotationToProtocol(
@@ -713,7 +882,7 @@ function runtimePartToProtocolPart(
     case "tool-call":
       return {
         type: "data",
-        mediaType: TOOL_CALL_MEDIA_TYPE,
+        mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
         data: {
           id: part.toolCallId,
           name: part.toolName,
@@ -724,7 +893,7 @@ function runtimePartToProtocolPart(
     case "tool-result":
       return {
         type: "data",
-        mediaType: TOOL_RESULT_MEDIA_TYPE,
+        mediaType: AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE,
         data: {
           id: part.toolCallId,
           name: part.toolName,
@@ -785,6 +954,49 @@ function protocolPartToRuntimePart(
         mediaType: part.mediaType,
         url: part.url,
       };
+    case "data": {
+      const data = asRecord(part.data);
+      if (part.mediaType === AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE) {
+        if (typeof data?.id !== "string" || typeof data.name !== "string") {
+          throw new AgentProtocolValidationError(
+            "message.parts.data",
+            "tool call history requires a call id and name",
+          );
+        }
+        return {
+          type: "tool-call",
+          toolCallId: data.id,
+          toolName: data.name,
+          ...(data.input === undefined ? {} : { input: data.input }),
+          ...(typeof data.inputText === "string"
+            ? { inputText: data.inputText }
+            : {}),
+        };
+      }
+      if (part.mediaType === AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE) {
+        if (typeof data?.id !== "string") {
+          throw new AgentProtocolValidationError(
+            "message.parts.data",
+            "tool result history requires a call id",
+          );
+        }
+        return {
+          type: "tool-result",
+          toolCallId: data.id,
+          ...(typeof data.name === "string" ? { toolName: data.name } : {}),
+          ...(data.result === undefined ? {} : { result: data.result }),
+          ...(typeof data.resultText === "string"
+            ? { resultText: data.resultText }
+            : {}),
+          ...(data.isError === true ? { isError: true } : {}),
+        };
+      }
+      return {
+        type: "data",
+        data: part,
+        mediaType: "application/x-agentkit-protocol-part",
+      };
+    }
     default:
       return {
         type: "data",
@@ -950,6 +1162,7 @@ function runtimeToolToProtocolTool(
   status: AgentToolCall["status"] = "running",
   result?: unknown,
   error?: AgentError,
+  messageId?: string,
 ): AgentToolCall {
   return {
     id: tool.id,
@@ -958,6 +1171,7 @@ function runtimeToolToProtocolTool(
     status,
     output: result,
     error,
+    ...(messageId ? { messageId } : {}),
     ...(tool.metadata ? { metadata: tool.metadata } : {}),
   };
 }
@@ -1122,13 +1336,191 @@ export function createAgentKitProtocolAdapter(
   }
   const sessions = new Map<string, Promise<AgentChatRuntimeSession>>();
   const runs = new Map<string, ProtocolRun>();
+  const runtimeRunAliases = new Map<string, ProtocolRun>();
+  const pendingQueuePromotionRuns = new Map<string, Promise<string>>();
   const disposedSessions = new WeakSet<AgentChatRuntimeSession>();
   let retentionTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
+  // Disposal closes this adapter's own readers. It never cancels a server
+  // run: unmounting a view is not a request to stop the agent.
+  const readers = new AbortController();
+  const readRunState = runtime.readRunState?.bind(runtime);
+  const subscribeToRuntimeRun = runtime.subscribe?.bind(runtime);
+  const runAuthority =
+    readRunState && subscribeToRuntimeRun
+      ? { readRunState, subscribe: subscribeToRuntimeRun }
+      : undefined;
+
+  async function readAuthoritativeRunState(input: {
+    sessionId: string;
+    runId?: string;
+    turnId?: string;
+  }): Promise<RunAuthorityRead> {
+    if (!runAuthority) {
+      throw new Error("The runtime does not provide run authority.");
+    }
+    try {
+      return {
+        kind: "read",
+        state: await runAuthority.readRunState({
+          ...input,
+          abortSignal: readers.signal,
+        }),
+      };
+    } catch (error) {
+      const failure = asRecord(error);
+      return failure?.retryable === false
+        ? {
+            kind: "refused",
+            ...(typeof failure.status === "number"
+              ? { status: failure.status }
+              : {}),
+          }
+        : { kind: "unreachable", error };
+    }
+  }
 
   function timeMs(value = now()): number {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : Date.now();
+  }
+
+  function runtimeRunAliasKey(threadId: string, runtimeRunId: string): string {
+    return JSON.stringify([threadId, runtimeRunId]);
+  }
+
+  function findRun(threadId: string, runId: string): ProtocolRun | undefined {
+    const run = runs.get(runId);
+    if (run?.threadId === threadId) return run;
+    const aliasKey = runtimeRunAliasKey(threadId, runId);
+    const aliasedRun = runtimeRunAliases.get(aliasKey);
+    if (!aliasedRun) return undefined;
+    if (runs.get(aliasedRun.runId) !== aliasedRun) {
+      runtimeRunAliases.delete(aliasKey);
+      return undefined;
+    }
+    return aliasedRun;
+  }
+
+  function findRunByTurnId(
+    threadId: string,
+    turnId: string,
+  ): ProtocolRun | undefined {
+    const owners = [...runs.values()].filter(
+      (run) => run.threadId === threadId && run.turn.id === turnId,
+    );
+    const activeOwners = owners.filter((run) => !run.terminal);
+    if (activeOwners.length > 1) {
+      throw new Error(
+        `Turn ${turnId} is owned by multiple active AgentKit runs in thread ${threadId}.`,
+      );
+    }
+    return activeOwners[0] ?? owners.at(-1);
+  }
+
+  function indexRun(
+    run: ProtocolRun,
+    runtimeRunId = run.turn.runId ?? run.runId,
+  ): void {
+    const existingRun = runs.get(run.runId);
+    if (existingRun && existingRun !== run) {
+      throw new Error(`Duplicate AgentKit run id: ${run.runId}`);
+    }
+    if (runtimeRunId && runtimeRunId !== run.runId) {
+      const conflictingRun = runs.get(runtimeRunId);
+      if (conflictingRun?.threadId === run.threadId) {
+        throw new Error(
+          `Runtime run id ${runtimeRunId} conflicts with an AgentKit run id.`,
+        );
+      }
+      const aliasKey = runtimeRunAliasKey(run.threadId, runtimeRunId);
+      const previousRun = runtimeRunAliases.get(aliasKey);
+      if (
+        previousRun &&
+        previousRun !== run &&
+        runs.get(previousRun.runId) === previousRun &&
+        !previousRun.terminal
+      ) {
+        throw new Error(
+          `Runtime run id ${runtimeRunId} is already owned by active AgentKit run ${previousRun.runId}.`,
+        );
+      }
+      runtimeRunAliases.set(aliasKey, run);
+    }
+    runs.set(run.runId, run);
+  }
+
+  async function resolveRuntimeRunOwner(
+    threadId: string,
+    runtimeRunId: string,
+    sessionId?: string,
+    authorityRead?: RunAuthorityRead,
+  ): Promise<{ owner?: ProtocolRun; read?: RunAuthorityRead }> {
+    if (!runAuthority) return {};
+    const candidates = [...runs.values()].filter(
+      (run) =>
+        run.threadId === threadId && !run.terminal && Boolean(run.turn.id),
+    );
+    const candidate = candidates[0];
+    const resolvedSessionId = sessionId ?? candidate?.session.id;
+    if (!resolvedSessionId) return {};
+
+    const read =
+      authorityRead ??
+      (await readAuthoritativeRunState({
+        sessionId: resolvedSessionId,
+        runId: runtimeRunId,
+      }));
+    if (read.kind !== "read") return { read };
+    const { state } = read;
+    if (state.status === "missing" || !state.turnId) return { read };
+
+    const current = findRun(threadId, runtimeRunId);
+    if (current?.turn.id === state.turnId) return { owner: current, read };
+
+    const pendingQueuePromotion = pendingQueuePromotionRuns.get(
+      JSON.stringify([threadId, state.turnId]),
+    );
+    if (pendingQueuePromotion) {
+      try {
+        const runId = await pendingQueuePromotion;
+        const owner = findRun(threadId, runId);
+        if (owner?.turn.id === state.turnId) {
+          const currentOwner = findRun(threadId, runtimeRunId);
+          if (currentOwner) {
+            return currentOwner.turn.id === state.turnId
+              ? { owner: currentOwner, read }
+              : { read };
+          }
+          indexRun(owner, runtimeRunId);
+          return { owner, read };
+        }
+      } catch {
+        // coercion-ok: startRun surfaces this rejection; restore from the separate authoritative read.
+      }
+    }
+
+    const currentCandidates = [...runs.values()].filter(
+      (run) =>
+        run.threadId === threadId && !run.terminal && Boolean(run.turn.id),
+    );
+    const owners = currentCandidates.filter(
+      (run) => run.turn.id === state.turnId,
+    );
+    if (owners.length !== 1) return { read };
+    const owner = owners[0];
+    if (current) return { read, ...(current === owner ? { owner } : {}) };
+
+    // The server can expose a successor before this run's stream follows it.
+    indexRun(owner, runtimeRunId);
+    return { owner, read };
+  }
+
+  function removeRun(run: ProtocolRun): void {
+    if (runs.get(run.runId) === run) runs.delete(run.runId);
+    for (const [aliasKey, aliasedRun] of runtimeRunAliases) {
+      if (aliasedRun === run) runtimeRunAliases.delete(aliasKey);
+    }
   }
 
   function touchRun(run: ProtocolRun): void {
@@ -1176,7 +1568,7 @@ export function createAgentKitProtocolAdapter(
         run.terminalAtMs !== undefined &&
         referenceTimeMs - run.terminalAtMs >= retainedRunTtlMs
       ) {
-        runs.delete(run.runId);
+        removeRun(run);
       }
     }
 
@@ -1190,7 +1582,7 @@ export function createAgentKitProtocolAdapter(
       .sort((left, right) => left.lastAccessedAtMs - right.lastAccessedAtMs);
     while (retainedCompleted.length > maxRetainedRuns) {
       const run = retainedCompleted.shift();
-      if (run) runs.delete(run.runId);
+      if (run) removeRun(run);
     }
     scheduleRetentionSweep(referenceTimeMs);
   }
@@ -1389,28 +1781,55 @@ export function createAgentKitProtocolAdapter(
     ) {
       throw new Error(`Unknown AgentKit run: ${input.runId}`);
     }
+    const initialResolution = await resolveRuntimeRunOwner(
+      input.threadId,
+      input.runId,
+    );
+    if (initialResolution.owner) return initialResolution.owner;
     const session = await getSession(input.threadId);
+    const resolution = await resolveRuntimeRunOwner(
+      input.threadId,
+      input.runId,
+      session.id,
+      initialResolution.read,
+    );
+    if (resolution.owner) return resolution.owner;
+    const state =
+      resolution.read?.kind === "read" ? resolution.read.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
       after: 0,
+      abortSignal: readers.signal,
     };
-    const turn = runtime.resume
-      ? await runtime.resume(resumeInput)
-      : {
-          id: input.runId,
+    // With a run authority, a restored run starts as a closed stream so its
+    // first read goes through the same server check as every reconnect.
+    const turn: AgentChatRuntimeTurn = runAuthority
+      ? {
+          ...(state?.status !== "missing" && state?.turnId
+            ? { id: state.turnId }
+            : {}),
           sessionId: session.id,
-          runId: input.runId,
-          events: await runtime.subscribe!(resumeInput),
-        };
+          runId:
+            state && state.status !== "missing" ? state.runId : input.runId,
+          events: (async function* () {})(),
+        }
+      : runtime.resume
+        ? await runtime.resume(resumeInput)
+        : {
+            id: input.runId,
+            sessionId: session.id,
+            runId: input.runId,
+            events: await runtime.subscribe!(resumeInput),
+          };
     const metadata = mergeTrustedProtocolMetadata(options.metadata, {
       [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
         observability: {
           protocolRunId: input.runId,
-          runtimeRunId: input.runId,
+          runtimeRunId: turn.runId ?? input.runId,
           runtimeId: runtime.id,
           sessionId: session.id,
-          turnId: turn.id,
+          ...(turn.id !== undefined ? { turnId: turn.id } : {}),
           threadId: input.threadId,
           resumed: true,
         } satisfies AgentNativeProtocolMetadata["observability"],
@@ -1420,12 +1839,14 @@ export function createAgentKitProtocolAdapter(
       runId: input.runId,
       threadId: input.threadId,
       session,
-      turn: {
-        ...turn,
-        id: turn.id ?? input.runId,
-        sessionId: session.id,
-        runId: input.runId,
-      },
+      turn: runAuthority
+        ? turn
+        : {
+            ...turn,
+            id: turn.id ?? input.runId,
+            sessionId: session.id,
+            runId: input.runId,
+          },
       events: [],
       firstRetainedSequence: 1,
       sequence: 0,
@@ -1437,6 +1858,78 @@ export function createAgentKitProtocolAdapter(
       pendingWidgets: new Map(),
       actions: new Map(),
       activeTools: new Map(),
+      pendingToolMessageAssociations: new Map(),
+      activeActivities: new Map(),
+      terminalAppendDepth: 0,
+      pumpPromise: null,
+      continuationPromise: null,
+      streamClosed: false,
+      terminal: false,
+      waitingForContinuation: false,
+      ...(runAuthority ? { restoredWithoutStream: true } : {}),
+      listeners: new Set(),
+    };
+    indexRun(run, turn.runId ?? input.runId);
+    if (resolution.read) run.initialAuthorityRead = resolution.read;
+    append(run, {
+      type: "run.started",
+      agentId: runtime.id,
+      metadata,
+    });
+    append(run, { type: "run.status", status: "running" });
+    ensurePump(run);
+    return run;
+  }
+
+  /**
+   * Registers a run the runtime just started and begins reading it. A disposed
+   * adapter keeps no run it can no longer read.
+   */
+  async function openStartedRun(
+    threadId: string,
+    session: AgentChatRuntimeSession,
+    turn: AgentChatRuntimeTurn,
+    turnMetadata: Record<string, unknown> | undefined,
+    observability?: Record<string, unknown>,
+  ): Promise<string> {
+    const runId = turn.runId ?? turn.id ?? createId("run");
+    const runMetadata = mergeTrustedProtocolMetadata(
+      options.metadata,
+      turnMetadata,
+      turn.metadata,
+      {
+        [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+          observability: {
+            protocolRunId: runId,
+            ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
+            runtimeId: runtime.id,
+            sessionId: session.id,
+            ...(turn.id === undefined ? {} : { turnId: turn.id }),
+            threadId,
+            ...observability,
+          },
+        } satisfies AgentNativeProtocolMetadata,
+      },
+    );
+    setRuntimeRunIdMetadata(runMetadata, turn.runId);
+    setRuntimeTurnIdMetadata(runMetadata, turn.id);
+    const run: ProtocolRun = {
+      runId,
+      threadId,
+      session,
+      turn,
+      events: [],
+      firstRetainedSequence: 1,
+      sequence: 0,
+      status: "queued",
+      lastAccessedAtMs: timeMs(),
+      activeReaders: 0,
+      metadata: runMetadata,
+      activeMessageCompleted: false,
+      pendingWidgets: new Map(),
+      actions: new Map(),
+      activeTools: new Map(),
+      pendingToolMessageAssociations: new Map(),
       activeActivities: new Map(),
       terminalAppendDepth: 0,
       pumpPromise: null,
@@ -1446,16 +1939,22 @@ export function createAgentKitProtocolAdapter(
       waitingForContinuation: false,
       listeners: new Set(),
     };
-    setResumedRuntimeTurn(run, run.turn);
-    runs.set(input.runId, run);
+    if (disposed) {
+      await disposeSession(session).catch(() => undefined);
+      throw new Error(
+        "The AgentKit adapter was disposed during turn creation.",
+      );
+    }
+    pruneRetainedRuns(run.lastAccessedAtMs);
+    indexRun(run, turn.runId);
     append(run, {
       type: "run.started",
       agentId: runtime.id,
-      metadata,
+      metadata: runMetadata,
     });
     append(run, { type: "run.status", status: "running" });
     ensurePump(run);
-    return run;
+    return runId;
   }
 
   async function disposeSession(
@@ -1598,8 +2097,49 @@ export function createAgentKitProtocolAdapter(
       run.terminal = true;
       becameTerminal = true;
     }
+    if (
+      protocolEvent.type === "run.completed" ||
+      protocolEvent.type === "run.failed" ||
+      protocolEvent.type === "run.cancelled"
+    ) {
+      reportRunOutcome(run, protocolEvent);
+    }
     for (const listener of run.listeners) listener();
     if (becameTerminal) pruneRetainedRuns(run.terminalAtMs);
+  }
+
+  function reportRunOutcome(run: ProtocolRun, event: AgentEvent): void {
+    if (run.outcomeReported || !options.onRunOutcome) return;
+    run.outcomeReported = true;
+    const failure = event.type === "run.failed" ? event.error : undefined;
+    const terminalSource = run.terminalSource ?? "stream";
+    try {
+      options.onRunOutcome({
+        runId: run.turn.runId ?? run.runId,
+        threadId: run.threadId,
+        outcome:
+          event.type === "run.completed"
+            ? "succeeded"
+            : event.type === "run.cancelled"
+              ? "stopped"
+              : runOutcomeForCode(failure?.code),
+        ...(failure?.code ? { code: failure.code } : {}),
+        ...(failure?.message ? { message: failure.message } : {}),
+        ...(failure?.retryable !== undefined
+          ? { retryable: failure.retryable }
+          : {}),
+        terminalSource,
+        // The server's own words, reached after a stream closed under us.
+        verifiedAfterPipeClosed:
+          run.pipeClosedBeforeTerminal === true &&
+          (terminalSource === "authority" || terminalSource === "stream"),
+        resumeAttempts: run.resumeAttempts ?? 0,
+        quietReads: run.quietAuthorityReads ?? 0,
+        drainAttempts: run.terminalDrain?.attempts ?? 0,
+      });
+    } catch {
+      // coercion-ok: telemetry must never change how a run ends.
+    }
   }
 
   function appendTerminalFollowups(
@@ -1710,6 +2250,7 @@ export function createAgentKitProtocolAdapter(
         });
       }
     }
+    run.pendingToolMessageAssociations.clear();
   }
 
   function runtimeEventToProtocolEvents(
@@ -1731,9 +2272,31 @@ export function createAgentKitProtocolAdapter(
         widget,
       }));
     };
+    const attachPendingToolMessageAssociations = (messageId: string) => {
+      const tools = [...run.pendingToolMessageAssociations.values()];
+      run.pendingToolMessageAssociations.clear();
+      return tools.map((toolCall) => ({
+        type: "tool.updated" as const,
+        ...base,
+        toolCall: { ...toolCall, messageId },
+      }));
+    };
+    const retainPendingToolMessageAssociation = (toolCall: AgentToolCall) => {
+      run.pendingToolMessageAssociations.delete(toolCall.id);
+      run.pendingToolMessageAssociations.set(toolCall.id, toolCall);
+      // Pending links use the same bound as the replay log they can be attached to.
+      while (run.pendingToolMessageAssociations.size > maxRetainedEvents) {
+        const oldestToolCallId = run.pendingToolMessageAssociations
+          .keys()
+          .next().value;
+        if (oldestToolCallId === undefined) break;
+        run.pendingToolMessageAssociations.delete(oldestToolCallId);
+      }
+    };
     switch (event.type) {
       case "message-start":
         run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
         run.activeMessageCompleted = false;
         return [
           {
@@ -1742,8 +2305,14 @@ export function createAgentKitProtocolAdapter(
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
           ...attachPendingWidgets(event.message.id),
+          ...(event.message.role === "assistant"
+            ? attachPendingToolMessageAssociations(event.message.id)
+            : []),
         ];
       case "message-delta":
+        if (run.activeMessageId !== event.messageId) {
+          run.activeMessageRole = undefined;
+        }
         run.activeMessageId = event.messageId;
         run.activeMessageCompleted = false;
         if (event.delta.type === "text") {
@@ -1784,6 +2353,7 @@ export function createAgentKitProtocolAdapter(
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
+        run.activeMessageRole = event.message.role;
         run.activeMessageCompleted = true;
         return [
           {
@@ -1792,6 +2362,9 @@ export function createAgentKitProtocolAdapter(
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
           ...attachPendingWidgets(event.message.id),
+          ...(event.message.role === "assistant"
+            ? attachPendingToolMessageAssociations(event.message.id)
+            : []),
         ];
       case "tool-start": {
         const metadata = mergeProtocolMetadata(
@@ -1804,12 +2377,25 @@ export function createAgentKitProtocolAdapter(
           metadata,
         );
         if (invocation) run.actions.set(event.toolCall.id, invocation);
+        const messageId = runtimeToolMessageId(run, event.toolCall.metadata);
+        const toolCall = runtimeToolToProtocolTool(
+          event.toolCall,
+          "running",
+          undefined,
+          undefined,
+          messageId,
+        );
+        if (messageId) {
+          run.pendingToolMessageAssociations.delete(toolCall.id);
+        } else {
+          retainPendingToolMessageAssociation(toolCall);
+        }
         return [
           {
             type: "tool.started",
             ...base,
             metadata,
-            toolCall: runtimeToolToProtocolTool(event.toolCall),
+            toolCall,
           },
           ...(invocation
             ? [
@@ -1878,21 +2464,34 @@ export function createAgentKitProtocolAdapter(
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
         const activeTool = run.activeTools.get(event.toolCallId);
+        const explicitMessageId = metadataString(event.metadata, "messageId");
+        const messageId =
+          activeTool?.messageId ??
+          explicitMessageId ??
+          (run.pendingToolMessageAssociations.has(event.toolCallId)
+            ? undefined
+            : runtimeToolMessageId(run, event.metadata));
+        const toolCall: AgentToolCall = {
+          ...activeTool,
+          id: event.toolCallId,
+          name: event.toolName,
+          status,
+          output: event.result !== undefined ? event.result : event.resultText,
+          error,
+          ...(messageId ? { messageId } : {}),
+          ...(metadata ? { metadata } : {}),
+        };
+        if (messageId) {
+          run.pendingToolMessageAssociations.delete(event.toolCallId);
+        } else if (run.pendingToolMessageAssociations.has(event.toolCallId)) {
+          retainPendingToolMessageAssociation(toolCall);
+        }
         return [
           {
             type: "tool.updated",
             ...base,
             metadata,
-            toolCall: {
-              ...activeTool,
-              id: event.toolCallId,
-              name: event.toolName,
-              status,
-              output:
-                event.result !== undefined ? event.result : event.resultText,
-              error,
-              ...(metadata ? { metadata } : {}),
-            },
+            toolCall,
           },
           ...(actionResult
             ? [
@@ -2035,7 +2634,6 @@ export function createAgentKitProtocolAdapter(
           },
         ];
       case "continuation":
-        run.continuationStartedAtMs ??= Date.now();
         return [];
       case "suggestions":
         return [
@@ -2335,21 +2933,28 @@ export function createAgentKitProtocolAdapter(
             payload: run.usage,
           },
         ];
-      case "error":
+      case "error": {
+        const error: AgentError = {
+          code: event.code ?? "runtime_error",
+          message: event.error,
+          retryable: event.retryable ?? event.recoverable,
+          details: event.details ?? event.cause,
+        };
+        // An interruption ends this runtime run, not necessarily the turn.
+        if (
+          runAuthority &&
+          capabilities.resumableRuns === true &&
+          runOutcomeForCode(error.code) === "interrupted"
+        ) {
+          run.heldInterruption = error;
+          return [];
+        }
         run.terminal = true;
         return [
           { type: "run.status", ...base, status: "failed" },
-          {
-            type: "run.failed",
-            ...base,
-            error: {
-              code: event.code ?? "runtime_error",
-              message: event.error,
-              retryable: event.retryable ?? event.recoverable,
-              details: event.details ?? event.cause,
-            },
-          },
+          { type: "run.failed", ...base, error },
         ];
+      }
       case "done":
         if (!isTerminalReason(event.reason)) {
           run.waitingForContinuation = true;
@@ -2479,23 +3084,11 @@ export function createAgentKitProtocolAdapter(
     run: ProtocolRun,
     cause?: unknown,
   ): Promise<AgentChatRuntimeTurn | null> {
-    const continuationDeadline =
-      run.continuationStartedAtMs === undefined
-        ? undefined
-        : run.continuationStartedAtMs + BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
-    const resumeDeadline =
-      continuationDeadline === undefined
-        ? run.resumeDeadlineAtMs
-        : run.resumeDeadlineAtMs === undefined
-          ? continuationDeadline
-          : Math.max(continuationDeadline, run.resumeDeadlineAtMs);
     if (
       capabilities.resumableRuns !== true ||
       (!runtime.resume && !runtime.subscribe) ||
-      (typeof asRecord(cause)?.retryable === "boolean" &&
-        asRecord(cause)?.retryable === false) ||
-      (resumeDeadline === undefined &&
-        (run.resumeAttempts ?? 0) >= MAX_DURABLE_RESUME_ATTEMPTS)
+      asRecord(cause)?.retryable === false ||
+      (run.resumeAttempts ?? 0) >= MAX_DURABLE_RESUME_ATTEMPTS
     ) {
       return null;
     }
@@ -2506,25 +3099,11 @@ export function createAgentKitProtocolAdapter(
       runId: runtimeRunId,
       after: run.runtimeSequence === undefined ? 0 : run.runtimeSequence + 1,
       metadata: run.metadata,
+      abortSignal: readers.signal,
     };
     let lastError: unknown;
-    while (
-      resumeDeadline === undefined
-        ? (run.resumeAttempts ?? 0) < MAX_DURABLE_RESUME_ATTEMPTS
-        : Date.now() < resumeDeadline
-    ) {
+    while ((run.resumeAttempts ?? 0) < MAX_DURABLE_RESUME_ATTEMPTS) {
       if (run.terminal || run.streamClosed) return null;
-      if (resumeDeadline !== undefined && (run.resumeAttempts ?? 0) > 0) {
-        const remainingMs = resumeDeadline - Date.now();
-        if (remainingMs <= 0) return null;
-        const retryDelayMs = Math.min(
-          250 * 2 ** Math.min((run.resumeAttempts ?? 1) - 1, 4),
-          4_000,
-          remainingMs,
-        );
-        await notifyWhenChanged(run, undefined, retryDelayMs);
-        if (run.terminal || run.streamClosed) return null;
-      }
       run.resumeAttempts = (run.resumeAttempts ?? 0) + 1;
       try {
         const resumed = runtime.resume
@@ -2546,11 +3125,256 @@ export function createAgentKitProtocolAdapter(
         if (asRecord(error)?.retryable === false) throw error;
       }
     }
-    if (resumeDeadline !== undefined && lastError === undefined) {
-      return null;
-    }
     if (lastError !== undefined) throw lastError;
     return null;
+  }
+
+  /**
+   * Without a run authority the runtime's own stream is the only record of
+   * the run, so a stream that cannot be resumed is where the run ends.
+   */
+  async function resumeWithoutAuthority(
+    run: ProtocolRun,
+    stream: { failed: boolean; error?: unknown },
+  ): Promise<AgentChatRuntimeTurn | null> {
+    let failure = stream;
+    try {
+      const resumed = await resumeRuntimeTurn(
+        run,
+        stream.failed ? stream.error : undefined,
+      );
+      if (resumed || run.terminal || run.streamClosed) return resumed;
+      if (run.waitingForContinuation) return null;
+    } catch (resumeError) {
+      failure = { failed: true, error: resumeError };
+    }
+    if (run.terminal || run.streamClosed) return null;
+    run.streamClosed = true;
+    run.terminal = true;
+    run.terminalSource = "pipe";
+    append(run, {
+      type: "run.failed",
+      error: failure.failed
+        ? protocolError(failure.error)
+        : {
+            code: "stream_ended",
+            message: "The runtime stream ended before it reported completion.",
+            retryable: true,
+          },
+    });
+    return null;
+  }
+
+  /**
+   * After a stream closes without a terminal event, only the server's record
+   * of the run decides what happens: keep reading it, follow its successor,
+   * wait, or end with the server's own outcome. Returns the stream to read
+   * next, or null once the run is terminal or this adapter stopped reading.
+   */
+  async function followRunAuthority(
+    run: ProtocolRun,
+    authority: NonNullable<typeof runAuthority>,
+    stream: { failed: boolean },
+  ): Promise<AgentChatRuntimeTurn | null> {
+    const stopped = () =>
+      run.terminal || run.streamClosed || readers.signal.aborted;
+    if (run.readingTerminalDrain && run.terminalDrain) {
+      run.readingTerminalDrain = false;
+      if (!stream.failed) {
+        run.terminalDrain = { ...run.terminalDrain, readToEnd: true };
+      }
+    }
+    while (!stopped()) {
+      const runtimeRunId = run.turn.runId ?? run.runId;
+      const read =
+        run.initialAuthorityRead ??
+        (await readAuthoritativeRunState({
+          sessionId: run.session.id,
+          ...(run.turn.id ? { turnId: run.turn.id } : {}),
+          ...(run.turn.runId ? { runId: run.turn.runId } : {}),
+        }));
+      run.initialAuthorityRead = undefined;
+      if (stopped()) return null;
+      // An unreachable server says nothing about a successor; keep holding
+      // through the usual backoff until it answers.
+      if (run.heldInterruption && read.kind !== "unreachable") {
+        const successor =
+          read.kind === "read" &&
+          read.state.status !== "missing" &&
+          read.state.runId !== runtimeRunId;
+        if (!successor) {
+          appendHeldInterruption(run);
+          return null;
+        }
+        run.heldInterruption = undefined;
+      }
+      const decision = decideAfterStreamClosed(read, {
+        runId: runtimeRunId,
+        drain: run.terminalDrain,
+        waitingSinceMs: run.successorWaitStartedAtMs,
+        quietReads: run.quietAuthorityReads ?? 0,
+        subscribeFailures: run.subscribeFailures ?? 0,
+        nowMs: Date.now(),
+        ...(run.session.continueTurn
+          ? { autoContinue: { asked: (run.autoContinueAsked ??= new Map()) } }
+          : {}),
+      });
+      run.quietAuthorityReads = (run.quietAuthorityReads ?? 0) + 1;
+      if (decision.type === "terminal") {
+        appendAuthorityTerminal(run, decision);
+        return null;
+      }
+      if (decision.type === "continue") {
+        const continued = await continueAfterTimeLimit(run, decision);
+        if (continued || stopped()) return continued;
+        continue;
+      }
+      if (decision.type === "wait") {
+        if (read.kind === "read") run.successorWaitStartedAtMs ??= Date.now();
+        await notifyWhenChanged(run, readers.signal, decision.delayMs);
+        continue;
+      }
+      if (decision.delayMs > 0) {
+        await notifyWhenChanged(run, readers.signal, decision.delayMs);
+        if (stopped()) return null;
+      }
+      if (decision.drain) {
+        const previous =
+          run.terminalDrain?.runId === decision.runId
+            ? run.terminalDrain.attempts
+            : 0;
+        run.terminalDrain = {
+          runId: decision.runId,
+          attempts: previous + 1,
+          readToEnd: false,
+        };
+      }
+      // Keep the turn identity this stream started with; the server's turn id
+      // only fills in for a run restored without one.
+      const turnId = run.turn.id ?? decision.turnId;
+      const connection = new AbortController();
+      const subscription = await Promise.resolve()
+        .then(() =>
+          authority.subscribe({
+            sessionId: run.session.id,
+            ...(turnId ? { turnId } : {}),
+            runId: decision.runId,
+            after:
+              decision.runId === runtimeRunId &&
+              run.runtimeSequence !== undefined
+                ? run.runtimeSequence + 1
+                : 0,
+            metadata: run.metadata,
+            abortSignal: AbortSignal.any([readers.signal, connection.signal]),
+          }),
+        )
+        .then(
+          (events) => ({ events }),
+          (error: unknown) => ({ error }),
+        );
+      // A subscription that could not open is a connection fact like any
+      // other closed stream; the next authority read decides, after backoff.
+      if ("error" in subscription) {
+        run.subscribeFailures = (run.subscribeFailures ?? 0) + 1;
+        continue;
+      }
+      run.subscribeFailures = 0;
+      // A Stop that landed while this stream was opening never reads it, so
+      // close it here rather than leave the connection open.
+      if (stopped()) {
+        connection.abort();
+        return null;
+      }
+      run.readingTerminalDrain = decision.drain;
+      return {
+        ...(turnId ? { id: turnId } : {}),
+        sessionId: run.session.id,
+        runId: decision.runId,
+        events: subscription.events,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Asks the server to continue a turn it stopped at its time limit. The run
+   * stays in the same turn, so the turn's journal of finished steps and its
+   * cross-app idempotency keys keep applying. A refusal is recorded for the
+   * next decision; any other failure falls back to waiting like before.
+   */
+  async function continueAfterTimeLimit(
+    run: ProtocolRun,
+    decision: Extract<StreamClosedDecision, { type: "continue" }>,
+  ): Promise<AgentChatRuntimeTurn | null> {
+    const asked = (run.autoContinueAsked ??= new Map());
+    asked.set(decision.runId, null);
+    const label = options.autoContinueLabel;
+    const activity: AgentActivity | undefined = label
+      ? {
+          id: `auto-continue:${decision.runId}`,
+          kind: "status",
+          label,
+          status: "running",
+          startedAt: now(),
+        }
+      : undefined;
+    if (activity) append(run, { type: "activity.started", activity });
+    let next: AgentChatRuntimeTurn | null = null;
+    try {
+      next = await run.session.continueTurn!({
+        turnId: decision.turnId,
+        prompt: AUTO_CONTINUE_PROMPT,
+        metadata: { [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: decision.runId },
+        abortSignal: readers.signal,
+      });
+    } catch (error) {
+      const code = asRecord(error)?.code;
+      const refusal = AUTO_CONTINUE_REFUSAL_CODES.find(
+        (known) => known === code,
+      );
+      if (refusal) asked.set(decision.runId, refusal);
+    }
+    if (activity && !run.terminal) {
+      append(run, {
+        type: "activity.completed",
+        activity: {
+          ...activity,
+          status: next ? "completed" : "failed",
+          completedAt: now(),
+        },
+      });
+    }
+    // A Stop that landed while the request was in flight stopped the whole
+    // turn server-side, including the run this request started.
+    return run.terminal || run.streamClosed ? null : next;
+  }
+
+  function appendAuthorityTerminal(
+    run: ProtocolRun,
+    decision: Extract<StreamClosedDecision, { type: "terminal" }>,
+  ): void {
+    run.streamClosed = true;
+    run.terminal = true;
+    run.terminalSource = "authority";
+    if ("error" in decision) {
+      append(run, { type: "run.status", status: "failed" });
+      append(run, { type: "run.failed", error: decision.error });
+    } else if (decision.outcome === "succeeded") {
+      append(run, { type: "run.status", status: "completed" });
+      append(run, { type: "run.completed", usage: run.usage });
+    } else {
+      append(run, { type: "run.status", status: "cancelled" });
+      append(run, { type: "run.cancelled" });
+    }
+  }
+
+  /** The runtime run's own interruption, once no newer run carries the turn. */
+  function appendHeldInterruption(run: ProtocolRun): void {
+    const error = run.heldInterruption!;
+    run.heldInterruption = undefined;
+    run.terminal = true;
+    append(run, { type: "run.status", status: "failed" });
+    append(run, { type: "run.failed", error });
   }
 
   function setResumedRuntimeTurn(
@@ -2558,46 +3382,31 @@ export function createAgentKitProtocolAdapter(
     resumed: AgentChatRuntimeTurn,
   ): void {
     const runtimeRunId = run.turn.runId ?? run.runId;
-    const resumeState = asRecord(
-      resumed.metadata?.[AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY],
-    );
-    const isRunningBackgroundRun =
-      resumeState?.status === "running" &&
-      typeof resumeState?.dispatchMode === "string" &&
-      resumeState.dispatchMode.startsWith("background");
-    const backgroundStartedAt = resumeState?.startedAt;
-    let backgroundResumeDeadlineAtMs: number | undefined;
-    if (
-      isRunningBackgroundRun &&
-      typeof backgroundStartedAt === "number" &&
-      Number.isFinite(backgroundStartedAt)
-    ) {
-      backgroundResumeDeadlineAtMs =
-        backgroundStartedAt +
-        BACKGROUND_FUNCTION_WALL_MS -
-        BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
-    }
     if (resumed.runId && resumed.runId !== runtimeRunId) {
       run.runtimeSequence = undefined;
       run.resumeAttempts = 0;
-      run.continuationStartedAtMs = undefined;
-      run.resumeDeadlineAtMs = backgroundResumeDeadlineAtMs;
-    } else if (isRunningBackgroundRun) {
-      if (backgroundResumeDeadlineAtMs !== undefined) {
-        run.resumeDeadlineAtMs ??= backgroundResumeDeadlineAtMs;
-      }
-    } else if (resumeState) {
-      run.resumeDeadlineAtMs = undefined;
+      run.quietAuthorityReads = 0;
+      run.successorWaitStartedAtMs = undefined;
     }
     run.turn = resumed;
+    indexRun(run, resumed.runId);
   }
 
   function ensurePump(run: ProtocolRun): void {
-    if (run.pumpPromise || run.streamClosed || run.terminal || !run.turn)
+    if (
+      run.pumpPromise ||
+      run.streamClosed ||
+      run.terminal ||
+      !run.turn ||
+      readers.signal.aborted
+    )
       return;
     run.pumpPromise = (async () => {
       try {
         while (!run.terminal && !run.waitingForContinuation) {
+          const stream: { failed: boolean; error?: unknown } = {
+            failed: false,
+          };
           try {
             for await (const event of run.turn.events) {
               const sequence = event.metadata?.seq;
@@ -2608,6 +3417,7 @@ export function createAgentKitProtocolAdapter(
               ) {
                 run.runtimeSequence = sequence;
                 run.resumeAttempts = 0;
+                run.quietAuthorityReads = 0;
               }
               for (const protocolEvent of runtimeEventToProtocolEvents(
                 run,
@@ -2615,46 +3425,29 @@ export function createAgentKitProtocolAdapter(
               )) {
                 append(run, protocolEvent);
               }
-              if (run.waitingForContinuation || run.terminal) break;
-            }
-            if (run.terminal || run.waitingForContinuation) break;
-            const resumed = await resumeRuntimeTurn(run);
-            if (run.terminal || run.waitingForContinuation) break;
-            if (resumed) {
-              setResumedRuntimeTurn(run, resumed);
-              continue;
-            }
-            run.streamClosed = true;
-            run.terminal = true;
-            append(run, {
-              type: "run.failed",
-              error: {
-                code: "stream_ended",
-                message:
-                  "The runtime stream ended before it reported completion.",
-              },
-            });
-            break;
-          } catch (error) {
-            if (run.streamClosed || run.terminal) return;
-            try {
-              const resumed = await resumeRuntimeTurn(run, error);
-              if (run.streamClosed || run.terminal) return;
-              if (resumed) {
-                setResumedRuntimeTurn(run, resumed);
-                continue;
+              if (
+                run.waitingForContinuation ||
+                run.terminal ||
+                run.heldInterruption
+              ) {
+                break;
               }
-            } catch (resumeError) {
-              error = resumeError;
             }
-            run.streamClosed = true;
-            run.terminal = true;
-            append(run, {
-              type: "run.failed",
-              error: protocolError(error),
-            });
+          } catch (error) {
+            stream.failed = true;
+            stream.error = error;
+          }
+          if (run.terminal || run.streamClosed || run.waitingForContinuation) {
             break;
           }
+          if (run.restoredWithoutStream) run.restoredWithoutStream = false;
+          else if (!run.heldInterruption) run.pipeClosedBeforeTerminal = true;
+          const resumed =
+            runAuthority && capabilities.resumableRuns === true
+              ? await followRunAuthority(run, runAuthority, stream)
+              : await resumeWithoutAuthority(run, stream);
+          if (!resumed || run.terminal || run.waitingForContinuation) break;
+          setResumedRuntimeTurn(run, resumed);
         }
       } finally {
         run.pumpPromise = null;
@@ -2763,105 +3556,74 @@ export function createAgentKitProtocolAdapter(
         input.options?.mode ? { mode: input.options.mode } : undefined,
         isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
       );
-      const session = await getSession(input.threadId, turnMetadata);
-      const messages = input.messages.map(protocolMessageToRuntimeMessage);
-      const attachments =
-        latestUserMessage?.parts.flatMap((part) =>
-          part.type === "file"
-            ? [
-                {
-                  name: part.name,
-                  ...(part.fileId ? { id: part.fileId } : {}),
-                  ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-                  ...(part.url ? { url: part.url } : {}),
-                },
-              ]
-            : [],
-        ) ?? [];
-      const turn = await session.startTurn({
-        prompt: latestUserPrompt(input.messages),
-        messages,
-        ...(attachments.length ? { attachments } : {}),
-        model: input.options?.model,
-        reasoningEffort: input.options?.reasoningEffort,
-        temperature: input.options?.temperature,
-        providerOptions: {
-          ...(input.options?.toolChoice === undefined
-            ? {}
-            : { toolChoice: input.options.toolChoice }),
-          ...(input.options?.parallelToolCalls === undefined
-            ? {}
-            : { parallelToolCalls: input.options.parallelToolCalls }),
-        },
-        metadata: turnMetadata,
-      });
-      const runId = turn.runId ?? turn.id ?? createId("run");
-      const runMetadata = mergeTrustedProtocolMetadata(
-        options.metadata,
-        turnMetadata,
-        turn.metadata,
-        {
-          [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
-            observability: {
-              protocolRunId: runId,
-              ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
-              runtimeId: runtime.id,
-              sessionId: session.id,
-              turnId: turn.id,
-              threadId: input.threadId,
-            },
-          } satisfies AgentNativeProtocolMetadata,
-        },
-      );
-      setRuntimeRunIdMetadata(runMetadata, turn.runId);
-      const run: ProtocolRun = {
-        runId,
-        threadId: input.threadId,
-        session,
-        turn,
-        events: [],
-        firstRetainedSequence: 1,
-        sequence: 0,
-        status: "queued",
-        lastAccessedAtMs: timeMs(),
-        activeReaders: 0,
-        metadata: runMetadata,
-        activeMessageCompleted: false,
-        pendingWidgets: new Map(),
-        actions: new Map(),
-        activeTools: new Map(),
-        activeActivities: new Map(),
-        terminalAppendDepth: 0,
-        pumpPromise: null,
-        continuationPromise: null,
-        streamClosed: false,
-        terminal: false,
-        waitingForContinuation: false,
-        listeners: new Set(),
-      };
-      if (disposed) {
-        await cancelCoreTurn(run, "adapter-dispose").catch(() => undefined);
-        await disposeSession(session).catch(() => undefined);
-        throw new Error(
-          "The AgentKit adapter was disposed during turn creation.",
+      const queuePromotionKey = input.queuePromotion
+        ? JSON.stringify([input.threadId, input.queuePromotion.turnId])
+        : undefined;
+      if (input.queuePromotion) {
+        const existingRun = findRunByTurnId(
+          input.threadId,
+          input.queuePromotion.turnId,
         );
+        if (existingRun) {
+          touchRun(existingRun);
+          ensurePump(existingRun);
+          return { runId: existingRun.runId, capabilities };
+        }
+        const pendingRun = pendingQueuePromotionRuns.get(queuePromotionKey!);
+        if (pendingRun) {
+          return { runId: await pendingRun, capabilities };
+        }
       }
-      pruneRetainedRuns(run.lastAccessedAtMs);
-      runs.set(runId, run);
-      append(run, {
-        type: "run.started",
-        agentId: runtime.id,
-        metadata: runMetadata,
-      });
-      append(run, { type: "run.status", status: "running" });
-      ensurePump(run);
-      return { runId, capabilities };
+      const createRun = async (): Promise<string> => {
+        const session = await getSession(input.threadId, turnMetadata);
+        const messages = input.messages.map(protocolMessageToRuntimeMessage);
+        const attachments = runtimeRequestAttachments({
+          message: latestUserMessage,
+          requestAttachments: input.requestAttachments,
+        });
+        const turn = await session.startTurn({
+          prompt: latestUserPrompt(input.messages),
+          messages,
+          ...(input.queuePromotion
+            ? { queuePromotion: input.queuePromotion }
+            : {}),
+          ...(attachments.length ? { attachments } : {}),
+          model: input.options?.model,
+          reasoningEffort: input.options?.reasoningEffort,
+          temperature: input.options?.temperature,
+          providerOptions: {
+            ...(input.options?.toolChoice === undefined
+              ? {}
+              : { toolChoice: input.options.toolChoice }),
+            ...(input.options?.parallelToolCalls === undefined
+              ? {}
+              : { parallelToolCalls: input.options.parallelToolCalls }),
+          },
+          metadata: turnMetadata,
+          abortSignal: readers.signal,
+        });
+        return openStartedRun(input.threadId, session, turn, turnMetadata);
+      };
+      if (!queuePromotionKey) {
+        return { runId: await createRun(), capabilities };
+      }
+      const pendingRun = Promise.resolve().then(createRun);
+      pendingQueuePromotionRuns.set(queuePromotionKey, pendingRun);
+      try {
+        return { runId: await pendingRun, capabilities };
+      } finally {
+        if (pendingQueuePromotionRuns.get(queuePromotionKey) === pendingRun) {
+          pendingQueuePromotionRuns.delete(queuePromotionKey);
+        }
+      }
     },
     async *subscribeToRun(input) {
       pruneRetainedRuns();
-      let run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
-        if (run) throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      let run = findRun(input.threadId, input.runId);
+      if (!run) {
+        if (runs.has(input.runId)) {
+          throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        }
         run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
@@ -2870,8 +3632,10 @@ export function createAgentKitProtocolAdapter(
     },
     async getRun(input) {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) return null;
+      const run =
+        findRun(input.threadId, input.runId) ??
+        (await resolveRuntimeRunOwner(input.threadId, input.runId)).owner;
+      if (!run) return null;
       touchRun(run);
       return {
         id: run.runId,
@@ -2888,14 +3652,30 @@ export function createAgentKitProtocolAdapter(
     },
     async cancelRun(input) {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      let run = findRun(input.threadId, input.runId);
+      if (!run && runs.has(input.runId)) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      }
+      if (!run) {
+        if (runtime.cancel) {
+          const session = await getSession(input.threadId);
+          const result = await runtime.cancel({
+            sessionId: session.id,
+            runId: input.runId,
+            reason: "protocol-cancel",
+          });
+          if (result.status !== "unsupported") {
+            return;
+          }
+        }
+        run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
       if (run.terminal) return;
       const streamWasClosed = run.streamClosed;
-      const cancellation = cancelCoreTurn(run, "protocol-cancel");
+      // "user" is the server's turn-wide stop: it also stops any successor
+      // run the turn would otherwise hand off to.
+      const cancellation = cancelCoreTurn(run, "user");
       run.streamClosed = true;
       run.terminal = true;
       let result;
@@ -2915,6 +3695,7 @@ export function createAgentKitProtocolAdapter(
       }
       run.waitingForContinuation = false;
       run.pendingApprovalId = undefined;
+      run.terminalSource = "local";
       append(run, { type: "run.status", status: "cancelled" });
       append(run, { type: "run.cancelled" });
     },
@@ -2922,28 +3703,23 @@ export function createAgentKitProtocolAdapter(
       if (disposed) return;
       disposed = true;
       clearRetentionTimer();
-      const cancellations: Promise<unknown>[] = [];
+      readers.abort();
+      // Readers end without a terminal event: this adapter stopped watching,
+      // and the server still owns how each run ends.
       for (const run of runs.values()) {
-        if (!run.terminal) {
-          cancellations.push(cancelCoreTurn(run, "adapter-dispose"));
-          if (!run.streamClosed) {
-            append(run, { type: "run.status", status: "cancelled" });
-            append(run, { type: "run.cancelled" });
-          }
-        }
         run.streamClosed = true;
         run.terminal = true;
         run.waitingForContinuation = false;
         run.pendingApprovalId = undefined;
         for (const listener of run.listeners) listener();
       }
-      await Promise.allSettled(cancellations);
       await Promise.allSettled(
         [...sessions.values()].map(async (session) => {
           const resolved = await session;
           await disposeSession(resolved);
         }),
       );
+      pendingQueuePromotionRuns.clear();
       runs.clear();
       sessions.clear();
     },
@@ -3090,8 +3866,8 @@ export function createAgentKitProtocolAdapter(
       input,
     ) => {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      const run = findRun(input.threadId, input.runId);
+      if (!run) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
@@ -3144,6 +3920,7 @@ export function createAgentKitProtocolAdapter(
             approved: decision === "approve",
             message: serializeValue(approvalInput),
           },
+          abortSignal: readers.signal,
         });
         const replacementMetadata = mergeTrustedProtocolMetadata(
           run.metadata,
@@ -3157,7 +3934,7 @@ export function createAgentKitProtocolAdapter(
                   : { runtimeRunId: nextTurn.runId }),
                 runtimeId: runtime.id,
                 sessionId: run.session.id,
-                turnId: nextTurn.id,
+                ...(nextTurn.id === undefined ? {} : { turnId: nextTurn.id }),
                 threadId: input.threadId,
                 interruptedRunId: run.runId,
               },
@@ -3165,6 +3942,7 @@ export function createAgentKitProtocolAdapter(
           },
         );
         setRuntimeRunIdMetadata(replacementMetadata, nextTurn.runId);
+        setRuntimeTurnIdMetadata(replacementMetadata, nextTurn.id);
         const replacementRun: ProtocolRun = {
           runId: nextRunId,
           threadId: input.threadId,
@@ -3178,10 +3956,14 @@ export function createAgentKitProtocolAdapter(
           activeReaders: 0,
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
+          activeMessageRole: run.activeMessageRole,
           activeMessageCompleted: run.activeMessageCompleted,
           pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
           activeTools: new Map(run.activeTools),
+          pendingToolMessageAssociations: new Map(
+            run.pendingToolMessageAssociations,
+          ),
           activeActivities: new Map(run.activeActivities),
           terminalAppendDepth: 0,
           pumpPromise: null,
@@ -3195,7 +3977,7 @@ export function createAgentKitProtocolAdapter(
         run.pendingApprovalId = undefined;
         run.terminal = true;
         run.terminalAtMs = timeMs();
-        runs.set(nextRunId, replacementRun);
+        indexRun(replacementRun, nextTurn.runId);
         append(replacementRun, {
           type: "run.started",
           agentId: runtime.id,
@@ -3235,11 +4017,64 @@ export function createAgentKitProtocolAdapter(
     };
   }
 
+  if (runAuthority) {
+    const authority = runAuthority;
+    // Continues the turn a stopped run belonged to rather than starting a new
+    // one, so the turn's journal still blocks repeating a finished write. The
+    // server reads which run ended the turn; this page may know only the one
+    // it watched, or none after a reload.
+    transport.continueRun = async (input) => {
+      if (disposed) throw new Error("The AgentKit adapter is disposed.");
+      pruneRetainedRuns();
+      const local = runs.get(input.runId);
+      if (local && local.threadId !== input.threadId) {
+        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      }
+      const session = local?.session ?? (await getSession(input.threadId));
+      if (!session.continueTurn) {
+        throw new Error("The Core runtime does not support run continuation.");
+      }
+      const state = await authority.readRunState({
+        sessionId: session.id,
+        runId: local?.turn.runId ?? input.runId,
+        abortSignal: readers.signal,
+      });
+      if (state.status === "missing" || !state.turnId) {
+        throw Object.assign(
+          new Error(`Agent run ${input.runId} cannot be continued.`),
+          { code: CONTINUE_UNAVAILABLE_CODE, retryable: false },
+        );
+      }
+      const attachments = (input.attachments ?? [])
+        .filter(
+          (part) =>
+            !part.omitted &&
+            (part.fileId !== undefined || isPersistableAttachmentUrl(part.url)),
+        )
+        .map(runtimeAttachmentFromFilePart);
+      const turn = await session.continueTurn({
+        turnId: state.turnId,
+        prompt: AUTO_CONTINUE_PROMPT,
+        metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: state.runId },
+        ...(attachments.length ? { attachments } : {}),
+        abortSignal: readers.signal,
+      });
+      const runId = await openStartedRun(
+        input.threadId,
+        session,
+        turn,
+        undefined,
+        { continuedRunId: input.runId },
+      );
+      return { runId, capabilities };
+    };
+  }
+
   if (runtime.capabilities.rich?.connectionRequests) {
     transport.resolveConnectionRequest = async (input) => {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      const run = findRun(input.threadId, input.runId);
+      if (!run) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       touchRun(run);
@@ -3272,6 +4107,7 @@ export function createAgentKitProtocolAdapter(
         run.waitingForContinuation = false;
         run.pendingConnectionRequestId = undefined;
         run.streamClosed = true;
+        run.terminalSource = "local";
         append(run, { type: "run.status", status: "failed" });
         append(run, {
           type: "run.failed",
@@ -3309,10 +4145,12 @@ export function createAgentKitProtocolAdapter(
             connectionId: input.response.connectionId,
             message: input.response.message,
           },
+          abortSignal: readers.signal,
         });
         run.waitingForContinuation = false;
         run.pendingConnectionRequestId = undefined;
         run.turn = nextTurn;
+        indexRun(run, nextTurn.runId);
         run.streamClosed = false;
         update(input.response.status);
         append(run, { type: "run.status", status: "running" });

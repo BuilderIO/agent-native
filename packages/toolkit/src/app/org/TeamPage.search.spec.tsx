@@ -179,7 +179,12 @@ describe("TeamPage member search recovery", () => {
     ]);
     expect(search!.value).toBe("  Morgan  ");
     expect(container.textContent).not.toContain("No people found");
-    expect(container.querySelector('[role="alert"]')).toBeNull();
+    // The workspace-applications section runs its own action query, which this
+    // fetch mock does not answer; its alert is not part of search recovery.
+    const searchAlerts = Array.from(
+      container.querySelectorAll('[role="alert"]'),
+    ).filter((alert) => alert.textContent !== "org.applicationsLoadFailed");
+    expect(searchAlerts).toEqual([]);
   });
 
   it("starts a new member search from its first page after paging during the debounce", async () => {

@@ -3,6 +3,10 @@ import { isToolVisibilityModelOnly } from "@modelcontextprotocol/ext-apps/app-br
 import { getMcpManagerForPrincipal } from "../server/agent-chat/mcp-glue.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
+  hasMcpProviderMatchRules,
+  mcpServerUrlMatchesProvider,
+} from "../shared/mcp-provider-hosts.js";
+import {
   buildMcpToolName,
   type McpClientManager,
   type McpTool,
@@ -24,6 +28,17 @@ export interface AppMcpTool {
 
 export interface ListVisibleMcpToolsOptions {
   serverId?: string;
+  /**
+   * Keep only tools served from this provider's MCP endpoint, matched on the
+   * server URL. A server id is a name the user chose, so it cannot prove which
+   * provider answers the call.
+   */
+  providerId?: string;
+}
+
+export interface CallMcpToolOptions {
+  /** Refuse the call unless the server's URL belongs to this provider. */
+  providerId?: string;
 }
 
 export class McpAppApiError extends Error {
@@ -46,7 +61,11 @@ export async function listVisibleMcpTools(
     : manager.getTools();
 
   return tools
-    .filter((tool) => isToolVisibleToApp(tool, context))
+    .filter(
+      (tool) =>
+        isToolVisibleToApp(tool, context) &&
+        isServerForProvider(manager, tool.source, options.providerId),
+    )
     .map(toAppMcpTool);
 }
 
@@ -54,6 +73,7 @@ export async function callMcpTool(
   serverId: string,
   originalToolName: string,
   args: Record<string, unknown> = {},
+  options: CallMcpToolOptions = {},
 ): Promise<unknown> {
   const context = requireAuthenticatedRequest();
   const manager = await requireMcpManager(context);
@@ -61,7 +81,11 @@ export async function callMcpTool(
     .getToolsForServer(serverId)
     .find((candidate) => candidate.originalName === originalToolName);
 
-  if (!tool || !isToolVisibleToApp(tool, context)) {
+  if (
+    !tool ||
+    !isToolVisibleToApp(tool, context) ||
+    !isServerForProvider(manager, serverId, options.providerId)
+  ) {
     throw new McpAppApiError(
       "MCP tool is not available in this request scope.",
       403,
@@ -123,6 +147,24 @@ function isToolVisibleToApp(
   } catch {
     return false;
   }
+}
+
+function isServerForProvider(
+  manager: McpClientManager,
+  serverId: string,
+  providerId: string | undefined,
+): boolean {
+  if (providerId === undefined) return true;
+  if (!hasMcpProviderMatchRules(providerId)) {
+    throw new Error(
+      `No MCP provider match rules for "${providerId}". Add it to MCP_PROVIDER_ENDPOINTS or MCP_LINK_HOSTS before filtering by it.`,
+    );
+  }
+  const config = manager.getServerConfig(serverId);
+  return (
+    config?.type === "http" &&
+    mcpServerUrlMatchesProvider(providerId, config.url) === true
+  );
 }
 
 function toAppMcpTool(tool: McpTool): AppMcpTool {

@@ -18,7 +18,7 @@ Agent-Nativeは、直感的なUIを備えた自律型エージェントを構築
 
 - [Node.js](https://nodejs.org) 22.22以降
 - [pnpm](https://pnpm.io)がインストールされ、`PATH`から実行できること
-- エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
+- セットアップ中は任意。エージェントの実行には必要です: Builder.io、Anthropic/OpenAI のキー、またはローカル Ollama
 
 ## エージェントを作成する
 
@@ -34,6 +34,12 @@ pnpm install
 テンプレートには、エージェント用のブラウザUI、認証、永続的な会話、
 ライブ同期、アプリケーションコンテキスト、`actions/`ディレクトリが含まれます。
 このガイドで使う小さな`hello`アクションも含まれています。
+
+<Callout tone="info">
+
+これらのコマンドがピア依存関係のエラーで失敗する場合は、npx キャッシュ内の古いパッケージが原因の可能性があります。`npx clear-npx-cache` を実行してキャッシュを消去してから、もう一度コマンドを実行してください。
+
+</Callout>
 
 ## 開発サーバーを起動する
 
@@ -51,15 +57,15 @@ Welcome画面で**Continue as local dev**を選択します。ローカル開発
 
 </Callout>
 
-## LLMを接続する
+## LLMを接続する（任意） {#connect-an-llm}
 
-次にLLMを接続します。無料クレジットを使うには**Connect Builder.io**を選択します。あるいは、**Custom keys**を選択してプロバイダーを選び、必要な接続情報を入力します。
+**Use Builder.io** で Builder.io アカウントに接続するか、**Custom keys** で個人用または組織用のキーを追加するか、ローカル開発ではプロバイダーキーを `.env` に、セルフホスト型アプリ全体で使う場合はデプロイ環境に設定してください。詳しくは[LLM プロバイダーの設定](/docs/environment-variables#llm-provider-keys)を参照してください。
 
 ## エージェントからアクションを実行する
 
 アクションは、React UIがコードから呼び出せ、エージェントがツールとして使える型付き関数です。Chatテンプレートにはシンプルな`hello`アクションが含まれているため、自分で書く前にこのパターンを試せます。
 
-エージェントパネルで次のように依頼します。
+**はじめに**ページのプロンプトで次のように依頼します。
 
 > Call the hello action for Alex.
 

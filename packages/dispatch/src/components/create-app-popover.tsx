@@ -363,6 +363,7 @@ export function CreateAppFlow({
           </div>
           <PromptComposer
             autoFocus
+            requireAgentEngine
             disabled={isSubmitting}
             placeholder="Describe the app your teammate should be able to use..."
             draftScope="dispatch:create-app"
@@ -595,7 +596,9 @@ export function CreateAppFlow({
                   disabled={connectFlow.connecting}
                   className="w-fit"
                 >
-                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+                  {connectFlow.connecting
+                    ? "Setting up Builder.io…"
+                    : "Use Builder.io"}
                 </Button>
               </BuilderConnectPopover>
               <a

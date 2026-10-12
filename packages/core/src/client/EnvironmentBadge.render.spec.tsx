@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const useSessionMock = vi.fn();
 const injectedAgentNativeConfigMock = vi.fn();
 
-vi.mock("@agent-native/core/client/use-session", () => ({
+vi.mock("@agent-native/core/client/use-session", async () => ({
+  ...(await import("./use-session.js")),
   useSession: () => useSessionMock(),
 }));
 vi.mock("@agent-native/core/client/app-config", () => ({
@@ -50,6 +51,7 @@ describe("EnvironmentBadge render", () => {
       configurable: true,
       value: originalLocation,
     });
+    delete window.__agentNativeNavigationStarted;
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
       value: originalUserAgent,

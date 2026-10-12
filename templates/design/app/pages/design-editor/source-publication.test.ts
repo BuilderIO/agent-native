@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 
 import {
   designFileCodeLayerSource,
+  forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
   preparedSourceProjection,
   resolveSourceBaseForPublication,
@@ -195,6 +196,25 @@ it("uses canonical pending bytes once identity migration is durable", () => {
   ).toBe(canonical);
 });
 
+it("does not use an unaccepted deferred upload as a publication base", () => {
+  const uploadCandidate = "<main>uploaded image URL</main>";
+  const remoteContent = "<main>remote collaborator source</main>";
+
+  expect(
+    resolveSourceBaseForPublication({
+      fileId: "screen-a",
+      fileType: "html",
+      pending: {
+        content: uploadCandidate,
+        deferCollabReconcile: true,
+      },
+      collabContent: remoteContent,
+      persistedContent: "<main>stored source</main>",
+      beforeContent: remoteContent,
+    }),
+  ).toBe(remoteContent);
+});
+
 it("hands the Layers model the projection it built for the editor's source", () => {
   const content =
     '<main data-agent-native-node-id="screen"><p>Hi</p><p>There</p></main>';
@@ -242,4 +262,17 @@ it("refuses a projection source that names another file", () => {
       source: designFileCodeLayerSource("design-1", "screen-b", undefined),
     }),
   ).toThrow("same file");
+});
+
+it("forgets prepared sources for files that left the design", () => {
+  const html = '<div data-agent-native-node-id="kept">kept</div>';
+  const deleted = prepareCanonicalSourceContent(html, { fileId: "deleted" });
+  const kept = prepareCanonicalSourceContent(html, { fileId: "kept" });
+
+  forgetPreparedSourcesExcept(new Set(["kept"]));
+
+  expect(prepareCanonicalSourceContent(html, { fileId: "kept" })).toBe(kept);
+  expect(prepareCanonicalSourceContent(html, { fileId: "deleted" })).not.toBe(
+    deleted,
+  );
 });

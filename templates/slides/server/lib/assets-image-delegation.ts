@@ -3,8 +3,11 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   A2AClient,
   buildAgentInvocationPrompt,
+  canonicalA2AAudience,
+  getGlobalA2ASecret,
   resolveA2ACallerAuth,
   resolveAgentInvocationTarget,
+  signA2AOrganizationToken,
   signA2AToken,
   type A2ACallerAuth,
   type Task,
@@ -90,46 +93,44 @@ function buildDelegationMessage(request: AssetsImageRequest): string {
   );
 }
 
-function agentAudience(url: string): string {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return url;
-  }
-}
-
 /**
- * Mirrors the tokens `callAgent` mints internally: audience-bound and carrying
- * the caller identity, global secret first then org secret. `resolveA2ACallerAuth`
- * signs without an audience, so its tokens are kept only as later attempts. The
- * static override goes last because it authenticates the transport but carries
- * no user identity, and preferring it would cost Assets its access scoping.
+ * Mirrors `callAgent`: audience-bound user identity first, then an
+ * organization principal when only the org secret is available. The configured
+ * static override goes last because it authenticates transport without user
+ * identity, which Assets needs for owner-scoped reads.
  */
 async function buildCallerTokens(
   targetUrl: string,
   auth: A2ACallerAuth,
 ): Promise<string[]> {
-  const audience = agentAudience(targetUrl);
+  const audience = canonicalA2AAudience(targetUrl);
   const tokens: string[] = [];
   const add = (token: string | undefined) => {
     if (token && !tokens.includes(token)) tokens.push(token);
   };
 
-  if (auth.userEmail && (auth.orgSecret || process.env.A2A_SECRET)) {
-    for (const preferGlobalSecret of [true, false]) {
-      if (preferGlobalSecret && !process.env.A2A_SECRET?.trim()) continue;
-      if (!preferGlobalSecret && !auth.orgSecret) continue;
-      try {
-        add(
-          await signA2AToken(auth.userEmail, auth.orgDomain, auth.orgSecret, {
-            preferGlobalSecret,
-            audience,
-          }),
-        );
-      } catch {
-        // Try the next signing strategy.
-      }
-    }
+  if (
+    auth.userEmail &&
+    getGlobalA2ASecret() &&
+    (!auth.orgId || auth.orgDomain?.trim())
+  ) {
+    add(
+      await signA2AToken(auth.userEmail, auth.orgDomain, undefined, {
+        preferGlobalSecret: true,
+        audience,
+      }),
+    );
+  }
+
+  if (auth.orgDomain && auth.orgSecret) {
+    add(
+      await signA2AOrganizationToken(
+        auth.orgDomain,
+        auth.orgSecret,
+        undefined,
+        { audience },
+      ),
+    );
   }
 
   add(auth.apiKey);
@@ -179,7 +180,9 @@ export async function delegateImageGenerationToAssets(
   }
 
   try {
-    const auth = await resolveA2ACallerAuth();
+    const auth = await resolveA2ACallerAuth({
+      audience: canonicalA2AAudience(targetUrl),
+    });
     const tokens = await buildCallerTokens(targetUrl, auth);
     const client = new A2AClient(targetUrl, tokens[0], {
       fallbackApiKeys: tokens.slice(1),

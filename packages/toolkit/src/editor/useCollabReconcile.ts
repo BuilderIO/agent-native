@@ -53,6 +53,12 @@ export function getEditorMarkdown(editor: Editor): string {
 
 const EMITTED_RING_MAX = 16;
 const PEER_SETTLE_MS = 2500;
+// A non-lead client leaves a newer snapshot to the lead; if the lead has not
+// converged the doc by then (it never refetched), adopt it rather than keep a
+// Yjs doc that disagrees with SQL until the next reload drops unsaved text.
+const LEAD_FAILOVER_MS = PEER_SETTLE_MS * 2;
+const CATCH_UP_ATTEMPTS = 3;
+const CATCH_UP_RETRY_MS = 2000;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -90,11 +96,27 @@ export interface UseCollabReconcileOptions {
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
+  /**
+   * Flipping editability around the initial seed emits `update` unless this is
+   * set. Set it when `update` saves the document, so that the flip is not
+   * mistaken for an edit. Editors that leave it off rely on the emission to
+   * report edits typed before the seed settled, which were ignored until then.
+   */
+  quietSeedEditability?: boolean;
   onInitialSeedError?: (error: unknown) => void;
   overlapPolicy?: "conflict" | "prefer-live";
   editable: boolean;
   isEditorFocused?: (editor: Editor) => boolean;
   getMarkdown?: (editor: Editor) => string;
+  /**
+   * The host's half of "this client holds no unsaved text": no save queued or
+   * in flight and no recovery draft pending. The hook adds the other half, that
+   * the live doc still equals the last authoritative snapshot it adopted. Only
+   * when both hold may an idle lead adopt a newer snapshot without the peer
+   * settle wait. Leave it unset and the wait always applies.
+   * `lastAppliedSerialized` cannot stand in, because local emits update it.
+   */
+  isEditorClean?: (liveMarkdown: string) => boolean;
   setContent?: (
     editor: Editor,
     value: string,
@@ -115,6 +137,12 @@ export interface UseCollabReconcileOptions {
 export interface UseCollabReconcileResult {
   collab: boolean;
   initialSeedFailed: boolean;
+  /**
+   * True from the moment a server-seeded document exists until its first seed
+   * has been applied. The editor must stay read-only meanwhile: text typed into
+   * the still-empty document is merged with the seed rather than placed after it.
+   */
+  initialSeedPending: boolean;
   retryInitialSeed: () => void;
   isSettingContentRef: MutableRefObject<boolean>;
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
@@ -171,11 +199,13 @@ export function useCollabReconcile({
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   requestInitialSeed,
+  quietSeedEditability = false,
   onInitialSeedError,
   overlapPolicy = "conflict",
   editable,
   isEditorFocused = defaultIsEditorFocused,
   getMarkdown = getEditorMarkdown,
+  isEditorClean,
   setContent = defaultSetContent,
   parseValue,
   normalizeValue = (v) => v,
@@ -209,6 +239,7 @@ export function useCollabReconcile({
     parseValue,
     normalizeValue,
     isEditorFocused,
+    isEditorClean,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
   });
@@ -218,6 +249,7 @@ export function useCollabReconcile({
     parseValue,
     normalizeValue,
     isEditorFocused,
+    isEditorClean,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
   };
@@ -336,6 +368,11 @@ export function useCollabReconcile({
   }, [collab, awareness, ydoc]);
 
   const seededRef = useRef(false);
+  const [seeded, setSeeded] = useState(false);
+  const markSeeded = () => {
+    seededRef.current = true;
+    if (requestInitialSeed) setSeeded(true);
+  };
   const [initialSeedFailed, setInitialSeedFailed] = useState(false);
   const [initialSeedRetry, setInitialSeedRetry] = useState(0);
   useEffect(() => {
@@ -343,8 +380,9 @@ export function useCollabReconcile({
     if (seededRef.current) return;
     if (!collabSynced) return;
     if (collabBackedSnapshot) {
-      seededRef.current = true;
-      if (requestInitialSeed) editor.setEditable(editable);
+      markSeeded();
+      if (requestInitialSeed)
+        editor.setEditable(editable, !quietSeedEditability);
       return;
     }
     if (contentRevision) {
@@ -352,7 +390,7 @@ export function useCollabReconcile({
       reportedConflictRevisionRef.current = null;
     }
     if (!value.trim()) {
-      seededRef.current = true;
+      markSeeded();
       const fragment = ydoc.getXmlFragment("default");
       const currentMarkdown = getMarkdown(editor);
       if (fragment.length === 0 && !currentMarkdown.trim()) return;
@@ -389,7 +427,7 @@ export function useCollabReconcile({
     }
     if (!seedLead) {
       const releaseTimer = setTimeout(() => {
-        seededRef.current = true;
+        markSeeded();
       }, 0);
       return () => clearTimeout(releaseTimer);
     }
@@ -407,12 +445,13 @@ export function useCollabReconcile({
           fragmentLength: fragment.length,
         })
       ) {
-        seededRef.current = true;
-        if (requestInitialSeed) editor.setEditable(editable);
+        markSeeded();
+        if (requestInitialSeed)
+          editor.setEditable(editable, !quietSeedEditability);
         return;
       }
       if (requestInitialSeed) {
-        editor.setEditable(false);
+        editor.setEditable(false, !quietSeedEditability);
         const initialNodes = fragment.toArray().map((node) => ({
           node,
           serialized: node.toString(),
@@ -434,9 +473,9 @@ export function useCollabReconcile({
               lastAppliedSerializedRef.current = serialized;
               if (contentUpdatedAt)
                 lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-              seededRef.current = true;
+              markSeeded();
               setInitialSeedFailed(false);
-              editor.setEditable(editable);
+              editor.setEditable(editable, !quietSeedEditability);
             })
             .catch((error: unknown) => {
               if (cancelled || editor.isDestroyed) return;
@@ -474,14 +513,14 @@ export function useCollabReconcile({
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-      seededRef.current = true;
+      markSeeded();
     }, 0);
     return () => {
       cancelled = true;
       clearTimeout(seedTimer);
       if (retryTimer) clearTimeout(retryTimer);
       if (requestInitialSeed && !editor.isDestroyed)
-        editor.setEditable(editable);
+        editor.setEditable(editable, !quietSeedEditability);
     };
   }, [
     collab,
@@ -502,6 +541,7 @@ export function useCollabReconcile({
     initialSeedRetry,
   ]);
 
+  const syncedBeforeAdoptRef = useRef<string | null>(null);
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -512,6 +552,8 @@ export function useCollabReconcile({
     isLeadClient: boolean;
     editable: boolean;
     deadline: number | null;
+    leadDeadline: number | null;
+    catchUpFailures: number;
   } | null>(null);
 
   useEffect(() => {
@@ -542,6 +584,8 @@ export function useCollabReconcile({
         isLeadClient,
         editable,
         deadline: null,
+        leadDeadline: null,
+        catchUpFailures: 0,
       };
     }
     const peerWait = peerReconcileWaitRef.current!;
@@ -761,18 +805,45 @@ export function useCollabReconcile({
         contentRevision !== authoritativeBaseRef.current.revision &&
         !!contentUpdatedAt &&
         contentUpdatedAt === lastAppliedUpdatedAtRef.current;
+      // A parent that derives `value` and `contentUpdatedAt` separately can
+      // render the new timestamp next to the old value first. That render
+      // marks the timestamp applied, so the new value that follows it would
+      // never be adopted.
+      const valueChangedAtSameTimestamp =
+        !contentRevision &&
+        !!contentUpdatedAt &&
+        contentUpdatedAt === lastAppliedUpdatedAtRef.current &&
+        lastAppliedValueRef.current !== null &&
+        value !== lastAppliedValueRef.current;
       const externalNewer =
         revisionChangedAtSameTimestamp ||
+        valueChangedAtSameTimestamp ||
         !lastAppliedUpdatedAtRef.current ||
         !contentUpdatedAt ||
         contentUpdatedAt > lastAppliedUpdatedAtRef.current;
 
       if (collab && !isLeadClient) {
         peerWait.deadline = null;
-        if (contentUpdatedAt && !externalNewer) {
-          lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+        if (!externalNewer) {
+          peerWait.leadDeadline = null;
+          if (contentUpdatedAt) {
+            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+          }
+          return;
         }
-        return;
+        peerWait.leadDeadline ??= Date.now() + LEAD_FAILOVER_MS;
+        const leadRemaining = peerWait.leadDeadline - Date.now();
+        if (leadRemaining > 0) {
+          retry = setTimeout(() => apply(deferred), leadRemaining);
+          return;
+        }
+        // A live doc that moved on since the last snapshot holds typing the
+        // snapshot predates (a peer's save lags the Yjs state); adopting it
+        // would delete that text for every peer. SQL catches up on the next save.
+        if (!editorUnchangedSinceApply) {
+          peerWait.leadDeadline = null;
+          return;
+        }
       }
 
       if (typingRecently) {
@@ -797,7 +868,59 @@ export function useCollabReconcile({
         return;
       }
 
-      if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
+      // A snapshot another writer saved can reach this tab before the Yjs
+      // updates that carry the same text (a collab poll lags the action poll,
+      // and a save's merged answer lags neither), and applying it first
+      // inserts that text a second time when they land. Only a collab-backed
+      // revision, returned above, is known to be in the Yjs doc already.
+      const snapshotKey = `${contentRevision ?? ""}@${contentUpdatedAt ?? ""}`;
+      if (
+        collab &&
+        externalNewer &&
+        requestCollabSync &&
+        syncedBeforeAdoptRef.current !== snapshotKey
+      ) {
+        // The update a failed catch-up missed may only be late, so the
+        // catch-up retries first. Past that, adopting without it is the
+        // behavior before this step existed, so the sync degrades to it,
+        // loudly.
+        const caughtUp = (
+          status: "synced" | "failed" | "unavailable",
+          error?: unknown,
+        ) => {
+          if (status !== "synced") {
+            if (++peerWait.catchUpFailures < CATCH_UP_ATTEMPTS) {
+              if (!cancelled)
+                retry = setTimeout(() => apply(deferred), CATCH_UP_RETRY_MS);
+              return;
+            }
+            console.warn(
+              `Adopting a saved snapshot without a live sync (${status})`,
+              ...(error === undefined ? [] : [error]),
+            );
+          }
+          syncedBeforeAdoptRef.current = snapshotKey;
+          if (!cancelled) apply(deferred);
+        };
+        void requestCollabSync().then(
+          (result) => caughtUp(result.status),
+          (error: unknown) => caughtUp("failed", error),
+        );
+        return;
+      }
+
+      if (
+        collab &&
+        externalNewer &&
+        !deferred &&
+        peerCountRef.current > 0 &&
+        !(
+          authoritativeBaseRef.current !== null &&
+          callbacks.normalizeValue(authoritativeBaseRef.current.value) ===
+            currentMarkdown &&
+          callbacks.isEditorClean?.(currentMarkdown)
+        )
+      ) {
         peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
         const remaining = peerWait.deadline - Date.now();
         if (remaining > 0) {
@@ -960,6 +1083,7 @@ export function useCollabReconcile({
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
+    requestCollabSync,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
@@ -1011,6 +1135,7 @@ export function useCollabReconcile({
   return {
     collab,
     initialSeedFailed,
+    initialSeedPending: Boolean(requestInitialSeed) && collab && !seeded,
     retryInitialSeed: () => {
       setInitialSeedFailed(false);
       setInitialSeedRetry((retry) => retry + 1);

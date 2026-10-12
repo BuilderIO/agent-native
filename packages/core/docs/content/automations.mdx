@@ -5,11 +5,12 @@ description: "Event-triggered and scheduled automations with natural-language co
 
 # Automations
 
-An **automation** is an agent-executed task that fires on a schedule or when an
-event occurs: _when X happens, do Y_. **Scheduled** and **Event** are the two
-trigger types, not separate products. The agent executes the instructions with
-the same action and tool lifecycle as interactive chat; connected MCP access is
-limited to the automation's explicit `mcpTools` allowlist.
+An **automation** is an agent-executed task that fires on a schedule, when an
+event occurs, or when a webhook is called: _when X happens, do Y_.
+**Scheduled**, **Event**, and **Webhook** are trigger types, not separate
+products. The agent executes the instructions with the same action and tool
+lifecycle as interactive chat; connected MCP access is limited to the
+automation's explicit `mcpTools` allowlist.
 
 The framework originally exposed scheduled automations as **Recurring Jobs**.
 That name, the `jobs/<name>.md` storage path, and the `manage-jobs` tool remain
@@ -29,7 +30,7 @@ schedule-only integration or working with scheduler internals.
   <div class="diagram-card">
     <span class="diagram-pill">Condition</span
     ><small class="diagram-muted"
-      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+      >Model checks: &ldquo;email ends with @builder.io&rdquo;</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -63,14 +64,32 @@ schedule-only integration or working with scheduler internals.
 
 </Diagram>
 
-## Two trigger types {#trigger-types}
+## Trigger types {#trigger-types}
 
-| Type       | Fires when                                             | Key field         |
-| ---------- | ------------------------------------------------------ | ----------------- |
-| `schedule` | A cron expression matches (same as recurring jobs)     | `schedule` (cron) |
-| `event`    | A matching event is emitted on the framework event bus | `event` (name)    |
+| Type       | Fires when                                                    | Key field                          |
+| ---------- | ------------------------------------------------------------- | ---------------------------------- |
+| `schedule` | A cron expression matches (same as recurring jobs)            | `schedule` (cron)                  |
+| `event`    | A matching event is emitted on the framework event bus        | `event` (name)                     |
+| `webhook`  | An HTTP `POST` arrives at the automation's secret webhook URL | The URL returned when it's created |
 
-Event triggers can include a `condition` — a natural-language string evaluated by Haiku against the event payload before dispatch. If the condition doesn't match, the automation is silently skipped.
+Event and webhook triggers can include a `condition`: a natural-language string a model checks against the payload before dispatch. If the condition doesn't match, the automation is skipped and records a `skipped` status. If the condition can't be evaluated, the automation doesn't run. See [Conditions](#conditions).
+
+### Webhook triggers {#webhook-triggers}
+
+Creating a webhook automation returns a URL path of the form
+`/_agent-native/automations/webhook/<token>`. The token is the secret, so give
+the URL only to the service that calls it. Each `POST` to that URL becomes the
+automation's payload, up to 64 KB. A body sent with a JSON content type is
+parsed, and any other body is passed as text. The endpoint answers `202` and
+runs the automation in the background.
+
+Send a stable event ID in an `X-Webhook-Event-Id`, `X-Event-Id`, or
+`X-GitHub-Delivery` header, or as a top-level string `id` in a JSON body. A
+repeated delivery with the same ID isn't queued again and gets a `200` reply
+marked as a duplicate. The ID only stops duplicate deliveries. A failed run can
+be retried, and the retry can repeat side effects the failed run already
+caused. Once a delivery fails for good, its ID is released, and a later
+delivery with that ID is queued as a new one.
 
 ## Creating automations {#creating}
 
@@ -82,10 +101,17 @@ The agent discovers available events, confirms the plan, and writes the automati
 
 ### From the Automations UI
 
-Open **Automations** on the full-page Agent surface. It is the primary place to
-view scheduled and event-triggered automations, inspect status, pause or resume
-them, and delete them. Its compatibility URL remains `/agent#jobs`, so existing
-links and bookmarks continue to work.
+Open **Settings › Automations**. It is the primary place to view scheduled,
+event-triggered, and webhook-triggered automations, inspect status, run one
+now, pause or resume them, and delete them. Old `/agent#jobs` links redirect
+there.
+
+**Run now** is the quickest way to test an automation. It runs the
+automation's instructions immediately, with their real side effects. It skips
+the trigger and the condition, and it doesn't change the next scheduled run,
+with one exception: if the framework paused the automation, a successful run
+turns it back on, and a scheduled automation gets its next run calculated
+again. The agent can do the same with `manage-automations` and `action=run-now`.
 
 <Callout tone="info">
 
@@ -120,7 +146,7 @@ The third path — writing the `jobs/<name>.md` file by hand via `resourcePut` �
     {
       lines: "6",
       label: "Gate",
-      note: "An optional natural-language `condition`, evaluated by Haiku against the payload before dispatch.",
+      note: "An optional natural-language `condition`, checked by a model against the payload before dispatch.",
     },
     {
       lines: "12",
@@ -134,15 +160,15 @@ The third path — writing the `jobs/<name>.md` file by hand via `resourcePut` �
 
 Automations share every field in the [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). These additional fields control event triggers, conditions, and the execution mode:
 
-| Field         | Type                      | Default      | Description                                                                                                                                   |
-| ------------- | ------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `triggerType` | `"schedule"` \| `"event"` | `"schedule"` | How the automation fires                                                                                                                      |
-| `event`       | string                    | _(optional)_ | Event name to subscribe to (event triggers only)                                                                                              |
-| `condition`   | string                    | _(optional)_ | Natural-language condition evaluated before dispatch                                                                                          |
-| `mode`        | `"agentic"`               | `"agentic"`  | Full agent loop (the only supported mode). `"deterministic"` was removed — it was never implemented, and automations that set it never fired. |
-| `domain`      | string                    | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                    |
+| Field         | Type                                     | Default      | Description                                                                                                                                   |
+| ------------- | ---------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"` \| `"webhook"` | `"schedule"` | How the automation fires                                                                                                                      |
+| `event`       | string                                   | _(optional)_ | Event name to subscribe to (event triggers only)                                                                                              |
+| `condition`   | string                                   | _(optional)_ | Natural-language condition evaluated before dispatch (event and webhook triggers)                                                             |
+| `mode`        | `"agentic"`                              | `"agentic"`  | Full agent loop (the only supported mode). `"deterministic"` was removed — it was never implemented, and automations that set it never fired. |
+| `domain`      | string                                   | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                    |
 
-For an event trigger, `schedule` is `""` (empty); for a schedule trigger it carries the cron expression. The dispatcher also writes the same managed `lastRun` / `lastStatus` / `lastError` fields the scheduler does, plus a `"skipped"` status when a condition evaluates to false.
+For an event or webhook trigger, `schedule` is `""` (empty); for a schedule trigger it carries the cron expression. The dispatcher also writes the same managed `lastRun` / `lastStatus` / `lastError` fields the scheduler does, plus a `"skipped"` status when a condition evaluates to false. When a condition can't be evaluated, see [Conditions](#conditions) for what gets recorded.
 
 `model` selects a per-automation model. `mcpTools` is an explicit list of MCP
 tool names such as `mcp__server__tool`. The shared execution runner exposes
@@ -224,15 +250,15 @@ organization event automations both require an exact match with their
 
 ## Conditions {#conditions}
 
-Conditions are natural-language strings evaluated by Claude Haiku against the event payload. This is a yes/no classification, not a generation task.
+Conditions are natural-language strings a model checks against the event or webhook payload. This is a yes/no classification, not a generation task.
 
 - **Empty or missing condition** = unconditional (always fires).
-- Results are memoized (SHA-256 of condition + payload) with a 5-minute TTL and 500-entry LRU cache.
-- Payload is truncated to 4000 characters before sending to Haiku.
+- Results are cached for 5 minutes, keyed by a SHA-256 hash of the condition and payload, with at most 500 entries.
+- Payload is truncated to 4000 characters before it is sent to the model.
 
 <Callout tone="info">
 
-On API failure, the condition evaluates to `false` (safe default — the automation is skipped rather than run on an unverified condition).
+A condition that can't be evaluated never counts as a match or as a non-match, and the automation doesn't run. A provider error records `lastStatus: error` with the reason in `lastError`, and the event is retried. If no API key is available to evaluate the condition, an event automation records an error for each matching event and pauses itself after three in a row. Once a key is available, a running scheduler turns it back on by itself within about 15 minutes. On a host where no scheduler runs, turn it back on in **Settings › Automations**. A webhook automation in the same state doesn't pause. Its delivery fails and is retried.
 
 </Callout>
 
@@ -283,7 +309,7 @@ Placeholders are resolved **server-side** after the agent emits the tool call �
 Keys are ad-hoc secrets created by users or the agent for automation use (e.g. `SLACK_WEBHOOK`, `HUBSPOT_API_KEY`). They differ from registered secrets (`registerRequiredSecret`) in that they have no template-defined metadata or onboarding step.
 
 - Created via the settings UI or the `/_agent-native/secrets/adhoc` API.
-- Each key can have a **URL allowlist** that restricts which origins the key can be sent to (origin-level matching).
+- A key created through the API can include a `urlAllowlist` that restricts which origins the key can be sent to (origin-level matching). Keys added in Settings have no allowlist.
 - The raw value is never exposed to the AI — only `${keys.NAME}` placeholders appear in the agent's context.
 - Resolution falls back from user scope to workspace scope, so users can override shared keys.
 
@@ -292,14 +318,16 @@ Keys are ad-hoc secrets created by users or the agent for automation use (e.g. `
 Trigger-aware personal and organization operations use `manage-automations`
 with an `action` parameter:
 
-| Action        | Purpose                                                              |
-| ------------- | -------------------------------------------------------------------- |
-| `list-events` | Discover all registered events with descriptions and payload schemas |
-| `list`        | List all automations with status; filter by domain or enabled        |
-| `define`      | Create a new automation (name, trigger type, event, condition, body) |
-| `update`      | Update an existing automation (enabled, condition, body)             |
-| `delete`      | Delete an automation (always confirms with user first)               |
-| `fire-test`   | Emit a `test.event.fired` event to validate automations              |
+| Action        | Purpose                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `list-events` | Discover all registered events with descriptions and payload schemas                     |
+| `list-hosts`  | List paired execution hosts before assigning one to an automation                        |
+| `list`        | List all automations with status; filter by domain or enabled                            |
+| `define`      | Create a new automation (name, trigger type, event, condition, body)                     |
+| `update`      | Update an existing automation (enabled, condition, body)                                 |
+| `delete`      | Delete an automation (always confirms with user first)                                   |
+| `run-now`     | Run one automation immediately, with real side effects. Skips the trigger and condition. |
+| `fire-test`   | Emit a `test.event.fired` event. Only automations subscribed to that event respond.      |
 
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
 
@@ -309,22 +337,23 @@ tool for existing schedule-only integrations and delivery metadata.
 
 ## API endpoints {#api}
 
-| Endpoint                               | Method | Description                     |
-| -------------------------------------- | ------ | ------------------------------- |
-| `/_agent-native/automations`           | GET    | List all automations (parsed)   |
-| `/_agent-native/automations/fire-test` | POST   | Emit a `test.event.fired` event |
-| `/_agent-native/secrets/adhoc`         | GET    | List ad-hoc keys (no values)    |
-| `/_agent-native/secrets/adhoc`         | POST   | Create or update an ad-hoc key  |
-| `/_agent-native/secrets/adhoc/:name`   | DELETE | Delete an ad-hoc key            |
+| Endpoint                                    | Method | Description                     |
+| ------------------------------------------- | ------ | ------------------------------- |
+| `/_agent-native/automations`                | GET    | List all automations (parsed)   |
+| `/_agent-native/automations/fire-test`      | POST   | Emit a `test.event.fired` event |
+| `/_agent-native/automations/webhook/:token` | POST   | Trigger a webhook automation    |
+| `/_agent-native/secrets/adhoc`              | GET    | List ad-hoc keys (no values)    |
+| `/_agent-native/secrets/adhoc`              | POST   | Create or update an ad-hoc key  |
+| `/_agent-native/secrets/adhoc/:name`        | DELETE | Delete an ad-hoc key            |
 
-<Endpoint id="doc-block-uyjlfp" title="Fire a test event" method="POST" path="/_agent-native/automations/fire-test" summary="Emit a test.event.fired event to validate event-triggered automations" responses={[
+<Endpoint id="doc-block-uyjlfp" title="Fire a test event" method="POST" path="/_agent-native/automations/fire-test" summary="Emit a test.event.fired event to exercise automations subscribed to it" responses={[
   {
     "status": "200",
     "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
   }
 ]}>
 
-Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+Checks the event path (matching, owner scoping, and condition) for an automation subscribed to `test.event.fired`. It emits only that event, so it can't trigger an automation that listens for a real event such as `calendar.booking.created`. To try a real automation, use **Run now**. Equivalent to the `manage-automations` action `fire-test`.
 
 </Endpoint>
 
@@ -354,8 +383,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill warn">condition</span
     ><small class="diagram-muted"
-      >Haiku yes/no on the payload &mdash; false &rarr;
-      <code>skipped</code></small
+      >model yes/no on the payload &mdash; false &rarr; <code>skipped</code>,
+      failure &rarr; <code>error</code></small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

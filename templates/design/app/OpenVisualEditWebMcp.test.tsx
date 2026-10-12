@@ -147,6 +147,13 @@ describe("OpenVisualEditWebMcp", () => {
     expect(action.schema.required).toEqual(["devServerUrl"]);
   });
 
+  it("offers an explicit new-project option", () => {
+    const [action] = createOpenVisualEditWebMcpActions() as Array<{
+      schema: { properties?: Record<string, { type?: string }> };
+    }>;
+    expect(action.schema.properties?.newDesign?.type).toBe("boolean");
+  });
+
   it("uses the authenticated action path without issuing a bootstrap capability", async () => {
     const [action] = createOpenVisualEditWebMcpActions({
       isAuthenticated: true,
@@ -173,6 +180,29 @@ describe("OpenVisualEditWebMcp", () => {
       "issue-visual-edit-bootstrap",
       expect.anything(),
       expect.anything(),
+    );
+  });
+
+  it("forwards the explicit new-project request to the action", async () => {
+    const [action] = createOpenVisualEditWebMcpActions({
+      isAuthenticated: true,
+    }) as unknown as Array<{
+      run: (
+        input: Record<string, unknown>,
+        runtime: unknown,
+      ) => Promise<unknown>;
+    }>;
+    mocks.callAction.mockResolvedValue({ designId: "design_new" });
+
+    await action.run(
+      { devServerUrl: "http://localhost:5173", newDesign: true },
+      { signal: undefined },
+    );
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "open-visual-edit",
+      { devServerUrl: "http://localhost:5173", newDesign: true },
+      { signal: undefined },
     );
   });
 

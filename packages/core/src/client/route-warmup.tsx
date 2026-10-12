@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { matchRoutes, type RouteObject } from "react-router";
 
+import { ROUTE_WARMUP_PRELOAD_ATTRIBUTE } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   mergeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
@@ -395,6 +396,7 @@ function warmRouteAssetsForHref(href: string) {
     const link = document.createElement("link");
     link.rel = "modulepreload";
     link.href = assetUrl;
+    link.setAttribute(ROUTE_WARMUP_PRELOAD_ATTRIBUTE, "true");
     document.head.appendChild(link);
   }
 }
@@ -662,4 +664,5 @@ export const __routeWarmupInternalsForTests = {
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
+  warmRouteAssetsForHref,
 };

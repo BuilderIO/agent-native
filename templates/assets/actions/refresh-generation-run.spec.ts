@@ -323,7 +323,11 @@ describe("refresh-generation-run", () => {
 
     await expect(
       action.run({ runId: "missing-run", threadId: "thread-1" }),
-    ).rejects.toThrow("Generation run not found.");
+    ).rejects.toMatchObject({
+      message: "Generation run not found.",
+      errorCode: "not_found",
+      statusCode: 404,
+    });
     expect(libraryAccessMock).not.toHaveBeenCalled();
     expect(failMissingVariantRunMock).not.toHaveBeenCalled();
   });

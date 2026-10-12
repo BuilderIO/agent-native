@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   markdownSuggestionOperations,
+  markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
   markdownSuggestionOperationsForReplacements,
+  suggestionDiffParts,
 } from "./suggestion-diff.js";
+import { suggestionMarkedSourceRanges } from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
 function proposedFrom(
@@ -22,7 +25,73 @@ function proposedFrom(
     );
 }
 
+function expectIntactOperations(
+  before: string,
+  after: string,
+  operations: ReturnType<typeof markdownSuggestionOperations>,
+) {
+  expect(proposedFrom(before, operations)).toBe(after);
+  const beforeRanges = suggestionMarkedSourceRanges(before) ?? [];
+  const afterRanges = suggestionMarkedSourceRanges(after) ?? [];
+  let delta = 0;
+  for (const operation of operations) {
+    const { from, to } = operation.anchor;
+    expect(operation.before.markdown).toBe(before);
+    expect(operation.after.markdown).toBe(
+      before.slice(0, from) + operation.after.changedText + before.slice(to),
+    );
+    expect(resolveMarkdownSuggestionRange(before, operation)).toMatchObject({
+      from,
+      to,
+    });
+    const afterFrom = from + delta;
+    const afterTo = afterFrom + operation.after.changedText.length;
+    for (const [ranges, boundaries] of [
+      [beforeRanges, [from, to]],
+      [afterRanges, [afterFrom, afterTo]],
+    ] as const) {
+      for (const range of ranges) {
+        for (const boundary of boundaries) {
+          expect(boundary > range.from && boundary < range.to).toBe(false);
+        }
+      }
+    }
+    delta += operation.after.changedText.length - (to - from);
+  }
+}
+
 describe("suggestion decomposition", () => {
+  it("keeps a typed sentence whole when the author also edits elsewhere", () => {
+    const before = [
+      "It means I'd just learned three things about drawing.",
+      "I've already promised Apoorva my next one for another critique.",
+      "## Hand edits are gold",
+      "I don't make much by hand anymore.",
+    ].join("\n");
+    const split = before.indexOf("things");
+    const heading = before.indexOf("## Hand");
+    const sentence = "\nEncoding our newfound knowledge is the whole point.";
+    const paragraph = "Then I wrote the lesson into the skill.\n";
+    const after =
+      before.slice(0, split) +
+      sentence +
+      before.slice(split, heading) +
+      paragraph +
+      before.slice(heading);
+
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after,
+      replacements: [],
+    });
+
+    expect(operations.map((operation) => operation.after.changedText)).toEqual([
+      sentence,
+      paragraph,
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
   it("keeps a middle edit reviewable after accepting both outer edits", () => {
     const before = "Alpha quick bravo, middle ready, omega slow.";
     const after = "Apex quick bravo, middle set, omega fast.";
@@ -148,6 +217,145 @@ describe("suggestion decomposition", () => {
     ).toEqual([["ready", "approved"]]);
   });
 
+  it.each([
+    [
+      "- **Release:** Wrenfield goes on sale Thursday, October 3.\n- **Styles:** Light to Black.",
+      "Thursday, October 3",
+      "Friday, October 2",
+      [
+        ["Thursday", "Friday"],
+        ["3", "2"],
+      ],
+    ],
+    [
+      "We shipped quickly, and the results were good.\n\n**Review:** Draft.",
+      "We shipped quickly, and the results were good.",
+      "We shipped quickly and the results were excellent.",
+      [
+        [",", ""],
+        ["good", "excellent"],
+      ],
+    ],
+    [
+      "A second note is ready.\n\n**Review:** Draft.",
+      "A second note is ready.",
+      "A second note is approved.",
+      [["ready", "approved"]],
+    ],
+  ])(
+    "CSD-12: matches plain-page word decisions on %s",
+    (before, find, replace, expected) => {
+      for (const source of [before.replace(/\*\*/g, ""), before]) {
+        const start = source.indexOf(find);
+        const after =
+          source.slice(0, start) + replace + source.slice(start + find.length);
+        const operations = markdownSuggestionOperationsForFindReplace({
+          before: source,
+          find,
+          replace,
+          start,
+        });
+        expect(
+          operations.map((item) => [
+            item.before.changedText,
+            item.after.changedText,
+          ]),
+        ).toEqual(expected);
+        expectIntactOperations(source, after, operations);
+      }
+    },
+  );
+
+  it("CSD-12: keeps whole words in a formatted Suggesting-mode revision", () => {
+    const before = "**Release:** Thursday, October 3.";
+    const after = "**Release:** Friday, October 2.";
+    const from = before.indexOf("Thursday");
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before,
+      after,
+      replacements: [{ from, to: before.length }],
+    });
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      ["Thursday", "Friday"],
+      ["3", "2"],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it.each([
+    ["bold", "**Release:**", "**Launch:**"],
+    ["italic", "*Release:*", "*Launch:*"],
+    ["code", "`Release:`", "`Launch:`"],
+    [
+      "link",
+      "[Release:](https://example.test)",
+      "[Launch:](https://example.test)",
+    ],
+    [
+      "span",
+      '<span underline="true">Release:</span>',
+      '<span underline="true">Launch:</span>',
+    ],
+  ])(
+    "CSD-13: keeps the %s run whole and adjacent words independent",
+    (_name, marked, revised) => {
+      const cases = [
+        [marked + " Thursday", revised + " Thursday", [[marked, revised]]],
+        [marked + " Thursday", marked + " Friday", [["Thursday", "Friday"]]],
+        ["Thursday" + marked, "Friday" + marked, [["Thursday", "Friday"]]],
+        [marked + "Thursday", marked + "Friday", [["Thursday", "Friday"]]],
+      ] as const;
+      for (const [before, after, expected] of cases) {
+        const operations = markdownSuggestionOperations(before, after);
+        expect(
+          operations.map((item) => [
+            item.before.changedText,
+            item.after.changedText,
+          ]),
+        ).toEqual(expected);
+        expectIntactOperations(before, after, operations);
+      }
+    },
+  );
+
+  it("CSD-13: keeps a formatted run whole when the other side has no mappable formatting", () => {
+    const cases = [
+      [
+        "**Note:** Thursday.",
+        "Note: Friday.\n\n<https://example.test>",
+        [
+          ["**Note:**", "Note:"],
+          ["Thursday", "Friday"],
+          ["", "\n\n<https://example.test>"],
+        ],
+      ],
+      [
+        "Note: Thursday.\n\n<https://example.test>",
+        "**Note:** Friday.",
+        [
+          ["Note:", "**Note:**"],
+          ["Thursday", "Friday"],
+          ["\n\n<https://example.test>", ""],
+        ],
+      ],
+    ] as const;
+    for (const [before, after, expected] of cases) {
+      const operations = markdownSuggestionOperations(before, after);
+      expect(
+        operations.map((item) => [
+          item.before.changedText,
+          item.after.changedText,
+        ]),
+      ).toEqual(expected);
+      expectIntactOperations(before, after, operations);
+    }
+  });
+
   it("preserves exact whitespace, Unicode, and formatting bytes", () => {
     for (const [before, after] of [
       ["word word", "word, word"],
@@ -173,6 +381,129 @@ describe("suggestion decomposition", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  describe("a rewritten phrase that shares letters with the original", () => {
+    const find = "So I save them:";
+    const replace = "With your own edits, I recommend:";
+    const sources = [
+      "Each edit marks a decision the skill couldn't make yet. So I save them:",
+      "Each edit marks a decision the skill couldn't make yet. So I save them:\n1. **Save the output before you touch it.**",
+    ];
+    const replaced = (source: string) => source.replace(find, replace);
+    const changes = (
+      operations: ReturnType<typeof markdownSuggestionOperations>,
+    ) =>
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]);
+
+    it.each(sources)("is one agent suggestion on %j", (before) => {
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before,
+        find,
+        replace,
+        start: before.indexOf(find),
+      });
+      expect(changes(operations)).toEqual([
+        ["So I save them", "With your own edits, I recommend"],
+      ]);
+      expectIntactOperations(before, replaced(before), operations);
+    });
+
+    it.each(sources)("is one Suggesting-mode revision on %j", (before) => {
+      const start = before.indexOf(find);
+      expect(
+        changes(
+          markdownSuggestionOperationsForEditorRevision({
+            before,
+            after: replaced(before),
+            replacements: [],
+          }),
+        ),
+      ).toEqual([["So I save them", "With your own edits, I recommend"]]);
+      expect(
+        changes(
+          markdownSuggestionOperationsForEditorRevision({
+            before,
+            after: replaced(before),
+            replacements: [{ from: start, to: start + find.length }],
+          }),
+        ),
+      ).toEqual([[find, replace]]);
+    });
+
+    it("is one deletion and one insertion in the review card", () => {
+      expect(suggestionDiffParts(find, replace)).toEqual([
+        { type: "delete", text: "So I save them" },
+        { type: "insert", text: "With your own edits, I recommend" },
+        { type: "equal", text: ":" },
+      ]);
+    });
+  });
+
+  it("keeps a word whole when it also gains a trailing letter", () => {
+    const before = "Reorganise the files.";
+    const after = "reorganised the files.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["Reorganise", "reorganised"]]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("joins adjacent rewritten words into one edit", () => {
+    const before = "A big dog barked.";
+    const after = "A small cat barked.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["big dog", "small cat"]]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("reads a letter outside the Basic Multilingual Plane as a letter", () => {
+    const before = "Use 𐐀x𐐀 here.";
+    const after = "Use 𐐨x𐐨 here.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["𐐀x𐐀", "𐐨x𐐨"]]);
+    expectIntactOperations(before, after, operations);
+    expect(
+      suggestionDiffParts(before, after)?.filter(
+        (part) => part.type !== "equal",
+      ),
+    ).toEqual([
+      { type: "delete", text: "𐐀x𐐀" },
+      { type: "insert", text: "𐐨x𐐨" },
+    ]);
+  });
+
+  it("never joins edits across a block boundary", () => {
+    const before = "Draft\nReady";
+    const after = "Final\nShip";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      ["Draft", "Final"],
+      ["Ready", "Ship"],
+    ]);
+    expectIntactOperations(before, after, operations);
   });
 
   it("returns no edit for an unchanged replacement", () => {

@@ -12,6 +12,7 @@ import {
   databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
   updateDatabaseRow,
+  assertDatabaseWidgetWriteTarget,
 } from "./_database-row-mutation.js";
 
 const schema = databaseMutationEnvelopeSchema.extend({
@@ -44,7 +45,7 @@ const agentSchema = schema
 
 export default defineAction({
   description:
-    "Sparsely update one exact Content collection row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt.",
+    "Sparsely update one exact Content collection row using identifiers and revisions copied from a fresh get-content-database read: item.id is the membership itemId, document.id is the distinct page documentId, and rowRevision is expectedRowRevision. Requires the fresh schema revision, preserves omitted properties, validates every provided non-Blocks property, and returns a verified idempotent receipt. To give two or more rows different values, use patch-database-items once instead of looping this action.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: agentSchema,
@@ -72,6 +73,11 @@ export default defineAction({
   },
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
+    assertDatabaseWidgetWriteTarget(
+      args.target,
+      "update-database-item",
+      context,
+    );
     return updateDatabaseRow(canonicalizeDatabasePropertyInput(args));
   },
   link: ({ result }) => {

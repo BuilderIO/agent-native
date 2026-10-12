@@ -1,3 +1,7 @@
+import {
+  classifyErrorNoise,
+  type ErrorNoiseVerdict,
+} from "../shared/error-noise.js";
 import { parseStackFrames } from "../tracking/posthog-exception.js";
 
 export interface ErrorSignalFrame {
@@ -9,6 +13,7 @@ export interface ErrorSignalFrame {
 export interface NormalizedErrorSignal {
   type?: string;
   value?: string;
+  stack?: string;
   mechanismType?: string;
   frames?: ErrorSignalFrame[];
   statusCode?: number;
@@ -18,84 +23,16 @@ export interface NormalizedErrorSignal {
   hasExceptionValues?: boolean;
 }
 
-function isUnhandledRejection(signal: NormalizedErrorSignal): boolean {
-  return (
-    typeof signal.mechanismType === "string" &&
-    signal.mechanismType.endsWith("onunhandledrejection")
-  );
-}
-
-function isValidationNoise(signal: NormalizedErrorSignal): boolean {
-  return (
-    signal.type === "ValidationError" || signal.tags?.handled === "validation"
-  );
-}
-
-function isAccessControlNoise(signal: NormalizedErrorSignal): boolean {
-  return (
-    signal.type === "ForbiddenError" || signal.type === "UnauthorizedError"
-  );
-}
-
-function isLambdaSocketHangUpNoise(signal: NormalizedErrorSignal): boolean {
-  if (signal.value !== "socket hang up" || !isUnhandledRejection(signal)) {
-    return false;
-  }
-  return (signal.frames ?? []).some(
-    (frame) =>
-      frame?.function === "Socket.socketOnEnd" ||
-      frame?.filename === "node:_http_client",
-  );
-}
-
-function isSdkErrorEventNoise(signal: NormalizedErrorSignal): boolean {
-  if (signal.value === "[object ErrorEvent]" && isUnhandledRejection(signal)) {
-    const frames = signal.frames ?? [];
-    const hasApplicationFrame = frames.some(
-      (frame) =>
-        frame?.in_app && !String(frame?.filename ?? "").includes("sentry"),
-    );
-    const hasSentryFrame = frames.some((frame) =>
-      String(frame?.filename ?? "").includes("sentry"),
-    );
-    if (!hasApplicationFrame && hasSentryFrame) return true;
-  }
-
-  return (
-    signal.metadataValue === "[object ErrorEvent]" &&
-    signal.hasExceptionValues === false &&
-    String(signal.metadataFilename ?? "").includes("sentry")
-  );
-}
-
-function isExpectedHttpNoise(signal: NormalizedErrorSignal): boolean {
-  if (signal.type !== "HTTPError" && signal.type !== "H3Error") return false;
-
-  const code = signal.statusCode;
-  if (typeof code === "number" && Number.isFinite(code)) {
-    return code >= 400 && code < 500;
-  }
-
-  const value = signal.value ?? "";
-  return (
-    /^Cannot find any route matching/i.test(value) ||
-    / not found$/i.test(value) ||
-    /Unauthenticated$/i.test(value) ||
-    /^Unauthorized$/i.test(value) ||
-    /^No access to /i.test(value)
-  );
+export function classifyErrorSignal(
+  signal: NormalizedErrorSignal,
+): ErrorNoiseVerdict {
+  return classifyErrorNoise({ surface: "server", ...signal });
 }
 
 export function shouldReportErrorSignal(
   signal: NormalizedErrorSignal,
 ): boolean {
-  return !(
-    isValidationNoise(signal) ||
-    isAccessControlNoise(signal) ||
-    isLambdaSocketHangUpNoise(signal) ||
-    isSdkErrorEventNoise(signal) ||
-    isExpectedHttpNoise(signal)
-  );
+  return !classifyErrorSignal(signal).drop;
 }
 
 interface SentryLikeEvent {
@@ -178,6 +115,7 @@ export function errorSignalFromError(
   return {
     type: error.name || "Error",
     value: error.message ?? "",
+    stack: typeof error.stack === "string" ? error.stack : undefined,
     mechanismType: options.mechanismType,
     frames: parseStackFrames(error.stack),
     statusCode:
@@ -188,9 +126,16 @@ export function errorSignalFromError(
   };
 }
 
+export function classifyError(
+  error: unknown,
+  options: ErrorSignalFromErrorOptions = {},
+): ErrorNoiseVerdict {
+  return classifyErrorSignal(errorSignalFromError(error, options));
+}
+
 export function shouldReportError(
   error: unknown,
   options: ErrorSignalFromErrorOptions = {},
 ): boolean {
-  return shouldReportErrorSignal(errorSignalFromError(error, options));
+  return !classifyError(error, options).drop;
 }

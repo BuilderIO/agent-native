@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeMarkup,
@@ -149,9 +150,10 @@ export default defineAction({
 
     const caps = resolveCapabilities(design.data);
     if (!hasCapability(caps, "captureState")) {
-      throw new Error(
+      fail(
         "The design's source does not support captureState. " +
-          "Connect Builder (free tier available) or a localhost bridge to enable live captures.",
+          "Use Builder.io (free tier available) or a localhost bridge to enable live captures.",
+        { errorCode: "capture_state_not_supported", statusCode: 422 },
       );
     }
 
@@ -171,21 +173,24 @@ export default defineAction({
       );
     }
 
-    await db.insert(schema.designState).values({
-      id,
-      designId,
-      sourceRef: sourceRef ?? null,
-      name,
-      kind: "capture",
-      breakpoint,
-      route: route ?? null,
-      fixtureData: null,
-      captureData: captureDataJson,
-      previewRef: previewRef ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designState).values({
+        id,
+        designId,
+        sourceRef: sourceRef ?? null,
+        name,
+        kind: "capture",
+        breakpoint,
+        route: route ?? null,
+        fixtureData: null,
+        captureData: captureDataJson,
+        previewRef: previewRef ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     return {

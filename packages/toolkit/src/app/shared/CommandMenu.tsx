@@ -54,7 +54,6 @@ import React, {
   type ReactNode,
 } from "react";
 
-import { BuilderSetupCard } from "../chat/chat/run-recovery.js";
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { LazyChunkErrorBoundary } from "./LazyChunkErrorBoundary.js";
 
@@ -628,9 +627,7 @@ export function CommandMenu({
             showSignOutRow ||
             Boolean(results)) && <CommandSeparator />}
           <div className="p-1">
-            {providerStatus === "missing" ? (
-              <BuilderSetupCard attached fullWidth layout="sidebar" />
-            ) : providerStatus === "unavailable" ? (
+            {providerStatus === "unavailable" ? (
               <div
                 className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
                 role="status"
@@ -794,6 +791,8 @@ CommandMenu.Separator = CommandSeparator;
 
 export const COMMAND_MENU_OPEN_EVENT = "agent-native:open-command-menu";
 
+const AGENT_COMPOSER_SELECTOR = '[data-agent-composer-slot="root"]';
+
 export function openCommandMenu() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(COMMAND_MENU_OPEN_EVENT));
@@ -840,12 +839,38 @@ export function useCommandMenuShortcut(
         onOpen();
       }
     };
+    // The agent composer autofocuses on load in every app, so without this an
+    // app that did not opt into `allowContentEditable` swallowed the chord
+    // (preventDefault, no open) for as long as the composer held focus.
+    const handleComposerKeyDown = (e: KeyboardEvent) => {
+      if (options.allowContentEditable) return;
+      if (
+        !(e.metaKey || e.ctrlKey) ||
+        e.altKey ||
+        e.shiftKey ||
+        e.key.toLowerCase() !== "k"
+      ) {
+        return;
+      }
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (
+        !target?.isContentEditable ||
+        !target.closest(AGENT_COMPOSER_SELECTOR)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      onOpen();
+    };
     const handleOpenRequest = () => onOpen();
     const useCapture = Boolean(options.allowContentEditable);
     document.addEventListener("keydown", handleKeyDown, useCapture);
+    document.addEventListener("keydown", handleComposerKeyDown, true);
     window.addEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, useCapture);
+      document.removeEventListener("keydown", handleComposerKeyDown, true);
       window.removeEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
     };
   }, [

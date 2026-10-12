@@ -1,3 +1,4 @@
+import { appendAgentChatContextToMessage } from "@agent-native/agentkit";
 import type {
   AgentRunOptions,
   FilePart,
@@ -52,7 +53,7 @@ export function createAgentKitComposerSubmission(input: {
     threadId: input.threadId,
     intent: input.intent,
     text: context
-      ? `${input.text}\n\n<context>\n${context}\n</context>`
+      ? appendAgentChatContextToMessage(input.text, context)
       : input.text,
     ...(contextItems === undefined ? {} : { contextItems }),
     references: snapshotComposerValue(input.references),

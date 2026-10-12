@@ -6,17 +6,16 @@ import { pathToFileURL } from "url";
 import "../authorization/check-action.js";
 import { Agent } from "undici";
 
+import { actionCallEmitsChange } from "../action-call-classification.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import { getUrlOpenerCommand } from "../cli/open-url.js";
 import {
   closeDbExec,
   getRuntimeDatabaseUrl,
   isProcessAlive,
 } from "../db/client.js";
-import {
-  actionCallIsReadOnly,
-  notifyActionChange,
-} from "../server/action-change.js";
+import { notifyActionChange } from "../server/action-change.js";
 import {
   DEV_ACTION_ORG_HEADER,
   DEV_ACTION_ROUTE,
@@ -165,16 +164,17 @@ export function openCliHandoff(
     };
   }
 
-  const platform = deps.platform ?? process.platform;
-  const command =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  const { command, args } = getUrlOpenerCommand(
+    url,
+    deps.platform ?? process.platform,
+  );
   try {
     const launch =
       deps.spawn?.(command, args) ??
       spawnSync(command, args, {
         stdio: "ignore",
         timeout: 10_000,
+        shell: false,
       });
     if (launch.error || launch.status !== 0) {
       return {
@@ -528,7 +528,7 @@ async function dispatchAction(
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
         const result = await handler.run(parsed, cliActionCtx(actionName));
-        if (!actionCallIsReadOnly(handler, parsed, false)) {
+        if (actionCallEmitsChange(handler, parsed, false)) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
         if (result) assertCliHandoffLaunched(printActionResult(result));
@@ -561,7 +561,7 @@ async function dispatchAction(
         parsed as Record<string, string>,
         cliActionCtx(actionName),
       );
-      if (!actionCallIsReadOnly(packageAction, parsed, false)) {
+      if (actionCallEmitsChange(packageAction, parsed, false)) {
         await notifyActionChange({ actionName }).catch(() => {});
       }
       if (result) assertCliHandoffLaunched(printActionResult(result));

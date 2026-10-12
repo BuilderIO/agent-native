@@ -5,12 +5,16 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
 import "../server/db/index.js";
+import {
+  trackDeckExported,
+  withExportFailureTracking,
+} from "../server/lib/deck-export-tracking.js";
 import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
+import { generationAttemptIdOf } from "../server/lib/slides-tracking.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -20,6 +24,7 @@ import {
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+import { fillSlideNumberTokensInHtml } from "../shared/slide-number.js";
 
 type TableCell = PptxGenJS.TableCell;
 type TableRow = PptxGenJS.TableRow;
@@ -1631,6 +1636,11 @@ export async function fetchImageAsBase64(
   }
 }
 
+const trackPptxExportFailures = withExportFailureTracking<{
+  deckId: string;
+  includeNotes: boolean;
+}>("pptx");
+
 export default defineAction({
   description:
     "Export a deck as a PowerPoint (.pptx) file, preserving imported PPTX geometry, text styles, shapes, and images. Freeform editor objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
@@ -1643,7 +1653,8 @@ export default defineAction({
       )
       .describe("Include speaker notes"),
   }),
-  run: async ({ deckId, includeNotes }, ctx) => {
+  run: trackPptxExportFailures(async (args, ctx, facts) => {
+    const { deckId, includeNotes } = args;
     const userEmail = getRequestUserEmail();
     if (!userEmail)
       fail("no authenticated user", {
@@ -1658,9 +1669,14 @@ export default defineAction({
         statusCode: 404,
       });
 
+    facts.deckId = deckId;
     const row = access.resource;
     const deckData = JSON.parse(row.data);
     const slides = deckData.slides || [];
+    facts.slideCount = slides.length;
+    facts.generationAttemptId = generationAttemptIdOf(
+      deckData.generationContext,
+    );
     if (slides.length === 0) {
       fail("Cannot export empty deck", {
         errorCode: "empty_deck",
@@ -1673,12 +1689,19 @@ export default defineAction({
     )
       ? rawAspectRatio
       : undefined;
-    const slideContents: string[] = slides.map((slide: unknown) =>
-      slide &&
-      typeof slide === "object" &&
-      typeof (slide as { content?: unknown }).content === "string"
-        ? (slide as { content: string }).content
-        : "",
+    const slideContents: string[] = slides.map(
+      (slide: unknown, index: number) =>
+        slide &&
+        typeof slide === "object" &&
+        typeof (slide as { content?: unknown }).content === "string"
+          ? fillSlideNumberTokensInHtml(
+              (slide as { content: string }).content,
+              {
+                number: index + 1,
+                count: slides.length,
+              },
+            )
+          : "",
     );
     const sourcePage = slideContents
       .map(sourcePageInches)
@@ -1913,15 +1936,13 @@ export default defineAction({
       fs.writeFileSync(filePath, buffer);
     }
 
-    track(
-      "deck_exported",
+    trackDeckExported(
       {
-        app_name: "slides",
-        template_name: "slides",
-        output_id: deckId,
-        output_type: "deck",
-        export_format: "pptx",
-        slide_count: slides.length,
+        ...facts,
+        deckId,
+        exportFormat: "pptx",
+        renderLocation: "server",
+        status: "completed",
       },
       ctx,
     );
@@ -1935,7 +1956,7 @@ export default defineAction({
         ? { backgroundGradientsFlattened }
         : {}),
     };
-  },
+  }),
 });
 
 function deckThemeColors(

@@ -96,17 +96,16 @@ async function mount(props: Partial<PromptComposerProps> = {}) {
   });
   return { composerRef, onSubmit };
 }
-async function open(trigger: "+" | "@", enterAddContext = false) {
-  const target =
-    trigger === "+"
-      ? container.querySelector<HTMLElement>('button[aria-label="Add context"]')
-      : container.querySelector<HTMLElement>(".ProseMirror");
+async function open(enterAddContext = false) {
+  const target = container.querySelector<HTMLElement>(
+    'button[aria-label="Add context"]',
+  );
   expect(target).not.toBeNull();
   await act(async () => {
     target!.focus();
     target!.dispatchEvent(
       new KeyboardEvent("keydown", {
-        key: trigger === "+" ? "ArrowDown" : "@",
+        key: "ArrowDown",
         bubbles: true,
         cancelable: true,
       }),
@@ -193,250 +192,237 @@ describe("shared default action preservation", () => {
     expect(merged[0]).toBe(provided[0]);
   });
 
-  for (const trigger of ["+", "@"] as const) {
-    it.each(["full", "upload-only", "terminal", "hidden"] as const)(
-      `${trigger} respects %s action and resource gates`,
-      async (mode) => {
-        const onChange = vi.fn();
-        await mount({
-          plusMenuMode: mode,
-          terminalModeControl: { enabled: false, onChange },
-        });
-        if (mode === "hidden") {
-          expect(
-            container.querySelector('button[aria-label="Add context"]'),
-          ).toBeNull();
-          if (trigger === "@") {
-            await open(trigger);
-            expect(document.querySelector('[role="menu"]')).toBeNull();
-          }
-        } else {
-          await open(trigger, false);
-          const expected =
-            mode === "full"
-              ? [
-                  "Upload File",
-                  "Schedule Task",
-                  "Create Automation",
-                  "Integrations",
-                  "Create Skill",
-                ]
-              : mode === "terminal"
-                ? ["New terminal", "CLI terminal mode"]
-                : ["Upload File"];
-          expect(labels()).toEqual(expected);
-        }
-        if (mode === "full") {
-          expect(useOrg).toHaveBeenCalled();
-          expect(useCreateMcpServer).toHaveBeenCalled();
-        } else {
-          expect(useOrg).not.toHaveBeenCalled();
-          expect(useCreateMcpServer).not.toHaveBeenCalled();
-          expect(isMcpIntegrationAvailable).not.toHaveBeenCalled();
-        }
-      },
-    );
-
-    it.each([
-      ["Schedule Task", "Create a recurring job: Draft", "manage-jobs"],
-      [
-        "Create Automation",
-        "Create an automation: Draft",
-        "manage-automations",
-      ],
-      ["Create Extension", "Create an extension: Draft", "create-extension"],
-      ["Create new skill", "Create a skill: Draft", "resources"],
-    ])(
-      `${trigger} submits %s instructions through the accepted host path`,
-      async (action, message, context) => {
-        const { composerRef, onSubmit } = await mount({
-          contextMenuItems: [
-            { id: "host", label: "Host source", onSelect: vi.fn() },
-          ],
-          extensionTools: true,
-        });
-        await open(trigger, false);
-        expect(labels()).not.toContain("Host source");
-        if (action === "Create new skill") await choose("Create Skill");
-        await choose(action);
-        expect(
-          container.querySelector('[data-agent-composer-slot="mode-row"]'),
-        ).not.toBeNull();
-        await act(async () => {
-          expect(await composerRef.current!.submitWithText("Draft")).toBe(true);
-        });
-        expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
-          message,
-          [],
-          [],
-          expect.objectContaining({
-            composerModeContext: expect.stringContaining(context),
-            intent: "immediate",
-          }),
-        );
-        expect(sendToAgentChat).not.toHaveBeenCalled();
-        expect(
-          container.querySelector('[data-agent-composer-slot="mode-row"]'),
-        ).toBeNull();
-      },
-    );
-
-    it(`${trigger} clears automation mode through its accessible Cancel button`, async () => {
-      const { composerRef, onSubmit } = await mount();
-      await open(trigger, false);
-      await choose("Create Automation");
-      const cancel = container.querySelector<HTMLButtonElement>(
-        '[data-agent-composer-slot="mode-row"] button[aria-label="Cancel"]',
-      );
-      expect(cancel).not.toBeNull();
-      await act(async () => {
-        cancel!.focus();
-        cancel!.click();
+  it.each(["full", "upload-only", "terminal", "hidden"] as const)(
+    "+ respects %s action and resource gates",
+    async (mode) => {
+      const onChange = vi.fn();
+      await mount({
+        plusMenuMode: mode,
+        terminalModeControl: { enabled: false, onChange },
       });
+      if (mode === "hidden") {
+        expect(
+          container.querySelector('button[aria-label="Add context"]'),
+        ).toBeNull();
+      } else {
+        await open();
+        const expected =
+          mode === "full"
+            ? [
+                "Upload File",
+                "Schedule Task",
+                "Create Automation",
+                "Integrations",
+                "Create Skill",
+              ]
+            : mode === "terminal"
+              ? ["New terminal", "CLI terminal mode"]
+              : ["Upload File"];
+        expect(labels()).toEqual(expected);
+      }
+      if (mode === "full") {
+        expect(useOrg).toHaveBeenCalled();
+        expect(useCreateMcpServer).toHaveBeenCalled();
+      } else {
+        expect(useOrg).not.toHaveBeenCalled();
+        expect(useCreateMcpServer).not.toHaveBeenCalled();
+        expect(isMcpIntegrationAvailable).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([
+    ["Schedule Task", "Create a recurring job: Draft", "manage-jobs"],
+    ["Create Automation", "Create an automation: Draft", "manage-automations"],
+    ["Create Extension", "Create an extension: Draft", "create-extension"],
+    ["Create new skill", "Create a skill: Draft", "resources"],
+  ])(
+    "+ submits %s instructions through the accepted host path",
+    async (action, message, context) => {
+      const { composerRef, onSubmit } = await mount({
+        contextMenuItems: [
+          { id: "host", label: "Host source", onSelect: vi.fn() },
+        ],
+        extensionTools: true,
+      });
+      await open();
+      expect(labels()).not.toContain("Host source");
+      if (action === "Create new skill") await choose("Create Skill");
+      await choose(action);
       expect(
         container.querySelector('[data-agent-composer-slot="mode-row"]'),
-      ).toBeNull();
-      expect(container.querySelector(".ProseMirror")?.textContent).toContain(
-        "Draft",
-      );
-      expect(document.activeElement).toBe(
-        container.querySelector(".ProseMirror"),
-      );
+      ).not.toBeNull();
       await act(async () => {
         expect(await composerRef.current!.submitWithText("Draft")).toBe(true);
       });
-      expect(onSubmit.mock.calls[0][0]).toBe("Draft");
-      expect(onSubmit.mock.calls[0][3]).not.toHaveProperty(
-        "composerModeContext",
-      );
-      expect(sendToAgentChat).not.toHaveBeenCalled();
-    });
-
-    it(`${trigger} uses host Integrations, without abandoning its configuration action`, async () => {
-      const configure = vi.fn();
-      await mount({
-        contextMenuItems: [
-          {
-            id: "integrations",
-            label: "Integrations",
-            children: [
-              { id: "connect", label: "Connect / Manage", onSelect: configure },
-            ],
-          },
-        ],
-      });
-      await open(trigger, false);
-      expect(labels().filter((label) => label === "Integrations")).toHaveLength(
-        1,
-      );
-      await choose("Integrations");
-      await choose("Connect / Manage");
-      expect(configure).toHaveBeenCalledOnce();
-      expect(document.querySelector('[role="dialog"]')).toBeNull();
-    });
-
-    it(`${trigger} preserves native upload and storage-setup handoff`, async () => {
-      const onAttachmentRequest = vi.fn();
-      await mount({ attachmentsEnabled: false, onAttachmentRequest });
-      await open(trigger, false);
-      expect(onAttachmentRequest).not.toHaveBeenCalled();
-      await choose("Upload File");
-      await act(async () => {
-        await new Promise(requestAnimationFrame);
-      });
-      expect(onAttachmentRequest).toHaveBeenCalledOnce();
-      await mount({ attachmentsEnabled: false });
-      await open(trigger, false);
-      expect(labels()).not.toContain("Upload File");
-      await close();
-      await mount();
-      const input = container.querySelector<HTMLInputElement>(
-        'input[type="file"][multiple]',
-      )!;
-      const click = vi.spyOn(input, "click").mockImplementation(() => {});
-      await open(trigger, false);
-      await choose("Upload File");
-      expect(click).toHaveBeenCalledOnce();
-    });
-
-    it(`${trigger} retains terminal creation and checked mode controls`, async () => {
-      const onChange = vi.fn();
-      const onNewTerminal = vi.fn();
-      await mount({
-        plusMenuMode: "terminal",
-        terminalModeControl: { enabled: false, onChange, onNewTerminal },
-      });
-      await open(trigger, false);
-      await choose("New terminal");
-      expect(onChange).toHaveBeenCalledExactlyOnceWith(true);
-      expect(onNewTerminal).not.toHaveBeenCalled();
-      await mount({
-        plusMenuMode: "terminal",
-        terminalModeControl: { enabled: true, onChange, onNewTerminal },
-      });
-      await open(trigger, false);
-      expect(item("CLI terminal mode").getAttribute("aria-checked")).toBe(
-        "true",
-      );
-      await choose("New terminal");
-      expect(onNewTerminal).toHaveBeenCalledOnce();
-      await open(trigger, false);
-      await choose("CLI terminal mode");
-      expect(onChange).toHaveBeenLastCalledWith(false);
-      expect(useOrg).not.toHaveBeenCalled();
-    });
-
-    it(`${trigger} keeps the skill filename, review, save payload, and duplicate-save lock`, async () => {
-      let resolve!: (response: Response) => void;
-      const fetch = vi.fn(
-        () =>
-          new Promise<Response>((done) => {
-            resolve = done;
-          }),
-      );
-      vi.stubGlobal("fetch", fetch);
-      await mount();
-      await open(trigger, false);
-      const form = await uploadSkill();
-      expect(form).not.toBeNull();
-      expect(form.textContent).toContain(
-        "Review the content from Test Skill.md before saving.",
-      );
-      expect(form.textContent).toContain("skills/test-skill/SKILL.md");
-      expect(form.querySelector("textarea")?.value).toBe(
-        "# Test skill\nDo the test.",
-      );
-      await act(async () => {
-        form.dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-        form.dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-        await settle();
-      });
-      expect(fetch).toHaveBeenCalledExactlyOnceWith(
-        "/test-app/_agent-native/resources",
+      expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+        message,
+        [],
+        [],
         expect.objectContaining({
-          method: "POST",
-          signal: expect.any(AbortSignal),
-          body: JSON.stringify({
-            path: "skills/test-skill/SKILL.md",
-            content: "# Test skill\nDo the test.",
-            mimeType: "text/markdown",
-            shared: false,
-          }),
+          composerModeContext: expect.stringContaining(context),
+          intent: "immediate",
         }),
       );
-      await act(async () => {
-        resolve(new Response("{}"));
-        await settle();
-      });
-      expect(form.querySelector('[role="status"]')?.textContent).toContain(
-        'Skill "Test Skill.md" added',
-      );
+      expect(sendToAgentChat).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('[data-agent-composer-slot="mode-row"]'),
+      ).toBeNull();
+    },
+  );
+
+  it("+ clears automation mode through its accessible Cancel button", async () => {
+    const { composerRef, onSubmit } = await mount();
+    await open();
+    await choose("Create Automation");
+    const cancel = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="mode-row"] button[aria-label="Cancel"]',
+    );
+    expect(cancel).not.toBeNull();
+    await act(async () => {
+      cancel!.focus();
+      cancel!.click();
     });
-  }
+    expect(
+      container.querySelector('[data-agent-composer-slot="mode-row"]'),
+    ).toBeNull();
+    expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+      "Draft",
+    );
+    expect(document.activeElement).toBe(
+      container.querySelector(".ProseMirror"),
+    );
+    await act(async () => {
+      expect(await composerRef.current!.submitWithText("Draft")).toBe(true);
+    });
+    expect(onSubmit.mock.calls[0][0]).toBe("Draft");
+    expect(onSubmit.mock.calls[0][3]).not.toHaveProperty("composerModeContext");
+    expect(sendToAgentChat).not.toHaveBeenCalled();
+  });
+
+  it("+ uses host Integrations, without abandoning its configuration action", async () => {
+    const configure = vi.fn();
+    await mount({
+      contextMenuItems: [
+        {
+          id: "integrations",
+          label: "Integrations",
+          children: [
+            { id: "connect", label: "Connect / Manage", onSelect: configure },
+          ],
+        },
+      ],
+    });
+    await open();
+    expect(labels().filter((label) => label === "Integrations")).toHaveLength(
+      1,
+    );
+    await choose("Integrations");
+    await choose("Connect / Manage");
+    expect(configure).toHaveBeenCalledOnce();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("+ preserves native upload and storage-setup handoff", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({ attachmentsEnabled: false, onAttachmentRequest });
+    await open();
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+    await choose("Upload File");
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    await mount({ attachmentsEnabled: false });
+    await open();
+    expect(labels()).not.toContain("Upload File");
+    await close();
+    await mount();
+    const input = container.querySelector<HTMLInputElement>(
+      'input[type="file"][multiple]',
+    )!;
+    const click = vi.spyOn(input, "click").mockImplementation(() => {});
+    await open();
+    await choose("Upload File");
+    expect(click).toHaveBeenCalledOnce();
+  });
+
+  it("+ retains terminal creation and checked mode controls", async () => {
+    const onChange = vi.fn();
+    const onNewTerminal = vi.fn();
+    await mount({
+      plusMenuMode: "terminal",
+      terminalModeControl: { enabled: false, onChange, onNewTerminal },
+    });
+    await open();
+    await choose("New terminal");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(true);
+    expect(onNewTerminal).not.toHaveBeenCalled();
+    await mount({
+      plusMenuMode: "terminal",
+      terminalModeControl: { enabled: true, onChange, onNewTerminal },
+    });
+    await open();
+    expect(item("CLI terminal mode").getAttribute("aria-checked")).toBe("true");
+    await choose("New terminal");
+    expect(onNewTerminal).toHaveBeenCalledOnce();
+    await open();
+    await choose("CLI terminal mode");
+    expect(onChange).toHaveBeenLastCalledWith(false);
+    expect(useOrg).not.toHaveBeenCalled();
+  });
+
+  it("+ keeps the skill filename, review, save payload, and duplicate-save lock", async () => {
+    let resolve!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await mount();
+    await open();
+    const form = await uploadSkill();
+    expect(form).not.toBeNull();
+    expect(form.textContent).toContain(
+      "Review the content from Test Skill.md before saving.",
+    );
+    expect(form.textContent).toContain("skills/test-skill/SKILL.md");
+    expect(form.querySelector("textarea")?.value).toBe(
+      "# Test skill\nDo the test.",
+    );
+    await act(async () => {
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      form.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+      await settle();
+    });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      "/test-app/_agent-native/resources",
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal),
+        body: JSON.stringify({
+          path: "skills/test-skill/SKILL.md",
+          content: "# Test skill\nDo the test.",
+          mimeType: "text/markdown",
+          shared: false,
+          uniqueSkillPath: true,
+        }),
+      }),
+    );
+    await act(async () => {
+      resolve(new Response("{}"));
+      await settle();
+    });
+    expect(form.querySelector('[role="status"]')?.textContent).toContain(
+      'Skill "Test Skill.md" added',
+    );
+  });
 
   it("keeps explicit hidden host menus lightweight and preserves the host action", async () => {
     const onSelect = vi.fn();
@@ -444,7 +430,7 @@ describe("shared default action preservation", () => {
       plusMenuMode: "hidden",
       contextMenuItems: [{ id: "host", label: "Host source", onSelect }],
     });
-    await open("@", true);
+    await open(true);
     expect(labels()).toEqual(["Upload File", "Add context", "Host source"]);
     await choose("Host source");
     expect(onSelect).toHaveBeenCalledOnce();
@@ -476,7 +462,7 @@ describe("shared default action preservation", () => {
       root.render(<RawHost />);
       await settle();
     });
-    await open("+");
+    await open();
     await choose("Schedule Task");
     await act(async () => {
       expect(await composerRef.current!.submitWithText("Draft")).toBe(true);
@@ -494,7 +480,7 @@ describe("shared default action preservation", () => {
     adapters.models = {
       useAgentEngineConfigured: () => ({ missing: true, state: "missing" }),
     };
-    await mount({ modelStatusChecksEnabled: true });
+    await mount({ requireAgentEngine: true });
     expect(useOrg).not.toHaveBeenCalled();
     expect(useCreateMcpServer).not.toHaveBeenCalled();
   });
@@ -572,9 +558,9 @@ describe("shared default action preservation", () => {
         root.render(<Host />);
         await settle();
       });
-      await open("@", true);
+      await open(true);
       await choose("Attach integration");
-      await open("+");
+      await open();
       await choose("Schedule Task");
       const file = new File(["test document"], "reference.pdf", {
         type: "application/pdf",
@@ -640,12 +626,12 @@ describe("shared default action preservation", () => {
 
   it("retains the fallback MCP dialog, role gates, and existing creation adapter", async () => {
     await mount();
-    await open("+");
+    await open();
     await choose("Integrations");
     expect(dialogProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         open: true,
-        defaultScope: "user",
+        defaultScope: "org",
         hasOrg: true,
         canCreateOrgMcp: false,
       }),
@@ -676,7 +662,7 @@ describe("shared default action preservation", () => {
         { id: "host-source", label: "Host source", onSelect: vi.fn() },
       ],
     });
-    await open("+");
+    await open();
     expect(labels()).toContain("Schedule Task");
     expect(labels()).toContain("Create Automation");
     expect(labels()).toContain("Create Skill");

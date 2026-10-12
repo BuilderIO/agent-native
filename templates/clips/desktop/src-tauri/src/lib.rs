@@ -281,6 +281,8 @@ pub fn run() {
             rewind_clip::rewind_clip_cancel,
             rewind_clip::rewind_agent_handoff_upload,
             rewind_clip::rewind_agent_handoff_preview,
+            rewind_clip::rewind_preview_window,
+            rewind_clip::rewind_preview_discard,
             rewind_capture_suspension::rewind_capture_suspension_acquire,
             rewind_capture_suspension::rewind_capture_suspension_release,
             recording_indicator::recording_pill_prewarm,
@@ -366,6 +368,11 @@ pub fn run() {
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
             logfile::init(app.handle());
+            // Single-instance means nothing in this process can hold a preview yet, so anything
+            // here is leftover from a quit or crash. Clear it before the editor can write more.
+            if let Err(err) = rewind_clip::clear_preview_artifacts(app.handle()) {
+                eprintln!("[clips-tray] launch preview cleanup failed: {err}");
+            }
 
             #[cfg(target_os = "macos")]
             {
@@ -417,6 +424,7 @@ pub fn run() {
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_countdown_local_key_monitor(app);
             shortcuts::install_popover_dismiss_handler(app);
+            clips::install_voice_flow_state_listener(app);
 
             meetings_watcher::spawn_watcher(app.handle().clone());
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());

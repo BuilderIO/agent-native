@@ -4,9 +4,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "id"),
   description:
     "Soft-delete a form: marks it deleted and hides it from the main list. Responses are preserved and visible in the Archive. Pass `--purge` to permanently delete the form and its responses.",
   schema: z.object({

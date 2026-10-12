@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 
 export default defineAction({
   description:
@@ -58,6 +59,8 @@ export default defineAction({
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true };
+    return { ok: true, documentId: comment.documentId };
   },
+  changeResource: (input, result) =>
+    documentChangeResource(input.documentId ?? result.documentId),
 });

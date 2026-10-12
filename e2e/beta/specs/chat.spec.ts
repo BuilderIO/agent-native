@@ -8,9 +8,11 @@ import {
 } from "../lib/authed";
 import {
   assertNoChatFailure,
+  awaitThreadPersisted,
+  countOccurrences,
+  describeChatSurface,
   formatChatRequestDiagnostics,
   MISSING_FINAL_RESPONSE,
-  readComposerRuntimeState,
   sendPromptAndAwaitTurn,
   VISIBLE_COMPOSER,
   watchChatRequests,
@@ -38,11 +40,18 @@ const sites = chatSites();
 async function expectComposerVisible(
   page: Page,
   siteHost: string,
+  what = "rendered no agent composer for a signed-in user",
 ): Promise<void> {
-  await expect(
-    page.locator(VISIBLE_COMPOSER.input).first(),
-    `${siteHost} rendered no agent composer for a signed-in user`,
-  ).toBeVisible({ timeout: 60_000 });
+  try {
+    await expect(
+      page.locator(VISIBLE_COMPOSER.input).first(),
+      `${siteHost} ${what}`,
+    ).toBeVisible({ timeout: 60_000 });
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n${await describeChatSurface(page)}`,
+    );
+  }
 }
 
 async function withChatDiagnostics<T>(
@@ -98,46 +107,44 @@ for (const site of sites) {
             page,
             `${site.host} transcript`,
           );
-          const echoes = transcript.split(NONCE).length - 1;
+          const echoes = countOccurrences(transcript, NONCE);
           expect(
             echoes,
             `${site.host} shows ${echoes} occurrence(s) of ${NONCE}. One is the user's own message; a second is the only evidence the assistant actually replied.`,
           ).toBeGreaterThanOrEqual(2);
 
-          await page.reload({
-            waitUntil: "domcontentloaded",
-            timeout: 45_000,
-          });
+          // Reload only once the server holds the turn. A reload that shows an
+          // empty chat cannot otherwise say whether the thread was never saved
+          // or was saved and not restored.
+          await awaitThreadPersisted(page, NONCE);
+
           const restoreUrl = new URL(page.url());
           restoreUrl.searchParams.set("agentSidebar", "open");
           await page.goto(restoreUrl.toString(), {
             waitUntil: "domcontentloaded",
             timeout: 45_000,
           });
+          await expectComposerVisible(
+            page,
+            site.host,
+            "did not restore the composer after reloading a completed chat",
+          );
           try {
-            await expect(
-              page.locator(VISIBLE_COMPOSER.input).first(),
-              `${site.host} did not restore the composer after reloading a completed chat`,
-            ).toBeVisible({ timeout: 60_000 });
+            await expect
+              .poll(
+                async () =>
+                  countOccurrences(
+                    await page.locator("body").innerText(),
+                    NONCE,
+                  ),
+                { timeout: 60_000 },
+              )
+              .toBeGreaterThanOrEqual(2);
           } catch (error) {
             throw new Error(
-              `${error instanceof Error ? error.message : String(error)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+              `${site.host} did not restore both the user prompt and assistant response after reload. The server held the thread before the reload, so this is the reload not restoring it, not a save that never happened.\n${error instanceof Error ? error.message : String(error)}\n${await describeChatSurface(page)}`,
             );
           }
-          await expect
-            .poll(
-              async () => {
-                const restoredTranscript = await page
-                  .locator("body")
-                  .innerText();
-                return restoredTranscript.split(NONCE).length - 1;
-              },
-              {
-                timeout: 60_000,
-                message: `${site.host} did not restore both the user prompt and assistant response after reload`,
-              },
-            )
-            .toBeGreaterThanOrEqual(2);
           await assertNoChatFailure(page, `${site.host} (restored chat turn)`);
           await expect(
             page.locator(MISSING_FINAL_RESPONSE),

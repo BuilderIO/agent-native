@@ -26,6 +26,7 @@ export {
   classifyTrackingFailure,
   type TrackingFailureCategory,
 } from "./failure-category.js";
+export { countOutcome } from "./failure-counters.js";
 export {
   errorToPostHogExceptionProperties,
   parseStackFrames,

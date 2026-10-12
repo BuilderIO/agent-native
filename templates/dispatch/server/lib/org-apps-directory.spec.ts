@@ -79,7 +79,7 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
     expect(v).toBeNull();
   });
 
-  it("ACCEPTS the global secret only through the sole-org compatibility resolver", async () => {
+  it("accepts the global secret only through the sole-org compatibility resolver without a user identity", async () => {
     const tok = await signGlobal("alice@acme.com", "acme.com");
     const v = await verifyA2ABearerToken({
       token: tok,
@@ -87,7 +87,7 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
       resolveSoleOrgGlobalSecretByDomain: async (domain) =>
         domain === "acme.com" ? GLOBAL_SECRET : null,
     });
-    expect(v).toEqual({ email: "alice@acme.com", orgDomain: "acme.com" });
+    expect(v).toEqual({ orgDomain: "acme.com" });
   });
 
   it("ACCEPTS a sole-org global token when an org secret is also configured", async () => {
@@ -98,10 +98,10 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
       resolveSoleOrgGlobalSecretByDomain: async (domain) =>
         domain === "acme.com" ? GLOBAL_SECRET : null,
     });
-    expect(v).toEqual({ email: "alice@acme.com", orgDomain: "acme.com" });
+    expect(v).toEqual({ orgDomain: "acme.com" });
   });
 
-  it("ACCEPTS a token signed with the org's per-domain a2a_secret", async () => {
+  it("ignores a caller-controlled subject on an org-secret token", async () => {
     const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
       expiresIn: "5m",
     });
@@ -110,7 +110,44 @@ describe("verifyA2ABearerToken — reuses the A2A peer auth recipe", () => {
       resolveOrgSecretByDomain: async (d) =>
         d === "acme.com" ? ORG_SECRET : null,
     });
-    expect(v).toEqual({ email: "bob@acme.com", orgDomain: "acme.com" });
+    expect(v).toEqual({ orgDomain: "acme.com" });
+  });
+
+  it("rejects a token minted for another audience", async () => {
+    const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
+      audience: "https://other.example.test/_agent-native/org/apps",
+    });
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      expectedAudience: "https://dispatch.example.test/_agent-native/org/apps",
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+    });
+    expect(v).toBeNull();
+  });
+
+  it("matches an expected audience in a token audience array", async () => {
+    const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET, {
+      audience: [
+        "https://other.example.test/_agent-native/org/apps",
+        "https://dispatch.example.test/_agent-native/org/apps",
+      ],
+    });
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      expectedAudience: "https://dispatch.example.test/_agent-native/org/apps",
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+    });
+    expect(v).toEqual({ orgDomain: "acme.com" });
+  });
+
+  it("rejects an unbound token when the receiver requires an audience", async () => {
+    const tok = await signA2AToken("bob@acme.com", "acme.com", ORG_SECRET);
+    const v = await verifyA2ABearerToken({
+      token: tok,
+      expectedAudience: "https://dispatch.example.test/_agent-native/org/apps",
+      resolveOrgSecretByDomain: async () => ORG_SECRET,
+    });
+    expect(v).toBeNull();
   });
 
   it("REJECTS a token signed with a different secret (bad signature)", async () => {

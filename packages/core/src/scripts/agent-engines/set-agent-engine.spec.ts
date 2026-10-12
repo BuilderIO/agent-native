@@ -37,7 +37,13 @@ vi.mock("../../agent/engine/index.js", () => {
     description: "",
     capabilities: {},
     defaultModel: "gpt-5.5",
-    supportedModels: ["gpt-5.5"],
+    supportedModels: [
+      "gpt-5.5",
+      "old-model",
+      "calendar-model",
+      "mail-model",
+      "pinned-model",
+    ],
     requiredEnvVars: ["OPENAI_API_KEY"],
     create: vi.fn(),
   };
@@ -53,6 +59,8 @@ vi.mock("../../agent/engine/index.js", () => {
   };
   return {
     listAgentEngines: () => [entry, chatGPTEntry],
+    detectEngineFromEnv: () => null,
+    detectEngineFromUserSecrets: async () => null,
     getAgentEngineEntry: (name: string) =>
       name === "ai-sdk:openai"
         ? entry
@@ -80,8 +88,10 @@ vi.mock("../../labs/store.js", () => ({
 
 const { run: runManage } = await import("./manage-agent-engine.js");
 const { run: runSet } = await import("./set-agent-engine.js");
-const { readAgentAppModelDefaultSettings } =
+const { readAgentAppModelDefaultSettings, writeAgentAppModelDefaultSettings } =
   await import("../../agent/app-model-defaults.js");
+const { defineAppConfig, resetAppConfigForTests, getAppConfig } =
+  await import("../../app-config/index.js");
 const { readDefaultAgentEngineSettingDetailed } =
   await import("../../agent/default-agent-engine.js");
 const { runWithRequestContext } =
@@ -101,6 +111,7 @@ function as<T>(userEmail: string, orgId: string | undefined, fn: () => T) {
 }
 
 beforeEach(async () => {
+  resetAppConfigForTests();
   pglite = await createTestPglite();
   __resetAuditInitForTests();
   isStoredEngineUsableForRequest.mockReset();
@@ -131,11 +142,276 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  resetAppConfigForTests();
   await pglite.close();
   vi.clearAllMocks();
 });
 
 describe("manage-agent-engine set", () => {
+  it.each([false, true])(
+    "reports unavailable configuration and synthetic fallback truthfully (synthetic=%s)",
+    async (isSyntheticTraffic) => {
+      defineAppConfig({ agent: { engine: "chatgpt-subscription" } });
+      isStoredEngineUsableForRequest.mockImplementation(
+        (_stored, entry) => entry.name !== "chatgpt-subscription",
+      );
+      const ctx = {
+        userEmail: "admin@a.test",
+        orgId: "org-a",
+        isSyntheticTraffic,
+      };
+      await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+        engine: "ai-sdk:openai",
+        model: "old-model",
+      });
+      const result = JSON.parse(
+        await runWithRequestContext(ctx, () =>
+          runSet({ engine: "ai-sdk:openai", appId: "calendar" }),
+        ),
+      );
+      expect(result.effective).toMatchObject(
+        isSyntheticTraffic
+          ? { configured: true, model: "old-model", source: "app-default" }
+          : { configured: false, source: "configuration" },
+      );
+      expect(result.message).toContain(
+        isSyntheticTraffic
+          ? "Its app override is preserved"
+          : "no usable model",
+      );
+    },
+  );
+  it("reports the app override when configured engine is unregistered", async () => {
+    defineAppConfig({ agent: { engine: "missing-engine" } });
+    const ctx = { userEmail: "admin@a.test", orgId: "org-a" };
+    await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+      engine: "ai-sdk:openai",
+      model: "old-model",
+    });
+    const result = JSON.parse(
+      await as(ctx.userEmail, ctx.orgId, () =>
+        runSet({ engine: "ai-sdk:openai", appId: "calendar" }),
+      ),
+    );
+    expect(result.effective).toMatchObject({
+      model: "old-model",
+      source: "app-default",
+    });
+    expect(result.message).not.toContain("App configuration currently uses");
+  });
+
+  it("reports preserved configuration for app changes and explicit reset", async () => {
+    defineAppConfig({
+      agent: { engine: "ai-sdk:openai", model: "pinned-model" },
+    });
+    for (const action of ["set-app-default", "reset-app-default"]) {
+      const result = JSON.parse(
+        await as("admin@a.test", "org-a", () =>
+          runManage({
+            action,
+            appId: "calendar",
+            engine: "ai-sdk:openai",
+            model: "old-model",
+          }),
+        ),
+      );
+      expect(result).toMatchObject({
+        requestedScope: "app",
+        effective: {
+          configured: true,
+          model: "pinned-model",
+          source: "configuration",
+        },
+      });
+      expect(result.message).toContain(
+        "App configuration currently uses pinned-model",
+      );
+    }
+  });
+  it("uses the requesting app identity ahead of caller arguments", async () => {
+    const ctx = { userEmail: "admin@a.test", orgId: "org-a" };
+    for (const appId of ["calendar", "mail"]) {
+      await writeAgentAppModelDefaultSettings(ctx, appId, {
+        engine: "ai-sdk:openai",
+        model: `${appId}-model`,
+      });
+    }
+    const result = JSON.parse(
+      await as(ctx.userEmail, ctx.orgId, () =>
+        runManage(
+          { action: "set", engine: "ai-sdk:openai", appId: "mail" },
+          { ...ctx, appId: "calendar", caller: "tool" },
+        ),
+      ),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      scope: "org",
+      requestedScope: "org",
+      appId: "calendar",
+      appDefaultReset: false,
+      effective: {
+        engine: "ai-sdk:openai",
+        model: "calendar-model",
+        source: "app-default",
+      },
+    });
+    expect(
+      await readAgentAppModelDefaultSettings(ctx, "calendar"),
+    ).toMatchObject({ model: "calendar-model" });
+    expect(await readAgentAppModelDefaultSettings(ctx, "mail")).toMatchObject({
+      model: "mail-model",
+    });
+  });
+
+  it.each([
+    { userEmail: "admin@a.test", orgId: "org-a" },
+    { userEmail: "solo@example.test", orgId: undefined },
+  ])(
+    "preserves every app override and reports the effective model for $userEmail",
+    async (ctx) => {
+      defineAppConfig({ app: { id: "calendar" } });
+      await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+        engine: "ai-sdk:openai",
+        model: "old-model",
+      });
+      await writeAgentAppModelDefaultSettings(ctx, "mail", {
+        engine: "ai-sdk:openai",
+        model: "mail-model",
+      });
+      const result = JSON.parse(
+        await as(ctx.userEmail, ctx.orgId, () =>
+          runManage({
+            action: "set",
+            engine: "ai-sdk:openai",
+            model: "gpt-5.5",
+          }),
+        ),
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        scope: ctx.orgId ? "org" : "user",
+        appId: "calendar",
+        appDefaultReset: false,
+        preservedOverrides: ["app-models", "chat-models", "automation-models"],
+        effective: {
+          engine: "ai-sdk:openai",
+          model: "old-model",
+          source: "app-default",
+        },
+      });
+      expect(result.message).toContain("old-model");
+      expect(result.message).toContain("calendar");
+      expect(result.message).toContain("gpt-5.5");
+      await expect(
+        readAgentAppModelDefaultSettings(ctx, "calendar"),
+      ).resolves.toMatchObject({ engine: "ai-sdk:openai", model: "old-model" });
+      await expect(
+        readAgentAppModelDefaultSettings(ctx, "mail"),
+      ).resolves.toMatchObject({ model: "mail-model" });
+    },
+  );
+
+  it("saves only the shared default and reports preserved deployment configuration", async () => {
+    defineAppConfig({
+      agent: { engine: "ai-sdk:openai", model: "pinned-model" },
+    });
+    const result = JSON.parse(
+      await as("admin@a.test", "org-a", () =>
+        runSet({ engine: "ai-sdk:openai", model: "gpt-5.5" }),
+      ),
+    );
+    expect(result).toMatchObject({
+      requestedScope: "org",
+      model: "gpt-5.5",
+      effective: { model: "pinned-model", source: "configuration" },
+    });
+    expect(result.message).toContain("pinned-model");
+    expect(getAppConfig().agent.model).toBe("pinned-model");
+    await expect(
+      readDefaultAgentEngineSettingDetailed({ orgId: "org-a" }),
+    ).resolves.toMatchObject({ value: { model: "gpt-5.5" } });
+  });
+
+  it("rejects unreadable app state before changing the shared default", async () => {
+    defineAppConfig({ app: { id: "calendar" } });
+    const execute = rawClient.execute.getMockImplementation()!;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        /^SELECT/i.test(input.sql) &&
+        input.args?.[0] === "o:org-a:agent-app-model-default:calendar"
+      ) {
+        throw new Error("app default unreadable");
+      }
+      return execute(input);
+    });
+    try {
+      await expect(
+        as("admin@a.test", "org-a", () =>
+          runSet({ engine: "ai-sdk:openai", model: "gpt-5.5" }),
+        ),
+      ).rejects.toThrow("app default unreadable");
+      expect(await getSetting("o:org-a:agent-engine")).toBeNull();
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+  });
+
+  it("preserves an unavailable app override while reporting the usable shared default", async () => {
+    const ctx = { userEmail: "admin@a.test", orgId: "org-a" };
+    defineAppConfig({ app: { id: "calendar" } });
+    await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+      engine: "unregistered-fixture",
+      model: "old-model",
+    });
+    const result = JSON.parse(
+      await as(ctx.userEmail, ctx.orgId, () =>
+        runSet({ engine: "ai-sdk:openai" }),
+      ),
+    );
+    expect(result).toMatchObject({
+      scope: "org",
+      effective: { model: "gpt-5.5", source: "org" },
+      appDefaultReset: false,
+    });
+    expect(
+      await readAgentAppModelDefaultSettings(ctx, "calendar"),
+    ).toMatchObject({ engine: "unregistered-fixture", model: "old-model" });
+  });
+
+  it("does not clear the app override when the caller is a member", async () => {
+    const ctx = { userEmail: "member@a.test", orgId: "org-a" };
+    await writeAgentAppModelDefaultSettings(ctx, "calendar", {
+      engine: "ai-sdk:openai",
+      model: "old-model",
+    });
+    await expect(
+      as(ctx.userEmail, ctx.orgId, () =>
+        runSet({ engine: "ai-sdk:openai", appId: "calendar" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      readAgentAppModelDefaultSettings(ctx, "calendar"),
+    ).resolves.toMatchObject({ model: "old-model" });
+  });
+
+  it("returns localized success copy for the caller's preference", async () => {
+    const { putUserSetting } = await import("../../settings/user-settings.js");
+    await putUserSetting("solo@example.test", "localization", {
+      locale: "es-ES",
+    });
+    const result = JSON.parse(
+      await as("solo@example.test", undefined, () =>
+        runSet({ engine: "ai-sdk:openai" }),
+      ),
+    );
+    expect(result.message).toContain(
+      "Modelo predeterminado personal establecido",
+    );
+    expect(result.message).toContain("gpt-5.5");
+  });
+
   it("saves the default for the admin's org only", async () => {
     const result = JSON.parse(
       await as("admin@a.test", "org-a", () =>

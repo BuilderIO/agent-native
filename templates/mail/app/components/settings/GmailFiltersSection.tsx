@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { gmailCooldownFromError } from "@shared/gmail-freshness";
 import type { ManagedGmailFilter } from "@shared/types";
 import {
   IconArchive,
@@ -607,7 +608,9 @@ export function GmailFiltersSection() {
 
         {error && !isLoading && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
-            {(error as Error).message}
+            {gmailCooldownFromError(error, Date.now())
+              ? t("mail.error.rateLimitDescription")
+              : (error as Error).message}
           </div>
         )}
 

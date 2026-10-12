@@ -1,6 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE =
@@ -40,7 +39,7 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return null;
 }
 
 export default function IndexPage() {

@@ -5,8 +5,8 @@ import { getScopedDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
 import { isMissingOrganizationTableError } from "../org/membership.js";
-import { orgMembers } from "../org/schema.js";
-import { organizations } from "../org/schema.js";
+import { orgMembers, organizations } from "../org/schema.js";
+import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   getRequestAuthCapability,
   getRequestContext,
@@ -95,13 +95,102 @@ function emailColumnMatches(column: any, email: string): SQL {
   return sql`lower(${column}) = ${email}`;
 }
 
+function orgMembershipScope(ctx: AccessContext, orgId: string): SQL {
+  const requestContext = getRequestContext();
+  const serviceIdentity = requestContext?.verifiedServiceIdentity;
+  const normalizedUserEmail = normalizeEmailForAccess(ctx.userEmail);
+  if (serviceIdentity) {
+    if (
+      normalizeEmailForAccess(serviceIdentity.userEmail) !==
+        normalizedUserEmail ||
+      serviceIdentity.orgId !== orgId ||
+      requestContext.orgId !== orgId ||
+      ctx.orgId !== orgId ||
+      !implicitServiceOrgRole({
+        email: serviceIdentity.userEmail,
+        orgId,
+        requestOrgId: requestContext.orgId,
+      })
+    ) {
+      return sql`1=0`;
+    }
+    return sql`exists (
+      select 1 from organizations as service_org
+      where service_org.id = ${orgId}
+        and coalesce(trim(service_org.identity_authority), '') = ''
+        and coalesce(trim(service_org.identity_id), '') = ''
+    )`;
+  }
+
+  if (
+    implicitServiceOrgRole({
+      email: ctx.userEmail,
+      orgId,
+      requestOrgId: ctx.orgId,
+    })
+  ) {
+    const federationGuard =
+      ctx.federationMembershipValidated === true
+        ? sql`1=1`
+        : sql`not exists (
+            select 1 from organizations as federation_org
+            where federation_org.id = ${orgId}
+              and (
+                coalesce(trim(federation_org.identity_authority), '') <> ''
+                or coalesce(trim(federation_org.identity_id), '') <> ''
+              )
+          )`;
+    return sql`exists (
+      select 1 from org_members as service_alias_member
+      where service_alias_member.org_id = ${orgId}
+        and lower(service_alias_member.email) = ${normalizedUserEmail}
+        and service_alias_member.federation_removal_pending_at is null
+    ) and ${federationGuard}`;
+  }
+
+  return sql`1=1`;
+}
+
 async function isOrgMember(
   reg: ShareableResourceRegistration,
   memberOrgId: string,
   email: string,
   ctx: AccessContext,
 ): Promise<boolean> {
+  const requestContext = getRequestContext();
+  const verifiedServiceIdentity = requestContext?.verifiedServiceIdentity;
   const db = reg.getDb() as any;
+  if (
+    normalizeEmailForAccess(requestContext?.userEmail) === email &&
+    normalizeEmailForAccess(verifiedServiceIdentity?.userEmail) === email &&
+    implicitServiceOrgRole({
+      email: verifiedServiceIdentity?.userEmail,
+      orgId: memberOrgId,
+      requestOrgId: requestContext?.orgId,
+    }) &&
+    verifiedServiceIdentity?.orgId === memberOrgId
+  ) {
+    try {
+      const [organization] = await db
+        .select({
+          identityAuthority: organizations.identityAuthority,
+          identityId: organizations.identityId,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, memberOrgId))
+        .limit(1);
+      if (
+        organization &&
+        !String(organization.identityAuthority ?? "").trim() &&
+        !String(organization.identityId ?? "").trim()
+      ) {
+        return true;
+      }
+    } catch (error) {
+      if (!isMissingOrganizationTableError(error)) throw error;
+    }
+  }
+
   let rows: Array<{ id: string }>;
   try {
     rows = await db
@@ -177,6 +266,7 @@ export function accessFilter(
   const publicAllowed = reg?.allowPublic !== false;
   const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
+  const orgMembership = orgId ? orgMembershipScope(ctx, orgId) : sql`1=1`;
 
   if (normalizedUserEmail) {
     clauses.push(
@@ -195,6 +285,7 @@ export function accessFilter(
         and(
           eq(resourceTable.visibility, "org"),
           eq(resourceTable.orgId, orgId),
+          orgMembership,
         )!,
       );
     }
@@ -217,6 +308,7 @@ export function accessFilter(
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'org'
                     and ${sharesTable.principalId} = ${orgId}
+                    and ${orgMembership}
                     and ${shareScope}
                     and ${minRoleSql(minRole)})`,
     );
@@ -231,8 +323,8 @@ export function accessFilter(
             select 1 from organizations as federation_org
             where federation_org.id = ${resourceTable.orgId}
               and (
-                federation_org.identity_authority is not null
-                or federation_org.identity_id is not null
+                coalesce(trim(federation_org.identity_authority), '') <> ''
+                or coalesce(trim(federation_org.identity_id), '') <> ''
               )
           )`;
     const groupMemberPredicate = sql`exists (
@@ -252,6 +344,7 @@ export function accessFilter(
                       where workspace_group.id = ${sharesTable.principalId}
                         and workspace_group.org_id = ${resourceTable.orgId}
                         and workspace_group.org_id = ${orgId}
+                        and ${orgMembership}
                         and ${federationGuard}
                         and exists (
                           select 1 from ${orgMembers} as workspace_member
@@ -335,8 +428,9 @@ export interface ResolvedAccess {
  * Minimal resource shape returned when a caller opts into a projected access
  * load via `{ skipResourceBody: true }`. Contains exactly the columns the
  * access-decision logic itself reads — identity, ownership, org scope, and
- * visibility — never a resource type's heavy body columns (`data`,
- * `content`, and similar blobs).
+ * visibility, plus any columns the registration's availability rule reads —
+ * never a resource type's heavy body columns (`data`, `content`, and similar
+ * blobs).
  */
 export interface AccessProjectedResource {
   id: string;
@@ -414,13 +508,39 @@ function selectExistingColumns(
   return selection;
 }
 
-function projectedAccessColumns(resourceTable: any): Record<string, unknown> {
-  return {
+function projectedAccessColumns(
+  reg: ShareableResourceRegistration,
+): Record<string, unknown> {
+  const resourceTable = reg.resourceTable;
+  const columns: Record<string, unknown> = {
     id: resourceTable.id,
     ownerEmail: resourceTable.ownerEmail,
     orgId: resourceTable.orgId,
     visibility: resourceTable.visibility,
   };
+  for (const key of [
+    ...(reg.availability?.columns ?? []),
+    ...(reg.fallbackAccessContext?.columns ?? []),
+  ]) {
+    if (resourceTable[key]) columns[key] = resourceTable[key];
+  }
+  return columns;
+}
+
+/**
+ * Whether a loaded row passes its registration's availability rule. A row
+ * loaded without an availability column (an older schema) counts as
+ * available, the same as a registration without a rule.
+ */
+export function isResourceAvailable(
+  reg: ShareableResourceRegistration,
+  resource: any,
+): boolean {
+  if (!reg.availability) return true;
+  if (reg.availability.columns.some((column) => !(column in resource))) {
+    return true;
+  }
+  return reg.availability.isAvailable(resource);
 }
 
 function hasDynamicPublicAccessRoleResolver(
@@ -435,12 +555,12 @@ async function loadResourceForAccess(
   options: ResolveAccessOptions = {},
 ): Promise<any> {
   const db = reg.getDb() as any;
+  // Hooks that receive the row may read any column, so they get all of it.
   const useProjection =
     options.skipResourceBody === true &&
-    !hasDynamicPublicAccessRoleResolver(reg);
-  const projectedColumns = useProjection
-    ? projectedAccessColumns(reg.resourceTable)
-    : null;
+    !hasDynamicPublicAccessRoleResolver(reg) &&
+    !reg.canManageAccess;
+  const projectedColumns = useProjection ? projectedAccessColumns(reg) : null;
   const omittedColumnNames = new Set<string>();
 
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -491,19 +611,32 @@ export async function resolveAccess(
   rawCtx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
-  return rawCtx.transaction
-    ? withDbExec(rawCtx.transaction, () =>
-        resolveAccessImpl(resourceType, resourceId, rawCtx, options),
-      )
-    : resolveAccessImpl(resourceType, resourceId, rawCtx, options);
+  const { access } = await inAccessTransaction(rawCtx, () =>
+    loadAndResolveAccess(resourceType, resourceId, rawCtx, options),
+  );
+  return access;
 }
 
-async function resolveAccessImpl(
+function inAccessTransaction<T>(
+  ctx: AccessContext,
+  run: () => Promise<T>,
+): Promise<T> {
+  return ctx.transaction ? withDbExec(ctx.transaction, run) : run();
+}
+
+interface LoadedAccess {
+  access: ResolvedAccess | null;
+  /** The row access was resolved against, kept even when access is denied. */
+  resource: any;
+  reg: ShareableResourceRegistration;
+}
+
+async function loadAndResolveAccess(
   resourceType: string,
   resourceId: string,
-  rawCtx: AccessContext = currentAccess(),
-  options: ResolveAccessOptions = {},
-): Promise<ResolvedAccess | ResolvedAccessProjected | null> {
+  rawCtx: AccessContext,
+  options: ResolveAccessOptions,
+): Promise<LoadedAccess> {
   const registered = requireShareableResource(resourceType);
   const transaction = rawCtx.transaction ?? getScopedDbExec();
   const transactionDb = transaction
@@ -519,8 +652,20 @@ async function resolveAccessImpl(
   const ctx = resolveRegisteredAccessContext(reg, transactionCtx);
 
   const resource = await loadResourceForAccess(reg, resourceId, options);
-  if (!resource) return null;
+  if (!resource) return { access: null, resource: null, reg };
+  return {
+    access: await accessToResource(reg, resourceId, resource, ctx),
+    resource,
+    reg,
+  };
+}
 
+async function accessToResource(
+  reg: ShareableResourceRegistration,
+  resourceId: string,
+  resource: any,
+  ctx: AccessContext,
+): Promise<ResolvedAccess | null> {
   const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
 
@@ -551,6 +696,70 @@ async function resolveAccessImpl(
   const role = await highestShareRole(reg, resourceId, ctx, resource);
   if (role) return { role, resource };
   return null;
+}
+
+/**
+ * What a link to a shareable resource can honestly say to the person who
+ * opened it.
+ *
+ * - `allowed`: they can open it.
+ * - `trashed`: they could open it, but it fails the registration's
+ *   availability rule (for example it is in the trash).
+ * - `denied`: they are signed in, can't open it, and it exists.
+ * - `missing`: they are signed in and it doesn't exist, or it is unavailable
+ *   and they can't open it, so trash looks the same as deleted.
+ * - `signed-out`: nobody is signed in, so nothing about it is revealed, not
+ *   even whether it exists or is public.
+ */
+export type ResourceAccessState =
+  | "allowed"
+  | "trashed"
+  | "denied"
+  | "missing"
+  | "signed-out";
+
+export interface ResourceAccessStatus {
+  state: ResourceAccessState;
+  /** The viewer's role, only when they can open the resource. */
+  role?: ResolvedAccess["role"];
+}
+
+/**
+ * Resolves a link's {@link ResourceAccessState} for the current viewer. It
+ * never returns the resource's title, owner, visibility, or workspace, and
+ * database failures stay errors rather than reading as `missing`. A
+ * signed-out visitor gets `signed-out` before any row is read, so nothing
+ * about the link, including whether it exists, depends on the resource.
+ */
+export async function resolveAccessStatus(
+  resourceType: string,
+  resourceId: string,
+  ctx: AccessContext = currentAccess(),
+): Promise<ResourceAccessStatus> {
+  requireShareableResource(resourceType);
+  if (!normalizeEmailForAccess(ctx.userEmail)) return { state: "signed-out" };
+  return inAccessTransaction(ctx, async () => {
+    const loaded = await loadAndResolveAccess(resourceType, resourceId, ctx, {
+      skipResourceBody: true,
+    });
+    const { resource, reg } = loaded;
+    if (!resource) return { state: "missing" };
+    let access = loaded.access;
+    if (!access && reg.fallbackAccessContext) {
+      const fallback = await reg.fallbackAccessContext.resolve(resource, ctx);
+      if (fallback) {
+        access = await accessToResource(
+          reg,
+          resourceId,
+          resource,
+          resolveRegisteredAccessContext(reg, fallback),
+        );
+      }
+    }
+    const available = isResourceAvailable(reg, resource);
+    if (!access) return { state: available ? "denied" : "missing" };
+    return { state: available ? "allowed" : "trashed", role: access.role };
+  });
 }
 
 async function highestShareRole(
@@ -653,7 +862,7 @@ export async function assertAccess(
   ctx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected> {
-  const access = await resolveAccessImpl(
+  const { access } = await loadAndResolveAccess(
     resourceType,
     resourceId,
     ctx,

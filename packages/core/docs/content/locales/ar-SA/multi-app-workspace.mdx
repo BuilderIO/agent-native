@@ -242,7 +242,10 @@ pnpm dev
     "workspaceCore": "@my-company-platform/shared",
     "builtinAgents": {
       "mode": "selected",
-      "include": ["mail", "calendar"]
+      "include": ["mail", "calendar", "design"],
+      "urls": {
+        "design": "https://design.example.test"
+      }
     }
   }
 }
@@ -250,10 +253,11 @@ pnpm dev
 
 - `mode`: القيمة `"all"` (الافتراضية، كل تطبيقات الطرف الأول العامة)، أو `"none"` (بلا تطبيقات مدمجة)، أو `"selected"` (ما في `include` فقط).
 - `include`: التطبيقات المدمجة التي تقدمها مساحة العمل عندما تكون قيمة `mode` هي `"selected"`. تبقى التطبيقات الأخرى غير معروفة لمساحة العمل.
+- `urls` (اختياري): يربط معرّفات التطبيقات المدمجة بعناوين أساسية عبر HTTPS للتطبيقات المقدمة، دون تغيير قائمة الوكلاء. يتجاوز عنوان الاستضافة الأساسي، بما في ذلك البيان المُسبق الإضافة الذي ما زال يستخدم العنوان الافتراضي، مع بقاء الأولوية لعناوين URL المخصصة للوكلاء البعيدين المتصلين وتطبيقات مساحة العمل. يؤدي وجود معرّف غير معروف أو عنوان URL غير صالح إلى فشل التحليل. يجب أن تكون كل قيمة عنوان HTTPS مطلقًا ومنقحًا بلا بيانات اعتماد أو استعلام أو جزء. يظل توجيه التطوير المحلي ذا الأولوية ويستخدم العناوين المحلية.
 
-تُسجَّل المعرّفات غير المعروفة كتحذير ويتم تجاهلها. يمكن للتطبيق المستقل استخدام المفتاح نفسه في ملف `package.json` الخاص به. يمرر `agent-native dev` وعمليات نشر مساحة العمل القيمة إلى كل تطبيق عبر `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+تُسجَّل المعرّفات غير المعروفة في `include` كتحذير ويتم تجاهلها. يمكن للتطبيق المستقل استخدام المفتاح نفسه في ملف `package.json` الخاص به. يمرر `agent-native dev` وعمليات نشر مساحة العمل القيمة إلى كل تطبيق عبر `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
 
-يتحكم هذا الإعداد في قائمة التطبيقات واكتشاف الوكلاء والاستدعاءات بين الوكلاء. لا تتأثر تطبيقات مساحة العمل المثبّتة ولا الوكلاء البعيدون المتصلون، ويظل الوصول إلى تطبيقات MCP إذن توجيه منفصلًا.
+يتحكم هذا الإعداد في قائمة التطبيقات واكتشاف الوكلاء والاستدعاءات بين الوكلاء. تحتفظ تطبيقات مساحة العمل المثبّتة وعناوين URL المخصصة للوكلاء البعيدين المتصلين بأولويتها، ويظل الوصول إلى تطبيقات MCP إذن توجيه منفصلًا.
 
 ## خوادم MCP المشتركة {#shared-mcp}
 
@@ -283,7 +287,7 @@ my-company-platform/
 
 هناك عدد قليل من عمليات الإعداد التي تكون جاهزة للاستخدام في مساحة العمل:
 
-- **Builder OAuth**: clicking "Connect Builder" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
+- **Builder OAuth**: clicking "استخدم Builder.io" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## بيانات الاعتماد المشتركة {#shared-credentials}

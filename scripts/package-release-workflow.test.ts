@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -14,6 +15,14 @@ import {
 import { packagesCoveredBy } from "./check-changeset.mjs";
 
 type Workflow = Record<string, unknown>;
+
+const changesetsRequire = createRequire(
+  createRequire(import.meta.url).resolve("@changesets/cli"),
+);
+const semver = changesetsRequire("semver") as {
+  inc: (version: string, release: "patch") => string | null;
+  satisfies: (version: string, range: string) => boolean;
+};
 
 const workflow = parse(
   readFileSync(".github/workflows/auto-publish.yml", "utf8"),
@@ -152,10 +161,71 @@ describe("npm package release workflow", () => {
     assert.equal(config.snapshot?.useCalculatedVersion, true);
   });
 
+  it("supports the next fixed-group Core patch without the incompatible gap release", () => {
+    const corePackage = JSON.parse(
+      readFileSync("packages/core/package.json", "utf8"),
+    ) as { version: string; exports?: Record<string, unknown> };
+    const toolkitPackage = JSON.parse(
+      readFileSync("packages/toolkit/package.json", "utf8"),
+    ) as {
+      peerDependencies?: Record<string, string>;
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+    };
+    const changesetConfig = JSON.parse(
+      readFileSync(".changeset/config.json", "utf8"),
+    ) as { fixed?: string[][] };
+
+    assert.ok(corePackage.exports?.["./shared"]);
+    assert.ok(
+      changesetConfig.fixed?.some(
+        (group) =>
+          group.includes("@agent-native/core") &&
+          group.includes("@agent-native/toolkit"),
+      ),
+    );
+    const corePeerRange =
+      toolkitPackage.peerDependencies?.["@agent-native/core"];
+    assert.ok(corePeerRange);
+
+    const acceptsNextCorePatch = (coreVersion: string) => {
+      const nextCorePatch = semver.inc(coreVersion, "patch");
+      return (
+        nextCorePatch !== null && semver.satisfies(nextCorePatch, corePeerRange)
+      );
+    };
+
+    for (const coreVersion of [corePackage.version, "0.205.0"]) {
+      assert.ok(
+        acceptsNextCorePatch(coreVersion),
+        `Toolkit must accept the next fixed-group Core patch after ${coreVersion}`,
+      );
+    }
+
+    for (const coreVersion of ["0.204.0", "0.205.0"]) {
+      assert.equal(
+        semver.satisfies(coreVersion, corePeerRange),
+        false,
+        `Toolkit must not accept published Core ${coreVersion} without the sanitizer export`,
+      );
+    }
+
+    for (const coreVersion of ["0.204.1", "0.205.1"]) {
+      assert.ok(
+        semver.satisfies(coreVersion, corePeerRange),
+        `Toolkit must accept Core ${coreVersion} with the sanitizer export`,
+      );
+    }
+
+    assert.equal(
+      toolkitPackage.peerDependenciesMeta?.["@agent-native/core"]?.optional,
+      true,
+    );
+  });
+
   it("keeps the release changeset package list aligned with the publisher", () => {
     const source = readFileSync("scripts/create-release-changeset.ts", "utf8");
     assert.match(source, /NPM_PUBLISH_PACKAGE_NAMES/);
-    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 10);
+    assert.equal(NPM_PUBLISH_PACKAGE_NAMES.length, 11);
   });
 
   it("allows npm propagation to settle before failing a publish", () => {

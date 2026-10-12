@@ -317,7 +317,7 @@ describe("createCodeAgentAgentKitRuntime", () => {
     const session = await runtime.createSession({ threadId: "run-1" });
 
     await expect(session.startTurn({ prompt: "Continue" })).rejects.toThrow(
-      "Connect Builder.io or add custom keys before chatting.",
+      "Use Builder.io or add custom keys before chatting.",
     );
     expect(host.controller.sendFollowUp).not.toHaveBeenCalled();
   });

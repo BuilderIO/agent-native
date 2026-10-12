@@ -6,6 +6,7 @@ import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-c
 import { z } from "zod";
 
 import { resolvePinnedLabels } from "../app/lib/inbox-tabs.js";
+import { readGmailCooldown } from "../server/lib/gmail-quota.js";
 import { hasGmailScope } from "../server/lib/gmail-scope.js";
 import {
   inboxRowToItem,
@@ -23,6 +24,7 @@ import {
 } from "../server/lib/inbox-tabs-server.js";
 import { readLocalEmails } from "../server/lib/local-email-store.js";
 import { readSettings } from "../server/lib/mail-settings.js";
+import { gmailReadState } from "../shared/gmail-freshness.js";
 import {
   ALL_TAB_ID,
   ALL_TAB_PARAM,
@@ -295,7 +297,10 @@ export default defineAction({
       syncAccounts,
       connectedAccounts,
     );
-    return paginateIntoResult(
+    const now = Date.now();
+    const cooldown = await readGmailCooldown(connectedAccounts, now);
+    const syncedTimes = statuses.map((status) => status.lastSyncedAt);
+    const result = paginateIntoResult(
       items,
       config,
       labelNameById,
@@ -311,5 +316,15 @@ export default defineAction({
       backfillIncomplete,
       cachedAllInboxCount,
     );
+    return {
+      ...result,
+      read: gmailReadState(
+        cooldown,
+        syncedTimes.some((time) => time == null)
+          ? null
+          : Math.min(...(syncedTimes as number[])),
+        now,
+      ),
+    };
   },
 });

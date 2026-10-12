@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   accessFilter,
   assertAccess,
@@ -230,7 +230,8 @@ export default defineAction({
   http: { method: "GET" },
   run: async ({ designId, nodeId, fileId, runtime }) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
@@ -246,7 +247,7 @@ export default defineAction({
       sourceType === "inline" || hasCapability(caps, "applyEdit");
     const ctaRequired = !hasFullIndex || !canEditProps;
     const ctaMessage = !hasFullIndex
-      ? "Full prop controls (TypeScript prop types, cva variants, Storybook stories) require a connected Builder app. Connect Builder (free tier available) to unlock."
+      ? "Full prop controls (TypeScript prop types, cva variants, Storybook stories) require a connected Builder app. Use Builder.io (free tier available) to unlock."
       : !canEditProps
         ? "Prop write-back requires the bridge applyEdit capability. Preview controls remain available until source write hardening is enabled."
         : undefined;

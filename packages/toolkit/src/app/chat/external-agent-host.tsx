@@ -26,6 +26,12 @@ export interface ExternalAgentHostSignals {
   hostInfo?: unknown;
 }
 
+export function shouldShowExternalAgentNudge(
+  host: ExternalAgentHost | null,
+): host is ExternalAgentHost {
+  return host !== null && host.id !== "chatgpt";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -267,7 +273,10 @@ export function ExternalAgentNudge({
   const titleId = useId();
   const descriptionId = useId();
   const dismissalReady = dismissal.key === hostDismissalKey;
-  const nudgeVisible = Boolean(host && dismissalReady && !dismissal.dismissed);
+  const nudgeVisible =
+    shouldShowExternalAgentNudge(host) &&
+    dismissalReady &&
+    !dismissal.dismissed;
   const [surfaceVisible, setSurfaceVisible] = useState(false);
 
   const dismissNudge = useCallback(() => {

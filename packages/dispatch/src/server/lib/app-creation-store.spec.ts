@@ -45,6 +45,9 @@ const mocks = vi.hoisted(() => {
       settings.set(key, value);
     }),
     getOrgSetting: vi.fn(async () => null),
+    getOrgDomain: vi.fn(async (orgId: string) =>
+      orgId ? "example.test" : null,
+    ),
     isWorkspaceAppAccessAllowed: vi.fn(
       async (): Promise<boolean | "unavailable"> => true,
     ),
@@ -121,6 +124,7 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/org")>();
   return {
     ...actual,
+    getOrgDomain: (...args: any[]) => mocks.getOrgDomain(...args),
     isWorkspaceAppAccessAllowed: (...args: any[]) =>
       mocks.isWorkspaceAppAccessAllowed(...args),
   };
@@ -527,24 +531,45 @@ describe("listWorkspaceApps", () => {
     warn.mockRestore();
   });
 
-  it.each([401, 403])(
-    "still rejects a denied registry read when no deployment manifest can answer (%i)",
-    async (status) => {
-      const fetchMock = vi.fn(async () => new Response("denied", { status }));
-      vi.stubGlobal("fetch", fetchMock);
-      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
-      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+  it("still rejects a registry read denied for this deployment's credentials when no manifest can answer (401)", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
 
-      await expect(
-        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
-          listWorkspaceApps({ includeAgentCards: false }),
-        ),
-      ).rejects.toThrow(
-        `Workspace apps gateway rejected the request with HTTP ${status}.`,
-      );
-    },
-  );
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toThrow(
+      "Workspace apps gateway rejected the request with HTTP 401.",
+    );
+  });
+
+  it("serves the deployment's own app list when the registry refuses this reader (403)", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("denied the registry read with HTTP 403"),
+    );
+    warn.mockRestore();
+  });
 
   it("falls back to local manifests when the hosted registry route is missing", async () => {
     const fetchMock = vi.fn(
@@ -651,7 +676,27 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
-  it("keeps the exact request org in hosted registry tokens", async () => {
+  it("does not make an unauthenticated local gateway read when the org domain is unavailable", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://localhost:3000");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+    mocks.getOrgDomain.mockResolvedValueOnce(null);
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-without-domain" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toThrow(
+      "Workspace apps gateway cannot authenticate without a resolved organization domain.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("binds hosted registry tokens to the workspace domain, not its local org id", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response("not found", { status: 404 }))
@@ -663,6 +708,7 @@ describe("listWorkspaceApps", () => {
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.getOrgDomain.mockResolvedValueOnce("example.test");
 
     await runWithRequestContext(
       { userEmail: "dev@example.test", orgId: "org-exact" },
@@ -676,8 +722,9 @@ describe("listWorkspaceApps", () => {
         authorization.slice("Bearer ".length).split(".")[1]!,
         "base64url",
       ).toString(),
-    ) as { org_id?: string };
-    expect(tokenPayload.org_id).toBe("org-exact");
+    ) as { org_domain?: string; org_id?: string };
+    expect(tokenPayload.org_domain).toBe("example.test");
+    expect(tokenPayload).not.toHaveProperty("org_id");
   });
 
   it("falls back to local discovery when the gateway URL is malformed", async () => {
@@ -872,6 +919,139 @@ describe("listWorkspaceApps", () => {
       "org",
       "org",
     ]);
+  });
+
+  describe("workspace app org scope", () => {
+    function stubDb(existing: Record<string, unknown>[] = []) {
+      const execute = vi.fn(async (statement: unknown) => {
+        const sql = String((statement as { sql?: unknown })?.sql ?? statement);
+        if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+          return { rows: existing, rowsAffected: 0 };
+        }
+        return { rows: [], rowsAffected: 1 };
+      });
+      mocks.getDbExec.mockReturnValue({ execute });
+      return execute;
+    }
+    const writesTo = (
+      execute: ReturnType<typeof vi.fn>,
+      verb: "INSERT INTO" | "UPDATE",
+    ) =>
+      execute.mock.calls.filter(([statement]) =>
+        String((statement as { sql?: unknown })?.sql ?? "").includes(
+          `${verb} workspace_apps`,
+        ),
+      );
+
+    it("materializes listed apps with the request org id", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "new-app", name: "New app", path: "/new-app" },
+      ]);
+      const execute = stubDb();
+
+      await runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      const inserts = writesTo(execute, "INSERT INTO");
+      expect(inserts).toHaveLength(1);
+      expect((inserts[0][0] as any).args[2]).toBe("org-123");
+    });
+
+    it("lists without writing when the request has no org", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "new-app", name: "New app", path: "/new-app" },
+      ]);
+      const execute = stubDb();
+
+      await runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(writesTo(execute, "INSERT INTO")).toHaveLength(0);
+      expect(writesTo(execute, "UPDATE")).toHaveLength(0);
+    });
+
+    it("does not assign an existing null-org row to the listing org", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "legacy-app", name: "Renamed", path: "/legacy-app" },
+      ]);
+      const execute = stubDb([
+        {
+          id: "legacy-app",
+          owner_email: "",
+          org_id: null,
+          visibility: "org",
+          name: "Legacy",
+          path: "/legacy-app",
+        },
+      ]);
+
+      await runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      );
+
+      expect(writesTo(execute, "INSERT INTO")).toHaveLength(0);
+      for (const [statement] of writesTo(execute, "UPDATE")) {
+        const { sql, args } = statement as { sql: string; args: unknown[] };
+        expect(sql).toContain("org_id IS NULL");
+        expect(args).toEqual(expect.not.arrayContaining(["org-123"]));
+      }
+    });
+
+    it("rejects scaffolding without an org before any side effect", async () => {
+      const execute = stubDb();
+      const existsSync = vi.spyOn(fs, "existsSync");
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          scaffoldWorkspaceAppFromTemplate({ template: "mail" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(existsSync).not.toHaveBeenCalled();
+      existsSync.mockRestore();
+    });
+
+    it("rejects a metadata update without an org before writing anything", async () => {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "tracker-app", name: "Tracker app", path: "/tracker-app" },
+      ]);
+      const execute = stubDb();
+      const settingsBefore = new Map(mocks.settings);
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          updateWorkspaceAppMetadata({ appId: "tracker-app", name: "Renamed" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(mocks.settings).toEqual(settingsBefore);
+    });
+
+    it("rejects app creation without an org before reserving anything", async () => {
+      const execute = stubDb();
+
+      await expect(
+        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+          startWorkspaceAppCreation({ prompt: "Track tasks", appId: "tasks" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 400 });
+
+      expect(execute).not.toHaveBeenCalled();
+    });
   });
 
   it("refreshes renamed manifest records and keeps rows absent from the manifest", async () => {
@@ -1533,6 +1713,7 @@ describe("startWorkspaceAppCreation", () => {
     appId = "onboarding",
     ctx: { userEmail: string; orgId?: string } = {
       userEmail: "dev@example.test",
+      orgId: "org-123",
     },
   ) {
     return runWithRequestContext(ctx, () =>
@@ -1799,7 +1980,7 @@ describe("startWorkspaceAppCreation", () => {
       providerLabel: "Builder.io",
     });
     expect(result.message).toContain("Builder.io is not connected");
-    expect(result.message).toContain("Connect Builder.io");
+    expect(result.message).toContain("Use Builder.io");
     expect(result.message).not.toContain("try again");
   });
 
@@ -1880,7 +2061,7 @@ describe("startWorkspaceAppCreation", () => {
 
     expect(result.mode).toBe("builder");
     expect(result.connectRequired).toBeUndefined();
-    expect(result.message).not.toContain("Connect Builder.io");
+    expect(result.message).not.toContain("Use Builder.io");
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {
@@ -1914,7 +2095,9 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "project-provisioned" }),
     );
-    expect(mocks.settings.get(settingsKey)).toMatchObject({
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({
       builderProjectId: "project-provisioned",
     });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();

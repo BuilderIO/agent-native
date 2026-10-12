@@ -449,7 +449,8 @@ const messages = {
       failedToScheduleEmailDraftKeptOpen: "定時傳送失敗 - 草稿仍保持開啟",
       finishRecipientInput: "請先新增收件人或清除輸入內容，再傳送。",
       pleaseAddRecipient: "請至少新增一個收件人",
-      aiEngineRequired: "使用生成前，請先連線 Builder 或其他 AI 引擎。",
+      aiEngineRequired:
+        "使用「生成」前，請使用 Builder.io（提供免費方案）或其他 AI 引擎。",
       couldNotUnsubscribe: "無法取消訂閱",
       unsubscribeSent: "取消訂閱請求已傳送",
       draftQueued: "草稿已排隊。",
@@ -680,7 +681,7 @@ const messages = {
       connectJevToRunTriage: "連接 Jev 以執行分類",
       freeBuilderOrApiKey: "透過 Builder.io 免費使用，或新增 API 金鑰。",
       jevAvailabilityFailed: "無法檢查 Jev 是否可用。",
-      connectBuilder: "連接 Builder.io",
+      connectBuilder: "使用 Builder.io",
       addJevApiKey: "新增 API 金鑰",
     },
     draftQueue: {

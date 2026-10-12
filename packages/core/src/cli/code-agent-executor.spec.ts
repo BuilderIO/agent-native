@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { JPEG_BASE64 } from "../file-upload/test-image-fixtures.js";
 import {
   buildCodeAgentSystemPrompt,
   buildRepoInstructionsBlock,
@@ -46,6 +47,7 @@ const originalProviderEnv = new Map(
 );
 const originalPath = process.env.PATH;
 const originalAgentEngine = process.env.AGENT_ENGINE;
+const originalMcpServers = process.env.MCP_SERVERS;
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
@@ -60,6 +62,7 @@ afterEach(() => {
   process.env.PATH = originalPath;
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
+  restoreEnv("MCP_SERVERS", originalMcpServers);
   for (const key of providerEnvKeys) {
     const original = originalProviderEnv.get(key);
     if (original === undefined) delete process.env[key];
@@ -118,6 +121,58 @@ describe("executeCodeAgentRun", () => {
     expect(
       listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
     ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
+  });
+
+  it("normalizes image/jpg before forwarding CLI run images to vision", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Describe a screenshot",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+    let messages: unknown[] = [];
+    const engine: AgentEngine = {
+      name: "image-capture",
+      label: "Image Capture",
+      defaultModel: "image-capture",
+      supportedModels: ["image-capture"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options) {
+        messages = options.messages;
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "Describe this image",
+      attachments: [
+        {
+          name: "screen.jpg",
+          dataUrl: `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
+        },
+      ],
+      engine,
+    });
+
+    expect(messages).toContainEqual({
+      role: "user",
+      content: [
+        { type: "image", data: JPEG_BASE64, mediaType: "image/jpeg" },
+        { type: "text", text: "Describe this image" },
+      ],
+    });
   });
 
   it("pauses with a credential hint when no provider key is available", async () => {
@@ -263,6 +318,7 @@ describe("executeCodeAgentRun", () => {
   it("runs a Claude Code CLI-backed session through a Claude subscription", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    delete process.env.MCP_SERVERS;
     const binDir = path.join(root, "bin");
     const argsPath = path.join(root, "claude-args.json");
     fs.mkdirSync(binDir, { recursive: true });
@@ -396,6 +452,7 @@ describe("executeCodeAgentRun", () => {
 
       expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
       const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
       const configPath = args[args.indexOf("--mcp-config") + 1];
       expect(path.isAbsolute(configPath)).toBe(true);
       expect(args).toContain("--strict-mcp-config");

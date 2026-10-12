@@ -1,8 +1,10 @@
+// guard:allow-api-route — internal background worker dispatched with a signed short-lived job token, not a CRUD API.
 import { randomUUID } from "node:crypto";
 
 import {
   runWithRequestContext,
-  verifyScopedAgentAccessToken,
+  scopedAgentAccessResourceId,
+  verifyShortLivedToken,
 } from "@agent-native/core/server";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import {
@@ -89,10 +91,13 @@ export default defineEventHandler(async (event: H3Event) => {
     regenerate,
   } = parsed.data;
   console.log("[post-finalize-worker] received job", { recordingId, kind });
-  const verified = verifyScopedAgentAccessToken(token, {
-    resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
-    resourceId: postFinalizeJobResourceId(recordingId, kind),
-  });
+  const verified = verifyShortLivedToken(
+    token,
+    scopedAgentAccessResourceId(
+      POST_FINALIZE_JOB_TOKEN_KIND,
+      postFinalizeJobResourceId(recordingId, kind),
+    ),
+  );
   if (!verified.ok) {
     console.warn("[post-finalize-worker] token verification failed", {
       recordingId,

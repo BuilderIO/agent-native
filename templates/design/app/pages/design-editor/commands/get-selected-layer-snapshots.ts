@@ -3,6 +3,7 @@ import {
   buildCodeLayerTree,
   type CodeLayerNode,
   type CodeLayerProjection,
+  type CodeLayerTreeNode,
 } from "@shared/code-layer";
 
 import type { ElementInfo } from "@/components/design/types";
@@ -42,6 +43,8 @@ export interface GetSelectedLayerSnapshotsArgs {
   files: DesignFile[];
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
+  /** Without it every screen is projected to find the selected layers. */
+  layerOwnerFileId?: (layerId: string) => string | undefined;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   overviewScreens: OverviewScreen[];
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
@@ -57,6 +60,7 @@ export function runGetSelectedLayerSnapshots({
   files,
   getFreshActiveContent,
   getScreenContent,
+  layerOwnerFileId,
   liveScreenSnapshotsById,
   overviewScreens,
   runtimeLayerSnapshotsById,
@@ -76,8 +80,16 @@ export function runGetSelectedLayerSnapshots({
     candidateIds.push(selectedElementLayerId);
   }
 
+  const ownerFileIds = candidateIds.map((layerId) =>
+    layerOwnerFileId?.(layerId),
+  );
+  const ownerFiles = ownerFileIds.every(Boolean)
+    ? new Set(ownerFileIds)
+    : undefined;
+
   const snapshots: SelectedCanvasLayerSnapshot[] = [];
   for (const file of files) {
+    if (ownerFiles && !ownerFiles.has(file.id)) continue;
     const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
       screen: overviewScreens.find((screen) => screen.id === file.id),
       fallbackSourceType: designSourceType,
@@ -97,7 +109,7 @@ export function runGetSelectedLayerSnapshots({
     });
     if (!content) continue;
     const projection = buildCodeLayerProjection(content, { source });
-    const tree = buildCodeLayerTree(projection);
+    let tree: CodeLayerTreeNode[] | undefined;
     for (const layerId of candidateIds) {
       const node = projection.nodes.find(
         (candidate) =>
@@ -134,8 +146,10 @@ export function runGetSelectedLayerSnapshots({
           html,
         ),
         node,
+        repeat: selectedInfo?.repeat,
+        styleSnapshotReadOnDemand: selectedInfo?.styleSnapshotReadOnDemand,
         sourceIndex: node.source.start,
-        tree,
+        tree: (tree ??= buildCodeLayerTree(projection)),
       });
     }
   }
@@ -183,6 +197,8 @@ export function runGetSelectedLayerSnapshots({
           html,
         ),
         node,
+        repeat: selectedElement.repeat,
+        styleSnapshotReadOnDemand: selectedElement.styleSnapshotReadOnDemand,
         sourceIndex: node.source?.start ?? Number.MAX_SAFE_INTEGER,
         tree,
       });

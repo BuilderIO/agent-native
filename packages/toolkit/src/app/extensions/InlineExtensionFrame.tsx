@@ -13,6 +13,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { useExtensionIframeMetaCsp } from "./iframe-display-sources.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
@@ -300,6 +301,7 @@ async function handleTransientExtensionData(
 function buildTransientSrcDoc(
   extension: InlineExtensionDefinition,
   isDark: boolean,
+  metaCsp: string,
 ): string {
   return buildExtensionHtml(
     extension.content ?? "",
@@ -312,6 +314,7 @@ function buildTransientSrcDoc(
       isAuthor: true,
       role: "owner",
     },
+    metaCsp,
   );
 }
 
@@ -397,10 +400,17 @@ export function InlineExtensionFrame({
     );
   }, [extension?.updatedAt, isTransient, resolvedId, slotId]);
 
+  // Transient frames are built here, so they fetch the deployment's configured
+  // img-src / media-src from the server and wait for it before rendering.
+  const iframeMetaCsp = useExtensionIframeMetaCsp(!!extension && isTransient);
   const srcDoc = useMemo(() => {
-    if (!extension || !isTransient) return undefined;
-    return buildTransientSrcDoc(extension, initialDarkRef.current);
-  }, [extension, isTransient]);
+    if (!extension || !isTransient || !iframeMetaCsp) return undefined;
+    return buildTransientSrcDoc(
+      extension,
+      initialDarkRef.current,
+      iframeMetaCsp,
+    );
+  }, [extension, iframeMetaCsp, isTransient]);
 
   useEffect(() => {
     bridgeContextRef.current = isTransient

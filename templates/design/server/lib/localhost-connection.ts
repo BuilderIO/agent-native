@@ -23,6 +23,7 @@
  * fix; the bridge token is never echoed.
  */
 
+import { fail } from "@agent-native/core/action";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   getRequestAuthCapability,
@@ -70,7 +71,9 @@ export async function resolveLocalhostConnectionScope(options?: {
     capability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX) &&
     decodeCapabilityDesignId(capability) === designId
   ) {
-    const access = await resolveAccess("design", designId);
+    const access = await resolveAccess("design", designId, {
+      authCapability: capability,
+    });
     const resource = access?.resource as
       | { ownerEmail?: unknown; orgId?: unknown }
       | undefined;
@@ -80,7 +83,10 @@ export async function resolveLocalhostConnectionScope(options?: {
       typeof resource?.ownerEmail !== "string" ||
       !resource.ownerEmail
     ) {
-      throw new Error("visual-edit capability is not valid for this design");
+      fail("visual-edit capability is not valid for this design", {
+        errorCode: "visual_edit_capability_invalid",
+        statusCode: 403,
+      });
     }
 
     return {

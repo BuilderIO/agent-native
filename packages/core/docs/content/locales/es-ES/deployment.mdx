@@ -1,46 +1,93 @@
 ---
 title: "Implementación"
-description: "Implementa una aplicación o un espacio de trabajo Agent-Native en una plataforma compatible con Nitro y una base de datos PostgreSQL persistente."
+description: "Implementa una aplicación o un espacio de trabajo Agent-Native en una plataforma compatible con Nitro con una base de datos PostgreSQL persistente."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Implementación
 
-<a id="self-host-quickstart"></a>
-<a id="skip-ensure-tables"></a>
-
-Las aplicaciones Agent-Native usan Nitro. Elige la ruta que corresponda a lo que vas a publicar:
+Las aplicaciones Agent-Native se ejecutan sobre [Nitro](https://nitro.build), así que la misma aplicación
+se puede implementar en Node.js, funciones sin servidor, workers en el edge o un host administrado. Elige
+la ruta que corresponda a lo que vas a publicar:
 
 <Cards columns={2}>
 
-### [Implementar una aplicación](/docs/deploy-an-app)
+### :server: [Implementar una aplicación](/docs/deploy-an-app)
 
-Construye una aplicación y ejecútala en su propio dominio.
+Compila y lanza una aplicación independiente en Node.js, Docker, Vercel, Netlify o
+Cloudflare Workers.
 
-### [Implementar un espacio de trabajo](/docs/workspace-deployment)
+### :network: [Implementar un espacio de trabajo](/docs/workspace-deployment)
 
-Ejecuta varias aplicaciones bajo un mismo origen con inicio de sesión compartido.
+Compila varias aplicaciones bajo un mismo origen, con inicio de sesión compartido y comunicación entre
+aplicaciones desde el mismo origen.
 
 </Cards>
 
 ## Antes de implementar: elige una base de datos persistente {#persistent-database}
 
-Cada aplicación implementada necesita una base de datos PostgreSQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Entre los proveedores de PostgreSQL alojados se incluyen [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) y [Azure Database for PostgreSQL](/docs/azure-postgresql). Consulta la guía [Plain Postgres](/docs/postgres) para otros servicios administrados y servidores PostgreSQL autohospedados.
+Cada aplicación implementada necesita una base de datos PostgreSQL persistente. El desarrollo local puede usar
+la base de datos PGlite en `data/pglite`, pero los sistemas de archivos de contenedores, vistas previas y entornos sin servidor
+pueden restablecerse en cualquier momento.
 
-Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
+<Steps>
 
-Configura estos valores en los ajustes de entorno del proveedor de alojamiento, no solo en el `.env` local. Genera el secreto de autenticación con `openssl rand -hex 32`. Agent-Native no incluye una cuenta de envío de correo; conecta Resend o SendGrid por separado.
+### Elige un proveedor
+
+Usa un proveedor de PostgreSQL alojado, como [Neon](/docs/neon),
+[Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds),
+[Cloud SQL for PostgreSQL](/docs/cloud-sql) o [Azure Database for PostgreSQL](/docs/azure-postgresql).
+Consulta la guía [Plain Postgres](/docs/postgres) para otros servicios administrados y
+servidores PostgreSQL autohospedados. El framework configura PostgreSQL a partir de la
+URL de conexión.
+
+### Define la cadena de conexión
+
+Define `DATABASE_URL` en la configuración de variables de entorno o de secretos del proveedor de alojamiento
+antes del primer despliegue de producción. Un `.env` local solo configura tu
+máquina y el comando de despliegue no lo sube.
+
+### Añade los secretos de producción
+
+Genera un secreto de firma estable con `openssl rand -hex 32` y defínelo como
+`BETTER_AUTH_SECRET` en una aplicación independiente. Un espacio de trabajo también necesita `A2A_SECRET`
+cuando usa solicitudes firmadas entre aplicaciones o traspasos en segundo plano. La [referencia de variables de
+entorno de implementación](/docs/deployment-environment-variables) cubre el resto
+de la configuración de producción.
+
+### Ejecuta las migraciones
+
+Ejecuta `pnpm migrate:production` contra la base de datos de producción antes de la primera
+visita. Crea las tablas que la aplicación necesita. Vuelve a ejecutarlo después de cada actualización,
+antes de que la nueva versión entre en producción. Cada guía de alojamiento muestra dónde encaja este paso.
+
+</Steps>
+
+<Callout tone="info">
+
+En un espacio de trabajo, cada aplicación hereda la `DATABASE_URL` raíz de forma predeterminada. Define
+`<APP_NAME>_DATABASE_URL` solo cuando una aplicación necesite otra base de datos.
+
+</Callout>
 
 ## El envío de correo es opcional, pero recomendable {#email-provider}
 
-Un proveedor de correo no es necesario para la autenticación con correo y contraseña. Sin uno, las aplicaciones implementadas usan el registro y el inicio de sesión con correo y contraseña, omiten la verificación del correo al registrarse y no ofrecen autenticación mediante enlaces mágicos.
+Un proveedor de correo no es necesario para la autenticación con correo y contraseña. Sin
+uno, una aplicación implementada usa el registro y el inicio de sesión con correo y contraseña, omite la verificación del correo al registrarse
+y no ofrece autenticación mediante enlaces mágicos.
 
-Conecta Resend o SendGrid antes del despliegue si quieres enlaces mágicos, verificación del correo, restablecimiento de contraseñas, invitaciones o notificaciones de uso compartido. Configura `RESEND_API_KEY` o `SENDGRID_API_KEY`; SendGrid también necesita `EMAIL_FROM`. Consulta [Autenticación](/docs/authentication) para conocer los modos de autenticación disponibles.
+Agent-Native no incluye una cuenta de envío de correo. Conecta Resend o
+SendGrid antes del despliegue si quieres enlaces mágicos, verificación del correo,
+restablecimiento de contraseñas, invitaciones o notificaciones de uso compartido. Define
+`RESEND_API_KEY` o `SENDGRID_API_KEY` en el entorno de implementación. SendGrid
+también necesita `EMAIL_FROM`. Consulta [Autenticación](/docs/authentication) para conocer los
+modos de autenticación disponibles.
 
 ### Personalizar los correos del framework {#email-templates}
 
-Cada correo que envía el framework tiene una plantilla predeterminada. Para usar tu propio diseño, registra un override desde un plugin de servidor. El framework sigue eligiendo el destinatario y el remitente y entrega el mensaje; tu override decide qué dice el mensaje y cómo se ve.
+Cada correo que envía el framework tiene una plantilla predeterminada. Para usar tu propio
+diseño, registra un override desde un plugin de servidor. El framework sigue eligiendo
+el destinatario y el remitente y entrega el mensaje. Tu override decide qué
+dice el mensaje y cómo se ve.
 
 ```ts
 // server/plugins/email-templates.ts
@@ -70,21 +117,169 @@ export default function registerEmailTemplates(): void {
 | `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
 | `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
-Cada override también recibe `app` (`name`, `logoUrl`). El segundo argumento contiene el renderizado predeterminado, para que puedas reutilizar su asunto o texto.
+Cada override también recibe `app` (`name`, `logoUrl`). El segundo argumento contiene
+el renderizado predeterminado, para que puedas reutilizar su asunto o su texto.
 
-- Las props son valores sin escapar. Escápalas con `escapeEmailHtml` antes de insertarlas en una cadena HTML.
-- Devuelve `react` con un elemento de React en lugar de `html` para renderizar un componente. React escapa las props por ti.
-- Omite `subject` para conservar el asunto predeterminado. Omite `text` para derivar el cuerpo de texto plano de tu HTML.
-- Si un override lanza un error, el envío falla. El framework no vuelve al diseño predeterminado. La vista previa de correos transaccionales renderiza tu override, así que revísalo ahí.
+- Las props son valores sin escapar. Escápalas con `escapeEmailHtml` antes de insertarlas
+  en una cadena HTML.
+- Devuelve `react` con un elemento de React en lugar de `html` para renderizar un componente.
+  React escapa las props por ti.
+- Omite `subject` para conservar el asunto predeterminado. Omite `text` para derivar
+  el cuerpo de texto plano de tu HTML.
+- Si un override lanza un error, el envío falla. El framework no vuelve
+  al diseño predeterminado. La vista previa de correos transaccionales renderiza tu override,
+  así que revísalo ahí.
 
-## Destinos compatibles
+## Destinos de implementación compatibles {#supported-deployment-targets}
 
-Agent-Native admite [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) o [Render](/docs/render).
+Cada destino tiene una guía paso a paso. El código de la aplicación y la base de datos son los mismos
+sea cual sea el destino que elijas. Solo cambian el preset de compilación y el comando de
+despliegue.
 
-Consulta la [referencia de variables de entorno de implementación](/docs/deployment-environment-variables) para los ajustes avanzados, secretos y valores de producción.
+<!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-## Siguiente
+<Diagram id="doc-block-deployment-targets" title="Destinos de implementación compatibles" summary="Las aplicaciones Agent-Native se pueden implementar en Node.js, Docker, Vercel, Netlify y Cloudflare Workers." frame="hide" renderMode="design">
 
-- [Implementar una aplicación](/docs/deploy-an-app)
-- [Implementar un espacio de trabajo](/docs/workspace-deployment)
-- [Base de datos](/docs/server-database#production)
+```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-js">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
+    <strong>Docker</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+</div>
+```
+
+```css
+.deployment-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+```
+
+</Diagram>
+
+## Implementación avanzada {#advanced-deployment}
+
+Empieza por la ruta anterior. Usa estas páginas cuando necesites ajustes específicos del proveedor
+o controles de producción:
+
+- [**Node.js**](/docs/node-js) - ejecuta el preset de servidor predeterminado de Nitro
+- [**Docker**](/docs/docker) - empaqueta el servidor Node.js en un contenedor
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify) y [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configura los destinos alojados
+- [**Caché SSR**](/docs/ssr-caching) - configura la caché del shell público
+- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) - secretos de producción, flags de ejecución y herencia en espacios de trabajo
+- [**Acceso del agente en producción**](/docs/actions-agent-tools) - controla las herramientas del framework y la ejecución de código
+- [**Actualizar la UI en producción**](/docs/updating-ui-in-production) - entiende el flujo administrado de edición visual
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Estos anclajes mantienen funcionando los enlaces antiguos. El autoalojamiento con un contenedor se explica
+en la [guía de Docker](/docs/docker). La configuración del esquema y las indicaciones sobre el arranque en frío están
+en la [referencia de variables de entorno de implementación](/docs/deployment-environment-variables#skip-ensure-tables).
+
+## Qué sigue {#whats-next}
+
+- [**Implementar una aplicación**](/docs/deploy-an-app)
+- [**Implementar un espacio de trabajo**](/docs/workspace-deployment)
+- [**Base de datos**](/docs/server-database#production)
+- [**Seguridad**](/docs/security)
+- [**Autenticación**](/docs/authentication)

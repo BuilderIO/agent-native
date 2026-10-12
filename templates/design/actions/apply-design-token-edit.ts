@@ -134,7 +134,7 @@ export default defineAction({
         ? null
         : "Token source write-back is not yet available for this source tier. " +
           "The value is persisted in the design's tweakSelections and reflected " +
-          "live via the CSS-var bridge. Connect Builder (free tier available) to unlock real write-back.",
+          "live via the CSS-var bridge. Use Builder.io (free tier available) to unlock real write-back.",
       resolvedCssVars,
       deepLink: designDeepLink(designId),
     };

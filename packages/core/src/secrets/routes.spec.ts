@@ -404,9 +404,58 @@ describe("secrets routes", () => {
     expect(lastStatus).toBe(400);
     expect(result).toEqual({
       error: "API rejected [redacted]",
+      errorCode: "secret_rejected",
+      retryable: false,
     });
     expect(JSON.stringify(result)).not.toContain("shh-secret-value");
     expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 when the validator could not check the value", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator: vi.fn(async () => ({
+        ok: false,
+        retryable: true,
+        error: "Provider could not verify the key right now (HTTP 503).",
+      })),
+    });
+
+    const result = await createWriteSecretHandler()(
+      event("/API_TOKEN", "POST", { value: "candidate-key" }),
+    );
+
+    expect(lastStatus).toBe(503);
+    expect(result).toMatchObject({
+      errorCode: "secret_validation_unavailable",
+      retryable: true,
+    });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("does not call an unreachable validator a rejected value", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator: vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    });
+
+    const result = await createWriteSecretHandler()(
+      event("/API_TOKEN", "POST", { value: "candidate-key" }),
+    );
+
+    expect(lastStatus).toBe(503);
+    expect(result).toMatchObject({
+      errorCode: "secret_validation_unavailable",
+      retryable: true,
+    });
   });
 
   it("redacts stored secret values from validator test responses", async () => {

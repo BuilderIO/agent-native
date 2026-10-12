@@ -235,6 +235,21 @@ export const mailGmailQuotaBudgets = table(
   (t) => [index("mail_gmail_quota_budgets_owner_idx").on(t.ownerEmail)],
 );
 
+// sha256(access token) -> the account whose quota budget the token spends.
+// Quota resolution reads this, so any serverless instance resolves a token the
+// same way no matter which instance obtained it.
+export const mailGmailTokenAccounts = table(
+  "mail_gmail_token_accounts",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [index("mail_gmail_token_accounts_expires_idx").on(t.expiresAt)],
+);
+
 export const mailInboxPushInvalidations = table(
   "mail_inbox_push_invalidations",
   {

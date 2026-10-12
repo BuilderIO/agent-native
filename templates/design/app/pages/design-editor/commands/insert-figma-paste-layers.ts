@@ -21,7 +21,9 @@ export interface InsertFigmaPasteLayersArgs {
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
-  pendingLocalFileContentsRef: RefObject<Map<string, { content: string }>>;
+  pendingLocalFileContentsRef: RefObject<
+    Map<string, { content: string; deferCollabReconcile?: boolean }>
+  >;
   selectInsertedLayers: (
     screenId: string,
     content: string,
@@ -46,8 +48,9 @@ export function runInsertFigmaPasteLayers(
   selector: string | null,
   layers: FigmaPasteLayerInsert[],
 ): boolean {
+  const pending = pendingLocalFileContentsRef.current?.get(fileId);
   const baseContent =
-    pendingLocalFileContentsRef.current?.get(fileId)?.content ??
+    (pending?.deferCollabReconcile ? undefined : pending?.content) ??
     (fileId === activeFile?.id
       ? getFreshActiveContent()
       : getScreenContent(fileId));

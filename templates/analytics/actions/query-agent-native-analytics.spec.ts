@@ -44,7 +44,7 @@ describe("query-agent-native-analytics", () => {
     expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
       sql,
       { userEmail: "alice@example.com", orgId: "org_123" },
-      { cache: true },
+      { cache: true, includeTestIdentities: false },
     );
   });
 

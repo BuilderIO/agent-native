@@ -84,7 +84,7 @@ Setze `visible: false` für einen App-Bereich, solange das dahinterliegende Lab 
 Eine App-Seite beginnt meist als Element in `extraTabs` und wird dadurch zu einer eigenen Seite in der App-Gruppe. Für mehr Kontrolle registrierst du auf Modulebene mit `registerSettingsPages` eine `SettingsPageDefinition` (`id`, `group`, `order`, `label`, `icon`, `component` sowie optional `visible`, `subpages` und `searchEntries`). Eine Definition mit derselben ID wie eine vorhandene Seite ersetzt diese. So kann eine App eine Core-Seite durch eine eigene Variante austauschen. Dispatch ergänzt auf diesem Weg die App-Rollenspalte unter Mitglieder:
 
 ```tsx
-import { OrgMembersPage } from "@agent-native/core/client/org";
+import { OrgMembersPage } from "@agent-native/toolkit/app/org";
 import {
   CORE_SETTINGS_PAGES,
   registerSettingsPages,
@@ -157,16 +157,18 @@ Die eigenen Zeilen einer App folgen derselben Regel: Jedes Steuerelement in `gen
 
 ## Rollen {#roles}
 
-| Funktion                                                                                            | Mitglied                       | Admin                                                            | Eigentümer            |
-| --------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------- | --------------------- |
-| Kontoseiten, Integrationen für sich selbst verbinden                                                | Ja                             | Ja                                                               | Ja                    |
-| Persönliche Anbieter und persönliche Builder.io-Verbindung                                          | Ja, sofern nicht eingeschränkt | Eigene Schlüssel; Builder.io verbindet sich für die Organisation | Wie Admin             |
-| Organisationsanbieter, Standardmodell, maximale Iterationen, persönliche API-Schlüssel einschränken | Nur Lesezugriff                | Ja                                                               | Ja                    |
-| Organisationsanweisungen, Gedächtnis, Skills und Dateien                                            | Nur Lesezugriff                | Ja                                                               | Ja                    |
-| Mitglieder einladen                                                                                 | Nein                           | Mitglieder                                                       | Mitglieder und Admins |
-| Rollen von Mitgliedern ändern                                                                       | Nein                           | Nein                                                             | Ja                    |
-| Authentifizierung, Apps, Infrastruktur, Auditprotokoll                                              | Ausgeblendet                   | Ja                                                               | Ja                    |
-| Gemeinsames A2A-Geheimnis, Organisation löschen                                                     | Nein                           | Nein                                                             | Ja                    |
+| Funktion                                                                                            | Mitglied                       | Admin                                                       | Eigentümer            |
+| --------------------------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------- | --------------------- |
+| Kontoseiten, Integrationen für sich selbst verbinden                                                | Ja                             | Ja                                                          | Ja                    |
+| Persönliche Anbieter und persönliches Builder.io-Konto                                              | Ja, sofern nicht eingeschränkt | Eigene Schlüssel; Builder.io für die Organisation verwenden | Wie Admin             |
+| Organisationsanbieter, Standardmodell, maximale Iterationen, persönliche API-Schlüssel einschränken | Nur Lesezugriff                | Ja                                                          | Ja                    |
+| Organisationsanweisungen, Gedächtnis, Skills und Dateien                                            | Nur Lesezugriff                | Ja                                                          | Ja                    |
+| Mitglieder einladen                                                                                 | Nein                           | Mitglieder                                                  | Mitglieder und Admins |
+| Rollen von Mitgliedern ändern                                                                       | Nein                           | Nein                                                        | Ja                    |
+| Authentifizierung, Apps, Infrastruktur, Auditprotokoll                                              | Ausgeblendet                   | Ja                                                          | Ja                    |
+| Gemeinsames A2A-Geheimnis, Organisation löschen                                                     | Nein                           | Nein                                                        | Ja                    |
+
+Inhaber und Admins nutzen zuerst die Anbieterschlüssel und die Builder.io-Verbindung der Organisation; ihre eigenen dienen als Rückfall. Mitglieder nutzen zuerst ihre eigenen. Beim Speichern eines Schlüssels speichern Inhaber und Admins ihn standardmäßig für die Organisation und können **Persönlich** wählen; Mitglieder speichern persönlich.
 
 ## UX-Standard {#ux-standard}
 

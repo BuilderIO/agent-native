@@ -3,9 +3,12 @@ import type {
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import { quantizeToStep } from "@shared/canvas-math";
-import { MAX_SANE_FRAME_DIMENSION_PX } from "@shared/responsive-frame-layout";
+import {
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "@shared/responsive-frame-layout";
 
-export { MAX_SANE_FRAME_DIMENSION_PX };
+export { MAX_SANE_FRAME_ASPECT_RATIO, MAX_SANE_FRAME_DIMENSION_PX };
 
 export function frameGeometryEquals(
   a: CanvasFrameGeometry | undefined,
@@ -49,8 +52,6 @@ export function quantizeCanvasFrameGeometryForPersist(
   }
   return quantized ?? geometryById;
 }
-
-export const MAX_SANE_FRAME_ASPECT_RATIO = 50;
 
 export function isSaneCanvasFrameGeometryForPersist(
   geometry: CanvasFrameGeometry,

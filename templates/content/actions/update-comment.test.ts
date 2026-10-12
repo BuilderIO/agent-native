@@ -169,7 +169,11 @@ describe("update-comment (action) — reopen permission", () => {
 
     const result = await run({ id: "c-1", resolved: false });
 
-    expect(result).toEqual({ ok: true, resolved: false });
+    expect(result).toEqual({
+      ok: true,
+      resolved: false,
+      documentId: "doc-1",
+    });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
@@ -197,7 +201,7 @@ describe("update-comment (action) — reopen permission", () => {
   it("requires editor access to resolve a thread", async () => {
     const result = await run({ id: "c-1", resolved: true });
 
-    expect(result).toEqual({ ok: true, resolved: true });
+    expect(result).toEqual({ ok: true, resolved: true, documentId: "doc-1" });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
@@ -215,7 +219,7 @@ describe("update-comment (action) — reopen permission", () => {
       resolved: true,
     });
 
-    expect(result).toEqual({ ok: true, resolved: true });
+    expect(result).toEqual({ ok: true, resolved: true, documentId: "doc-1" });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
@@ -238,7 +242,7 @@ describe("update-comment (action) — reopen permission", () => {
       resolved: true,
     });
 
-    expect(result).toEqual({ ok: true, resolved: true });
+    expect(result).toEqual({ ok: true, resolved: true, documentId: "doc-1" });
     expect(state.rows[0].resolved).toBe(1);
     expect(state.rows[1].resolved).toBe(1);
     expect(state.rows[2].resolved).toBe(0);
@@ -256,7 +260,7 @@ describe("update-comment (action) — reopen permission", () => {
   it("allows the author to edit their own comment content with commenter access", async () => {
     const result = await run({ id: "c-1", content: "Updated" });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, documentId: "doc-1" });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",

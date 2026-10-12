@@ -407,7 +407,8 @@ function rootTsx(): string {
   return `import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client/ui";
+import { ClientOnly } from "@agent-native/core/client/ui";
+import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
 import { AgentSidebar } from "@agent-native/toolkit/app/chat";
 import stylesheet from "./global.css?url";
 import type { ReactNode } from "react";
@@ -436,7 +437,7 @@ export function Layout({ children }: { children: ReactNode }) {
 export default function Root() {
   const [queryClient] = useState(() => new QueryClient());
   return (
-    <ClientOnly fallback={<DefaultSpinner />}>
+    <ClientOnly fallback={<AppShellSkeleton layout="assistant" />}>
       <QueryClientProvider client={queryClient}>
         <AgentSidebar position="right" defaultOpen agentPageHref="/agent">
           <Outlet />

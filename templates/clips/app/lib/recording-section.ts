@@ -9,7 +9,7 @@ import { useSyncExternalStore } from "react";
  * from the same facts — and says so here, so the highlighted section and the
  * breadcrumb always agree.
  */
-export type RecordingSection = "library" | "screenshots" | "spaces";
+export type RecordingSection = "library" | "screenshots" | "spaces" | "trash";
 
 let current: RecordingSection | null = null;
 const listeners = new Set<() => void>();

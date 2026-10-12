@@ -344,6 +344,43 @@ describe("toggleSlideList preserves split list ownership and numbering", () => {
     expect(result.hasAttribute("start")).toBe(false);
   });
 
+  it.each([
+    "transform:rotate(20deg);transform-origin:top left",
+    "rotate:20deg;translate:5px 5px;scale:1.2",
+  ])(
+    "leaves how the object is rotated, moved and scaled on the wrapper (%s)",
+    (painting) => {
+      const root = document.createElement("ul");
+      root.setAttribute(
+        "style",
+        `position:absolute;left:10px;list-style-type:disc;${painting}`,
+      );
+      root.innerHTML = "<li>First</li><li>Second</li><li>Third</li>";
+      document.body.replaceChildren(root);
+
+      const result = toggleSlideList(root, "ordered", [
+        root.children[1] as HTMLElement,
+      ])!;
+
+      const lists = Array.from(result.querySelectorAll<HTMLElement>("ol, ul"));
+      expect(result.style.getPropertyValue(painting.split(":")[0]!)).not.toBe(
+        "",
+      );
+      expect(lists).toHaveLength(3);
+      for (const list of lists) {
+        for (const property of [
+          "transform",
+          "transform-origin",
+          "translate",
+          "rotate",
+          "scale",
+        ]) {
+          expect(list.style.getPropertyValue(property)).toBe("");
+        }
+      }
+    },
+  );
+
   it("keeps each ordered fragment at its original ordinal", () => {
     const root = document.createElement("ol");
     root.setAttribute("start", "5");

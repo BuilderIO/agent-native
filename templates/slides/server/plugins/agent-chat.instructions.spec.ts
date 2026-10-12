@@ -35,4 +35,10 @@ describe("Slides content-edit agent guidance", () => {
       "After the write, verify once with get-deck slideIds and compact=false",
     );
   });
+
+  it("removes visual objects without deleting slides", () => {
+    expect(agentChatSource).toContain(
+      "Removing boxes, headers, or other objects is an in-slide edit: preserve slide count, order, and IDs, and use update-slide or patch-deck with patch-slide operations; use delete-slide only when the user explicitly asks to remove a slide.",
+    );
+  });
 });

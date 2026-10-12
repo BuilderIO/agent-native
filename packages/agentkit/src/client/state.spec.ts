@@ -6,6 +6,7 @@ import {
   createAgentThreadState,
   hasActiveAgentRuns,
   reduceAgentEvent,
+  retireSupersededConnectionRequests,
   selectActiveAgentRoster,
 } from "./state.js";
 
@@ -60,6 +61,24 @@ describe("hasActiveAgentRuns", () => {
     thread.activeRunIds = ["run-unprojected"];
 
     expect(hasActiveAgentRuns(thread)).toBe(true);
+  });
+
+  it("restores a pending approval run when its active-id projection is missing", () => {
+    const started = reduceAgentEvent(
+      createAgentThreadState("thread-1"),
+      event(1, { type: "run.started" }),
+    );
+    const withoutActiveId = { ...started, activeRunIds: [] };
+    const awaitingApproval = reduceAgentEvent(
+      withoutActiveId,
+      event(2, {
+        type: "approval.requested",
+        request: { id: "approval-1", title: "Continue?" },
+      }),
+    );
+
+    expect(awaitingApproval.activeRunIds).toEqual(["run-1"]);
+    expect(hasActiveAgentRuns(awaitingApproval)).toBe(true);
   });
 });
 
@@ -388,6 +407,121 @@ describe("AgentKit lifecycle projections", () => {
     expect(reduced.tools["tool-1"]?.input).toBeUndefined();
   });
 
+  it("preserves the message association when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.started",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+          messageId: "assistant-1",
+          input: { query: "report" },
+        },
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "Found it.",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      messageId: "assistant-1",
+      input: { query: "report" },
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+      event(4, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a running tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "running",
+      output: "Found it.",
+    });
+  });
+
+  it("uses the output provided by a terminal tool update", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "partial output",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "final output",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "final output",
+    });
+  });
+
   it("does not reopen settled tool, activity, task, or action projections", () => {
     const reduced = [
       event(1, { type: "run.started" }),
@@ -617,5 +751,168 @@ describe("AgentKit lifecycle projections", () => {
       "connected",
     );
     expect(connected.connectionRequestRunIds["connection-1"]).toBe("run-1");
+  });
+
+  describe("retiring connection requests nobody can answer any more", () => {
+    const request = (
+      id: string,
+      status: "requested" | "connecting" | "connected",
+    ) =>
+      ({
+        type: "connection.requested",
+        request: { id, provider: "slack", reason: "connect", status },
+      }) as const;
+
+    function awaitingConnection() {
+      return [
+        event(1, { type: "run.started" }),
+        event(2, request("open", "requested")),
+        event(3, request("connecting", "connecting")),
+        event(4, request("answered", "connected")),
+      ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+    }
+
+    it.each([
+      [
+        "run.failed",
+        { type: "run.failed", error: { code: "x", message: "x" } },
+      ],
+      ["run.cancelled", { type: "run.cancelled" }],
+      [
+        "a terminal failed run.status",
+        { type: "run.status", status: "failed" },
+      ],
+    ] as const)(
+      "drops the still-open requests of a run that ends on %s",
+      (_name, terminal) => {
+        const ended = reduceAgentEvent(
+          awaitingConnection(),
+          event(5, terminal),
+        );
+
+        expect(Object.keys(ended.connectionRequests)).toEqual(["answered"]);
+        expect(Object.keys(ended.connectionRequestRunIds)).toEqual([
+          "answered",
+        ]);
+      },
+    );
+
+    it("keeps a completed run's request: the yielded turn is waiting on the user", () => {
+      const completed = reduceAgentEvent(
+        awaitingConnection(),
+        event(5, { type: "run.completed" }),
+      );
+
+      expect(Object.keys(completed.connectionRequests).sort()).toEqual([
+        "answered",
+        "connecting",
+        "open",
+      ]);
+    });
+
+    it("drops the older run's open request when a newer run starts in the thread", () => {
+      const next = reduceAgentEvent(
+        reduceAgentEvent(
+          awaitingConnection(),
+          event(5, { type: "run.completed" }),
+        ),
+        {
+          ...event(1, { type: "run.started" }),
+          id: "event-run-2-1",
+          runId: "run-2",
+        },
+      );
+
+      expect(Object.keys(next.connectionRequests)).toEqual(["answered"]);
+      expect(Object.keys(next.connectionRequestRunIds)).toEqual(["answered"]);
+    });
+
+    it("leaves another run's request alone when a different run fails", () => {
+      const withSecondRun = reduceAgentEvent(awaitingConnection(), {
+        ...event(1, { type: "run.started" }),
+        id: "event-run-2-1",
+        runId: "run-2",
+      });
+      // run-2 starting already retired run-1's open requests; give run-2 its own.
+      const requested = reduceAgentEvent(withSecondRun, {
+        ...event(2, request("second", "requested")),
+        id: "event-run-2-2",
+        runId: "run-2",
+      });
+      const firstFailed = reduceAgentEvent(requested, {
+        ...event(5, { type: "run.failed", error: { code: "x", message: "x" } }),
+        id: "event-run-1-5",
+        runId: "run-1",
+      });
+
+      expect(Object.keys(firstFailed.connectionRequests).sort()).toEqual([
+        "answered",
+        "second",
+      ]);
+    });
+  });
+
+  describe("retiring requests of runs a loaded snapshot shows as superseded", () => {
+    // One open request per run, keyed by the run's startedAt string.
+    function openRequestsAfterRetiring(startedAt: Record<string, string>) {
+      const thread = createAgentThreadState("thread-1");
+      for (const [runId, at] of Object.entries(startedAt)) {
+        const id = `request-${runId}`;
+        thread.runs[runId] = {
+          id: runId,
+          status: "completed",
+          lastSequence: 1,
+          startedAt: at,
+        };
+        thread.connectionRequests[id] = {
+          id,
+          provider: "slack",
+          reason: "connect",
+          status: "requested",
+        };
+        thread.connectionRequestRunIds[id] = runId;
+      }
+      return Object.keys(
+        retireSupersededConnectionRequests(thread).connectionRequests,
+      );
+    }
+
+    it("orders runs by instant, not by how their timestamps are spelled", () => {
+      // "…:00.500Z" sorts before "…:00Z" as text but is the later instant.
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T00:00:00.500Z",
+          "run-2": "2026-08-29T00:00:00Z",
+        }),
+      ).toEqual(["request-run-1"]);
+    });
+
+    it("does not retire either run when two spellings name the same instant", () => {
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T00:00:00.000Z",
+          "run-2": "2026-08-29T00:00:00Z",
+        }).sort(),
+      ).toEqual(["request-run-1", "request-run-2"]);
+    });
+
+    it("honours a UTC offset", () => {
+      // 01:00+02:00 is 23:00Z the day before, an hour older than run-2.
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T01:00:00+02:00",
+          "run-2": "2026-08-29T00:00:00Z",
+        }),
+      ).toEqual(["request-run-2"]);
+    });
+
+    it("leaves a run with an unreadable start time alone and ignores it as the latest", () => {
+      expect(
+        openRequestsAfterRetiring({
+          "run-1": "2026-08-29T00:00:00Z",
+          "run-2": "not a timestamp",
+        }),
+      ).toEqual(["request-run-1", "request-run-2"]);
+    });
   });
 });

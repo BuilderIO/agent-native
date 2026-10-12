@@ -322,6 +322,7 @@ vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteComment: () => ({ mutateAsync: vi.fn() }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
@@ -1709,5 +1710,161 @@ it("keeps decided suggestion history readable and replies only to pending thread
   } finally {
     await act(async () => root.unmount());
     container.remove();
+  }
+});
+
+it("labels an open comment whose quoted text is no longer in the page", async () => {
+  const commentThread = (threadId: string, quotedText: string) => ({
+    threadId,
+    quotedText,
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: `${threadId}-root`,
+        document_id: "document-orphan",
+        thread_id: threadId,
+        parent_id: null,
+        content: "Should this stay?",
+        quoted_text: quotedText,
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-10-05T11:24:43.172Z",
+        updated_at: "2026-10-05T11:24:43.172Z",
+        notion_comment_id: null,
+      },
+    ],
+  });
+  // Minimized from a page where a comment quoted a suggested sentence that
+  // was never saved, so the quote exists nowhere in the page.
+  const orphan = commentThread(
+    "orphan-thread",
+    "Encoding our newfound knowledge into skills is how we keep raising the bar.",
+  );
+  const anchored = commentThread("anchored-thread", "Hand edits are gold");
+  const scroll = document.createElement("div");
+  scroll.innerHTML =
+    '<div class="ProseMirror"><p>I have already promised Apoorva my next one.</p><h2>Hand edits are gold</h2></div>';
+  document.body.append(scroll);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const replyDrafts = useCommentReplyDrafts("document-orphan");
+    return (
+      <CommentsSidebar
+        documentId="document-orphan"
+        replyDrafts={replyDrafts}
+        threads={[orphan, anchored]}
+        scrollContainerRef={{ current: scroll }}
+        surface="panel"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    const labelFor = (threadId: string) =>
+      container.querySelector(
+        `[data-thread-card="${threadId}"] [data-comment-anchor-unavailable]`,
+      );
+    expect(labelFor("orphan-thread")?.textContent).toBe("comments.unanchored");
+    expect(labelFor("anchored-thread")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    scroll.remove();
+  }
+});
+
+it("does not label a thread before its new id is measured", async () => {
+  const commentThread = (threadId: string) => ({
+    threadId,
+    quotedText: "Hand edits are gold",
+    prefix: null,
+    suffix: null,
+    startOffset: null,
+    resolved: false,
+    comments: [
+      {
+        id: `${threadId}-root`,
+        document_id: "document-renamed",
+        thread_id: threadId,
+        parent_id: null,
+        content: "Make this specific",
+        quoted_text: "Hand edits are gold",
+        anchor_prefix: null,
+        anchor_suffix: null,
+        anchor_start_offset: null,
+        mentions: [],
+        author_email: "reviewer@example.test",
+        author_name: "Reviewer",
+        resolved: 0,
+        created_at: "2026-10-05T11:24:43.172Z",
+        updated_at: "2026-10-05T11:24:43.172Z",
+        notion_comment_id: null,
+      },
+    ],
+  });
+  const scroll = document.createElement("div");
+  scroll.innerHTML =
+    '<div class="ProseMirror"><h2>Hand edits are gold</h2></div>';
+  document.body.append(scroll);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness({ threadId }: { threadId: string }) {
+    const replyDrafts = useCommentReplyDrafts("document-renamed");
+    return (
+      <CommentsSidebar
+        documentId="document-renamed"
+        replyDrafts={replyDrafts}
+        threads={[commentThread(threadId)]}
+        scrollContainerRef={{ current: scroll }}
+        surface="panel"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  const nextFrame = () =>
+    act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+  const labelFor = (threadId: string) =>
+    container.querySelector(
+      `[data-thread-card="${threadId}"] [data-comment-anchor-unavailable]`,
+    );
+  try {
+    await act(async () => root.render(<Harness threadId="optimistic-1" />));
+    await nextFrame();
+    expect(labelFor("optimistic-1")).toBeNull();
+
+    // The saved thread replaces its optimistic copy under a new id.
+    act(() => root.render(<Harness threadId="saved-1" />));
+    expect(container.querySelector('[data-thread-card="saved-1"]')).not.toBe(
+      null,
+    );
+    expect(labelFor("saved-1")).toBeNull();
+
+    await nextFrame();
+    expect(labelFor("saved-1")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    scroll.remove();
   }
 });

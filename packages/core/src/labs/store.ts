@@ -47,6 +47,14 @@ export interface UserLabState {
   mixed: boolean;
 }
 
+export type UserLabStateValue = UserLabState;
+
+export interface UserLabStateError {
+  error: "invalid-choice" | "legacy-unavailable";
+}
+
+export type UserLabStateResult = UserLabState | UserLabStateError;
+
 function parseLegacyRules(
   key: string,
   value: Record<string, unknown> | null,
@@ -91,7 +99,7 @@ async function getLegacyRules(
 export async function getUserLabStates(
   email: string,
   scope: FeatureFlagScope = {},
-): Promise<Record<string, UserLabState>> {
+): Promise<Record<string, UserLabStateResult>> {
   const stored = await getStoredLabs(email);
   return resolveStoredLabStates(email, stored, scope);
 }
@@ -100,40 +108,52 @@ async function resolveStoredLabStates(
   email: string,
   stored: Record<string, unknown> | null,
   scope: FeatureFlagScope,
-): Promise<Record<string, UserLabState>> {
-  const definitions = listLabs();
-  for (const { key } of definitions) {
-    if (
-      stored &&
-      Object.hasOwn(stored, key) &&
-      typeof stored[key] !== "boolean"
-    ) {
-      throw new Error(`Invalid saved lab choice: ${key}`);
-    }
-  }
+  definitions: readonly LabDefinition[] = listLabs(),
+): Promise<Record<string, UserLabStateResult>> {
+  const invalidChoices = new Set(
+    definitions
+      .filter(
+        ({ key }) =>
+          stored &&
+          Object.hasOwn(stored, key) &&
+          typeof stored[key] !== "boolean",
+      )
+      .map(({ key }) => key),
+  );
   const unresolved = definitions.filter(
     ({ key, legacyFlagKeys }) =>
-      typeof stored?.[key] !== "boolean" && legacyFlagKeys?.length,
+      !invalidChoices.has(key) &&
+      typeof stored?.[key] !== "boolean" &&
+      legacyFlagKeys?.length,
   );
   const legacyKeys = [
     ...new Set(unresolved.flatMap((lab) => lab.legacyFlagKeys ?? [])),
   ];
   const evaluationScope = { ...scope, userEmail: email };
-  const rules = new Map(
+  const rules = new Map<string, FeatureFlagRules | null>(
     await Promise.all(
-      legacyKeys.map(
-        async (key) =>
-          [key, await getLegacyRules(key, evaluationScope)] as const,
-      ),
+      legacyKeys.map(async (key) => {
+        try {
+          return [key, await getLegacyRules(key, evaluationScope)] as const;
+        } catch {
+          return [key, null] as const;
+        }
+      }),
     ),
   );
   return Object.fromEntries(
     definitions.map((lab) => {
+      if (invalidChoices.has(lab.key)) {
+        return [lab.key, { error: "invalid-choice" }];
+      }
       const choice = stored?.[lab.key];
       if (typeof choice === "boolean") {
         return [lab.key, { enabled: choice, source: "choice", mixed: false }];
       }
       if (lab.legacyFlagKeys?.length) {
+        if (lab.legacyFlagKeys.some((key) => rules.get(key) === null)) {
+          return [lab.key, { error: "legacy-unavailable" }];
+        }
         const legacyValues = Object.fromEntries(
           lab.legacyFlagKeys.map((key) => {
             const flagRules = rules.get(key);
@@ -174,8 +194,20 @@ export async function getUserLabState(
   scope: FeatureFlagScope = {},
 ): Promise<UserLabState> {
   const key = typeof lab === "string" ? lab : lab.key;
-  const state = (await getUserLabStates(email, scope))[key];
+  const definition = getLabDefinition(key);
+  if (!definition) throw new Error(`Unknown lab: ${key}`);
+  const stored = await getStoredLabs(email);
+  const state = (
+    await resolveStoredLabStates(email, stored, scope, [definition])
+  )[key];
   if (!state) throw new Error(`Unknown lab: ${key}`);
+  if ("error" in state) {
+    throw new Error(
+      state.error === "invalid-choice"
+        ? `Invalid saved lab choice: ${key}`
+        : `Could not resolve saved lab state: ${key}`,
+    );
+  }
   return state;
 }
 
@@ -205,7 +237,16 @@ export async function getUserLabs(
 ): Promise<Record<string, boolean>> {
   const states = await getUserLabStates(email, scope);
   return Object.fromEntries(
-    Object.entries(states).map(([key, state]) => [key, state.enabled]),
+    Object.entries(states).map(([key, state]) => {
+      if ("error" in state) {
+        throw new Error(
+          state.error === "invalid-choice"
+            ? `Invalid saved lab choice: ${key}`
+            : `Could not resolve saved lab state: ${key}`,
+        );
+      }
+      return [key, state.enabled];
+    }),
   );
 }
 
@@ -215,10 +256,21 @@ export async function setUserLab(
   enabled: boolean,
   scope: FeatureFlagScope = {},
 ): Promise<Record<string, boolean>> {
+  return projectReadableLabValues(
+    await setUserLabStates(email, key, enabled, scope),
+  );
+}
+
+export async function setUserLabStates(
+  email: string,
+  key: string,
+  enabled: boolean,
+  scope: FeatureFlagScope = {},
+): Promise<Record<string, UserLabStateResult>> {
   if (!getLabDefinition(key)) {
     throw new Error(`Unknown lab: ${key}`);
   }
-  let effectiveValues: Record<string, boolean> | undefined;
+  let effectiveValues: Record<string, UserLabStateResult> | undefined;
   await mutateUserSetting(email, LABS_SETTING_KEY, async (current) => {
     validLabSetting(LABS_SETTING_KEY, current);
     const legacy =
@@ -228,10 +280,18 @@ export async function setUserLab(
     validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
     const next = { ...(legacy ?? {}), ...(current ?? {}), [key]: enabled };
     const states = await resolveStoredLabStates(email, next, scope);
-    effectiveValues = Object.fromEntries(
-      Object.entries(states).map(([labKey, state]) => [labKey, state.enabled]),
-    );
+    effectiveValues = states;
     return next;
   });
   return effectiveValues!;
+}
+
+function projectReadableLabValues(
+  states: Record<string, UserLabStateResult>,
+): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(states).flatMap(([key, state]) =>
+      "error" in state ? [] : [[key, state.enabled]],
+    ),
+  );
 }

@@ -7,6 +7,7 @@ import type {
   DocumentHistoryCheckpointDetail,
   DocumentHistoryGroup,
 } from "@shared/document-history";
+import { IMPORT_CONTENT_OPERATION } from "@shared/import/types";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -778,6 +779,13 @@ function historyGroupTitle(
   if (group.kind === "operation") {
     if (group.operation === "restore-document-version") {
       return t("editor.historyGroupRestore");
+    }
+    if (group.operation === IMPORT_CONTENT_OPERATION) {
+      return group.importSourceName
+        ? t("contentImport.historyGroupFrom", {
+            name: group.importSourceName,
+          })
+        : t("contentImport.historyGroup");
     }
     return t("editor.historyGroupOperation");
   }

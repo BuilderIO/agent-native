@@ -31,6 +31,36 @@ async function action(
   return response.json();
 }
 
+type CanvasFrameGeometry = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z?: number;
+};
+
+async function readCanvasFrames(
+  request: APIRequestContext,
+  designId: string,
+): Promise<Record<string, CanvasFrameGeometry>> {
+  const response = await request.get(
+    `${BASE_URL}/_agent-native/actions/get-design`,
+    { params: { id: designId, includeFileContent: "false" } },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `get-design: ${response.status()} ${await response.text()}`,
+    );
+  }
+  const design = await response.json();
+  const data =
+    typeof design.data === "string" ? JSON.parse(design.data) : design.data;
+  if (!data || typeof data !== "object" || !data.canvasFrames) {
+    throw new Error("get-design returned no canvas frame geometry");
+  }
+  return data.canvasFrames as Record<string, CanvasFrameGeometry>;
+}
+
 async function createDesign(request: APIRequestContext, fileCount: number) {
   const created = await action(request, "create-design", {
     title: `Alt-drag copy QA ${Date.now()}`,
@@ -126,31 +156,35 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
     const dragSurface = page.locator("[data-frame-drag-surface]");
     await expect(dragSurface).toBeVisible();
 
-    const before = await frameOffsets(page);
+    const beforeFrames = await readCanvasFrames(request, designId);
+    const sourceFrame = beforeFrames[fileIds[0]!];
+    if (!sourceFrame) throw new Error("Source frame has no saved geometry");
     await altDrag(page, dragSurface, 220, 140);
 
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
-    const copyId = Object.keys(await frameOffsets(page)).find(
-      (id) => id !== fileIds[0],
-    );
-    if (!copyId) throw new Error("Alt-drag did not create a duplicate frame");
+    let afterFrames: Record<string, CanvasFrameGeometry> = {};
+    let copyId = "";
     await expect
       .poll(
         async () => {
-          const offset = (await frameOffsets(page))[copyId!];
+          afterFrames = await readCanvasFrames(request, designId);
+          copyId =
+            Object.keys(afterFrames).find((id) => id !== fileIds[0]) ?? "";
+          const copyFrame = afterFrames[copyId];
           return Boolean(
-            offset &&
-            offset.left > before[fileIds[0]!]!.left &&
-            offset.top > before[fileIds[0]!]!.top,
+            copyFrame &&
+            copyFrame.x > sourceFrame.x &&
+            copyFrame.y > sourceFrame.y,
           );
         },
         { timeout: 30_000 },
       )
       .toBe(true);
-    const after = await frameOffsets(page);
-    expect(after[fileIds[0]!]).toEqual(before[fileIds[0]!]);
-    expect(after[copyId]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
-    expect(after[copyId]!.top).toBeGreaterThan(before[fileIds[0]!]!.top);
+    expect(Object.keys(afterFrames)).toHaveLength(2);
+    expect(afterFrames[fileIds[0]!]).toEqual(sourceFrame);
+    expect(copyId).toBeTruthy();
+    expect(afterFrames[copyId]!.x).toBeGreaterThan(sourceFrame.x);
+    expect(afterFrames[copyId]!.y).toBeGreaterThan(sourceFrame.y);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

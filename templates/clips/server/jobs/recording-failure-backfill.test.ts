@@ -77,6 +77,11 @@ describe("recording failure backfill", () => {
         "multipart_start_failed",
       ],
       [
+        "05a",
+        "Recording interruption has unknown cause",
+        "recording_interrupted",
+      ],
+      [
         "06",
         "Video storage is not connected yet: configure storage",
         "storage_setup_required",

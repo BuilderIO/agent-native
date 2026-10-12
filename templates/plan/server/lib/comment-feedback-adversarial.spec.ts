@@ -39,14 +39,19 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  emailStrong: (value: string) => `<strong>${value}</strong>`,
-  getAppProductionUrl: () => "https://plans.example.test",
-  isEmailConfigured: () => isEmailConfiguredMock(),
-  renderEmail: (args: unknown) => renderEmailMock(args),
-  sendEmail: (args: unknown) => sendEmailMock(args),
-  buildDeepLink: (args: unknown) => `deeplink:${JSON.stringify(args)}`,
-}));
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    emailStrong: (value: string) => `<strong>${value}</strong>`,
+    getAppProductionUrl: () => "https://plans.example.test",
+    isEmailConfigured: () => isEmailConfiguredMock(),
+    isTestIdentity: actual.isTestIdentity,
+    renderEmail: (args: unknown) => renderEmailMock(args),
+    sendEmail: (args: unknown) => sendEmailMock(args),
+    buildDeepLink: (args: unknown) => `deeplink:${JSON.stringify(args)}`,
+  };
+});
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(),

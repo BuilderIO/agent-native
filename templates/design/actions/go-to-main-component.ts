@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -40,9 +40,9 @@ async function liveContent(
 
 export default defineAction({
   description:
-    "Resolve the 'main' instance of a component (Figma's Go to main " +
-    "component). Canonical linked components resolve by their persisted " +
-    "component id; legacy name-only annotations fall back to the earliest " +
+    "Find the main instance of a component. Canonical linked components " +
+    "resolve by their persisted component id; legacy name-only annotations " +
+    "fall back to the earliest " +
     "same-name instance across the design's files. Returns isMain=true when " +
     "the selected instance is already the main; otherwise navigates the " +
     "editor to it.",
@@ -60,7 +60,8 @@ export default defineAction({
   }),
   run: async ({ designId, nodeId, fileId }) => {
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);

@@ -5,6 +5,7 @@ import { Outlet, useNavigate } from "react-router";
 
 import { LibraryLayout } from "@/components/library/library-layout";
 import { useAutoTitleBridge } from "@/hooks/use-auto-title";
+import { useLocalRecordingRecovery } from "@/hooks/use-local-recording-recovery";
 import { useTransactionalEmailBridge } from "@/hooks/use-transactional-email-bridge";
 
 function useGlobalSequenceShortcuts() {
@@ -68,6 +69,7 @@ export default function AppLayoutRoute() {
   useAutoTitleBridge();
   useTransactionalEmailBridge();
   useGlobalSequenceShortcuts();
+  useLocalRecordingRecovery();
 
   return (
     <LibraryLayout>

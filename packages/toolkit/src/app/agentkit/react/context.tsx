@@ -213,12 +213,24 @@ export interface AgentKitLabels {
   durationSecondShort: string;
   agents: string;
   tasks: string;
+  toolInput?: string;
+  toolResult?: string;
+  activityValueIdentifierHidden?: string;
+  activityValueOmitted?: string;
+  activityValueCircular?: string;
   composerLabel: string;
   composerPlaceholder: string;
   queue: string;
+  /** @deprecated Use queueSendNow. */
   queueSteer: string;
+  /** @deprecated Use queueSendNowHint. */
   queueSteerHint: string;
+  /** @deprecated Use queueSendNext. */
   queueMoveToTop: string;
+  queueSendNow?: string;
+  queueSendNowHint?: string;
+  queueSendNext?: string;
+  queueSendNextHint?: string;
   queueRemove: string;
   queueMore: string;
   suggestions: string;
@@ -226,6 +238,17 @@ export interface AgentKitLabels {
   copied: string;
   messageActions: string;
   copyRequestId: string;
+  usage: string;
+  usageLoading: string;
+  usageUnavailable: string;
+  usageNotRecorded: string;
+  usageIncomplete: string;
+  usageReportedCost: string;
+  usageEstimatedCost: string;
+  usageMixedCost: string;
+  usageBuilderCredits: string;
+  usageEstimatedBuilderCredits: string;
+  usageMixedBuilderCredits: string;
   requestIdUnavailable: string;
   positiveFeedback: string;
   negativeFeedback: string;
@@ -234,6 +257,11 @@ export interface AgentKitLabels {
   feedbackPlaceholder: string;
   feedbackKeyboardHint: string;
   feedbackSubmit: string;
+  feedbackReasonMisread: string;
+  feedbackReasonNotDone: string;
+  feedbackReasonWrongNumbers: string;
+  feedbackReasonTooSlow: string;
+  feedbackCopyDetails: string;
   fork: string;
   previousBranch: string;
   nextBranch: string;
@@ -248,14 +276,18 @@ export interface AgentKitLabels {
   collapseMessage: string;
   previewAttachment: string;
   pastedText: string;
+  attachmentNotSaved: string;
   imagePreview: string;
   closePreview: string;
   dropFilesToAttach: string;
+  dropFileFailed: string;
   scrollToBottom: string;
   formatTimestamp?: (createdAt: string) => string;
   error: string;
   renderError: string;
   runFailed: string;
+  continueRun: string;
+  continueRunUnavailable: string;
   reconnect: string;
   reasoning: string;
   expandActivity: string;
@@ -302,12 +334,21 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   durationSecondShort: "s",
   agents: "Agent collaboration",
   tasks: "Agent tasks",
+  toolInput: "Input",
+  toolResult: "Result",
+  activityValueIdentifierHidden: "[Identifier hidden]",
+  activityValueOmitted: "[Content omitted]",
+  activityValueCircular: "[Circular reference]",
   composerLabel: "Message agent",
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",
-  queueSteer: "Steer",
-  queueSteerHint: "Send this message to the active run",
-  queueMoveToTop: "Move to top",
+  queueSteer: "Send now",
+  queueSteerHint: "Stops the current response, then sends this message.",
+  queueMoveToTop: "Send next",
+  queueSendNow: "Send now",
+  queueSendNowHint: "Stops the current response, then sends this message.",
+  queueSendNext: "Send next",
+  queueSendNextHint: "Send after the current response finishes",
   queueRemove: "Remove queued message",
   queueMore: "More actions",
   suggestions: "Suggested next actions",
@@ -315,6 +356,17 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   copied: "Copied",
   messageActions: "Message actions",
   copyRequestId: "Copy request ID",
+  usage: "Usage",
+  usageLoading: "Loading usage…",
+  usageUnavailable: "Usage unavailable",
+  usageNotRecorded: "Usage not recorded",
+  usageIncomplete: "Some usage could not be classified; totals are hidden.",
+  usageReportedCost: "Cost {{amount}}",
+  usageEstimatedCost: "Estimated cost {{amount}}",
+  usageMixedCost: "Reported and estimated cost {{amount}}",
+  usageBuilderCredits: "Builder credits used {{amount}}",
+  usageEstimatedBuilderCredits: "Estimated Builder credits {{amount}}",
+  usageMixedBuilderCredits: "Reported and estimated Builder credits {{amount}}",
   requestIdUnavailable: "Request ID unavailable",
   positiveFeedback: "Helpful",
   negativeFeedback: "Not helpful",
@@ -323,6 +375,11 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   feedbackPlaceholder: "Describe what went wrong",
   feedbackKeyboardHint: "Press {{shortcut}}+Enter to submit",
   feedbackSubmit: "Submit feedback",
+  feedbackReasonMisread: "Misread my ask",
+  feedbackReasonNotDone: "Said done, but wasn't",
+  feedbackReasonWrongNumbers: "Wrong numbers",
+  feedbackReasonTooSlow: "Too slow",
+  feedbackCopyDetails: "Copy details",
   fork: "Fork conversation",
   previousBranch: "Previous branch",
   nextBranch: "Next branch",
@@ -338,13 +395,18 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   collapseMessage: "Collapse",
   previewAttachment: "Preview {{name}}",
   pastedText: "Pasted text",
+  attachmentNotSaved: "Not saved with this chat",
   imagePreview: "Image preview",
   closePreview: "Close preview",
   dropFilesToAttach: "Drop files to attach",
+  dropFileFailed: "Could not add the dropped file. Try a different format.",
   scrollToBottom: "Scroll to bottom",
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
   runFailed: "Run failed",
+  continueRun: "Continue",
+  continueRunUnavailable:
+    "This run can't be continued anymore. Send a message to keep going.",
   reconnect: "Reconnect",
   reasoning: "Thinking",
   expandActivity: "Show activity details",
@@ -372,6 +434,33 @@ export type AgentKitCopyMessageHandler = (input: {
   text: string;
 }) => boolean | Promise<boolean>;
 
+export interface AgentKitRunUsage {
+  durationMs: number | null;
+  billing: {
+    providerCostUsd: number | null;
+    providerCostSource: "reported" | "estimated" | "mixed" | null;
+    builderCredits: number | null;
+    builderCreditsSource: "reported" | "estimated" | "mixed" | null;
+    incomplete: boolean;
+  };
+}
+
+export type AgentKitRunUsageLoader = (input: {
+  runId: RunId;
+  signal: AbortSignal;
+}) => Promise<AgentKitRunUsage | null>;
+
+/**
+ * The text behind "Copy details" in the thumbs-down popover: whatever lets
+ * someone else open the exact run, plus the reader's note.
+ */
+export type AgentKitFeedbackReportBuilder = (input: {
+  threadId: ThreadId;
+  runId?: RunId;
+  messageId: string;
+  note: string;
+}) => string;
+
 export interface AgentKitProviderProps {
   controller: AgentKitController;
   threadId: ThreadId;
@@ -382,6 +471,8 @@ export interface AgentKitProviderProps {
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  buildFeedbackReport?: AgentKitFeedbackReportBuilder;
+  loadRunUsage?: AgentKitRunUsageLoader;
   /**
    * Resolves a provider identifier through host-owned connection setup. The
    * callback, never the agent-authored request, owns OAuth URLs and scopes.
@@ -399,16 +490,25 @@ export interface AgentKitProviderProps {
   children: ReactNode;
 }
 
+interface ResolvedAgentKitLabels extends AgentKitLabels {
+  queueSendNow: string;
+  queueSendNowHint: string;
+  queueSendNext: string;
+  queueSendNextHint: string;
+}
+
 export interface AgentKitContextValue {
   controller: AgentKitController;
   threadId: ThreadId;
   slots: AgentKitSlots;
   registry: AgentKitRegistry;
-  labels: AgentKitLabels;
+  labels: ResolvedAgentKitLabels;
   onOpenObject?: (object: AgentObjectReference) => void;
   onThreadForked?: (thread: AgentThread) => void;
   branchNavigation?: AgentKitBranchNavigation;
   onCopyMessage?: AgentKitCopyMessageHandler;
+  buildFeedbackReport?: AgentKitFeedbackReportBuilder;
+  loadRunUsage?: AgentKitRunUsageLoader;
   onConnectionRequest?: AgentKitProviderProps["onConnectionRequest"];
   onRenderError?: (failure: AgentKitRenderFailure) => void;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
@@ -427,6 +527,8 @@ export function AgentKitProvider({
   onThreadForked,
   branchNavigation,
   onCopyMessage,
+  buildFeedbackReport,
+  loadRunUsage,
   onConnectionRequest,
   onRenderError,
   onClientEffect,
@@ -447,8 +549,37 @@ export function AgentKitProvider({
   const requestComposerFocus = useCallback((targetThreadId: ThreadId) => {
     composerFocusTargets.current.get(targetThreadId)?.();
   }, []);
-  const mergedLabels = useMemo(
-    () => ({ ...defaultAgentKitLabels, ...labels }),
+  const mergedLabels = useMemo<ResolvedAgentKitLabels>(
+    () => ({
+      ...defaultAgentKitLabels,
+      ...labels,
+      queueSteer:
+        labels?.queueSteer ??
+        labels?.queueSendNow ??
+        defaultAgentKitLabels.queueSteer,
+      queueSteerHint:
+        labels?.queueSteerHint ??
+        labels?.queueSendNowHint ??
+        defaultAgentKitLabels.queueSteerHint,
+      queueMoveToTop:
+        labels?.queueMoveToTop ??
+        labels?.queueSendNext ??
+        defaultAgentKitLabels.queueMoveToTop,
+      queueSendNow:
+        labels?.queueSendNow ??
+        labels?.queueSteer ??
+        defaultAgentKitLabels.queueSendNow!,
+      queueSendNowHint:
+        labels?.queueSendNowHint ??
+        labels?.queueSteerHint ??
+        defaultAgentKitLabels.queueSendNowHint!,
+      queueSendNext:
+        labels?.queueSendNext ??
+        labels?.queueMoveToTop ??
+        defaultAgentKitLabels.queueSendNext!,
+      queueSendNextHint:
+        labels?.queueSendNextHint ?? defaultAgentKitLabels.queueSendNextHint!,
+    }),
     [labels],
   );
   const value = useMemo(
@@ -462,6 +593,8 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      buildFeedbackReport,
+      loadRunUsage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
@@ -477,6 +610,8 @@ export function AgentKitProvider({
       onThreadForked,
       branchNavigation,
       onCopyMessage,
+      buildFeedbackReport,
+      loadRunUsage,
       onConnectionRequest,
       onRenderError,
       registerComposerFocus,
@@ -820,7 +955,16 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
       queue: (text: string) => controller.queueMessage({ threadId, text }),
       queueMessage: (input: Omit<SendMessageInput, "threadId">) =>
         controller.queueMessage({ ...input, threadId }),
+      reserveQueuedMessage: (text: string, onLocalSubmit?: () => void) =>
+        controller.reserveQueuedMessage({ threadId, text }, onLocalSubmit),
+      cancelQueuedMessageReservation: (messageId: string) =>
+        controller.cancelQueuedMessageReservation(threadId, messageId),
       cancel: (runId: string) => controller.cancelRun(threadId, runId),
+      canContinueRun: controller.supportsRunContinuation?.() === true,
+      continueRun: (runId: string) =>
+        controller.continueRun
+          ? controller.continueRun(threadId, runId)
+          : Promise.reject(new Error(labels.error)),
       approve: (
         runId: string,
         approvalId: string,
@@ -861,8 +1005,11 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
         controller.moveQueuedMessageToTop
           ? controller.moveQueuedMessageToTop(threadId, messageId)
           : Promise.reject(new Error(labels.error)),
-      steerQueued: (messageId: string) =>
-        controller.steerQueuedMessage(threadId, messageId),
+      steerQueued: (
+        messageId: string,
+        options?: { interruptActiveRun?: boolean },
+      ) =>
+        controller.steerQueuedMessage(threadId, messageId, undefined, options),
       submitFeedback: (
         messageId: string,
         value: "positive" | "negative" | "dismissed",

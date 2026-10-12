@@ -1,7 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
-import { useSession } from "@agent-native/core/client/use-session";
+import {
+  isSessionNavigationPending,
+  navigateForSession,
+  useSession,
+} from "@agent-native/core/client/use-session";
 import type {
   AgentNativeDeploymentEnvironment,
   AgentNativeConfig,
@@ -403,6 +407,7 @@ function ProductionEnvironmentBadge({
       targets.betaHost,
     );
     if (!betaHref || typeof window.location.replace !== "function") return;
+    if (isSessionNavigationPending()) return;
 
     rememberBetaRedirectPreference();
     didAutoRedirect.current = true;
@@ -411,7 +416,7 @@ function ProductionEnvironmentBadge({
       to_environment: "beta",
       trigger: "automatic_redirect",
     });
-    window.location.replace(betaHref);
+    navigateForSession(betaHref, "beta_lane");
   }, [isEligible, session?.email, status, targets.betaHost]);
 
   return (

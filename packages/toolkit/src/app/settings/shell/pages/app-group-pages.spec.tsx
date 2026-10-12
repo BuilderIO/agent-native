@@ -442,6 +442,31 @@ describe("app group pages", () => {
       expect(switchFor("Voice dictation")?.disabled).toBe(false);
     });
 
+    it("offers an explicit choice to repair an unreadable saved lab", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { error: "invalid-choice" },
+        "clips.meetings": {
+          enabled: false,
+          source: "default",
+          mixed: false,
+        },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+
+      expect(container.textContent).toContain(
+        "Couldn't read this saved choice.",
+      );
+      const on = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Voice dictation: On"]',
+      );
+      expect(on?.disabled).toBe(false);
+      act(() => on?.click());
+      expect(labsActions.mutate).toHaveBeenCalledWith(
+        { key: "clips.wisprflow", enabled: true },
+        expect.any(Object),
+      );
+    });
+
     it("refreshes the model catalog after a ChatGPT lab change succeeds", async () => {
       labsActions.query.data = {
         "chatgpt-subscription": {

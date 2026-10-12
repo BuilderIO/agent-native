@@ -67,6 +67,13 @@ export interface AgentRouteLocation {
   location: Location;
 }
 
+export interface WorkspaceAppRouteTarget {
+  type: "workspace-app";
+  path: string;
+}
+
+export type AgentRouteTarget = string | WorkspaceAppRouteTarget;
+
 export interface UseAgentRouteStateOptions<
   NavigationState,
   NavigateCommand = NavigationState,
@@ -74,7 +81,9 @@ export interface UseAgentRouteStateOptions<
   getNavigationState: (
     location: AgentRouteLocation,
   ) => NavigationState | null | undefined;
-  getCommandPath: (command: NavigateCommand) => string | null | undefined;
+  getCommandPath: (
+    command: NavigateCommand,
+  ) => AgentRouteTarget | null | undefined;
   navigationKey?: string;
   commandKey?: string;
   browserTabId?: string;
@@ -454,17 +463,28 @@ export function useAgentRouteState<
     getCommandDedupKey: options.getCommandDedupKey,
     onError: options.onError,
     onCommand: (command) => {
-      const path = options.getCommandPath(command);
+      const target = options.getCommandPath(command);
+      if (!target) return;
+      const workspaceAppTarget = typeof target !== "string";
+      const path = typeof target !== "string" ? target.path : target;
       if (!path) return;
+      if (
+        typeof target !== "string" &&
+        (target.type !== "workspace-app" || !isWorkspaceAppPath(path))
+      ) {
+        throw new Error(
+          `Workspace app route target must match a mounted sibling app: ${path}`,
+        );
+      }
       options.onNavigate?.(command, path);
-      if (path === currentRouterPath(location)) return;
+      if (!workspaceAppTarget && path === currentRouterPath(location)) return;
 
       const navigateOptions = options.navigateOptions;
       const resolvedOptions =
         typeof navigateOptions === "function"
           ? navigateOptions(command)
           : navigateOptions;
-      if (isWorkspaceAppPath(path)) {
+      if (workspaceAppTarget) {
         if (resolvedOptions?.replace) {
           window.location.replace(path);
         } else {

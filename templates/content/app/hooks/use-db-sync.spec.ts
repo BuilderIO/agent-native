@@ -6,7 +6,10 @@ import {
   contentActionInvalidatePredicate,
   contentDocumentIdFromPathname,
 } from "./content-action-refresh";
-import { contentSyncInvalidatePredicate } from "./use-db-sync";
+import {
+  contentSyncInvalidatePredicate,
+  isPrivateDocumentEditorPath,
+} from "./use-db-sync";
 
 describe("contentActionInvalidatePredicate", () => {
   it("refreshes the mounted document's save basis after a peer suggestion decision", async () => {
@@ -371,6 +374,21 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
+  it("refreshes an open row page after a batch row patch", () => {
+    const predicate = contentActionInvalidatePredicate("/page/row");
+    for (const name of ["get-document", "list-document-properties"]) {
+      expect(
+        predicate(
+          {
+            queryKey: ["action", name, { id: "row", documentId: "row" }],
+            isActive: () => true,
+          },
+          [{ source: "action", key: "patch-database-items" }],
+        ),
+      ).toBe(true);
+    }
+  });
+
   it("refreshes bounded database results after external row changes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
 
@@ -619,7 +637,7 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes only the active personal-view query for personal presentation writes", () => {
+  it("refreshes only the active personal view and the Files tree it orders for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {
       queryKey: [
@@ -629,19 +647,37 @@ describe("contentActionInvalidatePredicate", () => {
       ],
       isActive: () => true,
     };
+    const filesTreeQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        { databaseId: "files", limit: 20, navigation: { parentId: null } },
+      ],
+      isActive: () => true,
+    };
+    const tableQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        { documentId: "database-page", limit: 100 },
+      ],
+      isActive: () => true,
+    };
+    const events = [
+      { source: "action", key: "update-content-database-personal-view" },
+    ];
 
+    expect(predicate(personalViewQuery, events)).toBe(true);
     expect(
-      predicate(personalViewQuery, [
-        { source: "action", key: "update-content-database-personal-view" },
-      ]),
-    ).toBe(true);
+      predicate({ ...personalViewQuery, isActive: () => false }, events),
+    ).toBe(false);
+    expect(predicate(filesTreeQuery, events)).toBe(true);
     expect(
-      predicate({ ...personalViewQuery, isActive: () => false }, [
-        {
-          source: "action",
-          key: "update-content-database-personal-view",
-        },
-      ]),
+      predicate({ ...filesTreeQuery, isActive: () => false }, events),
+    ).toBe(false);
+    expect(predicate(tableQuery, events)).toBe(false);
+    expect(
+      predicate(filesTreeQuery, [{ source: "action", key: "add-comment" }]),
     ).toBe(false);
   });
 
@@ -993,5 +1029,15 @@ describe("contentDocumentIdFromPathname", () => {
       "document 2",
     );
     expect(contentDocumentIdFromPathname("/settings")).toBeUndefined();
+  });
+});
+
+describe("isPrivateDocumentEditorPath", () => {
+  it("opts in only on an open private document page", () => {
+    expect(isPrivateDocumentEditorPath("/page/document-1")).toBe(true);
+    expect(isPrivateDocumentEditorPath("/page/document-1/")).toBe(true);
+    for (const path of ["/", "/home", "/page", "/p/document-1", "/trash"]) {
+      expect(isPrivateDocumentEditorPath(path), path).toBe(false);
+    }
   });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { applyRelativeRotationToTransform } from "./commit-relative-style-delta-to-selected-layers";
 
 describe("applyRelativeRotationToTransform", () => {
-  it("applies deltas in Figma's counter-clockwise-positive domain", () => {
+  it("applies deltas using the counter-clockwise-positive angle convention", () => {
     expect(
       applyRelativeRotationToTransform(
         "translateX(10px) rotate(-10deg) scale(2)",

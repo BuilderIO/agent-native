@@ -41,7 +41,7 @@ const schemaInput = z
       .trim()
       .optional()
       .describe(
-        "Figma node id (colon or dash form, e.g. '12:34' or '12-34'). Used when figmaUrl has no node-id. Defaults to the file's first top-level frame when omitted.",
+        "Figma node id (colon or dash form, e.g. '12:34' or '12-34'). Used when figmaUrl has no node-id. Defaults to the first FRAME on the file's first page when omitted.",
       ),
     designId: z
       .string()

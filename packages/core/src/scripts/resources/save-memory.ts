@@ -1,3 +1,4 @@
+import { assertCanManageSharedResource } from "../../resources/script-helpers.js";
 import {
   resourceGetByPath,
   resourcePutSnapshotBatchIfCurrent,
@@ -84,6 +85,7 @@ export default async function saveMemoryScript(
   if (scope === "current-org" && !orgId) {
     fail("--scope current-org requires an active organization.");
   }
+  if (scope === "current-org") await assertCanManageSharedResource();
   const memoryOwner = orgId ? sharedResourceOwner(orgId) : owner;
   const indexPath = "memory/MEMORY.md";
   const now = new Date().toISOString().slice(0, 10);

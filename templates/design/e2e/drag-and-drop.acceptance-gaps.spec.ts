@@ -16,8 +16,11 @@ const SCREEN = `<!doctype html><html><body style="margin:0;position:relative;wid
 <div data-agent-native-node-id="auto-peer" data-agent-native-layer-name="Peer" style="flex:0 0 100px;height:50px;background:#06b6d4"></div>
 </section></body></html>`;
 const DESTINATION = `<!doctype html><html><body style="margin:0;position:relative;width:800px;height:600px">
-<section data-agent-native-node-id="root" data-agent-native-layer-name="Destination" data-an-primitive="frame" style="position:absolute;left:180px;top:180px;width:260px;height:160px;background:#f97316"></section>
-</body></html>`;
+    <section data-agent-native-node-id="root" data-agent-native-layer-name="Destination" data-an-primitive="frame" style="position:absolute;left:180px;top:180px;width:260px;height:160px;background:#f97316"></section>
+    </body></html>`;
+const SIZE_COMPATIBLE_DESTINATION = `<!doctype html><html><body style="margin:0;position:relative;width:800px;height:600px">
+    <section data-agent-native-node-id="root" data-agent-native-layer-name="Destination" data-an-primitive="frame" style="position:absolute;left:180px;top:180px;width:360px;height:240px;background:#f97316"></section>
+    </body></html>`;
 
 type HtmlNode = {
   attrs?: Array<{ name: string; value: string }>;
@@ -602,7 +605,7 @@ test("ordinary cross-Screen drops preserve percentage and auto sizing", async ({
   </body></html>`;
   const { designId, ids } = await createScreens(
     request,
-    DESTINATION,
+    SIZE_COMPATIBLE_DESTINATION,
     responsiveSource,
   );
   try {
@@ -771,7 +774,7 @@ test("cross-Screen drops preserve Flex and default Grid-stretched sizes", async 
   </body></html>`;
   const { designId, ids } = await createScreens(
     request,
-    DESTINATION,
+    SIZE_COMPATIBLE_DESTINATION,
     sourceContent,
   );
   try {

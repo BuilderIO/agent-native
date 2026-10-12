@@ -6,10 +6,13 @@ import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 const guards = [
   "guard:hooks-registered",
   "guard:agent-native-brand",
+  "guard:readme-link-tags",
   "guard:no-drizzle-push",
   "guard:mcp-registry",
   "guard:no-pnpm-patches",
+  "guard:template-layers",
   "guard:chat-first-shared-ui",
+  "guard:chat-send-gate",
   "guard:no-empty-migrations",
   "guard:release-schema-complete",
   "guard:no-unscoped-queries",
@@ -27,8 +30,10 @@ const guards = [
   "guard:netlify-release-migrations",
   "guard:netlify-prebuilt-workflow",
   "guard:beta-e2e-suite",
+  "guard:automated-findings",
   "guard:trusted-acceptance",
   "guard:design-e2e-workflow",
+  "guard:test-title-production",
   "guard:mobile-build-paths",
   "guard:content-product-conformance",
   "guard:content-product-docs",
@@ -68,6 +73,7 @@ const guards = [
   "guard:config-docs",
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
+  "guard:no-source-reading-tests",
   "guard:no-major-changeset",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
@@ -81,6 +87,7 @@ const guards = [
   "guard:no-heavy-dashboard-list-reads",
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
+  "guard:no-bare-error-in-actions",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
@@ -182,11 +189,22 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
 function runGuard(name: GuardName): Promise<GuardResult> {
   const startedAt = Date.now();
   const [command, args] = guardCommand(name);
-  const child = spawn(command, args, {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  // Node refuses to spawn .cmd/.bat files directly (CVE-2024-27980), and pnpm
+  // is a pnpm.cmd shim on Windows, so run it through the shell there. The
+  // command and args are fixed literals from this file, so joining them into
+  // one command line is safe. Passing no args also avoids Node's DEP0190
+  // warning about unescaped shell args.
+  const useShell = process.platform === "win32";
+  const child = spawn(
+    useShell ? formatCommand([command, args]) : command,
+    useShell ? [] : args,
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: useShell,
+    },
+  );
 
   running.add(child);
   const chunks: string[] = [];

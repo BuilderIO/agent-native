@@ -1145,8 +1145,15 @@ describe("explicit grid placement repro", () => {
             event.data.moves;
       });
     });
-    const target = await box(page, "#target");
-    await dragSelectedGroup(page, { x: target.x + 230, y: target.y + 110 });
+    const occupied = await box(page, "#occupied");
+    await dragSelectedGroup(page, {
+      x: occupied.x + occupied.width / 2,
+      y: occupied.y + occupied.height / 2,
+    });
+    const guide = await box(page, "[data-agent-native-insertion-guide]");
+    expect(guide.x).toBeCloseTo(occupied.x - 1, 0);
+    expect(guide.y).toBeCloseTo(occupied.y, 0);
+    expect(guide.height).toBeCloseTo(occupied.height, 0);
     await page.mouse.up();
     await expect
       .poll(() =>

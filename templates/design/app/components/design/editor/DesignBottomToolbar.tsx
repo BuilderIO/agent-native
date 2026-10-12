@@ -64,8 +64,9 @@ export function DesignBottomToolbar({
   onScale,
   onMediaFiles,
   onCommentPin,
+  canComment,
   onModeChange,
-  shortcutsPanelOpen,
+  showModeTabs,
 }: {
   mode: EditorMode;
   pinMode: boolean;
@@ -86,8 +87,15 @@ export function DesignBottomToolbar({
   onScale: () => void;
   onMediaFiles: (files: File[]) => void;
   onCommentPin: () => void;
+  /** Comments and annotation drawing need a signed-in commenter; a widget's write ticket covers neither. */
+  canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
-  shortcutsPanelOpen: boolean;
+  /**
+   * The Interact / Design / Annotate switch lives in the editor top bar. Shells
+   * that do not render that bar (minimal UI, embedded chrome, the visual-edit
+   * route, hidden UI) still render this toolbar, so it carries the switch there.
+   */
+  showModeTabs: boolean;
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
@@ -321,15 +329,20 @@ export function DesignBottomToolbar({
           active: activeTool === "pen",
           onSelect: onPen,
         },
-        {
-          key: "draw",
-          label: t("designEditor.modes.draw"),
-          icon: <IconBrush className="size-4" />,
-          shortcut: "⇧Y",
-          active: activeTool === "draw" && mode === "annotate" && drawMode,
-          disabled: !hasActiveFile,
-          onSelect: onDraw,
-        },
+        ...(canComment
+          ? [
+              {
+                key: "draw",
+                label: t("designEditor.modes.draw"),
+                icon: <IconBrush className="size-4" />,
+                shortcut: "⇧Y",
+                active:
+                  activeTool === "draw" && mode === "annotate" && drawMode,
+                disabled: !hasActiveFile,
+                onSelect: onDraw,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -349,24 +362,29 @@ export function DesignBottomToolbar({
         },
       ],
     },
-    {
-      key: "comment",
-      active: activeTool === "comment" && mode === "annotate" && pinMode,
-      label: t("designEditor.pinComment"),
-      icon: <IconMessage className="size-[18px]" />,
-      onClick: onCommentPin,
-      options: [
-        {
-          key: "comment",
-          label: t("designEditor.pinComment"),
-          icon: <IconMessage className="size-4" />,
-          shortcut: "C",
-          active: activeTool === "comment" && mode === "annotate" && pinMode,
-          disabled: !hasActiveFile || isOverview,
-          onSelect: onCommentPin,
-        },
-      ],
-    },
+    ...(canComment
+      ? [
+          {
+            key: "comment",
+            active: activeTool === "comment" && mode === "annotate" && pinMode,
+            label: t("designEditor.pinComment"),
+            icon: <IconMessage className="size-[18px]" />,
+            onClick: onCommentPin,
+            options: [
+              {
+                key: "comment",
+                label: t("designEditor.pinComment"),
+                icon: <IconMessage className="size-4" />,
+                shortcut: "C",
+                active:
+                  activeTool === "comment" && mode === "annotate" && pinMode,
+                disabled: !hasActiveFile || isOverview,
+                onSelect: onCommentPin,
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 
   const modes: Array<{
@@ -376,13 +394,17 @@ export function DesignBottomToolbar({
     icon: ReactNode;
     onClick: () => void;
   }> = [
-    {
-      key: "annotate",
-      active: mode === "annotate",
-      label: t("designEditor.modes.annotate"),
-      icon: <IconScribble className="size-[18px]" />,
-      onClick: () => onModeChange("annotate"),
-    },
+    ...(canComment
+      ? [
+          {
+            key: "annotate" as const,
+            active: mode === "annotate",
+            label: t("designEditor.modes.annotate"),
+            icon: <IconScribble className="size-[18px]" />,
+            onClick: () => onModeChange("annotate"),
+          },
+        ]
+      : []),
     {
       key: "edit",
       active: mode === "edit",
@@ -402,8 +424,7 @@ export function DesignBottomToolbar({
     <div
       data-design-bottom-toolbar
       /* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */
-      className="fixed left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur transition-[bottom] duration-150 motion-reduce:transition-none md:max-w-[calc(100%-2rem)] md:overflow-visible"
-      style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
+      className="fixed bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur md:max-w-[calc(100%-2rem)] md:overflow-visible"
     >
       <input
         ref={mediaInputRef}
@@ -444,21 +465,25 @@ export function DesignBottomToolbar({
           : { status: "missing" as const })}
       />
 
-      {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
-      <div className="h-9 w-px shrink-0 bg-white/15" />
+      {showModeTabs ? (
+        <>
+          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
+          <div className="h-9 w-px shrink-0 bg-white/15" />
 
-      {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
-      <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
-        {modes.map((item) => (
-          <DesignModeTab
-            key={item.key}
-            active={item.active}
-            label={item.label}
-            icon={item.icon}
-            onClick={item.onClick}
-          />
-        ))}
-      </div>
+          {/* guard:allow-raw-color — fixed dark editor chrome, intentionally theme-independent */}
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
+            {modes.map((item) => (
+              <DesignModeTab
+                key={item.key}
+                active={item.active}
+                label={item.label}
+                icon={item.icon}
+                onClick={item.onClick}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

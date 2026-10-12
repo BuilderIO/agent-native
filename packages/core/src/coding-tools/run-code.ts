@@ -36,6 +36,7 @@ import { createRunner, RunError, type HostFunctions } from "run";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   getRequestContext,
   getRequestRunContext,
@@ -730,8 +731,28 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
 
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
+    let servicePrincipalRefusedError:
+      | typeof import("../org/service-principal-guard.js").ServicePrincipalRefusedError
+      | undefined;
     try {
-      const run = () => entry.run(childArgs, options.context);
+      const context = options.context;
+      if (context && parseServiceIdentityEmail(context.userEmail)) {
+        const guard = await import("../org/service-principal-guard.js");
+        servicePrincipalRefusedError = guard.ServicePrincipalRefusedError;
+        await guard.enforceServicePrincipalActionGrant({
+          email: context.userEmail,
+          orgId: context.orgId,
+          actionName: toolName,
+          caller: context.caller,
+        });
+      }
+      // Name the child, not `run-code`: a service principal's grant is checked
+      // against the action actually being run.
+      const run = () =>
+        entry.run(
+          childArgs,
+          options.context && { ...options.context, actionName: toolName },
+        );
       const result =
         options.context?.credentialScope === "org"
           ? await runWithRequestContext(
@@ -748,6 +769,13 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
           : await run();
       return formatBridgeResult(result);
     } catch (error) {
+      if (error instanceof BridgeInvocationError) throw error;
+      if (
+        servicePrincipalRefusedError &&
+        error instanceof servicePrincipalRefusedError
+      ) {
+        throw new BridgeInvocationError(error.statusCode, error.message);
+      }
       throw new BridgeInvocationError(
         500,
         error instanceof Error ? error.message : String(error),

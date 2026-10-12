@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "When someone comments on or replies in your deck.",
     retry: "Retry",
+    reload: "Reload",
     mcpAbout:
       "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
     workspaceTitle: "Workspace",
@@ -125,10 +126,10 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth is not configured for this deployment.",
     googlePickerNeedsKeys:
-      "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
+      "Google Drive file browsing isn't configured. You can still import a document by pasting its link.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -239,6 +240,7 @@ const messages = {
     importCompleteFile: "File imported from {{fileName}}.",
     backToDecks: "Back to decks",
     toggleSlideList: "Toggle slide list",
+    openInAgentNative: "Open in Agent-Native",
     designSystem: "Design system",
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
@@ -253,6 +255,16 @@ const messages = {
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",
     imageOptions: "Image options",
+    videoPlayback: "Video playback",
+    autoplayVideo: "Autoplay",
+    loopVideo: "Loop video",
+    videoUploading: "Uploading video…",
+    videoAdded: "Video added",
+    videoUploadFailed: "Video upload failed",
+    videoUploadError: "Could not upload this video.",
+    videoFormatUnsupported: "Only MP4 and WebM videos are supported.",
+    videoTooLarge: "Videos must be 50 MB or smaller.",
+    videoUploadNeedsBuilder: "Video storage is not configured.",
     cropImage: "Crop image",
     cropHandle: "Crop image {{position}}",
     diagrams: "Diagrams",
@@ -263,10 +275,21 @@ const messages = {
     convertMermaidFailed: "Failed to convert diagram",
     removeExcalidrawCanvas: "Remove Excalidraw Canvas",
     transition: "Transition",
-    transition_instant: "Instant",
+    transition_none: "None",
+    transition_dissolve: "Dissolve",
     transition_fade: "Fade",
-    transition_slide: "Slide",
-    transition_zoom: "Zoom",
+    transition_slide_from_right: "Slide from right",
+    transition_slide_from_left: "Slide from left",
+    transition_flip: "Flip",
+    transition_cube: "Cube",
+    transition_gallery: "Gallery",
+    transition_panel: "Slide transition",
+    transition_speed: "Speed",
+    transition_slow: "Slow",
+    transition_fast: "Fast",
+    transition_seconds: "{{seconds}} s",
+    transition_apply_all: "Apply to all slides",
+    transition_play: "Play transition",
     aspectRatio: "Aspect Ratio",
     setAspectRatio: "Set deck to {{ratio}}",
     slideTools: "Slide tools",
@@ -305,6 +328,9 @@ const messages = {
     conflictStatus: "Text conflict",
     conflictStatusDescription:
       "Review the conflicting text before saving more changes.",
+    accessLost: "Access lost",
+    accessLostDescription:
+      "Your access to this deck changed. Your edits stay on screen; retry once access is restored, or download a backup.",
     reviewConflict: "Review conflict",
     conflictTitle: "Slide {{number}} has a text conflict",
     conflictDescription:
@@ -352,6 +378,7 @@ const messages = {
     googleSlidesCreated: "Exported to Google Slides",
     googleSlidesCreatedHint:
       "A copy of this deck was created in your Google Drive.",
+    googleSlidesGoTo: "Go to Google Slides",
     duplicateDeck: "Duplicate deck",
   },
   share: {
@@ -438,7 +465,8 @@ const messages = {
     resolveThread: "Resolve thread",
     reopenThread: "Reopen thread",
     hideReplies: "Hide replies",
-    replyCount: "{{count}} replies",
+    replyCount_one: "{{count}} reply",
+    replyCount_other: "{{count}} replies",
     title: "Comments",
     addComment: "Add comment",
     close: "Close",
@@ -576,7 +604,6 @@ const messages = {
     selectObject: "Select an object to animate",
     addTransition: "Add transition",
     effect: "Effect",
-    trigger: "Trigger",
     onClick: "On click",
     byParagraph: "By paragraph",
     expand: "Expand transition",
@@ -587,6 +614,11 @@ const messages = {
     clearAll: "Clear all",
     elements: "Elements",
     autoFill: "Auto-fill",
+    issueStalePath: "This object is no longer on the slide.",
+    issueMissingElement: "This object could not be found on the slide.",
+    issueDuplicate: "This reveal overlaps another reveal on the slide.",
+    blocked: "Remove or fix the unresolved reveal to save or play.",
+    changeNotApplied: "This change was not applied.",
     noAnimatableElements: "No animatable elements detected on this slide.",
   },
   generateSlides: {
@@ -756,10 +788,16 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
+    agentRunFailed:
+      "The agent run failed before creating any slides. Check the chat for details, then try again.",
+    generationFailed:
+      "Slides weren't created. Check the chat for details, then try again.",
+    generationOutcomeUnresolved:
+      "We couldn't confirm whether slides were created. Check the deck or chat, then try again.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
@@ -964,8 +1002,8 @@ const messages = {
           "Read the supplied company website and create a presentation about the company. Report access failures instead of inventing facts.",
       },
     },
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     recent: "Recent",
     starters: {
       pitch: {
@@ -989,7 +1027,7 @@ const messages = {
     fileStorageStatusUnavailable:
       "Couldn't check object storage. Retry before uploading files.",
     fileStorageSetupRequired:
-      "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "No object storage is connected. Use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
@@ -1004,9 +1042,13 @@ const messages = {
     all: "All",
     showMineDecks: "Show decks created by me",
     mine: "Mine",
+    ownedByAnyone: "Owned by anyone",
+    ownedByMe: "Owned by me",
+    sharedWithMe: "Shared with me",
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
     noDecksMatchSearch: "No decks match your search.",
+    noDecksMatchFilter: "No decks match the current filter.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",
@@ -1021,7 +1063,7 @@ const messages = {
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
     referenceFileStorageUnavailable:
-      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
+      "File storage is not configured. Use Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",

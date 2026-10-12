@@ -247,7 +247,7 @@ export default {
     eventRulesAutomationLink: "لإجراءات أخرى، أنشئ أتمتة.",
     eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
     eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
-    eventRulesConnectBuilder: "ربط Builder.io",
+    eventRulesConnectBuilder: "استخدم Builder.io",
     eventRulesAddJevApiKey: "إضافة مفتاح API",
     eventRulesTabRules: "القواعد",
     eventRulesHelpLabel: "حول تعليمات قواعد الدعوات",
@@ -780,6 +780,7 @@ export default {
     detailCount_many: "{{count}} تفصيلًا",
   },
   calendarView: {
+    resizeAllDaySection: "تغيير حجم قسم الأحداث طوال اليوم",
     addWorkingLocation: "إضافة موقع العمل",
     addTitleBeforeCreate: "أضف عنوانًا قبل إنشاء الحدث",
     calendarSettingsLoading:
@@ -971,6 +972,8 @@ export default {
     occurrences: "مرات",
     reviewInvite: "مراجعة الدعوة",
     reviewProposedTime: "مراجعة الوقت المقترح",
+    newTimeProposedBy: "اقترح {{name}} وقتًا جديدًا",
+    reviewTimeProposals: "مراجعة اقتراحات الوقت",
     responseAwaitingCount: "{{count}} بانتظار الرد",
     responseMaybeCount: "{{count}} ربما",
     responseNoCount: "{{count}} لا",

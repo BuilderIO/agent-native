@@ -19,8 +19,7 @@ En esta guía, crearás un agente con una interfaz de chat y llamarás a su acci
 
 - [Node.js](https://nodejs.org) 22.22 o posterior
 - [pnpm](https://pnpm.io) instalado y disponible en tu `PATH`
-- Una conexión de LLM para el agente: Builder.io, una clave de API de Anthropic
-  u OpenAI, o un modelo local de Ollama
+- Opcional durante la configuración; necesario para ejecutar el agente: Builder.io, una clave de Anthropic/OpenAI u Ollama local
 
 ## Crear un agente
 
@@ -37,6 +36,12 @@ La plantilla proporciona a tu agente una interfaz de navegador, autenticación,
 conversaciones persistentes, sincronización en tiempo real, contexto de la
 aplicación y un directorio `actions/`. También incluye una pequeña acción
 `hello` que usarás en toda esta guía.
+
+<Callout tone="info">
+
+Si estos comandos fallan con errores de dependencias peer, la causa puede ser una copia desactualizada de un paquete en tu caché de npx. Ejecuta `npx clear-npx-cache` para vaciar la caché y vuelve a ejecutar los comandos.
+
+</Callout>
 
 ## Iniciar el servidor de desarrollo
 
@@ -57,11 +62,9 @@ desarrollo local.
 
 </Callout>
 
-## Conectar un LLM
+## Conectar un LLM (opcional) {#connect-an-llm}
 
-A continuación, conecta un LLM. Selecciona **Connect Builder.io** para usar
-créditos gratuitos, o selecciona **Custom keys**, elige un proveedor e introduce
-los datos de conexión solicitados.
+Conecta una cuenta de Builder.io con **Use Builder.io**, guarda una clave personal o de organización en **Custom keys**, o configura una clave de proveedor en `.env` para el desarrollo local y en el entorno de implementación para usarla en toda una app autoalojada. Consulta [Configuración de proveedores LLM](/docs/environment-variables#llm-provider-keys).
 
 ## Ejecutar la acción desde el agente
 
@@ -70,7 +73,7 @@ llamar desde el código y que los agentes pueden utilizar como herramienta. La
 plantilla de Chat incluye una sencilla acción `hello` para que puedas probar este
 patrón antes de escribir una propia.
 
-En el panel del agente, escribe:
+En el campo de mensaje de la página **Empieza aquí**, escribe:
 
 > Call the hello action for Alex.
 

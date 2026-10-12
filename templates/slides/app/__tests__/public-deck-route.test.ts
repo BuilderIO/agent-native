@@ -78,7 +78,8 @@ describe("public deck route", () => {
     expect(result.deck?.slides).toEqual([
       {
         id: "slide-1",
-        content: "<h1>Launch</h1>",
+        content:
+          '<div class="fmd-slide"><p>Intro</p><div><h1>Launch</h1></div></div>',
         notes: "",
         layout: "title",
         background: "#111",
@@ -172,7 +173,8 @@ function deckRows(visibility: "public" | "private" | "org") {
         slides: [
           {
             id: "slide-1",
-            content: "<h1>Launch</h1>",
+            content:
+              '<div class="fmd-slide"><p>Intro</p><div><h1>Launch</h1></div></div>',
             notes: "internal talking points",
             layout: "title",
             background: "#111",

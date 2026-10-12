@@ -28,12 +28,19 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
 import {
   baseFillLayerSourceProps,
   FillProperties,
   shouldUseTextFill,
 } from "./fill-properties";
+import { mixedElementFromSelection } from "./selection-helpers";
+
+const imageUploadState = vi.hoisted(() => ({
+  handlers: {} as Record<string, unknown>,
+}));
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -57,13 +64,29 @@ vi.mock("@/components/ui/popover", () => ({
 }));
 
 vi.mock("../inspector", () => ({
-  DesignColorPicker: ({ trigger }: { trigger?: unknown }) => trigger as never,
+  DesignColorPicker: ({
+    trigger,
+    uploadTargetKey,
+    onImageFillChange,
+  }: {
+    trigger?: unknown;
+    uploadTargetKey?: string;
+    onImageFillChange?: (
+      value: { url: string; fit: string },
+      meta?: object,
+    ) => void;
+  }) => {
+    if (uploadTargetKey && onImageFillChange) {
+      imageUploadState.handlers[uploadTargetKey] = onImageFillChange;
+    }
+    return trigger as never;
+  },
   ScrubInput: () => null,
-  imageFillToBackgroundStyles: () => ({
-    backgroundImage: "",
-    backgroundSize: "",
-    backgroundRepeat: "",
-    backgroundPosition: "",
+  imageFillToBackgroundStyles: (value: { url: string; fit: string }) => ({
+    backgroundImage: `url("${value.url}")`,
+    backgroundSize: value.fit === "fit" ? "contain" : "cover",
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "center",
   }),
 }));
 
@@ -88,9 +111,13 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       supportsLayeredFills?: boolean;
       singlePaint?: boolean;
       supportedPaintTypes?: string[];
+      documentColors?: string[];
+      onOpenChange?: (open: boolean) => void;
     }) =>
       createElement("div", {
         "data-testid": "base-fill-color-input",
+        "data-document-colors": props.documentColors?.join(",") ?? "",
+        onClick: () => props.onOpenChange?.(true),
         "data-value": props.value,
         "data-background-image": props.backgroundImage ?? "",
         "data-background-size": props.backgroundSize ?? "",
@@ -179,6 +206,370 @@ describe("baseFillLayerSourceProps", () => {
 });
 
 describe("FillProperties base row — image layer prop wiring", () => {
+  it("rebuilds a delayed layer upload at that layer's latest reordered index", async () => {
+    imageUploadState.handlers = {};
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const makeElement = (backgroundImage: string) =>
+      element({
+        sourceId: "upload-reorder-target",
+        computedStyles: {
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage,
+          backgroundSize: "cover, contain",
+          backgroundRepeat: "no-repeat, repeat",
+          backgroundPosition: "center, top left",
+        },
+      });
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("first.png"), url("second.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const [firstTargetKey] = Object.keys(imageUploadState.handlers);
+    const completeFirstLayerUpload = imageUploadState.handlers[
+      firstTargetKey!
+    ] as (value: { url: string; fit: string }, meta?: object) => void;
+    const handles = host.querySelectorAll<HTMLElement>(
+      '[aria-label="editPanel.labels.reorderLayer"]',
+    );
+    const rows = [...handles].map(
+      (handle) => handle.parentElement?.parentElement as HTMLElement,
+    );
+    expect(handles).toHaveLength(2);
+    expect(rows).toHaveLength(2);
+
+    await act(async () => {
+      const dragStart = new Event("dragstart", { bubbles: true });
+      Object.defineProperty(dragStart, "dataTransfer", {
+        value: { setData: vi.fn(), effectAllowed: "" },
+      });
+      handles[0]!.dispatchEvent(dragStart);
+    });
+    await act(async () => {
+      const drop = new Event("drop", { bubbles: true });
+      Object.defineProperty(drop, "dataTransfer", {
+        value: { dropEffect: "" },
+      });
+      rows[1]!.dispatchEvent(drop);
+    });
+    onStyleChange.mockClear();
+    onStylesChange.mockClear();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("second.png"), url("first.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    await act(async () =>
+      completeFirstLayerUpload(
+        { url: "/uploaded.png", fit: "fit" },
+        { requirePersistedSourceAcceptance: true },
+      ),
+    );
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      {
+        backgroundImage: 'url("second.png"), url("/uploaded.png")',
+        backgroundSize: "cover, contain",
+        backgroundRepeat: "no-repeat, no-repeat",
+        backgroundPosition: "center, center",
+      },
+      { requirePersistedSourceAcceptance: true },
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("drops a delayed upload when its layer is removed from the same target", async () => {
+    imageUploadState.handlers = {};
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const makeElement = (backgroundImage: string) =>
+      element({
+        sourceId: "upload-removed-target",
+        computedStyles: {
+          backgroundColor: "rgba(0, 0, 0, 0)",
+          backgroundImage,
+          backgroundSize: "cover, contain",
+          backgroundRepeat: "no-repeat, repeat",
+          backgroundPosition: "center, top left",
+        },
+      });
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("first.png"), url("second.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const [firstTargetKey] = Object.keys(imageUploadState.handlers);
+    const completeRemovedLayerUpload = imageUploadState.handlers[
+      firstTargetKey!
+    ] as (value: { url: string; fit: string }, meta?: object) => void;
+    const removeButtons = host.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.removeLayer"]',
+    );
+    expect(removeButtons).toHaveLength(2);
+    await act(async () => removeButtons[0]!.click());
+    onStyleChange.mockClear();
+    onStylesChange.mockClear();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: makeElement('url("second.png")'),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    await act(async () =>
+      completeRemovedLayerUpload(
+        { url: "/uploaded.png", fit: "fit" },
+        { requirePersistedSourceAcceptance: true },
+      ),
+    );
+
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("keeps delayed uploads isolated when the same node moves to another scope", async () => {
+    imageUploadState.handlers = {};
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const firstScopeChange = vi.fn();
+    const secondScopeChange = vi.fn();
+    const sameNode = element({
+      sourceId: "same-node-id",
+      computedStyles: {
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: 'url("shared.png")',
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: sameNode,
+          onStyleChange: vi.fn(),
+          onStylesChange: firstScopeChange,
+          uploadScopeKey: "screen-a",
+        }),
+      );
+    });
+    const targetKey = Object.keys(imageUploadState.handlers)[0]!;
+    const completeFirstScopeUpload = imageUploadState.handlers[targetKey] as (
+      value: { url: string; fit: string },
+      meta?: object,
+    ) => void;
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: sameNode,
+          onStyleChange: vi.fn(),
+          onStylesChange: secondScopeChange,
+          uploadScopeKey: "screen-b",
+        }),
+      );
+    });
+    await act(async () =>
+      completeFirstScopeUpload(
+        { url: "/uploaded.png", fit: "fit" },
+        { requirePersistedSourceAcceptance: true },
+      ),
+    );
+
+    expect(firstScopeChange).toHaveBeenCalledWith(
+      {
+        backgroundImage: 'url("/uploaded.png")',
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center",
+      },
+      { requirePersistedSourceAcceptance: true },
+    );
+    expect(secondScopeChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("uses SVG paint controls for a selection of different vector shape tags", () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { fill: "#123456" },
+        inlineStyles: { fill: "#123456" },
+      }),
+      element({
+        tagName: "rect",
+        primitiveKind: "rect",
+        computedStyles: { fill: "#123456" },
+        inlineStyles: { fill: "#123456" },
+      }),
+    ]);
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: selected!,
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(selected?.tagName).toBe("Mixed");
+    expect(markup).toContain('data-supports-layered-fills="false"');
+    expect(markup).toContain('data-single-paint="true"');
+  });
+
+  it("keeps CSS fill controls for a selection mixing HTML and SVG elements", () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "div",
+        computedStyles: { backgroundColor: "#ffffff" },
+        inlineStyles: { backgroundColor: "#ffffff" },
+      }),
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { backgroundColor: "#ffffff" },
+        inlineStyles: { backgroundColor: "#ffffff" },
+      }),
+    ]);
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: selected!,
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(selected?.tagName).toBe("Mixed");
+    expect(markup).toContain('data-supports-layered-fills="true"');
+    expect(markup).toContain('data-single-paint="false"');
+  });
+
+  it("adds fill to mixed vector tags through SVG fill styles", async () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { fill: "#123456" },
+        inlineStyles: { fill: "#123456" },
+      }),
+      element({
+        tagName: "rect",
+        primitiveKind: "rect",
+        computedStyles: { fill: "#abcdef" },
+        inlineStyles: { fill: "#abcdef" },
+      }),
+    ]);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: selected!,
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const addFill = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    await act(async () => addFill?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { fill: DEFAULT_SHAPE_FILL },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("keeps mixed HTML and SVG fills on the CSS background path", async () => {
+    const selected = mixedElementFromSelection([
+      element({
+        tagName: "div",
+        computedStyles: { backgroundColor: "#ffffff" },
+        inlineStyles: { backgroundColor: "#ffffff" },
+      }),
+      element({
+        tagName: "path",
+        primitiveKind: "path",
+        computedStyles: { backgroundColor: "#000000" },
+        inlineStyles: { backgroundColor: "#000000" },
+      }),
+    ]);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: selected!,
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+    const addFill = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    await act(async () => addFill?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      {
+        color: "#000000",
+        backgroundColor: "#ffffff",
+        backgroundImage: "none",
+      },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("keeps the Fill section empty for an open Pen path", () => {
     const openPath = renderToStaticMarkup(
       createElement(FillProperties, {
@@ -328,6 +719,79 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-size="cover, 100% 100%"');
     expect(markup).toContain('data-background-repeat="no-repeat, repeat"');
     expect(markup).toContain('data-background-position="center, 0% 0%"');
+  });
+
+  it("reads the subtree's colors for the picker swatches once per opening", () => {
+    const readSubtreeColorStyles = vi.fn(
+      (): SubtreeColorStylesRead => ({
+        status: "captured",
+        nodes: [{ color: "#101828ff" }],
+      }),
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const renderWith = (backgroundColor: string) =>
+      act(() =>
+        root.render(
+          createElement(FillProperties, {
+            element: element({
+              computedStyles: { backgroundColor },
+              styleSnapshotReadOnDemand: true,
+            }),
+            onStyleChange: vi.fn(),
+            readSubtreeColorStyles,
+          }),
+        ),
+      );
+    renderWith("rgb(255, 255, 255)");
+    const input = () =>
+      container.querySelector<HTMLElement>(
+        '[data-testid="base-fill-color-input"]',
+      )!;
+    expect(readSubtreeColorStyles).not.toHaveBeenCalled();
+    expect(input().dataset.documentColors).toBe("#ffffff");
+
+    act(() => input().click());
+
+    expect(readSubtreeColorStyles).toHaveBeenCalledTimes(1);
+    expect(input().dataset.documentColors).toBe("#ffffff,#101828");
+
+    renderWith("rgb(250, 250, 250)");
+    renderWith("rgb(245, 245, 245)");
+    expect(readSubtreeColorStyles).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("skips the subtree read when the selection already carries its colors", () => {
+    const readSubtreeColorStyles = vi.fn(
+      (): SubtreeColorStylesRead => ({ status: "captured", nodes: [] }),
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        createElement(FillProperties, {
+          element: element({
+            computedStyles: { backgroundColor: "rgb(255, 255, 255)" },
+          }),
+          onStyleChange: vi.fn(),
+          readSubtreeColorStyles,
+        }),
+      ),
+    );
+
+    act(() =>
+      container
+        .querySelector<HTMLElement>('[data-testid="base-fill-color-input"]')!
+        .click(),
+    );
+
+    expect(readSubtreeColorStyles).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    container.remove();
   });
 
   it("uses a visible background for a text-bearing control", () => {
@@ -510,6 +974,70 @@ describe("FillProperties base row — image layer prop wiring", () => {
 
     expect(markup).toContain('aria-label="editPanel.labels.addFill"');
     expect(markup).toContain("Click + to replace mixed content");
+  });
+
+  it("does not treat mixed CSS backgrounds as mixed vector fill", () => {
+    const el = element({
+      tagName: "path",
+      primitiveKind: "path",
+      computedStyles: {
+        fill: "rgb(217 217 217)",
+        backgroundColor: "Mixed",
+        backgroundImage: "Mixed",
+        backgroundPosition: "Mixed",
+        backgroundRepeat: "Mixed",
+        backgroundSize: "Mixed",
+      },
+      inlineStyles: { fill: "Mixed" },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).not.toContain("Click + to replace mixed content");
+  });
+
+  it("replaces mixed vector fills with a solid fill", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        createElement(FillProperties, {
+          element: element({
+            tagName: "path",
+            primitiveKind: "path",
+            computedStyles: { fill: "Mixed" },
+            inlineStyles: { fill: "Mixed" },
+          }),
+          onStyleChange,
+          onStylesChange,
+        }),
+      );
+    });
+
+    const addFill = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.labels.addFill"]',
+    );
+    expect(addFill).not.toBeNull();
+    await act(async () => addFill?.click());
+
+    expect(onStylesChange).toHaveBeenCalledWith(
+      { fill: DEFAULT_SHAPE_FILL },
+      undefined,
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+    host.remove();
   });
 });
 

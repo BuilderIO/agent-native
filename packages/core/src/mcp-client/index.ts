@@ -103,6 +103,7 @@ export {
   listVisibleMcpTools,
   McpAppApiError,
   type AppMcpTool,
+  type CallMcpToolOptions,
   type ListVisibleMcpToolsOptions,
 } from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
@@ -217,6 +218,7 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    fromMcpServer: true,
     planMode: {
       effect: (args) =>
         evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,

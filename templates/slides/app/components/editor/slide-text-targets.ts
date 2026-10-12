@@ -348,10 +348,21 @@ function isTransparentPaint(color: string): boolean {
   );
 }
 
+function fillsBox(style: CSSStyleDeclaration): boolean {
+  return (
+    !isTransparentPaint(style.backgroundColor) ||
+    Boolean(style.backgroundImage && style.backgroundImage !== "none")
+  );
+}
+
+/** A solid colour, gradient or image behind the element, ignoring borders and shadows. */
+export function paintsFill(element: HTMLElement): boolean {
+  return fillsBox(window.getComputedStyle(element));
+}
+
 function paintsOwnBox(element: HTMLElement): boolean {
   const style = window.getComputedStyle(element);
-  if (!isTransparentPaint(style.backgroundColor)) return true;
-  if (style.backgroundImage && style.backgroundImage !== "none") return true;
+  if (fillsBox(style)) return true;
   if (style.boxShadow && style.boxShadow !== "none") return true;
   if (
     style.outlineStyle &&
@@ -370,7 +381,10 @@ function paintsOwnBox(element: HTMLElement): boolean {
 
 const SLIDE_BACKDROP_AREA_RATIO = 0.9;
 
-function isPaintedObject(element: HTMLElement, root: HTMLElement): boolean {
+export function isPaintedObject(
+  element: HTMLElement,
+  root: HTMLElement,
+): boolean {
   if (isInlineTextElement(element) || !paintsOwnBox(element)) return false;
   const rootRect = root.getBoundingClientRect();
   const rootArea = rootRect.width * rootRect.height;
@@ -394,6 +408,63 @@ function paintedBoxAround(
     if (isPaintedObject(element, root)) return element;
   }
   return null;
+}
+
+const MEDIA_TAGS = new Set([
+  "CANVAS",
+  "EMBED",
+  "IFRAME",
+  "IMG",
+  "OBJECT",
+  "PICTURE",
+  "SVG",
+  "VIDEO",
+]);
+
+function hasOwnTextNode(element: HTMLElement): boolean {
+  return Array.from(element.childNodes).some(
+    (node) =>
+      node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()),
+  );
+}
+
+/**
+ * A pure layout wrapper (grid row, column, chart block) that is not an object
+ * the user can see: no own paint, no text of its own, no media, and none of the
+ * object kinds. The pointer treats it as if it were not there.
+ */
+export function isTransparentLayoutWrapper(
+  element: HTMLElement,
+  ctx?: { root?: HTMLElement },
+): boolean {
+  if (
+    isSlideCanvasShell(element) ||
+    isInlineTextElement(element) ||
+    MEDIA_TAGS.has(element.tagName.toUpperCase()) ||
+    RICH_TEXT_TABLE_TAGS.has(element.tagName) ||
+    RICH_TEXT_BLOCK_TAGS.has(element.tagName) ||
+    element.hasAttribute("data-slide-object-id") ||
+    element.classList.contains("fmd-img-placeholder") ||
+    element.classList.contains("fmd-layout-spacer") ||
+    element.classList.contains("fmd-slide-group") ||
+    element.classList.contains("fmd-text-box") ||
+    element.classList.contains("fmd-freeform-object")
+  ) {
+    return false;
+  }
+  if (
+    hasOwnTextNode(element) ||
+    isTextLeaf(element) ||
+    (isRichTextBlock(element) && !isSmartGroup(element)) ||
+    // An icon box wraps one piece of media; a row of several images is layout.
+    (element.children.length === 1 &&
+      MEDIA_TAGS.has(element.children[0].tagName.toUpperCase()))
+  ) {
+    return false;
+  }
+  return !(ctx?.root
+    ? isPaintedObject(element, ctx.root)
+    : paintsOwnBox(element));
 }
 
 export function holdsPaintedTextBox(
@@ -429,17 +500,6 @@ export function findSlideShapeOwner(
     element = element.parentElement;
   }
   return null;
-}
-
-export function findGrabbedSlideShape(
-  target: HTMLElement,
-  root: HTMLElement,
-  selected: HTMLElement | null,
-): HTMLElement | null {
-  const owner = findSlideShapeOwner(target, root);
-  return owner && !(selected && selected !== owner && owner.contains(selected))
-    ? owner
-    : null;
 }
 
 export function findSmartBlock(

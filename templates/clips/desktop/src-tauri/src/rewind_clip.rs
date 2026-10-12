@@ -18,7 +18,64 @@ const RETROSPECTIVE_5_MINUTES: u64 = 5 * 60;
 const REWIND_CLIP_AUDIO_OWNER: &str = "rewind-clip";
 
 #[derive(Default)]
-pub(crate) struct RewindClipState(Mutex<Option<ActiveRewindClip>>);
+pub(crate) struct RewindClipState(
+    Mutex<Option<ActiveRewindClip>>,
+    Mutex<Option<PendingRewindClipPreparation>>,
+);
+
+struct PendingRewindClipPreparation {
+    startup_id: String,
+    cancelled: bool,
+}
+
+struct PendingRewindClipPreparationGuard<'a> {
+    pending: &'a Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: String,
+}
+
+impl Drop for PendingRewindClipPreparationGuard<'_> {
+    fn drop(&mut self) {
+        let Ok(mut pending) = self.pending.lock() else {
+            return;
+        };
+        if pending
+            .as_ref()
+            .is_some_and(|pending| pending.startup_id == self.startup_id)
+        {
+            *pending = None;
+        }
+    }
+}
+
+fn mark_pending_rewind_clip_cancelled(
+    pending_state: &Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: Option<&str>,
+) -> Result<bool, String> {
+    let mut pending_state = pending_state.lock().map_err(|error| error.to_string())?;
+    let Some(pending) = pending_state.as_mut() else {
+        return Ok(false);
+    };
+    if startup_id.is_some_and(|startup_id| startup_id != pending.startup_id) {
+        return Ok(false);
+    }
+    pending.cancelled = true;
+    Ok(true)
+}
+
+fn reserve_pending_rewind_clip_preparation(
+    pending_state: &Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: &str,
+) -> Result<(), String> {
+    let mut pending_state = pending_state.lock().map_err(|error| error.to_string())?;
+    if pending_state.is_some() {
+        return Err("a Rewind-derived clip is already prepared or active".into());
+    }
+    *pending_state = Some(PendingRewindClipPreparation {
+        startup_id: startup_id.to_owned(),
+        cancelled: false,
+    });
+    Ok(())
+}
 
 pub(crate) fn is_active(app: &AppHandle) -> bool {
     app.try_state::<RewindClipState>()
@@ -33,6 +90,7 @@ pub(crate) fn is_active(app: &AppHandle) -> bool {
 }
 
 struct ActiveRewindClip {
+    startup_id: String,
     activated: bool,
     lease_id: Option<String>,
     pin_id: String,
@@ -45,6 +103,23 @@ struct ActiveRewindClip {
     temporary_audio: Option<screen_memory::TemporaryAudioLease>,
     #[cfg(target_os = "macos")]
     shared_sink: Option<native_screen::SharedClipSink>,
+}
+
+struct TemporaryAudioLeaseGuard<'a> {
+    app: &'a AppHandle,
+    lease: Option<screen_memory::TemporaryAudioLease>,
+}
+
+impl TemporaryAudioLeaseGuard<'_> {
+    fn take(&mut self) -> Option<screen_memory::TemporaryAudioLease> {
+        self.lease.take()
+    }
+}
+
+impl Drop for TemporaryAudioLeaseGuard<'_> {
+    fn drop(&mut self) {
+        release_temporary_audio(self.app, self.lease.take());
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -99,6 +174,7 @@ pub(crate) fn rewind_clip_status(
 pub(crate) fn rewind_clip_prepare(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    startup_id: String,
     artifact_label: String,
     server_url: Option<String>,
     recording_id: Option<String>,
@@ -108,31 +184,43 @@ pub(crate) fn rewind_clip_prepare(
     include_system_audio: bool,
     has_camera: bool,
 ) -> Result<RewindClipStatus, String> {
+    {
+        let active = state.0.lock().map_err(|error| error.to_string())?;
+        if active.is_some() {
+            return Err("a Rewind-derived clip is already prepared or active".into());
+        }
+        reserve_pending_rewind_clip_preparation(&state.1, &startup_id)?;
+    }
+    let _preparation_guard = PendingRewindClipPreparationGuard {
+        pending: &state.1,
+        startup_id: startup_id.clone(),
+    };
     if !screen_memory::rewind_clip_compatible(&app)? {
         return Err(not_compatible(
             "Screen Memory is unavailable or not recording",
         ));
     }
-    if state.0.lock().map_err(|error| error.to_string())?.is_some() {
-        return Err("a Rewind-derived clip is already prepared or active".into());
-    }
+    let output = artifact_path(&app, &artifact_label)?;
     native_screen::reset_native_upload_completion_state();
-    let temporary_audio = if include_mic || include_system_audio {
-        screen_memory::acquire_temporary_audio_consumer(
-            &app,
-            REWIND_CLIP_AUDIO_OWNER,
-            CaptureConsumer::Clip,
-            include_mic,
-            include_system_audio,
-        )?
-    } else {
-        None
+    let temporary_audio_owner = format!("{REWIND_CLIP_AUDIO_OWNER}:{startup_id}");
+    let mut temporary_audio = TemporaryAudioLeaseGuard {
+        app: &app,
+        lease: if include_mic || include_system_audio {
+            screen_memory::acquire_temporary_audio_consumer(
+                &app,
+                &temporary_audio_owner,
+                CaptureConsumer::Clip,
+                include_mic,
+                include_system_audio,
+            )?
+        } else {
+            None
+        },
     };
-    if (include_mic || include_system_audio) && temporary_audio.is_none() {
+    if (include_mic || include_system_audio) && temporary_audio.lease.is_none() {
         return Err(not_compatible("Screen Memory has no active audio producer"));
     }
     let sources = screen_memory::rewind_clip_sources(&app);
-    let output = artifact_path(&app, &artifact_label)?;
     #[cfg(target_os = "macos")]
     let recovery_intent = (server_url.clone(), recording_id.clone());
     #[cfg(target_os = "macos")]
@@ -150,10 +238,7 @@ pub(crate) fn rewind_clip_prepare(
         },
     ) {
         Ok(sink) => sink,
-        Err(error) => {
-            release_temporary_audio(&app, temporary_audio);
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
     #[cfg(not(target_os = "macos"))]
     {
@@ -165,7 +250,6 @@ pub(crate) fn rewind_clip_prepare(
             cookie,
             has_camera,
         );
-        release_temporary_audio(&app, temporary_audio);
         return Err(not_compatible("shared Rewind Clip sinks require macOS"));
     }
     #[cfg(target_os = "macos")]
@@ -187,21 +271,57 @@ pub(crate) fn rewind_clip_prepare(
                 crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
             ) {
                 shared_sink.cancel();
-                release_temporary_audio(&app, temporary_audio);
                 return Err(error);
             }
         }
     }
     let response_sources = sources.clone();
-    let mut active = state.0.lock().map_err(|error| error.to_string())?;
-    if active.is_some() {
+    let mut active = match state.0.lock() {
+        Ok(active) => active,
+        Err(error) => {
+            #[cfg(target_os = "macos")]
+            shared_sink.cancel();
+            return Err(error.to_string());
+        }
+    };
+    let mut pending = match state.1.lock() {
+        Ok(pending) => pending,
+        Err(error) => {
+            drop(active);
+            #[cfg(target_os = "macos")]
+            shared_sink.cancel();
+            return Err(error.to_string());
+        }
+    };
+    let is_current_startup = pending
+        .as_ref()
+        .is_some_and(|pending| pending.startup_id == startup_id);
+    let was_cancelled = pending
+        .as_ref()
+        .is_some_and(|pending| pending.startup_id == startup_id && pending.cancelled);
+    if !is_current_startup || was_cancelled {
+        if is_current_startup {
+            *pending = None;
+        }
+        drop(pending);
         drop(active);
         #[cfg(target_os = "macos")]
         shared_sink.cancel();
-        release_temporary_audio(&app, temporary_audio);
+        return Err(if was_cancelled {
+            "Rewind Clip startup was cancelled".into()
+        } else {
+            "Rewind Clip startup was superseded".into()
+        });
+    }
+    if active.is_some() {
+        drop(pending);
+        drop(active);
+        #[cfg(target_os = "macos")]
+        shared_sink.cancel();
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
     *active = Some(ActiveRewindClip {
+        startup_id,
         activated: false,
         pin_id: format!("rewind-clip-{}", Utc::now().timestamp_micros()),
         lease_id: None,
@@ -211,10 +331,11 @@ pub(crate) fn rewind_clip_prepare(
         retrospective_seconds: 0,
         intervals: Vec::new(),
         paused: false,
-        temporary_audio,
+        temporary_audio: temporary_audio.take(),
         #[cfg(target_os = "macos")]
         shared_sink: Some(shared_sink),
     });
+    *pending = None;
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: false,
@@ -945,11 +1066,7 @@ pub(crate) async fn rewind_agent_handoff_preview(
     if safe_request_id != request_id || !safe_request_id.starts_with("handoff-") {
         return Err("Invalid Rewind handoff request ID.".into());
     }
-    let output_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("local preview directory unavailable: {error}"))?
-        .join("rewind-previews");
+    let output_dir = rewind_preview_directory(&app)?;
     cleanup_expired_preview_artifacts(&output_dir, std::time::Duration::from_secs(15 * 60))?;
     std::fs::create_dir_all(&output_dir)
         .map_err(|error| format!("local preview directory unavailable: {error}"))?;
@@ -1011,16 +1128,128 @@ fn cleanup_expired_preview_artifacts(
 }
 
 pub(crate) fn clear_preview_artifacts(app: &AppHandle) -> Result<(), String> {
-    let directory = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("local preview directory unavailable: {error}"))?
-        .join("rewind-previews");
-    match std::fs::remove_dir_all(&directory) {
+    remove_preview_directory(&rewind_preview_directory(app)?)
+}
+
+fn remove_preview_directory(directory: &std::path::Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(directory) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!("could not clear local Rewind previews: {error}")),
     }
+}
+
+const REWIND_PREVIEW_MAX_MILLISECONDS: i64 = (RETROSPECTIVE_5_MINUTES * 1_000) as i64;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RewindPreviewWindow {
+    path: String,
+    duration_ms: u64,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+// Every preview writer and sweeper goes through this helper: the launch and delete sweeps clear
+// this exact folder, so a second spelling of the path would leave footage behind.
+pub(crate) fn rewind_preview_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    let local_data = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("local preview directory unavailable: {error}"))?;
+    Ok(rewind_preview_directory_in(&local_data))
+}
+
+fn rewind_preview_directory_in(local_data_dir: &std::path::Path) -> PathBuf {
+    local_data_dir.join("rewind-previews")
+}
+
+fn validate_preview_window(started_at: &str, ended_at: &str) -> Result<(), String> {
+    let started = DateTime::parse_from_rfc3339(started_at)
+        .map_err(|_| "Rewind preview start must be an RFC3339 timestamp.".to_string())?
+        .with_timezone(&Utc);
+    let ended = DateTime::parse_from_rfc3339(ended_at)
+        .map_err(|_| "Rewind preview end must be an RFC3339 timestamp.".to_string())?
+        .with_timezone(&Utc);
+    let duration_ms = ended.signed_duration_since(started).num_milliseconds();
+    if duration_ms <= 0 {
+        return Err("Rewind preview end must be after its start.".into());
+    }
+    if duration_ms > REWIND_PREVIEW_MAX_MILLISECONDS {
+        return Err("Rewind preview must be 5 minutes or shorter.".into());
+    }
+    Ok(())
+}
+
+fn rewind_preview_file_name() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    // A reused RandomState hashes the same way every time, so build a new one per name.
+    let token = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!("preview-{token:016x}.mp4")
+}
+
+#[tauri::command]
+pub(crate) async fn rewind_preview_window(
+    app: AppHandle,
+    started_at: String,
+    ended_at: String,
+) -> Result<RewindPreviewWindow, String> {
+    validate_preview_window(&started_at, &ended_at)?;
+    let directory = rewind_preview_directory(&app)?;
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Rewind preview folder unavailable: {error}"))?;
+    let output = directory.join(rewind_preview_file_name());
+    let worker_output = output.clone();
+    let materialized = tauri::async_runtime::spawn_blocking(move || {
+        materialize_wall_clock_exact(&app, &started_at, &ended_at, worker_output, false, false)
+    })
+    .await
+    .map_err(|error| format!("Rewind preview worker failed: {error}"))?;
+    let artifact = match materialized {
+        Ok(artifact) => artifact,
+        Err(error) => {
+            let _ = std::fs::remove_file(&output);
+            return Err(error);
+        }
+    };
+    Ok(RewindPreviewWindow {
+        path: output.to_string_lossy().into_owned(),
+        duration_ms: u64::try_from(artifact.duration_ms)
+            .map_err(|_| "Rewind preview duration is out of range.".to_string())?,
+        width: artifact.width,
+        height: artifact.height,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn rewind_preview_discard(app: AppHandle, path: String) -> Result<(), String> {
+    let directory = rewind_preview_directory(&app)?;
+    let file = resolve_discardable_preview(std::path::Path::new(&path), &directory)?;
+    std::fs::remove_file(&file)
+        .map_err(|error| format!("could not discard Rewind preview: {error}"))
+}
+
+fn resolve_discardable_preview(
+    path: &std::path::Path,
+    directory: &std::path::Path,
+) -> Result<PathBuf, String> {
+    let canonical_directory = std::fs::canonicalize(directory)
+        .map_err(|error| format!("Rewind preview folder unavailable: {error}"))?;
+    let canonical_file = std::fs::canonicalize(path)
+        .map_err(|error| format!("Rewind preview file unavailable: {error}"))?;
+    if !is_path_inside_directory(&canonical_file, &canonical_directory) || !canonical_file.is_file()
+    {
+        return Err("Only Rewind preview files can be discarded.".into());
+    }
+    Ok(canonical_file)
+}
+
+// Both arguments must be canonical: `starts_with` compares components lexically, so a raw
+// `previews/../secret.mp4` would pass against `previews`.
+fn is_path_inside_directory(file: &std::path::Path, directory: &std::path::Path) -> bool {
+    file.starts_with(directory)
 }
 
 fn materialize(
@@ -1460,8 +1689,23 @@ pub(crate) async fn rewind_clip_stop_and_save(
 pub(crate) fn rewind_clip_cancel(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    startup_id: Option<String>,
 ) -> Result<(), String> {
-    let active = state.0.lock().map_err(|error| error.to_string())?.take();
+    let mut active_state = state.0.lock().map_err(|error| error.to_string())?;
+    if startup_id.as_deref().is_some_and(|startup_id| {
+        active_state
+            .as_ref()
+            .is_some_and(|active| active.startup_id.as_str() != startup_id)
+    }) {
+        return Ok(());
+    }
+    if active_state.is_none()
+        && mark_pending_rewind_clip_cancelled(&state.1, startup_id.as_deref())?
+    {
+        return Ok(());
+    }
+    let active = active_state.take();
+    drop(active_state);
     if let Some(mut active) = active {
         if let Some(lease_id) = active.lease_id.as_deref() {
             let _ = app
@@ -1714,6 +1958,52 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_marks_only_the_matching_in_flight_startup() {
+        let pending = Mutex::new(Some(PendingRewindClipPreparation {
+            startup_id: "startup-current".into(),
+            cancelled: false,
+        }));
+        let guard = PendingRewindClipPreparationGuard {
+            pending: &pending,
+            startup_id: "startup-current".into(),
+        };
+
+        assert!(!mark_pending_rewind_clip_cancelled(&pending, Some("startup-old")).unwrap());
+        assert!(mark_pending_rewind_clip_cancelled(&pending, Some("startup-current")).unwrap());
+        assert!(pending.lock().unwrap().as_ref().unwrap().cancelled);
+
+        drop(guard);
+        assert!(pending.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn cancelled_pending_startup_blocks_retry_until_cleanup_finishes() {
+        let pending = Mutex::new(Some(PendingRewindClipPreparation {
+            startup_id: "startup-cancelled".into(),
+            cancelled: true,
+        }));
+        let old_guard = PendingRewindClipPreparationGuard {
+            pending: &pending,
+            startup_id: "startup-cancelled".into(),
+        };
+
+        assert!(reserve_pending_rewind_clip_preparation(&pending, "startup-retry").is_err());
+        assert_eq!(
+            pending.lock().unwrap().as_ref().unwrap().startup_id,
+            "startup-cancelled"
+        );
+
+        drop(old_guard);
+        assert!(pending.lock().unwrap().is_none());
+        reserve_pending_rewind_clip_preparation(&pending, "startup-retry").unwrap();
+        assert_eq!(
+            pending.lock().unwrap().as_ref().unwrap().startup_id,
+            "startup-retry"
+        );
+        assert!(reserve_pending_rewind_clip_preparation(&pending, "startup-3").is_err());
+    }
+
+    #[test]
     fn expired_preview_cleanup_removes_files() {
         let directory = std::env::temp_dir().join(format!(
             "clips-rewind-preview-test-{}",
@@ -1725,5 +2015,113 @@ mod tests {
         cleanup_expired_preview_artifacts(&directory, std::time::Duration::ZERO).unwrap();
         assert!(!preview.exists());
         let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn rewind_preview_window_accepts_utc_and_offset_ranges_up_to_five_minutes() {
+        assert!(validate_preview_window("2026-10-09T12:00:00Z", "2026-10-09T12:00:30Z").is_ok());
+        assert!(
+            validate_preview_window("2026-10-09T08:00:00-04:00", "2026-10-09T12:00:30Z").is_ok()
+        );
+        assert!(validate_preview_window("2026-10-09T11:55:00Z", "2026-10-09T12:00:00Z").is_ok());
+    }
+
+    #[test]
+    fn rewind_preview_window_rejects_bad_ranges_with_clear_errors() {
+        let empty = validate_preview_window("2026-10-09T12:00:00Z", "2026-10-09T12:00:00Z");
+        assert_eq!(
+            empty.unwrap_err(),
+            "Rewind preview end must be after its start."
+        );
+        let reversed = validate_preview_window("2026-10-09T12:00:30Z", "2026-10-09T12:00:00Z");
+        assert_eq!(
+            reversed.unwrap_err(),
+            "Rewind preview end must be after its start."
+        );
+        let too_long = validate_preview_window("2026-10-09T12:00:00Z", "2026-10-09T12:05:00.001Z");
+        assert_eq!(
+            too_long.unwrap_err(),
+            "Rewind preview must be 5 minutes or shorter."
+        );
+        let not_rfc3339 = validate_preview_window("2026-10-09 12:00:00", "2026-10-09T12:00:30Z");
+        assert_eq!(
+            not_rfc3339.unwrap_err(),
+            "Rewind preview start must be an RFC3339 timestamp."
+        );
+        let bad_end = validate_preview_window("2026-10-09T12:00:00Z", "soon");
+        assert_eq!(
+            bad_end.unwrap_err(),
+            "Rewind preview end must be an RFC3339 timestamp."
+        );
+    }
+
+    #[test]
+    fn rewind_preview_inside_check_is_component_based() {
+        let directory = std::path::Path::new("/data/rewind-previews");
+        assert!(is_path_inside_directory(
+            std::path::Path::new("/data/rewind-previews/preview-1.mp4"),
+            directory
+        ));
+        assert!(!is_path_inside_directory(
+            std::path::Path::new("/data/rewind-previews-old/preview-1.mp4"),
+            directory
+        ));
+        assert!(!is_path_inside_directory(
+            std::path::Path::new("/data/screen-memory/segments/a.mp4"),
+            directory
+        ));
+    }
+
+    #[test]
+    fn rewind_preview_directory_is_the_one_the_sweeps_clear() {
+        let local = std::env::temp_dir().join(format!(
+            "clips-rewind-preview-dir-test-{}",
+            Utc::now().timestamp_micros()
+        ));
+        let directory = rewind_preview_directory_in(&local);
+        assert_eq!(directory, local.join("rewind-previews"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let preview = directory.join("preview.mp4");
+        std::fs::write(&preview, b"preview").unwrap();
+        remove_preview_directory(&directory).unwrap();
+        assert!(!preview.exists());
+        assert!(!directory.exists());
+        remove_preview_directory(&directory).unwrap();
+        let _ = std::fs::remove_dir_all(local);
+    }
+
+    #[test]
+    fn rewind_preview_discard_only_removes_files_inside_previews() {
+        let base = std::env::temp_dir().join(format!(
+            "clips-rewind-preview-discard-test-{}",
+            Utc::now().timestamp_micros()
+        ));
+        let previews = base.join("previews");
+        std::fs::create_dir_all(&previews).unwrap();
+        let inside = previews.join("preview-inside.mp4");
+        let outside = base.join("outside.mp4");
+        std::fs::write(&inside, b"preview").unwrap();
+        std::fs::write(&outside, b"not a preview").unwrap();
+
+        let traversal = previews.join("..").join("outside.mp4");
+        assert!(resolve_discardable_preview(&traversal, &previews).is_err());
+        assert!(resolve_discardable_preview(&outside, &previews).is_err());
+        assert!(resolve_discardable_preview(&previews, &previews).is_err());
+        assert!(resolve_discardable_preview(&previews.join("missing.mp4"), &previews).is_err());
+        assert!(outside.exists());
+
+        let resolved = resolve_discardable_preview(&inside, &previews).unwrap();
+        std::fs::remove_file(&resolved).unwrap();
+        assert!(!inside.exists());
+
+        #[cfg(unix)]
+        {
+            let link = previews.join("preview-link.mp4");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            assert!(resolve_discardable_preview(&link, &previews).is_err());
+            assert!(outside.exists());
+        }
+
+        let _ = std::fs::remove_dir_all(base);
     }
 }

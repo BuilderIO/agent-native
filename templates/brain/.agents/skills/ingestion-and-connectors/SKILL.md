@@ -47,13 +47,69 @@ specific access. Do not use `sync-source` for a manual source.
 Zoom sources import cloud-recording transcripts through a Server-to-Server
 OAuth app. Credentials are the vault secrets `ZOOM_ACCOUNT_ID`,
 `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET`; the app needs scopes
-`user:read:list_users:admin` and
-`cloud_recording:read:list_user_recordings:admin`. Config is
-`{"zoom":{"userIds":[...],"lookbackDays":7}}` — `userIds` is optional (up to
-50; omitted means every account user) and `lookbackDays` is 1-30, default 7.
+`cloud_recording:read:list_account_recordings:admin` and
+`cloud_recording:read:recording:admin`, plus
+`cloud_recording:read:list_recording_files:admin` for transcript download URLs. Config is
+`{"zoom":{"meetingIds":[...],"userIds":[...],"lookbackDays":7}}`. Without `userIds`, one
+account-wide recording list (`/accounts/me/recordings`, which needs only the `:admin` scope) covers every user.
+`userIds` (up to 50, user ID or email) narrows the import to those users and
+additionally needs `cloud_recording:read:list_user_recordings:admin`.
+`lookbackDays` is 1-30, default 7.
+
+`meetingIds` (required, 1-100) is the allowlist of recurring meeting series
+whose owners opted in; spaces are allowed, as Zoom displays them, and every
+occurrence of a series keeps its ID. The S2S `:admin` scopes are account-wide
+and Zoom cannot narrow them to a series, so this allowlist is the only
+boundary: Brain lists recording and summary metadata, discards every
+unapproved meeting, and fetches recording details, transcript files, and
+summaries only for approved IDs. A detail response naming an unapproved
+meeting is dropped. With no approved IDs the sync fails before contacting
+Zoom. Titles are never matched (any host can reuse one); create/update reject
+`meetingTopics`. An approved personal meeting ID would admit every meeting in
+that room, so approve only real recurring series. Keep Zoom's account-wide
+auto-recording and AI Companion summary settings off and enable cloud
+recording per approved series; Brain ignores unapproved recordings either way.
+`update-source` replaces the whole `zoom` object, so send every Zoom field you
+want to keep, including `meetingIds`. Changing the allowlist or raising
+`lookbackDays` rewinds the next sync to the `lookbackDays` window, so newly
+approved series are backfilled (raise `lookbackDays`, up to 30, to reach
+further back). Run stats report `approvedMeetingSeries`,
+`meetingsSkippedByFilter` (a count only; unapproved meetings are not
+described), `filterChanged`, `transcriptsWithoutDownloadUrl`, and
+`matchedMeetings` (ID, title, start, file types). The account-wide list omits
+download URLs, so an approved meeting with a finished transcript is looked up
+with `/meetings/{uuid}/recordings`
+(`cloud_recording:read:list_recording_files:admin`) to get the transcript URL.
+
+The complete scope set Brain uses is
+`cloud_recording:read:list_account_recordings:admin`,
+`cloud_recording:read:list_recording_files:admin`,
+`cloud_recording:read:recording:admin`, `cloud_recording:read:list_user_recordings:admin`
+(only with `userIds`), and, with summaries on, `meeting:read:list_summaries:admin`
+and `meeting:read:summary:admin`. Remove every other scope from the app.
 Sources auto-sync hourly; each run overlaps the previous one by one day to
 catch late-processed transcripts, and captures dedupe by `zoom:<meeting uuid>`.
 Captures use the organization audience. There are no Zoom webhooks.
+
+`"includeSummaries": true` also imports AI Companion meeting summaries, which
+exist for meetings that were never recorded. It is off by default because it
+needs two more scopes, `meeting:read:list_summaries:admin` and
+`meeting:read:summary:admin`; without them the sync fails with Zoom's
+missing-scope error after importing that run's transcripts. Summaries are listed
+account-wide from `/meetings/meeting_summaries`, narrowed to approved
+`meetingIds` and by `userIds` (matched against the host ID or email), then fetched from
+`/meetings/{uuid}/meeting_summary`. Each becomes a `note` capture deduped by
+`zoom-summary:<meeting uuid>`, separate from that meeting's transcript, and goes
+through the same sensitivity check. A summary edited in Zoom after import is not
+re-imported. Turning the flag on rewinds the next sync to the `lookbackDays`
+window; every rewind keeps an older cursor that is held back for a pending
+transcript. A summary Zoom refuses (trashed, deleted) is recorded in
+`summaryFetchFailures` and the rest still import; the run ends as an error
+with `lastError` naming the first failure, and the cursor advances. Auth,
+missing-scope, timeout, and server errors (401, code 4711, 408, 5xx) instead
+fail the whole run and keep the cursor, so the next sync retries them. Run stats report `summariesListed`, `summariesSkippedByFilter`,
+`summariesAlreadyImported`, `summariesFetched`, `emptySummaries`,
+`summaryCapturesCreated`, and `summaryFetchFailures`.
 
 ## Blessed FAQ And Docs Publishers
 
@@ -92,14 +148,14 @@ source without recreating it.
 single action to check before telling a user "your source is broken" or
 "nothing has synced yet." Each source gets one deterministic `health` value:
 
-| Health | Meaning |
-| --- | --- |
-| `error` | Source `status === "error"`, has `lastError`, or its latest sync run failed. |
-| `paused` | Source `status` is `paused` or `archived`. |
-| `needs_setup` | Slack source with no configured channel allow-list yet (`channelIds`/`channels`/`allowedChannels` all empty). |
-| `needs_sync` | Auto-sync-eligible provider (slack/granola/github/zoom) that has never completed a sync (`lastSyncedAt` is null). |
-| `stale` | Past its computed `nextSyncAt` by more than a 15-minute grace window. |
-| `healthy` | None of the above. |
+| Health        | Meaning                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `error`       | Source `status === "error"`, has `lastError`, or its latest sync run failed.                                      |
+| `paused`      | Source `status` is `paused` or `archived`.                                                                        |
+| `needs_setup` | Slack source with no configured channel allow-list yet (`channelIds`/`channels`/`allowedChannels` all empty).     |
+| `needs_sync`  | Auto-sync-eligible provider (slack/granola/github/zoom) that has never completed a sync (`lastSyncedAt` is null). |
+| `stale`       | Past its computed `nextSyncAt` by more than a 15-minute grace window.                                             |
+| `healthy`     | None of the above.                                                                                                |
 
 `get-brain-health` also reports `distillationQueue` counts (`pending`,
 `failed`, `stale` — a `processing` row untouched for 15+ minutes counts as
@@ -158,7 +214,10 @@ connection, not creating a new one.
 ## Editing And Removing Sources
 
 - `update-source` edits title, config, cursor, status, or answer policy on an
-  existing source.
+  existing source. From chat, pass config as `configJson`, a JSON object
+  encoded as a string (`create-source` accepts it too); model gateways strip
+  the keys of the free-form `config` object. Top-level keys are merged into the
+  stored config, and a call with no changes is rejected.
 - `delete-source` is a hard delete — there's no soft-archive alternative
   exposed as an action; setting `status: "paused"` via `update-source` is the
   reversible way to stop a source without losing its captures.

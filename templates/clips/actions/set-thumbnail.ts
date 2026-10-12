@@ -15,7 +15,7 @@ import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 const MAX_CAS_ATTEMPTS = 5;
 const THUMBNAIL_STORAGE_REQUIRED_REASON =
-  "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
+  "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
 
 export default defineAction({
   description:

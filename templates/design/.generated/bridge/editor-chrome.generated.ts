@@ -903,6 +903,105 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/text-layer-rule.ts
+  var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
+    "a",
+    "button",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "label",
+    "li",
+    "p",
+    "span",
+    "strong"
+  ]);
+  var INLINE_TEXT_TAGS = /* @__PURE__ */ new Set([
+    "a",
+    "abbr",
+    "b",
+    "bdi",
+    "bdo",
+    "br",
+    "cite",
+    "code",
+    "data",
+    "dfn",
+    "em",
+    "i",
+    "kbd",
+    "mark",
+    "q",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var",
+    "wbr"
+  ]);
+  var EMPTY_STYLE_LENGTH = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
+  var EMPTY_STYLE_PAINT = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
+  function bareClassToken(token) {
+    return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
+  }
+  function styleValueIsPresent(value, empties) {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    return trimmed.length > 0 && !empties.test(trimmed);
+  }
+  function classPaints(token) {
+    const bare = bareClassToken(token);
+    if (/^bg-/.test(bare)) {
+      return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
+        bare
+      );
+    }
+    if (/^border(-[xytrbles])?(-\\d+)?$/.test(bare)) return !/-0$/.test(bare);
+    if (/^ring(-\\d+)?$/.test(bare)) return bare !== "ring-0";
+    if (/^outline(-\\d+)?$/.test(bare)) return bare !== "outline-0";
+    if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
+    return false;
+  }
+  function classPads(token) {
+    const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
+      bareClassToken(token)
+    );
+    return Boolean(match) && match[2] !== "0";
+  }
+  function paintsBox(classes, style) {
+    return classes.some(classPaints) || [
+      "background",
+      "background-color",
+      "background-image",
+      "border",
+      "border-width",
+      "box-shadow",
+      "outline"
+    ].some(
+      (property) => styleValueIsPresent(style(property), EMPTY_STYLE_PAINT)
+    );
+  }
+  function padsBox(classes, style) {
+    return classes.some(classPads) || [
+      "padding",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ].some(
+      (property) => styleValueIsPresent(style(property), EMPTY_STYLE_LENGTH)
+    );
+  }
+
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     var readOnly = __READ_ONLY__;
@@ -912,6 +1011,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
     var designCanvasContentOffsetY = Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+    var portableStyleSnapshotsReadOnDemand = Boolean(window.frameElement);
     function clipboardScreenContext() {
       return !designCanvasBoardSurface && designCanvasScreenId ? { screenId: designCanvasScreenId } : {};
     }
@@ -1318,13 +1418,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
-    function reportCanvasFocusState(reason) {
-      if (readOnly || interactionMode) return;
+    function reportCanvasFocusState(reason, requestId) {
+      if ((readOnly || interactionMode) && !Number.isSafeInteger(requestId)) {
+        return;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:canvas-focus-state",
-          focusSafe: isCanvasFocusTransferSafe(),
-          ...reason ? { reason } : {}
+          focusSafe: !readOnly && !interactionMode && !activeTextEditEl && isCanvasFocusTransferSafe(),
+          ...reason ? { reason } : {},
+          ...Number.isSafeInteger(requestId) ? { requestId } : {}
         },
         "*"
       );
@@ -1402,7 +1505,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var host = ensureEditorChromeHost();
       editorChromeHostObserver?.disconnect();
       editorChromeDocumentObserver?.disconnect();
-      editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+      editorChromeHostObserver = new MutationObserver(function() {
+        if (!editorChromeHost || editorChromeNodes.some(function(node) {
+          return node.parentNode !== editorChromeHost;
+        })) {
+          repairEditorChromeHost();
+        }
+      });
       editorChromeHostObserver.observe(host, { childList: true });
       editorChromeDocumentObserver = new MutationObserver(function() {
         if (!editorChromeHost || !editorChromeHost.isConnected || editorChromeHost.parentNode !== document.documentElement) {
@@ -1488,7 +1597,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
+      // restyles the whole document, deferred into the next time it scrolls in.
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -1680,19 +1791,40 @@ export const editorChromeBridgeScript: string = `"use strict";
     function chromeLineScale() {
       return 1 / Math.max(0.05, Math.max(editorChromeScaleX, editorChromeScaleY));
     }
+    function syncEditorChromeScaleVar(name, value) {
+      var style = document.documentElement.style;
+      if (style.getPropertyValue(name) !== value) style.setProperty(name, value);
+    }
+    var chromeLineStyle = null;
+    function syncEditorChromeLineStyle(lineScale) {
+      if (!chromeLineStyle || !chromeLineStyle.isConnected) {
+        chromeLineStyle = document.createElement("style");
+        chromeLineStyle.setAttribute(
+          "data-agent-native-editor-chrome-line-style",
+          ""
+        );
+        (document.head || document.documentElement).appendChild(chromeLineStyle);
+      }
+      var text = '[data-agent-native-runtime-locked="true"]{outline-width:calc(1px * ' + lineScale + ")!important}";
+      if (chromeLineStyle.textContent !== text) {
+        chromeLineStyle.textContent = text;
+      }
+    }
     function syncEditorChromeScaleVars() {
-      document.documentElement.style.setProperty(
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-scale-x",
         String(chromeScaleX())
       );
-      document.documentElement.style.setProperty(
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-scale-y",
         String(chromeScaleY())
       );
-      document.documentElement.style.setProperty(
+      var lineScale = String(chromeLineScale());
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-line-scale",
-        String(chromeLineScale())
+        lineScale
       );
+      syncEditorChromeLineStyle(lineScale);
     }
     function escapeIdent(value) {
       if (window.CSS && typeof window.CSS.escape === "function") {
@@ -2309,6 +2441,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var runtimeLayerSnapshotReservationDirty = false;
     var runtimeLayerSnapshotReservationReadinessRequestId = null;
     var runtimeLayerSnapshotPendingReadinessRequestId = null;
+    var runtimeLayerSnapshotPostGeneration = 0;
+    var runtimeLayerSnapshotPendingPostReadinessRequestId = null;
     var lastRuntimeLayerSnapshotHtml = "";
     var lastRuntimeLayerSnapshotReservationToken = "";
     var runtimeDocumentId = "runtime-" + Date.now() + "-" + Math.random().toString(16).slice(2);
@@ -2367,83 +2501,37 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function serializeRuntimeLayerSnapshot(excludedRoot) {
       if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
-      var snapshotComputedProperties = [
-        "box-sizing",
-        "display",
-        "position",
-        "inset",
-        "top",
-        "right",
-        "bottom",
-        "left",
-        "width",
-        "height",
-        "min-width",
-        "min-height",
-        "max-width",
-        "max-height",
-        "margin",
-        "padding",
-        "flex",
-        "flex-flow",
-        "flex-grow",
-        "flex-shrink",
-        "flex-basis",
-        "align-items",
-        "align-self",
-        "align-content",
-        "justify-content",
-        "justify-items",
-        "justify-self",
-        "gap",
-        "grid-template-columns",
-        "grid-template-rows",
-        "grid-column",
-        "grid-row",
-        "order",
-        "overflow",
-        "overflow-x",
-        "overflow-y",
-        "background-color",
-        "background-image",
-        "background-position",
-        "background-size",
-        "background-repeat",
-        "border",
-        "border-top",
-        "border-right",
-        "border-bottom",
-        "border-left",
-        "border-radius",
-        "box-shadow",
-        "opacity",
-        "transform",
-        "transform-origin",
-        "color",
-        "font-family",
-        "font-size",
-        "font-style",
-        "font-weight",
-        "line-height",
-        "letter-spacing",
-        "text-align",
-        "text-decoration",
-        "text-transform",
-        "white-space",
-        "object-fit",
-        "object-position",
-        "clip-path",
-        "visibility"
-      ];
-      function inlineSnapshotComputedStyle(sourceNode2, cloneNode2) {
-        var computed = getComputedStyle(sourceNode2);
-        var parts = [];
-        for (var propertyIndex = 0; propertyIndex < snapshotComputedProperties.length; propertyIndex += 1) {
-          var property = snapshotComputedProperties[propertyIndex];
-          var value = computed.getPropertyValue(property);
-          if (value) parts.push(property + ":" + value);
+      var snapshotFailures = [];
+      function cloneRuntimeStylesheet(sourceNode2, cloneNode2) {
+        try {
+          if (!sourceNode2.sheet) throw new Error("stylesheet unavailable");
+          var cssText = Array.from(sourceNode2.sheet.cssRules, function(rule) {
+            return rule.cssText;
+          }).join("\\n");
+          if (sourceNode2 instanceof HTMLStyleElement) {
+            cloneNode2.textContent = cssText;
+            return cloneNode2;
+          }
+          var style = document.createElement("style");
+          Array.from(cloneNode2.attributes).forEach(function(attribute) {
+            if (!/^(?:href|rel|crossorigin|integrity|referrerpolicy|fetchpriority|as)$/i.test(
+              attribute.name
+            )) {
+              style.setAttribute(attribute.name, attribute.value);
+            }
+          });
+          style.setAttribute(
+            "data-agent-native-stylesheet-base",
+            sourceNode2.href
+          );
+          style.textContent = cssText;
+          return style;
+        } catch {
+          if (!snapshotFailures.includes("stylesheet-cssom-unavailable")) {
+            snapshotFailures.push("stylesheet-cssom-unavailable");
+          }
+          return cloneNode2;
         }
-        cloneNode2.setAttribute("style", parts.join(";"));
       }
       var sourceNodes = Array.prototype.slice.call(
         document.body.querySelectorAll("*")
@@ -2456,13 +2544,60 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var index = 0; index < sourceNodes.length && index < cloneNodes.length; index += 1) {
         var sourceNode = sourceNodes[index];
         var cloneNode = cloneNodes[index];
-        if (excludedRoot?.contains(sourceNode) || !isRuntimeLayerVisualNode(sourceNode)) {
+        var sourceIsStylesheet = sourceNode instanceof HTMLStyleElement || sourceNode instanceof HTMLLinkElement && sourceNode.relList.contains("stylesheet");
+        if (excludedRoot?.contains(sourceNode) || !isRuntimeLayerVisualNode(sourceNode) && !sourceIsStylesheet) {
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
+          continue;
+        }
+        if (!isRuntimeLayerVisualNode(sourceNode)) {
+          if (sourceNode instanceof HTMLStyleElement || sourceNode instanceof HTMLLinkElement) {
+            var clonedStylesheet = cloneRuntimeStylesheet(sourceNode, cloneNode);
+            if (clonedStylesheet !== cloneNode)
+              cloneNode.replaceWith(clonedStylesheet);
+          }
           continue;
         }
         var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
         cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
-        inlineSnapshotComputedStyle(sourceNode, cloneNode);
+        cloneNode.removeAttribute("data-agent-native-runtime-locked");
+        if (sourceNode instanceof HTMLInputElement && cloneNode instanceof HTMLInputElement) {
+          if (sourceNode.type === "file") {
+            if (sourceNode.files?.length) {
+              snapshotFailures.push("form-state-unavailable");
+            }
+          } else if (sourceNode.type !== "hidden") {
+            var inputValue = sourceNode.type === "password" ? "x".repeat(sourceNode.value.length) : sourceNode.value;
+            cloneNode.setAttribute("value", inputValue);
+            if (sourceNode.checked) cloneNode.setAttribute("checked", "");
+            else cloneNode.removeAttribute("checked");
+            if (sourceNode.indeterminate) {
+              snapshotFailures.push("form-state-unavailable");
+            }
+          }
+        } else if (sourceNode instanceof HTMLTextAreaElement && cloneNode instanceof HTMLTextAreaElement) {
+          cloneNode.textContent = sourceNode.value;
+        } else if (sourceNode instanceof HTMLOptionElement && cloneNode instanceof HTMLOptionElement) {
+          if (sourceNode.selected) cloneNode.setAttribute("selected", "");
+          else cloneNode.removeAttribute("selected");
+        }
+        if (sourceNode instanceof HTMLVideoElement || sourceNode instanceof HTMLAudioElement && sourceNode.controls) {
+          snapshotFailures.push("visual-media");
+        }
+        if (sourceNode instanceof HTMLCanvasElement) {
+          snapshotFailures.push("canvas-unavailable");
+        }
+        if (sourceNode instanceof HTMLIFrameElement) {
+          snapshotFailures.push("embedded-document-unavailable");
+        }
+        if (sourceNode.localName === "foreignobject") {
+          snapshotFailures.push("foreign-object-unavailable");
+        }
+        if (sourceNode instanceof HTMLImageElement && cloneNode instanceof HTMLImageElement) {
+          if (sourceNode.currentSrc) {
+            cloneNode.setAttribute("src", sourceNode.currentSrc);
+          }
+          cloneNode.removeAttribute("srcset");
+        }
         var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
           if (provenance.framework) {
@@ -2544,7 +2679,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         node.remove();
       });
       cloneBody.querySelectorAll(
-        "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set"
+        "script,template,noscript,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set,link:not([rel~='stylesheet'])"
       ).forEach(function(node) {
         node.remove();
       });
@@ -2565,9 +2700,41 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-node-id",
         ensureRuntimeLayerNodeId(document.body)
       );
-      inlineSnapshotComputedStyle(document.body, cloneBody);
       cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
-      var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>";
+      var cloneHtml = document.documentElement.cloneNode(false);
+      var cloneHead = document.createElement("head");
+      Array.from(document.head?.children ?? []).forEach(function(node) {
+        if (node instanceof HTMLStyleElement && (node.hasAttribute("data-agent-native-editor-chrome-style") || node.hasAttribute("data-agent-native-runtime-state-previews") || node.hasAttribute("data-agent-native-editing-safety-style"))) {
+          return;
+        }
+        if (node instanceof HTMLStyleElement || node instanceof HTMLLinkElement && node.relList.contains("stylesheet")) {
+          if (node instanceof HTMLStyleElement && node.sheet?.disabled || node instanceof HTMLLinkElement && node.disabled) {
+            return;
+          }
+          var cloneNode2 = node.cloneNode(true);
+          cloneHead.appendChild(cloneRuntimeStylesheet(node, cloneNode2));
+        }
+      });
+      Array.from(document.adoptedStyleSheets ?? []).forEach(function(sheet) {
+        try {
+          var adoptedStyle = document.createElement("style");
+          adoptedStyle.textContent = Array.from(sheet.cssRules, function(rule) {
+            return rule.cssText;
+          }).join("\\n");
+          cloneHead.appendChild(adoptedStyle);
+        } catch {
+          snapshotFailures.push("adopted-stylesheet-unavailable");
+        }
+      });
+      if (snapshotFailures.length > 0) {
+        cloneHtml.setAttribute(
+          "data-agent-native-export-resource-failures",
+          snapshotFailures.join(",")
+        );
+      }
+      cloneHtml.appendChild(cloneHead);
+      cloneHtml.appendChild(cloneBody);
+      var html = "<!doctype html>" + cloneHtml.outerHTML;
       if (html.length > 2e6)
         return { ok: false, reason: "snapshot-too-large" };
       return {
@@ -2575,6 +2742,448 @@ export const editorChromeBridgeScript: string = `"use strict";
         html,
         nodeCount,
         documentId: runtimeDocumentId
+      };
+    }
+    async function inlineRuntimeSnapshotResources(html, maxSerializedRequestBytes) {
+      var resourceAbortController = new AbortController();
+      var resourceSignal = resourceAbortController.signal;
+      var resourceTimedOut = false;
+      var resourceBudgetExceeded = false;
+      var resourceTimeoutSignal = AbortSignal.timeout(15e3);
+      resourceTimeoutSignal.addEventListener(
+        "abort",
+        function() {
+          resourceTimedOut = true;
+          resourceAbortController.abort();
+        },
+        { once: true }
+      );
+      var parsed = new DOMParser().parseFromString(html, "text/html");
+      var resourceData = /* @__PURE__ */ new Map();
+      var resourceRequests = /* @__PURE__ */ new Map();
+      var totalBytes = 0;
+      var complete = true;
+      var maxResourceBytes = 4e6;
+      var maxTotalBytes = 8e6;
+      var failures = (parsed.documentElement.getAttribute(
+        "data-agent-native-export-resource-failures"
+      ) || "").split(",").filter(Boolean);
+      function markFailure(reason) {
+        complete = false;
+        if (!failures.includes(reason)) failures.push(reason);
+      }
+      async function readBoundedBody(response) {
+        if (!response.body) return new Blob([]);
+        var reader = response.body.getReader();
+        var chunks = [];
+        var resourceBytes = 0;
+        try {
+          while (true) {
+            var result = await reader.read();
+            if (result.done) break;
+            var chunk = result.value;
+            if (resourceBytes + chunk.byteLength > maxResourceBytes || totalBytes + chunk.byteLength > maxTotalBytes) {
+              resourceBudgetExceeded = true;
+              markFailure("export-resource-size-limit");
+              try {
+                await reader.cancel();
+              } catch {
+                markFailure("resource-cancel");
+              }
+              resourceAbortController.abort();
+              return null;
+            }
+            resourceBytes += chunk.byteLength;
+            totalBytes += chunk.byteLength;
+            chunks.push(
+              chunk.buffer.slice(
+                chunk.byteOffset,
+                chunk.byteOffset + chunk.byteLength
+              )
+            );
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        return new Blob(chunks, {
+          type: response.headers.get("content-type") || ""
+        });
+      }
+      function cssCodeMask(css) {
+        var mask = new Uint8Array(css.length);
+        for (var index = 0; index < css.length; index += 1) {
+          var character = css[index];
+          if (character === "/" && css[index + 1] === "*") {
+            var commentEnd = css.indexOf("*/", index + 2);
+            index = commentEnd < 0 ? css.length : commentEnd + 1;
+          } else if (character === "'" || character === '"') {
+            var quote = character;
+            for (index += 1; index < css.length; index += 1) {
+              if (css[index] === "\\\\") index += 1;
+              else if (css[index] === quote) break;
+            }
+          } else if (character === "\\\\") {
+            index += 1;
+          } else {
+            mask[index] = 1;
+          }
+        }
+        return mask;
+      }
+      function cssNameCharacter(character) {
+        return !!character && /[\\w-\\\\]/.test(character);
+      }
+      function findCssUrlTokens(css) {
+        var codeMask = cssCodeMask(css);
+        var tokens = [];
+        for (var index = 0; index < css.length; index += 1) {
+          if (!codeMask[index] || css.slice(index, index + 3).toLowerCase() !== "url" || cssNameCharacter(css[index - 1]) || css[index + 3] !== "(") {
+            continue;
+          }
+          var quote = "";
+          var end = -1;
+          for (var cursor = index + 4; cursor < css.length; cursor += 1) {
+            var character = css[cursor];
+            if (character === "/" && css[cursor + 1] === "*") {
+              var commentEnd = css.indexOf("*/", cursor + 2);
+              if (commentEnd < 0) break;
+              cursor = commentEnd + 1;
+            } else if (quote) {
+              if (character === "\\\\") cursor += 1;
+              else if (character === quote) quote = "";
+            } else if (character === "'" || character === '"') {
+              quote = character;
+            } else if (character === "\\\\") {
+              cursor += 1;
+            } else if (character === ")") {
+              end = cursor + 1;
+              break;
+            }
+          }
+          if (end < 0) continue;
+          var value = css.slice(index + 4, end - 1).trim();
+          if (value.startsWith("'") || value.startsWith('"')) {
+            var valueQuote = value[0];
+            var valueEnd = -1;
+            for (var valueIndex = 1; valueIndex < value.length; valueIndex += 1) {
+              if (value[valueIndex] === "\\\\") valueIndex += 1;
+              else if (value[valueIndex] === valueQuote) {
+                valueEnd = valueIndex;
+                break;
+              }
+            }
+            if (valueEnd < 0 || value.slice(valueEnd + 1).trim()) continue;
+            value = value.slice(1, valueEnd);
+          } else {
+            value = value.replace(/\\/\\*[\\s\\S]*?\\*\\//g, "").trim();
+          }
+          if (value) tokens.push({ start: index, end, value });
+          index = end - 1;
+        }
+        return tokens;
+      }
+      async function resourceDataUrl(rawUrl, baseUrl) {
+        var url;
+        try {
+          url = new URL(rawUrl, baseUrl);
+        } catch {
+          markFailure("resource-url-invalid");
+          return null;
+        }
+        if (url.protocol === "data:" || rawUrl.startsWith("#")) return rawUrl;
+        if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "blob:") {
+          markFailure("resource-protocol-unsupported");
+          return null;
+        }
+        var resourceKind = /\\.(?:woff2?|ttf|otf)(?:$|\\?)/i.test(url.pathname) ? "font" : /\\.(?:png|jpe?g|gif|webp|avif|svg)(?:$|\\?)/i.test(url.pathname) ? "image" : /\\.css(?:$|\\?)/i.test(url.pathname) ? "stylesheet" : "other";
+        var fragment = url.hash;
+        url.hash = "";
+        var key = url.href;
+        var cached = resourceData.get(key);
+        if (cached) return cached + fragment;
+        var pendingRequest = resourceRequests.get(key);
+        if (!pendingRequest) {
+          pendingRequest = (async function() {
+            try {
+              var response = await fetch(key, {
+                credentials: "same-origin",
+                signal: resourceSignal
+              });
+              if (!response.ok) throw new Error("resource unavailable");
+              var blob = await readBoundedBody(response);
+              if (!blob) return null;
+              var dataUrl2 = await new Promise(function(resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                  resolve(typeof reader.result === "string" ? reader.result : "");
+                };
+                reader.onerror = function() {
+                  reject(reader.error || new Error("resource encoding failed"));
+                };
+                reader.readAsDataURL(blob);
+              });
+              if (!dataUrl2) throw new Error("resource encoding failed");
+              return dataUrl2;
+            } catch {
+              markFailure(
+                resourceTimedOut ? "resource-timeout" : resourceBudgetExceeded ? "export-resource-size-limit" : "resource-fetch-" + resourceKind
+              );
+              return null;
+            }
+          })();
+          resourceRequests.set(key, pendingRequest);
+        }
+        try {
+          var dataUrl = await pendingRequest;
+          if (!dataUrl) return null;
+          resourceData.set(key, dataUrl);
+          return dataUrl + fragment;
+        } finally {
+          if (resourceRequests.get(key) === pendingRequest)
+            resourceRequests.delete(key);
+        }
+      }
+      async function inlineCssUrls(css, baseUrl) {
+        var matches = findCssUrlTokens(css);
+        var resourceGroups = /* @__PURE__ */ new Map();
+        var resourceKeys = [];
+        var resourceFragments = [];
+        for (var matchIndex = 0; matchIndex < matches.length; matchIndex += 1) {
+          var rawUrl = matches[matchIndex].value;
+          if (!rawUrl || rawUrl.startsWith("#") || /^(?:data|about):/i.test(rawUrl)) {
+            resourceKeys.push(null);
+            resourceFragments.push("");
+            continue;
+          }
+          try {
+            var resourceUrl = new URL(rawUrl, baseUrl);
+            var fragment = resourceUrl.hash;
+            resourceUrl.hash = "";
+            var key = resourceUrl.href;
+            resourceGroups.set(key, key);
+            resourceKeys.push(key);
+            resourceFragments.push(fragment);
+          } catch {
+            var invalidKey = "invalid:" + rawUrl;
+            resourceGroups.set(invalidKey, rawUrl);
+            resourceKeys.push(invalidKey);
+            resourceFragments.push("");
+          }
+        }
+        var resourceEntries = Array.from(resourceGroups.entries());
+        var resourceResults = /* @__PURE__ */ new Map();
+        var nextResourceIndex = 0;
+        var resourceWorkers = Array.from(
+          { length: Math.min(4, resourceEntries.length) },
+          async function() {
+            while (nextResourceIndex < resourceEntries.length) {
+              var resourceIndex = nextResourceIndex++;
+              var entry = resourceEntries[resourceIndex];
+              resourceResults.set(
+                entry[0],
+                await resourceDataUrl(entry[1], baseUrl)
+              );
+            }
+          }
+        );
+        await Promise.all(resourceWorkers);
+        var replacements = matches.map(function(_match, index2) {
+          var key2 = resourceKeys[index2];
+          if (!key2) return null;
+          var dataUrl = resourceResults.get(key2);
+          return dataUrl ? { dataUrl: dataUrl + resourceFragments[index2] } : null;
+        });
+        var result = "";
+        var cursor = 0;
+        for (var index = 0; index < matches.length; index += 1) {
+          var match = matches[index];
+          var replacement = replacements[index];
+          result += css.slice(cursor, match.start);
+          result += replacement ? 'url("' + replacement.dataUrl + '")' : css.slice(match.start, match.end);
+          cursor = match.end;
+        }
+        return result + css.slice(cursor);
+      }
+      async function inlineStylesheet(css, baseUrl, importedFrom, depth) {
+        if (depth > 8) {
+          markFailure("stylesheet-import-depth");
+          return css;
+        }
+        var codeMask = cssCodeMask(css);
+        var importExpression = /@import\\s+(?:url\\(\\s*)?(['"]?)([^'")\\s]+)\\1\\s*\\)?\\s*([^;]*);/gi;
+        var imports = Array.from(css.matchAll(importExpression)).filter(
+          function(match) {
+            var start2 = match.index ?? 0;
+            return codeMask[start2] === 1 && !cssNameCharacter(css[start2 - 1]);
+          }
+        );
+        if (imports.length === 0) return inlineCssUrls(css, baseUrl);
+        var result = "";
+        var cursor = 0;
+        for (var importIndex = 0; importIndex < imports.length; importIndex += 1) {
+          var importMatch = imports[importIndex];
+          var start = importMatch.index ?? cursor;
+          result += css.slice(cursor, start);
+          var rawUrl = String(importMatch[2] || "").trim();
+          if (!rawUrl || /^(?:data|about):/i.test(rawUrl)) {
+            result += importMatch[0];
+            cursor = start + importMatch[0].length;
+            continue;
+          }
+          try {
+            var importedUrl = new URL(rawUrl, baseUrl);
+            importedUrl.hash = "";
+            if (importedFrom.indexOf(importedUrl.href) !== -1) {
+              throw new Error("cyclic stylesheet import");
+            }
+            var importedResponse = await fetch(importedUrl.href, {
+              credentials: "same-origin",
+              signal: resourceSignal
+            });
+            if (!importedResponse.ok) throw new Error("stylesheet unavailable");
+            var importedBlob = await readBoundedBody(importedResponse);
+            if (!importedBlob) {
+              result += importMatch[0];
+              cursor = start + importMatch[0].length;
+              continue;
+            }
+            var importedCss = await inlineStylesheet(
+              await importedBlob.text(),
+              importedUrl.href,
+              importedFrom.concat(importedUrl.href),
+              depth + 1
+            );
+            var importedDataUrl = await new Promise(
+              function(resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                  resolve(typeof reader.result === "string" ? reader.result : "");
+                };
+                reader.onerror = function() {
+                  reject(reader.error || new Error("stylesheet encoding failed"));
+                };
+                reader.readAsDataURL(
+                  new Blob([importedCss], { type: "text/css;charset=utf-8" })
+                );
+              }
+            );
+            if (!importedDataUrl) throw new Error("stylesheet encoding failed");
+            var importQualifier = String(importMatch[3] || "").trim();
+            result += '@import url("' + importedDataUrl + '")' + (importQualifier ? " " + importQualifier : "") + ";";
+          } catch {
+            markFailure(
+              resourceTimedOut ? "resource-timeout" : resourceBudgetExceeded ? "export-resource-size-limit" : "stylesheet-import"
+            );
+            result += importMatch[0];
+          }
+          cursor = start + importMatch[0].length;
+        }
+        result += css.slice(cursor);
+        return inlineCssUrls(result, baseUrl);
+      }
+      var externalStylesheets = Array.from(
+        parsed.querySelectorAll("link[rel~='stylesheet']")
+      );
+      for (var sheetIndex = 0; sheetIndex < externalStylesheets.length; sheetIndex += 1) {
+        var link = externalStylesheets[sheetIndex];
+        var replacementStyle = parsed.createElement("style");
+        if (link.media) replacementStyle.media = link.media;
+        if (link.title) replacementStyle.title = link.title;
+        try {
+          var sheetUrl = new URL(
+            link.getAttribute("href") || "",
+            document.baseURI
+          );
+          var sheetResponse = await fetch(sheetUrl.href, {
+            credentials: "same-origin",
+            signal: resourceSignal
+          });
+          if (!sheetResponse.ok) throw new Error("stylesheet unavailable");
+          var sheetBlob = await readBoundedBody(sheetResponse);
+          if (!sheetBlob) {
+            link.replaceWith(replacementStyle);
+            continue;
+          }
+          replacementStyle.textContent = await inlineStylesheet(
+            await sheetBlob.text(),
+            sheetUrl.href,
+            [sheetUrl.href],
+            0
+          );
+        } catch {
+          markFailure(
+            resourceTimedOut ? "resource-timeout" : resourceBudgetExceeded ? "export-resource-size-limit" : "stylesheet-link"
+          );
+        }
+        link.replaceWith(replacementStyle);
+      }
+      var styledNodes = Array.from(
+        parsed.querySelectorAll("[style], style")
+      );
+      for (var styleIndex = 0; styleIndex < styledNodes.length; styleIndex += 1) {
+        var styledNode = styledNodes[styleIndex];
+        if (styledNode.localName === "style") {
+          var stylesheetBaseUrl = styledNode.getAttribute("data-agent-native-stylesheet-base") || document.baseURI;
+          styledNode.removeAttribute("data-agent-native-stylesheet-base");
+          styledNode.textContent = await inlineStylesheet(
+            styledNode.textContent || "",
+            stylesheetBaseUrl,
+            [],
+            0
+          );
+        } else {
+          styledNode.setAttribute(
+            "style",
+            await inlineCssUrls(
+              styledNode.getAttribute("style") || "",
+              document.baseURI
+            )
+          );
+        }
+      }
+      var imageNodes = Array.from(
+        parsed.querySelectorAll(
+          "img[src], image[href], image[xlink\\\\:href]"
+        )
+      );
+      for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
+        var image = imageNodes[imageIndex];
+        var attribute = image.hasAttribute("src") ? "src" : image.hasAttribute("href") ? "href" : "xlink:href";
+        var source = image.getAttribute(attribute);
+        if (!source || /^(?:data|about):/i.test(source)) continue;
+        var dataSource = await resourceDataUrl(source, document.baseURI);
+        if (dataSource) image.setAttribute(attribute, dataSource);
+        else markFailure("image-fetch");
+        if (image.localName === "img") image.removeAttribute("srcset");
+      }
+      var tooLarge = failures.includes("export-resource-size-limit");
+      var outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
+      if (maxSerializedRequestBytes !== void 0) {
+        var requestBody = JSON.stringify({
+          html: outputHtml,
+          width: Number.MAX_SAFE_INTEGER,
+          height: Number.MAX_SAFE_INTEGER,
+          scale: 4
+        });
+        tooLarge = tooLarge || new TextEncoder().encode(requestBody).byteLength > maxSerializedRequestBytes;
+        if (tooLarge && !failures.includes("export-request-size-limit")) {
+          failures.push("export-request-size-limit");
+          complete = false;
+        }
+      }
+      if (!complete) {
+        parsed.documentElement.setAttribute(
+          "data-agent-native-export-resource-failures",
+          failures.join(",")
+        );
+        outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
+      }
+      return {
+        html: outputHtml,
+        complete,
+        ...!complete ? {
+          errorCode: tooLarge ? "export_too_large" : "export_resources_unavailable"
+        } : {}
       };
     }
     function postRuntimeLayerSnapshot(reservationToken, requestId, readinessRequestId) {
@@ -2586,6 +3195,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       runtimeLayerSnapshotTimer = null;
       runtimeLayerSnapshotMaxTimer = null;
+      var postGeneration = ++runtimeLayerSnapshotPostGeneration;
+      if (Number.isSafeInteger(readinessRequestId)) {
+        runtimeLayerSnapshotPendingPostReadinessRequestId = readinessRequestId;
+      }
+      var postReadinessRequestId = runtimeLayerSnapshotPendingPostReadinessRequestId ?? void 0;
+      function clearPendingPostReadiness() {
+        if (postReadinessRequestId !== void 0 && runtimeLayerSnapshotPendingPostReadinessRequestId === postReadinessRequestId) {
+          runtimeLayerSnapshotPendingPostReadinessRequestId = null;
+        }
+      }
+      function postSnapshotTooLargeError() {
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: {
+              ok: false,
+              reason: "snapshot-too-large",
+              requestId,
+              documentId: runtimeDocumentId,
+              ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
+        clearPendingPostReadiness();
+      }
       var snapshot = serializeRuntimeLayerSnapshot();
       if (!snapshot.ok) {
         window.parent.postMessage(
@@ -2595,44 +3231,74 @@ export const editorChromeBridgeScript: string = `"use strict";
               ...snapshot,
               requestId,
               documentId: runtimeDocumentId,
-              ...Number.isSafeInteger(readinessRequestId) ? { readinessRequestId } : {},
+              ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
               ...reservationToken ? { reservationToken } : {}
             }
           },
           "*"
         );
+        clearPendingPostReadiness();
         return;
       }
-      var snapshotReservationToken = reservationToken || "";
-      if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(readinessRequestId)) {
-        window.parent.postMessage(
-          {
-            type: "agent-native:runtime-layer-snapshot-unchanged",
-            payload: {
-              requestId,
-              documentId: snapshot.documentId,
-              ...Number.isSafeInteger(readinessRequestId) ? { readinessRequestId } : {},
-              ...reservationToken ? { reservationToken } : {}
-            }
-          },
-          "*"
-        );
-        return;
-      }
-      lastRuntimeLayerSnapshotHtml = snapshot.html;
-      lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-      if (requestId !== void 0) snapshot.requestId = requestId;
-      if (Number.isSafeInteger(readinessRequestId)) {
-        snapshot.readinessRequestId = readinessRequestId;
-      }
-      if (reservationToken) snapshot.reservationToken = reservationToken;
-      window.parent.postMessage(
-        {
+      void inlineRuntimeSnapshotResources(snapshot.html, 5e6).then(function(inlined) {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        snapshot.html = inlined.html;
+        if (inlined.errorCode === "export_too_large" || snapshot.html.length > 14e6) {
+          postSnapshotTooLargeError();
+          return;
+        }
+        var snapshotReservationToken = reservationToken || "";
+        if (snapshot.html === lastRuntimeLayerSnapshotHtml && snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken && !Number.isSafeInteger(postReadinessRequestId)) {
+          window.parent.postMessage(
+            {
+              type: "agent-native:runtime-layer-snapshot-unchanged",
+              payload: {
+                requestId,
+                documentId: snapshot.documentId,
+                ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
+                ...reservationToken ? { reservationToken } : {}
+              }
+            },
+            "*"
+          );
+          clearPendingPostReadiness();
+          return;
+        }
+        if (requestId !== void 0) snapshot.requestId = requestId;
+        if (Number.isSafeInteger(postReadinessRequestId)) {
+          snapshot.readinessRequestId = postReadinessRequestId;
+        }
+        if (reservationToken) snapshot.reservationToken = reservationToken;
+        var snapshotMessage = {
           type: "agent-native:runtime-layer-snapshot",
           payload: snapshot
-        },
-        "*"
-      );
+        };
+        if (new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength > 5e6) {
+          postSnapshotTooLargeError();
+          return;
+        }
+        lastRuntimeLayerSnapshotHtml = snapshot.html;
+        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+        window.parent.postMessage(snapshotMessage, "*");
+        clearPendingPostReadiness();
+      }).catch(function() {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        window.parent.postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: {
+              ok: false,
+              reason: "snapshot-unavailable",
+              requestId,
+              documentId: runtimeDocumentId,
+              ...Number.isSafeInteger(postReadinessRequestId) ? { readinessRequestId: postReadinessRequestId } : {},
+              ...reservationToken ? { reservationToken } : {}
+            }
+          },
+          "*"
+        );
+        clearPendingPostReadiness();
+      });
     }
     function requestRuntimeLayerSnapshot(readinessRequestId) {
       if (Number.isSafeInteger(readinessRequestId)) {
@@ -2665,6 +3331,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
     }
     function scheduleRuntimeLayerSnapshot() {
+      if (!runtimeLayerSnapshotEnabled) return;
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -2761,6 +3428,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         height: rect.height + padY * 2
       };
     }
+    function hasLayoutBox(el) {
+      return el.getClientRects().length > 0;
+    }
     function outermostSvgAncestor(el) {
       var owner = el && el.ownerSVGElement;
       if (!owner) return null;
@@ -2807,13 +3477,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
       return !!cloneRoot && !isSourceOwned(cloneRoot);
     }
-    function repeatTemplateOwning(node) {
+    function repeatTemplateOwning(node, templateSiblingsByParent) {
       var parent = node.parentElement;
       if (!parent) return null;
-      var siblings = parent.children;
+      var memoizedTemplateSiblings = !!templateSiblingsByParent;
+      var siblings;
+      if (templateSiblingsByParent) {
+        var cachedSiblings = templateSiblingsByParent.get(parent);
+        if (!cachedSiblings) {
+          cachedSiblings = [];
+          var children = parent.children;
+          for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+            var child = children[childIndex];
+            if (child.tagName.toLowerCase() === "template") {
+              cachedSiblings.push(child);
+            }
+          }
+          templateSiblingsByParent.set(parent, cachedSiblings);
+        }
+        siblings = cachedSiblings;
+      } else {
+        siblings = parent.children;
+      }
       for (var i = 0; i < siblings.length; i += 1) {
         var sib = siblings[i];
-        if (sib === node || !sib.tagName || sib.tagName.toLowerCase() !== "template") {
+        if (sib === node || !sib.tagName || !memoizedTemplateSiblings && sib.tagName.toLowerCase() !== "template") {
           continue;
         }
         var alpineTemplate = sib;
@@ -2838,10 +3526,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
-    function isTemplateCloneElement(el) {
+    function isTemplateCloneElement(el, templateSiblingsByParent) {
       var node = el;
       while (node && !isDocumentRootElement(node)) {
-        if (repeatTemplateOwning(node)) return true;
+        if (repeatTemplateOwning(node, templateSiblingsByParent)) return true;
         node = node.parentElement;
       }
       return false;
@@ -2976,6 +3664,71 @@ export const editorChromeBridgeScript: string = `"use strict";
       var root = hit.closest('[data-an-primitive="text"]');
       return root && !isDocumentRootElement(root) ? root : null;
     }
+    function isGeneratedGroupWrapper(group) {
+      if (typeof group.getAttribute !== "function") return false;
+      var generatedGroupMarker = group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      var legacyNodeId = group.getAttribute("data-agent-native-node-id");
+      var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(layerNameForElement(group).trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      return generatedGroupMarker || legacyGeneratedGroup;
+    }
+    function hasSelectableLayerChildren(container) {
+      var children = container.children;
+      for (var i = 0; i < children.length; i += 1) {
+        var child = children[i];
+        if (isOverlayElement(child) || NON_SELECTABLE_TAGS.indexOf(child.tagName.toLowerCase()) !== -1) {
+          continue;
+        }
+        return true;
+      }
+      return false;
+    }
+    function canOpenSelectionContainer(container) {
+      var primitive = container.getAttribute("data-an-primitive");
+      return hasSelectableLayerChildren(container) && primitive !== "group" && primitive !== "boolean" && !isGeneratedGroupWrapper(container);
+    }
+    function opensByItself(container) {
+      if (container.parentElement !== document.body) return false;
+      var primitive = container.getAttribute("data-an-primitive");
+      return hasSelectableLayerChildren(container) && (primitive === "frame" || primitive === "section" || container.tagName.toLowerCase() === "section");
+    }
+    function selectionOpenedContainers() {
+      var opened = /* @__PURE__ */ new Set();
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        var ancestor = selectedEl.parentElement;
+        while (ancestor) {
+          opened.add(ancestor);
+          if (ancestor === document.body) break;
+          ancestor = ancestor.parentElement;
+        }
+        if (canOpenSelectionContainer(selectedEl)) opened.add(selectedEl);
+      }
+      var entered = enteredContainerElement;
+      if (entered && document.documentElement.contains(entered) && canOpenSelectionContainer(entered) && (!enteredContainerId || entered.getAttribute("data-agent-native-node-id") === enteredContainerId)) {
+        opened.add(entered);
+      }
+      var scope = selectionContainerScope;
+      if (scope && document.documentElement.contains(scope) && canOpenSelectionContainer(scope)) {
+        opened.add(scope);
+      }
+      if (document.body) {
+        var topLevel = document.body.children;
+        for (var i = 0; i < topLevel.length; i += 1) {
+          var child = topLevel[i];
+          if (opensByItself(child)) opened.add(child);
+        }
+      }
+      return opened;
+    }
+    function directChildOfOpenedContainer(target, openedContainers) {
+      var node = target;
+      while (node && !isDocumentRootElement(node)) {
+        var parent = node.parentElement;
+        if (!parent) return null;
+        if (openedContainers.has(parent)) return node;
+        node = parent;
+      }
+      return null;
+    }
     function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
@@ -2986,13 +3739,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!descendIntoGroup) {
         var group = target;
         while (group && !isDocumentRootElement(group)) {
-          var groupName = layerNameForElement(group);
-          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
-          var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
-          var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
-          if (generatedGroupMarker || legacyGeneratedGroup) {
-            return group;
-          }
+          if (isGeneratedGroupWrapper(group)) return group;
           group = group.parentElement;
         }
       }
@@ -3009,7 +3756,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var resolved = selectionTargetForHit(hit, descendIntoGroup);
       if (!resolved || isDocumentRootElement(resolved)) return resolved;
       var scope = selectionContainerScope;
-      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
+      var selectionTarget = directChildOfOpenedContainer(
+        resolved,
+        selectionOpenedContainers()
+      );
+      if (selectionTarget) return selectionTarget;
+      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved) || !canOpenSelectionContainer(scope)) {
         selectionContainerScope = null;
         scope = topLevelBoardFrameOwning(resolved) || document.body;
       }
@@ -3035,6 +3787,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
+      if (hostSelectedEl === selectedEl) return null;
+      if (!hasSelectableLayerChildren(selectedEl)) return null;
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
       var svgRoot = outermostSvgAncestor(hit);
@@ -3358,6 +4112,248 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return el.parentElement;
     }
+    function appliedContentOffset() {
+      var offsetStyle = document.querySelector(
+        "style[data-agent-native-content-offset]"
+      );
+      if (!offsetStyle) return { x: 0, y: 0 };
+      var xAttribute = offsetStyle.getAttribute(
+        "data-agent-native-content-offset-x"
+      );
+      var yAttribute = offsetStyle.getAttribute(
+        "data-agent-native-content-offset-y"
+      );
+      var x = xAttribute === null || !xAttribute.trim() ? NaN : Number(xAttribute);
+      var y = yAttribute === null || !yAttribute.trim() ? NaN : Number(yAttribute);
+      var cssOffset = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : (function() {
+        var match = /translate:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px\\s+(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px/.exec(
+          offsetStyle.textContent || ""
+        );
+        return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+      })();
+      if (!cssOffset) return null;
+      var body = document.body;
+      if (!body) return null;
+      var ancestorTransform = { a: 1, b: 0, c: 0, d: 1 };
+      for (var ancestor = body; ancestor; ancestor = ancestor.parentElement) {
+        ancestorTransform = multiplyPositionTransforms(
+          positionElementTransform(window.getComputedStyle(ancestor)),
+          ancestorTransform
+        );
+      }
+      var offset = {
+        x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
+        y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y
+      };
+      return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
+    }
+    function boardContentOffsetRootForElement(el, offset) {
+      if (offset.x === 0 && offset.y === 0) return null;
+      var body = el.ownerDocument.body;
+      if (!body) return null;
+      var root = el;
+      while (root.parentElement && root.parentElement !== body) {
+        root = root.parentElement;
+      }
+      return root.parentElement === body && root.hasAttribute("data-agent-native-node-id") ? root : null;
+    }
+    function positionOriginWithBoardContentOffset(origin, offsetRoot, originElement, offset) {
+      if (!offsetRoot || originElement && offsetRoot.contains(originElement)) {
+        return origin;
+      }
+      return {
+        x: origin.x + offset.x,
+        y: origin.y + offset.y
+      };
+    }
+    function positionReferenceRectForElement(el, fixedWithoutContainingBlock, offset) {
+      var offsetRoot = boardContentOffsetRootForElement(el, offset);
+      if (fixedWithoutContainingBlock) {
+        var fixedRoot = el.ownerDocument.documentElement;
+        var fixedReferenceOrigin = positionOriginWithBoardContentOffset(
+          {
+            x: window.scrollX || window.pageXOffset || 0,
+            y: window.scrollY || window.pageYOffset || 0
+          },
+          offsetRoot,
+          null,
+          offset
+        );
+        return {
+          x: fixedReferenceOrigin.x,
+          y: fixedReferenceOrigin.y,
+          width: fixedRoot.clientWidth,
+          height: fixedRoot.clientHeight
+        };
+      }
+      var ancestor = el.parentElement;
+      while (ancestor) {
+        if (ancestor.getAttribute("data-an-primitive") === "frame") {
+          var frameRect = rectInfoForElement(ancestor);
+          var frameReferenceOrigin = positionOriginWithBoardContentOffset(
+            frameRect,
+            offsetRoot,
+            ancestor,
+            offset
+          );
+          return {
+            x: frameReferenceOrigin.x,
+            y: frameReferenceOrigin.y,
+            width: frameRect.width,
+            height: frameRect.height
+          };
+        }
+        ancestor = ancestor.parentElement;
+      }
+      var root = el.ownerDocument.documentElement;
+      var rootReferenceOrigin = positionOriginWithBoardContentOffset(
+        { x: 0, y: 0 },
+        offsetRoot,
+        null,
+        offset
+      );
+      return {
+        x: rootReferenceOrigin.x,
+        y: rootReferenceOrigin.y,
+        width: root.clientWidth,
+        height: root.clientHeight
+      };
+    }
+    function multiplyPositionTransforms(left, right) {
+      return {
+        a: left.a * right.a + left.c * right.b,
+        b: left.b * right.a + left.d * right.b,
+        c: left.a * right.c + left.c * right.d,
+        d: left.b * right.c + left.d * right.d
+      };
+    }
+    function positionElementTransform(styles) {
+      var transform = styles.transform === "none" ? { a: 1, b: 0, c: 0, d: 1 } : new DOMMatrixReadOnly(styles.transform);
+      var result = {
+        a: transform.a,
+        b: transform.b,
+        c: transform.c,
+        d: transform.d
+      };
+      var scaleValue = styles.getPropertyValue("scale");
+      if (scaleValue && scaleValue !== "none") {
+        var scaleParts = scaleValue.trim().split(/\\s+/);
+        var scaleX = Number.parseFloat(scaleParts[0] || "1");
+        var scaleY = Number.parseFloat(scaleParts[1] || scaleParts[0] || "1");
+        result = multiplyPositionTransforms(
+          { a: scaleX, b: 0, c: 0, d: scaleY },
+          result
+        );
+      }
+      var rotateValue = styles.getPropertyValue("rotate");
+      if (rotateValue && rotateValue !== "none") {
+        var rotateParts = rotateValue.trim().split(/\\s+/);
+        var angle = rotateParts[rotateParts.length - 1] || "0deg";
+        var axis = rotateParts.length > 1 ? rotateParts[0] : "z";
+        var rotateFunction = axis === "x" || axis === "y" ? "rotate" + axis.toUpperCase() : "rotate";
+        var rotation = new DOMMatrixReadOnly(rotateFunction + "(" + angle + ")");
+        result = multiplyPositionTransforms(
+          { a: rotation.a, b: rotation.b, c: rotation.c, d: rotation.d },
+          result
+        );
+      }
+      var zoom = Number.parseFloat(styles.getPropertyValue("zoom"));
+      if (Number.isFinite(zoom) && zoom !== 1) {
+        result = multiplyPositionTransforms(
+          { a: zoom, b: 0, c: 0, d: zoom },
+          result
+        );
+      }
+      return result;
+    }
+    function establishesPositioningContext(styles) {
+      var translate = styles.getPropertyValue("translate");
+      var rotate = styles.getPropertyValue("rotate");
+      var scale = styles.getPropertyValue("scale");
+      var backdropFilter = styles.getPropertyValue("backdrop-filter");
+      return translate !== "" && translate !== "none" || rotate !== "" && rotate !== "none" || scale !== "" && scale !== "none" || styles.transform !== "none" || styles.perspective !== "none" || styles.filter !== "none" || backdropFilter !== "" && backdropFilter !== "none" || /(?:^|\\s)(?:layout|paint|strict|content)(?:\\s|$)/.test(styles.contain) || /transform|perspective|filter|contain/.test(styles.willChange) || styles.contentVisibility === "auto";
+    }
+    function positionComputedStylesForElement(el, cache) {
+      var cached = cache.get(el);
+      if (cached) return cached;
+      var styles = window.getComputedStyle(el);
+      cache.set(el, styles);
+      return styles;
+    }
+    function positionContainingBlockForElement(el, cache, offset) {
+      var offsetRoot = boardContentOffsetRootForElement(el, offset);
+      var fixed = positionComputedStylesForElement(el, cache).position === "fixed";
+      var containingBlock = null;
+      var ancestor = el.parentElement;
+      while (ancestor) {
+        var styles = positionComputedStylesForElement(ancestor, cache);
+        if (fixed && establishesPositioningContext(styles) || !fixed && (styles.position !== "static" || establishesPositioningContext(styles))) {
+          containingBlock = ancestor;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      var transform = { a: 1, b: 0, c: 0, d: 1 };
+      for (ancestor = containingBlock; ancestor; ancestor = ancestor.parentElement) {
+        transform = multiplyPositionTransforms(
+          positionElementTransform(
+            positionComputedStylesForElement(ancestor, cache)
+          ),
+          transform
+        );
+      }
+      if (!containingBlock) {
+        return {
+          origin: positionOriginWithBoardContentOffset(
+            fixed ? {
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0
+            } : { x: 0, y: 0 },
+            offsetRoot,
+            null,
+            offset
+          ),
+          transform,
+          hasContainingBlock: false
+        };
+      }
+      var htmlContainingBlock = containingBlock;
+      var quaddedContainingBlock = containingBlock;
+      var paddingQuad = quaddedContainingBlock.getBoxQuads?.({
+        box: "padding"
+      })?.[0];
+      var scrollX = htmlContainingBlock.scrollLeft || 0;
+      var scrollY = htmlContainingBlock.scrollTop || 0;
+      if (paddingQuad) {
+        return {
+          origin: positionOriginWithBoardContentOffset(
+            {
+              x: paddingQuad.p1.x + window.scrollX - transform.a * scrollX - transform.c * scrollY,
+              y: paddingQuad.p1.y + window.scrollY - transform.b * scrollX - transform.d * scrollY
+            },
+            offsetRoot,
+            containingBlock,
+            offset
+          ),
+          transform,
+          hasContainingBlock: true
+        };
+      }
+      var rect = rectInfoForElement(containingBlock);
+      return {
+        origin: positionOriginWithBoardContentOffset(
+          {
+            x: rect.x + transform.a * (htmlContainingBlock.clientLeft - scrollX) + transform.c * (htmlContainingBlock.clientTop - scrollY),
+            y: rect.y + transform.b * (htmlContainingBlock.clientLeft - scrollX) + transform.d * (htmlContainingBlock.clientTop - scrollY)
+          },
+          offsetRoot,
+          containingBlock,
+          offset
+        ),
+        transform,
+        hasContainingBlock: true
+      };
+    }
     function autoLayoutParentInfo(el) {
       var parent = designParentForElement(el);
       if (!parent || parent === document.body || parent === document.documentElement) {
@@ -3523,6 +4519,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var portableStyleProbeDoc;
     var portableStyleProbeContainer;
+    var portableStyleProbeHost;
+    function releasePortableStyleProbe() {
+      portableStyleProbeHost?.remove();
+      portableStyleProbeHost = void 0;
+      portableStyleProbeDoc = void 0;
+      portableStyleProbeContainer = void 0;
+    }
     function portableStyleProbeDocument() {
       if (portableStyleProbeDoc !== void 0) return portableStyleProbeDoc;
       if (!document.body) return null;
@@ -3530,26 +4533,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       try {
         frame = document.createElement("iframe");
         frame.setAttribute("aria-hidden", "true");
+        frame.setAttribute(
+          "data-agent-native-edit-overlay",
+          "portable-style-probe"
+        );
         frame.tabIndex = -1;
         frame.style.cssText = "position:fixed!important;width:0!important;height:0!important;border:0!important;visibility:hidden!important;pointer-events:none!important;";
         document.body.appendChild(frame);
         var probeDoc = frame.contentDocument;
         if (probeDoc) {
+          portableStyleProbeHost = frame;
           portableStyleProbeDoc = probeDoc;
           portableStyleProbeContainer = probeDoc.body;
         } else {
           frame.remove();
           var fallbackHost = document.createElement("div");
           fallbackHost.setAttribute(
+            "data-agent-native-edit-overlay",
+            "portable-style-probe"
+          );
+          fallbackHost.setAttribute(
             "style",
             "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;"
           );
           document.body.appendChild(fallbackHost);
+          portableStyleProbeHost = fallbackHost;
           portableStyleProbeDoc = document;
           portableStyleProbeContainer = fallbackHost.attachShadow({
             mode: "open"
           });
         }
+        window.setTimeout(releasePortableStyleProbe, 0);
       } catch (err) {
         frame?.remove();
         console.warn("Portable style probe unavailable", err);
@@ -4348,6 +5362,72 @@ export const editorChromeBridgeScript: string = `"use strict";
         nodes
       };
     }
+    var srgbColorContext;
+    var srgbColorByValue = /* @__PURE__ */ new Map();
+    var SRGB_COLOR_SENTINEL = "#010203";
+    function srgbColor(value) {
+      var known = srgbColorByValue.get(value);
+      if (known !== void 0) return known;
+      if (srgbColorContext === void 0) {
+        srgbColorContext = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      }
+      if (!srgbColorContext) return value;
+      srgbColorContext.fillStyle = SRGB_COLOR_SENTINEL;
+      srgbColorContext.fillStyle = value;
+      if (srgbColorContext.fillStyle === SRGB_COLOR_SENTINEL) return value;
+      srgbColorContext.clearRect(0, 0, 1, 1);
+      srgbColorContext.fillRect(0, 0, 1, 1);
+      var hex = "#";
+      srgbColorContext.getImageData(0, 0, 1, 1).data.forEach(function(channel) {
+        hex += channel.toString(16).padStart(2, "0");
+      });
+      srgbColorByValue.set(value, hex);
+      return hex;
+    }
+    function srgbColorTokens(value) {
+      return value.replace(
+        /\\b(?:oklch|oklab|lch|lab|hwb|color)\\([^()]*\\)/g,
+        srgbColor
+      );
+    }
+    function hasOwnText(el) {
+      for (var child = el.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3 && child.textContent?.trim()) return true;
+      }
+      return false;
+    }
+    function paintedColorStyles(el) {
+      var cs = window.getComputedStyle(el);
+      var styles = {};
+      var read = function(property) {
+        styles[property] = srgbColorTokens(cs.getPropertyValue(property));
+      };
+      if (hasOwnText(el)) read("color");
+      read("background-color");
+      if (cs.backgroundImage !== "none") read("background-image");
+      ["top", "right", "bottom", "left"].forEach(function(side) {
+        if (portableBorderSidePaints(cs, side)) read("border-" + side + "-color");
+      });
+      if (cs.boxShadow !== "none") read("box-shadow");
+      if (el instanceof SVGGeometryElement || el instanceof SVGTextContentElement) {
+        if (cs.fill !== "none") read("fill");
+        if (cs.stroke !== "none") read("stroke");
+      }
+      return styles;
+    }
+    var SUBTREE_COLOR_NODE_LIMIT = 5e3;
+    function collectSubtreeColorStyles(root) {
+      srgbColorByValue.clear();
+      var nodes = [paintedColorStyles(root)];
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (nodes.length >= SUBTREE_COLOR_NODE_LIMIT) {
+          return { nodes, truncated: true };
+        }
+        nodes.push(paintedColorStyles(node));
+      }
+      return { nodes, truncated: false };
+    }
     var INLINE_STYLE_PROPERTIES = [
       "position",
       "left",
@@ -4546,6 +5626,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!/(^|,)\\s*text\\s*(,|$)/i.test(backgroundClip) && /(^|,)\\s*text\\s*(,|$)/i.test(webkitBackgroundClip)) {
         backgroundClip = webkitBackgroundClip;
       }
+      var vectorFillGradient = paintCs.getPropertyValue("--an-vector-fill-gradient").trim();
+      var vectorStrokeGradient = strokeCs.getPropertyValue("--an-vector-stroke-gradient").trim();
       return {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
@@ -4630,8 +5712,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
         fill: paintCs.fill,
+        ...vectorFillGradient ? { "--an-vector-fill-gradient": vectorFillGradient } : {},
         fillOpacity: paintCs.fillOpacity,
         stroke: strokeCs.stroke,
+        ...vectorStrokeGradient ? { "--an-vector-stroke-gradient": vectorStrokeGradient } : {},
         strokeWidth: strokeCs.strokeWidth,
         strokeOpacity: strokeCs.strokeOpacity,
         strokeDasharray: strokeCs.strokeDasharray,
@@ -4875,14 +5959,30 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
-    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
+    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = !portableStyleSnapshotsReadOnDemand, sharedPositionComputedStylesCache) {
       var cs = window.getComputedStyle(el);
+      var positionComputedStylesCache = sharedPositionComputedStylesCache || /* @__PURE__ */ new WeakMap();
+      var positionRenderOffset = appliedContentOffset();
+      positionComputedStylesCache.set(el, cs);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      if (designParent && parentStyles) {
+        positionComputedStylesCache.set(designParent, parentStyles);
+      }
+      var positionCoordinateContext = positionRenderOffset ? positionContainingBlockForElement(
+        el,
+        positionComputedStylesCache,
+        positionRenderOffset
+      ) : null;
+      var positionReferenceRect = positionCoordinateContext ? positionReferenceRectForElement(
+        el,
+        cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
+        positionRenderOffset
+      ) : void 0;
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -4973,8 +6073,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
         portableStyleSnapshot: portableStyleSnapshot === null ? void 0 : portableStyleSnapshot,
         styleSnapshotCaptureFailed: portableStyleSnapshot === null ? true : void 0,
+        styleSnapshotReadOnDemand: portableStyleSnapshotsReadOnDemand || void 0,
         boundingRect,
         parentBoundingRect: designParent ? rectInfoForElement(designParent) : void 0,
+        ...positionCoordinateContext && positionReferenceRect ? {
+          positionReferenceRect,
+          positionContainingBlockOrigin: positionCoordinateContext.origin,
+          positionContainingBlockTransform: positionCoordinateContext.transform
+        } : {},
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
@@ -5082,6 +6188,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         payload: getElementInfo(el)
       };
       if (intent) message.intent = intent;
+      if (e?.isTrusted && intent?.source === "pointer") {
+        message.trustedPointer = true;
+        message.focusSafe = !activeTextEditEl && isCanvasFocusTransferSafe();
+      }
       window.parent.postMessage(message, "*");
       var framework = frameworkDebugProvenance(el);
       if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {
@@ -5097,28 +6207,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
     }
-    function collectSelectableElements(deep) {
+    function collectSelectableElements(deep, gestureScope) {
       var nodes = Array.prototype.slice.call(
         document.body ? document.body.querySelectorAll("*") : []
       );
       var scope = null;
+      var limitToGestureScope = Boolean(gestureScope);
       if (!deep) {
-        scope = selectionContainerScope;
+        scope = gestureScope || selectionContainerScope;
         if (!scope || !document.documentElement.contains(scope)) {
           scope = document.body;
+          limitToGestureScope = false;
         }
       }
       var seen = /* @__PURE__ */ new Set();
+      var templateSiblingsByParent = /* @__PURE__ */ new WeakMap();
       var elements = [];
       nodes.forEach(function(node) {
         if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
           return;
         }
         var target = selectionTargetForHit(node);
-        if (target && scope && scope.contains(target)) {
-          target = containerScopeAncestor(target, scope);
+        if (target && scope) {
+          if (scope.contains(target)) {
+            target = containerScopeAncestor(target, scope);
+          } else if (limitToGestureScope) {
+            return;
+          }
         }
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
+        if (!target || target === scope || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || seen.has(target) || isTemplateCloneElement(target, templateSiblingsByParent) || isPaddedAwayFromView(target)) {
           return;
         }
         seen.add(target);
@@ -5146,6 +6263,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function collectSelectableElementInfos(deep, atPoint, includePortableStyleSnapshot = true) {
       var targets = collectSelectableElements(deep);
+      var positionComputedStylesCache = /* @__PURE__ */ new WeakMap();
       if (atPoint) {
         targets = targets.filter(function(el) {
           return documentSpaceBoundsContainPoint(el, atPoint);
@@ -5153,14 +6271,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (!includePortableStyleSnapshot) {
         return targets.map(function(target) {
-          return getElementInfo(target, void 0, false);
+          return getElementInfo(
+            target,
+            void 0,
+            false,
+            positionComputedStylesCache
+          );
         });
       }
-      portableStyleProbeDocument();
       var portableComputedStylesCache = createPortableStyleComputedStylesCache();
       try {
         return targets.map(function(target) {
-          return getElementInfo(target, portableComputedStylesCache, true);
+          return getElementInfo(
+            target,
+            portableComputedStylesCache,
+            true,
+            positionComputedStylesCache
+          );
         });
       } finally {
         if (portableComputedStylesCache) {
@@ -5237,6 +6364,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
       handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" + cursor + ";";
+      if (pos.length === 2) handle.style.zIndex = "4";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -5530,9 +6658,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       "agent-native-runtime-structure-transaction"
     );
     var selectionContainerScope = null;
+    var enteredContainerId = null;
+    var enteredContainerElement = null;
+    var hostSelectedEl = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
+    var measurementModifierActive = false;
+    var measurementTargetEl = null;
     var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
@@ -5624,6 +6757,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeEditorDragId = "";
     var bridgeSpaceKeyPressed = false;
     var bridgeIgnoreAutoLayoutKeyPressed = false;
+    var bridgeIgnoreAutoLayoutChangedAt;
+    var endedCrossScreenModifierSnapshots = /* @__PURE__ */ new Map();
     var hostIgnoreAutoLayoutAtPointerDown = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     function resetBridgeDragModifierStateOnCancel() {
@@ -5634,8 +6769,38 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
     var activeCrossScreenComputedSize;
+    var activeCrossScreenGridSpan;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
+    function rememberEndedCrossScreenModifierSnapshot(snapshotId) {
+      var previousSnapshot = endedCrossScreenModifierSnapshots.get(snapshotId);
+      if (previousSnapshot) clearTimeout(previousSnapshot.timeoutId);
+      var endedSnapshot;
+      var timeoutId = setTimeout(function() {
+        if (endedCrossScreenModifierSnapshots.get(snapshotId) === endedSnapshot) {
+          endedCrossScreenModifierSnapshots.delete(snapshotId);
+        }
+      }, 1e3);
+      endedSnapshot = {
+        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+        changedAt: bridgeIgnoreAutoLayoutChangedAt,
+        timeoutId
+      };
+      endedCrossScreenModifierSnapshots.set(snapshotId, endedSnapshot);
+    }
+    function postCrossScreenModifierState(ignoreAutoLayout, event) {
+      var changedAt = eventEpochMilliseconds(event);
+      bridgeIgnoreAutoLayoutChangedAt = changedAt;
+      if (!activeCrossScreenDragIdentity) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:cross-screen-modifiers",
+          ignoreAutoLayout,
+          changedAt
+        },
+        "*"
+      );
+    }
     var spacingDrag = null;
     var lockedSelectors = [];
     var hiddenSelectors = [];
@@ -5644,6 +6809,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.getSelection?.()?.removeAllRanges();
       selectedEl = null;
       selectionContainerScope = null;
+      enteredContainerId = null;
+      enteredContainerElement = null;
+      hostSelectedEl = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
@@ -5984,6 +7152,27 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
+    function readInitialSourceOwnership() {
+      try {
+        var serialized = typeof __INITIAL_SOURCE_OWNERSHIP__ === "string" ? __INITIAL_SOURCE_OWNERSHIP__ : "";
+        if (!serialized) return null;
+        var snapshot = JSON.parse(serialized);
+        if (!snapshot || !snapshot.body || !Array.isArray(snapshot.body.attrs) || typeof snapshot.body.className !== "string" || typeof snapshot.body.style !== "string" || !Array.isArray(snapshot.sourceNodeIds) || !Array.isArray(snapshot.nodes)) {
+          return null;
+        }
+        return snapshot;
+      } catch (_error) {
+        console.warn("Design could not read initial source ownership");
+        return null;
+      }
+    }
+    function copySourceMeta(meta) {
+      return {
+        attrs: meta.attrs.slice(),
+        className: meta.className,
+        style: meta.style
+      };
+    }
     function sourceMetaFor(element) {
       return element.__anSourceMeta;
     }
@@ -6012,23 +7201,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function recordSourceSubtree(root) {
+      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
+      recordSourceTree(root);
+    }
+    function recordSourceTree(root) {
       if (root.nodeType === 1 && (root.hasAttribute("data-agent-native-edit-overlay") || // The shader runtime inserts this before the snapshot; claiming it
       // lets the next morph delete it as stale source.
       root.hasAttribute("data-an-shader-canvas"))) {
         return;
       }
-      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
       recordSourceOwnership(root);
       if (root.nodeType !== 1) return;
       var template = templateContentOf(root);
       if (template) {
         var held = template.childNodes;
-        for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]);
+        for (var t = 0; t < held.length; t += 1) recordSourceTree(held[t]);
         return;
       }
+      var hasTemplateChild = !!root.querySelector(
+        ":scope > template"
+      );
       var children = root.childNodes;
       for (var i = 0; i < children.length; i += 1) {
-        recordSourceSubtree(children[i]);
+        var child = children[i];
+        if (hasTemplateChild && child.nodeType === 1 && repeatTemplateOwning(child)) {
+          continue;
+        }
+        recordSourceTree(child);
       }
     }
     function templateContentOf(element) {
@@ -6062,7 +7261,59 @@ export const editorChromeBridgeScript: string = `"use strict";
       return { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() };
     }
     function captureInitialSourceOwnership() {
-      if (document.body) recordSourceSubtree(document.body);
+      var body = document.body;
+      if (!body) return;
+      recordSourceSubtree(body);
+      var snapshot = readInitialSourceOwnership();
+      if (!snapshot) return;
+      if (isSourceOwned(body)) {
+        body.__anSourceMeta = copySourceMeta(snapshot.body);
+      }
+      var sourceNodeIds = new Set(snapshot.sourceNodeIds);
+      var sourceNodes = /* @__PURE__ */ new Map();
+      snapshot.nodes.forEach(function(entry) {
+        if (entry && typeof entry.nodeId === "string" && typeof entry.tagName === "string" && entry.meta && Array.isArray(entry.meta.attrs) && typeof entry.meta.className === "string" && typeof entry.meta.style === "string" && !sourceNodes.has(entry.nodeId)) {
+          sourceNodes.set(entry.nodeId, {
+            tagName: entry.tagName,
+            meta: entry.meta
+          });
+        }
+      });
+      var liveNodes = /* @__PURE__ */ new Map();
+      function collectLiveSourceElements(root) {
+        if (root.nodeType !== 1) return;
+        var element = root;
+        if (isTemplateCloneElement(element)) return;
+        var nodeId = element.getAttribute("data-agent-native-node-id");
+        if (nodeId) {
+          var matches = liveNodes.get(nodeId);
+          if (matches) matches.push(element);
+          else liveNodes.set(nodeId, [element]);
+        }
+        var template = templateContentOf(element);
+        var children = template ? template.childNodes : element.childNodes;
+        for (var i = 0; i < children.length; i += 1) {
+          collectLiveSourceElements(children[i]);
+        }
+      }
+      collectLiveSourceElements(body);
+      liveNodes.forEach(function(elements, nodeId) {
+        if (sourceNodeIds.has(nodeId)) return;
+        elements.forEach(function(element) {
+          var owner = element;
+          delete owner.__anSource;
+          delete owner.__anSourceMeta;
+        });
+      });
+      sourceNodes.forEach(function(entry, nodeId) {
+        var matches = liveNodes.get(nodeId);
+        if (!matches || matches.length !== 1) return;
+        var element = matches[0];
+        if (!isSourceOwned(element) || isTemplateCloneElement(element) || element.tagName.toLowerCase() !== entry.tagName) {
+          return;
+        }
+        element.__anSourceMeta = copySourceMeta(entry.meta);
+      });
     }
     function classTokens(value) {
       return value.split(/\\s+/).filter(function(token) {
@@ -6099,6 +7350,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return out;
     }
     function applyStyleAttribute(live, previousSource, nextSource) {
+      if (previousSource === nextSource) return;
       var previousOwned = {};
       styleDeclarations(previousSource).forEach(function(entry) {
         previousOwned[entry[0]] = entry[1];
@@ -6436,6 +7688,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         live.removeChild(stale);
       }
     }
+    function reconcileRuntimeVectorStrokeOverlay(live, next, sourceOwned) {
+      if (live.tagName.toLowerCase() !== "svg" || next.tagName.toLowerCase() !== "svg") {
+        return;
+      }
+      var nextChildren = Array.from(next.children);
+      var hasSourceStrokeDefs = nextChildren.some(function(child) {
+        return child.tagName.toLowerCase() === "defs" && child.hasAttribute("data-an-vector-stroke-defs");
+      });
+      var hasSourceStrokeOverlay = nextChildren.some(function(child) {
+        return child.tagName.toLowerCase() === "use" && child.hasAttribute("data-an-vector-stroke-overlay");
+      });
+      if (!hasSourceStrokeDefs || !hasSourceStrokeOverlay) return;
+      Array.from(live.children).forEach(function(child) {
+        if (sourceOwned(child)) return;
+        var tagName = child.tagName.toLowerCase();
+        if (tagName === "defs" && child.hasAttribute("data-an-vector-stroke-defs") || tagName === "use" && child.hasAttribute("data-an-vector-stroke-overlay")) {
+          child.remove();
+        }
+      });
+    }
     function morphElement(live, next, context) {
       morphFormState(live, next);
       var previousSource = sourceMetaFor(live);
@@ -6452,6 +7724,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+      reconcileRuntimeVectorStrokeOverlay(live, next, isSourceOwned);
       var liveTemplate = templateContentOf(live);
       var nextTemplate = templateContentOf(next);
       if (liveTemplate && nextTemplate) {
@@ -6679,6 +7952,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       highlightOverlay.style.display = "none";
       hideMeasurements();
       refreshOverlays();
+    }
+    function replaceSourceNode(nodeId, html, sourceProvenanceValue) {
+      var sourceProvenance = normalizeSourceDocumentProvenance(
+        sourceProvenanceValue
+      );
+      if (typeof nodeId !== "string" || typeof html !== "string" || !sourceProvenance || activeTextEditEl || suspendedTextEditRange || pendingRuntimeDocumentUpdate || activeNodeHtmlPreview || lastSourceHeadHtml === null) {
+        return false;
+      }
+      var matches = document.querySelectorAll(
+        '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
+      );
+      var template = document.createElement("template");
+      template.innerHTML = html;
+      var current = matches.length === 1 ? matches[0] : null;
+      var next = template.content.firstElementChild;
+      if (!current || !next || template.content.childElementCount !== 1 || isOverlayElement(current) || !isSourceOwned(current) || current.nodeName !== next.nodeName || current.namespaceURI !== next.namespaceURI || scopeDirectiveChanged(current, next)) {
+        return false;
+      }
+      morphElement(current, next, scopedMorphContext(current, next));
+      hydrateVectorEndpointMarkers();
+      applyLayerStateSelectors();
+      publishSourceDocumentProvenance(sourceProvenance);
+      if (selectedEl && selectedEl.isConnected) {
+        positionOverlay(selectionOverlay, selectedEl);
+        postElementSelect(selectedEl);
+      }
+      refreshOverlays();
+      return true;
     }
     function hideSpacingOverlay() {
       spacingOverlay.style.display = "none";
@@ -7387,6 +8688,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.target && e.target.nodeType === 1 ? e.target : null
       );
       if (!spacingKey) return;
+      if (e.altKey) {
+        handleShieldPointerMove(e);
+        return;
+      }
       stopNativeInteraction(e);
       activateSpacingHandle(spacingKey);
     }
@@ -8048,6 +9353,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var isRadiusHandleVisible = pos === hoveredRadiusHandleKey || pos === activeRadiusHandleKey;
         handle.style.visibility = isRadiusHandleVisible ? "visible" : "hidden";
         handle.style.pointerEvents = isRadiusHandleVisible ? "auto" : "none";
+        handle.style.zIndex = isRadiusHandleVisible ? "5" : "2";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
         handle.style.borderWidth = 1.5 * line + "px";
@@ -8102,10 +9408,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var cs = window.getComputedStyle(el);
         var box = borderBoxDimensions(cs);
-        var radii = cornerRadiusMap(cs, box.width, box.height)[pos] || {
-          x: 0,
-          y: 0
-        };
+        var radii = normalizeCornerRadiusMap(
+          cornerRadiusMap(cs, box.width, box.height),
+          box.width,
+          box.height
+        )[pos] || { x: 0, y: 0 };
         var west = pos.indexOf("w") !== -1;
         var north = pos.indexOf("n") !== -1;
         var targetGeometry = radiusViewportBoxGeometry(
@@ -8270,13 +9577,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       setSelectionOverlayResizeChromeVisible(
         !readOnly && !activeTextEditEl && members.length < 2
       );
-      if (members.length === 0 || selectionChromeHidden) {
+      var laidOutMembers = members.filter(hasLayoutBox);
+      if (laidOutMembers.length === 0 || selectionChromeHidden) {
         if (multiSelectionBoundsOverlay) {
           multiSelectionBoundsOverlay.style.display = "none";
         }
         return;
       }
-      var rects = members.map(function(el) {
+      var rects = laidOutMembers.map(function(el) {
         return el.getBoundingClientRect();
       });
       var left = Math.min.apply(
@@ -8340,9 +9648,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       scalePassiveSelectionOverlay(overlay);
     }
     function positionOverlay(overlay, el) {
-      if (!el || !document.documentElement.contains(el)) {
+      if (!el || !document.documentElement.contains(el) || !hasLayoutBox(el)) {
         overlay.style.display = "none";
-        if (overlay === selectionOverlay) hideSelectionOverlay();
+        if (overlay === selectionOverlay) {
+          hideSelectionOverlay();
+          syncOverlayObservers();
+        }
         return;
       }
       var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
@@ -9051,6 +10362,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       positionMultiSelectionBounds();
       positionGradientOverlay();
       refreshFrameNameLabels();
+      refreshMeasurements();
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
@@ -9072,6 +10384,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedMutationTarget = null;
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
+    var observedMutationPaintReferencesDirty = true;
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9079,10 +10392,54 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       if (!overlayMutationObserver && typeof MutationObserver !== "undefined") {
-        overlayMutationObserver = new MutationObserver(function() {
+        overlayMutationObserver = new MutationObserver(function(records) {
+          var relevantRecords = records.filter(overlayMutationRequiresRefresh);
+          if (!relevantRecords.length) return;
+          if (relevantRecords.some(overlayMutationMayChangeSvgPaintReferences)) {
+            observedMutationPaintReferencesDirty = true;
+          }
           scheduleRefreshOverlays();
         });
       }
+    }
+    function isSvgMetadataNode(node) {
+      var element = node instanceof Element ? node : node.parentElement;
+      while (element && element.namespaceURI === "http://www.w3.org/2000/svg") {
+        var localName = element.localName.toLowerCase();
+        if (localName === "title" || localName === "desc" || localName === "metadata") {
+          return true;
+        }
+        element = element.parentElement;
+      }
+      return false;
+    }
+    function overlayMutationRequiresRefresh(record) {
+      var target = record.target;
+      var targetElement = target instanceof Element ? target : target.parentElement;
+      if (targetElement && isOverlayElement(targetElement)) return false;
+      if (isSvgMetadataNode(target)) return false;
+      if (record.type === "childList") {
+        var changedNodes = Array.prototype.slice.call(record.addedNodes).concat(Array.prototype.slice.call(record.removedNodes));
+        return changedNodes.some(function(node) {
+          var element = node instanceof Element ? node : node.parentElement;
+          return !element || !isOverlayElement(element) && !isSvgMetadataNode(node);
+        });
+      }
+      return true;
+    }
+    function overlayMutationMayChangeSvgPaintReferences(record) {
+      var selected = observedMutationTarget;
+      if (selected && selected.tagName.toLowerCase() === "svg" && (selected.contains(record.target) || record.target === observedMutationRoot)) {
+        return true;
+      }
+      if (observedMutationPaintServers.some(function(server) {
+        return server === record.target || server.contains(record.target);
+      })) {
+        return true;
+      }
+      return observedMutationPaintParents.some(function(parent) {
+        return parent === record.target;
+      });
     }
     function syncOverlayObservers() {
       ensureOverlayObservers();
@@ -9110,7 +10467,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
-        var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
+        var paintReferencesNeedRefresh = nextTarget !== observedMutationTarget || observedMutationPaintReferencesDirty;
+        var nextPaintServers = !nextTarget ? [] : paintReferencesNeedRefresh ? cornerRadiusReferencedPaintElements(nextTarget) : observedMutationPaintServers;
         var nextPaintParents = [];
         nextPaintServers.forEach(function(server) {
           var parent = server.parentElement;
@@ -9125,15 +10483,51 @@ export const editorChromeBridgeScript: string = `"use strict";
           return observedMutationPaintParents[index] !== parent;
         });
         if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
+          let observeMutationTarget2 = function(element, options) {
+            var existing = mutationObservations.find(function(observation) {
+              return observation.element === element;
+            });
+            if (!existing) {
+              mutationObservations.push({
+                element,
+                options: Object.assign({}, options, {
+                  attributeFilter: options.attributeFilter ? options.attributeFilter.slice() : void 0
+                })
+              });
+              return;
+            }
+            var observesAllAttributes = Boolean(
+              existing.options.attributes && !existing.options.attributeFilter || options.attributes && !options.attributeFilter
+            );
+            var attributeFilter = observesAllAttributes ? void 0 : Array.from(
+              new Set(
+                (existing.options.attributeFilter || []).concat(
+                  options.attributeFilter || []
+                )
+              )
+            );
+            existing.options = {
+              attributes: Boolean(
+                existing.options.attributes || options.attributes
+              ),
+              attributeFilter: attributeFilter && attributeFilter.length > 0 ? attributeFilter : void 0,
+              childList: Boolean(existing.options.childList || options.childList),
+              characterData: Boolean(
+                existing.options.characterData || options.characterData
+              ),
+              subtree: Boolean(existing.options.subtree || options.subtree)
+            };
+          };
+          var observeMutationTarget = observeMutationTarget2;
           overlayMutationObserver.disconnect();
+          var mutationObservations = [];
           if (nextRoot) {
-            overlayMutationObserver.observe(nextRoot, {
+            observeMutationTarget2(nextRoot, {
               attributes: true,
-              childList: true,
-              subtree: false
+              childList: true
             });
             if (nextRoot !== selectedEl && selectedEl) {
-              overlayMutationObserver.observe(selectedEl, {
+              observeMutationTarget2(selectedEl, {
                 attributes: true,
                 childList: true,
                 subtree: selectedEl.tagName.toLowerCase() === "svg"
@@ -9142,7 +10536,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           nextPaintServers.forEach(function(server) {
             if (server !== nextRoot && server !== nextTarget) {
-              overlayMutationObserver.observe(server, {
+              observeMutationTarget2(server, {
                 attributes: true,
                 childList: true,
                 subtree: true
@@ -9150,17 +10544,24 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           });
           nextPaintParents.forEach(function(parent) {
-            overlayMutationObserver.observe(parent, {
+            observeMutationTarget2(parent, {
               attributes: true,
               childList: true,
               subtree: false
             });
+          });
+          mutationObservations.forEach(function(observation) {
+            overlayMutationObserver.observe(
+              observation.element,
+              observation.options
+            );
           });
           observedMutationRoot = nextRoot;
           observedMutationTarget = nextTarget;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
         }
+        observedMutationPaintReferencesDirty = false;
       }
     }
     var overlayAnimationTrackingActive = false;
@@ -9210,9 +10611,84 @@ export const editorChromeBridgeScript: string = `"use strict";
       onOverlayAnimationTrackingEvent,
       true
     );
+    var measurementPositionFrame = null;
+    var measurementPositionSnapshot = null;
+    function currentMeasurementGeometry() {
+      if (!measurementModifierActive || readOnly || interactionMode || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+        return null;
+      }
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var targetRect = measurementTargetEl.getBoundingClientRect();
+      return {
+        selectedRect,
+        targetRect,
+        snapshot: [
+          selectedRect.left,
+          selectedRect.top,
+          selectedRect.right,
+          selectedRect.bottom,
+          targetRect.left,
+          targetRect.top,
+          targetRect.right,
+          targetRect.bottom
+        ]
+      };
+    }
+    function sameMeasurementGeometry(a, b) {
+      return Boolean(
+        a && a.length === b.length && a.every(function(value, index) {
+          return value === b[index];
+        })
+      );
+    }
+    function refreshMeasurementPositions() {
+      measurementPositionFrame = null;
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      if (!sameMeasurementGeometry(measurementPositionSnapshot, geometry.snapshot)) {
+        measurementPositionSnapshot = geometry.snapshot;
+        showMeasurements(
+          selectedEl,
+          measurementTargetEl,
+          geometry.selectedRect,
+          geometry.targetRect
+        );
+      }
+      measurementPositionFrame = window.requestAnimationFrame(
+        refreshMeasurementPositions
+      );
+    }
     function hideMeasurements() {
+      measurementTargetEl = null;
+      measurementPositionSnapshot = null;
+      if (measurementPositionFrame !== null) {
+        window.cancelAnimationFrame(measurementPositionFrame);
+        measurementPositionFrame = null;
+      }
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
+    }
+    function refreshMeasurements() {
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      measurementPositionSnapshot = geometry.snapshot;
+      showMeasurements(
+        selectedEl,
+        measurementTargetEl,
+        geometry.selectedRect,
+        geometry.targetRect
+      );
+      if (measurementPositionFrame === null) {
+        measurementPositionFrame = window.requestAnimationFrame(
+          refreshMeasurementPositions
+        );
+      }
     }
     function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
       var horizontal = y1 === y2;
@@ -9292,7 +10768,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return segments;
     }
-    function showMeasurements(a, b) {
+    function showMeasurements(a, b, selectedRect, targetRect) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
@@ -9303,8 +10779,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
       measurementSegments(
-        a.getBoundingClientRect(),
-        b.getBoundingClientRect()
+        selectedRect || a.getBoundingClientRect(),
+        targetRect || b.getBoundingClientRect()
       ).forEach(function(segment) {
         addMeasurementLine(
           segment.x1,
@@ -9491,11 +10967,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       BracketLeft: "["
     };
     function normalizedHotkeyChar(e) {
-      if (e.altKey) {
-        var fromCode = ALT_CODE_KEYS[e.code];
-        if (fromCode) return fromCode;
-      }
       var key = e.key;
+      if (/^[a-z]$/i.test(key || "")) return key.toLowerCase();
+      var fromCode = ALT_CODE_KEYS[e.code];
+      if (fromCode) return fromCode;
       return key && key.length === 1 ? key.toLowerCase() : key;
     }
     function isApplePlatformBridge() {
@@ -9507,20 +10982,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       return isApplePlatformBridge() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
     }
     function isIgnoreAutoLayoutChord(e) {
-      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s";
     }
     function isIgnoreAutoLayoutChordForDragPoint(e) {
       if (isApplePlatformBridge()) {
         return Boolean(e.ctrlKey && !e.metaKey);
       }
       if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
-        return e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+        return e.ignoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s";
       }
       return isIgnoreAutoLayoutChord(e);
     }
     function isShowShortcutsChord(e) {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
-      return e.key === "?" || e.key === "/";
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return false;
+      var key = normalizedHotkeyChar(e);
+      return key === "?" || key === "/";
     }
     function shouldForwardDesignHotkey(e) {
       if (isShowShortcutsChord(e)) return true;
@@ -9529,7 +11005,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       var key = e.key;
       var normalized = normalizedHotkeyChar(e);
-      var primary = e.metaKey || e.ctrlKey;
+      var primary = isPlatformPrimaryChord(e);
+      var isControlAltHotkey = e.ctrlKey && !e.metaKey && e.altKey && !e.shiftKey && ["h", "t", "v"].indexOf(normalized) !== -1;
+      if (isControlAltHotkey) return true;
+      var isSecondaryControlChord = e.ctrlKey && !e.metaKey && (!e.altKey && (!e.shiftKey && normalized === "g" || e.shiftKey && (e.code === "Digit4" || e.code === "BracketRight" || e.code === "BracketLeft")) || isApplePlatformBridge() && !e.altKey && !e.shiftKey && normalized === "c");
+      if ((e.metaKey || e.ctrlKey) && !primary && !isSecondaryControlChord) {
+        return false;
+      }
       var isArrangeBracketChord = (e.code === "BracketRight" || e.code === "BracketLeft") && (!primary && !e.altKey && !e.shiftKey || primary && !e.shiftKey || e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey);
       if (isArrangeBracketChord) return true;
       if (key === "Escape" || key === "Enter") return true;
@@ -9814,6 +11296,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var previousSelectedEl = selectedEl;
       selectedEl = resolvedClickTarget;
+      if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
+        selectionContainerScope = null;
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -9929,7 +11413,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        var collected = collectSelectableElements(activeMarqueeSelection.deep);
+        var collected = collectSelectableElements(
+          activeMarqueeSelection.deep,
+          activeMarqueeSelection.scope
+        );
         activeMarqueeSelection.candidates = collected;
         activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
       }
@@ -9970,7 +11457,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeMarqueeSelection.lightInfoCache
       );
     }
-    function beginMarqueeSelection(e) {
+    function beginMarqueeSelection(e, scope) {
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       clearActiveMarqueeSelection();
@@ -10032,6 +11519,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         startY: e.clientY,
         additive,
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
+        scope: scope || null,
         moved: false,
         infoCache: /* @__PURE__ */ new Map(),
         lightInfoCache: /* @__PURE__ */ new Map(),
@@ -10150,8 +11638,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       highlightOverlay.style.pointerEvents = highlightPointerEvents;
       var elements = [];
       var layerCandidates = [];
-      portableStyleProbeDocument();
-      var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+      var portableComputedStylesCache = portableStyleSnapshotsReadOnDemand ? void 0 : createPortableStyleComputedStylesCache();
       try {
         pointTargets.forEach(function(pointTarget) {
           if (!pointTarget || pointTarget.nodeType !== 1) return;
@@ -10631,14 +12118,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
-    function isDirectCornerRadiusValue(value) {
-      var trimmed = typeof value === "string" ? value.trim() : "";
-      if (!trimmed) return false;
-      var parts = trimmed.split(/\\s+/);
-      return parts.length <= 2 && parts.every(function(part) {
-        return /^[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:px|%)$/i.test(part) || /^[-+]?0(?:\\.0*)?$/.test(part);
-      });
-    }
     function borderBoxDimensions(cs) {
       var width = readPx(cs.width);
       var height = readPx(cs.height);
@@ -11006,12 +12485,63 @@ export const editorChromeBridgeScript: string = `"use strict";
         sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height)
       };
     }
-    function radiusDragMaximums(corner, radii, width, height) {
+    function normalizeCornerRadiusMap(radii, width, height) {
+      var scale = 1;
+      [
+        { size: width, sum: radii.nw.x + radii.ne.x },
+        { size: width, sum: radii.sw.x + radii.se.x },
+        { size: height, sum: radii.nw.y + radii.sw.y },
+        { size: height, sum: radii.ne.y + radii.se.y }
+      ].forEach(function(side) {
+        if (side.sum > side.size && side.sum > 0) {
+          scale = Math.min(scale, side.size / side.sum);
+        }
+      });
+      if (scale === 1) return radii;
+      var normalized = {};
+      Object.keys(radii).forEach(function(corner) {
+        normalized[corner] = {
+          x: radii[corner].x * scale,
+          y: radii[corner].y * scale
+        };
+      });
+      return normalized;
+    }
+    function radiusDragMaximums(corner, radii, width, height, minimumRadius, allowBeyondHalf) {
       var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
       var verticalNeighbor = corner === "nw" ? radii.sw.y : corner === "ne" ? radii.se.y : corner === "se" ? radii.ne.y : radii.nw.y;
       return {
-        x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
-        y: Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+        x: Math.max(
+          minimumRadius ? minimumRadius.x : 0,
+          Math.max(
+            0,
+            Math.min(
+              allowBeyondHalf ? width : width / 2,
+              width - horizontalNeighbor
+            )
+          )
+        ),
+        y: Math.max(
+          minimumRadius ? minimumRadius.y : 0,
+          Math.max(
+            0,
+            Math.min(
+              allowBeyondHalf ? height : height / 2,
+              height - verticalNeighbor
+            )
+          )
+        )
+      };
+    }
+    function uniformCornerRadiusMaximums(corner, radii, width, height) {
+      var topRoom = width - radii.nw.x - radii.ne.x;
+      var bottomRoom = width - radii.sw.x - radii.se.x;
+      var leftRoom = height - radii.nw.y - radii.sw.y;
+      var rightRoom = height - radii.ne.y - radii.se.y;
+      var origin = radii[corner] || { x: 0, y: 0 };
+      return {
+        x: origin.x + Math.max(0, Math.min(topRoom, bottomRoom)) / 2,
+        y: origin.y + Math.max(0, Math.min(leftRoom, rightRoom)) / 2
       };
     }
     var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
@@ -13053,6 +14583,97 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!target || !target.anchor) return null;
       return target.placement === "inside" ? target.anchor : target.anchor.parentElement;
     }
+    function dropContentSize(el) {
+      var html = el;
+      var style = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+      var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+      return {
+        width: (html.clientWidth - readPx(style.paddingLeft) - readPx(style.paddingRight)) * scaleX,
+        height: (html.clientHeight - readPx(style.paddingTop) - readPx(style.paddingBottom)) * scaleY
+      };
+    }
+    function dropFitsContainer(container, sourceWidth, sourceHeight) {
+      var size = dropContentSize(container);
+      return size.width >= sourceWidth && size.height >= sourceHeight;
+    }
+    function dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight) {
+      var html = container;
+      var elementStyle = html.style;
+      var computedStyle = window.getComputedStyle(container);
+      if (computedStyle.display !== "flex" && computedStyle.display !== "inline-flex") {
+        return false;
+      }
+      var currentSize = dropContentSize(container);
+      var rect = container.getBoundingClientRect();
+      function computedPixels(value) {
+        var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(String(value || ""));
+        var parsed = match?.[1] ? Number(match[1]) : Number.NaN;
+        return Number.isFinite(parsed) ? parsed : void 0;
+      }
+      function contentCapacity(cssPixels, axis) {
+        var scale = axis === "width" ? html.offsetWidth ? rect.width / html.offsetWidth : 1 : html.offsetHeight ? rect.height / html.offsetHeight : 1;
+        var insets = 0;
+        if (computedStyle.boxSizing === "border-box") {
+          var paddingBefore = computedPixels(
+            axis === "width" ? computedStyle.paddingLeft : computedStyle.paddingTop
+          );
+          var paddingAfter = computedPixels(
+            axis === "width" ? computedStyle.paddingRight : computedStyle.paddingBottom
+          );
+          var borderBefore = computedPixels(
+            axis === "width" ? computedStyle.borderLeftWidth : computedStyle.borderTopWidth
+          );
+          var borderAfter = computedPixels(
+            axis === "width" ? computedStyle.borderRightWidth : computedStyle.borderBottomWidth
+          );
+          if (paddingBefore === void 0 || paddingAfter === void 0 || borderBefore === void 0 || borderAfter === void 0) {
+            return -1;
+          }
+          insets = paddingBefore + paddingAfter + borderBefore + borderAfter;
+        }
+        return Math.max(0, cssPixels - insets) * scale;
+      }
+      function axisCanGrow(axis, required, current) {
+        if (current >= required) return true;
+        var authored = String(elementStyle[axis] || "").trim().toLowerCase();
+        var fitContentArgument = /^fit-content\\((.+)\\)$/.exec(authored);
+        if (authored !== "fit-content" && authored !== "max-content" && !fitContentArgument) {
+          return false;
+        }
+        if (fitContentArgument) {
+          var fitLimit = computedPixels(fitContentArgument[1]);
+          if (fitLimit === void 0 || contentCapacity(fitLimit, axis) < required) {
+            return false;
+          }
+        }
+        var maxProperty = axis === "width" ? "maxWidth" : "maxHeight";
+        var maximum = String(computedStyle[maxProperty] || "none").trim().toLowerCase();
+        if (!maximum || maximum === "none") return true;
+        var maxPixels = computedPixels(maximum);
+        return Boolean(
+          maxPixels !== void 0 && contentCapacity(maxPixels, axis) >= required
+        );
+      }
+      return axisCanGrow("width", sourceWidth, currentSize.width) && axisCanGrow("height", sourceHeight, currentSize.height);
+    }
+    function dropFitsAutoLayoutFallback(container, sourceWidth, sourceHeight) {
+      if (dropFitsContainer(container, sourceWidth, sourceHeight) || dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight)) {
+        return true;
+      }
+      var style = window.getComputedStyle(container);
+      var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
+      if (!singleLineFlex) return false;
+      var size = dropContentSize(container);
+      if (style.flexDirection.indexOf("row") === 0) {
+        return size.width >= sourceWidth;
+      }
+      if (style.flexDirection.indexOf("column") === 0) {
+        return size.height >= sourceHeight;
+      }
+      return false;
+    }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
@@ -13141,39 +14762,84 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return result.width !== void 0 || result.height !== void 0 ? result : void 0;
     }
-    function eventEpochMilliseconds(ev) {
+    function eventEpochMilliseconds(ev, eventWindow) {
+      var eventPerformance = (eventWindow || window).performance;
       if (ev?.isTrusted === false) {
-        return performance.timeOrigin + performance.now();
+        return eventPerformance.timeOrigin + eventPerformance.now();
       }
       if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
         return void 0;
       }
-      return ev.timeStamp >= 1e12 ? ev.timeStamp : performance.timeOrigin + ev.timeStamp;
+      return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
+    }
+    function gridItemAxisSpanForSource(el, layout, axis) {
+      var styles = window.getComputedStyle(el);
+      var startValue = axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+      var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+      var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      if (authoredSpan) return Math.max(1, Number(authoredSpan[1]));
+      var start = gridLinePosition(startValue, layout, axis);
+      var end = gridLinePosition(endValue, layout, axis);
+      if (start !== null && end !== null) {
+        return Math.max(1, Math.abs(end - start));
+      }
+      var startIsAuto = startValue.trim() === "auto" || startValue.trim() === "";
+      var endIsAuto = endValue.trim() === "auto" || endValue.trim() === "";
+      if (startIsAuto && endIsAuto || start !== null && endIsAuto) return 1;
+      if (startIsAuto && end !== null) return 1;
+      return null;
+    }
+    function crossScreenGridSpanForElement(el) {
+      if (!el) return void 0;
+      var parent = el.parentElement;
+      while (parent && window.getComputedStyle(parent).display === "contents") {
+        parent = parent.parentElement;
+      }
+      if (!parent) return void 0;
+      var display = window.getComputedStyle(parent).display;
+      if (display !== "grid" && display !== "inline-grid") return void 0;
+      var layout = gridTrackLayoutForElement(parent);
+      var columns = gridItemAxisSpanForSource(el, layout, "column");
+      var rows = gridItemAxisSpanForSource(el, layout, "row");
+      if (columns === null || rows === null) return void 0;
+      return { columns, rows };
     }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
+        const sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
-          { type: "agent-native:cross-screen-drag", phase: "cancel" },
+          {
+            type: "agent-native:cross-screen-drag",
+            phase: "cancel",
+            sourceDeleteRequestId
+          },
           "*"
         );
         return;
       }
       if (phase === "start") {
+        if (activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity) {
+          rememberEndedCrossScreenModifierSnapshot(
+            activeCrossScreenDeleteRequestId
+          );
+        }
         activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
-        activeCrossScreenSourceHtml = el?.outerHTML;
+        activeCrossScreenSourceHtml = el ? cloneHtmlForPersistence(el) : void 0;
         var computed = el ? window.getComputedStyle(el) : null;
         activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
           el ?? null,
           activeCrossScreenStyleSnapshot,
           computed
         );
+        activeCrossScreenGridSpan = crossScreenGridSpanForElement(el ?? null);
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -13192,6 +14858,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         x: ev.clientX - rect.left,
         y: ev.clientY - rect.top
       } : void 0);
+      if (phase === "end" && activeCrossScreenDeleteRequestId) {
+        rememberEndedCrossScreenModifierSnapshot(
+          activeCrossScreenDeleteRequestId
+        );
+      }
       window.parent.postMessage(
         {
           type: "agent-native:cross-screen-drag",
@@ -13215,22 +14886,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
           sourceComputedSize: activeCrossScreenComputedSize,
+          sourceGridSpan: activeCrossScreenGridSpan,
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
           sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          startedAt: phase === "start" ? eventEpochMilliseconds(ev) : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
       );
       if (phase === "end") {
         bridgeIgnoreAutoLayoutKeyPressed = false;
+        bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(ev) ?? Date.now();
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }
+    }
+    function cloneHtmlForPersistence(el) {
+      var clone = el.cloneNode(true);
+      clone.removeAttribute("data-agent-native-transient-drag-clone");
+      return clone.outerHTML;
     }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
@@ -13291,7 +14971,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -13305,8 +14985,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
       if (el === document.body) return true;
-      var primitiveKind = el.getAttribute("data-an-primitive");
-      if (primitiveKind && primitiveKind !== "frame") return false;
+      var primitiveKind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+        return false;
+      }
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
@@ -13453,6 +15135,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (styles.display !== "grid" && styles.display !== "inline-grid") {
         return null;
       }
+      for (var pseudo of ["::before", "::after"]) {
+        var pseudoStyles = window.getComputedStyle(container, pseudo);
+        if (pseudoStyles.content !== "none" && pseudoStyles.content !== "normal" && pseudoStyles.display !== "none" && pseudoStyles.position !== "absolute" && pseudoStyles.position !== "fixed") {
+          return null;
+        }
+      }
       var trackLayout = gridTrackLayoutForElement(container);
       if (trackLayout) {
         trackLayout = expandGridTrackLayoutForAuthoredChildren(
@@ -13507,10 +15195,45 @@ export const editorChromeBridgeScript: string = `"use strict";
             return rect.left < cellRight && rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
             rect.top < cellBottom && rect.bottom > cellTop;
           });
+          var displacedFootprint = null;
+          if (displaced && trackLayout) {
+            var displacedColumn = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "column"
+            );
+            var displacedRow = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "row"
+            );
+            var displacedColumnIndex = displacedColumn.start !== null ? styles.direction === "rtl" ? trackLayout.columnBounds.length - displacedColumn.start - displacedColumn.span + 1 : displacedColumn.start - 1 : null;
+            var firstDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex] : null;
+            var lastDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex + displacedColumn.span - 1] : null;
+            var firstDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start - 1] : null;
+            var lastDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start + displacedRow.span - 2] : null;
+            if (firstDisplacedColumn && lastDisplacedColumn && firstDisplacedRow && lastDisplacedRow) {
+              displacedFootprint = {
+                left: Math.min(
+                  firstDisplacedColumn.start,
+                  lastDisplacedColumn.start
+                ),
+                top: Math.min(firstDisplacedRow.start, lastDisplacedRow.start),
+                width: Math.max(firstDisplacedColumn.end, lastDisplacedColumn.end) - Math.min(firstDisplacedColumn.start, lastDisplacedColumn.start),
+                height: Math.max(firstDisplacedRow.end, lastDisplacedRow.end) - Math.min(firstDisplacedRow.start, lastDisplacedRow.start)
+              };
+            }
+          }
+          var insertionFootprint = displacedFootprint || {
+            left: cellLeft,
+            top: cellTop,
+            width: cellRight - cellLeft,
+            height: cellBottom - cellTop
+          };
           var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
           var gridAxis = autoFlow[0] === "column" ? "y" : "x";
           var pointer = gridAxis === "x" ? clientX : clientY;
-          var midpoint = gridAxis === "x" ? (cellLeft + cellRight) / 2 : (cellTop + cellBottom) / 2;
+          var midpoint = gridAxis === "x" ? insertionFootprint.left + insertionFootprint.width / 2 : insertionFootprint.top + insertionFootprint.height / 2;
           return {
             anchor: container,
             placement: "inside",
@@ -13518,12 +15241,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             persistencePlacement: displaced ? pointer <= midpoint + 0.5 ? "before" : "after" : "inside",
             axis: gridAxis,
             dropMode: "flow-insert",
-            guideRect: {
-              left: cellLeft,
-              top: cellTop,
-              width: cellRight - cellLeft,
-              height: cellBottom - cellTop
-            },
+            guideRect: insertionFootprint,
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
             ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
@@ -13678,7 +15396,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
-      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
+      var reverseFlow = isReverseFlexFlow(containerStyles, axis);
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -13708,6 +15426,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
+    window.__agentNativeDesignNearestChildInsertionTarget = nearestChildInsertionTarget;
     function screenRootFlowInsertionTargetForPoint(clientX, clientY, excludeEls) {
       if (!isAutoLayoutElement(document.body)) return null;
       var bodyRect = document.body.getBoundingClientRect();
@@ -13721,6 +15440,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         clientY,
         excludeEls
       );
+    }
+    function isReverseFlexFlow(styles, axis) {
+      var multiTrackGrid = (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      return !multiTrackGrid && (axis === "x" && (styles.flexDirection === "row" || styles.flexDirection === "row-reverse") && styles.flexDirection === "row-reverse" !== (styles.direction === "rtl") || axis === "y" && styles.flexDirection === "column-reverse");
     }
     function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
       if (!el || !el.parentElement) return null;
@@ -13940,32 +15663,56 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "absolute-container"
         };
       }
-      var exitedContainer = el.parentElement;
-      var receivingContainer = exitedContainer && exitedContainer.parentElement;
-      var targetContainer = dropContainerForTarget(target);
-      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && !unnestPromotedBoardRootTarget && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
-        target = {
-          ...target,
-          anchor: exitedContainer,
-          placement: "after",
-          axis: parentFlowAxis(receivingContainer),
-          persistenceAnchor: exitedContainer,
-          persistencePlacement: "after",
-          gridCell: void 0,
-          gridPlacement: void 0,
-          gridDisplacement: void 0,
-          gridDisplacementPlacements: void 0,
-          gridDisplacementPrevStyles: void 0,
-          guideRect: void 0,
-          guideMode: void 0,
-          guidePlacement: void 0
-        };
-      }
+      target = preferExitedFrameOrderForPlainReceiver(
+        el,
+        target,
+        clientX,
+        clientY,
+        excludeEls,
+        ignoreTargetAutoLayout
+      );
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
         target.needsAutoLayoutConversion = true;
         target.conversionTarget = container;
       }
       return target;
+    }
+    function preferExitedFrameOrderForPlainReceiver(el, target, clientX, clientY, excludeEls, ignoreTargetAutoLayout) {
+      if (!target || ignoreTargetAutoLayout || !el || !el.parentElement) {
+        return target;
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer.parentElement;
+      var dragged = [el].concat(excludeEls || []);
+      var pointHit = elementFromEditorPointIgnoring(clientX, clientY, dragged);
+      var targetContainer = dropContainerForTarget(target);
+      var unnestPromotedBoardRootTarget = target.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
+      if (!receivingContainer || !isContainerDropTarget(exitedContainer) || isAutoLayoutElement(receivingContainer) || unnestPromotedBoardRootTarget || targetContainer !== receivingContainer && target.anchor !== receivingContainer || pointHit !== receivingContainer && pointHit && pointHit !== document.body && pointHit !== document.documentElement) {
+        return target;
+      }
+      if (target.dropMode === "absolute-container" && target.placement === "inside" && target.anchor === receivingContainer) {
+        return {
+          ...target,
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after"
+        };
+      }
+      return {
+        ...target,
+        anchor: exitedContainer,
+        placement: "after",
+        axis: parentFlowAxis(receivingContainer),
+        persistenceAnchor: exitedContainer,
+        persistencePlacement: "after",
+        gridCell: void 0,
+        gridPlacement: void 0,
+        gridDisplacement: void 0,
+        gridDisplacementPlacements: void 0,
+        gridDisplacementPrevStyles: void 0,
+        guideRect: void 0,
+        guideMode: void 0,
+        guidePlacement: void 0
+      };
     }
     function ignoreAutoLayoutForDropTarget(target) {
       var container = dropContainerForTarget(target);
@@ -14155,9 +15902,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;
+          var before = childPointer < childCenter;
+          if (isReverseFlexFlow(window.getComputedStyle(parent), parentAxis)) {
+            before = !before;
+          }
           return {
             anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
+            placement: before ? "before" : "after",
             axis: parentAxis,
             dropMode: "flow-insert"
           };
@@ -14396,13 +16147,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
-    function gridLineIndexAtCoordinate(bounds, coordinate) {
-      for (var index = 0; index < bounds.length; index += 1) {
-        if (Math.abs(bounds[index].start - coordinate) < 1) return index + 1;
-      }
-      var last = bounds[bounds.length - 1];
-      return last && Math.abs(last.end - coordinate) < 1 ? bounds.length + 1 : null;
-    }
     function gridLinePosition(value, layout, axis) {
       var numeric = numericGridLine(value);
       if (numeric !== null) return numeric;
@@ -14410,23 +16154,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       var negative = value.trim().match(/^-(\\d+)$/);
       if (negative) {
         var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
-        var coordinates = withGridAreaProbe(layout.container, function(probe) {
+        return withGridAreaProbe(layout.container, function(probe) {
           if (axis === "column") probe.style.gridRow = "1 / 1";
           else probe.style.gridColumn = "1 / 1";
-          if (axis === "column") probe.style.gridColumn = "1 / 1";
-          else probe.style.gridRow = "1 / 1";
-          var first = probe.getBoundingClientRect();
           if (axis === "column") probe.style.gridColumn = \`\${value} / \${value}\`;
           else probe.style.gridRow = \`\${value} / \${value}\`;
           var resolved = probe.getBoundingClientRect();
-          return axis === "column" ? { first: first.left, resolved: resolved.left } : { first: first.top, resolved: resolved.top };
+          var coordinate = axis === "column" ? resolved.left : resolved.top;
+          for (var line = 1; line <= bounds.length + 1; line += 1) {
+            if (axis === "column") probe.style.gridColumn = \`\${line} / \${line}\`;
+            else probe.style.gridRow = \`\${line} / \${line}\`;
+            var candidate = probe.getBoundingClientRect();
+            var candidateCoordinate = axis === "column" ? candidate.left : candidate.top;
+            if (Math.abs(candidateCoordinate - coordinate) < 1) return line;
+          }
+          return null;
         });
-        var firstLine = gridLineIndexAtCoordinate(bounds, coordinates.first);
-        var resolvedLine = gridLineIndexAtCoordinate(
-          bounds,
-          coordinates.resolved
-        );
-        return firstLine !== null && resolvedLine !== null ? resolvedLine - firstLine + 1 : null;
       }
       var name = value.trim();
       if (!name || name === "auto" || name.startsWith("span ")) return null;
@@ -14455,13 +16198,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         axis === "column" ? layout.columnBounds : layout.rowBounds,
         axis
       ) : null;
-      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? end - start : geometricRange ? geometricRange.end - geometricRange.start : 1;
+      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? Math.abs(end - start) : geometricRange ? geometricRange.end - geometricRange.start : 1;
       span = Math.max(1, span);
       if (start === null && end !== null && authoredSpan) start = end - span;
+      var areaStart = start !== null && end !== null ? Math.min(start, end) : start;
       return {
         authoredStart: start,
         hasAuthoredPlacement,
-        start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+        start: areaStart ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
     }
@@ -14984,7 +16728,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           sourceRect: rectInfoForElement(cloneEl),
           anchorRect: rectInfoForElement(anchorEl),
           sourceNodeIdMap: Array.isArray(sourceNodeIdMap) ? sourceNodeIdMap : void 0,
-          cloneHtml: cloneEl.outerHTML,
+          cloneHtml: cloneHtmlForPersistence(cloneEl),
           payload: getElementInfo(cloneEl),
           anchorPayload: getElementInfo(anchorEl)
         },
@@ -15082,7 +16826,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           gridDisplacementPrevStyles: [],
           persistenceAnchor: previous,
           persistencePlacement: previous ? "after" : "inside"
-        } : target.dropMode === "absolute-container" ? target : {
+        } : target.dropMode === "absolute-container" ? previous ? {
+          ...target,
+          persistenceAnchor: previous,
+          persistencePlacement: "after"
+        } : target : {
           anchor: previous,
           placement: "after",
           axis: target.axis,
@@ -15782,6 +17530,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         clone.setAttribute("data-agent-native-clone-root", "true");
+        clone.setAttribute("data-agent-native-transient-drag-clone", "true");
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
         resetFlowDuplicateGridPlacement(clone);
         publishSourceDocumentProvenance(void 0, true);
@@ -16052,6 +17801,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var clone2 = sourceEl.cloneNode(true);
           duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
           clone2.setAttribute("data-agent-native-clone-root", "true");
+          clone2.setAttribute("data-agent-native-transient-drag-clone", "true");
           if (sourceEl.parentElement) {
             sourceEl.parentElement.insertBefore(clone2, sourceEl.nextSibling);
           }
@@ -16848,32 +18598,79 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
       function applyFreeDropSizeGuard(target, ev) {
-        if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert") {
+        if (!target || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container") {
           return target;
         }
         if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
           return target;
         }
         var container = dropContainerForTarget(target);
-        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
           return target;
         }
         var crect = container.getBoundingClientRect();
-        if (crect.width >= dragElStartRect.width && crect.height >= dragElStartRect.height) {
+        if (dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height
+        ) || dropCanGrowContentSizedAutoLayout(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height
+        )) {
           return target;
         }
+        var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
+        var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
+        var excluded = [dragEl].concat(groupOthers || []);
         var parent = container.parentElement;
-        if (!parent) return null;
-        var pcs = window.getComputedStyle(parent);
-        var pAxis = pcs.flexDirection === "column" || pcs.flexDirection === "column-reverse" ? "y" : "x";
-        var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
-        var pointer = pAxis === "x" ? ev ? ev.clientX : center : ev ? ev.clientY : center;
-        return {
-          anchor: container,
-          placement: pointer < center ? "before" : "after",
-          axis: pAxis,
-          dropMode: "flow-insert"
-        };
+        while (parent && parent !== document.documentElement && parent !== document.body) {
+          var parentIsFlow = isAutoLayoutElement(parent);
+          var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
+          if (isContainerDropTarget(parent) && parent !== dragEl && (parentIsFlow || parentIsAbsolute)) {
+            var parentFits = parentIsFlow ? dropFitsAutoLayoutFallback(
+              parent,
+              dragElStartRect.width,
+              dragElStartRect.height
+            ) : dropFitsContainer(
+              parent,
+              dragElStartRect.width,
+              dragElStartRect.height
+            );
+            if (parentFits) {
+              if (parentIsFlow) {
+                return nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert"
+                };
+              }
+              return {
+                anchor: parent,
+                placement: "inside",
+                axis: "y",
+                dropMode: "absolute-container"
+              };
+            }
+          }
+          parent = parent.parentElement;
+        }
+        var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+        if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
+          return nearestChildInsertionTarget(
+            document.body,
+            pointerX,
+            pointerY,
+            excluded
+          );
+        }
+        return null;
       }
       function cancelAutoLayoutTargetResolution() {
         pendingAutoLayoutTargetPoint = null;
@@ -16921,6 +18718,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (target && isIgnoreAutoLayoutChordForDragPoint(point)) {
             target = ignoreAutoLayoutForDropTarget(target);
           }
+          target = preferExitedFrameOrderForPlainReceiver(
+            dragEl,
+            target,
+            point.clientX,
+            point.clientY,
+            groupOthers,
+            ignoreAutoLayoutHeld(point)
+          );
           currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
@@ -17025,6 +18830,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var clone2 = source.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
         clone2.setAttribute("data-agent-native-clone-root", "true");
+        clone2.setAttribute("data-agent-native-transient-drag-clone", "true");
         source.parentElement.insertBefore(clone2, source.nextSibling);
         clone2.style.position = heldPosition.position;
         clone2.style.left = heldPosition.left;
@@ -17118,9 +18924,31 @@ export const editorChromeBridgeScript: string = `"use strict";
         nextTop += snapResult.dy / dragElOffsetScaleY;
         var appliedDx = nextLeft - originLeft;
         var appliedDy = nextTop - originTop;
+        var groupAppliedDx = appliedDx;
+        var groupAppliedDy = appliedDy;
+        if (isGroupDrag) {
+          var groupOriginLeft = Infinity;
+          var groupOriginTop = Infinity;
+          memberStates.forEach(function(state) {
+            groupOriginLeft = Math.min(groupOriginLeft, state.originLeft);
+            groupOriginTop = Math.min(groupOriginTop, state.originTop);
+          });
+          var guideClaimsX = snapResult.guides.some(function(guide) {
+            return guide.orientation === "vertical";
+          });
+          var guideClaimsY = snapResult.guides.some(function(guide) {
+            return guide.orientation === "horizontal";
+          });
+          if (!guideClaimsX) {
+            groupAppliedDx = quantizeToLayoutGrid(groupOriginLeft + appliedDx) - groupOriginLeft;
+          }
+          if (!guideClaimsY) {
+            groupAppliedDy = quantizeToLayoutGrid(groupOriginTop + appliedDy) - groupOriginTop;
+          }
+        }
         memberStates.forEach(function(state) {
-          state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
-          state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
+          state.el.style.left = (isGroupDrag ? state.originLeft + groupAppliedDx : quantizeToLayoutGrid(state.originLeft + appliedDx)) + "px";
+          state.el.style.top = (isGroupDrag ? state.originTop + groupAppliedDy : quantizeToLayoutGrid(state.originTop + appliedDy)) + "px";
         });
         if (!isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
@@ -17248,7 +19076,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             modifiers: {
               metaKey: !!ev.metaKey,
               ctrlKey: !!ev.ctrlKey,
-              ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
+              ignoreAutoLayout: isIgnoreAutoLayoutChordForDragPoint(ev),
               forceNestedAutoLayout: isPlatformPrimaryChord(ev)
             }
           });
@@ -17277,6 +19105,14 @@ export const editorChromeBridgeScript: string = `"use strict";
               finalAutoLayoutTarget
             );
           }
+          finalAutoLayoutTarget = preferExitedFrameOrderForPlainReceiver(
+            dragEl,
+            finalAutoLayoutTarget,
+            ev.clientX,
+            ev.clientY,
+            groupOthers,
+            ignoreAutoLayoutHeld(ev)
+          );
           finalAutoLayoutTarget = applyFreeDropSizeGuard(
             finalAutoLayoutTarget,
             ev
@@ -17951,7 +19787,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             phase: "preview",
             selector: getSelector(resizeEl),
             styles: previewStyles,
-            payload: getElementInfo(resizeEl)
+            payload: getElementInfo(resizeEl, void 0, false)
           },
           "*"
         );
@@ -17998,7 +19834,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               phase: "preview",
               selector: getSelector(resizeEl),
               styles: restoredStyles,
-              payload: getElementInfo(resizeEl)
+              payload: getElementInfo(resizeEl, void 0, false)
             },
             "*"
           );
@@ -18502,21 +20338,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       var borderBox = borderBoxDimensions(cs);
       var elWidthPx = borderBox.width;
       var elHeightPx = borderBox.height;
-      var authoredRadiusValue = radiusEl.style[cornerProperty];
-      var originRadius = resolveCornerRadiusXY(
-        isDirectCornerRadiusValue(authoredRadiusValue) ? authoredRadiusValue : cs[cornerProperty],
-        elWidthPx,
-        elHeightPx
-      );
-      var maxRadius = radiusDragMaximums(
+      var authoredRadii = cornerRadiusMap(cs, elWidthPx, elHeightPx);
+      var radii = normalizeCornerRadiusMap(authoredRadii, elWidthPx, elHeightPx);
+      var radiiWereNormalized = radii !== authoredRadii;
+      var originRadius = radii[corner] || { x: 0, y: 0 };
+      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
+      var maxRadius = wholeShape && radiiWereNormalized ? uniformCornerRadiusMaximums(corner, radii, elWidthPx, elHeightPx) : radiusDragMaximums(
         corner,
-        cornerRadiusMap(cs, elWidthPx, elHeightPx),
+        radii,
         elWidthPx,
-        elHeightPx
+        elHeightPx,
+        wholeShape ? null : originRadius,
+        radiiWereNormalized || e.altKey
       );
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;
-      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
       var radiusStyleProperties = [
         "border-radius",
         "border-top-left-radius",
@@ -18559,8 +20395,34 @@ export const editorChromeBridgeScript: string = `"use strict";
         var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX * 100) / 100));
         var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY * 100) / 100));
         var value = x === y ? x + "px" : x + "px " + y + "px";
-        if (wholeShape) {
+        if (wholeShape && radiiWereNormalized) {
+          var deltaX = x - originRadius.x;
+          var deltaY = y - originRadius.y;
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var radius = radii[radiusCorner] || { x: 0, y: 0 };
+              var nextCornerX = Math.max(
+                0,
+                Math.round((radius.x + deltaX) * 100) / 100
+              );
+              var nextCornerY = Math.max(
+                0,
+                Math.round((radius.y + deltaY) * 100) / 100
+              );
+              var cornerValue = nextCornerX === nextCornerY ? nextCornerX + "px" : nextCornerX + "px " + nextCornerY + "px";
+              radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] = cornerValue;
+            }
+          );
+        } else if (wholeShape) {
           radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";
+        } else if (radiiWereNormalized) {
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var radius = radiusCorner === corner ? { x, y } : radii[radiusCorner];
+              var radiusValue = radius.x === radius.y ? radius.x + "px" : radius.x + "px " + radius.y + "px";
+              radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] = radiusValue;
+            }
+          );
         } else {
           radiusEl.style[cornerProperty] = value;
         }
@@ -18619,7 +20481,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var finalRadius = resolveCornerRadiusXY(
-          wholeShape ? radiusEl.style.borderRadius || cs.borderRadius : radiusEl.style[cornerProperty] || cs[cornerProperty],
+          wholeShape && !radiiWereNormalized ? radiusEl.style.borderRadius || cs.borderRadius : radiusEl.style[cornerProperty] || cs[cornerProperty],
           elWidthPx,
           elHeightPx
         );
@@ -18632,8 +20494,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var styles = {};
-        if (wholeShape) {
+        if (wholeShape && !radiiWereNormalized) {
           styles.borderRadius = radiusEl.style.borderRadius;
+        } else if (radiiWereNormalized) {
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var property = CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner];
+              styles[property] = radiusEl.style[property];
+            }
+          );
         } else {
           styles[cornerProperty] = radiusEl.style[cornerProperty];
         }
@@ -18822,6 +20691,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return hitEl;
     }
+    function isCodeLayerTextBlock(el) {
+      if (el.getAttribute("data-agent-native-group") === "true") return false;
+      var primitive = el.getAttribute("data-an-primitive");
+      if (primitive) return primitive === "text";
+      if ((el.getAttribute("data-agent-native-component") || "").trim()) {
+        return false;
+      }
+      if (!TEXT_LAYER_TAGS.has(el.tagName.toLowerCase())) return false;
+      var classes = Array.from(el.classList);
+      var inlineStyle = el.style;
+      var styleValue = function(property) {
+        return inlineStyle?.getPropertyValue(property) || void 0;
+      };
+      if (paintsBox(classes, styleValue) || padsBox(classes, styleValue)) {
+        return false;
+      }
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (!INLINE_TEXT_TAGS.has(child.tagName.toLowerCase()) || child.children.length > 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+    function textBlockOwningRun(el) {
+      var parent = el?.parentElement;
+      return el && parent && INLINE_TEXT_TAGS.has(el.tagName.toLowerCase()) && isCodeLayerTextBlock(parent) ? parent : el;
+    }
     function nextStackCandidate(candidateKeys, currentKey) {
       if (!candidateKeys || candidateKeys.length === 0) return null;
       var idx = candidateKeys.indexOf(currentKey);
@@ -18865,21 +20762,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget, hit)) {
-        beginMarqueeSelection(e);
+      var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || startsOnContainerBackground) {
+        beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
         return;
       }
       var selectedAlive = !!selectedEl && document.documentElement.contains(selectedEl);
       var selectedRect = selectedAlive && selectedEl.getBoundingClientRect ? selectedEl.getBoundingClientRect() : null;
-      var dragTarget = dragTargetForPointerDown({
-        selectedEl,
-        selectedAlive,
-        selectedRect,
-        hitEl: hitTarget,
-        hitRaw: hit,
-        point: { x: e.clientX, y: e.clientY },
-        preferSelected: selectedLayerDragPriorityEnabled
-      });
+      var dragTarget = textBlockOwningRun(
+        dragTargetForPointerDown({
+          selectedEl,
+          selectedAlive,
+          selectedRect,
+          hitEl: hitTarget,
+          hitRaw: hit,
+          point: { x: e.clientX, y: e.clientY },
+          preferSelected: selectedLayerDragPriorityEnabled
+        })
+      );
       if (window.__DND_DEBUG)
         dndLog("shield:down", {
           hit: getSelector(hit),
@@ -18915,7 +20815,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         var previousSelectedEl = selectedEl;
+        hostSelectedEl = null;
         selectedEl = target;
+        if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
+          selectionContainerScope = null;
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
           setPassiveSelectionElements([]);
@@ -19234,8 +21137,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keydown",
       function(e) {
         if (interactionMode) return;
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
+          var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = true;
+          if (!wasIgnoreAutoLayoutPressed) {
+            postCrossScreenModifierState(true, e);
+          }
         }
         if (e.key === " " && e.code === "Space" && !activeTextEditEl && !isEditorTypingTarget(e.target)) {
           bridgeSpaceKeyPressed = true;
@@ -19297,6 +21204,21 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (!focusInsideEdit) {
             if (!isEditorTypingTarget(activeNow)) {
+              if (e.key === "Delete" || e.key === "Backspace") {
+                var unfocusedEditHotkey = {
+                  key: e.key,
+                  code: e.code,
+                  metaKey: !!e.metaKey,
+                  ctrlKey: !!e.ctrlKey,
+                  shiftKey: !!e.shiftKey,
+                  altKey: !!e.altKey,
+                  repeat: !!e.repeat
+                };
+                stopNativeInteraction(e);
+                if (finishActiveTextEdit) finishActiveTextEdit(true);
+                postDesignHotkey(unfocusedEditHotkey);
+                return;
+              }
               try {
                 activeTextEditEl.focus();
                 collapseSelectionIntoContents(activeTextEditEl);
@@ -19308,9 +21230,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         if (!shouldForwardDesignHotkey(e)) return;
-        var key = e.key;
-        var normalized = key && key.length === 1 ? key.toLowerCase() : key;
-        var primary = e.metaKey || e.ctrlKey;
+        var normalized = normalizedHotkeyChar(e);
+        var primary = isPlatformPrimaryChord(e);
         var plainPasteHotkey = primary && normalized === "v" && !e.altKey && !e.shiftKey;
         if (e.key === "Escape" && cancelActiveBridgeDrag()) {
           stopNativeInteraction(e);
@@ -19345,12 +21266,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentDocument.__agentNativeDesignModifierListeners = modifierListenerWindows;
       modifierListenerWindows.get(window)?.cleanup();
       var onParentModifierKeyDown = function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
+          if (!bridgeIgnoreAutoLayoutKeyPressed) {
+            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+              e,
+              window.parent
+            );
+          }
           bridgeIgnoreAutoLayoutKeyPressed = true;
         }
       };
       var onParentModifierKeyUp = function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
+          if (bridgeIgnoreAutoLayoutKeyPressed) {
+            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+              e,
+              window.parent
+            );
+          }
           bridgeIgnoreAutoLayoutKeyPressed = false;
         }
       };
@@ -19379,8 +21312,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "keyup",
       function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
+          var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = false;
+          if (wasIgnoreAutoLayoutPressed) {
+            postCrossScreenModifierState(false, e);
+          }
         }
         if (e.key !== " " || e.code !== "Space") return;
         bridgeSpaceKeyPressed = false;
@@ -19402,6 +21339,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.setTimeout(function() {
         if (!activeDragCancel) {
           bridgeIgnoreAutoLayoutKeyPressed = false;
+          bridgeIgnoreAutoLayoutChangedAt = Date.now();
           hostIgnoreAutoLayoutAtPointerDown = false;
         }
       }, 0);
@@ -19857,8 +21795,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function onKeyDown(ev) {
         if (ev.isComposing || ev.keyCode === 229) return;
-        var metaOrCtrl = ev.metaKey || ev.ctrlKey;
-        if (ev.key === "Escape" || ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey) {
+        var metaOrCtrl = isPlatformPrimaryChord(ev);
+        var hasTextCommitModifier = ev.metaKey || ev.ctrlKey;
+        if (ev.key === "Escape" || ev.key === "Enter" && hasTextCommitModifier && !ev.altKey && !ev.shiftKey) {
           ev.preventDefault();
           ev.stopPropagation();
           finish(true);
@@ -19871,14 +21810,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           scheduleTextEditingChromeUpdate();
           return;
         }
-        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "z") {
+        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && normalizedHotkeyChar(ev) === "z") {
           ev.preventDefault();
           ev.stopPropagation();
           finish(false);
           postDesignHotkey(ev);
           return;
         }
-        var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+        var formatKey = metaOrCtrl && !ev.altKey ? normalizedHotkeyChar(ev) : "";
         if (TEXT_EDIT_FORMATS[formatKey]) {
           ev.preventDefault();
           applyTextEditFormat(formatKey);
@@ -20106,6 +22045,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     var lastHoverClientPoint = null;
+    var lastHandledHoverMoveKey = null;
+    var lastHoverOverlayElement = null;
+    var lastHoverOverlayRectKey = null;
+    function hideHoverOverlay() {
+      if (highlightOverlay.style.display !== "none") {
+        highlightOverlay.style.display = "none";
+      }
+      lastHoverOverlayElement = null;
+      lastHoverOverlayRectKey = null;
+    }
+    function positionHoverOverlayIfChanged(el) {
+      var rect = el.getBoundingClientRect();
+      var rectKey = [rect.left, rect.top, rect.width, rect.height].join(":");
+      if (lastHoverOverlayElement === el && lastHoverOverlayRectKey === rectKey && highlightOverlay.style.display === "block") {
+        return;
+      }
+      positionOverlay(highlightOverlay, el);
+      lastHoverOverlayElement = el;
+      lastHoverOverlayRectKey = rectKey;
+    }
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
       return deepSelect || !designCanvasBoardSurface ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
@@ -20118,9 +22077,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         deepSelect
       );
       if (!hoveredEl || hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
+        hideHoverOverlay();
       } else {
-        positionOverlay(highlightOverlay, hoveredEl);
+        positionHoverOverlayIfChanged(hoveredEl);
       }
     }
     document.addEventListener(
@@ -20143,6 +22102,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      measurementModifierActive = Boolean(e.altKey);
+      var moveKey = [
+        e.clientX,
+        e.clientY,
+        e.metaKey ? 1 : 0,
+        e.ctrlKey ? 1 : 0,
+        e.altKey ? 1 : 0,
+        e.shiftKey ? 1 : 0
+      ].join(":");
+      if (lastHandledHoverMoveKey === moveKey) return;
+      lastHandledHoverMoveKey = moveKey;
+      var isAltSpacingRegionPointerMove = Boolean(
+        e.altKey && spacingKeyFromTarget(
+          e.target && e.target.nodeType === 1 ? e.target : null
+        )
+      );
+      if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
       stopNativeInteraction(e);
       hoveredEl = resolveHoverTarget(
         e.clientX,
@@ -20150,16 +22126,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.metaKey || e.ctrlKey
       );
       if (!hoveredEl) {
-        highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
+        measurementTargetEl = null;
+        hideHoverOverlay();
+        if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = null;
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]")) {
+        measurementTargetEl = null;
+        hideMeasurements();
+        syncOverlayObservers();
         return;
+      }
       if (!spacingDrag) {
         var hoveringSelectedSpacingSurface = Boolean(
           selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
@@ -20176,19 +22158,17 @@ export const editorChromeBridgeScript: string = `"use strict";
             updateSpacingOverlay(selectedEl);
           }
         } else {
-          scheduleSpacingHoverClear(e);
+          if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
         }
       }
       if (hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
+        hideHoverOverlay();
       } else {
-        positionOverlay(highlightOverlay, hoveredEl);
+        positionHoverOverlayIfChanged(hoveredEl);
       }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
+      measurementTargetEl = e.altKey && selectedEl && hoveredEl !== selectedEl ? hoveredEl : null;
+      syncOverlayObservers();
+      refreshMeasurements();
       if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
         lastHoverInfoPostedEl = hoveredEl;
         var info = getLightElementInfo(hoveredEl);
@@ -20253,6 +22233,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     shieldOverlay.addEventListener(
       "pointerleave",
       function(e) {
+        lastHandledHoverMoveKey = null;
         stopNativeInteraction(e);
         if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
         if (shouldKeepSpacingOverlayForLeave(e)) {
@@ -20260,11 +22241,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         clearHoverGate();
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
         }
-        highlightOverlay.style.display = "none";
+        hideHoverOverlay();
         hideMeasurements();
+        syncOverlayObservers();
         window.parent.postMessage(
           { type: "element-hover", payload: null },
           "*"
@@ -20272,11 +22256,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    shieldOverlay.addEventListener("mouseleave", function() {
+      lastHandledHoverMoveKey = null;
+    });
     window.addEventListener(
       "keyup",
       function(e) {
         if (e.key === "Alt") {
+          measurementModifierActive = false;
+          measurementTargetEl = null;
           hideMeasurements();
+          syncOverlayObservers();
           lastHoverInfoPostedEl = hoveredEl;
           window.parent.postMessage(
             {
@@ -20292,8 +22282,39 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "agent-native:cross-screen-modifier-snapshot-probe") {
+        if (typeof e.data.requestId !== "string") return;
+        var snapshotId = typeof e.data.snapshotId === "string" ? e.data.snapshotId : void 0;
+        var endedSnapshot = snapshotId ? endedCrossScreenModifierSnapshots.get(snapshotId) : void 0;
+        var activeSnapshot = snapshotId === activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity ? {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt
+        } : void 0;
+        if (snapshotId && !endedSnapshot && !activeSnapshot) return;
+        var snapshot = endedSnapshot ?? activeSnapshot ?? {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt
+        };
+        if (snapshotId && endedSnapshot) {
+          clearTimeout(endedSnapshot.timeoutId);
+          endedCrossScreenModifierSnapshots.delete(snapshotId);
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:cross-screen-modifier-snapshot",
+            requestId: e.data.requestId,
+            ignoreAutoLayout: snapshot.ignoreAutoLayout,
+            changedAt: snapshot.changedAt
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type === "measurement-modifier-release") {
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = hoveredEl;
         window.parent.postMessage(
           {
@@ -20310,7 +22331,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:canvas-focus-state-probe") {
         reportCanvasFocusState(
-          e.data.reason === "route-change" ? "route-change" : void 0
+          e.data.reason === "route-change" ? "route-change" : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }
@@ -20383,6 +22405,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
+          hideMeasurements();
           if (activeTextEditEl) {
             activeTextEditEl.blur();
           }
@@ -20407,6 +22430,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         interactionMode = nextInteractionMode;
         if (interactionMode) {
+          hideMeasurements();
           var releaseSpacePan = bridgeSpaceKeyPressed;
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
@@ -20449,10 +22473,39 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "set-content-offset") {
-        var nextContentOffsetX = Number(e.data.x);
-        var nextContentOffsetY = Number(e.data.y);
-        designCanvasContentOffsetX = Number.isFinite(nextContentOffsetX) ? nextContentOffsetX : 0;
-        designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
+        if (typeof e.data.x !== "number" || !Number.isFinite(e.data.x) || typeof e.data.y !== "number" || !Number.isFinite(e.data.y)) {
+          return;
+        }
+        designCanvasContentOffsetX = e.data.x;
+        designCanvasContentOffsetY = e.data.y;
+        if (designCanvasBoardSurface) {
+          var contentOffsetStyle = document.querySelector(
+            "style[data-agent-native-content-offset]"
+          );
+          if (designCanvasContentOffsetX === 0 && designCanvasContentOffsetY === 0) {
+            contentOffsetStyle?.remove();
+          } else {
+            if (!contentOffsetStyle) {
+              contentOffsetStyle = document.createElement("style");
+              contentOffsetStyle.setAttribute(
+                "data-agent-native-content-offset",
+                ""
+              );
+              (document.head ?? document.documentElement).appendChild(
+                contentOffsetStyle
+              );
+            }
+            contentOffsetStyle.textContent = "body > [data-agent-native-node-id]{translate:" + Math.round(designCanvasContentOffsetX) + "px " + Math.round(designCanvasContentOffsetY) + "px;}";
+            contentOffsetStyle.setAttribute(
+              "data-agent-native-content-offset-x",
+              String(Math.round(designCanvasContentOffsetX))
+            );
+            contentOffsetStyle.setAttribute(
+              "data-agent-native-content-offset-y",
+              String(Math.round(designCanvasContentOffsetY))
+            );
+          }
+        }
         return;
       }
       if (e.data.type === "agent-native:cancel-text-edit") {
@@ -20704,7 +22757,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             payload: collectSelectableElementInfos(
               Boolean(e.data.deep),
               readSelectablePoint(e.data.atPoint),
-              e.data.includePortableStyleSnapshot !== false
+              e.data.includePortableStyleSnapshot !== false && !portableStyleSnapshotsReadOnDemand
             )
           },
           "*"
@@ -20827,7 +22880,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (selectionChangedByHost) {
           hoveredSpacingHandleKey = "";
         }
+        enteredContainerElement = canOpenSelectionContainer(target) ? target : null;
+        enteredContainerId = enteredContainerElement?.getAttribute("data-agent-native-node-id") ?? null;
+        selectionContainerScope = enteredContainerElement;
         selectedEl = target;
+        hostSelectedEl = target;
         if (selectionChromeHidden) {
           hideSelectionOverlay();
         } else {
@@ -21062,6 +23119,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("html");
           return;
         }
+        var rawInsertGridPlacement = e.data.gridPlacement;
+        var insertGridPlacement = rawInsertGridPlacement && Number.isInteger(rawInsertGridPlacement.column) && Number.isInteger(rawInsertGridPlacement.columnEnd) && Number.isInteger(rawInsertGridPlacement.row) && Number.isInteger(rawInsertGridPlacement.rowEnd) && rawInsertGridPlacement.column > 0 && rawInsertGridPlacement.row > 0 && rawInsertGridPlacement.columnEnd > rawInsertGridPlacement.column && rawInsertGridPlacement.rowEnd > rawInsertGridPlacement.row ? {
+          column: rawInsertGridPlacement.column,
+          columnEnd: rawInsertGridPlacement.columnEnd,
+          row: rawInsertGridPlacement.row,
+          rowEnd: rawInsertGridPlacement.rowEnd
+        } : null;
+        if (rawInsertGridPlacement && (!insertGridPlacement || insertPlacement !== "inside" || !["grid", "inline-grid"].includes(
+          window.getComputedStyle(insertAnchor).display
+        ))) {
+          rejectInsert("grid-placement");
+          return;
+        }
+        if (insertGridPlacement) {
+          parsedInsertEl.style.gridColumn = insertGridPlacement.column + " / " + insertGridPlacement.columnEnd;
+          parsedInsertEl.style.gridRow = insertGridPlacement.row + " / " + insertGridPlacement.rowEnd;
+        }
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"
         );
@@ -21089,13 +23163,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("anchor-is-subject");
           return;
         }
+        var insertContainer = insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement;
+        var preserveAbsoluteInsert = Boolean(
+          e.data.dropMode === "absolute-container" && !insertGridPlacement && isAbsolutePrimitiveContainer(insertContainer)
+        );
         var insertTarget = {
           anchor: insertAnchor,
           placement: insertPlacement,
           axis: parentFlowAxis(
             insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
           ),
-          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert"
+          dropMode: preserveAbsoluteInsert || insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
+          gridPlacement: insertGridPlacement || void 0
         };
         if (existingInsertEl) {
           if (existingInsertEl.contains(insertAnchor)) {
@@ -21267,6 +23346,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         if (e.data.applied) {
+          if (moveWasInsert && move.el && move.el.isConnected) {
+            move.el.removeAttribute("data-agent-native-transient-drag-clone");
+          }
           if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
             applyRuntimeReorder(move.el, move.target);
             selectedEl = move.el;
@@ -21324,6 +23406,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           Boolean(e.data.preserveTextEditingSession),
           e.data.sourceProvenance
         );
+        return;
+      }
+      if (e.data.type === "replace-source-node") {
+        if (!replaceSourceNode(e.data.nodeId, e.data.html, e.data.sourceProvenance)) {
+          window.parent.postMessage(
+            { type: "replace-source-node-rejected" },
+            "*"
+          );
+        }
         return;
       }
       if (e.data.type === "node-html-preview") {
@@ -21689,7 +23780,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     refreshFrameNameLabels();
     hydrateVectorEndpointMarkers();
     captureInitialSourceOwnership();
-    if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
+    scheduleRuntimeLayerSnapshot();
     if (document.readyState === "complete") {
       scheduleScreenRootStyleSnapshot();
     } else {
@@ -21739,6 +23830,38 @@ export const editorChromeBridgeScript: string = `"use strict";
         observeEditorChromeHost();
         repairEditorChromeHost();
       },
+      inlineExportResources: function(html) {
+        return inlineRuntimeSnapshotResources(html, 5e6);
+      },
+      collectPortableStyleSnapshot: function(screenId, selector, instanceIndex) {
+        if (screenId !== designCanvasScreenId) return null;
+        var target;
+        try {
+          target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
+        } catch (_error) {
+          return { status: "failed" };
+        }
+        var snapshot = target ? collectPortableStyleSnapshot(target) : void 0;
+        if (snapshot === null) return { status: "failed" };
+        if (snapshot === void 0) return { status: "missing" };
+        return { status: "captured", snapshot };
+      },
+      collectSubtreeColorStyles: function(screenId, selector, instanceIndex) {
+        if (screenId !== designCanvasScreenId) return null;
+        var target;
+        try {
+          target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
+        } catch (_error) {
+          return { status: "failed" };
+        }
+        if (!target || isDocumentRootElement(target))
+          return { status: "missing" };
+        var read = collectSubtreeColorStyles(target);
+        return {
+          status: read.truncated ? "truncated" : "captured",
+          nodes: read.nodes
+        };
+      },
       updateConfig: function(next) {
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
@@ -21746,6 +23869,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
+            hideMeasurements();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }

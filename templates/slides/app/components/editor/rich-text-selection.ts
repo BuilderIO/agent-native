@@ -52,6 +52,14 @@ const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
 };
 
 const INLINE_STYLE_SPAN = "span[data-slide-inline-style]";
+const INLINE_TEXT_BLOCKS =
+  "address,article,aside,blockquote,dd,div,dl,dt,figcaption,figure,footer,h1,h2,h3,h4,h5,h6,header,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const INLINE_LAYOUT_DISPLAYS = new Set([
+  "flex",
+  "grid",
+  "inline-flex",
+  "inline-grid",
+]);
 
 const DECORATION_LINE: Record<"underline" | "strike", string> = {
   underline: "underline",
@@ -86,11 +94,15 @@ function elementAttributesMatch(a: Element, b: Element) {
   );
 }
 
-export function normalizeInlineTextSpans(editable: HTMLElement) {
-  const spans = Array.from(
-    editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
-  );
-  for (const span of spans.reverse()) {
+function normalizeInlineTextSpanScope(
+  editable: HTMLElement,
+  scope: HTMLElement,
+) {
+  const spans = () =>
+    Array.from(
+      scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+    ).filter((span) => inlineTextNormalizationScope(editable, span) === scope);
+  for (const span of spans().reverse()) {
     if (!span.isConnected) continue;
     if (!span.textContent && span.children.length === 0) {
       span.remove();
@@ -104,13 +116,12 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
   let merged = true;
   while (merged) {
     merged = false;
-    for (const span of Array.from(
-      editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
-    )) {
+    for (const span of spans()) {
       const next = span.nextSibling;
       if (
         next instanceof HTMLSpanElement &&
         next.matches(INLINE_STYLE_SPAN) &&
+        inlineTextNormalizationScope(editable, next) === scope &&
         elementAttributesMatch(span, next)
       ) {
         span.append(...Array.from(next.childNodes));
@@ -119,6 +130,39 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
       }
     }
   }
+}
+
+function inlineTextNormalizationScope(editable: HTMLElement, node: Node) {
+  const element = node instanceof Element ? node : node.parentElement;
+  const block = element?.closest<HTMLElement>(INLINE_TEXT_BLOCKS) ?? editable;
+  if (INLINE_LAYOUT_DISPLAYS.has(getComputedStyle(block).display)) {
+    return (
+      Array.from(block.children).find(
+        (child) => child === node || child.contains(node),
+      ) ?? null
+    );
+  }
+  return block;
+}
+
+export function normalizeInlineTextSpans(
+  editable: HTMLElement,
+  selectedText?: readonly Text[],
+) {
+  const scopes = new Set<HTMLElement>();
+  if (selectedText) {
+    for (const text of selectedText) {
+      const scope = inlineTextNormalizationScope(editable, text);
+      if (scope instanceof HTMLElement) scopes.add(scope);
+    }
+  } else {
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const scope = inlineTextNormalizationScope(editable, node);
+      if (scope instanceof HTMLElement) scopes.add(scope);
+    }
+  }
+  for (const scope of scopes) normalizeInlineTextSpanScope(editable, scope);
 }
 
 export function getEditableTextRange(
@@ -220,7 +264,7 @@ function styleSelectedText(
   const texts = splitSelectedText(editable, range);
   if (texts.length === 0) return { scope: "selection", range };
   style(texts);
-  normalizeInlineTextSpans(editable);
+  normalizeInlineTextSpans(editable, texts);
 
   const last = texts[texts.length - 1];
   const nextRange = document.createRange();
@@ -323,6 +367,7 @@ const DECORATION_LOOK = [
   "text-decoration-color",
   "text-decoration-style",
   "text-decoration-thickness",
+  "text-underline-offset",
 ] as const;
 
 function removeDecorationLine(
@@ -764,6 +809,9 @@ const SLIDE_CLIPBOARD_LAYOUT_STYLE_PROPERTIES = [
   "z-index",
   "transform",
   "transform-origin",
+  "translate",
+  "rotate",
+  "scale",
 ] as const;
 
 function hasSlideClipboardText(element: Element): boolean {

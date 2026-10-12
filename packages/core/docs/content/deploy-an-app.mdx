@@ -1,123 +1,114 @@
 ---
 title: "Deploy an app"
-description: "Build and deploy one Agent-Native app to Node.js, Vercel, Netlify, Cloudflare, AWS, or Deno."
-search: "deploy app standalone build Nitro preset Node.js Docker Vercel Netlify Cloudflare AWS Amplify AWS Lambda Deno Deploy Azure Koyeb Render"
+description: "The steps every standalone Agent-Native deployment follows, and where to find the guide for your host."
+search: "deploy app standalone production host Node.js Docker Vercel Netlify Cloudflare Workers migrate build DATABASE_URL BETTER_AUTH_SECRET"
 ---
 
 # Deploy an app
 
-Use this path for a standalone app, or for one app from a workspace that you
-want to run on its own domain. For several apps on one origin, use [Deploy a
-workspace](/docs/workspace-deployment) instead.
+Deploying a standalone Agent-Native app puts it on the internet with a real
+database, so other people can sign up and use it. Every hosting guide follows
+the same five steps. This page explains what each step does and helps you pick a
+host. Each host's guide then gives the exact commands.
 
-<Steps>
+<Callout tone="info">
 
-### Create or open the app
-
-Follow [Getting Started](/docs/getting-started) to create a standalone Chat app,
-or work from an existing app:
-
-```bash
-npx --yes @agent-native/core@latest create my-app --standalone --template chat
-cd my-app
-corepack enable
-pnpm install
-```
-
-### Choose a deployment target
-
-The default target is Node.js. For another host, set the Nitro preset in
-`vite.config.ts` or set `NITRO_PRESET` at build time.
-
-```ts filename="vite.config.ts"
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-See the target page for the provider command and runtime details:
-
-- [**Node.js**](/docs/node-js)
-- [**Docker**](/docs/docker)
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify)
-- [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers)
-- [**AWS Amplify**](/docs/aws-amplify)
-- [**AWS Lambda**](/docs/aws-lambda)
-- [**Deno Deploy**](/docs/deno-deploy)
-- [**Azure Static Web Apps**](/docs/azure-static-web-apps)
-- [**Koyeb**](/docs/koyeb)
-- [**Render**](/docs/render)
-
-### Configure the deployment
-
-Set `DATABASE_URL` in your deployment provider's environment settings before
-building or starting the server, not only in the local `.env`. A standalone app
-using framework auth also needs a stable `BETTER_AUTH_SECRET`; generate one
-with `openssl rand -hex 32` and save it in the same provider settings. Add only
-the provider and integration variables your app actually uses.
-
-The **Continue as local dev** shortcut is limited to local development. A
-deployed app uses the sign-up and sign-in flow backed by that persistent
-database and auth secret.
-
-Use the [deployment environment reference](/docs/deployment-environment-variables)
-for production secrets, auth, webhooks, workspace inheritance, and runtime
-flags.
-
-### Build the app
-
-Build the client and server output:
-
-```bash
-pnpm build
-```
-
-The default Node.js output runs with:
-
-```bash
-node .output/server/index.mjs
-```
-
-For a local production-shaped check with Postgres and Docker, follow the
-[Docker quickstart](/docs/docker#self-host-quickstart).
-
-### Deploy and verify
-
-Publish the output using your provider's normal deploy command. Then verify the
-public URL, sign-in flow, database reads and writes, and any OAuth callbacks or
-webhooks your app uses.
-
-</Steps>
-
-<Callout tone="warning">
-
-Do not use local PGlite storage as production storage. Do not reuse the sample
-auth secret from a local Docker setup. Keep secrets in the deployment
-provider's environment or managed secret store.
+Node.js `22.22+` is required.
 
 </Callout>
 
-## Deploying one app from a workspace
+## Choose a host
 
-Each workspace app is independently deployable. Run the build from the app
-directory:
+| Host                                                      | Where the app runs                                   |
+| --------------------------------------------------------- | ---------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | A server you manage, such as a virtual machine       |
+| [Docker](/docs/docker)                                    | A container on a server or container host you manage |
+| [Vercel](/docs/vercel)                                    | Vercel's hosting, with no server to manage           |
+| [Netlify](/docs/netlify)                                  | Netlify's hosting, with no server to manage          |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare's network, with no server to manage       |
+
+Choose Node.js or Docker when you want full control over the machine the app
+runs on. Choose Vercel, Netlify, or Cloudflare Workers when you want the host to
+run the app for you and give it a public address with HTTPS.
+
+## The steps every deployment follows
+
+### Step 1: Create the app
+
+Create a standalone app and install its dependencies. The guides use the Chat
+template as an example, but you can start from any template or use an app you
+already have. [Getting Started](/docs/getting-started) explains how to create
+and run an app locally.
+
+### Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                              |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database          |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                  |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+Save these variables in your host's environment settings, not only in the app's
+local `.env` file. Each guide shows how to do this for its host.
+
+`DATABASE_URL` must point to a persistent PostgreSQL database, such as Neon,
+Supabase, or Amazon RDS. The [database provider guides](/docs/neon) show where
+to find the connection string. `BETTER_AUTH_SECRET` must stay the same across
+deploys, because changing it signs every user out. Set `BETTER_AUTH_URL` when
+you use a custom domain or a reverse proxy.
+
+The [deployment environment reference](/docs/deployment-environment-variables)
+lists every other production setting.
+
+### Step 3: Migrate
+
+Migrations create and update the tables the app needs in your database. Run them
+against the production database before the first visit, and again after every
+upgrade:
 
 ```bash
-cd apps/<name>
-pnpm build
+pnpm migrate:production
 ```
 
-Give that app its own public origin and configure its database and auth URL for
-that origin. If the apps should share one origin, shared login, and same-origin
-app to app communication, use [Workspace Deployment](/docs/workspace-deployment).
+Do not skip this step. In production, and especially on serverless hosts, the
+app does not always create missing tables by itself. A missing table then makes
+the first real query fail.
+
+### Step 4: Build
+
+Build the app for your host. Each guide sets `NITRO_PRESET` so the build
+produces the format that host expects, such as `node`, `vercel`, `netlify`, or
+`cloudflare_module`.
+
+### Step 5: Deploy
+
+Start or upload the build. On Node.js and Docker, you start the server or
+container yourself. On Vercel, Netlify, and Cloudflare Workers, a command-line
+tool uploads the build and prints the app's public address.
+
+<Callout tone="warning">
+
+Do not use the local development database in production. It stores data on the
+machine running the app, so it is lost on most hosts. The **Continue as local
+dev** shortcut also works only during local development. A deployed app uses
+the sign-up and sign-in flow backed by your production database and auth
+secret.
+
+</Callout>
+
+## Check the deployment
+
+After the first deploy, open the app's public address and check that:
+
+- You can create an account and sign in.
+- Data you create is still there after you reload the page.
+- Any OAuth sign-in or webhook your app uses points to the public address.
 
 ## What's next
 
-- [**Deployment**](/docs/deployment) - the database prerequisite and target overview
-- [**Workspace Deployment**](/docs/workspace-deployment) - one origin for many apps
-- [**Database**](/docs/server-database#production) - production SQL adapters and connections
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**Database**](/docs/server-database#production) - production database connections
 - [**Security**](/docs/security) - the production security checklist
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

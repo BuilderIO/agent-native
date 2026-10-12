@@ -56,6 +56,7 @@ type OpenVisualEditActionResult = OpenVisualEditWebMcpResult & {
 
 export interface OpenVisualEditWebMcpInput {
   designId?: string;
+  newDesign?: boolean;
   connectionId?: string;
   title?: string;
   description?: string;
@@ -362,7 +363,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
       name: "open-visual-edit",
       title: "Open visual edit", // i18n-ignore stable WebMCP tool title
       description: // i18n-ignore stable WebMCP tool description
-        "Open or refresh a running localhost app in Design overview mode. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path.",
+        "Open or refresh a running localhost app in Design overview mode. Reuses the saved project for the same localhost connection when available; set newDesign to true to start a separate project. Works in a signed-in or signed-out Design tab when the target is loopback; the local bridge remains the only source access path.",
       requiresApproval: {
         title: "Open visual edit?", // i18n-ignore stable WebMCP approval title
         description: // i18n-ignore stable WebMCP approval description
@@ -376,7 +377,12 @@ export function createOpenVisualEditWebMcpActions(options?: {
           designId: {
             type: "string",
             description:
-              "Existing Design project to update. Omit to create a new visual-edit design.",
+              "Existing Design project to update. When omitted, the saved visual-edit project for the same localhost connection is reused unless newDesign is true.",
+          },
+          newDesign: {
+            type: "boolean",
+            description:
+              "Start a separate visual-edit project instead of reusing the saved project for this localhost connection.",
           },
           connectionId: {
             type: "string",

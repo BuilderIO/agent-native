@@ -1,12 +1,13 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Calendar",
-    learnMoreUrl: "https://agent-native.com/apps/calendar",
+    learnMoreUrl:
+      "https://agent-native.com/apps/calendar?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [

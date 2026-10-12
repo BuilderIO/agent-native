@@ -100,9 +100,13 @@ async function enterFocusedEditMode(page: Page) {
   const sidebar = page.locator("aside").first();
   const home = sidebar.locator('button[title="index.html"]');
   await home.click();
-  await expect(home).toHaveAttribute("aria-current", "page");
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
-  await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]').first(),
+  ).toContainText("Home");
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="edit"]')
+    .press("Enter");
   await expect(
     page
       .locator("iframe[data-design-preview-iframe]")
@@ -125,7 +129,9 @@ async function exportPngPixelsFromFileMenu(page: Page) {
   await page.getByRole("button", { name: "More", exact: true }).click();
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
-  await exportMenu.press("ArrowRight");
+  // Open the submenu with a click: while a Screen is selected the canvas claims
+  // ArrowRight to nudge it, so the key never reaches the menu.
+  await exportMenu.click();
   const downloadPng = page.getByRole("menuitem", { name: "Download PNG" });
   await expect(downloadPng).toBeVisible();
   return readPngDownloadPixels(page, () => downloadPng.click());
@@ -233,7 +239,10 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     .first()
     .locator('button[title="index.html"]');
   await home.click();
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "Exit responsive preview" }),
   ).toBeVisible();

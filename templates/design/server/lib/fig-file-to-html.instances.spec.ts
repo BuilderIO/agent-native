@@ -129,8 +129,35 @@ describe("component slots", () => {
   });
 });
 
+describe("unset instance override keys", () => {
+  it("uses the layer guid when overrideKey contains the unset all-ones value", () => {
+    const markup = html([
+      symbol(50),
+      node(50, 51, {
+        type: "TEXT",
+        overrideKey: { sessionID: 0xffffffff, localID: 0xffffffff },
+        textData: { characters: "Base" },
+      }),
+      instance(20, 50, {
+        symbolData: {
+          symbolID: id(50),
+          symbolOverrides: [
+            {
+              guidPath: { guids: [id(51)] },
+              textData: { characters: "Override" },
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(markup).toContain("Override");
+    expect(markup).not.toContain(">Base</span>");
+  });
+});
+
 describe("an instance's derived layout", () => {
-  it("draws a descendant at the size and position Figma resolved for this instance", () => {
+  it("uses the size and position recorded for this descendant instance", () => {
     const markup = html([
       symbol(50, { size: { x: 200, y: 100 } }),
       node(50, 51, {
@@ -243,7 +270,7 @@ describe("auto-layout distribution", () => {
       stackPrimarySizing: "FIXED",
     });
 
-  it("centres a lone child under space-between, as Figma does", () => {
+  it("centres a lone child under space-between", () => {
     const markup = spaced([
       node(FRAME, 40),
       node(FRAME, 41, { visible: false }),
@@ -503,7 +530,7 @@ describe("icon-font glyphs", () => {
     blobs: [{ bytes: square }],
   });
 
-  it("draws private-use text from the outlines Figma stored", () => {
+  it("draws private-use text from stored outlines", () => {
     const result = renderHtmlTemplates(glyphText(1));
     const markup = result.frames[0]!.html;
     expect(markup).toContain(

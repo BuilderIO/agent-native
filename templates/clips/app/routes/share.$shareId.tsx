@@ -15,7 +15,6 @@ import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import { AgentPanel } from "@agent-native/toolkit/app/chat";
 import {
   AgentNativeIcon,
-  DefaultSpinner,
   EnvironmentBadge,
 } from "@agent-native/toolkit/app/shared";
 import {
@@ -80,7 +79,10 @@ import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ScreenshotStage } from "@/components/player/screenshot-stage";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
-import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
+import {
+  buildShareAttributedSignUpHref,
+  SignedOutShareActions,
+} from "@/components/player/signed-out-share-actions";
 import { TimestampedCommentBar } from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
@@ -153,7 +155,6 @@ import {
 } from "../../shared/recording-link";
 import {
   buildShareContinuationQuery,
-  buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
 import { resolveDashboardRedirect } from "../../shared/share-dashboard-redirect";
@@ -397,6 +398,87 @@ const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 const MISSING_SHARE_RETRY_LIMIT = 8;
 const MISSING_SHARE_RETRY_INTERVAL_MS = [250, 500, 1000, 2000] as const;
 
+function SharePageSkeleton() {
+  return (
+    <div
+      aria-busy="true"
+      className="clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_420px]"
+    >
+      <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Skeleton className="size-6 shrink-0 rounded" />
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-5 w-12 rounded-full" />
+        </div>
+        <div className="flex w-full min-w-0 items-center justify-end gap-3 sm:w-auto">
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-9 w-32 rounded-md" />
+        </div>
+      </header>
+
+      <div className="flex w-full min-w-0 flex-none flex-col overflow-visible lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:flex-1 lg:overflow-y-hidden">
+        <main className="overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+          <div className="mx-auto flex w-full flex-col gap-5 pb-10 sm:px-4 lg:h-full lg:min-h-0 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))] lg:pt-4">
+            <Skeleton className="aspect-video w-full rounded-lg" />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Skeleton className="h-7 w-2/3 max-w-md" />
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-4 w-12" />
+                <Skeleton className="h-4 w-12" />
+                <Skeleton className="size-8 rounded-md" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="size-8 rounded-full" />
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+            <div className="space-y-2 rounded-lg bg-muted/40 p-3">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-11/12" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <RecordingSidePanel
+        className="lg:col-start-2 lg:row-start-2"
+        tabs={
+          <div className="flex min-w-0 items-center gap-4 border-b border-border px-4 py-3">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-14" />
+            <Skeleton className="h-4 w-9" />
+            <Skeleton className="ms-auto size-8 rounded-md" />
+          </div>
+        }
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex-1 space-y-5 overflow-hidden p-3">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="flex gap-2.5">
+                <Skeleton className="size-7 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-4/5" />
+                  {index === 0 ? <Skeleton className="h-3 w-12" /> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="shrink-0 px-3 pb-3 pt-2">
+            <Skeleton className="h-10 w-full rounded-lg" />
+          </div>
+        </div>
+      </RecordingSidePanel>
+    </div>
+  );
+}
+
 function AgentDiscovery({
   recording,
   agentContextUrl,
@@ -428,7 +510,7 @@ function AgentDiscovery({
         {/* The href alone is invisible to agents: the common way to read a page
             is rendered-text or accessibility-tree extraction, which keeps this
             text and drops every attribute. Keep the URL in the text itself. */}
-        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions")}`}
+        {`${t("sharePage.agentReadableContext")}: ${agentContextUrl} ${t("sharePage.agentInstructions", { shareWithAgents: t("shareDialog.shareWithAgents") })}`}
       </a>
       <script
         type="application/agent-native+json"
@@ -474,10 +556,6 @@ export default function ShareRoute() {
       }
     },
     [recordingId, attribution.ref, attribution.via],
-  );
-
-  const signupHref = appPath(
-    `/signup?${buildSignupAttributionQuery(attribution.via)}`,
   );
 
   const shareViewFiredRef = useRef(false);
@@ -590,7 +668,13 @@ export default function ShareRoute() {
     const query = buildShareContinuationQuery(attribution, startAt, panelParam);
     return query ? `${path}?${query}` : path;
   }, [attribution, recordingId, startAt, panelParam]);
-  const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
+  const signupHref = buildShareAttributedSignUpHref(
+    shareReturnTo,
+    attribution.via,
+  );
+  const signInHref = buildSignInReturnHref({
+    returnTo: appPath(shareReturnTo),
+  });
   const queryClient = useQueryClient();
 
   const submitAccessRequest = useCallback(
@@ -1160,7 +1244,7 @@ export default function ShareRoute() {
     return (
       <>
         {agentDiscovery}
-        <DefaultSpinner />
+        <SharePageSkeleton />
       </>
     );
   }
@@ -1345,7 +1429,7 @@ export default function ShareRoute() {
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
     const signInHref = buildSignInReturnHref({
-      returnTo: `/r/${recording.id}`,
+      returnTo: appPath(`/r/${recording.id}`),
     });
     const detail = failureDetail(rawFailureReason);
     const label = storageSetupFailure
@@ -1484,7 +1568,7 @@ export default function ShareRoute() {
   return (
     <div
       className={cn(
-        "clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_420px] [&_.agent-composer-root]:!border-0 [&_.agent-composer-root]:!bg-background",
+        "clips-recording-view relative flex h-[var(--agent-native-viewport-height,100vh)] min-h-0 w-full max-w-full flex-col overflow-y-auto bg-background lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,1fr)_420px] [&_.agent-composer-root]:!border-0",
         sidePanelCollapsed &&
           "lg:grid-cols-[minmax(0,1fr)_40px] xl:grid-cols-[minmax(0,1fr)_40px]",
       )}

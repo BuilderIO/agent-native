@@ -15,7 +15,6 @@ import { createExportSnapshotFrame } from "@/pages/design-editor/export-snapshot
 import type { ExportSnapshotSource } from "@/pages/design-editor/export-snapshot-frame";
 import {
   PngCaptureError,
-  cropCanvasToRect,
   renderExportDocumentCanvas,
 } from "@/pages/design-editor/png-export-render";
 
@@ -211,7 +210,6 @@ export async function runDownloadAllScreensPdf({
   setPngExporting(true);
   let requestedScreenId: string | null = null;
   try {
-    const html2canvas = (await import("html2canvas")).default;
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
       requestedScreenId = screen.id;
@@ -297,22 +295,14 @@ export async function runDownloadAllScreensPdf({
           doc,
           iframe,
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-          render: html2canvas,
-        });
-        const view = doc.defaultView;
-        const viewportCanvas = cropCanvasToRect(
-          rendered.canvas,
-          {
-            x: view?.scrollX ?? 0,
-            y: view?.scrollY ?? 0,
+          cropRect: {
+            x: doc.defaultView?.scrollX ?? 0,
+            y: doc.defaultView?.scrollY ?? 0,
             width: Math.max(1, iframe.clientWidth),
             height: Math.max(1, iframe.clientHeight),
           },
-          rendered.scale,
-        );
-        const dataUrl = (viewportCanvas ?? rendered.canvas).toDataURL(
-          "image/png",
-        );
+        });
+        const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });
       } finally {
         if (iframe && priorInlineHeight !== null) {
@@ -328,12 +318,7 @@ export async function runDownloadAllScreensPdf({
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
   } catch (error) {
     console.error("All-screens PDF export failed:", error);
-    showRasterCaptureError(
-      error instanceof PngCaptureError
-        ? error
-        : new PngCaptureError("blob-failed"),
-      "pdf",
-    );
+    showRasterCaptureError(error, "pdf");
   } finally {
     if (requestedScreenId !== null) releaseScreenFromExport();
     pngExportingRef.current = false;

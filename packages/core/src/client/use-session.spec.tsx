@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMocks = vi.hoisted(() => ({
   setSentryUser: vi.fn(),
+  trackEvent: vi.fn(),
   trackSessionStatus: vi.fn(),
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
 import { fetchAuthSessionStatus } from "./client-status-requests.js";
 import {
+  navigateForSession,
   notifySessionInvalidated,
   recheckSessionAfterUnauthorized,
   useSession,
@@ -112,6 +114,30 @@ describe("useSession", () => {
         authUserId: "canonical-user-1",
       },
       "org-1",
+    );
+  });
+
+  it("publishes the server's test-identity flag with the session identity", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              userId: "user-qa",
+              email: "lead@qa.acme.co",
+              testIdentity: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    await renderConsumers(["only"]);
+
+    expect(analyticsMocks.setSentryUser).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "lead@qa.acme.co", testIdentity: true }),
+      null,
     );
   });
 
@@ -830,6 +856,187 @@ describe("useSession", () => {
   });
 });
 
+describe("one page-wide session answer", () => {
+  it("shows a late-mounted consumer the page's answer instead of a signed-out loading state", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ userId: "user-late", email: "late@example.com" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await renderConsumers(["gate"]);
+    expect(container.textContent).toBe("late@example.com");
+
+    // A dialog or a remounted route mounts after the answer's lifetime.
+    vi.spyOn(Date, "now").mockReturnValue(now + 45_000);
+    const firstRenders: string[] = [];
+    function LateConsumer() {
+      const { session, status } = useSession();
+      if (firstRenders.length === 0) {
+        firstRenders.push(`${status}:${session?.email ?? "none"}`);
+      }
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <>
+          <SessionConsumers labels={["gate"]} />
+          <LateConsumer />
+        </>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(firstRenders).toEqual(["authenticated:late@example.com"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the definitive answer when a re-check cannot reach the server", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ userId: "user-kept", email: "kept@example.com" }),
+      )
+      .mockResolvedValue(new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await renderConsumers(["gate"]);
+    expect(container.textContent).toBe("kept@example.com");
+
+    vi.useFakeTimers();
+    await act(async () => {
+      recheckSessionAfterUnauthorized();
+      await vi.advanceTimersByTimeAsync(40_000);
+    });
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
+    expect(container.textContent).toBe("kept@example.com");
+  });
+
+  it("treats a 401 from the session endpoint as signed out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.textContent).toBe("unauthenticated");
+  });
+
+  it("never reads a 403 from the session endpoint as signed out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40_000);
+    });
+
+    expect(container.textContent).toBe("unavailable");
+  });
+});
+
+describe("session navigation telemetry", () => {
+  let replace: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    delete (window as unknown as Record<string, unknown>)
+      .__agentNativeNavigationStarted;
+    replace = vi.fn();
+    vi.spyOn(window.location, "replace").mockImplementation(replace);
+  });
+
+  async function resolveWith(response: Response) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response),
+    );
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("records the 401 that decided a redirect to sign-in, once per page", async () => {
+    await resolveWith(new Response(null, { status: 401 }));
+    expect(container.textContent).toBe("unauthenticated");
+
+    expect(navigateForSession("/sign-in?c=secret", "signed_out")).toBe(true);
+    expect(navigateForSession("/elsewhere", "signed_out")).toBe(false);
+
+    expect(replace).toHaveBeenCalledTimes(1);
+    const events = analyticsMocks.trackEvent.mock.calls.filter(
+      ([name]) => name === "session_navigation",
+    );
+    expect(events).toEqual([
+      [
+        "session_navigation",
+        {
+          reason: "signed_out",
+          evidence: "http_401",
+          read_failures: 0,
+          resolved_after_ms: expect.any(Number),
+          page_age_ms: expect.any(Number),
+        },
+      ],
+    ]);
+    // Where the visitor was sent is never recorded.
+    expect(JSON.stringify(events)).not.toContain("secret");
+  });
+
+  it("tells a signed-out body from a 401", async () => {
+    await resolveWith(jsonResponse({ error: "Not authenticated" }));
+    navigateForSession("/sign-in", "signed_out");
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "session_navigation",
+      expect.objectContaining({ evidence: "signed_out_body" }),
+    );
+  });
+
+  it("names the reason of other session-driven navigations without session evidence", async () => {
+    await resolveWith(jsonResponse({ userId: "u1", email: "a@example.com" }));
+    navigateForSession("/home", "signed_in_app");
+
+    const [, properties] = analyticsMocks.trackEvent.mock.calls.find(
+      ([name]) => name === "session_navigation",
+    )!;
+    expect(properties).toMatchObject({ reason: "signed_in_app" });
+    expect(properties).not.toHaveProperty("evidence");
+  });
+
+  it("does not report a navigation another gate already claimed", async () => {
+    await resolveWith(new Response(null, { status: 401 }));
+    (
+      window as unknown as Record<string, unknown>
+    ).__agentNativeNavigationStarted = "/beta";
+
+    expect(navigateForSession("/sign-in", "signed_out")).toBe(false);
+    expect(
+      analyticsMocks.trackEvent.mock.calls.filter(
+        ([name]) => name === "session_navigation",
+      ),
+    ).toEqual([]);
+  });
+
+  it("never lets a failing tracker stop the navigation", async () => {
+    await resolveWith(new Response(null, { status: 401 }));
+    analyticsMocks.trackEvent.mockImplementation(() => {
+      throw new Error("tracker down");
+    });
+
+    expect(navigateForSession("/sign-in", "signed_out")).toBe(true);
+    expect(replace).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("one session read per page load", () => {
   it("answers useSession from the read analytics started, long after it landed", async () => {
     const fetchMock = vi.fn(async () =>
@@ -868,6 +1075,70 @@ describe("one session read per page load", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(container.textContent).toBe("bootstrap@example.com");
+  });
+});
+
+describe("isSessionFromFirstRead", () => {
+  async function resolveFresh(
+    fetchMock: ReturnType<typeof vi.fn>,
+    before?: (module: Awaited<ReturnType<typeof freshSessionModule>>) => void,
+  ) {
+    const module = await freshSessionModule();
+    vi.stubGlobal("fetch", fetchMock);
+    before?.(module);
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return module;
+  }
+
+  it("holds for the answer to the page load's own read", async () => {
+    const { isSessionFromFirstRead } = await resolveFresh(
+      vi.fn(async () => jsonResponse({ userId: "user-a", email: "a@x.test" })),
+    );
+
+    expect(isSessionFromFirstRead()).toBe(true);
+  });
+
+  it("ends when a retry answers instead", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "b@x.test" }),
+        ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(module.isSessionFromFirstRead()).toBe(false);
+  });
+
+  it("ends when an invalidation lands before the first answer is read", async () => {
+    const { isSessionFromFirstRead } = await resolveFresh(
+      vi.fn(async () => jsonResponse({ userId: "user-b", email: "b@x.test" })),
+      (module) => module.notifySessionInvalidated(),
+    );
+
+    expect(isSessionFromFirstRead()).toBe(false);
   });
 });
 

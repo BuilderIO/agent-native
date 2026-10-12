@@ -13,6 +13,15 @@ import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
+import {
+  assertPoolConnectionAvailable,
+  runHoldingPoolConnection,
+} from "./pool-self-deadlock.js";
+import {
+  getOrCreateRequestDbPool,
+  getRequestDbPool,
+  replaceRequestDbPool,
+} from "./request-pool-context.js";
 export {
   isHostedFunctionInvocationRuntime,
   isProductionServerlessFunctionRuntime,
@@ -66,6 +75,8 @@ type PgliteTransactionStorage = {
   getStore(): PgliteTransactionContexts | undefined;
   run<T>(store: PgliteTransactionContexts, callback: () => T): T;
 };
+
+type DbClientsClosingHooks = Set<() => void>;
 
 const PgliteTransactionStorage = getAsyncLocalStorageCtor();
 const pgliteTransactionGlobal = globalThis as typeof globalThis & {
@@ -243,7 +254,9 @@ export function pgliteDataDirFromUrl(url: string): string {
   if (!dataDir || dataDir === "/") return "./data/pglite";
   if (
     dataDir === "memory" ||
+    dataDir === "memory:" ||
     dataDir === "/memory" ||
+    dataDir === "/memory:" ||
     dataDir === ":memory:" ||
     dataDir === "/:memory:" ||
     dataDir === "memory://"
@@ -307,6 +320,8 @@ export async function loadPgliteDrizzle(): Promise<{
 }
 
 type PgliteClientRegistry = Map<string, Promise<any>>;
+type PglitePendingClientClose = { client: any };
+type PglitePendingClientCloseRegistry = Map<string, PglitePendingClientClose>;
 type PgliteProcessLock = {
   fd: number;
   fs: typeof import("fs");
@@ -314,21 +329,153 @@ type PgliteProcessLock = {
   contents: string;
 };
 type PgliteProcessLockRegistry = Map<string, PgliteProcessLock>;
+type PgliteClientOperationDrain = {
+  active: number;
+  waiters: Set<() => void>;
+};
 
 const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteClients?: PgliteClientRegistry;
+  __agentNativePgliteClientsPendingClose?: PglitePendingClientCloseRegistry;
   __agentNativePgliteProcessLocks?: PgliteProcessLockRegistry;
+  __agentNativePgliteClientOperationDrain?: PgliteClientOperationDrain;
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
+  __agentNativePgliteClientShutdownRequested?: boolean;
+  __agentNativePgliteClientGeneration?: number;
+  __agentNativePgliteClientReadyGenerations?: Map<string, number>;
+  __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
 };
 const _pgliteClients = (pgliteProcess.__agentNativePgliteClients ??= new Map<
   string,
   Promise<any>
 >());
+const _pgliteClientsPendingClose =
+  (pgliteProcess.__agentNativePgliteClientsPendingClose ??= new Map<
+    string,
+    PglitePendingClientClose
+  >());
+const _pgliteClientReadyGenerations =
+  (pgliteProcess.__agentNativePgliteClientReadyGenerations ??= new Map<
+    string,
+    number
+  >());
 const _pgliteProcessLocks = (pgliteProcess.__agentNativePgliteProcessLocks ??=
   new Map<string, PgliteProcessLock>());
+const _pgliteClientOperationDrain =
+  (pgliteProcess.__agentNativePgliteClientOperationDrain ??= {
+    active: 0,
+    waiters: new Set(),
+  });
+const _dbClientsClosingHooks =
+  (pgliteProcess.__agentNativeDbClientsClosingHooks ??= new Set<() => void>());
+
+export function onDbClientsClosing(hook: () => void): void {
+  _dbClientsClosingHooks.add(hook);
+}
+
+export function beginPgliteClientShutdown(): void {
+  if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) {
+    pgliteProcess.__agentNativePgliteClientGeneration =
+      (pgliteProcess.__agentNativePgliteClientGeneration ?? 0) + 1;
+  }
+  pgliteProcess.__agentNativePgliteClientShutdownRequested = true;
+}
+
+export function resumePgliteClientAccess(): void {
+  pgliteProcess.__agentNativePgliteClientShutdownRequested = false;
+}
+
+function pgliteServiceUnavailableError(
+  message: string,
+  cause?: unknown,
+): Error & { statusCode: number; statusMessage: string } {
+  const error = new Error(
+    message,
+    cause === undefined ? undefined : { cause },
+  ) as Error & { statusCode: number; statusMessage: string };
+  error.statusCode = 503;
+  error.statusMessage = "Service Unavailable";
+  return error;
+}
+
+function assertPgliteClientAccessOpen(): void {
+  if (!pgliteProcess.__agentNativePgliteClientShutdownRequested) return;
+  throw pgliteServiceUnavailableError(
+    "PGlite access is paused while the development server restarts.",
+  );
+}
+
+function assertPgliteClientGeneration(generation: number): void {
+  assertPgliteClientAccessOpen();
+  if ((pgliteProcess.__agentNativePgliteClientGeneration ?? 0) === generation) {
+    return;
+  }
+  throw pgliteServiceUnavailableError(
+    "PGlite initialization was interrupted while the development server restarted.",
+  );
+}
+
+export function waitForPgliteClientOperations(): Promise<void> {
+  if (_pgliteClientOperationDrain.active === 0) return Promise.resolve();
+  return new Promise((resolve) =>
+    _pgliteClientOperationDrain.waiters.add(resolve),
+  );
+}
+
+function finishPgliteClientOperation(): void {
+  _pgliteClientOperationDrain.active--;
+  if (_pgliteClientOperationDrain.active !== 0) return;
+  for (const resolve of _pgliteClientOperationDrain.waiters) resolve();
+  _pgliteClientOperationDrain.waiters.clear();
+}
+
+function guardPgliteClientAccess(client: any): any {
+  return new Proxy(client, {
+    get(target, property) {
+      const method = Reflect.get(target, property, target);
+      if (typeof method !== "function") return method;
+      if (property === "close") return method.bind(target);
+      return (...args: unknown[]) => {
+        assertPgliteClientAccessOpen();
+        _pgliteClientOperationDrain.active++;
+        try {
+          const result: unknown = Reflect.apply(method, target, args);
+          if (
+            result !== null &&
+            (typeof result === "object" || typeof result === "function") &&
+            typeof (result as { then?: unknown }).then === "function"
+          ) {
+            return Promise.resolve(result).finally(finishPgliteClientOperation);
+          }
+          finishPgliteClientOperation();
+          return result;
+        } catch (error) {
+          finishPgliteClientOperation();
+          throw error;
+        }
+      };
+    },
+  });
+}
+
+function notifyDbClientsClosing(): void {
+  const hooks = [..._dbClientsClosingHooks];
+  _dbClientsClosingHooks.clear();
+  for (const hook of hooks) {
+    try {
+      hook();
+    } catch (error) {
+      console.warn("[db] client cache cleanup failed:", error);
+    }
+  }
+}
 
 function pgliteClientKey(dataDir: string): string {
   return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
+}
+
+export function pgliteProcessLockPath(dataDir: string): string {
+  return `${pgliteClientKey(dataDir)}.agent-native-pglite.lock`;
 }
 
 export function isProcessAlive(pid: number): boolean {
@@ -340,7 +487,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-function readPgliteProcessLockOwner(
+export function readPgliteProcessLockOwner(
   fs: typeof import("fs"),
   lockPath: string,
   dataDir: string,
@@ -433,7 +580,7 @@ async function acquirePgliteProcessLock(
   const existing = _pgliteProcessLocks.get(clientKey);
   if (existing) return existing;
 
-  const lockPath = `${clientKey}.agent-native-pglite.lock`;
+  const lockPath = pgliteProcessLockPath(dataDir);
   const contents = JSON.stringify({
     pid: process.pid,
     token: `${process.pid}:${Date.now()}:${Math.random()}`,
@@ -489,17 +636,55 @@ async function acquirePgliteProcessLock(
 }
 
 export async function getPgliteClient(url: string): Promise<any> {
+  assertPgliteClientAccessOpen();
+  if (_dbExecClosePromise) await _dbExecClosePromise;
+  const generation = pgliteProcess.__agentNativePgliteClientGeneration ?? 0;
+  assertPgliteClientGeneration(generation);
   const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
+  assertPgliteClientGeneration(generation);
   const clientKey = pgliteClientKey(dataDir);
+  if (_pgliteClientsPendingClose.has(clientKey)) {
+    throw pgliteServiceUnavailableError(
+      `PGlite client for "${dataDir}" could not close during the previous database lifecycle. Retry database cleanup before reopening it.`,
+    );
+  }
   let ready = _pgliteClients.get(clientKey);
+  if (ready && _pgliteClientReadyGenerations.get(clientKey) !== generation) {
+    throw pgliteServiceUnavailableError(
+      `PGlite client initialization for "${dataDir}" belongs to an earlier database lifecycle.`,
+    );
+  }
   if (!ready) {
     ready = (async () => {
       const lock = await acquirePgliteProcessLock(dataDir);
+      let retainLockForPendingClose = false;
       try {
+        assertPgliteClientGeneration(generation);
         const { PGlite } = await loadPglitePackage();
-        return await PGlite.create(clientKey);
+        assertPgliteClientGeneration(generation);
+        const client = await PGlite.create(clientKey);
+        try {
+          assertPgliteClientGeneration(generation);
+        } catch (error) {
+          try {
+            await client.close();
+          } catch (closeError) {
+            _pgliteClientsPendingClose.set(clientKey, { client });
+            retainLockForPendingClose = true;
+            const aggregateError = new AggregateError(
+              [error, closeError],
+              `PGlite client for "${dataDir}" could not close after its initialization was interrupted.`,
+            );
+            throw pgliteServiceUnavailableError(
+              aggregateError.message,
+              aggregateError,
+            );
+          }
+          throw error;
+        }
+        return guardPgliteClientAccess(client);
       } catch (error) {
-        if (lock) {
+        if (lock && !retainLockForPendingClose) {
           _pgliteProcessLocks.delete(clientKey);
           releasePgliteProcessLock(lock);
         }
@@ -507,32 +692,60 @@ export async function getPgliteClient(url: string): Promise<any> {
       }
     })();
     _pgliteClients.set(clientKey, ready);
+    _pgliteClientReadyGenerations.set(clientKey, generation);
     ready.catch(() => {
       if (_pgliteClients.get(clientKey) === ready) {
         _pgliteClients.delete(clientKey);
+        _pgliteClientReadyGenerations.delete(clientKey);
       }
     });
   }
+  assertPgliteClientGeneration(generation);
   return ready;
 }
 
 export async function closePgliteClients(): Promise<void> {
   const clients = [..._pgliteClients.entries()];
   _pgliteClients.clear();
-  await Promise.allSettled(
+  _pgliteClientReadyGenerations.clear();
+  for (const [clientKey, pending] of _pgliteClientsPendingClose) {
+    if (!clients.some(([key]) => key === clientKey)) {
+      clients.push([clientKey, Promise.resolve(pending.client)]);
+    }
+  }
+  const results = await Promise.allSettled(
     clients.map(async ([clientKey, ready]) => {
+      let client: any;
       try {
-        const client = await ready;
-        await client.close().catch(() => {});
-      } finally {
-        const lock = _pgliteProcessLocks.get(clientKey);
-        if (lock) {
-          _pgliteProcessLocks.delete(clientKey);
-          releasePgliteProcessLock(lock);
-        }
+        client = await ready;
+      } catch (error) {
+        const pending = _pgliteClientsPendingClose.get(clientKey);
+        if (!pending) return;
+        client = pending.client;
+      }
+      try {
+        await client.close();
+      } catch (error) {
+        _pgliteClientsPendingClose.set(clientKey, { client });
+        throw error;
+      }
+      _pgliteClientsPendingClose.delete(clientKey);
+      const lock = _pgliteProcessLocks.get(clientKey);
+      if (lock) {
+        _pgliteProcessLocks.delete(clientKey);
+        releasePgliteProcessLock(lock);
       }
     }),
   );
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "One or more PGlite clients could not close; their process locks remain held.",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -869,17 +1082,38 @@ export function isTransientDatabaseError(err: unknown): boolean {
   );
 }
 
+// A serverless gateway gives up near 30s, so a retry loop there must stop while
+// the caller can still be handed a database error instead of a 504. Other
+// runtimes have no such gateway and keep their full retry count.
+const DB_RETRY_BUDGET_MS = 20_000;
+
+export function hasRetryBudgetFor(startedAt: number): boolean {
+  if (!isServerlessRuntime()) return true;
+  const attemptMs = dbOpTimeoutMs();
+  return (
+    Date.now() - startedAt + attemptMs <=
+    Math.max(DB_RETRY_BUDGET_MS, attemptMs)
+  );
+}
+
 export async function retryOnConnectionError<T>(
   fn: () => Promise<T>,
   maxAttempts = 3,
 ): Promise<T> {
+  const startedAt = Date.now();
   let last: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (e) {
       last = e;
-      if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      if (
+        !isConnectionError(e) ||
+        attempt === maxAttempts - 1 ||
+        !hasRetryBudgetFor(startedAt)
+      ) {
+        throw e;
+      }
       recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
@@ -1242,15 +1476,18 @@ export function guardNeonPool(
   url: string,
   label = "db/neon",
 ): void {
-  if (!pool || typeof pool !== "object") return;
-  if (loggedNeonPools.has(pool)) return;
-  const withEvents = pool as {
+  if (!pool || typeof pool !== "object" || isRequestScopedPoolFacade(pool)) {
+    return;
+  }
+  const targetPool = pool;
+  if (loggedNeonPools.has(targetPool)) return;
+  const withEvents = targetPool as {
     on?: (event: string, listener: (...args: unknown[]) => void) => unknown;
   };
   if (typeof withEvents.on !== "function") return;
 
-  loggedNeonPools.add(pool);
-  gateNeonConnect(pool as Record<string, any>, url, label);
+  loggedNeonPools.add(targetPool);
+  gateNeonConnect(targetPool as Record<string, any>, url, label);
   withEvents.on("error", (err: unknown) => {
     console.warn(
       `[${label}] pool error (will reconnect on next query):`,
@@ -1280,9 +1517,98 @@ interface ClosablePool {
 const _sharedDbPools = new Map<string, ClosablePool>();
 const _sharedDbPoolCloseHooks = new Set<() => void>();
 const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
+interface RequestScopedPoolFacade {
+  key: string;
+  create: () => ClosablePool;
+}
+const requestScopedPoolFacades = new WeakMap<object, RequestScopedPoolFacade>();
+
+function requestScopedPoolKey(driver: string, url: string): string {
+  return `${driver}\u0000${url}`;
+}
+
+function createRequestScopedPoolFacade<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  create: () => T,
+): T {
+  const key = requestScopedPoolKey(driver, url);
+  const createForRequest = () => {
+    const pool = create();
+    if (driver === "neon") guardNeonPool(pool, url);
+    return pool;
+  };
+  const getPool = () => getOrCreateRequestDbPool(key, createForRequest);
+  const target =
+    driver === "postgres-js" ? function requestScopedPostgresClient() {} : {};
+  const facade = new Proxy(target, {
+    get(_target, prop) {
+      const pool = getPool();
+      const value = Reflect.get(pool, prop, pool);
+      return typeof value === "function" ? value.bind(pool) : value;
+    },
+    set(_target, prop, value) {
+      const pool = getPool();
+      return Reflect.set(pool, prop, value, pool);
+    },
+    has(_target, prop) {
+      return prop in getPool();
+    },
+    getPrototypeOf() {
+      return Object.getPrototypeOf(getPool());
+    },
+    apply(_target, thisArg, args) {
+      const pool = getPool();
+      if (typeof pool !== "function") {
+        throw new TypeError("This request database pool is not callable.");
+      }
+      return Reflect.apply(
+        pool as unknown as (...values: unknown[]) => unknown,
+        thisArg,
+        args,
+      );
+    },
+    construct(_target, args) {
+      const pool = getPool();
+      if (typeof pool !== "function") {
+        throw new TypeError("This request database pool is not constructable.");
+      }
+      return Reflect.construct(
+        pool as unknown as new (...values: unknown[]) => object,
+        args,
+      );
+    },
+  });
+  requestScopedPoolFacades.set(facade, { key, create: createForRequest });
+  return facade as T;
+}
+
+function isRequestScopedPoolFacade(value: unknown): boolean {
+  return Boolean(
+    value &&
+    (typeof value === "object" || typeof value === "function") &&
+    requestScopedPoolFacades.has(value as object),
+  );
+}
+
+export function resolveSharedDbPool<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  pool: T,
+): T {
+  const facade = requestScopedPoolFacades.get(pool);
+  if (!facade) return pool;
+  if (facade.key !== requestScopedPoolKey(driver, url)) {
+    throw new Error(
+      "A shared database pool facade was resolved for the wrong key.",
+    );
+  }
+  return getOrCreateRequestDbPool(facade.key, facade.create) as T;
+}
 
 /**
- * One connection pool per (driver, URL) for the whole process.
+ * One connection pool per (driver, URL) on long-lived runtimes. Cloudflare
+ * gets a stable facade that routes operations to a pool owned by each request.
  *
  * Opening a connection to a remote database costs a full TCP + TLS + auth
  * round-trip chain (~300-800ms measured against Neon in-region), and it used
@@ -1292,19 +1618,24 @@ const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
  * cap, which forced each pool down to a size too small to run a request's reads
  * concurrently.
  *
- * TRAP: only consumers that live as long as the process may share. Anything
- * handed a `close()` — `createDbExec()`, the migration exec on the direct
- * endpoint — must keep a private pool, or closing it takes the whole process's
- * database access down with it.
+ * TRAP: only consumers that live as long as the process may share on
+ * long-lived runtimes. Anything handed a `close()` — `createDbExec()`, the
+ * migration exec on the direct endpoint — must keep a private pool, or closing
+ * it takes the whole process's database access down with it.
  */
 export function sharedDbPool<T extends ClosablePool>(
   driver: string,
   url: string,
   create: () => T,
 ): T {
-  const key = `${driver}\u0000${url}`;
+  const key = requestScopedPoolKey(driver, url);
   const existing = _sharedDbPools.get(key);
   if (existing) return existing as T;
+  if (hasCloudflareRuntime()) {
+    const facade = createRequestScopedPoolFacade(driver, url, create);
+    _sharedDbPools.set(key, facade);
+    return facade;
+  }
   const created = create();
   _sharedDbPools.set(key, created);
   return created;
@@ -1316,7 +1647,16 @@ export function replaceSharedDbPool<T extends ClosablePool>(
   previous: T,
   next: T,
 ): void {
-  const key = `${driver}\u0000${url}`;
+  const key = requestScopedPoolKey(driver, url);
+  const facade = _sharedDbPools.get(key);
+  if (isRequestScopedPoolFacade(facade)) {
+    const currentPool = getRequestDbPool(key);
+    if (!currentPool) return;
+    const expected = previous === facade ? currentPool : previous;
+    if (currentPool !== expected) return;
+    replaceRequestDbPool(key, currentPool, next);
+    return;
+  }
   if (_sharedDbPools.get(key) !== previous) return;
   _sharedDbPools.set(key, next);
   for (const hook of _sharedDbPoolReplacementHooks.get(key) ?? []) {
@@ -1344,7 +1684,9 @@ export function onSharedDbPoolsClosed(hook: () => void): void {
 }
 
 export async function closeSharedDbPools(): Promise<void> {
-  const pools = [..._sharedDbPools.values()];
+  const pools = [..._sharedDbPools.values()].filter(
+    (pool) => !isRequestScopedPoolFacade(pool),
+  );
   _sharedDbPools.clear();
   for (const hook of _sharedDbPoolCloseHooks) {
     try {
@@ -1366,7 +1708,9 @@ function disposePostgresPoolEventually(
   pool: { end: () => Promise<unknown> },
   label: string,
 ): void {
-  if (!pool || typeof pool !== "object") return;
+  if (!pool || (typeof pool !== "object" && typeof pool !== "function")) {
+    return;
+  }
   if (recyclingPostgresPools.has(pool)) return;
   recyclingPostgresPools.add(pool);
   void pool.end().catch((err: unknown) => {
@@ -1379,6 +1723,8 @@ function disposePostgresPoolEventually(
 
 let _exec: DbExec | undefined;
 let _initPromise: Promise<void> | undefined;
+let _dbExecGeneration = 0;
+let _dbExecClosePromise: Promise<void> | undefined;
 
 async function executePglite(
   client: {
@@ -1479,6 +1825,7 @@ async function createDbExecInternal(
     const pool = trackSingletonResources
       ? sharedDbPool("neon", url, makePool)
       : makePool();
+    const getPool = () => resolveSharedDbPool("neon", url, pool);
     guardNeonPool(pool, url);
     const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
     async function queryNeonClient(
@@ -1599,11 +1946,13 @@ async function createDbExecInternal(
           const attemptStartedAt = Date.now();
           const remainingAttemptMs = () =>
             Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
+          const activePool = getPool();
+          assertPoolConnectionAvailable(activePool, "getDbExec().execute()");
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
             () =>
-              pool.connect().then((c) => {
+              activePool.connect().then((c) => {
                 if (acquireTimedOut) c.release();
                 return c;
               }),
@@ -1647,11 +1996,16 @@ async function createDbExecInternal(
       },
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
         return retryOnConnectionError(async () => {
+          const activePool = getPool();
+          assertPoolConnectionAvailable(
+            activePool,
+            "getDbExec().transaction()",
+          );
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
             () =>
-              pool.connect().then((c) => {
+              activePool.connect().then((c) => {
                 if (acquireTimedOut) c.release();
                 return c;
               }),
@@ -1690,7 +2044,9 @@ async function createDbExecInternal(
               client,
               "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
             );
-            const result = await fn(tx);
+            const result = await runHoldingPoolConnection(activePool, () =>
+              fn(tx),
+            );
             await queryNeonClient(client, "COMMIT");
             releaseClient();
             return result;
@@ -1815,11 +2171,17 @@ async function createDbExecInternal(
     let pool = trackSingletonResources
       ? sharedDbPool("postgres-js", url, createPool)
       : createPool();
+    const getPool = () => resolveSharedDbPool("postgres-js", url, pool);
     const recyclePool = (timedOutPool: PostgresPool) => {
-      if (pool === timedOutPool) {
-        pool = createPool();
-        if (trackSingletonResources) {
-          replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
+      if (getPool() === timedOutPool) {
+        const replacement = createPool();
+        if (isRequestScopedPoolFacade(pool)) {
+          replaceSharedDbPool("postgres-js", url, timedOutPool, replacement);
+        } else {
+          pool = replacement;
+          if (trackSingletonResources) {
+            replaceSharedDbPool("postgres-js", url, timedOutPool, replacement);
+          }
         }
       }
       disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
@@ -1833,7 +2195,8 @@ async function createDbExecInternal(
         const result = await retryOnConnectionError<
           ArrayLike<unknown> & { count?: number }
         >(() => {
-          const queryPool = pool;
+          const queryPool = getPool();
+          assertPoolConnectionAvailable(queryPool, "getDbExec().execute()");
           const query = queryPool.unsafe(pgSql, args as any[]);
           return withDbTimeout(
             "query",
@@ -1849,7 +2212,8 @@ async function createDbExecInternal(
         };
       },
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        const result = await pool.begin(async (txSql: any) => {
+        const activePool = getPool();
+        const result = await activePool.begin(async (txSql: any) => {
           const tx: DbExec = {
             async execute(sql) {
               const { rawSql, args } = sqlAndArgs(sql);
@@ -1873,13 +2237,13 @@ async function createDbExecInternal(
               };
             },
           };
-          return fn(tx);
+          return runHoldingPoolConnection(activePool, () => fn(tx));
         });
         return result as T;
       },
       async close() {
         if (trackSingletonResources) return closeSharedDbPools();
-        await pool.end();
+        await getPool().end();
       },
     };
   }
@@ -1923,11 +2287,33 @@ function guardSchemaMutations(exec: DbExec): DbExec {
 
 async function initClient(): Promise<void> {
   if (_exec) return;
+  if (_dbExecClosePromise) await _dbExecClosePromise;
+  const generation = _dbExecGeneration;
 
   assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  _exec = await createDbExecInternal({ url }, true);
+  const exec = await createDbExecInternal({ url }, true);
+  if (generation !== _dbExecGeneration) {
+    await exec.close?.();
+    throw pgliteServiceUnavailableError(
+      "Database client initialization was interrupted while database clients were closing.",
+    );
+  }
+  _exec = exec;
+}
+
+function getCurrentDbExec(): DbExec {
+  assertPgliteClientAccessOpen();
+  if (_exec) return _exec;
+  throw pgliteServiceUnavailableError(
+    "Database client is unavailable while database clients are closing.",
+  );
+}
+
+function getInitializedDbExec(generation: number): DbExec {
+  assertPgliteClientGeneration(generation);
+  return getCurrentDbExec();
 }
 
 export function annotateMissingTable(err: unknown, sql: unknown): unknown {
@@ -1977,84 +2363,76 @@ export function getDbExec(): DbExec {
   ): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
     try {
-      return await _exec!.execute(sanitize(s));
+      return await getCurrentDbExec().execute(sanitize(s));
     } catch (err) {
       throw annotateMissingTable(err, s);
     }
   }
 
+  async function initializeProxy(): Promise<DbExec> {
+    const generation = pgliteProcess.__agentNativePgliteClientGeneration ?? 0;
+    const initPromise = (_initPromise ??= initClient());
+    try {
+      await initPromise;
+    } catch (err) {
+      if (_initPromise === initPromise) {
+        _initPromise = undefined;
+        _exec = undefined;
+      }
+      throw err;
+    }
+    return getInitializedDbExec(generation);
+  }
+
+  function createInitializedProxy(exec: DbExec): DbExec {
+    return {
+      execute: (s) => execAnnotated(s),
+      atomicBatch: exec.atomicBatch
+        ? async (statements) => {
+            for (const statement of statements) {
+              assertSchemaMutationAllowed(statement);
+            }
+            const currentExec = getCurrentDbExec();
+            if (!currentExec.atomicBatch) {
+              throw new Error("This database does not support atomic batches.");
+            }
+            return currentExec.atomicBatch(
+              statements.map((statement) => sanitize(statement)),
+            );
+          }
+        : undefined,
+      transaction: exec.transaction
+        ? (fn) => {
+            const currentExec = getCurrentDbExec();
+            if (!currentExec.transaction) {
+              throw new Error("This database does not support transactions.");
+            }
+            return currentExec.transaction((tx) =>
+              fn({
+                execute: (s) => {
+                  assertSchemaMutationAllowed(s);
+                  return tx.execute(sanitize(s));
+                },
+                transaction: tx.transaction?.bind(tx),
+              }),
+            );
+          }
+        : undefined,
+    };
+  }
+
   const proxy: DbExec = {
     async execute(sql) {
       assertSchemaMutationAllowed(sql);
-      if (!_initPromise) _initPromise = initClient();
-      try {
-        await _initPromise;
-      } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
-        throw err;
-      }
-      const wrapper: DbExec = {
-        execute: (s) => execAnnotated(s),
-        atomicBatch: _exec!.atomicBatch
-          ? async (statements) => {
-              for (const statement of statements) {
-                assertSchemaMutationAllowed(statement);
-              }
-              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
-            }
-          : undefined,
-        transaction: _exec!.transaction
-          ? (fn) =>
-              _exec!.transaction!((tx) =>
-                fn({
-                  execute: (s) => {
-                    assertSchemaMutationAllowed(s);
-                    return tx.execute(sanitize(s));
-                  },
-                  transaction: tx.transaction?.bind(tx),
-                }),
-              )
-          : undefined,
-      };
-      Object.assign(proxy, wrapper);
+      const exec = await initializeProxy();
+      Object.assign(proxy, createInitializedProxy(exec));
       return execAnnotated(sql);
     },
     async transaction(fn) {
-      if (!_initPromise) _initPromise = initClient();
-      try {
-        await _initPromise;
-      } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
-        throw err;
-      }
-      const wrapper: DbExec = {
-        execute: (s) => execAnnotated(s),
-        atomicBatch: _exec!.atomicBatch
-          ? async (statements) => {
-              for (const statement of statements) {
-                assertSchemaMutationAllowed(statement);
-              }
-              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
-            }
-          : undefined,
-        transaction: _exec!.transaction
-          ? (innerFn) =>
-              _exec!.transaction!((tx) =>
-                innerFn({
-                  execute: (s) => {
-                    assertSchemaMutationAllowed(s);
-                    return tx.execute(sanitize(s));
-                  },
-                  transaction: tx.transaction?.bind(tx),
-                }),
-              )
-          : undefined,
-      };
-      Object.assign(proxy, wrapper);
-      if (_exec!.transaction) {
-        return _exec!.transaction((tx) =>
+      const exec = await initializeProxy();
+      Object.assign(proxy, createInitializedProxy(exec));
+      if (exec.transaction) {
+        return exec.transaction((tx) =>
           fn({
             execute: (s) => {
               assertSchemaMutationAllowed(s);
@@ -2064,33 +2442,31 @@ export function getDbExec(): DbExec {
           }),
         );
       }
-      if (_exec!.atomicBatch) {
+      if (exec.atomicBatch) {
         throw new Error(
           "This database supports atomic batches, not interactive transactions.",
         );
       }
+      const wrapper = createInitializedProxy(exec);
       return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
     },
     async atomicBatch(statements) {
       for (const statement of statements) {
         assertSchemaMutationAllowed(statement);
       }
-      if (!_initPromise) _initPromise = initClient();
-      try {
-        await _initPromise;
-      } catch (err) {
-        _initPromise = undefined;
-        _exec = undefined;
-        throw err;
-      }
-      if (!_exec!.atomicBatch) {
+      const exec = await initializeProxy();
+      if (!exec.atomicBatch) {
         throw new Error("This database does not support atomic batches.");
       }
       const batch = async (items: typeof statements) => {
         for (const item of items) {
           assertSchemaMutationAllowed(item);
         }
-        return _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+        const currentExec = getCurrentDbExec();
+        if (!currentExec.atomicBatch) {
+          throw new Error("This database does not support atomic batches.");
+        }
+        return currentExec.atomicBatch(items.map((item) => sanitize(item)));
       };
       Object.assign(proxy, { atomicBatch: batch });
       return batch(statements);
@@ -2100,8 +2476,21 @@ export function getDbExec(): DbExec {
 }
 
 export async function closeDbExec(): Promise<void> {
-  await closeSharedDbPools();
-  await closePgliteClients();
+  if (_dbExecClosePromise) return _dbExecClosePromise;
+  _dbExecGeneration++;
+  pgliteProcess.__agentNativePgliteClientGeneration =
+    (pgliteProcess.__agentNativePgliteClientGeneration ?? 0) + 1;
+  notifyDbClientsClosing();
   _exec = undefined;
   _initPromise = undefined;
+  const closePromise = (async () => {
+    await closeSharedDbPools();
+    await closePgliteClients();
+  })();
+  _dbExecClosePromise = closePromise;
+  try {
+    await closePromise;
+  } finally {
+    if (_dbExecClosePromise === closePromise) _dbExecClosePromise = undefined;
+  }
 }

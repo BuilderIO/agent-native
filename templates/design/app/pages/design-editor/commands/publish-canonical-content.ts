@@ -40,6 +40,7 @@ export function runPublishCanonicalContent(
     args.cancelIdentityMigration(fileId);
   }
   const current = args.pendingLocalFileContentsRef.current.get(fileId);
+  if (current?.deferCollabReconcile) return prepared.content;
   if (current && current.identityMigrationSourceContent === undefined)
     return current.content;
   if (

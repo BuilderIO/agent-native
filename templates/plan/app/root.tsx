@@ -46,6 +46,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import "@/lib/register-chat-renderers";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
+import { isPlanChatPath } from "@/lib/chat-route";
 import { shouldCapturePlanContent } from "@/lib/plan-tracking";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -141,12 +142,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function isPrivatePlanEditorPath(pathname: string): boolean {
+  return /^\/(?:plans|recaps)\/[^/]+\/?$/.test(pathname);
+}
+
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   useNavigationState();
   useDbSync({
     queryClient: qc,
     ignoreSource: TAB_ID,
+    realtime: isPrivatePlanEditorPath(location.pathname)
+      ? { reason: "collaborators can edit and comment on this open plan" }
+      : undefined,
   });
   return null;
 }
@@ -235,7 +244,7 @@ export default function Root() {
   const location = useLocation();
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const sessionBypass =
-    pathname === "/chat" ||
+    isPlanChatPath(pathname) ||
     PUBLIC_SHELL_ROUTE_PREFIXES.some(
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );

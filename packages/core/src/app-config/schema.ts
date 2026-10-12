@@ -7,8 +7,10 @@ import { analyticsConfig } from "./analytics.js";
 import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
 import { dispatchConfig } from "./dispatch.js";
+import { extensionsConfig } from "./extensions.js";
 import { integrationsConfig } from "./integrations.js";
 import { launchDarklyConfig } from "./launchdarkly.js";
+import { mcpConfig } from "./mcp.js";
 import { migrationConfig } from "./migration.js";
 import { observabilityConfig } from "./observability.js";
 import { onboardingConfig } from "./onboarding.js";
@@ -16,6 +18,7 @@ import { openAiAppsConfig } from "./openai-apps.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
 import { runtimeConfig } from "./runtime.js";
+import { testIdentityConfig } from "./test-identity.js";
 import { workspaceConfig } from "./workspace.js";
 
 export const appConfigSchema = z.object({
@@ -26,8 +29,10 @@ export const appConfigSchema = z.object({
   app: appConfig.prefault({}),
   auth: authConfig.prefault({}),
   dispatch: dispatchConfig.prefault({}),
+  extensions: extensionsConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
   launchDarkly: launchDarklyConfig.prefault({}),
+  mcp: mcpConfig.prefault({}),
   migration: migrationConfig.prefault({}),
   observability: observabilityConfig.prefault({}),
   onboarding: onboardingConfig.prefault({}),
@@ -35,6 +40,7 @@ export const appConfigSchema = z.object({
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
   runtime: runtimeConfig.prefault({}),
+  testIdentity: testIdentityConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),
 });
 

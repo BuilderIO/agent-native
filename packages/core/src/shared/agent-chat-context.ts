@@ -1,36 +1,38 @@
-const CONTEXT_BLOCK_PATTERN = /<context\b[^>]*>([\s\S]*?)<\/context>\n?/gi;
-const UNCLOSED_CONTEXT_PATTERN = /<context\b[^>]*>([\s\S]*)$/i;
-const STRAY_CONTEXT_CLOSE_PATTERN = /<\/context>/gi;
+import { splitAgentKitMessageContext } from "@agent-native/agentkit/chat-context";
 
-export interface AgentChatMessageParts {
-  message: string;
-  context: string;
-}
+export { appendAgentChatContextToMessage } from "@agent-native/agentkit/chat-context";
+export type { AgentKitMessageParts as AgentChatMessageParts } from "@agent-native/agentkit/chat-context";
 
-export function appendAgentChatContextToMessage(
-  message: string,
-  context: string,
-): string {
-  const trimmedContext = context.trim();
-  if (!trimmedContext) return message;
-  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
-}
+export const splitAgentChatContextFromMessage = splitAgentKitMessageContext;
 
-export function splitAgentChatContextFromMessage(
-  text: string,
-): AgentChatMessageParts {
-  const contexts: string[] = [];
-  let message = text.replace(CONTEXT_BLOCK_PATTERN, (_match, body: string) => {
-    contexts.push(body.trim());
-    return "";
-  });
-  const unclosed = UNCLOSED_CONTEXT_PATTERN.exec(message);
-  if (unclosed) {
-    contexts.push(unclosed[1].trim());
-    message = message.slice(0, unclosed.index);
+const ENCODED_AGENT_CHAT_CONTEXT_OPENING =
+  '<context data-agentkit-context-encoding="entities-v1">';
+const LEGACY_CONTEXT_OPEN_PATTERN = /<context(?=[\s>])[^>]*>/gi;
+
+export function stripAgentChatContextFromMessage(text: string): string {
+  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex = 0;
+  const opening = LEGACY_CONTEXT_OPEN_PATTERN.exec(text);
+  if (!opening) return text;
+
+  if (opening[0] === ENCODED_AGENT_CHAT_CONTEXT_OPENING)
+    return splitAgentChatContextFromMessage(text).message;
+
+  const closingPattern = /<\/context(?=[\s>])[^>]*>/gi;
+  closingPattern.lastIndex = opening.index + opening[0].length;
+  let lastClosing: RegExpExecArray | null = null;
+  let closing = closingPattern.exec(text);
+  while (closing) {
+    lastClosing = closing;
+    closing = closingPattern.exec(text);
   }
-  return {
-    message: message.replace(STRAY_CONTEXT_CLOSE_PATTERN, "").trim(),
-    context: contexts.filter(Boolean).join("\n"),
-  };
+
+  if (!lastClosing) return text.slice(0, opening.index);
+  LEGACY_CONTEXT_OPEN_PATTERN.lastIndex =
+    lastClosing.index + lastClosing[0].length;
+  if (LEGACY_CONTEXT_OPEN_PATTERN.exec(text))
+    return text.slice(0, opening.index);
+  return (
+    text.slice(0, opening.index) +
+    text.slice(lastClosing.index + lastClosing[0].length)
+  );
 }

@@ -156,6 +156,85 @@ describe("create-source config validation", () => {
 
     expect(mocks.createSource).toHaveBeenCalledTimes(1);
   });
+
+  it("refuses a Zoom source without approved meeting series IDs", async () => {
+    for (const zoom of [
+      {},
+      { meetingIds: [] },
+      { meetingIds: ["GTM Weekly Sync"] },
+      { meetingIds: ["123"] },
+      { meetingTopics: ["Marketing Standup"] },
+      { meetingIds: ["123 4567 8901"], meetingTopics: ["Marketing Standup"] },
+      { lookbackDays: 7 },
+    ]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config: { zoom },
+        }),
+        JSON.stringify(zoom),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("refuses to create a live Zoom source with no zoom config", async () => {
+    for (const config of [undefined, {}, { pollMinutes: 60 }]) {
+      await expect(
+        createSource.run({
+          title: "Zoom meetings",
+          provider: "zoom",
+          visibility: "org",
+          config,
+        }),
+        JSON.stringify(config),
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+
+    expect(mocks.createSource).not.toHaveBeenCalled();
+  });
+
+  it("creates a Zoom fixture source without approved meeting series", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom fixture",
+        provider: "zoom",
+        visibility: "org",
+        config: { fixture: true, transcripts: ["Ada: hello"] },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
+
+  it("creates a source from config passed as a JSON string", async () => {
+    await createSource.run({
+      title: "Zoom meetings",
+      provider: "zoom",
+      visibility: "org",
+      configJson: JSON.stringify({ zoom: { meetingIds: ["123 4567 8901"] } }),
+    });
+
+    expect(mocks.createSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: { zoom: { meetingIds: ["123 4567 8901"] } },
+      }),
+    );
+  });
+
+  it("creates a Zoom source limited to approved meeting series", async () => {
+    await expect(
+      createSource.run({
+        title: "Zoom meetings",
+        provider: "zoom",
+        visibility: "org",
+        config: {
+          zoom: { meetingIds: ["123 4567 8901", 98765432101] },
+        },
+      }),
+    ).resolves.toMatchObject({ source: { id: "source-1" } });
+  });
 });
 
 describe("update-source config validation", () => {
@@ -186,5 +265,47 @@ describe("update-source config validation", () => {
     await expect(
       updateSource.run({ id: "source-1", config: { pollMinutes: 30 } }),
     ).resolves.toBeDefined();
+  });
+
+  it("saves config passed as a JSON string", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+    const zoom = { lookbackDays: 7, meetingIds: ["123 4567 8901"] };
+
+    await updateSource.run({
+      id: "source-1",
+      configJson: JSON.stringify({ zoom }),
+    });
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ configJson: JSON.stringify({ zoom }) }),
+    );
+  });
+
+  it("validates config passed as a JSON string", async () => {
+    mocks.assertAccess.mockResolvedValue({
+      resource: { id: "source-1", provider: "zoom", configJson: "{}" },
+    });
+
+    for (const configJson of [
+      JSON.stringify({ zoom: { meetingIds: ["Weekly Sync"] } }),
+      JSON.stringify({ zoom: { lookbackDays: 14 } }),
+      "not json",
+      "[1]",
+    ]) {
+      await expect(
+        updateSource.run({ id: "source-1", configJson }),
+        configJson,
+      ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    }
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("rejects an update that changes nothing", async () => {
+    await expect(
+      updateSource.run({ id: "source-1", config: {} }),
+    ).rejects.toMatchObject({ errorCode: "no_source_changes" });
+    expect(set).not.toHaveBeenCalled();
   });
 });

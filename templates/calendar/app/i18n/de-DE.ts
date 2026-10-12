@@ -247,7 +247,7 @@ export default {
     eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
     eventRulesFreeBuilderOrApiKey:
       "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
-    eventRulesConnectBuilder: "Builder.io verbinden",
+    eventRulesConnectBuilder: "Builder.io verwenden",
     eventRulesAddJevApiKey: "API-Schlüssel hinzufügen",
     eventRulesTabRules: "Regeln",
     eventRulesHelpLabel: "Hinweise zu Einladungsregeln",
@@ -806,6 +806,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "Höhe des Ganztagsbereichs ändern",
     addWorkingLocation: "Arbeitsort hinzufügen",
     addTitleBeforeCreate:
       "Fügen Sie einen Titel hinzu, bevor Sie das Ereignis erstellen",
@@ -1002,6 +1003,8 @@ export default {
     occurrences: "Vorkommen",
     reviewInvite: "Bewertungseinladung",
     reviewProposedTime: "Vorgeschlagene Zeit prüfen",
+    newTimeProposedBy: "Neuer Zeitpunkt vorgeschlagen von {{name}}",
+    reviewTimeProposals: "Zeitvorschläge prüfen",
     responseAwaitingCount: "{{count}} ausstehend",
     responseMaybeCount: "{{count}} vielleicht",
     responseNoCount: "{{count}} nein",

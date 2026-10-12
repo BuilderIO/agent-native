@@ -5,7 +5,9 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   clearCodeLayerProjectionCache,
+  editedStableSourceElement,
   ensureCodeLayerNodeIdsInHtml,
+  pinCodeLayerDocuments,
   findEnclosingTemplateClose,
   hasCanonicalCodeLayerNodeIds,
   moveNodeBetweenDocuments,
@@ -52,6 +54,25 @@ describe("code-layer projection cache", () => {
     expect(otherFile.source.fileId).toBe("file-2");
   });
 
+  it("parses a document once for sources that share node identity", () => {
+    clearCodeLayerProjectionCache();
+    const editor = buildCodeLayerProjection(html, {
+      source: {
+        kind: "design-file",
+        designId: "design-1",
+        fileId: "file-1",
+        filename: "index.html",
+      },
+    });
+    const history = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "file-1" },
+    });
+    expect(history).not.toBe(editor);
+    expect(history.nodes).toBe(editor.nodes);
+    expect(history.source).toEqual({ kind: "design-file", fileId: "file-1" });
+    expect(history.projectionId).not.toBe(editor.projectionId);
+  });
+
   it("holds every screen of a large design", () => {
     clearCodeLayerProjectionCache();
     const screens = Array.from(
@@ -93,6 +114,20 @@ describe("code-layer projection cache", () => {
     }
   });
 
+  it("keeps pinned documents past the size bound until they are unpinned", () => {
+    clearCodeLayerProjectionCache();
+    const pinned = "<main><p>pinned</p></main>";
+    const kept = buildCodeLayerProjection(pinned);
+    pinCodeLayerDocuments("editor", [pinned]);
+    const large = `<main><p>${"x".repeat(16_000_000)}</p></main>`;
+    buildCodeLayerProjection(large);
+    expect(buildCodeLayerProjection(pinned)).toBe(kept);
+
+    pinCodeLayerDocuments("editor", []);
+    buildCodeLayerProjection(`${large} `);
+    expect(buildCodeLayerProjection(pinned)).not.toBe(kept);
+  });
+
   it("evicts entries of one document by source", () => {
     clearCodeLayerProjectionCache();
     const project = (revision: number) =>
@@ -110,6 +145,207 @@ describe("code-layer projection cache", () => {
       if (i % 1_000 === 0) expect(project(1)).toBe(kept);
     }
     expect(project(0)).not.toBe(first);
+  });
+});
+
+describe("code-layer re-projection after an edit", () => {
+  const source = { kind: "design-file" as const, fileId: "screen-1" };
+  const fixture = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fixture</title>
+<style>.card { color: red } p > span { color: blue }</style>
+<script>if (a < b && c > d) { window.x = 1; }</script>
+</head>
+<body style="margin: 0">
+<!-- hero -->
+<header id="top" class="flex items-center gap-2" style="display: flex; gap: 12px">
+  <h1 data-agent-native-node-id="title" style="color: rgb(10, 20, 30)">Hello <em>big</em> world</h1>
+  <nav class="flex"><a href="#a">Alpha</a><a href="#b" style="color: red; }">Beta &amp; Co</a></nav>
+</header>
+<main class="grid">
+  <section class="card" style="padding: 8px">
+    <p>First <span>inner</span> tail
+    <p>Implicitly closed
+    <ul><li>One<li style="color: green">Two</ul>
+  </section>
+  <div data-an-primitive="text" style="font-size: 14px">Primitive text</div>
+  <div data-an-primitive="frame" style="width: 100px; height: 80px"><div style="position: absolute">Inside frame</div></div>
+  <svg width="10" height="10" style="color: red"><rect style="fill: red" width="10" height="10"></rect><text>svg text</text></svg>
+  <template x-for="item in items"><div class="row" style="gap: 2px">Row text</div></template>
+  <textarea style="width: 10px">raw text</textarea>
+  <img src="a.png" style="width: 20px">
+  <button data-agent-native-group="true" style="padding: 2px"><span>Btn</span></button>
+</main>
+<footer>Unclosed footer <strong>bold
+</body>
+</html>`;
+
+  function fullParse(html: string) {
+    clearCodeLayerProjectionCache();
+    return buildCodeLayerProjection(html, { source });
+  }
+
+  it("patches a style edit to match a full parse without re-projecting untouched layers", () => {
+    clearCodeLayerProjectionCache();
+    const before = buildCodeLayerProjection(fixture, { source });
+    const edited = fixture.replace("padding: 8px", "padding: 24px; color: red");
+    const after = buildCodeLayerProjection(edited, { source });
+
+    const header = before.nodes.find((node) => node.tag === "header")!;
+    const footer = before.nodes.find((node) => node.tag === "footer")!;
+    expect(after.nodes.find((node) => node.id === header.id)).toBe(header);
+    const shiftedFooter = after.nodes.find((node) => node.id === footer.id)!;
+    expect(shiftedFooter.source?.start).toBe(
+      footer.source!.start + edited.length - fixture.length,
+    );
+    expect(after).toEqual(fullParse(edited));
+  });
+
+  it("names the nearest stable element around a style or text edit", () => {
+    clearCodeLayerProjectionCache();
+    const html =
+      '<html><body><section data-agent-native-node-id="card" style="color: red"><p>Hello <b>you</b></p></section><svg data-agent-native-node-id="art"><text>Hi</text></svg></body></html>';
+    buildCodeLayerProjection(html, { source });
+
+    const restyled = html.replace("color: red", "color: blue");
+    expect(editedStableSourceElement(html, restyled)).toEqual({
+      nodeId: "card",
+      html: '<section data-agent-native-node-id="card" style="color: blue"><p>Hello <b>you</b></p></section>',
+    });
+    const retexted = html.replace("Hello", "Howdy");
+    expect(editedStableSourceElement(html, retexted)?.html).toBe(
+      '<section data-agent-native-node-id="card" style="color: red"><p>Howdy <b>you</b></p></section>',
+    );
+    expect(
+      editedStableSourceElement(html, html.replace("<b>", "<i>")),
+    ).toBeNull();
+    expect(
+      editedStableSourceElement(html, html.replace(">Hi<", ">Yo<")),
+    ).toBeNull();
+    expect(editedStableSourceElement(retexted, html)).toBeNull();
+  });
+
+  it("matches a full parse across a long run of mixed edits", () => {
+    let seed = 7;
+    const random = () => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+    const pick = <T>(items: readonly T[]): T =>
+      items[Math.floor(random() * items.length)]!;
+    const styleValues = [
+      "color: rgb(1, 2, 3)",
+      "background-color: #ff0000; padding: 4px",
+      "display: flex; gap: 8px; flex-direction: column",
+      "color: red; }",
+      "",
+    ];
+    const texts = ["Hi", "wide text", "", "  ", "&amp;", "x&lt;y", "Hello"];
+    const replaceMatch = (
+      html: string,
+      pattern: RegExp,
+      replace: (match: RegExpExecArray) => string,
+    ) => {
+      const matches = [...html.matchAll(pattern)];
+      if (matches.length === 0) return html;
+      const match = pick(matches);
+      return (
+        html.slice(0, match.index) +
+        replace(match) +
+        html.slice(match.index + match[0].length)
+      );
+    };
+    const edits = {
+      style: (html: string) =>
+        replaceMatch(
+          html,
+          /style="[^"]*"/g,
+          () => `style="${pick(styleValues)}"`,
+        ),
+      addStyle: (html: string) =>
+        replaceMatch(
+          html,
+          /<(p|li|em|span|a|nav|h1)(?=[\s>])(?![^>]*style=)/g,
+          (match) => `${match[0]} style="${pick(styleValues)}"`,
+        ),
+      text: (html: string) =>
+        replaceMatch(html, />([^<>]+)</g, () => `>${pick(texts)}<`),
+      typeInText: (html: string) =>
+        replaceMatch(html, />([^<>]+)</g, (match) => {
+          const text = match[1]!;
+          const at = Math.floor(random() * (text.length + 1));
+          return `>${text.slice(0, at)}${pick(texts)}${text.slice(at)}<`;
+        }),
+      className: (html: string) =>
+        replaceMatch(
+          html,
+          /class="[^"]*"/g,
+          () => `class="${pick(["flex", "grid", "card row"])}"`,
+        ),
+      insertElement: (html: string) =>
+        replaceMatch(html, />([^<>]+)</g, (match) => `>${match[1]}<b>new</b><`),
+    };
+    const kinds = Object.keys(edits) as Array<keyof typeof edits>;
+
+    clearCodeLayerProjectionCache();
+    let html = fixture;
+    let previous = buildCodeLayerProjection(html, { source });
+    const steps: Array<{
+      kind: string;
+      html: string;
+      projection: typeof previous;
+      restyle: EditIntent;
+      restyled: string;
+      tree: ReturnType<typeof buildCodeLayerTree>;
+    }> = [];
+    let patched = 0;
+    for (let step = 0; step < 400; step += 1) {
+      const kind = pick(kinds);
+      const next = edits[kind](html);
+      if (next === html) continue;
+      html = next;
+      const projection = buildCodeLayerProjection(html, { source });
+      const reused = projection.nodes.some(
+        (node, i) => node === previous.nodes[i],
+      );
+      if (reused) patched += 1;
+      if (kind === "className" || kind === "insertElement") {
+        expect(reused, `${kind} must re-parse`).toBe(false);
+      }
+      const restyle: EditIntent = {
+        kind: "style",
+        target: { nodeId: pick(projection.nodes).id },
+        property: "color",
+        value: "#123456",
+      };
+      const restyled = applyVisualEdit(html, restyle, { source }).content;
+      steps.push({
+        kind,
+        html,
+        projection,
+        restyle,
+        restyled,
+        tree: buildCodeLayerTree(projection),
+      });
+      previous = projection;
+    }
+
+    expect(patched).toBeGreaterThan(100);
+    steps.forEach(
+      ({ kind, html, projection, restyle, restyled, tree }, index) => {
+        const full = fullParse(html);
+        expect(projection, `step ${index} (${kind})`).toEqual(full);
+        expect(tree, `step ${index} (${kind}) tree`).toEqual(
+          buildCodeLayerTree(full),
+        );
+        expect(
+          applyVisualEdit(html, restyle, { source }).content,
+          `step ${index} (${kind}) restyle`,
+        ).toBe(restyled);
+      },
+    );
   });
 });
 

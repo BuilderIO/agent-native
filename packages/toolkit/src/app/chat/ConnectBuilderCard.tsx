@@ -316,7 +316,7 @@ export function ConnectBuilderCard({
       </>
     );
   } else {
-    title = "Connect Builder.io";
+    title = t("agentChat.setup.connectBuilder");
     subtitle = <>Builder.io's free tier includes AI credits.</>;
   }
 
@@ -547,7 +547,7 @@ export function ConnectBuilderCard({
                         Waiting for Builder…
                       </>
                     ) : (
-                      "Connect Builder"
+                      t("agentChat.setup.connectBuilder")
                     )}
                   </button>
                 </DeferredBuilderConnectPopover>

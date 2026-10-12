@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import nodePath from "node:path";
 
 import {
+  AgentProtocolValidationError,
+  parseQueueMessageInput,
+} from "@agent-native/agentkit/protocol";
+import {
   createError,
   defineEventHandler,
   setResponseStatus,
@@ -10,6 +14,7 @@ import {
   getQuery,
   getHeader,
   getRequestIP,
+  readBody as readH3Body,
   type H3Event,
 } from "h3";
 
@@ -79,11 +84,11 @@ import type { EngineMessage } from "../agent/engine/types.js";
 import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
+  endsAtContinuationBoundary,
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
-  toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
   abortTurnByRefDurably,
@@ -94,6 +99,7 @@ import {
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
+  type PreparedAgentRequest,
 } from "../agent/production-agent.js";
 import {
   applyProviderModelSelection,
@@ -114,15 +120,13 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
-  claimQueuedMessage,
+  applySubmittedUserMessage,
+  containsInlineAttachmentPayload,
+  foldAgentChatRunCompletion,
   extractThreadMeta,
-  foldAssistantTurn,
-  foldThreadRunSuggestions,
-  hasClaimedQueuedMessage,
+  foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
-  normalizeThreadRepository,
-  upsertUserMessage,
-  type ThreadSuggestionRun,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -137,6 +141,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  InlineAttachmentDataNotPersistableError,
   adoptThreadScopeIfUnscoped,
   createThread,
   forkThread,
@@ -170,6 +175,12 @@ import {
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
+import type { OwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
+import {
+  hydratePriorThreadImages,
+  PriorThreadImageHistoryReadError,
+  retainedStructuredHistoryImageUrls,
+} from "../file-upload/thread-image-history.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -178,10 +189,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
-import {
-  RECURRING_JOBS_SWEEP_PATH,
-  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
-} from "../jobs/scheduler-dispatch.js";
+import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
@@ -198,7 +206,10 @@ import {
   normalizeMcpPrincipal,
   principalFromRequestContext,
 } from "../mcp-client/principal.js";
-import { declaredMcpToolNames } from "../mcp/build-server.js";
+import {
+  declaredMcpToolNames,
+  getMcpDirectoryWidgetResourceUri,
+} from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -206,18 +217,22 @@ import {
   resourceListAccessible,
   resourceGet,
   ensurePersonalDefaults,
-  isWorkspaceResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import { type RefusedTurnRetryContext } from "../shared/agent-chat-run-not-started.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import { docsUrl } from "../shared/docs-url.js";
+import { stripSqlParams } from "../shared/error-noise.js";
+import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
@@ -232,6 +247,7 @@ import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
+import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
@@ -245,6 +261,7 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
   processAgentTeamRun,
+  reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
 import {
@@ -253,7 +270,7 @@ import {
   registerAuthPublicPaths,
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
-import { completeText } from "./complete-text.js";
+import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -278,6 +295,62 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+type AgentChatRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
+export function trackAgentChatRunLifecycle(
+  event: "run_started" | "run_finished" | "run_no_reply",
+  threadId: string | undefined,
+  attemptId: string | undefined,
+  userId?: string,
+  properties: Record<string, unknown> = {},
+  appId?: string,
+  trackingSource?: AgentChatRunTrackingSource,
+): void {
+  if (
+    !threadId?.trim() ||
+    !attemptId?.trim() ||
+    trackingSource?.isSyntheticTraffic === true
+  ) {
+    return;
+  }
+  track(
+    event,
+    {
+      ...properties,
+      ...(appId ? { app_name: appId, template_name: appId } : {}),
+      thread_id: threadId,
+      attempt_id: attemptId,
+    },
+    trackingSource ?? runLifecycleTrackingSource(userId),
+  );
+}
+
+/**
+ * The run's owner is set on the run context only once its system prompt is
+ * built, after `run_started`, and a durable worker has no browser session at
+ * all. The request context carries the verified initiator in both cases, so
+ * identity comes from there; dashboards key retention on `auth_user_id`.
+ */
+function runLifecycleTrackingSource(
+  owner: string | undefined,
+): TrackingMeta | undefined {
+  const requestContext = getRequestContext();
+  if (requestContext?.agentRunAnonymous) {
+    const anonymousId = owner ?? requestContext.userEmail;
+    return anonymousId ? { anonymousId } : undefined;
+  }
+  const userId = owner ?? requestContext?.userEmail;
+  if (!userId) return undefined;
+  const authUserId =
+    requestContext?.userEmail === userId
+      ? requestContext.authUserId
+      : undefined;
+  return { userId, ...(authUserId ? { authUserId } : {}) };
+}
+
 function withTransientDatabaseFallback(
   route: string,
   handler: (event: H3Event) => unknown,
@@ -295,25 +368,37 @@ function withTransientDatabaseFallback(
         code?: unknown;
         cause?: { code?: unknown };
       };
-      captureError(new Error("Transient database failure in agent chat"), {
-        route,
-        method,
-        tags: {
-          source: "agent-chat",
-          failureClass: "transient-database",
+      // `captureError()` aggregates this per (class, route): the first outage
+      // request reports, the rest of the window folds into one counted summary
+      // instead of one event per polled request. The original error rides along
+      // as `cause` so the real failure stays classifiable.
+      captureError(
+        new Error("Transient database failure in agent chat", { cause: error }),
+        {
+          route,
+          method,
+          tags: {
+            source: "agent-chat",
+            failureClass: "transient-database",
+          },
+          extra: {
+            databaseErrorName:
+              error instanceof Error ? error.name : typeof error,
+            databaseErrorMessage:
+              error instanceof Error
+                ? stripSqlParams(error.message).slice(0, 300)
+                : undefined,
+            databaseErrorCode:
+              typeof databaseError.code === "string"
+                ? databaseError.code
+                : undefined,
+            databaseCauseCode:
+              typeof databaseError.cause?.code === "string"
+                ? databaseError.cause.code
+                : undefined,
+          },
         },
-        extra: {
-          databaseErrorName: error instanceof Error ? error.name : typeof error,
-          databaseErrorCode:
-            typeof databaseError.code === "string"
-              ? databaseError.code
-              : undefined,
-          databaseCauseCode:
-            typeof databaseError.cause?.code === "string"
-              ? databaseError.cause.code
-              : undefined,
-        },
-      });
+      );
       setResponseStatus(event, 503);
       if (retrySafe) setResponseHeader(event, "Retry-After", "2");
       return {
@@ -368,6 +453,7 @@ import {
   buildPublicAgentA2ASkills,
   buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
+  unverifiedA2AUserError,
 } from "./agent-chat/action-filters-a2a.js";
 import {
   createBuilderBrowserTool,
@@ -424,6 +510,7 @@ import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "./agent-chat/skill-frontmatter.js";
+import { authorizeSweepTrigger } from "./agent-chat/sweep-trigger-auth.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
@@ -508,10 +595,11 @@ export async function runPostAgentRunComplete(
   callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
+  outcome: { turnContinues: boolean } = { turnContinues: false },
 ): Promise<void> {
   if (!callback) return;
   try {
-    await callback(scope, run);
+    await callback(scope, run, outcome);
   } catch (error) {
     captureError(error, {
       route: "agent-chat",
@@ -557,25 +645,7 @@ export async function runPreAgentTurnAutosave(
   }
 }
 
-export function foldAgentChatRunCompletion(
-  repo: unknown,
-  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
-  run: ThreadSuggestionRun &
-    Pick<
-      ActiveRun,
-      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
-    >,
-) {
-  const folded = assistantMsg
-    ? foldAssistantTurn(repo, assistantMsg, {
-        runId: run.runId,
-        turnId: run.turnId,
-        parentId: run.parentId,
-        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
-      })
-    : repo;
-  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
-}
+export { foldAgentChatRunCompletion };
 
 /**
  * The model this mount runs with, when the caller does not pass one per request.
@@ -603,6 +673,42 @@ export function resolveInteractiveAgentRunOptions(
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
   };
+}
+
+export function parseQueuedMessageForThread(
+  value: unknown,
+  threadId: string,
+): QueuedMessage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const queued = value as Record<string, unknown>;
+  if (
+    typeof queued.id !== "string" ||
+    !queued.id ||
+    typeof queued.text !== "string" ||
+    (queued.threadId !== undefined && queued.threadId !== threadId) ||
+    (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
+    (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.requestAttachments !== undefined &&
+      !Array.isArray(queued.requestAttachments)) ||
+    (queued.metadata !== undefined &&
+      (!queued.metadata ||
+        typeof queued.metadata !== "object" ||
+        Array.isArray(queued.metadata)))
+  ) {
+    return null;
+  }
+  try {
+    parseQueueMessageInput({ ...queued, threadId }, "queuedMessage", {
+      allowLegacyQueueCount: true,
+    });
+  } catch (error) {
+    if (error instanceof AgentProtocolValidationError) return null;
+    throw error;
+  }
+  const { promotionClaim: _claim, ...message } = queued;
+  return { ...message, threadId } as QueuedMessage;
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -686,11 +792,20 @@ async function resolveResourceOrgId(
   return resolved === undefined ? getRequestOrgId() : resolved;
 }
 
+// Lean runs never receive the compact framework prompt, so the batching rule
+// it carries has to ride the run policy instead.
+const LEAN_PARALLEL_READS_NOTE =
+  "\n\nWhen several independent reads are needed, emit them in the same step.";
+
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
   prodCodeExecPromptNote: string,
 ): string {
-  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+  return (
+    LEAN_PARALLEL_READS_NOTE +
+    codeEditingSurfaceRestriction +
+    prodCodeExecPromptNote
+  );
 }
 
 export function filterPromptActionsToSurface(
@@ -932,11 +1047,11 @@ export function resolveHostedBuilderHandoff(
 
 /** Setup CTAs that must be callable on the very first request.
  *
- *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  Both are recovery actions: the agent should answer "use Builder.io for me"
  *  or a failed upload by rendering the inline card, not by spending a turn in
  *  `tool-search` first. `connect-builder` is registered in every registry that
  *  receives `browserTools`, local dev included, so naming it only through the
- *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  hosted-only handoff left local dev advertising "Use Builder.io" in the
  *  UI while the agent was never told the tool existed. Names the registry does
  *  not have are dropped by `filterInitialEngineTools`, so listing both here is
  *  safe for lean registries. */
@@ -1111,6 +1226,9 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const mcpServerName = options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -1264,6 +1382,16 @@ export function createAgentChatPlugin(
       const docsScripts = frameworkTools.isEnabled("docs")
         ? await createDocsScriptEntries()
         : {};
+      // The compact prompt sends the model to `docs-search` for skill text, so
+      // it is the one docs tool the lean registry keeps (`framework-search`
+      // stays out of the first request). Every registry carries it through
+      // `docsScripts` or `skillReadScripts`, which is why one resolved name
+      // serves every prompt site.
+      const docsSearchEntry = docsScripts["docs-search"];
+      const skillReadScripts: Record<string, ActionEntry> = docsSearchEntry
+        ? { "docs-search": docsSearchEntry }
+        : {};
+      const skillReadTool = docsSearchEntry ? "docs-search" : null;
       const databaseToolsMode = normalizeDatabaseToolsMode(
         frameworkTools.database,
       );
@@ -1459,53 +1587,20 @@ export function createAgentChatPlugin(
 
                   const tokens: string[] = [];
                   if (typeof input?.args === "string" && input.args.trim()) {
-                    let current = "";
-                    let inSingle = false;
-                    let inDouble = false;
-                    let escape = false;
-                    for (let i = 0; i < input.args.length; i++) {
-                      const char = input.args[i];
-                      if (escape) {
-                        current += char;
-                        escape = false;
-                        continue;
-                      }
-                      if (char === "\\") {
-                        if (inSingle) {
-                          current += char;
-                        } else {
-                          escape = true;
-                        }
-                        continue;
-                      }
-                      if (char === "'" && !inDouble) {
-                        inSingle = !inSingle;
-                        continue;
-                      }
-                      if (char === '"' && !inSingle) {
-                        inDouble = !inDouble;
-                        continue;
-                      }
-                      if (/\s/.test(char) && !inSingle && !inDouble) {
-                        if (current.length > 0) {
-                          tokens.push(current);
-                          current = "";
-                        }
-                        continue;
-                      }
-                      current += char;
-                    }
-                    if (current.length > 0) {
-                      tokens.push(current);
-                    }
+                    tokens.push(
+                      ...normalizeShellArgs(input.args, {
+                        backslashEscapes: true,
+                        splitAllWhitespace: true,
+                      }),
+                    );
                   } else if (input && typeof input === "object") {
+                    const actionArgs: Record<string, unknown> = {};
                     for (const [k, v] of Object.entries(input)) {
                       if (k === "args" || v === undefined || v === null)
                         continue;
-                      const strVal =
-                        typeof v === "object" ? JSON.stringify(v) : String(v);
-                      tokens.push(`--${k}`, strVal);
+                      actionArgs[k] = v;
                     }
+                    tokens.push(...serializeCliArgs(actionArgs));
                   }
 
                   const BLOCKED_OPERATORS = new Set([
@@ -1900,6 +1995,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
@@ -1910,6 +2006,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
 
@@ -1948,6 +2045,7 @@ export function createAgentChatPlugin(
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
               evaluator: "node",
+              appActionNames: Object.keys(templateScriptsAll),
             },
           )
         : {};
@@ -2120,7 +2218,7 @@ export function createAgentChatPlugin(
         : undefined;
 
       const { mountA2A } = await import("../a2a/server.js");
-      mountA2A(nitroApp, {
+      const localA2AConfig: import("../a2a/types.js").A2AConfig = {
         appId: options?.appId,
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
@@ -2316,7 +2414,7 @@ export function createAgentChatPlugin(
             return;
           }
 
-          if (!userEmail) throw new Error("no authenticated user");
+          if (!userEmail) throw unverifiedA2AUserError(context.event);
 
           const fallbackResponse = await options?.a2aMessageFallback?.({
             message,
@@ -2394,7 +2492,7 @@ export function createAgentChatPlugin(
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -2634,9 +2732,6 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
-              approvedToolCalls: context.approvedActions?.map((approved) =>
-                toolCallCacheKey(approved.tool, approved.input),
-              ),
               executionMode: "act",
               runId: context.taskId,
               networkProtocol: "a2a",
@@ -2907,7 +3002,8 @@ export function createAgentChatPlugin(
             ],
           };
         },
-      });
+      };
+      mountA2A(nitroApp, localA2AConfig);
 
       // Generate an "Available Actions" section from template-specific actions
       // so the agent knows to use them instead of raw SQL.
@@ -3025,12 +3121,18 @@ export function createAgentChatPlugin(
       };
 
       if (mcpOptions.enabled) {
+        const { createMcpAgentTaskClient } =
+          await import("../a2a/mcp-task-client.js");
         // Mount MCP remote server — same action registry as A2A + agent chat
-        const { mountMCP } = await import("../mcp/server.js");
+        const {
+          mountMCP,
+          selectMcpDirectoryWidgetReadActions,
+          selectMcpDirectoryWidgetWriteActions,
+        } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
-          name: options?.appId
-            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-            : "Agent",
+          createLocalAgentTaskClient: (event) =>
+            createMcpAgentTaskClient(localA2AConfig, event),
+          name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
           description:
@@ -3043,6 +3145,14 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
+          widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -3158,7 +3268,7 @@ export function createAgentChatPlugin(
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -3316,6 +3426,90 @@ export function createAgentChatPlugin(
       }
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
+      const directoryProfile = mcpOptions.enabled
+        ? mcpOptions.directoryProfile
+        : undefined;
+      const mcpDirectoryWidgetReadOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetReadActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    (directoryProfile.connectorCatalog.includes(name) ||
+                      directoryProfile.widgetReadPublicActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadAuthenticatedActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadPrivateActions?.includes(
+                        name,
+                      )) &&
+                    httpActions[name] &&
+                    (httpActions[name]?.readOnly === true ||
+                      directoryProfile.widgetReadOnlyActions?.includes(name)),
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetReadActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        argument.type === "actionSchema",
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetReadOnlyActions:
+              directoryProfile.widgetReadOnlyActions,
+            mcpDirectoryWidgetReadPublicActions:
+              directoryProfile.widgetReadPublicActions,
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
+      const mcpDirectoryWidgetWriteOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetWriteActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    httpActions[name] &&
+                    httpActions[name]?.http !== false &&
+                    httpActions[name]?.http?.method !== "GET" &&
+                    httpActions[name]?.requiresAuth !== false &&
+                    httpActions[name]?.readOnly !== true,
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetWriteActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetWriteActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        (argument.type === "actionSchema" ||
+                          argument.type === "actionSchemaResourceBound"),
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
       if (Object.keys(httpActions).length > 0) {
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
@@ -3325,20 +3519,27 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getOwnerContextFromEvent: resolveOwnerContext,
           getAuthUserIdFromEvent: async (event) =>
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
           appId: options?.appId,
+          clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
+          ...mcpDirectoryWidgetReadOptions,
+          ...mcpDirectoryWidgetWriteOptions,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
       // have to open the (single-process) local database itself while this
       // server is already holding it open. Gated internally on deploy
       // environment, loopback, and a per-process token — see dev-action-bridge.ts.
-      const { mountDevActionForwardRoute, mountDevDbQueryForwardRoute } =
-        await import("./dev-action-bridge.js");
+      const {
+        mountDevActionForwardRoute,
+        mountDevDbMigrateForwardRoute,
+        mountDevDbQueryForwardRoute,
+      } = await import("./dev-action-bridge.js");
       mountDevActionForwardRoute(nitroApp, httpActions, {
         appId: options?.appId,
       });
@@ -3346,6 +3547,9 @@ export function createAgentChatPlugin(
       // it — this is the dedicated forward target `pnpm action db-query`
       // uses instead (see dev-query-proxy.ts).
       mountDevDbQueryForwardRoute(nitroApp);
+      // `agent-native db-migrate` applies migrations through this server's own
+      // PGlite client instead of opening the data dir from a second process.
+      mountDevDbMigrateForwardRoute(nitroApp);
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,
@@ -3353,6 +3557,7 @@ export function createAgentChatPlugin(
         appId: options?.appId,
         resolveOrgId: options?.resolveOrgId,
         actionRouteAuth: options?.actionRouteAuth,
+        ...mcpDirectoryWidgetReadOptions,
         manifest: {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
@@ -3390,13 +3595,64 @@ export function createAgentChatPlugin(
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
+        trackingSource?: AgentChatRunTrackingSource,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
+        const chatScope = getRequestRunContext()?.chatScope;
+        const assistantMsg = buildAssistantMessage(
+          run.events ?? [],
+          run.runId,
+          {
+            scope: chatScope,
+            suppressInternalContinuation: true,
+            turnId:
+              typeof run.turnId === "string" && run.turnId
+                ? run.turnId
+                : undefined,
+            runDurationMs:
+              typeof run.startedAt === "number" &&
+              Number.isFinite(run.startedAt)
+                ? Math.max(0, Date.now() - run.startedAt)
+                : undefined,
+          },
+        );
+        const runContext = getRequestRunContext();
+        const failureCode =
+          run.status === "errored"
+            ? [...(run.events ?? [])]
+                .reverse()
+                .find(({ event }) => event.type === "error")?.event
+            : undefined;
+        trackAgentChatRunLifecycle(
+          "run_finished",
+          runThreadId || undefined,
+          run.runId,
+          runContext?.owner,
+          {
+            status: run.status,
+            engine: runContext?.engine?.name ?? "unknown",
+            ...(failureCode?.type === "error"
+              ? { failure_code: failureCode.errorCode ?? "unknown" }
+              : {}),
+          },
+          options?.appId,
+          trackingSource,
+        );
+        if (!assistantMsg) {
+          trackAgentChatRunLifecycle(
+            "run_no_reply",
+            runThreadId || undefined,
+            run.runId,
+            getRequestRunContext()?.owner,
+            {},
+            options?.appId,
+            trackingSource,
+          );
+        }
         if (!threadId) {
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
           return;
         }
-        const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (mutateThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -3409,23 +3665,6 @@ export function createAgentChatPlugin(
               `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
             );
           }
-          const assistantMsg = buildAssistantMessage(
-            run.events ?? [],
-            run.runId,
-            {
-              scope: chatScope,
-              suppressInternalContinuation: true,
-              turnId:
-                typeof run.turnId === "string" && run.turnId
-                  ? run.turnId
-                  : undefined,
-              runDurationMs:
-                typeof run.startedAt === "number" &&
-                Number.isFinite(run.startedAt)
-                  ? Math.max(0, Date.now() - run.startedAt)
-                  : undefined,
-            },
-          );
           // Parse existing thread_data, append assistant message only if
           // the frontend hasn't already saved it (avoids duplicates when
           // the client is still connected during a normal flow).
@@ -3453,6 +3692,7 @@ export function createAgentChatPlugin(
             thread.title,
             meta.preview || thread.preview,
             repo.messages.length,
+            { trustedRunSequenceResetIds: new Set([run.runId]) },
           );
         });
 
@@ -3469,6 +3709,7 @@ export function createAgentChatPlugin(
           options?.onAgentRunComplete,
           chatScope,
           run,
+          { turnContinues: endsAtContinuationBoundary(run) },
         );
 
         // Event triggers and local git checkpoints remain best effort and do
@@ -3609,8 +3850,14 @@ export function createAgentChatPlugin(
         turnId: string;
         threadId: string | undefined;
         message: string;
+        agentKitMessageId?: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        queuedMessageClaimId?: string;
+        /** The turn was refused before a run started; record why in the thread. */
+        failure?: { code: string; message: string };
+        /** What a retry of the refused turn sends besides text and attachments. */
+        retryContext?: RefusedTurnRetryContext;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -3675,40 +3922,280 @@ export function createAgentChatPlugin(
             };
           }
 
-          let repo = JSON.parse(thread.threadData || "{}");
-
-          if (details.queuedMessageId) {
-            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
-              throw createError({
-                statusCode: 409,
-                statusMessage: "Queued message was already submitted",
-              });
-            }
-            repo = claimQueuedMessage(repo, details.queuedMessageId);
-          }
-
-          repo = upsertUserMessage(
-            repo,
-            buildUserMessage({
-              text: details.message,
-              attachments: details.attachments,
-              runId: details.runId,
-              turnId: details.turnId,
-              queuedMessageId: details.queuedMessageId,
-            }),
-          );
-
-          const meta = extractThreadMeta(repo);
+          const userMessage = buildUserMessage({
+            text: details.message,
+            attachments: details.attachments,
+            runId: details.runId,
+            turnId: details.turnId,
+            agentKitMessageId: details.agentKitMessageId,
+            queuedMessageId: details.queuedMessageId,
+            ...(details.failure
+              ? { refusedRetry: details.retryContext ?? {} }
+              : {}),
+          });
+          // Background agent sessions send their operation id as
+          // queuedMessageId (Content binds comment AI turns to it). It never
+          // enters the queue, so it has no promotion claim; the session's
+          // derived turn id is what marks the request as one.
+          const queuedMessage = !details.queuedMessageId
+            ? undefined
+            : details.turnId ===
+                backgroundAgentTurnIdForReceipt(
+                  threadId,
+                  details.queuedMessageId,
+                )
+              ? {
+                  kind: "background-operation" as const,
+                  id: details.queuedMessageId,
+                }
+              : {
+                  id: details.queuedMessageId,
+                  claimId: details.queuedMessageClaimId,
+                };
+          let submissionFailure:
+            | "already_claimed"
+            | "claim_expired"
+            | "invalid_thread_data"
+            | undefined;
           await updateThreadData(
             threadId,
-            JSON.stringify(repo),
-            thread.title,
-            meta.preview || thread.preview,
-            Array.isArray(repo.messages)
-              ? repo.messages.length
-              : thread.messageCount,
+            "{}",
+            "",
+            thread.preview,
+            thread.messageCount,
+            {
+              transformThreadData: (threadData) => {
+                submissionFailure = undefined;
+                let repo: unknown;
+                try {
+                  repo = JSON.parse(threadData || "{}");
+                } catch {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                const result = applySubmittedUserMessage(
+                  repo,
+                  userMessage,
+                  queuedMessage,
+                );
+                if (!("repo" in result)) {
+                  submissionFailure = result.status;
+                  return threadData;
+                }
+                const submitted = details.failure
+                  ? foldUnstartedTurnFailure(result.repo, {
+                      runId: details.runId,
+                      threadId,
+                      turnId: details.turnId,
+                      ...details.failure,
+                    })
+                  : result.repo;
+                const meta = extractThreadMeta(submitted);
+                return {
+                  threadData: JSON.stringify(submitted),
+                  preview: meta.preview || thread.preview,
+                };
+              },
+            },
           );
+          if (submissionFailure === "already_claimed") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message was already submitted",
+              data: { code: "queued_message_already_submitted" },
+            });
+          }
+          if (submissionFailure === "claim_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message promotion claim expired",
+              data: { code: "run_slot_busy", retryable: true },
+            });
+          }
+          if (submissionFailure === "invalid_thread_data") {
+            throw new TypeError("Agent chat thread data is not valid JSON.");
+          }
         });
+      };
+
+      const recordUnstartedTurn = async (details: {
+        runId: string;
+        turnId: string;
+        threadId: string;
+        message: string;
+        attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
+        agentKitMessageId?: string;
+        retryContext: RefusedTurnRetryContext;
+        failure: { code: string; message: string };
+      }) => {
+        trackAgentChatRunLifecycle(
+          "run_no_reply",
+          details.threadId,
+          details.runId,
+          undefined,
+          { failure_code: details.failure.code, stage: "not_started" },
+          options?.appId,
+        );
+        try {
+          await persistSubmittedUserMessage(details);
+        } catch (error) {
+          // The refusal itself still reaches the client; only its durable
+          // copy in the thread is missing, and that is reported.
+          console.error(
+            "[agent-chat] could not record a refused turn in its thread:",
+            error,
+          );
+          captureError(error, {
+            route: "agent-chat",
+            tags: {
+              source: "agent-chat",
+              failureClass: "unstarted-turn-persist",
+            },
+            extra: { threadId: details.threadId, runId: details.runId },
+          });
+        }
+      };
+
+      const resolveAccessibleRequestThread = async (details: {
+        event: any;
+        ownerEmail: string | null;
+        threadId?: string;
+      }) => {
+        if (!details.threadId) return undefined;
+        if (!details.ownerEmail?.trim()) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
+        }
+
+        const existingThread = await getThread(details.threadId);
+        if (!existingThread) return undefined;
+        if (
+          threadScopeMismatch(
+            existingThread.scope,
+            getRequestRunContext()?.chatScope,
+          )
+        ) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
+        }
+
+        const orgId = await getOrgIdFromEvent(details.event);
+        const thread = await resolveThreadAccess(
+          details.ownerEmail,
+          details.threadId,
+          "editor",
+          { orgId },
+        );
+        if (!thread)
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
+        if (
+          threadScopeMismatch(thread.scope, getRequestRunContext()?.chatScope)
+        ) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
+        }
+
+        return {
+          thread,
+          cacheScope: {
+            ownerEmail: details.ownerEmail,
+            orgId,
+            threadId: thread.id,
+          },
+        };
+      };
+
+      const priorThreadImageContext = async (
+        accessibleThread: Awaited<
+          ReturnType<typeof resolveAccessibleRequestThread>
+        >,
+        excludeUrls: ReadonlySet<string>,
+        hydrationBudget: OwnedAttachmentHydrationBudget,
+      ) => {
+        if (!accessibleThread) return undefined;
+        try {
+          return await hydratePriorThreadImages(
+            accessibleThread.thread.threadData,
+            {
+              cacheScope: accessibleThread.cacheScope,
+              excludeUrls,
+              budget: hydrationBudget,
+            },
+          );
+        } catch (error) {
+          if (!(error instanceof PriorThreadImageHistoryReadError)) throw error;
+          throw createError({
+            statusCode: 503,
+            statusMessage: "Prior chat attachment history could not be read.",
+            data: { code: error.code },
+          });
+        }
+      };
+
+      const addPriorThreadImageContext = async (
+        prepared: void | PreparedAgentRequest,
+        prior: Awaited<ReturnType<typeof priorThreadImageContext>>,
+      ): Promise<void | PreparedAgentRequest> => {
+        if (!prior) return prepared;
+
+        const contextAttachments = [
+          ...(prepared?.contextAttachments ?? []),
+          ...prior.attachments,
+        ];
+        const contextNote = [prepared?.contextNote, prior.contextNote]
+          .filter((note): note is string => Boolean(note))
+          .join("\n");
+        if (contextAttachments.length === 0 && !contextNote) return prepared;
+        return {
+          ...(prepared ?? {}),
+          contextAttachments,
+          ...(contextNote ? { contextNote } : {}),
+        };
+      };
+
+      const deferPriorThreadImageContext = async (
+        prepared: void | PreparedAgentRequest,
+        details: Parameters<typeof resolveAccessibleRequestThread>[0] & {
+          structuredHistory?: unknown;
+        },
+      ): Promise<void | PreparedAgentRequest> => {
+        if (!details.threadId) return prepared;
+        const thread = await resolveAccessibleRequestThread(details);
+        const structuredHistoryImageUrls = retainedStructuredHistoryImageUrls(
+          details.structuredHistory,
+        );
+        return {
+          ...(prepared ?? {}),
+          prepareAfterModel: async (modelDetails) => {
+            const preparedContext =
+              await prepared?.prepareAfterModel?.(modelDetails);
+            if (!modelDetails.vision) return preparedContext;
+            const excludeUrls = new Set([
+              ...structuredHistoryImageUrls,
+              ...modelDetails.historyImageUrls,
+            ]);
+            const prior = await priorThreadImageContext(
+              thread,
+              excludeUrls,
+              modelDetails.hydrationBudget,
+            );
+            return addPriorThreadImageContext(preparedContext, prior);
+          },
+        };
       };
 
       // ─── Agent Teams: per-run send reference ─────────────────────────
@@ -3804,6 +4291,7 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...skillReadScripts,
         ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
@@ -4179,6 +4667,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           : "";
 
       const prodHandler = createProductionAgentHandler({
+        assertAiSetupReady: requireAgentChatAiSetup,
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
@@ -4220,7 +4709,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               true,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             await emitContextXraySystemSections(event, {
               frameworkPrompt: requestLeanPrompt.slice(
@@ -4254,7 +4743,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           // In lazy context mode, skip embedding the full schema. When database
           // tools are enabled the agent can call `db-schema` on demand.
@@ -4302,35 +4791,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
-          if (details.threadId && details.ownerEmail) {
-            const existingThread = await getThread(details.threadId);
-            if (existingThread) {
-              if (
-                threadScopeMismatch(
-                  existingThread.scope,
-                  getRequestRunContext()?.chatScope,
-                )
-              ) {
-                throw createError({
-                  statusCode: 404,
-                  statusMessage: "Thread not found",
-                });
-              }
-              const access = await resolveThreadAccess(
-                details.ownerEmail,
-                details.threadId,
-                "editor",
-                { orgId: await getOrgIdFromEvent(details.event) },
-              );
-              if (!access) {
-                throw createError({
-                  statusCode: 404,
-                  statusMessage: "Thread not found",
-                });
-              }
-            }
-          }
-
           // Drain any parent-completion injections queued by finished sub-agents
           // and prepend them to the user message so the orchestrator sees results
           // at the start of this turn rather than only after a manual poll.
@@ -4353,18 +4813,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           // Also run the template-provided prepareRequest (if any).
           const templateResult = await options?.prepareRequest?.(details);
-          if (!completionPrefix) return templateResult ?? undefined;
+          const prepared = await deferPriorThreadImageContext(
+            templateResult,
+            details,
+          );
+          if (!completionPrefix) return prepared ?? undefined;
           const baseMessage =
-            typeof templateResult === "object" &&
-            templateResult &&
-            typeof templateResult.message === "string"
-              ? templateResult.message
+            typeof prepared === "object" &&
+            prepared &&
+            typeof prepared.message === "string"
+              ? prepared.message
               : details.message;
           const message = `${completionPrefix}\n\n${baseMessage}`;
           return {
-            ...(typeof templateResult === "object" && templateResult
-              ? templateResult
-              : {}),
+            ...(typeof prepared === "object" && prepared ? prepared : {}),
             message,
           };
         },
@@ -4385,6 +4847,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         },
         onRunPrepared: persistSubmittedUserMessage,
+        onRunNotStarted: recordUnstartedTurn,
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
@@ -4397,15 +4860,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
+          trackAgentChatRunLifecycle(
+            "run_started",
+            threadId,
+            runId,
+            runCtx?.owner,
+            {},
+            options?.appId,
+          );
           await runPreAgentTurnAutosave(
             options?.onAgentTurnStart,
             runCtx?.chatScope,
             { threadId, runId },
           );
         },
-        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
+        onRunComplete: async (
+          run: ActiveRun,
+          threadId: string | undefined,
+          trackingSource?: AgentChatRunTrackingSource,
+        ) => {
           if (threadId) _runSendByThread.delete(threadId);
-          await onRunComplete(run, threadId);
+          await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: ({ ownerEmail, orgId }) =>
           getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4416,6 +4891,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const anonymousHandler =
         options?.anonymousOwner && options.anonymousReadOnly !== false
           ? createProductionAgentHandler({
+              assertAiSetupReady: requireAgentChatAiSetup,
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
@@ -4453,6 +4929,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 }
               },
               onRunPrepared: persistSubmittedUserMessage,
+              onRunNotStarted: recordUnstartedTurn,
               onRunStart: async (
                 send: (
                   event: import("../agent/types.js").AgentChatEvent,
@@ -4467,13 +4944,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
+                trackAgentChatRunLifecycle(
+                  "run_started",
+                  threadId,
+                  runId,
+                  runCtx?.owner,
+                  {},
+                  options?.appId,
+                );
               },
               onRunComplete: async (
                 run: ActiveRun,
                 threadId: string | undefined,
+                trackingSource?: AgentChatRunTrackingSource,
               ) => {
                 if (threadId) _runSendByThread.delete(threadId);
-                await onRunComplete(run, threadId);
+                await onRunComplete(run, threadId, trackingSource);
               },
               resolveOwnerEmail: getOwnerFromEvent,
             })
@@ -4587,6 +5073,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
         devHandler = createProductionAgentHandler({
+          assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
           resolveAdditionalActions: ({ ownerEmail, orgId }) =>
             getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4610,7 +5097,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 true,
                 options?.appId,
                 undefined,
-                { disabledFrameworkGroups },
+                { disabledFrameworkGroups, skillReadTool },
               );
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: requestLeanPrompt.slice(
@@ -4641,7 +5128,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
@@ -4678,35 +5165,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           jevContextCompact: leanPrompt || lazyContext,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
-            if (details.threadId && details.ownerEmail) {
-              const existingThread = await getThread(details.threadId);
-              if (existingThread) {
-                if (
-                  threadScopeMismatch(
-                    existingThread.scope,
-                    getRequestRunContext()?.chatScope,
-                  )
-                ) {
-                  throw createError({
-                    statusCode: 404,
-                    statusMessage: "Thread not found",
-                  });
-                }
-                const access = await resolveThreadAccess(
-                  details.ownerEmail,
-                  details.threadId,
-                  "editor",
-                  { orgId: await getOrgIdFromEvent(details.event) },
-                );
-                if (!access) {
-                  throw createError({
-                    statusCode: 404,
-                    statusMessage: "Thread not found",
-                  });
-                }
-              }
-            }
-            return options?.prepareRequest?.(details);
+            const prepared = await options?.prepareRequest?.(details);
+            return deferPriorThreadImageContext(prepared, details);
           },
           resolveActionSurface: resolveDevActionSurface,
           skipFilesContext,
@@ -4720,6 +5180,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           },
           onRunPrepared: persistSubmittedUserMessage,
+          onRunNotStarted: recordUnstartedTurn,
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
@@ -4732,6 +5193,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            trackAgentChatRunLifecycle(
+              "run_started",
+              threadId,
+              runId,
+              runCtx?.owner,
+              {},
+              options?.appId,
+            );
             await runPreAgentTurnAutosave(
               options?.onAgentTurnStart,
               runCtx?.chatScope,
@@ -4741,9 +5210,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunComplete: async (
             run: ActiveRun,
             threadId: string | undefined,
+            trackingSource?: AgentChatRunTrackingSource,
           ) => {
             if (threadId) _runSendByThread.delete(threadId);
-            await onRunComplete(run, threadId);
+            await onRunComplete(run, threadId, trackingSource);
           },
         });
       }
@@ -5055,6 +5525,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 label: entry.label,
                 description: entry.description,
                 defaultModel: entry.defaultModel,
+                runtimeSupportedModels: entry.supportedModels,
                 ...(await modelsFor(entry)),
                 requiredEnvVars: entry.requiredEnvVars,
                 installPackage: entry.installPackage,
@@ -5567,28 +6038,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Resources not available — skip
           }
 
-          resourceSkills.sort((a, b) => {
-            const ownerOrder =
-              (a.owner === skillsOwner
-                ? 0
-                : a.owner === SHARED_OWNER
-                  ? 1
-                  : isWorkspaceResourceOwner(a.owner)
-                    ? 2
-                    : 3) -
-              (b.owner === skillsOwner
-                ? 0
-                : b.owner === SHARED_OWNER
-                  ? 1
-                  : isWorkspaceResourceOwner(b.owner)
-                    ? 2
-                    : 3);
-            if (ownerOrder !== 0) return ownerOrder;
-            const pathOrder =
-              (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-              (b.path.endsWith("/SKILL.md") ? 0 : 1);
-            if (pathOrder !== 0) return pathOrder;
-            return a.path.localeCompare(b.path);
+          resourceSkills = sortResourceSkills(resourceSkills, {
+            owner: skillsOwner,
+            orgId: skillsOrgId,
           });
           for (const r of resourceSkills) {
             let full;
@@ -5895,7 +6347,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId);
+                  const agents = await discoverAgents(options?.appId, {
+                    includePersonalAgents: true,
+                  });
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,
@@ -5964,43 +6418,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          const body = await readBody(event);
-          const message = body?.message;
-          if (!message || typeof message !== "string") {
+          const request = chatTitleRequestFromBody(await readBody(event));
+          if (!request) {
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
-          // Strip hidden context and mention markup before title generation.
-          // Never let injected prompt context become a visible tab label.
-          const cleanMessage = message
-            .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
-            .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-            .replace(/<\/context>/gi, "")
-            .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
-            .trim();
+          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+            requireAgentChatAiSetup(),
+          );
+
           try {
-            const result = await runWithRequestContext(
+            const title = await runWithRequestContext(
               { userEmail: ownerEmail, orgId },
-              () =>
-                completeText({
-                  appId: options?.appId,
-                  systemPrompt:
-                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
-                  input: cleanMessage.slice(0, 500),
-                  maxOutputTokens: 30,
-                  temperature: 0,
-                  timeoutMs: 10_000,
-                }),
+              () => generateChatTitle({ ...request, appId: options?.appId }),
             );
-            const title = result.text
-              .replace(/^["'`]+|["'`]+$/g, "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 80);
             return { title };
-          } catch {
-            return { title: "" };
+          } catch (error) {
+            console.warn(
+              `[agent-chat] title generation failed (engine=${request.engine ?? "default"} model=${request.model ?? "default"}): ${error instanceof Error ? error.message : String(error)}`,
+            );
+            setResponseStatus(event, 502);
+            return { error: "Title generation failed" };
           }
         }),
       );
@@ -6253,12 +6692,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return stream;
           }
 
-          // Route: GET /runs/latest?threadId=X
+          // Route: GET /runs/latest?threadId=X[&runId=R | &turnId=T]
+          // The newest run carrying a turn — the browser's only source for
+          // whether a run whose stream closed is still going. `runId` names
+          // the turn by one of its runs (a reloaded page knows the run, not
+          // its turn) and wins over `turnId`.
           if (method === "GET" && url.includes("/runs/latest")) {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
+            const runIdQuery = query.runId ? String(query.runId) : undefined;
             let turnId = query.turnId ? String(query.turnId) : undefined;
-            const runId = query.runId ? String(query.runId) : undefined;
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
@@ -6269,13 +6712,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const { getRunByThread, getRunTurnRef } =
               await import("../agent/run-store.js");
-            if (!turnId && runId) {
-              const runRef = await getRunTurnRef(runId);
-              if (!runRef || runRef.threadId !== threadId) {
+            if (runIdQuery) {
+              const ref = await getRunTurnRef(runIdQuery);
+              if (!ref || ref.threadId !== threadId) {
                 setResponseStatus(event, 404);
                 return { error: "Run not found" };
               }
-              turnId = runRef.turnId;
+              turnId = ref.turnId;
             }
             const run = await getRunByThread(threadId, {
               includeTerminal: true,
@@ -6348,7 +6791,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./credential-provider.js");
 
             return {
-              active: true,
+              active: run.inFlight,
               runId: run.runId,
               threadId: run.threadId,
               turnId: run.turnId,
@@ -6532,8 +6975,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       );
 
       // ─── Thread management endpoints ──────────────────────────────────────
-      // Single handler for /threads and /threads/:id — h3's use() does prefix
-      // matching so we can't reliably split them into separate handlers.
+      // Single handler for /threads and /threads/:id. H3 2 matches mounted
+      // paths exactly, so register both the collection path and its subtree.
       const parseScopeFromQuery = (
         q: Record<string, unknown>,
       ): ChatThreadScope | null => {
@@ -6604,11 +7047,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       };
       const buildShareUrl = (event: H3Event, token: string) =>
         `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
-      getH3App(nitroApp).use(
+      const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
-        withTransientDatabaseFallback(`${routePath}/threads`, async (event) => {
-          const owner = await getOwnerFromEvent(event);
-          const orgId = await getOrgIdFromEvent(event);
+        async (event) => {
+          const ownerContext = await resolveOwnerContext(event);
+          const owner = ownerContext.owner;
+          const orgId = await resolveAgentRunOrgId({
+            event,
+            ownerContext,
+            resolveOrgId: options?.resolveOrgId,
+          });
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -6656,7 +7104,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const body = await readBody(event);
+                const rawBody = await readH3Body(event);
+                if (
+                  !rawBody ||
+                  typeof rawBody !== "object" ||
+                  Array.isArray(rawBody)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                const body = rawBody as Record<string, unknown>;
                 const bodyIncludesScope = Boolean(
                   body &&
                   typeof body === "object" &&
@@ -6694,14 +7151,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
-                let newThreadData = body.threadData || thread.threadData;
-                let newMessageCount = body.messageCount ?? thread.messageCount;
+                const hasThreadDataField = Boolean(
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "threadData"),
+                );
+                const incomingThreadData = body.threadData;
+                if (
+                  hasThreadDataField &&
+                  typeof incomingThreadData !== "string"
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid threadData JSON" };
+                }
+                // Empty threadData is the existing metadata-only save sentinel.
+                const hasThreadData =
+                  typeof incomingThreadData === "string" &&
+                  incomingThreadData.length > 0;
+                let newThreadData = hasThreadData
+                  ? incomingThreadData
+                  : thread.threadData;
+                const requestedMessageCount = body.messageCount;
+                if (
+                  Object.prototype.hasOwnProperty.call(body, "messageCount") &&
+                  (typeof requestedMessageCount !== "number" ||
+                    !Number.isSafeInteger(requestedMessageCount) ||
+                    requestedMessageCount < 0)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                let newMessageCount =
+                  typeof requestedMessageCount === "number"
+                    ? requestedMessageCount
+                    : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
                 const nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
+                const annotationConflicts: ThreadAnnotationSnapshotConflict[] =
+                  [];
                 const preserveTitleOverride = (repo: unknown) => {
                   if (
                     repo &&
@@ -6714,14 +7205,60 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
-                // Merge the incoming full-thread blob over the current SQL
-                // copy. Periodic saves can be stale relative to server-side
-                // run completion, and threadRuntime.export() does not carry
-                // queuedMessages.
-                if (body.threadData) {
+                let isSnapshotDelta = false;
+                let existing: unknown;
+                try {
+                  existing = JSON.parse(thread.threadData);
+                } catch {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                if (
+                  !existing ||
+                  typeof existing !== "object" ||
+                  Array.isArray(existing)
+                ) {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                // Merge the incoming snapshot delta over the current SQL copy.
+                // Let updateThreadData apply delta markers to each latest
+                // revision if its compare-and-swap needs to retry.
+                if (hasThreadData) {
+                  let incoming: unknown;
                   try {
-                    const existing = JSON.parse(thread.threadData);
-                    const incoming = JSON.parse(newThreadData);
+                    incoming = JSON.parse(incomingThreadData as string);
+                  } catch {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  if (
+                    !incoming ||
+                    typeof incoming !== "object" ||
+                    Array.isArray(incoming)
+                  ) {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  if (containsInlineAttachmentPayload(incoming)) {
+                    setResponseStatus(event, 400);
+                    return {
+                      error: "Invalid threadData JSON",
+                      code: "inline_attachment_data_not_persistable",
+                      retryable: false,
+                    };
+                  }
+                  const incomingAgentKit = (incoming as Record<string, unknown>)
+                    .agentKit;
+                  isSnapshotDelta =
+                    incomingAgentKit !== null &&
+                    typeof incomingAgentKit === "object" &&
+                    !Array.isArray(incomingAgentKit) &&
+                    (incomingAgentKit as Record<string, unknown>)
+                      ._snapshotDelta === true;
+                  if (isSnapshotDelta) {
+                    preserveTitleOverride(existing);
+                  } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
@@ -6731,23 +7268,41 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       newMessageCount = merged.messages.length;
                     }
                     preserveTitleOverride(merged);
-                  } catch {
-                    // Invalid JSON in either side — fall back to raw body blob.
                   }
                 } else {
-                  try {
-                    preserveTitleOverride(JSON.parse(newThreadData));
-                  } catch {
-                    // Invalid JSON — keep the title supplied by the client.
-                  }
+                  preserveTitleOverride(existing);
                 }
-                await updateThreadData(
-                  threadId,
-                  newThreadData,
-                  nextTitle,
-                  nextPreview,
-                  newMessageCount,
-                );
+                let updated: boolean;
+                try {
+                  updated = await updateThreadData(
+                    threadId,
+                    newThreadData,
+                    nextTitle,
+                    nextPreview,
+                    newMessageCount,
+                    {
+                      preserveCurrentTitleAndPreview: isSnapshotDelta,
+                      onAnnotationConflict: (conflict) =>
+                        annotationConflicts.push(conflict),
+                    },
+                  );
+                } catch (error) {
+                  if (
+                    !(error instanceof InlineAttachmentDataNotPersistableError)
+                  ) {
+                    throw error;
+                  }
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "Invalid threadData JSON",
+                    code: error.code,
+                    retryable: false,
+                  };
+                }
+                if (!updated) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
                 // A scoped thread cannot be retagged across resources here.
@@ -6755,7 +7310,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, owner, incomingScope);
                 }
-                return { ok: true };
+                // The scope the thread really has now (a detach can land
+                // between the read above and this save), so the client records
+                // what the server holds instead of guessing from the page.
+                const saved = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                return {
+                  ok: true,
+                  scope: saved?.scope ?? null,
+                  ...(annotationConflicts.length > 0
+                    ? { annotationConflicts }
+                    : {}),
+                };
               });
             }
 
@@ -6782,55 +7352,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 !Array.isArray(rawMutation)
                   ? (rawMutation as Record<string, unknown>)
                   : null;
-              const message = (value: unknown): QueuedMessage | null => {
-                if (
-                  !value ||
-                  typeof value !== "object" ||
-                  Array.isArray(value)
-                ) {
-                  return null;
-                }
-                const queued = value as Record<string, unknown>;
-                if (
-                  typeof queued.id !== "string" ||
-                  !queued.id ||
-                  typeof queued.text !== "string" ||
-                  (queued.threadId !== undefined &&
-                    queued.threadId !== threadId) ||
-                  (queued.createdAt !== undefined &&
-                    typeof queued.createdAt !== "string") ||
-                  (queued.attachments !== undefined &&
-                    !Array.isArray(queued.attachments)) ||
-                  (queued.metadata !== undefined &&
-                    (!queued.metadata ||
-                      typeof queued.metadata !== "object" ||
-                      Array.isArray(queued.metadata)))
-                ) {
-                  return null;
-                }
-                return { ...queued, threadId } as QueuedMessage;
-              };
               let mutation: ThreadQueuedMessageMutation | null = null;
-              if (record?.type === "append" || record?.type === "restore") {
-                const queued = message(record.message);
+              if (record?.type === "append") {
+                const queued = parseQueuedMessageForThread(
+                  record.message,
+                  threadId,
+                );
                 if (queued) {
-                  mutation =
-                    record.type === "append"
-                      ? { type: "append", message: queued }
-                      : typeof record.index === "number" &&
-                          Number.isInteger(record.index) &&
-                          (record.index as number) >= 0
-                        ? {
-                            type: "restore",
-                            message: queued,
-                            index: record.index as number,
-                          }
-                        : null;
+                  mutation = { type: "append", message: queued };
                 }
               } else if (
-                (record?.type === "remove" ||
-                  record?.type === "moveToTop" ||
-                  record?.type === "claim") &&
+                (record?.type === "remove" || record?.type === "moveToTop") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
@@ -6838,25 +7370,88 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   type: record.type,
                   messageId: record.messageId,
                 };
+              } else if (
+                (record?.type === "claim" || record?.type === "release") &&
+                typeof record.messageId === "string" &&
+                record.messageId &&
+                typeof record.claimId === "string" &&
+                record.claimId
+              ) {
+                mutation = {
+                  type: record.type,
+                  messageId: record.messageId,
+                  claimId: record.claimId,
+                };
               }
               if (!mutation) {
                 setResponseStatus(event, 400);
                 return { error: "Invalid queue mutation" };
               }
-              if (mutation.type === "append" || mutation.type === "moveToTop") {
+              if (
+                !ownerContext.anonymous &&
+                (mutation.type === "append" ||
+                  mutation.type === "moveToTop" ||
+                  mutation.type === "claim")
+              ) {
                 await runWithRequestContext({ userEmail: owner, orgId }, () =>
                   requireAgentChatAiSetup(),
                 );
               }
-              const result = await mutateThreadQueuedMessages(
-                threadId,
-                mutation,
-              );
+              let result: Awaited<
+                ReturnType<typeof mutateThreadQueuedMessages>
+              >;
+              try {
+                result = await mutateThreadQueuedMessages(threadId, mutation);
+              } catch (error) {
+                if (
+                  mutation.type === "claim" &&
+                  error instanceof Error &&
+                  error.message ===
+                    `Unknown queued message: ${mutation.messageId}`
+                ) {
+                  setResponseStatus(event, 409);
+                  return {
+                    error: error.message,
+                    code: "queued_message_missing",
+                    retryable: false,
+                  };
+                }
+                throw error;
+              }
               if (!result) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              return result;
+              if (result.claimBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Run already in progress for this thread",
+                  code: "run_slot_busy",
+                  retryable: true,
+                };
+              }
+              if (result.promotionBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue item is being promoted",
+                  code: "queue_item_busy",
+                  retryable: true,
+                };
+              }
+              const withoutClaim = (message: QueuedMessage) => {
+                const { promotionClaim: _claim, ...safeMessage } = message;
+                return safeMessage;
+              };
+              return {
+                ...result,
+                queuedMessages: result.queuedMessages.map(withoutClaim),
+                ...(result.message
+                  ? { message: withoutClaim(result.message) }
+                  : {}),
+                ...(result.claimedMessage
+                  ? { claimedMessage: withoutClaim(result.claimedMessage) }
+                  : {}),
+              };
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {
@@ -6948,9 +7543,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return { error: "Thread not found" };
               }
               const body = await readBody(event);
+              const sourceSnapshot = parseForkSourceFromBody(body?.source);
+              if (sourceSnapshot) {
+                let parsedSource: unknown;
+                try {
+                  parsedSource = JSON.parse(sourceSnapshot.threadData);
+                } catch {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "Invalid threadData JSON",
+                    code: "invalid_thread_data",
+                    retryable: false,
+                  };
+                }
+                if (containsInlineAttachmentPayload(parsedSource)) {
+                  setResponseStatus(event, 400);
+                  return {
+                    error: "Invalid threadData JSON",
+                    code: "inline_attachment_data_not_persistable",
+                    retryable: false,
+                  };
+                }
+              }
               const forked = await forkThread(threadId, owner, {
                 id: body?.id,
-                source: parseForkSourceFromBody(body?.source),
+                source: sourceSnapshot,
                 sourceAccessGranted: true,
               });
               if (!forked) {
@@ -7130,6 +7747,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 title: body?.title ?? "",
                 scope: bodyIncludesScope ? bodyScope : requestedScope,
                 source: options?.appId ? { appId: options.appId } : null,
+                orgId: await getOrgIdFromEvent(event),
               });
               return thread;
             } catch (err) {
@@ -7149,8 +7767,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
-        }),
+        },
       );
+      const threadRouteApp = getH3App(nitroApp);
+      threadRouteApp.use(`${routePath}/threads`, threadRouteHandler);
+      threadRouteApp.use(`${routePath}/threads/**`, threadRouteHandler);
 
       // Shared per-request invocation: resolve auth/org/timezone context, then
       // pick the dev/prod/anonymous handler and run it inside the request
@@ -7173,11 +7794,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             isBackgroundWorker,
           },
           async () => {
-            // Public anonymous readers use the host-owned read-only lane, and
-            // durable workers resume a request that already passed this gate.
-            if (!ownerContext.anonymous && !isBackgroundWorker) {
-              await requireAgentChatAiSetup();
-            }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the
             // prod handler (no shell / no fs); the prompt block injected by
@@ -7614,7 +8230,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -7649,23 +8265,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
-        // Platform schedulers use the existing durable background function as
-        // the long-lived worker. Keeping the sweep behind a signed, fixed
-        // route prevents a public request from choosing an owner or job.
+        // Every platform trigger lands here: Netlify's scheduled function (via
+        // the durable background function), Vercel Cron, and the Cloudflare
+        // worker's Cron Trigger. Keeping the sweep behind an authenticated,
+        // fixed route prevents a public request from choosing an owner or job.
         getH3App(nitroApp).use(
           RECURRING_JOBS_SWEEP_PATH,
           defineEventHandler(async (event) => {
-            if (getMethod(event) !== "POST") {
-              setResponseStatus(event, 405);
-              return { error: "Method not allowed" };
-            }
-            const token = extractBearerToken(getHeader(event, "authorization"));
-            if (
-              !token ||
-              !verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token)
-            ) {
-              setResponseStatus(event, 401);
-              return { error: "Invalid or expired internal token" };
+            const { readDeployCredentialEnv } =
+              await import("./credential-provider.js");
+            const authorization = authorizeSweepTrigger({
+              method: getMethod(event),
+              authorization: getHeader(event, "authorization"),
+              cronSecret: readDeployCredentialEnv("CRON_SECRET"),
+            });
+            if (!authorization.ok) {
+              setResponseStatus(event, authorization.status);
+              return { error: authorization.error };
             }
             if (
               isNetlifyRecurringJobsRuntime() &&
@@ -7708,6 +8324,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
+              event,
+            ).catch((error: unknown) => {
+              console.error(
+                "[agent-chat] durable Agent Teams reconciliation failed:",
+                error,
+              );
+              return null;
+            });
             const { runRecurringSweepHandlers } =
               await import("../jobs/sweep-hooks.js");
             const sweepContext = {
@@ -7752,6 +8377,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: false,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -7763,15 +8389,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (
                 appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null
+                automationFailureAlerts === null ||
+                staleAgentTeamRuns === null ||
+                staleAgentTeamRuns.failed > 0
               ) {
                 setResponseStatus(event, 500);
               }
               return {
                 ok:
                   appSweepHandlers.failed.length === 0 &&
-                  automationFailureAlerts !== null,
+                  automationFailureAlerts !== null &&
+                  staleAgentTeamRuns !== null &&
+                  staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -7784,12 +8415,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await processRecurringJobs(schedulerDeps);
               if (
                 appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null
+                automationFailureAlerts === null ||
+                staleAgentTeamRuns === null ||
+                staleAgentTeamRuns.failed > 0
               ) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,
                   staleRunsReaped,
+                  staleAgentTeamRuns,
                   chatHealth,
                   automationFailureAlerts,
                   unclaimedBackgroundRuns,
@@ -7799,6 +8433,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -7810,6 +8445,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8107,7 +8743,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -8154,6 +8790,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/mcp",
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
+        // A platform scheduler usually lands on a cold instance. Without the
+        // gate the first sweep 404s, or runs before the trigger dispatcher
+        // registers its sweep handler and silently skips queued events.
+        RECURRING_JOBS_SWEEP_PATH,
       ],
     });
     nitroApp.hooks?.hook?.("close", async () => {

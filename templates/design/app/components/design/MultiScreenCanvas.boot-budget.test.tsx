@@ -78,13 +78,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           screenSnapshotsById={Object.fromEntries(
             screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
           )}
@@ -138,13 +140,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           screenSnapshotsById={Object.fromEntries(
             screens.map((screen) => [screen.id, { html: "<p>snapshot</p>" }]),
           )}
@@ -195,13 +199,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={100}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 10, y: 0, width: 320, height: 640 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 10, y: 0, width: 320, height: 640 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen, _metadata, _geometry, options) => {
             if (options?.onBootReady) {
               readyById.set(screen.id, options.onBootReady);
@@ -237,13 +243,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => {
             renderCalls.push(screen.id);
             return <div data-live-screen={screen.id} />;
@@ -271,14 +279,16 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={10}
         activeId="inline-1"
-        activeTool="move"
+        creation={{ activeTool: "move" }}
         tweakValues={tweakValues}
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 1500, y: 0, width: 1440, height: 900 },
-          ]),
-        )}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
         metadataById={{ "inline-2": { heightMode: "hug" } }}
         renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
         onPick={() => {}}
@@ -322,6 +332,143 @@ describe("MultiScreenCanvas live boot budget", () => {
     );
   });
 
+  it("keeps a screen's painted preview over its editor until the editor boots", async () => {
+    const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+    const readyById = new Map<string, () => void>();
+    const render = (activeId: string) => (
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={10}
+        activeId={activeId}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
+        renderScreenContent={(screen, _metadata, _geometry, options) => {
+          if (options?.onBootReady) {
+            readyById.set(screen.id, options.onBootReady);
+          }
+          return <div data-live-screen={screen.id} />;
+        }}
+        onPick={() => {}}
+      />
+    );
+    const staticPreview = () =>
+      container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-static-preview][data-screen-iframe-id="inline-2"]',
+      );
+    await act(async () => root.render(render("inline-1")));
+    await vi.waitFor(() => expect(staticPreview()).not.toBeNull());
+    const preview = staticPreview()!;
+    await act(async () => {
+      preview.dispatchEvent(new Event("load"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    await act(async () => root.render(render("inline-2")));
+    await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
+    expect(staticPreview()).toBe(preview);
+    expect(preview.className).toContain("z-[1]");
+
+    await act(async () => readyById.get("inline-2")?.());
+    await vi.waitFor(() => expect(staticPreview()).toBeNull());
+    expect(liveScreenIds()).toContain("inline-2");
+  });
+
+  it("keeps the preview over an editor whose boot only timed out", async () => {
+    const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+    const readyById = new Map<string, () => void>();
+    const render = (activeId: string) => (
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={10}
+        activeId={activeId}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
+        renderScreenContent={(screen, _metadata, _geometry, options) => {
+          if (options?.onBootReady) {
+            readyById.set(screen.id, options.onBootReady);
+          }
+          return <div data-live-screen={screen.id} />;
+        }}
+        onPick={() => {}}
+      />
+    );
+    const staticPreview = () =>
+      container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-static-preview][data-screen-iframe-id="inline-2"]',
+      );
+    await act(async () => root.render(render("inline-1")));
+    await vi.waitFor(() => expect(staticPreview()).not.toBeNull());
+    const preview = staticPreview()!;
+    await act(async () => {
+      preview.dispatchEvent(new Event("load"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    vi.useFakeTimers();
+    await act(async () => root.render(render("inline-2")));
+    await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
+    await act(async () => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(staticPreview()).toBe(preview);
+    expect(preview.className).toContain("z-[1]");
+
+    vi.useRealTimers();
+    await act(async () => readyById.get("inline-2")?.());
+    await vi.waitFor(() => expect(staticPreview()).toBeNull());
+  });
+
+  it("keeps the most recently used editors warm, not the first ones on the board", async () => {
+    const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+    const render = (activeId: string) => (
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={10}
+        activeId={activeId}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 1500, y: 0, width: 1440, height: 900 },
+            ]),
+          ),
+        }}
+        renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
+        onPick={() => {}}
+      />
+    );
+    for (const id of [
+      "inline-1",
+      "inline-2",
+      "inline-3",
+      "inline-4",
+      "inline-5",
+    ]) {
+      await act(async () => root.render(render(id)));
+      await vi.waitFor(() => expect(liveScreenIds()).toContain(id));
+    }
+
+    await vi.waitFor(() => expect(liveScreenIds()).not.toContain("inline-1"));
+    expect(liveScreenIds()).toEqual(
+      expect.arrayContaining(["inline-3", "inline-4", "inline-5"]),
+    );
+  });
+
   it("keeps an editor for every screen of a board that fits the live pool", async () => {
     const screens = inlineScreens(4);
     const mounts: string[] = [];
@@ -331,14 +478,16 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={45}
         activeId={activeId}
-        selectedScreenIds={[activeId]}
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            { x: index * 430, y: 0, width: 390, height: 844 },
-          ]),
-        )}
+        selection={{ selectedScreenIds: [activeId] }}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              { x: index * 430, y: 0, width: 390, height: 844 },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen) => (
           <TrackedEditor id={screen.id} mounts={mounts} unmounts={unmounts} />
         )}
@@ -372,13 +521,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           zoom={10}
           activeId="inline-1"
           interactMode
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen, _metadata, _geometry, options) => {
             if (options?.onBootReady) {
               readyById.set(screen.id, options.onBootReady);
@@ -412,14 +563,19 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          selectedScreenIds={["inline-0"]}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          selection={{
+            selectedScreenIds: ["inline-0"],
+            onLayerMarqueeSelectionChange,
+          }}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           metadataById={Object.fromEntries(
             screens.map((screen) => [screen.id, { width: 1440, height: 900 }]),
           )}
@@ -435,7 +591,6 @@ describe("MultiScreenCanvas live boot budget", () => {
             );
           }}
           onPick={() => {}}
-          onLayerMarqueeSelectionChange={onLayerMarqueeSelectionChange}
         />,
       );
     });
@@ -530,13 +685,15 @@ describe("MultiScreenCanvas live boot budget", () => {
           screens={screens}
           zoom={10}
           activeId="inline-1"
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
           onPick={() => {}}
         />,
@@ -559,7 +716,7 @@ describe("MultiScreenCanvas live boot budget", () => {
     );
   });
 
-  it("keeps demoted editors on zoom-out until their previews are admitted", async () => {
+  it("keeps demoted editors on zoom-out until their previews paint, except the warm ones", async () => {
     const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
     const frames = new Map<number, FrameRequestCallback>();
     let nextFrameId = 0;
@@ -582,18 +739,20 @@ describe("MultiScreenCanvas live boot budget", () => {
         screens={screens}
         zoom={zoom}
         activeId="inline-0"
-        activeTool="move"
-        geometryById={Object.fromEntries(
-          screens.map((screen, index) => [
-            screen.id,
-            {
-              x: (index % 6) * 320,
-              y: Math.floor(index / 6) * 220,
-              width: 300,
-              height: 200,
-            },
-          ]),
-        )}
+        creation={{ activeTool: "move" }}
+        geometry={{
+          geometryById: Object.fromEntries(
+            screens.map((screen, index) => [
+              screen.id,
+              {
+                x: (index % 6) * 320,
+                y: Math.floor(index / 6) * 220,
+                width: 300,
+                height: 200,
+              },
+            ]),
+          ),
+        }}
         renderScreenContent={(screen, _metadata, _geometry, options) => {
           if (options?.onBootReady) {
             readyById.set(screen.id, options.onBootReady);
@@ -624,16 +783,82 @@ describe("MultiScreenCanvas live boot budget", () => {
     expect(unmounts).toEqual([]);
 
     const remaining: number[] = [];
+    const handedOff = new Set<string>();
     while (frames.size > 0 && remaining.length < LARGE_BOARD_SCREEN_COUNT) {
       await runFrame();
       remaining.push(liveScreenIds().length);
+      for (const id of editors) {
+        const frame = container.querySelector(`[data-frame-id="${id}"]`);
+        const preview = frame?.querySelector(
+          "iframe[data-screen-static-preview]",
+        );
+        if (
+          frame?.querySelector("[data-live-screen]") &&
+          preview &&
+          !preview.classList.contains("z-[1]")
+        ) {
+          handedOff.add(id!);
+        }
+      }
     }
-    expect(liveScreenIds()).toEqual(["inline-0"]);
+    expect(handedOff.size).toBeGreaterThan(0);
+    expect(liveScreenIds()).toEqual(["inline-0", "inline-1", "inline-2"]);
     expect(container.querySelector("[data-screen-placeholder]")).toBeNull();
     remaining.forEach((count, frame) =>
       expect(count).toBeGreaterThanOrEqual(
         editors.length - (frame + 1) * OVERVIEW_IFRAME_ADMISSIONS_PER_FRAME,
       ),
+    );
+  });
+
+  it("holds a hover-promoted editor until the moving camera rests", async () => {
+    const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={screens}
+          zoom={10}
+          activeId="inline-0"
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
+          renderScreenContent={(screen) => <div data-live-screen={screen.id} />}
+          onPick={() => {}}
+        />,
+      );
+    });
+    expect(liveScreenIds()).toEqual(["inline-0"]);
+
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]')!;
+    const card = container.querySelector<HTMLElement>(
+      '[data-frame-id="inline-1"] [data-screen-card]',
+    )!;
+    await act(async () => {
+      card.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    });
+    const panStartedAt = performance.now();
+    while (performance.now() - panStartedAt < 600) {
+      await act(async () => {
+        surface.dispatchEvent(trustedPanWheel(2));
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+    }
+    expect(
+      container.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")!
+        .style.transform,
+    ).not.toContain("translate(0px, 0px)");
+    expect(liveScreenIds()).toEqual(["inline-0"]);
+
+    await vi.waitFor(
+      () => expect(liveScreenIds()).toEqual(["inline-0", "inline-1"]),
+      { timeout: 1500 },
     );
   });
 
@@ -645,13 +870,15 @@ describe("MultiScreenCanvas live boot budget", () => {
         <MultiScreenCanvas
           screens={screens}
           zoom={10}
-          activeTool="move"
-          geometryById={Object.fromEntries(
-            screens.map((screen, index) => [
-              screen.id,
-              { x: index * 1500, y: 0, width: 1440, height: 900 },
-            ]),
-          )}
+          creation={{ activeTool: "move" }}
+          geometry={{
+            geometryById: Object.fromEntries(
+              screens.map((screen, index) => [
+                screen.id,
+                { x: index * 1500, y: 0, width: 1440, height: 900 },
+              ]),
+            ),
+          }}
           onPick={() => {}}
         />,
       );
@@ -663,6 +890,20 @@ describe("MultiScreenCanvas live boot budget", () => {
     expect(container.querySelector("[data-screen-placeholder]")).toBeNull();
   });
 });
+
+function trustedPanWheel(deltaX: number) {
+  const event = new WheelEvent("wheel", {
+    bubbles: true,
+    cancelable: true,
+    deltaX,
+    deltaY: 0,
+    deltaMode: 0,
+    clientX: 400,
+    clientY: 300,
+  });
+  Object.defineProperty(event, "isTrusted", { value: true });
+  return event;
+}
 
 function inlineScreens(count: number) {
   return Array.from({ length: count }, (_, index) => ({

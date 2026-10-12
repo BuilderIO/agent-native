@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { failureThreadUrl } from "./failure-thread-url";
 import { fmt, useErrorsT } from "./i18n";
 import type {
   ErrorBreadcrumb,
@@ -195,7 +196,8 @@ function JsonBlock({ value }: { value: Record<string, unknown> }) {
 
 function LatestOccurrenceCard({ event }: { event: ErrorEventDetail }) {
   const t = useErrorsT();
-  const details: Array<{ label: string; value: string }> = [
+  const threadUrl = failureThreadUrl(event.extra);
+  const details: Array<{ label: string; value: string; href?: string }> = [
     {
       label: t.occurrenceTime,
       value: formatDateTime(event.occurredAt),
@@ -206,6 +208,9 @@ function LatestOccurrenceCard({ event }: { event: ErrorEventDetail }) {
     },
   ];
   if (event.url) details.push({ label: t.url, value: event.url });
+  if (threadUrl) {
+    details.push({ label: t.chatThread, value: threadUrl, href: threadUrl });
+  }
 
   return (
     <Card>
@@ -228,7 +233,18 @@ function LatestOccurrenceCard({ event }: { event: ErrorEventDetail }) {
                 {item.label}
               </div>
               <div className="mt-0.5 truncate text-sm text-foreground">
-                {item.value}
+                {item.href ? (
+                  <a
+                    href={item.href}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="underline underline-offset-2"
+                  >
+                    {item.value}
+                  </a>
+                ) : (
+                  item.value
+                )}
               </div>
             </div>
           ))}

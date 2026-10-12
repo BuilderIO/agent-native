@@ -822,7 +822,6 @@ export const CanvasContextMenu = forwardRef<
         ) : null}
         {hasSelection ? (
           <>
-            {/* LIVE-VERIFIED Figma "with selection" canvas menu. */}
             <ContextMenuGroup>
               <CanvasMenuItem
                 hidden={isHiddenAction("copy")}
@@ -908,7 +907,10 @@ export const CanvasContextMenu = forwardRef<
                       shortcut={shortcuts.pasteProps}
                       onSelect={(event) => runAction("paste-props", event)}
                     />
-                    <CanvasMenuSeparator />
+                    {!isHiddenAction("copy-animation") ||
+                    !isHiddenAction("paste-animation") ? (
+                      <CanvasMenuSeparator />
+                    ) : null}
                     <CanvasMenuItem
                       hidden={isHiddenAction("copy-animation")}
                       disabled={!canRun("copy-animation", canCopyAnimation)}
@@ -1083,10 +1085,7 @@ export const CanvasContextMenu = forwardRef<
           </>
         ) : (
           <>
-            {/* LIVE-VERIFIED Figma "empty canvas" (no selection) menu — just
-                Paste here, then Show/Hide UI and Show/Hide comments. No
-                zoom/select-all items (real Figma's UI3 empty menu has
-                none). */}
+            {/* The empty canvas menu exposes paste and visibility controls. */}
             <ContextMenuGroup>
               <CanvasMenuItem
                 hidden={isHiddenAction("paste-here")}

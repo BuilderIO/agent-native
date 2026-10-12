@@ -28,7 +28,7 @@ const AUTO_LAYOUT_HTML = `<!doctype html>
 
 const PRIMARY = process.platform === "darwin" ? "Meta" : "Control";
 
-test.describe("auto layout keyboard parity", () => {
+test.describe("auto layout keyboard interactions", () => {
   let designId = "";
 
   test.afterEach(async ({ request, baseURL }) => {

@@ -1,4 +1,4 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { getDispatchConfig } from "../index.js";
 
@@ -19,7 +19,7 @@ const dispatchAuthPlugin = async (nitroApp: any) => {
   const marketing = authConfig.marketing
     ? { ...DEFAULT_MARKETING, ...authConfig.marketing }
     : DEFAULT_MARKETING;
-  const plugin = createAuthPlugin({
+  const plugin = createToolkitAuthPlugin({
     googleOnly,
     marketing: marketing as any,
     workspaceAppPublicPaths: ["/"],

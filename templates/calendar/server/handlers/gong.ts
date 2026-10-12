@@ -19,12 +19,12 @@ export const gongStatus = defineEventHandler(async (event: H3Event) => {
 
 export const gongSaveKey = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
-  const { apiKey } = body;
+  const { apiKey, scope } = body;
   if (!apiKey || typeof apiKey !== "string") {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  const ok = await saveIntegrationKey(event, "gong", apiKey);
+  const ok = await saveIntegrationKey(event, "gong", apiKey, scope);
   if (!ok) {
     setResponseStatus(event, 401);
     return { error: "Sign in to connect Gong" };
