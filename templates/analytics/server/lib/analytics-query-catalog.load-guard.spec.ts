@@ -123,7 +123,8 @@ vi.mock("./dashboard-catalog", () => ({
   },
 }));
 
-vi.mock("./source-index-store", () => ({
+vi.mock("./source-index-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./source-index-store")>()),
   readSourceIndex: state.readSourceIndex,
   sourceIndexDictionaryEntries: state.sourceIndexDictionaryEntries,
 }));
