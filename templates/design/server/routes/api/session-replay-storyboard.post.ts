@@ -622,7 +622,9 @@ export default defineEventHandler(async (event) => {
         }
         createdDesignShell = createdShell;
       }
+      throwIfRequestExpired(requestSignal);
       await assertPersonalPrivateDesignBoard(designId, caller.email!);
+      throwIfRequestExpired(requestSignal);
 
       const refs: string[] = [];
       let cleanupPending = false;
@@ -643,6 +645,7 @@ export default defineEventHandler(async (event) => {
           [];
         await withStorageCredentialOrg(async () => {
           for (let index = 0; index < manifest.screenshots.length; index += 1) {
+            throwIfRequestExpired(requestSignal);
             const screenshot = manifest.screenshots[index]!;
             const minted = await mintAttachmentRef({
               data: screenshotBytes[index]!,
@@ -658,17 +661,21 @@ export default defineEventHandler(async (event) => {
                 offsetMs: screenshot.offsetMs,
               },
             });
+            if (minted.status === "ok") {
+              refs.push(minted.ref);
+              screenshots.push({ ...screenshot, attachmentRef: minted.ref });
+            }
+            throwIfRequestExpired(requestSignal);
             if (minted.status !== "ok") {
               badRequest(
                 "Design private screenshot storage is unavailable",
                 503,
               );
             }
-            refs.push(minted.ref);
-            screenshots.push({ ...screenshot, attachmentRef: minted.ref });
           }
         });
 
+        throwIfRequestExpired(requestSignal);
         const result = await withStorageCredentialOrg(() =>
           addSessionReplayScreenshotsToBoard.run(
             {

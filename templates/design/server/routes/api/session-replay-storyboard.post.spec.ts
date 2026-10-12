@@ -667,6 +667,113 @@ describe("POST /api/session-replay-storyboard", () => {
     expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
   });
 
+  it("captures and cleans a new board when the request expires during creation", async () => {
+    let resolveCreate: (value: { id: string }) => void = () => {};
+    mocks.createDesign.mockImplementationOnce(
+      () =>
+        new Promise<{ id: string }>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.createDesign).toHaveBeenCalledOnce();
+    });
+    controller.abort();
+    resolveCreate({ id: designId });
+
+    const failure = await request.catch(
+      (error: unknown) =>
+        error as {
+          statusCode?: number;
+          statusMessage?: string;
+          data?: Record<string, unknown>;
+        },
+    );
+    expect(failure).toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    expect(failure.data).not.toHaveProperty("saveOutcomeUnknown");
+    expect(mocks.select).toHaveBeenCalledTimes(2);
+    expect(mocks.select.mock.invocationCallOrder[0]).toBeGreaterThan(
+      mocks.createDesign.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: designId,
+        expectedCreatedShell: expect.objectContaining({
+          createdAt: "2026-10-11T12:00:00.000Z",
+          updatedAt: "2026-10-11T12:00:00.000Z",
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.mintAttachmentRef).not.toHaveBeenCalled();
+    expect(mocks.deleteAttachment).not.toHaveBeenCalled();
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
+  it("cleans the minted ref and new board when the request expires during mint", async () => {
+    const controller = new AbortController();
+    const screenshots = [
+      { ...screenshot, replayId: "sr_123" },
+      { ...screenshot, replayId: "sr_456", offsetMs: 2_500 },
+    ];
+    mocks.mintAttachmentRef.mockImplementationOnce(async () => {
+      controller.abort();
+      return { status: "ok", ref: "private-attachment-ref" };
+    });
+    const request = (handler as any)(
+      makeEvent(
+        makeFormData({ designId: null, screenshots }),
+        "test-a2a-token",
+        controller.signal,
+      ),
+    );
+
+    const failure = await request.catch(
+      (error: unknown) =>
+        error as {
+          statusCode?: number;
+          statusMessage?: string;
+          data?: Record<string, unknown>;
+        },
+    );
+    expect(failure).toMatchObject({
+      statusCode: 504,
+      statusMessage: "Design screenshot upload request expired",
+      data: { errorCode: "request_deadline_exceeded" },
+    });
+    expect(failure.data).not.toHaveProperty("saveOutcomeUnknown");
+    expect(mocks.mintAttachmentRef).toHaveBeenCalledOnce();
+    expect(mocks.deleteAttachment).toHaveBeenCalledWith(
+      "private-attachment-ref",
+      { ownerEmail: "ada@example.test", orgId: null },
+    );
+    expect(mocks.deleteDesign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: designId,
+        expectedCreatedShell: expect.objectContaining({
+          createdAt: "2026-10-11T12:00:00.000Z",
+          updatedAt: "2026-10-11T12:00:00.000Z",
+        }),
+      }),
+      expect.any(Object),
+    );
+    expect(mocks.runAction).not.toHaveBeenCalled();
+  });
+
   it("rejects a missing signed Analytics user before parsing or writing", async () => {
     await expect(
       (handler as any)(makeEvent(makeFormData(), "")),
