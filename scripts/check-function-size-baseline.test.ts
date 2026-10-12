@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
@@ -75,6 +81,50 @@ function runGuard(
   return { status: result.status, output: result.stdout + result.stderr };
 }
 
+function chunkInventory(output: string) {
+  const line = output
+    .split(/\r?\n/)
+    .find((item) => item.startsWith("[chunk-inventory] {"));
+  assert.ok(line, output);
+  return JSON.parse(line.slice("[chunk-inventory] ".length)) as {
+    scanned: number;
+    scannedBytes: number;
+    reported: number;
+    entriesScanned: number;
+    maxEntries: number;
+    maxDepth: number;
+    entryLimitTruncated: boolean;
+    depthTruncated: boolean;
+    excludedEntries: number;
+    excludedNonFileEntries: number;
+    symlinkEntriesSkipped: number;
+    symlinkDirectoriesSkipped: number;
+    unsafePathsOmitted: boolean;
+    truncated: boolean;
+    scanComplete: boolean;
+    directories: Array<{
+      path: string;
+      scannedFileCount: number;
+      scannedFileBytes: number;
+    }>;
+  };
+}
+
+function chunkInventoryFiles(output: string) {
+  return output
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("[chunk-inventory] {"))
+    .slice(1)
+    .map(
+      (line) =>
+        JSON.parse(line.slice("[chunk-inventory] ".length)) as {
+          path?: string | null;
+          pathOmitted?: boolean;
+          bytes: number;
+        },
+    );
+}
+
 const MB = 1024 * 1024;
 
 after(() => {
@@ -82,20 +132,28 @@ after(() => {
 });
 
 describe("serverless function size baseline", () => {
-  it("marks filtered module names omitted without logging those names", () => {
+  it("reports safe scoped paths and omits unsafe path segments", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
     writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
     const functionsDir = build(root, "functions");
     emitFunction(functionsDir, "server", 7 * MB);
     const libs = path.join(functionsDir, "server", "_libs");
-    mkdirSync(libs);
-    writeFileSync(path.join(libs, "PRIVATE+name.mjs"), "PRIVATE_CONTENT");
+    const safeDir = path.join(libs, "@scope");
+    const unsafeDir = path.join(libs, "unsafe segment");
+    mkdirSync(safeDir, { recursive: true });
+    mkdirSync(unsafeDir, { recursive: true });
+    writeFileSync(path.join(safeDir, "visible+name.mjs"), "PRIVATE_CONTENT");
+    writeFileSync(
+      path.join(unsafeDir, "UNSAFE_PATH_SENTINEL.mjs"),
+      "PRIVATE_CONTENT",
+    );
     const checked = runGuard(functionsDir, baselineFile, [], "chat");
     assert.equal(checked.status, 1);
-    assert.match(checked.output, /"filteredEntriesOmitted":true/);
+    assert.match(checked.output, /"unsafePathsOmitted":true/);
     assert.match(checked.output, /"truncated":true/);
-    assert.doesNotMatch(checked.output, /PRIVATE/);
+    assert.match(checked.output, /_libs\/@scope\/visible\+name\.mjs/);
+    assert.doesNotMatch(checked.output, /UNSAFE_PATH_SENTINEL|PRIVATE_CONTENT/);
   });
   it("preserves size guidance when a generated directory is malformed", () => {
     const root = workspace();
@@ -113,7 +171,7 @@ describe("serverless function size baseline", () => {
     assert.match(checked.output, /re-record with --update/);
     assert.doesNotMatch(checked.output, /PRIVATE_BUILD_CONTENT|Error: ENOTDIR/);
   });
-  it("reports capped generated chunk byte inventory on Chat growth without bundle content", () => {
+  it("reports the largest 20 generated files without bundle content", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
     writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
@@ -128,9 +186,11 @@ describe("serverless function size baseline", () => {
       );
     const checked = runGuard(functionsDir, baselineFile, [], "chat");
     assert.equal(checked.status, 1);
-    assert.match(checked.output, /chunk-inventory/);
-    assert.match(checked.output, /"reported":20/);
-    assert.match(checked.output, /"truncated":true/);
+    assert.equal(chunkInventory(checked.output).reported, 20);
+    assert.equal(chunkInventory(checked.output).scanned, 25);
+    assert.equal(chunkInventory(checked.output).scannedBytes, 25 * 21);
+    assert.equal(chunkInventory(checked.output).truncated, true);
+    assert.equal(chunkInventory(checked.output).scanComplete, true);
     assert.doesNotMatch(checked.output, /PRIVATE_BUILD_CONTENT/);
     const healthy = runGuard(functionsDir, baselineFile, ["--update"], "chat");
     assert.equal(healthy.status, 0);
@@ -141,32 +201,146 @@ describe("serverless function size baseline", () => {
     );
   });
 
-  it("marks a generated chunk scan truncated without changing the size gate", () => {
+  it("aggregates nested generated files by root without reading bundle content", () => {
     const root = workspace();
     const baselineFile = path.join(root, "baseline.json");
     writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
     const functionsDir = build(root, "functions");
     emitFunction(functionsDir, "server", 7 * MB);
     const libs = path.join(functionsDir, "server", "_libs");
-    mkdirSync(libs);
-    mkdirSync(path.join(libs, "nested"));
-    writeFileSync(
-      path.join(libs, "nested", "module.mjs"),
-      "PRIVATE_NESTED_CONTENT",
-    );
-    for (let i = 0; i < 513; i++)
-      writeFileSync(path.join(libs, `lib-${i}.mjs`), "x");
+    const chunks = path.join(functionsDir, "server", "_chunks");
+    const nestedLib = path.join(libs, "@scope", "deep+package");
+    const nestedChunk = path.join(chunks, "nested");
+    mkdirSync(nestedLib, { recursive: true });
+    mkdirSync(nestedChunk, { recursive: true });
+    writeFileSync(path.join(nestedLib, "module.mjs"), Buffer.alloc(2048));
+    writeFileSync(path.join(nestedLib, "asset.wasm"), Buffer.alloc(1024));
+    writeFileSync(path.join(nestedChunk, "module.mjs"), Buffer.alloc(512));
     const checked = runGuard(functionsDir, baselineFile, [], "chat");
     assert.equal(checked.status, 1);
-    assert.match(checked.output, /"scanned":512/);
-    assert.match(checked.output, /"scannedBytes":512/);
-    assert.match(checked.output, /"scanTruncated":true/);
-    assert.match(checked.output, /"nestedEntriesOmitted":true/);
-    assert.match(
-      checked.output,
-      /"selection":"largest-within-name-ordered-sample"/,
-    );
+    const inventory = chunkInventory(checked.output);
+    assert.equal(inventory.scanned, 3);
+    assert.equal(inventory.scannedBytes, 3584);
+    assert.deepEqual(inventory.directories, [
+      { path: "_chunks", scannedFileCount: 1, scannedFileBytes: 512 },
+      { path: "_libs", scannedFileCount: 2, scannedFileBytes: 3072 },
+    ]);
+    assert.match(checked.output, /_chunks\/nested\/module\.mjs/);
+    assert.match(checked.output, /_libs\/@scope\/deep\+package\/module\.mjs/);
+    assert.equal(inventory.scanComplete, true);
     assert.doesNotMatch(checked.output, /PRIVATE_NESTED_CONTENT/);
+  });
+
+  it("stops descending at the fixed directory depth and marks totals incomplete", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    const deepDirectory = path.join(
+      functionsDir,
+      "server",
+      "_libs",
+      ...Array.from({ length: 9 }, (_, index) => `level-${index + 1}`),
+    );
+    mkdirSync(deepDirectory, { recursive: true });
+    writeFileSync(path.join(deepDirectory, "too-deep.mjs"), "x");
+
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    const inventory = chunkInventory(checked.output);
+    assert.equal(inventory.maxDepth, 8);
+    assert.equal(inventory.depthTruncated, true);
+    assert.equal(inventory.scanned, 0);
+    assert.equal(inventory.scanComplete, false);
+    assert.doesNotMatch(checked.output, /too-deep\.mjs/);
+  });
+
+  it("selects a late-sorting large file from beyond the old 512-file sample", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    const chunks = path.join(functionsDir, "server", "_chunks");
+    mkdirSync(chunks);
+    for (let i = 0; i < 513; i++)
+      writeFileSync(
+        path.join(chunks, `chunk-${String(i).padStart(4, "0")}.mjs`),
+        i === 512 ? Buffer.alloc(64 * 1024) : "x",
+      );
+
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    const inventory = chunkInventory(checked.output);
+    assert.equal(inventory.scanned, 513);
+    assert.equal(inventory.scannedBytes, 512 + 64 * 1024);
+    assert.equal(inventory.scanComplete, true);
+    assert.equal(inventory.truncated, true);
+    assert.ok(
+      chunkInventoryFiles(checked.output).some(
+        (file) => file.path === "_chunks/chunk-0512.mjs",
+      ),
+    );
+  });
+
+  it("caps the global entry scan and marks generated totals incomplete", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    const chunks = path.join(functionsDir, "server", "_chunks");
+    const nested = path.join(chunks, "nested");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(path.join(nested, "nested.mjs"), "x");
+    for (let i = 0; i < 4095; i++)
+      writeFileSync(path.join(chunks, `chunk-${i}.mjs`), "x");
+    const libs = path.join(functionsDir, "server", "_libs");
+    mkdirSync(libs);
+    writeFileSync(path.join(libs, "after-cap.mjs"), "x");
+
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    const inventory = chunkInventory(checked.output);
+    assert.equal(inventory.entriesScanned, 4096);
+    assert.equal(inventory.maxEntries, 4096);
+    assert.equal(inventory.entryLimitTruncated, true);
+    assert.equal(inventory.scanComplete, false);
+    assert.equal(inventory.truncated, true);
+    assert.ok(inventory.scanned <= 4096);
+  });
+
+  it("skips symlinked generated directories and files without following them", () => {
+    const root = workspace();
+    const baselineFile = path.join(root, "baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ chat: { server: MB } }));
+    const functionsDir = build(root, "functions");
+    emitFunction(functionsDir, "server", 7 * MB);
+    const outside = path.join(root, "outside");
+    mkdirSync(outside);
+    writeFileSync(path.join(outside, "SECRET_TARGET.mjs"), Buffer.alloc(8192));
+    const serverDir = path.join(functionsDir, "server");
+    symlinkSync(outside, path.join(serverDir, "_chunks"), "dir");
+    const libs = path.join(serverDir, "_libs");
+    mkdirSync(libs);
+    symlinkSync(
+      path.join(outside, "SECRET_TARGET.mjs"),
+      path.join(libs, "linked.mjs"),
+    );
+    writeFileSync(path.join(libs, "safe.mjs"), "abc");
+
+    const checked = runGuard(functionsDir, baselineFile, [], "chat");
+    assert.equal(checked.status, 1);
+    const inventory = chunkInventory(checked.output);
+    assert.equal(inventory.scanned, 1);
+    assert.equal(inventory.scannedBytes, 3);
+    assert.equal(inventory.entriesScanned, 4);
+    assert.equal(inventory.excludedEntries, 2);
+    assert.equal(inventory.symlinkEntriesSkipped, 1);
+    assert.equal(inventory.symlinkDirectoriesSkipped, 1);
+    assert.equal(inventory.scanComplete, false);
+    assert.doesNotMatch(checked.output, /SECRET_TARGET|8192/);
   });
   it("counts a deploy-gated payload in the size it compares", () => {
     const root = workspace();

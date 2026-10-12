@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import {
   existsSync,
+  lstatSync,
+  opendirSync,
   readdirSync,
   readFileSync,
   statSync,
@@ -21,6 +23,11 @@ const TOLERANCE_RATIO = 1.1;
 const TOLERANCE_BYTES = 5 * 1024 * 1024;
 
 const NEW_FUNCTION_FAIL_BYTES = 5 * 1024 * 1024;
+const GENERATED_SCAN_MAX_ENTRIES = 4096;
+const GENERATED_SCAN_MAX_DEPTH = 8;
+const GENERATED_SCAN_MAX_REPORTED_FILES = 20;
+const GENERATED_PATH_SEGMENT = /^[a-zA-Z0-9_.@+-]+$/;
+const GENERATED_PATH_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;
 
 const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
 
@@ -213,50 +220,159 @@ function readBaseline() {
 
 function reportGeneratedChunkInventory(functionDir) {
   const files = [];
+  const directories = [];
   const missingDirectories = [];
-  let scanTruncated = false;
-  let nestedEntriesOmitted = false;
-  let filteredEntriesOmitted = false;
-  for (const directory of ["_chunks", "_libs"]) {
-    const fullDirectory = path.join(functionDir, directory);
-    if (!existsSync(fullDirectory)) {
-      missingDirectories.push(directory);
-      continue;
+  let entriesScanned = 0;
+  let excludedEntries = 0;
+  let excludedNonFileEntries = 0;
+  let symlinkEntriesSkipped = 0;
+  let symlinkDirectoriesSkipped = 0;
+  let entryLimitTruncated = false;
+  let depthTruncated = false;
+  let unsafePathsOmitted = false;
+
+  function scanDirectory(fullDirectory, relativeParts, depth, summary) {
+    if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
+      entryLimitTruncated = true;
+      return;
     }
-    const directoryEntries = readdirSync(fullDirectory, {
-      withFileTypes: true,
-    });
-    nestedEntriesOmitted ||= directoryEntries.some((entry) =>
-      entry.isDirectory(),
-    );
-    filteredEntriesOmitted ||= directoryEntries.some(
-      (entry) =>
-        !entry.isDirectory() &&
-        !(entry.isFile() && /^[a-zA-Z0-9_.-]+\.mjs$/.test(entry.name)),
-    );
-    const entries = directoryEntries
-      .filter(
-        (entry) => entry.isFile() && /^[a-zA-Z0-9_.-]+\.mjs$/.test(entry.name),
-      )
-      .sort((left, right) => left.name.localeCompare(right.name));
-    scanTruncated ||= entries.length > 512;
-    for (const entry of entries.slice(0, 512)) {
-      files.push({
-        path: `${directory}/${entry.name}`,
-        bytes: statSync(path.join(fullDirectory, entry.name)).size,
-      });
+
+    const directory = opendirSync(fullDirectory);
+    try {
+      while (true) {
+        if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
+          entryLimitTruncated = true;
+          return;
+        }
+        const entry = directory.readSync();
+        if (!entry) return;
+
+        entriesScanned++;
+        const fullPath = path.join(fullDirectory, entry.name);
+        const pathParts = [...relativeParts, entry.name];
+
+        if (entry.isSymbolicLink()) {
+          excludedEntries++;
+          symlinkEntriesSkipped++;
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          const directoryMetadata = lstatSync(fullPath);
+          if (directoryMetadata.isSymbolicLink()) {
+            excludedEntries++;
+            symlinkEntriesSkipped++;
+            continue;
+          }
+          if (!directoryMetadata.isDirectory()) {
+            excludedEntries++;
+            excludedNonFileEntries++;
+            continue;
+          }
+          if (depth >= GENERATED_SCAN_MAX_DEPTH) {
+            depthTruncated = true;
+            continue;
+          }
+          scanDirectory(fullPath, pathParts, depth + 1, summary);
+          continue;
+        }
+
+        if (!entry.isFile()) {
+          excludedEntries++;
+          excludedNonFileEntries++;
+          continue;
+        }
+
+        const fileMetadata = lstatSync(fullPath);
+        if (fileMetadata.isSymbolicLink()) {
+          excludedEntries++;
+          symlinkEntriesSkipped++;
+          continue;
+        }
+        if (!fileMetadata.isFile()) {
+          excludedEntries++;
+          excludedNonFileEntries++;
+          continue;
+        }
+
+        const safePath = pathParts.every(
+          (segment) =>
+            segment !== "." &&
+            segment !== ".." &&
+            GENERATED_PATH_SEGMENT.test(segment) &&
+            !GENERATED_PATH_CONTROL_CHARACTERS.test(segment),
+        );
+        if (!safePath) unsafePathsOmitted = true;
+
+        files.push({
+          path: safePath ? pathParts.join("/") : null,
+          sortPath: pathParts.join("/"),
+          bytes: fileMetadata.size,
+        });
+        summary.scannedFileCount++;
+        summary.scannedFileBytes += fileMetadata.size;
+      }
+    } finally {
+      directory.closeSync();
     }
   }
+
+  for (const directoryName of ["_chunks", "_libs"]) {
+    const fullDirectory = path.join(functionDir, directoryName);
+    let metadata;
+    try {
+      metadata = lstatSync(fullDirectory);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        missingDirectories.push(directoryName);
+        continue;
+      }
+      throw error;
+    }
+
+    const summary = {
+      path: directoryName,
+      scannedFileCount: 0,
+      scannedFileBytes: 0,
+    };
+    directories.push(summary);
+
+    if (entriesScanned >= GENERATED_SCAN_MAX_ENTRIES) {
+      entryLimitTruncated = true;
+      continue;
+    }
+    entriesScanned++;
+
+    if (metadata.isSymbolicLink()) {
+      excludedEntries++;
+      symlinkDirectoriesSkipped++;
+      continue;
+    }
+
+    scanDirectory(fullDirectory, [directoryName], 0, summary);
+  }
+
   files.sort(
     (left, right) =>
-      right.bytes - left.bytes || left.path.localeCompare(right.path),
+      right.bytes - left.bytes || left.sortPath.localeCompare(right.sortPath),
   );
-  const reported = files.slice(0, 20);
+  const reported = files.slice(0, GENERATED_SCAN_MAX_REPORTED_FILES);
+  const scanTruncated =
+    entryLimitTruncated ||
+    depthTruncated ||
+    symlinkEntriesSkipped > 0 ||
+    symlinkDirectoriesSkipped > 0 ||
+    excludedNonFileEntries > 0;
+  const truncated =
+    scanTruncated || files.length > reported.length || unsafePathsOmitted;
   console.error(
-    `[chunk-inventory] ${JSON.stringify({ scanned: files.length, scannedBytes: files.reduce((total, file) => total + file.bytes, 0), reported: reported.length, selection: "largest-within-name-ordered-sample", nestedEntriesOmitted, filteredEntriesOmitted, truncated: filteredEntriesOmitted || nestedEntriesOmitted || scanTruncated || files.length > reported.length, scanTruncated, missingDirectories })}`,
+    `[chunk-inventory] ${JSON.stringify({ scanned: files.length, scannedBytes: files.reduce((total, file) => total + file.bytes, 0), reported: reported.length, selection: "largest-within-bounded-scan", entriesScanned, maxEntries: GENERATED_SCAN_MAX_ENTRIES, maxDepth: GENERATED_SCAN_MAX_DEPTH, entryLimitTruncated, depthTruncated, excludedEntries, excludedNonFileEntries, symlinkEntriesSkipped, symlinkDirectoriesSkipped, unsafePathsOmitted, directories, missingDirectories, scanTruncated, scanComplete: !scanTruncated, truncated })}`,
   );
-  for (const file of reported)
-    console.error(`[chunk-inventory] ${JSON.stringify(file)}`);
+  for (const file of reported) {
+    console.error(
+      `[chunk-inventory] ${JSON.stringify({ path: file.path, pathOmitted: file.path === null, bytes: file.bytes })}`,
+    );
+  }
 }
 
 const site = arg("site");
