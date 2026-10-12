@@ -3666,7 +3666,7 @@ export async function runAuthoringFuzz(
         { timeout: 1500 },
       );
     } catch (error) {
-      const closeState = await state().catch(() => null);
+      const closeState = await state();
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(
         `slash menu did not close (${reason}); state=${JSON.stringify(closeState)}`,
