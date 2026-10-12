@@ -1498,6 +1498,57 @@ describe("parsePlanContent per-block salvage", () => {
     expect(result?.blocks[0]?.type).toBe("rich-text");
   });
 
+  it("preserves legacy block types when optional fields are omitted", () => {
+    const result = parsePlanContent({
+      version: 2,
+      blocks: [
+        { id: "legacy-checklist", type: "checklist", data: {} },
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { id: "legacy-visual-questions", type: "visual-questions", data: {} },
+        {
+          id: "legacy-tabs",
+          type: "tabs",
+          data: { orientation: "vertical" },
+        },
+        { id: "legacy-data-model", type: "data-model", data: {} },
+        { id: "legacy-annotated-code", type: "annotated-code", data: {} },
+      ],
+    });
+
+    expect(result?.blocks.map((block) => block.type)).toEqual([
+      "checklist",
+      "question-form",
+      "visual-questions",
+      "tabs",
+      "data-model",
+      "annotated-code",
+    ]);
+    expect(result?.blocks).toMatchObject([
+      { id: "legacy-checklist", data: { items: [] } },
+      { id: "legacy-questions", data: { questions: [] } },
+      { id: "legacy-visual-questions", data: { questions: [] } },
+      {
+        id: "legacy-tabs",
+        data: { orientation: "vertical", tabs: [] },
+      },
+      { id: "legacy-data-model", data: { entities: [] } },
+      { id: "legacy-annotated-code", data: { code: "" } },
+    ]);
+  });
+
+  it("does not accept an explicitly invalid legacy field as an omission", () => {
+    const result = parsePlanContent({
+      version: 2,
+      blocks: [{ id: "invalid-tabs", type: "tabs", data: { tabs: null } }],
+    });
+
+    expect(result?.blocks[0]?.type).toBe("callout");
+    const placeholder = result?.blocks[0];
+    if (placeholder?.type !== "callout") throw new Error("expected callout");
+    expect(placeholder.data.body).toContain(UNKNOWN_MARKER);
+    expect(placeholder.data.body).toContain("tabs");
+  });
+
   it("salvages good blocks and replaces the bad block with a callout placeholder", () => {
     const result = parsePlanContent({
       version: 2,

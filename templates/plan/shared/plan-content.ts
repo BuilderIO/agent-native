@@ -1256,7 +1256,7 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
 
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
-    questions: z.array(planQuestionSchema).min(1).max(40),
+    questions: z.array(planQuestionSchema).min(1).max(40).default([]),
     submitLabel: z.string().trim().max(400).optional(),
   });
 
@@ -1297,7 +1297,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               note: z.string().trim().max(800).optional(),
             }),
           )
-          .max(200),
+          .max(200)
+          .default([]),
       }),
     }),
     baseBlockSchema.extend({
@@ -1380,7 +1381,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
             }),
           )
           .min(1)
-          .max(12),
+          .max(12)
+          .default([]),
         orientation: z.enum(["horizontal", "vertical"]).optional(),
       }),
     }),
@@ -1520,7 +1522,8 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
             }),
           )
           .min(1)
-          .max(60),
+          .max(60)
+          .default([]),
         relations: z
           .array(
             z.object({
@@ -1586,7 +1589,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
       data: z.object({
         filename: z.string().trim().max(400).optional(),
         language: z.string().trim().max(40).optional(),
-        code: z.string().max(100_000),
+        code: z.string().max(100_000).default(""),
         annotations: z
           .array(
             z.object({
