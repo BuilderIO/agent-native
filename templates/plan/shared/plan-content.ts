@@ -1256,7 +1256,7 @@ const planQuestionSchema: z.ZodType<PlanQuestion> = z.object({
 
 export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
   z.object({
-    questions: z.array(planQuestionSchema).min(1).max(40).default([]),
+    questions: z.array(planQuestionSchema).max(40).default([]),
     submitLabel: z.string().trim().max(400).optional(),
   });
 
@@ -1380,7 +1380,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
               blocks: z.array(planBlockSchema).max(40),
             }),
           )
-          .min(1)
           .max(12)
           .default([]),
         orientation: z.enum(["horizontal", "vertical"]).optional(),
@@ -1521,7 +1520,6 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
                 .max(80),
             }),
           )
-          .min(1)
           .max(60)
           .default([]),
         relations: z
@@ -1667,23 +1665,25 @@ export const agentPlanBlockSchema = z.object({
     ),
 });
 
-const agentPlanBlockSchemaTerse = z.object({
-  id: idSchema.describe(
-    "Stable block id (short, unique within the plan) — required.",
-  ),
-  type: z
-    .enum(PLAN_BLOCK_TYPES)
-    .describe(
-      "Block type — same options as content.blocks. Call get-plan-blocks " +
-        "for the per-type `data` field shapes.",
+const agentPlanBlockSchemaTerse = z
+  .object({
+    id: idSchema.describe(
+      "Stable block id (short, unique within the plan) — required.",
     ),
-  title: z.string().trim().max(180).optional(),
-  summary: z.string().trim().max(600).optional(),
-  editable: z.boolean().optional(),
-  data: z
-    .record(z.string(), z.unknown())
-    .describe("Type-specific fields — call get-plan-blocks for the shape."),
-});
+    type: z
+      .enum(PLAN_BLOCK_TYPES)
+      .describe(
+        "Block type — same options as content.blocks. Call get-plan-blocks " +
+          "for the per-type `data` field shapes.",
+      ),
+    title: z.string().trim().max(180).optional(),
+    summary: z.string().trim().max(600).optional(),
+    editable: z.boolean().optional(),
+    data: z
+      .record(z.string(), z.unknown())
+      .describe("Type-specific fields — call get-plan-blocks for the shape."),
+  })
+  .superRefine((block, context) => validateAuthoringBlock(block, [], context));
 
 const annotationPlacementSchema = z.enum([
   "top",
@@ -2002,6 +2002,107 @@ const planContentObjectSchema = z.object({
   blocks: z.array(planBlockSchema).max(200).default([]),
 });
 
+type PlanContentValidationContext = {
+  addIssue(issue: {
+    code: "custom";
+    path: Array<string | number>;
+    message: string;
+  }): void;
+};
+
+const requiredAuthoringDataFields: Partial<
+  Record<PlanBlockType, { field: string; nonEmpty?: boolean }>
+> = {
+  checklist: { field: "items" },
+  "question-form": { field: "questions", nonEmpty: true },
+  "visual-questions": { field: "questions", nonEmpty: true },
+  tabs: { field: "tabs", nonEmpty: true },
+  "data-model": { field: "entities", nonEmpty: true },
+  "annotated-code": { field: "code" },
+};
+
+function validateAuthoringBlock(
+  value: unknown,
+  path: Array<string | number>,
+  context: PlanContentValidationContext,
+) {
+  if (!value || typeof value !== "object") return;
+  const block = value as Record<string, unknown>;
+  const type = block.type;
+  const data = block.data;
+
+  if (typeof type === "string" && data && typeof data === "object") {
+    const required = requiredAuthoringDataFields[type as PlanBlockType];
+    if (required) {
+      const fieldValue = (data as Record<string, unknown>)[required.field];
+      const fieldPath = [...path, "data", required.field];
+      if (fieldValue === undefined) {
+        context.addIssue({
+          code: "custom",
+          path: fieldPath,
+          message: `Authoring ${type} blocks require data.${required.field}.`,
+        });
+      } else if (
+        required.nonEmpty &&
+        Array.isArray(fieldValue) &&
+        fieldValue.length === 0
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: fieldPath,
+          message: `Authoring ${type} blocks require at least one ${required.field} entry.`,
+        });
+      }
+    }
+  }
+
+  if (!data || typeof data !== "object") return;
+  const record = data as Record<string, unknown>;
+  if (type === "tabs" && Array.isArray(record.tabs)) {
+    record.tabs.forEach((tab, index) => {
+      if (!tab || typeof tab !== "object") return;
+      const blocks = (tab as Record<string, unknown>).blocks;
+      if (Array.isArray(blocks)) {
+        blocks.forEach((child, childIndex) =>
+          validateAuthoringBlock(
+            child,
+            [...path, "data", "tabs", index, "blocks", childIndex],
+            context,
+          ),
+        );
+      }
+    });
+  }
+  if (type === "columns" && Array.isArray(record.columns)) {
+    record.columns.forEach((column, index) => {
+      if (!column || typeof column !== "object") return;
+      const blocks = (column as Record<string, unknown>).blocks;
+      if (Array.isArray(blocks)) {
+        blocks.forEach((child, childIndex) =>
+          validateAuthoringBlock(
+            child,
+            [...path, "data", "columns", index, "blocks", childIndex],
+            context,
+          ),
+        );
+      }
+    });
+  }
+}
+
+function validateAuthoringPlanContent(
+  value: unknown,
+  context: PlanContentValidationContext,
+) {
+  if (!value || typeof value !== "object") return;
+  const blocks = (value as Record<string, unknown>).blocks;
+  if (Array.isArray(blocks)) {
+    blocks.forEach((block, index) =>
+      validateAuthoringBlock(block, ["blocks", index], context),
+    );
+  }
+}
+
 const agentCanvasSchema = canvasSchema.extend({
   frames: z
     .array(agentArtboardSchema)
@@ -2012,98 +2113,120 @@ const agentCanvasSchema = canvasSchema.extend({
     ),
 });
 
-export const agentPlanContentSchema = planContentObjectSchema.extend({
-  canvas: agentCanvasSchema.optional(),
-  blocks: z
-    .array(agentPlanBlockSchema)
-    .max(200)
-    .default([])
-    .describe(
-      "Plan content blocks, in document order. Call get-plan-blocks first.",
-    ),
-});
+export const agentPlanContentSchema = planContentObjectSchema
+  .extend({
+    canvas: agentCanvasSchema.optional(),
+    blocks: z
+      .array(agentPlanBlockSchema)
+      .max(200)
+      .default([])
+      .describe(
+        "Plan content blocks, in document order. Call get-plan-blocks first.",
+      ),
+  })
+  .superRefine((content, context) =>
+    validateAuthoringPlanContent(content, context),
+  );
+
+function refinePlanContent(
+  content: PlanContent,
+  context: PlanContentValidationContext,
+) {
+  const checkUniqueIds = (
+    items: Array<{ id: string }> | undefined,
+    label: string,
+    path: Array<string | number>,
+  ) => {
+    const seen = new Set<string>();
+    for (const [index, item] of (items ?? []).entries()) {
+      if (seen.has(item.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [...path, index, "id"],
+          message: `Duplicate ${label} id: ${item.id}`,
+        });
+      }
+      seen.add(item.id);
+    }
+  };
+
+  const seen = new Set<string>();
+  const blocksById = new Map<string, PlanBlock>();
+  const visit = (block: PlanBlock) => {
+    if (seen.has(block.id)) {
+      context.addIssue({
+        code: "custom",
+        path: ["blocks"],
+        message: `Duplicate block id: ${block.id}`,
+      });
+    }
+    seen.add(block.id);
+    blocksById.set(block.id, block);
+    if (block.type === "tabs") {
+      for (const tab of block.data.tabs) {
+        for (const child of tab.blocks) {
+          visit(child);
+        }
+      }
+    }
+    if (block.type === "columns") {
+      for (const column of block.data.columns) {
+        for (const child of column.blocks) {
+          visit(child);
+        }
+      }
+    }
+  };
+
+  for (const block of content.blocks) {
+    visit(block);
+  }
+
+  if (content.canvas) {
+    checkUniqueIds(content.canvas.sections, "canvas section", [
+      "canvas",
+      "sections",
+    ]);
+    checkUniqueIds(content.canvas.frames, "canvas frame", ["canvas", "frames"]);
+    for (const [index, frame] of content.canvas.frames.entries()) {
+      if (!frame.blockId) continue;
+      const block = blocksById.get(frame.blockId);
+      if (block?.type === "wireframe" || block?.type === "legacy-wireframe") {
+        continue;
+      }
+      context.addIssue({
+        code: "custom",
+        path: ["canvas", "frames", index, "blockId"],
+        message: `Canvas frame ${frame.id} references missing or non-wireframe block: ${frame.blockId}`,
+      });
+    }
+    checkUniqueIds(content.canvas.annotations, "canvas annotation", [
+      "canvas",
+      "annotations",
+    ]);
+    checkUniqueIds(content.canvas.notes, "canvas note", ["canvas", "notes"]);
+  }
+}
+
+export const storedPlanContentSchema: z.ZodType<PlanContent> = z
+  .preprocess(preflightPlanContentInput, planContentObjectSchema)
+  .superRefine(refinePlanContent) as unknown as z.ZodType<PlanContent>;
+
+export const planAuthoringBlockSchema: z.ZodType<PlanBlock> = z.preprocess(
+  (block, context) => {
+    validateAuthoringBlock(block, [], context);
+    return block;
+  },
+  planBlockSchema,
+) as unknown as z.ZodType<PlanBlock>;
 
 export const planContentSchema: z.ZodType<PlanContent> = z
-  .preprocess(preflightPlanContentInput, planContentObjectSchema)
-  .superRefine((content, context) => {
-    const checkUniqueIds = (
-      items: Array<{ id: string }> | undefined,
-      label: string,
-      path: Array<string | number>,
-    ) => {
-      const seen = new Set<string>();
-      for (const [index, item] of (items ?? []).entries()) {
-        if (seen.has(item.id)) {
-          context.addIssue({
-            code: "custom",
-            path: [...path, index, "id"],
-            message: `Duplicate ${label} id: ${item.id}`,
-          });
-        }
-        seen.add(item.id);
-      }
-    };
-
-    const seen = new Set<string>();
-    const blocksById = new Map<string, PlanBlock>();
-    const visit = (block: PlanBlock) => {
-      if (seen.has(block.id)) {
-        context.addIssue({
-          code: "custom",
-          path: ["blocks"],
-          message: `Duplicate block id: ${block.id}`,
-        });
-      }
-      seen.add(block.id);
-      blocksById.set(block.id, block);
-      if (block.type === "tabs") {
-        for (const tab of block.data.tabs) {
-          for (const child of tab.blocks) {
-            visit(child);
-          }
-        }
-      }
-      if (block.type === "columns") {
-        for (const column of block.data.columns) {
-          for (const child of column.blocks) {
-            visit(child);
-          }
-        }
-      }
-    };
-
-    for (const block of content.blocks) {
-      visit(block);
-    }
-
-    if (content.canvas) {
-      checkUniqueIds(content.canvas.sections, "canvas section", [
-        "canvas",
-        "sections",
-      ]);
-      checkUniqueIds(content.canvas.frames, "canvas frame", [
-        "canvas",
-        "frames",
-      ]);
-      for (const [index, frame] of content.canvas.frames.entries()) {
-        if (!frame.blockId) continue;
-        const block = blocksById.get(frame.blockId);
-        if (block?.type === "wireframe" || block?.type === "legacy-wireframe") {
-          continue;
-        }
-        context.addIssue({
-          code: "custom",
-          path: ["canvas", "frames", index, "blockId"],
-          message: `Canvas frame ${frame.id} references missing or non-wireframe block: ${frame.blockId}`,
-        });
-      }
-      checkUniqueIds(content.canvas.annotations, "canvas annotation", [
-        "canvas",
-        "annotations",
-      ]);
-      checkUniqueIds(content.canvas.notes, "canvas note", ["canvas", "notes"]);
-    }
-  }) as unknown as z.ZodType<PlanContent>;
+  .preprocess((input, context) => {
+    const prepared = preflightPlanContentInput(input);
+    validateAuthoringPlanContent(prepared, context);
+    return prepared;
+  }, planContentObjectSchema)
+  .superRefine(refinePlanContent) as unknown as z.ZodType<PlanContent>;
 
 export type PlanContentInput = z.input<typeof planContentSchema>;
 
@@ -2403,7 +2526,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("replace-block"),
     blockId: idSchema,
-    block: planBlockSchema,
+    block: planAuthoringBlockSchema,
   }),
   z.object({
     op: z.literal("update-block"),
@@ -2412,7 +2535,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("replace-blocks"),
-    blocks: z.array(planBlockSchema).max(200),
+    blocks: z.array(planAuthoringBlockSchema).max(200),
   }),
   z.object({
     op: z.literal("update-rich-text"),
@@ -2503,7 +2626,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("append-block"),
-    block: planBlockSchema,
+    block: planAuthoringBlockSchema,
     afterBlockId: idSchema.optional(),
     parent: z
       .union([
@@ -2617,7 +2740,7 @@ export function applyPlanContentPatches(
   content: PlanContent,
   patches: PlanContentPatch[],
 ): PlanContent {
-  const next = cloneJson(planContentSchema.parse(content));
+  const next = cloneJson(storedPlanContentSchema.parse(content));
   let pendingVisualRenderMode: PlanVisualCanvasMode | undefined;
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
@@ -2709,6 +2832,7 @@ export function applyPlanContentPatches(
           merged.editable = patch.patch.editable;
         }
         if (patch.patch.data !== undefined) {
+          validateRequiredAuthoringDataPatch(block.type, patch.patch.data);
           (merged as { data: unknown }).data = {
             ...(block as { data?: Record<string, unknown> }).data,
             ...patch.patch.data,
@@ -2960,7 +3084,21 @@ export function applyPlanContentPatches(
     setVisualRenderMode(next, pendingVisualRenderMode);
   }
   syncCanvasWireframes(next);
-  return planContentSchema.parse(next);
+  return storedPlanContentSchema.parse(next);
+}
+
+function validateRequiredAuthoringDataPatch(
+  type: PlanBlockType,
+  data: Record<string, unknown>,
+) {
+  const required = requiredAuthoringDataFields[type];
+  if (!required) return;
+  const value = data[required.field];
+  if (required.nonEmpty && Array.isArray(value) && value.length === 0) {
+    throw new Error(
+      `Authoring ${type} blocks require at least one ${required.field} entry.`,
+    );
+  }
 }
 
 function cloneJson<T>(value: T): T {

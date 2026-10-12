@@ -12,7 +12,10 @@ import {
   localPlanKindSchema,
   resolveLocalPlanKind,
 } from "../server/lib/local-plan-kind.js";
-import { normalizePlanContent } from "../server/plan-content.js";
+import {
+  normalizePlanContent,
+  normalizeStoredPlanContent,
+} from "../server/plan-content.js";
 import { referencedBlockIdsForPlanComments } from "../server/plan-mdx.js";
 import {
   agentPlanContentPatchesSchema,
@@ -120,8 +123,7 @@ export default defineAction({
       nextContent.brief ??
       current.content.brief ??
       "Local files preview.";
-    nextContent =
-      normalizePlanContent({ ...nextContent, title, brief }) ?? nextContent;
+    nextContent = normalizeStoredPlanContent({ ...nextContent, title, brief });
 
     const planId = `local-${current.slug}`;
     const localFiles = await writePlanLocalFolder({

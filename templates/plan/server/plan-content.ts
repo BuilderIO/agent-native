@@ -4,6 +4,7 @@ import {
   exceedsPlanBlockDepth,
   migratePlanContent,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanArtboard,
   type PlanAnnotation,
   type PlanBlock,
@@ -44,7 +45,7 @@ export function parsePlanContent(value: unknown): PlanContent | null {
   if (!parsedValue) return null;
   try {
     const migrated = migratePlanContent(parsedValue);
-    const result = planContentSchema.safeParse(
+    const result = storedPlanContentSchema.safeParse(
       preSanitizePlanContentInput(migrated),
     );
     if (result.success) return result.data;
@@ -59,7 +60,10 @@ export function parsePlanContent(value: unknown): PlanContent | null {
   }
 }
 
-function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
+function parsePlanContentWithSalvage(
+  migrated: unknown,
+  schema: typeof storedPlanContentSchema = storedPlanContentSchema,
+): PlanContent | null {
   if (!migrated || typeof migrated !== "object") return null;
   const raw = migrated as Record<string, unknown>;
 
@@ -68,7 +72,7 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
     return null;
   }
 
-  const envelopeResult = planContentSchema.safeParse(
+  const envelopeResult = schema.safeParse(
     preSanitizePlanContentInput({ ...raw, blocks: [] }),
   );
   const envelope = envelopeResult.success
@@ -93,7 +97,7 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
   const salvaged: PlanBlock[] = rawBlocks
     .slice(0, 200)
     .map((rawBlock: unknown) => {
-      const singleResult = planContentSchema.safeParse(
+      const singleResult = schema.safeParse(
         preSanitizePlanContentInput({ ...raw, blocks: [rawBlock] }),
       );
       if (singleResult.success && singleResult.data.blocks[0]) {
@@ -175,11 +179,7 @@ function validationHintForIssues(issues: unknown[], originalType: string) {
 }
 
 export function serializePlanContent(content: PlanContentInput): string {
-  const parsed = sanitizePlanContent(
-    planContentSchema.parse(
-      preSanitizePlanContentInput(omitEmptyLegacyDefaults(content)),
-    ),
-  );
+  const parsed = normalizeStoredPlanContent(omitEmptyLegacyDefaults(content));
   return JSON.stringify(omitEmptyLegacyDefaults(parsed));
 }
 
@@ -249,9 +249,16 @@ export function normalizePlanContent(
       "[plan-content] recap import: full parse failed; salvaging per-block so the rest publishes:",
       result.error.issues.slice(0, 4),
     );
-    return parsePlanContentWithSalvage(migrated);
+    return parsePlanContentWithSalvage(migrated, planContentSchema);
   }
   return sanitizePlanContent(planContentSchema.parse(migrated));
+}
+
+export function normalizeStoredPlanContent(content: unknown): PlanContent {
+  const migrated = migratePlanContent(content);
+  return sanitizePlanContent(
+    storedPlanContentSchema.parse(preSanitizePlanContentInput(migrated)),
+  );
 }
 
 export function normalizePlanDesignContent(

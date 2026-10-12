@@ -56,6 +56,7 @@ import {
   findBlock,
   planContentPatchesSchema,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanBlock,
   type PlanContent,
   type PlanContentPatch,
@@ -763,7 +764,7 @@ export default defineAction({
       );
     }
     const normalizedContentAtLoad = bundleAtLoad?.plan.content
-      ? planContentSchema.parse(bundleAtLoad.plan.content)
+      ? storedPlanContentSchema.parse(bundleAtLoad.plan.content)
       : null;
     if (
       isDestructiveStructuredWrite &&

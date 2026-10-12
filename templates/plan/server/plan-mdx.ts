@@ -40,7 +40,10 @@ import {
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
 import type { PlanComment } from "../shared/types.js";
-import { normalizePlanContent } from "./plan-content.js";
+import {
+  normalizePlanContent,
+  normalizeStoredPlanContent,
+} from "./plan-content.js";
 
 const planMdxRegistry = new BlockRegistry();
 registerPlanBlocks(planMdxRegistry);
@@ -717,7 +720,7 @@ export async function exportPlanContentToMdxFolder(
   input: ExportPlanMdxInput,
 ): Promise<PlanMdxFolder> {
   const content =
-    normalizePlanContent(
+    normalizeStoredPlanContent(
       input.content ?? {
         version: PLAN_CONTENT_VERSION,
         title: input.title,

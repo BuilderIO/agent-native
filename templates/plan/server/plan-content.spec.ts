@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentPlanContentSchema,
   applyPlanContentPatches,
   migratePlanContent,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanContent,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
@@ -16,6 +18,7 @@ import {
   createUiPlanContent,
   createVisualQuestionsContent,
   normalizePlanDesignContent,
+  normalizePlanContent,
   parsePlanContent,
   sanitizeCustomHtml,
   serializePlanContent,
@@ -1550,6 +1553,71 @@ describe("parsePlanContent per-block salvage", () => {
     if (placeholder?.type !== "callout") throw new Error("expected callout");
     expect(placeholder.data.body).toContain(UNKNOWN_MARKER);
     expect(placeholder.data.body).toContain("tabs");
+  });
+
+  it("keeps legacy defaults on reads while requiring authored fields on writes", () => {
+    const cases = [
+      [{ id: "legacy-checklist", type: "checklist", data: {} }, { items: [] }],
+      [
+        { id: "legacy-questions", type: "question-form", data: {} },
+        { questions: [] },
+      ],
+      [{ id: "legacy-tabs", type: "tabs", data: {} }, { tabs: [] }],
+      [{ id: "legacy-model", type: "data-model", data: {} }, { entities: [] }],
+      [{ id: "legacy-code", type: "annotated-code", data: {} }, { code: "" }],
+    ] as const;
+
+    for (const [block, expectedData] of cases) {
+      const input = { version: 2, blocks: [block] };
+      const stored = storedPlanContentSchema.parse(input);
+      expect(stored.blocks[0]).toMatchObject({ data: expectedData });
+      expect(planContentSchema.safeParse(input).success).toBe(false);
+      expect(agentPlanContentSchema.safeParse(input).success).toBe(false);
+      expect(() => normalizePlanContent(input)).toThrow();
+    }
+
+    expect(
+      planContentSchema.safeParse({
+        version: 2,
+        blocks: [
+          {
+            id: "parent",
+            type: "tabs",
+            data: {
+              tabs: [
+                {
+                  id: "tab",
+                  label: "Tab",
+                  blocks: [{ id: "nested", type: "checklist", data: {} }],
+                },
+              ],
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects null in lenient stored fields and empty required authoring arrays", () => {
+    expect(
+      storedPlanContentSchema.safeParse({
+        version: 2,
+        blocks: [{ id: "bad", type: "tabs", data: { tabs: null } }],
+      }).success,
+    ).toBe(false);
+
+    for (const [type, field] of [
+      ["question-form", "questions"],
+      ["tabs", "tabs"],
+      ["data-model", "entities"],
+    ] as const) {
+      expect(
+        planContentSchema.safeParse({
+          version: 2,
+          blocks: [{ id: `empty-${type}`, type, data: { [field]: [] } }],
+        }).success,
+      ).toBe(false);
+    }
   });
 
   it("salvages good blocks and replaces the bad block with a callout placeholder", () => {

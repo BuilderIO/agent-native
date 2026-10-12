@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyPlanContentPatches,
   planContentSchema,
+  storedPlanContentSchema,
   type PlanContent,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
@@ -1024,6 +1025,28 @@ describe("canvas frame / annotation patch interactions", () => {
 });
 
 describe("replace-blocks and replace-block validation", () => {
+  it("rejects incomplete authored blocks in append and replacement patches", () => {
+    const incompleteQuestionBlock = {
+      id: "incomplete-questions",
+      type: "question-form",
+      data: {},
+    } as never;
+
+    expect(() =>
+      applyPlanContentPatches(basePlan(), [
+        { op: "append-block", block: incompleteQuestionBlock },
+      ]),
+    ).toThrow(/require data\.questions/i);
+    expect(() =>
+      applyPlanContentPatches(basePlan(), [
+        {
+          op: "replace-blocks",
+          blocks: [incompleteQuestionBlock],
+        },
+      ]),
+    ).toThrow(/require data\.questions/i);
+  });
+
   it("replace-blocks rejects a set with duplicate ids", () => {
     expect(() =>
       applyPlanContentPatches(basePlan(), [
@@ -1123,6 +1146,33 @@ describe("patch-wireframe-html: find/replace mechanics", () => {
 });
 
 describe("applyPlanContentPatches validates the input plan first", () => {
+  it("preserves untouched legacy defaults during an unrelated block update", () => {
+    const legacy = storedPlanContentSchema.parse({
+      version: 2,
+      blocks: [
+        { id: "legacy", type: "question-form", data: {} },
+        { id: "copy", type: "rich-text", data: { markdown: "Original." } },
+      ],
+    });
+
+    const next = applyPlanContentPatches(legacy, [
+      { op: "update-block", blockId: "legacy", patch: { title: "Questions" } },
+      { op: "update-rich-text", blockId: "copy", markdown: "Updated." },
+    ]);
+
+    expect(next.blocks[0]).toMatchObject({
+      id: "legacy",
+      type: "question-form",
+      title: "Questions",
+      data: { questions: [] },
+    });
+    expect(next.blocks[1]).toMatchObject({
+      id: "copy",
+      type: "rich-text",
+      data: { markdown: "Updated." },
+    });
+  });
+
   it("throws when the starting content is already invalid", () => {
     const broken = {
       version: 2,
