@@ -1,5 +1,64 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  lookbackContext: {
+    includeLast: "पिछले शामिल करें",
+    whatIsThis: "यह क्या है?",
+    off: "बंद",
+    custom: "कस्टम…",
+    customLabel: "कस्टम अवधि",
+    customAmount: "अवधि",
+    customUnit: "इकाई",
+    unitSeconds: "सेकंड",
+    unitMinutes: "मिनट",
+    customSave: "यह अवधि उपयोग करें",
+    customErrorEmpty: "अवधि दर्ज करें।",
+    customErrorInvalid: "सेकंड या मिनट में पूरी संख्या दर्ज करें।",
+    customErrorTooLong: "5 मिनट या उससे कम रखें।",
+    turnOnRewind: "Rewind चालू करें",
+    rewindOffTitle: "Rewind चालू करें",
+    rewindOffBody:
+      "Rewind आपकी स्क्रीन का स्थानीय इतिहास रखता है, ताकि आप रिकॉर्डिंग से पहले के आख़िरी कुछ मिनट शामिल कर सकें। फ़ुटेज तभी अपलोड होता है जब आप उसे शामिल करें या मंज़ूरी दें।",
+    requestFailed:
+      "पहले का स्क्रीन समय शामिल नहीं किया जा सका। रिकॉर्डिंग इसके बिना जारी रहती है।",
+    localOnlyUnavailable:
+      "केवल स्थानीय रिकॉर्डिंग के लिए पहले का स्क्रीन समय सहेजा नहीं जाता।",
+    saving: "रिकॉर्डिंग से पहले का {{window}} सहेजा जा रहा है…",
+    ready: "रिकॉर्डिंग से पहले के {{window}} के साथ",
+    failed: "पहले का स्क्रीन समय सहेजा नहीं जा सका",
+    unreadable: "पहले के स्क्रीन समय की जाँच नहीं हो सकी",
+    edit: "संपादित करें",
+    editTitle: "पहले का स्क्रीन समय",
+    editSave: "सहेजें",
+    editFailed: "विंडो सहेजी नहीं जा सकी। फिर से कोशिश करें।",
+    previewPreparing: "पूर्वावलोकन तैयार किया जा रहा है…",
+    previewFailed: "पूर्वावलोकन तैयार नहीं किया जा सका।",
+    previewLabel: "पहले के स्क्रीन समय का पूर्वावलोकन",
+    retry: "फिर से प्रयास करें",
+    playSelection: "चुना हुआ हिस्सा चलाएँ",
+    removeFailed: "हटाई गई रिकॉर्डिंग का पहले का स्क्रीन समय नहीं हटाया जा सका।",
+    removeFailedAction: "पहले का स्क्रीन समय नहीं हटाया जा सका। फिर से प्रयास करें।",
+    removeAction: "पहले का स्क्रीन समय हटाएँ",
+    removeConfirmTitle: "पहले का स्क्रीन समय हटाएँ?",
+    removeConfirmBody: "फ़ुटेज ट्रैश में ले जाया जाएगा और क्लिप में वह शामिल नहीं रहेगा।",
+    removeConfirm: "हटाएँ",
+    removed: "पहले का स्क्रीन समय हटाया गया",
+    scrubberFromBefore: "{{offset}} पहले से",
+    scrubberFromStart: "रिकॉर्डिंग की शुरुआत से",
+    scrubberToBefore: "{{offset}} पहले तक",
+    scrubberToStart: "रिकॉर्डिंग की शुरुआत तक",
+    scrubberLength: "अवधि",
+    scrubberStartHandle: "विंडो की शुरुआत",
+    scrubberEndHandle: "विंडो का अंत",
+    tab: "संदर्भ",
+    label: "रिकॉर्डिंग से पहले की स्क्रीन",
+    window: "रिकॉर्डिंग से पहले {{start}}–{{end}}",
+    savingEarlierTime: "पहले का स्क्रीन समय सहेजा जा रहा है…",
+    loadFailed: "पहले का स्क्रीन समय लोड नहीं हो सका।",
+    empty: "इस क्लिप के साथ पहले का स्क्रीन समय नहीं जुड़ा है।",
+    larger: "बड़ा करें",
+    editHint: "Clips Desktop में विंडो संपादित करें।",
+    waitingOtherDevice: "इस क्लिप को रिकॉर्ड करने वाले डिवाइस की प्रतीक्षा है",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Builder.io इस्तेमाल करें",
@@ -334,7 +393,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "एजेंट-पठनीय क्लिप संदर्भ",
     agentInstructions:
-      "प्रतिलेख और JPEG फ्रेम URLs के लिए एजेंटकॉन्टेक्स्टयूआरएल प्राप्त करें। स्क्रीन देखने के लिए फ़्रेम URLs प्राप्त करें, न कि केवल प्रतिलेख पढ़ने के लिए।",
+      "पहले agentContextUrl खोलें। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें।",
     untitledClip: "शीर्षक रहित क्लिप",
     incorrectPassword: "गलत पासवर्ड",
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
@@ -590,7 +649,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL प्राप्त करें: {{agentContextUrl}}। बोले गए संदर्भ के लिए transcript.segments का उपयोग करें, स्क्रीन देखने के लिए recommendedFrames या फ्रेम API URL प्राप्त करें, और यदि browserDiagnostics मौजूद हो तो संशोधित कंसोल लॉग और fetch/XHR अनुरोध मेटाडेटा जांचें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -744,6 +803,8 @@ const messages = {
     switchToNightly: "Nightly बिल्ड पर जाएँ",
     switchToStable: "स्थिर बिल्ड पर जाएँ",
     retry: "फिर कोशिश करें",
+    mountError:
+      "Clips को इस वर्कस्पेस में अपना पाथ नहीं मिला। वर्कस्पेस एडमिन से ऐप के माउंट कॉन्फ़िगरेशन की जाँच करने को कहें।",
     heroDescription:
       "स्क्रीन, कैमरा और स्क्रीन + कैमरा के लिए एक मेनू-बार रिकॉर्डर। एक-क्लिक प्रारंभ, खींचने योग्य कैमरा बबल, रुकने पर तत्काल-शेयर लिंक।",
     versionReleased: "संस्करण {{version}} - {{date}} जारी किया गया",
@@ -804,6 +865,9 @@ const messages = {
     labMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
     labWisprFlow: "वॉइस डिक्टेशन",
     labWisprFlowDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
+    labLookbackContext: "पहले का स्क्रीन समय शामिल करें",
+    labLookbackContextDescription:
+      "रिकॉर्डिंग से पहले के पाँच मिनट तक का स्क्रीन समय स्वचालित संदर्भ के रूप में जोड़ें।",
     uploadWorkspaceTitle: "सक्रिय वर्कस्पेस",
     uploadWorkspaceDescription:
       "वह वर्कस्पेस चुनें जिसका उपयोग Clips डेस्कटॉप अपलोड सहित नई रिकॉर्डिंग के लिए करेगा।",
@@ -2127,20 +2191,6 @@ const messages = {
     guideStartTitle: "Click Start notes (स्थानीयकृत)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (स्थानीयकृत)",
-  },
-  rewindExtension: {
-    title: "पहले हुई गतिविधि जोड़ें",
-    description:
-      "स्थानीय Rewind से कोई निश्चित समय चुनकर इस क्लिप की शुरुआत में जोड़ें। कुछ भी अपने-आप नहीं जोड़ा जाता।",
-    progressLabel: "Rewind इतिहास प्रोसेस होने की प्रगति",
-    privateFirstTitle: "पहले इस क्लिप को निजी बनाएँ",
-    privateFirstDescription:
-      "स्थानीय Rewind इतिहास में रिकॉर्डिंग शुरू करने से पहले का संदर्भ हो सकता है। इससे क्लिप निजी हो जाएगी। अगर किसी के पास अब भी सीधी पहुँच है, तो Clips रुक जाएगा ताकि आप पहले शेयर में उनकी पहुँच हटा सकें।",
-    makePrivateContinue: "निजी बनाएँ और जारी रखें",
-    add30Seconds: "पिछले 30 सेकंड जोड़ें",
-    add5Minutes: "पिछले 5 मिनट जोड़ें",
-    add5MinutesDescription: "लंबी व्याख्या की शुरुआत वापस पाने के लिए उपयोगी।",
-    privateReady: "यह क्लिप निजी है। अब आप स्थानीय Rewind इतिहास जोड़ सकते हैं।",
   },
   browserDiagnostics: {
     debug: "डीबग",

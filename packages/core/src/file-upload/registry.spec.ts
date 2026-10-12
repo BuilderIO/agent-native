@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";
 import {
+  findFileUploadProviderOwningUrl,
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviderStatusesForRequest,
@@ -72,6 +73,89 @@ describe("file-upload registry", () => {
       const matches = listFileUploadProviders().filter((p) => p.id === "dup");
       expect(matches).toHaveLength(1);
       expect(matches[0]).toBe(second);
+    });
+
+    it("continues ownership checks after one provider fails", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://cdn.builder.io/image.png"),
+      ).resolves.toBe(builderFileUploadProvider);
+    });
+
+    it("preserves an ownership check failure when no provider can verify the URL", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl(
+          "https://storage.example.test/image.png",
+        ),
+      ).rejects.toMatchObject({
+        name: "AggregateError",
+        errors: [failure],
+      });
+    });
+  });
+
+  describe("findFileUploadProviderOwningUrl", () => {
+    const throwingOwner = () => ({
+      ...makeProvider("s3", true),
+      isOwnedUrl: vi.fn(async () => {
+        throw new Error("secrets unavailable");
+      }),
+    });
+
+    it("claims a Builder CDN URL without consulting a failing provider", async () => {
+      const s3 = throwingOwner();
+      registerFileUploadProvider(s3);
+
+      await expect(
+        findFileUploadProviderOwningUrl(
+          "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fasset-id",
+        ),
+      ).resolves.toBe(builderFileUploadProvider);
+      expect(s3.isOwnedUrl).not.toHaveBeenCalled();
+    });
+
+    it("returns a later provider's claim when an earlier provider throws", async () => {
+      registerFileUploadProvider(throwingOwner());
+      const r2 = { ...makeProvider("r2", true), isOwnedUrl: () => true };
+      registerFileUploadProvider(r2);
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://files.example.com/a.png"),
+      ).resolves.toBe(r2);
+    });
+
+    it("throws unverifiable, not unowned, when nobody claims and a provider threw", async () => {
+      registerFileUploadProvider(throwingOwner());
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://files.example.com/a.png"),
+      ).rejects.toThrow(/unverifiable: s3/);
+    });
+
+    it("returns null when every provider answers not-owned", async () => {
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: async () => false,
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://files.example.com/a.png"),
+      ).resolves.toBeNull();
     });
   });
 

@@ -133,6 +133,7 @@ export function useEditorFilesAndSaving({
     isVisualEditSurface,
     isLiveCanvasShareLink,
     readOnlyWidget,
+    widgetEmbed,
     viewModeRef,
     pendingVisualEditHandoffPublicationRef,
     pendingVisualEditReloadedHandoffRef,
@@ -380,6 +381,7 @@ export function useEditorFilesAndSaving({
     (
       pending: FileContentSaveRequest,
       outboxJournalPromise?: Promise<boolean>,
+      onPersistedContent?: (acceptedContent: string) => void,
     ) =>
       runSaveFileContent(
         {
@@ -413,6 +415,7 @@ export function useEditorFilesAndSaving({
         },
         pending,
         outboxJournalPromise,
+        onPersistedContent,
       ),
     [
       acknowledgeOutboxEntry,
@@ -437,6 +440,8 @@ export function useEditorFilesAndSaving({
         syncCollab?: boolean;
         immediate?: boolean;
         identityMigrationSourceContent?: string;
+        deferCollabReconcile?: boolean;
+        onPersistedContent?: (acceptedContent: string) => void;
       },
     ) => {
       return runQueueFileContentSave(
@@ -834,8 +839,9 @@ export function useEditorFilesAndSaving({
   const files = useMemo(
     () =>
       serverFiles.map((file) => {
+        const pending = pendingLocalFileContentsSnapshot.get(file.id);
         const sourceContent =
-          pendingLocalFileContentsSnapshot.get(file.id)?.content ??
+          (pending?.deferCollabReconcile ? undefined : pending?.content) ??
           file.content ??
           "";
         const prepared = prepareCanonicalSourceContent(sourceContent, {
@@ -1130,7 +1136,8 @@ export function useEditorFilesAndSaving({
 
   const migrateBoardTriggeredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!id || !canEditDesign || shellMode) return;
+    // A widget write grant covers only the design's own saves, never this migration.
+    if (!id || !canEditDesign || shellMode || widgetEmbed) return;
     if (boardFileId) return;
     if (migrateBoardTriggeredRef.current === id) return;
     migrateBoardTriggeredRef.current = id;
@@ -1147,6 +1154,7 @@ export function useEditorFilesAndSaving({
     id,
     migrateBoardObjectsMutation,
     queryClient,
+    widgetEmbed,
   ]);
 
   const openGenerateInAgent = useCallback(() => {
@@ -1223,7 +1231,29 @@ export function useEditorFilesAndSaving({
       ),
     ];
   }, [isLiveCanvasShareLink, isVisualEditSurface, overviewScreens]);
-  const publicVisualEditPreviewTokenQuery = useActionQuery<{
+  const localhostConnectionIds = useMemo(() => {
+    if (isLiveCanvasShareLink || (!canEditDesign && !isVisualEditSurface)) {
+      return [];
+    }
+    return [
+      ...new Set(
+        overviewScreens.flatMap((screen) =>
+          screen.connectionId &&
+          resolveOverviewScreenSourceType(screen, designSourceType) ===
+            "localhost"
+            ? [screen.connectionId]
+            : [],
+        ),
+      ),
+    ];
+  }, [
+    canEditDesign,
+    designSourceType,
+    isLiveCanvasShareLink,
+    isVisualEditSurface,
+    overviewScreens,
+  ]);
+  const localhostPreviewTokenQuery = useActionQuery<{
     previewToken?: string;
     liveEditCapability?: string;
     liveEditRegistrationCapability?: string;
@@ -1234,17 +1264,21 @@ export function useEditorFilesAndSaving({
         liveEditCapability?: string;
         liveEditRegistrationCapability?: string;
         bridgeUrl?: string;
+        status?: "available" | "unavailable";
+        errorCode?:
+          | "localhost_preview_credentials_unavailable"
+          | "public_localhost_preview_unavailable";
       }
     >;
   }>(
     "refresh-localhost-preview-token",
     {
       designId: id!,
+      connectionIds: localhostConnectionIds,
       publicVisualEdit,
     },
     {
-      enabled:
-        !shellMode && Boolean(id) && publicVisualEditConnectionIds.length > 0,
+      enabled: !shellMode && Boolean(id) && localhostConnectionIds.length > 0,
     },
   );
   const hasLocalhostScreens = overviewScreens.some(
@@ -1586,7 +1620,7 @@ export function useEditorFilesAndSaving({
     boardFileIdRef,
     overviewScreens,
     publicVisualEditConnectionIds,
-    publicVisualEditPreviewTokenQuery,
+    localhostPreviewTokenQuery,
     hasLocalhostScreens,
     editorShareUrl,
     visualEditPendingQuery,

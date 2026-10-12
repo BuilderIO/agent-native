@@ -154,7 +154,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "Designs",
+    home: "Home",
     templates: "Templates",
     designSystems: "Design Systems",
     setupDesignSystem: "Set up design system",
@@ -177,6 +177,9 @@ export default {
     labDesignReviewTools: "Design review tools",
     labDesignReviewToolsDescription:
       "Check your designs for accessibility issues and compare visual changes.",
+    labMotion: "Motion",
+    labMotionDescription:
+      "Create and edit keyframe animations in your designs.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
@@ -703,13 +706,16 @@ export default {
       needsConnectedApp: "Source jump needs a connected app",
     },
     leftRail: {
-      file: "File",
-      agent: "Agent",
+      layers: "Layers",
+      agent: "Agents",
       assets: "Assets",
       import: "Import",
       tools: "Tools",
       tokens: "Tokens",
       label: "Design workspace",
+      account: "Account",
+      collapse: "Collapse sidebar",
+      expand: "Expand sidebar",
     },
     breakpointBar: {
       base: "Base",
@@ -745,6 +751,7 @@ export default {
       exit: "Exit responsive preview",
     },
     motion: {
+      openDock: "Motion",
       dockLabel: "Motion dock",
       collapseDock: "Collapse motion dock",
       play: "Play",
@@ -800,12 +807,10 @@ export default {
       "{{path}} changed on disk since it was opened. Reload the screen and try again.",
     applyToSourceError: "Couldn't save to source: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Import tokens",
       importTitle: "Import tokens",
       importHint:
@@ -817,6 +822,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Import pasted tokens",
       importedCount: "Imported {{count}} tokens",
+      count: "{{count}} tokens",
+      search: "Search tokens",
+      noMatches: "No matching tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -863,6 +871,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
+      figmaPasteUploadImage: "Upload image",
+      figmaPasteUploadImageFor: "Upload “{{name}}”",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image filled in",
+      figmaPasteUploadImageInvalid:
+        "Choose an image file, like SVG, PNG, or JPG.",
+      figmaPasteUploadImageError: "Couldn't fill in that image",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -997,7 +1012,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "Apply or discard your pending visual edits before duplicating.",
-      designs: "Designs",
+      allDesigns: "All designs",
       rename: "Rename",
       duplicate: "Duplicate",
       versionHistory: "Version history",
@@ -1529,6 +1544,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
       permissionPromptRetry: "Retry connection",
+      previewCredentialsUnavailableTitle:
+        "Local preview credentials are unavailable",
+      previewCredentialsUnavailableDescription:
+        "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      publicPreviewUnavailableDescription:
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
+      previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
@@ -1543,6 +1565,7 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
+    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",
@@ -1616,9 +1639,11 @@ export default {
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
     imageAttachmentUnavailable:
-      "We couldn't prepare this image as visual input. Attach a smaller PNG, JPG, GIF, or WebP file.",
+      "We couldn't prepare this image for upload. Try a JPG, PNG, GIF, or WebP image.",
+    imageAttachmentTooLarge:
+      "Images can be up to {{perFile}} MB each, with {{total}} MB total.",
     attachmentsTooLarge:
-      "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
+      "Images are optimized automatically. Optimized images and other files must fit within {{max}} MB total.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
     startBlankCanvas: "Start with a blank canvas",
@@ -1778,7 +1803,7 @@ export default {
     browseAllTemplates: "Browse all",
     connectBuilderIo: "Use Builder.io",
     connectingBuilder: "Setting up Builder.io…",
-    pageTitle: "Designs",
+    pageTitle: "Home",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
     newDesignLower: "New design",

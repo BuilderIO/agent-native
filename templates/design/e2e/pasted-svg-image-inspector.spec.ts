@@ -196,16 +196,16 @@ const SVG_FILE =
   '<svg width="80" height="40" viewBox="0 0 80 40"><g><path d="M0 0h30v30z" fill="#f97316"/><path d="M50 0h30v30z" fill="#16a34a"/></g></svg>';
 
 const FIGMA_PASTED_FRAME = {
-  title: "Pasted Figma frame",
-  width: 96,
-  height: 64,
-  content: `<!doctype html><html><head></head><body><div data-agent-native-node-id="figma-pasted-frame" data-agent-native-layer-name="Pasted Figma frame" data-an-primitive="frame" style="position:absolute;left:700px;top:500px;width:96px;height:64px;background-color:#123456"></div></body></html>`,
+  title: "Synthetic imported frame",
+  width: 104,
+  height: 72,
+  content: `<!doctype html><html><head></head><body><div data-agent-native-node-id="synthetic-imported-frame" data-agent-native-layer-name="Synthetic imported frame" data-an-primitive="frame" style="position:absolute;left:613px;top:417px;width:104px;height:72px;background-color:#4A70C8"></div></body></html>`,
   wrapsLooseNode: false,
-  origin: { x: 700, y: 500 },
-  sourceOffset: { x: 24, y: 34 },
+  origin: { x: 613, y: 417 },
+  sourceOffset: { x: 31, y: 27 },
 };
 
-const FIGMA_CLIPBOARD_HTML = `<!doctype html><html><body><svg width="96" height="64"><rect width="96" height="64" fill="#123456"/></svg><!--(figmeta)${Buffer.from(JSON.stringify({ fileKey: "e2e-figma-file", selectedNodeData: "1:2|4|0" })).toString("base64")}(/figmeta)--></body></html>`;
+const FIGMA_CLIPBOARD_HTML = `<!doctype html><html><body><svg width="104" height="72"><rect width="104" height="72" fill="#4A70C8"/></svg><!--(figmeta)${Buffer.from(JSON.stringify({ fileKey: "e2e-synthetic-file", selectedNodeData: "1:7|1|0" })).toString("base64")}(/figmeta)--></body></html>`;
 
 async function pasteFigmaClipboard(page: Page) {
   return page.locator("body").evaluate((body, html) => {
@@ -470,15 +470,18 @@ test("pasted SVG is an editable sized layer and image scale mode writes object-f
       .filter({ hasText: "Pasted SVG" })
       .first();
     await pastedSvgRow.getByRole("button", { name: "Expand layer" }).click();
-    const groupRow = page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem", { level: 3 })
+    const tree = page.getByRole("tree", { name: "Layers" });
+    const svgLevel = Number(await pastedSvgRow.getAttribute("aria-level"));
+    const groupRow = tree
+      .getByRole("treeitem", { level: svgLevel + 1 })
       .first();
     await expect(groupRow).toBeVisible();
-    await groupRow.getByRole("button", { name: "Expand layer" }).click();
-    const pathRow = page
-      .getByRole("tree", { name: "Layers" })
-      .getByRole("treeitem", { level: 4 })
+    if ((await groupRow.getAttribute("aria-expanded")) !== "true") {
+      await groupRow.getByRole("button", { name: "Expand layer" }).click();
+    }
+    await expect(groupRow).toHaveAttribute("aria-expanded", "true");
+    const pathRow = tree
+      .getByRole("treeitem", { level: svgLevel + 2 })
       .filter({ has: page.getByRole("button", { name: "PATH", exact: true }) });
     await expect(pathRow).toBeVisible();
     await clickLayerRowAndAssertSelected(pathRow);
@@ -774,7 +777,7 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
             kind: "layers",
             fileId: screenId,
             selector: '[data-agent-native-node-id="target-container"]',
-            positions: [{ x: 24, y: 34 }],
+            positions: [{ x: 31, y: 27 }],
           },
           warnings: [],
         }),
@@ -808,7 +811,7 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
     });
 
     const pasted = designFrame(page, screenId).locator(
-      '[data-agent-native-layer-name="Pasted Figma frame"]',
+      '[data-agent-native-layer-name="Synthetic imported frame"]',
     );
     await expect(pasted).toHaveCount(1);
     await expect
@@ -829,48 +832,48 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
       )
       .toEqual({
         parent: "target-container",
-        left: "24px",
-        top: "34px",
-        width: "96px",
-        height: "64px",
-        backgroundColor: "rgb(18, 52, 86)",
+        left: "31px",
+        top: "27px",
+        width: "104px",
+        height: "72px",
+        backgroundColor: "rgb(74, 112, 200)",
       });
 
     const pastedRow = page
       .getByRole("treeitem")
-      .filter({ hasText: "Pasted Figma frame" })
+      .filter({ hasText: "Synthetic imported frame" })
       .first();
     await expect(pastedRow).toHaveAttribute("aria-selected", "true");
     await expect(
       page.getByRole("textbox", { name: "W size in pixels" }),
-    ).toHaveValue("96px");
+    ).toHaveValue("104px");
     await expect(
       page.getByRole("textbox", { name: "H size in pixels" }),
-    ).toHaveValue("64px");
-    await fillHexInspector(page, "123456");
+    ).toHaveValue("72px");
+    await fillHexInspector(page, "4A70C8");
 
     await expect
       .poll(() => readSource(page, designId, "screen.html"))
-      .toContain('data-agent-native-layer-name="Pasted Figma frame"');
+      .toContain('data-agent-native-layer-name="Synthetic imported frame"');
     await page.reload();
     await expandAllLayers(page);
     const reloadedRow = page
       .getByRole("treeitem")
-      .filter({ hasText: "Pasted Figma frame" })
+      .filter({ hasText: "Synthetic imported frame" })
       .first();
     await reloadedRow.locator("[data-layer-row-button]").click();
     await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
     await expect(
       page.getByRole("textbox", { name: "W size in pixels" }),
-    ).toHaveValue("96px");
+    ).toHaveValue("104px");
     await expect(
       page.getByRole("textbox", { name: "H size in pixels" }),
-    ).toHaveValue("64px");
-    await fillHexInspector(page, "123456");
+    ).toHaveValue("72px");
+    await fillHexInspector(page, "4A70C8");
     await expect
       .poll(() =>
         designFrame(page, screenId)
-          .locator('[data-agent-native-layer-name="Pasted Figma frame"]')
+          .locator('[data-agent-native-layer-name="Synthetic imported frame"]')
           .evaluate((element) => ({
             parent: element.parentElement?.getAttribute(
               "data-agent-native-node-id",
@@ -879,7 +882,7 @@ test("Figma frame paste uses the live Design scene and updates the selected fram
             top: (element as HTMLElement).style.top,
           })),
       )
-      .toEqual({ parent: "target-container", left: "24px", top: "34px" });
+      .toEqual({ parent: "target-container", left: "31px", top: "27px" });
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
@@ -915,7 +918,7 @@ test("Figma paste plans can insert a frame into the Design board and persist it"
       .locator("[data-board-surface-layer] iframe[data-design-preview-iframe]")
       .contentFrame();
     const pasted = boardFrame.locator(
-      '[data-agent-native-layer-name="Pasted Figma frame"]',
+      '[data-agent-native-layer-name="Synthetic imported frame"]',
     );
     await expect
       .poll(() =>
@@ -945,9 +948,9 @@ test("Figma paste plans can insert a frame into the Design board and persist it"
     });
     await expect
       .poll(() => readBoardContent(page, designId, boardFileId))
-      .toContain('data-agent-native-layer-name="Pasted Figma frame"');
+      .toContain('data-agent-native-layer-name="Synthetic imported frame"');
     await expect(pasted).toBeVisible();
-    await expect(pasted).toHaveCSS("background-color", "rgb(18, 52, 86)", {
+    await expect(pasted).toHaveCSS("background-color", "rgb(74, 112, 200)", {
       timeout: 15_000,
     });
     await page.reload();
@@ -956,9 +959,9 @@ test("Figma paste plans can insert a frame into the Design board and persist it"
       .contentFrame();
     await expect(
       reloadedBoardFrame.locator(
-        '[data-agent-native-layer-name="Pasted Figma frame"]',
+        '[data-agent-native-layer-name="Synthetic imported frame"]',
       ),
-    ).toHaveCSS("background-color", "rgb(18, 52, 86)");
+    ).toHaveCSS("background-color", "rgb(74, 112, 200)");
     await expect
       .poll(() => readBoardContent(page, designId, boardFileId))
       .toContain("left: 45px");
@@ -973,7 +976,7 @@ test("pasting a PNG identifies its image inspector and persists Fit, Crop, adjus
   const { designId, screenId } = await createDesign(page);
   const fixture = path.resolve(
     import.meta.dirname,
-    "fixtures/responsive-card-art-photo.png",
+    "fixtures/card-art-photo.png",
   );
   const bytes = [...(await readFile(fixture))];
   const assetUrl = "/e2e-assets/clipboard-image.png";

@@ -112,14 +112,21 @@ export interface GrantResourceAccessResult {
   extensionTargetsBefore: ExtensionChangeTarget[];
 }
 
+/** What a grant's share write did, so a refused grant can undo exactly that. */
+type ShareWrite =
+  | { kind: "created"; id: string; role: ShareRole }
+  | { kind: "updated"; id: string; role: ShareRole; previousRole: ShareRole }
+  | { kind: "unchanged"; id: string; role: ShareRole };
+
 /**
  * Gives a principal a role on a resource, as the signed-in actor. The actor
  * needs admin on the resource, and every sharing rule applies: group support,
  * organization-only sharing, and the principal's form. Share and approving an
  * access request both grant through here, so neither can skip a rule.
  *
- * It only writes the share row. Call {@link announceResourceAccessChange}
- * afterwards, outside any transaction, so open sessions see the change.
+ * It writes the share row, and undoes that write if the registration refuses
+ * it after the write. Call {@link announceResourceAccessChange} afterwards,
+ * outside any transaction, so open sessions see the change.
  */
 export async function grantResourceAccess(
   input: GrantResourceAccessInput,
@@ -161,6 +168,12 @@ export async function grantResourceAccess(
       );
     }
   }
+  // Runs for every grant, including approved access requests, so a
+  // registration cannot be bypassed by a second entry point.
+  await reg.assertSharingChange?.({
+    resource: access.resource,
+    change: { kind: "grant" },
+  });
   const extensionTargetsBefore = await getExtensionShareChangeTargets(
     input.resourceType,
     input.resourceId,
@@ -203,12 +216,15 @@ export async function grantResourceAccess(
       );
     return row as { id: string; role: ShareRole } | undefined;
   };
-  const setRole = async (existing: { id: string; role: ShareRole }) => {
+  const setRole = async (existing: {
+    id: string;
+    role: ShareRole;
+  }): Promise<ShareWrite> => {
     const keep =
       input.keepStrongerRole === true &&
       ROLE_RANK[existing.role] >= ROLE_RANK[input.role];
     if (keep) {
-      return { id: existing.id, updated: false, role: existing.role };
+      return { kind: "unchanged", id: existing.id, role: existing.role };
     }
     // The role can change between the read above and this write, so keeping a
     // stronger role is checked by the write itself, not only by the read.
@@ -221,7 +237,14 @@ export async function grantResourceAccess(
       .where(and(eq(reg.sharesTable.id, existing.id), replaceable))
       .returning({ id: reg.sharesTable.id });
     if (updated || !input.keepStrongerRole) {
-      return { id: existing.id, updated: Boolean(updated), role: input.role };
+      return updated
+        ? {
+            kind: "updated",
+            id: existing.id,
+            role: input.role,
+            previousRole: existing.role,
+          }
+        : { kind: "unchanged", id: existing.id, role: input.role };
     }
     const current = await findExisting();
     if (!current) {
@@ -230,44 +253,77 @@ export async function grantResourceAccess(
         statusCode: 409,
       });
     }
-    return { id: current.id, updated: false, role: current.role };
+    return { kind: "unchanged", id: current.id, role: current.role };
   };
-  const result = {
+
+  const writeShare = async (): Promise<ShareWrite> => {
+    const existing = await findExisting();
+    if (existing) return setRole(existing);
+
+    const id = nanoid();
+    const [inserted] = await db
+      .insert(reg.sharesTable)
+      .values({
+        id,
+        resourceId: input.resourceId,
+        principalType: input.principalType,
+        principalId,
+        role: input.role,
+        createdBy: actor,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: reg.sharesTable.id });
+    if (inserted) return { kind: "created", id, role: input.role };
+    const existingAfterConflict = await findExisting();
+    if (!existingAfterConflict) {
+      throw new Error("Share conflict could not be resolved.");
+    }
+    return setRole(existingAfterConflict);
+  };
+
+  // The check above runs before the write, so a context item that commits in
+  // between is missed by it. This check runs after the write and sees such an
+  // item. A refusal undoes only what this call wrote, then rethrows.
+  const assertWrittenShare = async (
+    write: Exclude<ShareWrite, { kind: "unchanged" }>,
+  ) => {
+    try {
+      await reg.assertSharingChange?.({
+        resource: access.resource,
+        change: { kind: "grant" },
+      });
+    } catch (error) {
+      if (write.kind === "created") {
+        await db
+          .delete(reg.sharesTable)
+          .where(eq(reg.sharesTable.id, write.id));
+      } else {
+        await db
+          .update(reg.sharesTable)
+          .set({ role: write.previousRole })
+          .where(
+            and(
+              eq(reg.sharesTable.id, write.id),
+              eq(reg.sharesTable.role, write.role),
+            ),
+          );
+      }
+      invalidateCollabAccessCache(input.resourceType, input.resourceId);
+      throw error;
+    }
+  };
+
+  const write = await writeShare();
+  if (write.kind !== "unchanged") await assertWrittenShare(write);
+  return {
     principalId,
     resource: access.resource,
     extensionTargetsBefore,
-  };
-
-  const existing = await findExisting();
-  if (existing) {
-    return { ...result, ...(await setRole(existing)), created: false };
-  }
-
-  const id = nanoid();
-  const [inserted] = await db
-    .insert(reg.sharesTable)
-    .values({
-      id,
-      resourceId: input.resourceId,
-      principalType: input.principalType,
-      principalId,
-      role: input.role,
-      createdBy: actor,
-      createdAt: new Date().toISOString(),
-    })
-    .onConflictDoNothing()
-    .returning({ id: reg.sharesTable.id });
-  if (inserted) {
-    return { ...result, id, created: true, updated: false, role: input.role };
-  }
-  const existingAfterConflict = await findExisting();
-  if (!existingAfterConflict) {
-    throw new Error("Share conflict could not be resolved.");
-  }
-  return {
-    ...result,
-    ...(await setRole(existingAfterConflict)),
-    created: false,
+    id: write.id,
+    created: write.kind === "created",
+    updated: write.kind === "updated",
+    role: write.role,
   };
 }
 

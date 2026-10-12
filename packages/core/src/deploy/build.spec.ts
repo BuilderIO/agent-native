@@ -3,7 +3,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,6 +26,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -37,6 +38,7 @@ import {
 } from "../shared/embed-auth.js";
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
 } from "../shared/route-chunk-recovery-bootstrap.js";
@@ -788,7 +790,19 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain("globalThis.__env__ = env;");
     expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
-    expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
+    expect(entry).toContain(
+      "const requestWithWaitUntil = copyCloudflareRequestMetadata(",
+    );
+    expect(entry).toContain(
+      'import { runWithRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";',
+    );
+    expect(entry).toContain("function createRequestDbPoolScopeContext(ctx)");
+    expect(entry).toContain(
+      "return runWithRequestDbPoolScope(true, scopedCtx, async () => {",
+    );
+    expect(entry).toContain(
+      "requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);",
+    );
     expect(entry).toContain("function initializeBindings(env)");
     expect(entry).not.toContain("export * from");
     expect(entry).toContain(
@@ -804,6 +818,7 @@ describe("Cloudflare module Worker entry", () => {
 
   it("restores the real setInterval before the loaded handler runs, even on a cold isolate", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const marker = "__test_captured_set_interval__";
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
@@ -843,6 +858,201 @@ export default {
         globalThis as Record<string, unknown>,
         "__cfModuleOrigSetInterval",
       );
+    }
+  });
+
+  it("copies immutable incoming Requests before attaching waitUntil", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_cloudflare_module_request__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+export default {
+  async fetch(request) {
+    const reader = request.body.getReader();
+    const firstChunk = await reader.read();
+    void reader.cancel("test complete");
+    const body = new TextDecoder().decode(firstChunk.value);
+    globalThis.${marker} = {
+      request,
+      cf: request.cf,
+      url: request.url,
+      method: request.method,
+      contentType: request.headers.get("content-type"),
+      body,
+      waitUntil: typeof request.waitUntil,
+      waitUntilConfigurable: Object.getOwnPropertyDescriptor(request, "waitUntil")?.configurable,
+    };
+    request.waitUntil(Promise.resolve("module-background-work"));
+    return new Response("ok");
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    let bodySourceCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("module-payload"));
+      },
+      cancel() {
+        bodySourceCancelled = true;
+      },
+    });
+    const request = new Request("https://app.test/api/pools?mode=module", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    const cf = { colo: "SJC", asn: 15169 };
+    Object.defineProperty(request, "cf", { configurable: true, value: cf });
+    Object.freeze(request);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil(promise: Promise<unknown>) {
+        waitUntilPromises.push(promise);
+      },
+    };
+
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      const response = await worker.fetch(request, {}, ctx);
+
+      expect(await response.text()).toBe("ok");
+      const observed = (globalThis as Record<string, unknown>)[marker] as {
+        request: Request;
+        cf: unknown;
+        url: string;
+        method: string;
+        contentType: string | null;
+        body: string;
+        waitUntil: string;
+        waitUntilConfigurable: boolean;
+      };
+      expect(observed.request).not.toBe(request);
+      expect(observed.cf).toBe(cf);
+      expect(observed.url).toBe("https://app.test/api/pools?mode=module");
+      expect(observed.method).toBe("POST");
+      expect(observed.contentType).toBe("text/plain");
+      expect(observed.body).toBe("module-payload");
+      await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+      expect(observed.waitUntil).toBe("function");
+      expect(observed.waitUntilConfigurable).toBe(true);
+      expect(request.waitUntil).toBeUndefined();
+      expect(waitUntilPromises).toHaveLength(1);
+      await expect(waitUntilPromises[0]).resolves.toBe(
+        "module-background-work",
+      );
+    } finally {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes non-HTTP events across bundled copies and retains pools through waitUntil", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_cloudflare_event_scopes__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+import * as entryPoolContext from "@agent-native/core/db/request-pool-context";
+const bundledPoolContext = await import(
+  import.meta.resolve("@agent-native/core/db/request-pool-context") + "?bundled-handler-copy"
+);
+if (entryPoolContext.getCurrentRequestDbPoolScope === bundledPoolContext.getCurrentRequestDbPoolScope) {
+  throw new Error("test requires a duplicate bundled request-pool module");
+}
+const { getCurrentRequestDbPoolScope, getOrCreateRequestDbPool } = bundledPoolContext;
+
+function record(name, ctx) {
+  const scope = getCurrentRequestDbPoolScope();
+  if (!scope) throw new Error("missing request pool scope: " + name);
+  const pool = getOrCreateRequestDbPool("event-test", () => ({ ended: false, async end() { this.ended = true; } }));
+  globalThis.${marker}.events.push({ name, scope, pool });
+  if (name === "queue" && !(ctx instanceof globalThis.${marker}.Context)) {
+    throw new Error("event context lost its host prototype");
+  }
+  if (name === "queue") {
+    ctx.waitUntil(new Promise((resolve) => {
+      globalThis.${marker}.finishQueue = resolve;
+    }).then(() => {
+      if (getCurrentRequestDbPoolScope() !== scope) {
+        throw new Error("waitUntil lost the event scope");
+      }
+      if (pool.ended) throw new Error("event pool closed before waitUntil work");
+    }));
+  }
+}
+
+export default {
+  async fetch() { return new Response("ok"); },
+  scheduled(_controller, _env, ctx) { record("scheduled", ctx); },
+  email(_message, _env, ctx) { record("email", ctx); },
+  queue(_batch, _env, ctx) { record("queue", ctx); },
+  tail(_traces, _env, ctx) { record("tail", ctx); },
+  trace(_traces, _env, ctx) { record("trace", ctx); },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const waitUntilPromises: Promise<unknown>[] = [];
+    class MockExecutionContext {
+      waitUntil(promise: Promise<unknown>) {
+        if (!Object.isFrozen(this)) {
+          throw new Error("waitUntil was not bound to the host context");
+        }
+        waitUntilPromises.push(promise);
+      }
+    }
+    const ctx = Object.freeze(new MockExecutionContext());
+    const state = {
+      events: [] as Array<{
+        name: string;
+        scope: object;
+        pool: { ended: boolean };
+      }>,
+      finishQueue: undefined as (() => void) | undefined,
+      Context: MockExecutionContext,
+    };
+    (globalThis as Record<string, unknown>)[marker] = state;
+
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      await worker.scheduled({ cron: "manual" }, {}, {});
+      await worker.email({}, {}, {});
+      await worker.queue({}, {}, ctx);
+      await worker.tail([], {}, {});
+      await worker.trace([], {}, {});
+
+      expect(state.events.map(({ name }) => name)).toEqual([
+        "scheduled",
+        "email",
+        "queue",
+        "tail",
+        "trace",
+      ]);
+      expect(new Set(state.events.map(({ scope }) => scope)).size).toBe(5);
+      expect(waitUntilPromises).toHaveLength(1);
+      expect(ctx).toBeInstanceOf(MockExecutionContext);
+      expect(state.events[2].pool.ended).toBe(false);
+
+      state.finishQueue?.();
+      await expect(waitUntilPromises[0]).resolves.toBeUndefined();
+      expect(state.events[2].pool.ended).toBe(true);
+    } finally {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -902,6 +1112,7 @@ export default {
 
   it("sweeps on the sweep cron with a token the sweep route accepts", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
       `
@@ -979,6 +1190,106 @@ export default {
         "__test_sweep_requests__",
         "__test_scheduled_crons__",
         "__test_sweep_status__",
+        "__env__",
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      ]) {
+        Reflect.deleteProperty(testGlobals, key);
+      }
+    }
+  });
+
+  it("keeps the scheduled pool open until both the app handler and sweep settle", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_scheduled_sweep_pool_lifetime__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+import {
+  getCurrentRequestDbPoolScope,
+  getOrCreateRequestDbPool,
+} from "@agent-native/core/db/request-pool-context";
+
+export default {
+  async fetch() {
+    const scope = getCurrentRequestDbPoolScope();
+    const pool = getOrCreateRequestDbPool("scheduled-sweep-test", () => ({
+      ended: false,
+      async end() { this.ended = true; },
+    }));
+    globalThis.${marker}.pool = pool;
+    globalThis.${marker}.releaseScheduled();
+    await new Promise((resolve) => {
+      globalThis.${marker}.finishSweep = resolve;
+    });
+    const samePool = getOrCreateRequestDbPool("scheduled-sweep-test", () => {
+      throw new Error("the scheduled pool scope was replaced");
+    });
+    globalThis.${marker}.sweepPoolAlive = !pool.ended;
+    globalThis.${marker}.sweepPoolSame = samePool === pool;
+    globalThis.${marker}.sweepScopeSame = getCurrentRequestDbPoolScope() === scope;
+    return new Response("{}");
+  },
+  scheduled() {
+    return new Promise((resolve) => {
+      globalThis.${marker}.releaseScheduled = resolve;
+    }).then(() => {
+      globalThis.${marker}.scheduledFailureReached = true;
+      throw new Error("app scheduled handler failed");
+    });
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const state = {
+      finishSweep: undefined as (() => void) | undefined,
+      pool: undefined as { ended: boolean } | undefined,
+      releaseScheduled: undefined as (() => void) | undefined,
+      scheduledFailureReached: false,
+      sweepPoolAlive: undefined as boolean | undefined,
+      sweepPoolSame: undefined as boolean | undefined,
+      sweepScopeSame: undefined as boolean | undefined,
+    };
+    const testGlobals = globalThis as Record<string, unknown>;
+    testGlobals[marker] = state;
+    const secret = "test-secret-do-not-use-in-prod";
+    vi.stubEnv("A2A_SECRET", secret);
+
+    let invocation: Promise<unknown> | undefined;
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      let settled = false;
+      invocation = worker
+        .scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, { A2A_SECRET: secret }, {})
+        .finally(() => {
+          settled = true;
+        });
+      void invocation.catch(() => {});
+
+      await vi.waitFor(() => expect(state.scheduledFailureReached).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(state.pool).toBeDefined();
+      expect(state.pool?.ended).toBe(false);
+      expect(settled).toBe(false);
+
+      state.finishSweep?.();
+      await expect(invocation).rejects.toThrow("app scheduled handler failed");
+      expect(state.sweepPoolAlive).toBe(true);
+      expect(state.sweepPoolSame).toBe(true);
+      expect(state.sweepScopeSame).toBe(true);
+      expect(state.pool?.ended).toBe(true);
+    } finally {
+      state.finishSweep?.();
+      await invocation?.catch(() => {});
+      vi.unstubAllEnvs();
+      for (const key of [
+        marker,
         "__env__",
         "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
       ]) {
@@ -1307,6 +1618,17 @@ function makeTempDir(): string {
   return dir;
 }
 
+const corePackageRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+
+function linkCorePackageForWorker(dir: string): void {
+  const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
+  fs.mkdirSync(path.dirname(packageLink), { recursive: true });
+  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+}
+
 describe("Netlify static cache headers", () => {
   it("writes the shared SWR policy and preserves app-owned headers", () => {
     const publishDir = fs.mkdtempSync(
@@ -1459,9 +1781,47 @@ async function importGeneratedWorker(
   options: {
     responseHeaders?: Record<string, string>;
     rootDataLocation?: string;
+    frameworkEdgeStub?: boolean;
+    requestObserverMarker?: string;
+    requestBodyObserverMarker?: string;
   } = {},
 ) {
   const dir = makeTempDir();
+  const tempNodeModules = path.join(dir, "node_modules");
+  const scopedNodeModules = path.join(tempNodeModules, "@agent-native");
+  fs.mkdirSync(scopedNodeModules, { recursive: true });
+  fs.symlinkSync(
+    path.join(process.cwd(), "packages/core/node_modules/h3"),
+    path.join(tempNodeModules, "h3"),
+    "dir",
+  );
+  if (options.frameworkEdgeStub) {
+    const packageDir = path.join(scopedNodeModules, "core");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        type: "module",
+        exports: { "./server/edge": "./server-edge.js" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(packageDir, "server-edge.js"),
+      `export function getAppConfig() { return { app: { homePath: "/home" }, analytics: {} }; }
+export function getFrameworkRoutePrefix() { return ""; }
+export function getSsrAuthRedirectScript() { return ""; }
+export function resolveAppHomePath() { return "/home"; }
+export function runWithRequestContext(_context, callback) { return callback(); }
+`,
+    );
+  } else {
+    fs.symlinkSync(
+      corePackageRoot,
+      path.join(scopedNodeModules, "core"),
+      "dir",
+    );
+  }
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
   fs.writeFileSync(
@@ -1473,6 +1833,27 @@ async function importGeneratedWorker(
     `
 export function createRequestHandler() {
   return async (request) => {
+    const requestObserverMarker = ${JSON.stringify(options.requestObserverMarker ?? null)};
+    const requestBodyObserverMarker = ${JSON.stringify(options.requestBodyObserverMarker ?? null)};
+    if (requestObserverMarker) {
+      globalThis[requestObserverMarker] = {
+        cf: request.cf,
+        url: request.url,
+        method: request.method,
+        cookie: request.headers.get("cookie"),
+        authorization: request.headers.get("authorization"),
+        waitUntil: typeof request.waitUntil,
+      };
+      request.waitUntil?.(Promise.resolve("pages-ssr-background-work"));
+    }
+    if (requestBodyObserverMarker && request.body) {
+      const reader = request.body.getReader();
+      const firstChunk = await reader.read();
+      await reader.cancel("test request handler stopped reading");
+      globalThis[requestBodyObserverMarker] = firstChunk.done
+        ? null
+        : new TextDecoder().decode(firstChunk.value);
+    }
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
       if (url.pathname === "/.data") {
@@ -1491,6 +1872,14 @@ export function createRequestHandler() {
         return new Response('{"ok":true}', {
           headers: {
             "cache-control": "no-cache",
+            "content-type": "application/json",
+          },
+        });
+      }
+      if (url.pathname === "/private-json.data") {
+        return new Response('{"private":true}', {
+          headers: {
+            "cache-control": "private, no-store",
             "content-type": "application/json",
           },
         });
@@ -1607,6 +1996,243 @@ describe("generateWorkerEntry", () => {
         ],
       ).toBe(true);
     });
+
+    it("copies immutable incoming Requests and preserves waitUntil through mounted path rewrites", async () => {
+      const dir = makeTempDir();
+      const routePath = path.join(dir, "pools.post.mjs");
+      const marker = "__test_cloudflare_pages_request__";
+      fs.writeFileSync(
+        routePath,
+        `
+export default async (event) => {
+  const request = event.req;
+  const reader = request.body.getReader();
+  const firstChunk = await reader.read();
+  void reader.cancel("test complete");
+  const body = new TextDecoder().decode(firstChunk.value);
+  globalThis.${marker} = {
+    request,
+    cf: request.cf,
+    url: request.url,
+    method: request.method,
+    contentType: request.headers.get("content-type"),
+    body,
+    waitUntil: typeof request.waitUntil,
+    waitUntilConfigurable: Object.getOwnPropertyDescriptor(request, "waitUntil")?.configurable,
+  };
+  request.waitUntil(Promise.resolve("pages-background-work"));
+  return new Response("ok");
+};
+`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [
+            {
+              method: "post",
+              route: "/api/pools",
+              filePath: "api/pools.post.ts",
+              absPath: routePath,
+            },
+          ],
+          [],
+          [],
+          [],
+          null,
+          [],
+          "/docs",
+          { includeReactRouterSsr: false },
+        ),
+        { frameworkEdgeStub: true },
+      );
+      let bodySourceCancelled = false;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("pages-payload"));
+        },
+        cancel() {
+          bodySourceCancelled = true;
+        },
+      });
+      const request = new Request(
+        "https://app.test/docs/api/pools?mode=pages",
+        {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body,
+          duplex: "half",
+        } as RequestInit,
+      );
+      const cf = { colo: "LAX", asn: 64512 };
+      Object.defineProperty(request, "cf", { configurable: true, value: cf });
+      Object.freeze(request);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+
+        expect(await response.text()).toBe("ok");
+        const observed = (globalThis as Record<string, unknown>)[marker] as {
+          request: Request;
+          cf: unknown;
+          url: string;
+          method: string;
+          contentType: string | null;
+          body: string;
+          waitUntil: string;
+          waitUntilConfigurable: boolean;
+        };
+        expect(observed.request).not.toBe(request);
+        expect(observed.cf).toBe(cf);
+        expect(observed.url).toBe("https://app.test/api/pools?mode=pages");
+        expect(observed.method).toBe("POST");
+        expect(observed.contentType).toBe("text/plain");
+        expect(observed.body).toBe("pages-payload");
+        await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+        expect(observed.waitUntil).toBe("function");
+        expect(observed.waitUntilConfigurable).toBe(true);
+        expect(request.waitUntil).toBeUndefined();
+        expect(waitUntilPromises).toHaveLength(1);
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      }
+    }, 60_000);
+
+    it("preserves Cloudflare metadata through anonymous Pages SSR request rewrites", async () => {
+      const marker = "__test_cloudflare_pages_ssr_request__";
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry([], [], [], [], null, [], "/docs", {
+          includeReactRouterSsr: true,
+        }),
+        { frameworkEdgeStub: true, requestObserverMarker: marker },
+      );
+      const request = new Request("https://app.test/docs/private-json.data", {
+        method: "HEAD",
+        headers: {
+          cookie: "session=private",
+          authorization: "Bearer private",
+        },
+      });
+      const cf = { colo: "SJC", asn: 15169 };
+      Object.defineProperty(request, "cf", { configurable: true, value: cf });
+      Object.freeze(request);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+        const observed = (globalThis as Record<string, unknown>)[marker] as {
+          cf: unknown;
+          url: string;
+          method: string;
+          cookie: string | null;
+          authorization: string | null;
+          waitUntil: string;
+        };
+
+        expect(response.status).toBe(200);
+        expect(observed.cf).toBe(cf);
+        expect(observed.url).toBe("https://app.test/private-json.data");
+        expect(observed.method).toBe("GET");
+        expect(observed.cookie).toBeNull();
+        expect(observed.authorization).toBeNull();
+        expect(observed.waitUntil).toBe("function");
+        expect(request.waitUntil).toBeUndefined();
+        expect(waitUntilPromises).toHaveLength(1);
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-ssr-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      }
+    });
+
+    it("does not tee streamed request bodies while stripping anonymous SSR credentials", async () => {
+      const marker = "__test_cloudflare_pages_ssr_stream_body__";
+      const observerMarker = "__test_cloudflare_pages_ssr_stream_request__";
+      const workerSource = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [],
+        null,
+        [],
+        "/docs",
+        {
+          includeReactRouterSsr: true,
+        },
+      );
+      const worker = await importGeneratedWorker(workerSource, {
+        frameworkEdgeStub: true,
+        requestObserverMarker: observerMarker,
+        requestBodyObserverMarker: marker,
+      });
+      let bodySourceCancelled = false;
+      const request = new Request("https://app.test/docs/private-json.data", {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          cookie: "session=private",
+          authorization: "Bearer private",
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("ssr-stream"));
+          },
+          cancel() {
+            bodySourceCancelled = true;
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+        const observed = (globalThis as Record<string, unknown>)[
+          observerMarker
+        ] as {
+          method: string;
+          cookie: string | null;
+          authorization: string | null;
+        };
+
+        expect(response.status).toBe(200);
+        expect(observed.method).toBe("POST");
+        expect(observed.cookie).toBeNull();
+        expect(observed.authorization).toBeNull();
+        expect((globalThis as Record<string, unknown>)[marker]).toBe(
+          "ssr-stream",
+        );
+        await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-ssr-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+        Reflect.deleteProperty(
+          globalThis as Record<string, unknown>,
+          observerMarker,
+        );
+      }
+    }, 60_000);
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
       const dir = makeTempDir();
@@ -1998,6 +2624,13 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     const dir = makeTempDir();
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "workspace-calendar", path: "/recordings" },
+        { id: "workspace-calendar", path: "/clips" },
+      ]),
+    );
     fs.writeFileSync(
       configPath,
       `import { defineAppConfig } from "@agent-native/core/server";
@@ -2016,7 +2649,114 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       '"appId":"calendar\\u003c/script\\u003e\\u0026\\u2028"',
     );
     expect(html).toContain('"workspaceAppId":"workspace-calendar"');
+    expect(html).toContain('"workspaceAppPath":"/recordings"');
+    expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
     expect(html).toContain('"workspaceRuntime":true');
+  });
+
+  it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/dispatch" }]),
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppMountPaths":["/dispatch"]');
+    expect(html).not.toContain('"workspaceAppPath"');
+  });
+
+  it("does not select an idless root mount in the worker shell config", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/" }]),
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceRuntime":true');
+    expect(html).not.toContain('"workspaceAppPath"');
+  });
+
+  it("projects the configured current mount when the worker manifest only lists siblings", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "mount-config.mjs");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch/");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch/");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "diagrams", path: "/diagrams" }]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { workspaceId: "dispatch" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/dispatch"');
+    expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+  });
+
+  it("does not project a root mount without explicit workspace mount metadata", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).not.toContain('"workspaceAppPath"');
+    expect(html).toContain('"workspaceRuntime":true');
+  });
+
+  it("projects an explicit root workspace mount into the worker shell config", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "root-mount-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "root-app", path: "/" },
+        { id: "diagrams", path: "/diagrams" },
+      ]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({ app: { workspaceId: "root-app" } });\n`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/"');
+    expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
@@ -2167,6 +2907,22 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
   });
 
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request(
+        `https://app.test/private-json.data${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      ),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cdn-cache-control")).toBeNull();
+    expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+  });
+
   it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -2197,7 +2953,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
 
     const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      `const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}"};`,
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
     );
 
     const worker = await importGeneratedWorker(source);
@@ -2207,16 +2963,63 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       {},
     );
 
-    expect(response.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
 
-    const recoveryUrl = new URL("https://app.test/docs/inbox");
-    recoveryUrl.searchParams.set(
+    const legacyRecoveryUrl = new URL("https://app.test/docs/inbox");
+    legacyRecoveryUrl.searchParams.set(
       CHUNK_RECOVERY_QUERY_PARAM,
       CHUNK_RECOVERY_QUERY_VALUE,
     );
+    legacyRecoveryUrl.searchParams.set("tab", "one");
+    const legacyRecovery = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(legacyRecovery.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyRecovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyRecovery.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
+    expect(legacyRecovery.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    legacyRecoveryUrl.searchParams.set("tab", "two");
+    const legacyRecoveryWithDifferentTab = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(legacyRecoveryWithDifferentTab.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    const arbitraryRecoveryUrl = new URL("https://app.test/docs/inbox");
+    arbitraryRecoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      "arbitrary",
+    );
+    const arbitraryRecovery = await worker.fetch(
+      new Request(arbitraryRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(arbitraryRecovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryRecovery.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    const recoveryUrl = new URL(
+      `https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}/`,
+    );
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    recoveryUrl.searchParams.set("tab", "unread");
     const recovery = await worker.fetch(
       new Request(recoveryUrl),
       { APP_BASE_PATH: "/docs" },
@@ -2224,17 +3027,12 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(recovery.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(recovery.headers.get("cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(await recovery.clone().text()).toContain("GET /inbox/</body>");
 
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
     const arbitrary = await worker.fetch(
@@ -2244,10 +3042,62 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(arbitrary.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(arbitrary.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    expect(arbitrary.headers.get("netlify-vary")).toBe("query=_routes|index");
+  }, 60_000);
+
+  it("normalizes the recovery path before serving the generated static shell", async () => {
+    const source = generateWorkerEntry([], [], [], [], null, [], "", {
+      includeReactRouterSsr: false,
+    });
+    const worker = await importGeneratedWorker(source);
+    const requestedPaths: string[] = [];
+    const response = await worker.fetch(
+      new Request(`https://app.test/docs${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      {
+        APP_BASE_PATH: "/docs",
+        ASSETS: {
+          fetch: async (request: Request) => {
+            requestedPaths.push(new URL(request.url).pathname);
+            if (new URL(request.url).pathname === "/index.html") {
+              return new Response(
+                "<html><head></head><body>shell</body></html>",
+                {
+                  headers: { "content-type": "text/html; charset=utf-8" },
+                },
+              );
+            }
+            return new Response("missing", { status: 404 });
+          },
+        },
+      },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("data-agent-native-auth-redirect");
+    expect(response.headers.get("speculation-rules")).toBe(
+      '"/docs/_agent-native/speculation-rules.json"',
+    );
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(requestedPaths).toEqual([
+      `/docs${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      "/index.html",
+    ]);
+  });
+
+  it("emits recovery matching for React Router data suffixes", () => {
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith("/_.data")');
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith(".data")');
+    expect(source).toContain(
+      "const { routePath } = splitReactRouterDataPathname(pathname)",
     );
   });
 
@@ -2270,7 +3120,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
-  it("preserves full-query variation for query-sensitive recovery responses", async () => {
+  it("revalidates query-sensitive recovery-path responses in browsers", async () => {
     vi.stubEnv("NETLIFY", "true");
     const source = generateWorkerEntry([], []);
     const worker = await importGeneratedWorker(source, {
@@ -2278,16 +3128,19 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
         [SSR_QUERY_CACHE_KEY_HEADER]: "query",
       },
     });
-    const recoveryUrl = new URL("https://app.test/redirect");
-    recoveryUrl.searchParams.set("from", "home");
-    recoveryUrl.searchParams.set(
-      CHUNK_RECOVERY_QUERY_PARAM,
-      CHUNK_RECOVERY_QUERY_VALUE,
+    const recoveryUrl = new URL(
+      `https://app.test/redirect${CHUNK_RECOVERY_PATH_SUFFIX}`,
     );
+    recoveryUrl.searchParams.set("from", "home");
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
 
     const response = await worker.fetch(new Request(recoveryUrl), {}, {});
 
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
@@ -2312,6 +3165,16 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       expect(response.headers.get(name)).toBe(value);
     }
     expect(response.headers.get("set-cookie")).toBeNull();
+
+    const recoveryResponse = await worker.fetch(
+      new Request(`https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(recoveryResponse.headers.get(name)).toBe(value);
+    }
   });
 
   it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
@@ -2851,13 +3714,22 @@ export default {
     const response = await worker.fetch(
       new Request("https://app.test/_agent-native/actions/ping", {
         method: "OPTIONS",
+        headers: {
+          origin: "https://content-ui.example.test",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "content-type,x-content-save-origin",
+        },
       }),
       {},
       {},
     );
 
     expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
+    expect(allowHeaders).toContain("X-Content-Save-Origin");
     expect(allowHeaders).toContain("X-Agent-Native-Frontend");
     expect(allowHeaders).toContain("X-Agent-Native-Client-Compatibility");
     expect(allowHeaders).toContain("X-Agent-Native-Build-Id");

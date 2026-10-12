@@ -125,6 +125,7 @@ export interface PromptComposerProps {
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
   disabled?: boolean;
+  isReferenceTarget?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
   /** Require the Agent-Native readiness check for this agent chat composer. */
@@ -626,6 +627,7 @@ function PromptComposerInner({
   placeholder,
   ariaLabel,
   disabled,
+  isReferenceTarget,
   submissionDisabled,
   showMissingApiKeySetup = true,
   sendButtonDisabled,
@@ -964,6 +966,7 @@ function PromptComposerInner({
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={composerDisabled}
+          isReferenceTarget={isReferenceTarget}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
           sendButtonDisabled={sendButtonDisabled || providerCheckPending}
@@ -1084,6 +1087,7 @@ function PromptComposerRuntime(props: PromptComposerProps) {
           <StaleIndexBoundary
             resetKey={resetKey}
             componentName="PromptComposer"
+            remountOnResetKey={false}
           >
             <PromptComposerInner {...props} />
           </StaleIndexBoundary>

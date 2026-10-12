@@ -1168,17 +1168,27 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
         {
           id: "rotated",
           type: "RECTANGLE",
-          rotation: -0.2967059779820105, // -17deg, in radians
+          rotation: (-17 * Math.PI) / 180,
           size: { x: 190, y: 138 },
           relativeTransform: [
-            [0.9563047885894775, 0.2923717200756073, 280],
-            [-0.2923717200756073, 0.9563047885894775, 54],
+            [
+              Math.cos((17 * Math.PI) / 180),
+              Math.sin((17 * Math.PI) / 180),
+              280,
+            ],
+            [
+              -Math.sin((17 * Math.PI) / 180),
+              Math.cos((17 * Math.PI) / 180),
+              54,
+            ],
           ],
           absoluteBoundingBox: box(
-            344,
-            366.4493731856346,
-            222.04520720243454,
-            187.5206876397133,
+            280,
+            54 - 190 * Math.sin((17 * Math.PI) / 180),
+            190 * Math.cos((17 * Math.PI) / 180) +
+              138 * Math.sin((17 * Math.PI) / 180),
+            190 * Math.sin((17 * Math.PI) / 180) +
+              138 * Math.cos((17 * Math.PI) / 180),
           ),
         },
       ],
@@ -1206,17 +1216,17 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
         {
           id: "parent",
           type: "FRAME",
-          rotation: -0.26179940325453416,
+          rotation: -Math.PI / 12,
           size: { x: 120, y: 80 },
           relativeTransform: [
-            [0.9659258723258972, 0.2588190734386444, 240],
-            [-0.2588190734386444, 0.9659258723258972, 30],
+            [Math.cos(Math.PI / 12), Math.sin(Math.PI / 12), 240],
+            [-Math.sin(Math.PI / 12), Math.cos(Math.PI / 12), 30],
           ],
           absoluteBoundingBox: box(
             4890,
-            -1.058288812637329,
-            136.61663055419922,
-            108.3323585987091,
+            30 - 120 * Math.sin(Math.PI / 12),
+            120 * Math.cos(Math.PI / 12) + 80 * Math.sin(Math.PI / 12),
+            120 * Math.sin(Math.PI / 12) + 80 * Math.cos(Math.PI / 12),
           ),
           children: [
             {
@@ -1228,10 +1238,12 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
                 [0, 1, 20],
               ],
               absoluteBoundingBox: box(
-                4914.4951171875,
-                28.61299022648211,
-                65.7201292147447,
-                44.50692524812678,
+                4890 +
+                  20 * Math.cos(Math.PI / 12) +
+                  20 * Math.sin(Math.PI / 12),
+                30 + 20 * Math.cos(Math.PI / 12) - 80 * Math.sin(Math.PI / 12),
+                60 * Math.cos(Math.PI / 12) + 30 * Math.sin(Math.PI / 12),
+                60 * Math.sin(Math.PI / 12) + 30 * Math.cos(Math.PI / 12),
               ),
             },
           ],
@@ -1257,12 +1269,12 @@ describe("mapFigmaNodeToHtml - rotation and rotated-parent geometry", () => {
         {
           id: "aabbOnly",
           type: "FRAME",
-          rotation: -0.26179940325453416,
+          rotation: -Math.PI / 12,
           absoluteBoundingBox: box(
             100,
             0,
-            136.61663055419922,
-            108.3323585987091,
+            120 * Math.cos(Math.PI / 12) + 80 * Math.sin(Math.PI / 12),
+            120 * Math.sin(Math.PI / 12) + 80 * Math.cos(Math.PI / 12),
           ),
           children: [],
         },

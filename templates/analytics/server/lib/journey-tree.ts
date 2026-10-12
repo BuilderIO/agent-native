@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * Prefix tree over sessions' step sequences, with deterministic example
  * sessions per node. Pure: recordings arrive already read, so the same input
@@ -70,7 +72,11 @@ export interface JourneyExample {
 export interface JourneyNode {
   /** Unique path id: the step keys from the first step to this node, joined with " > ". */
   key: string;
+  /** True when the serialized key ends in a stable hash of its full value. */
+  keyTruncated?: boolean;
   label: string;
+  /** True when the displayed label ends in a stable hash of its full value. */
+  labelTruncated?: boolean;
   /** Null for first steps. */
   parentKey: string | null;
   /** 1 for first steps. */
@@ -90,6 +96,46 @@ export interface JourneyNode {
   /** Sessions with a later observed step that is not represented as a child. */
   deeperN: number;
   examples: JourneyExample[];
+  /** Original direct children represented by an `other` aggregate. */
+  otherBranchCount?: number;
+  /** True when the bounded summary omits one or more original branches. */
+  otherBranchSummariesPartial?: true;
+  otherBranches?: Array<{
+    /** Human-readable path; oversized segments end in an identity hash. */
+    path: string[];
+    /** True when any displayed path segment ends in a stable hash. */
+    pathTruncated?: boolean;
+    /** Full path key, kept for legacy-compatible branch identity. */
+    key: string;
+    /** True when the path key ends in a stable hash of its full value. */
+    keyTruncated?: boolean;
+    /** Last source step key, kept separate from the path key for display. */
+    sourceStepKey?: string;
+    /** True when the source step key ends in a stable hash of its full value. */
+    sourceStepKeyTruncated?: boolean;
+    n: number;
+    pctOfParent: number;
+  }>;
+}
+
+export const MAX_OTHER_BRANCH_SUMMARIES = 20;
+export const MAX_OTHER_BRANCH_SUMMARIES_PER_TREE = 200;
+export const MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE = 64 * 1024;
+export const MAX_JOURNEY_LABEL_CHARS = 300;
+export const MAX_JOURNEY_KEY_CHARS = 2_048;
+const JOURNEY_TRUNCATION_HASH_CHARS = 16;
+
+function boundedJourneyText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return { value, truncated: false };
+
+  const hash = createHash("sha256")
+    .update(value)
+    .digest("hex")
+    .slice(0, JOURNEY_TRUNCATION_HASH_CHARS);
+  const suffix = `…#${hash}`;
+  let prefix = value.slice(0, maxLength - suffix.length);
+  if (/[\uD800-\uDBFF]$/.test(prefix)) prefix = prefix.slice(0, -1);
+  return { value: `${prefix}${suffix}`, truncated: true };
 }
 
 // Clock skew and recorder start-up mean a step can land just outside the
@@ -340,7 +386,99 @@ export function buildJourneyTree(
   }
 
   const nodes: JourneyNode[] = [];
-  const emitChildren = (parent: TrieNode) => {
+  const utf8Encoder = new TextEncoder();
+  let otherBranchSummaryCount = 0;
+  let otherBranchSummaryBytes = 0;
+  let otherBranchSummaryBudgetExhausted = false;
+  const otherGroups: Array<{
+    parent: TrieNode;
+    parentPath: string[];
+    merged: TrieNode[];
+    aggregateN: number;
+  }> = [];
+  const collectOtherGroups = (parent: TrieNode, parentPath: string[]) => {
+    const ordered = [...parent.children.values()].sort(
+      (a, b) => b.n - a.n || compareKeys(a.stepKey, b.stepKey),
+    );
+    const merged = ordered.filter((node) => node.n < options.minNodeSessions);
+    if (merged.length) {
+      otherGroups.push({
+        parent,
+        parentPath,
+        merged,
+        aggregateN: merged.reduce((sum, branch) => sum + branch.n, 0),
+      });
+    }
+    for (const node of ordered) {
+      if (node.n < options.minNodeSessions) continue;
+      collectOtherGroups(node, [...parentPath, node.label]);
+    }
+  };
+  collectOtherGroups(root, []);
+
+  const otherSummariesByParent = new Map<
+    TrieNode,
+    NonNullable<JourneyNode["otherBranches"]>
+  >();
+  otherGroups.sort(
+    (a, b) =>
+      a.parent.depth - b.parent.depth ||
+      b.aggregateN - a.aggregateN ||
+      b.merged.length - a.merged.length ||
+      compareKeys(a.parent.key, b.parent.key),
+  );
+  for (const { parent, parentPath, merged } of otherGroups) {
+    const otherBranches: NonNullable<JourneyNode["otherBranches"]> = [];
+    for (const branch of merged) {
+      if (
+        otherBranches.length >= MAX_OTHER_BRANCH_SUMMARIES ||
+        otherBranchSummaryBudgetExhausted
+      ) {
+        break;
+      }
+      if (otherBranchSummaryCount >= MAX_OTHER_BRANCH_SUMMARIES_PER_TREE) {
+        otherBranchSummaryBudgetExhausted = true;
+        break;
+      }
+      const path = [...parentPath, branch.label].map((label) =>
+        boundedJourneyText(label, MAX_JOURNEY_LABEL_CHARS),
+      );
+      const key = boundedJourneyText(branch.key, MAX_JOURNEY_KEY_CHARS);
+      const sourceStepKey = boundedJourneyText(
+        branch.stepKey,
+        MAX_JOURNEY_KEY_CHARS,
+      );
+      const summary = {
+        path: path.map((segment) => segment.value),
+        ...(path.some((segment) => segment.truncated)
+          ? { pathTruncated: true }
+          : {}),
+        key: key.value,
+        ...(key.truncated ? { keyTruncated: true } : {}),
+        sourceStepKey: sourceStepKey.value,
+        ...(sourceStepKey.truncated ? { sourceStepKeyTruncated: true } : {}),
+        n: branch.n,
+        pctOfParent: pct(branch.n, parent.n),
+      };
+      const summaryBytes = utf8Encoder.encode(
+        JSON.stringify(summary),
+      ).byteLength;
+      const arrayOverheadBytes = otherBranches.length === 0 ? 2 : 1;
+      if (
+        otherBranchSummaryBytes + summaryBytes + arrayOverheadBytes >
+        MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE
+      ) {
+        otherBranchSummaryBudgetExhausted = true;
+        break;
+      }
+      otherBranches.push(summary);
+      otherBranchSummaryCount += 1;
+      otherBranchSummaryBytes += summaryBytes + arrayOverheadBytes;
+    }
+    otherSummariesByParent.set(parent, otherBranches);
+  }
+
+  const emitChildren = (parent: TrieNode, parentPath: string[]) => {
     const ordered = [...parent.children.values()].sort(
       (a, b) => b.n - a.n || compareKeys(a.stepKey, b.stepKey),
     );
@@ -361,12 +499,14 @@ export function buildJourneyTree(
         deeperN: 0,
         examples: pickExamples(node.refs, recordings, options),
       });
-      emitChildren(node);
+      emitChildren(node, [...parentPath, node.label]);
     }
     const merged = ordered.filter((node) => node.n < options.minNodeSessions);
     if (merged.length) {
       const n = merged.reduce((sum, node) => sum + node.n, 0);
       const dropoffN = merged.reduce((sum, node) => sum + subtreeEnds(node), 0);
+      const otherBranches = otherSummariesByParent.get(parent) ?? [];
+      const branchSummariesPartial = otherBranches.length < merged.length;
       nodes.push({
         key: `${parent.key} > other`,
         label: `Other (${merged.length} ${merged.length === 1 ? "branch" : "branches"})`,
@@ -380,11 +520,31 @@ export function buildJourneyTree(
         dropoffPct: pct(dropoffN, n),
         deeperN: 0,
         examples: [],
+        otherBranchCount: merged.length,
+        ...(otherBranches.length ? { otherBranches } : {}),
+        ...(branchSummariesPartial
+          ? { otherBranchSummariesPartial: true }
+          : {}),
       });
     }
   };
-  emitChildren(root);
-  return { rootN: root.n, nodes: addDeeperCounts(nodes) };
+  emitChildren(root, []);
+  const boundedNodes = nodes.map((node) => {
+    const key = boundedJourneyText(node.key, MAX_JOURNEY_KEY_CHARS);
+    const label = boundedJourneyText(node.label, MAX_JOURNEY_LABEL_CHARS);
+    const parentKey = node.parentKey
+      ? boundedJourneyText(node.parentKey, MAX_JOURNEY_KEY_CHARS)
+      : null;
+    return {
+      ...node,
+      key: key.value,
+      ...(key.truncated ? { keyTruncated: true } : {}),
+      label: label.value,
+      ...(label.truncated ? { labelTruncated: true } : {}),
+      parentKey: parentKey?.value ?? null,
+    };
+  });
+  return { rootN: root.n, nodes: addDeeperCounts(boundedNodes) };
 }
 
 /** Counts continuation that the returned children do not represent. */

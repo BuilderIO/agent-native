@@ -3,12 +3,15 @@ import {
   isActionContractError,
   type ActionRunContext,
 } from "@agent-native/core/action";
+import { getPrivateStorageReadinessForRequest } from "@agent-native/core/file-upload";
+import { resolveActiveOrgIdForStorageCredential } from "@agent-native/core/org";
 import {
   deleteAttachment,
   mintAttachmentRef,
 } from "@agent-native/core/private-blob";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -17,6 +20,9 @@ import {
 } from "h3";
 
 import addSessionReplayScreenshotsToBoard from "../../../actions/add-session-replay-screenshots-to-board.js";
+import createDesign from "../../../actions/create-design.js";
+import deleteDesign from "../../../actions/delete-design.js";
+import { getDb, schema } from "../../db/index.js";
 import { pngDimensions } from "../../lib/png-dimensions.js";
 
 const MAX_SCREENSHOTS = 9;
@@ -47,8 +53,201 @@ type Manifest = {
   screenshots: ReplayScreenshot[];
 };
 
+type CreatedDesignShell = {
+  title: string;
+  description: string | null;
+  data: string;
+  dataOperationRevisions: string;
+  liveCollaborationEnabled: boolean;
+  projectType: string;
+  designSystemId: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: string;
+};
+
 function badRequest(message: string, statusCode = 400): never {
   throw createError({ statusCode, statusMessage: message });
+}
+
+function requestDeadlineError() {
+  return createError({
+    statusCode: 504,
+    statusMessage: "Design screenshot upload request expired",
+    data: { errorCode: "request_deadline_exceeded" },
+  });
+}
+
+function throwIfRequestExpired(signal?: AbortSignal): void {
+  if (signal?.aborted) throw requestDeadlineError();
+}
+
+function beforeRequestExpiry<T>(
+  signal: AbortSignal | undefined,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  if (!signal) return Promise.resolve().then(operation);
+  throwIfRequestExpired(signal);
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(requestDeadlineError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    void Promise.resolve()
+      .then(operation)
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+function hasUnknownSaveOutcome(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const failure = error as {
+    data?: unknown;
+    details?: unknown;
+    saveOutcomeUnknown?: unknown;
+  };
+  const data =
+    failure.data && typeof failure.data === "object"
+      ? (failure.data as Record<string, unknown>)
+      : undefined;
+  const details =
+    failure.details && typeof failure.details === "object"
+      ? (failure.details as Record<string, unknown>)
+      : undefined;
+  const dataDetails =
+    data?.details && typeof data.details === "object"
+      ? (data.details as Record<string, unknown>)
+      : undefined;
+  return (
+    failure.saveOutcomeUnknown === true ||
+    details?.saveOutcomeUnknown === true ||
+    data?.saveOutcomeUnknown === true ||
+    dataDetails?.saveOutcomeUnknown === true
+  );
+}
+
+async function cleanupCreatedDesign(
+  designId: string,
+  userEmail: string,
+  expectedCreatedShell: CreatedDesignShell,
+): Promise<{ cleanupPending: true; cleanupUnknown?: true } | null> {
+  let deleteOutcome: "confirmed" | "rejected" | "unknown" = "unknown";
+  try {
+    const result = await deleteDesign.run(
+      { id: designId, expectedCreatedShell },
+      {
+        caller: "frontend",
+        actionName: "delete-design",
+        userEmail,
+        orgId: null,
+      } satisfies ActionRunContext,
+    );
+    deleteOutcome = result?.deleted === true ? "confirmed" : "rejected";
+  } catch (error) {
+    deleteOutcome =
+      isActionContractError(error) && error.statusCode < 500
+        ? "rejected"
+        : "unknown";
+  }
+
+  try {
+    const [remainingDesign] = await getDb()
+      .select({ id: schema.designs.id })
+      .from(schema.designs)
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          eq(schema.designs.ownerEmail, userEmail),
+          isNull(schema.designs.orgId),
+          eq(schema.designs.visibility, "private"),
+        ),
+      )
+      .limit(1);
+    if (remainingDesign) {
+      return {
+        cleanupPending: true,
+        ...(deleteOutcome !== "rejected"
+          ? { cleanupUnknown: true as const }
+          : {}),
+      };
+    }
+    return deleteOutcome === "confirmed"
+      ? null
+      : { cleanupPending: true, cleanupUnknown: true };
+  } catch (error) {
+    return { cleanupPending: true, cleanupUnknown: true };
+  }
+}
+
+function includeCleanupState(
+  error: unknown,
+  cleanupState: { cleanupPending: true; cleanupUnknown?: true },
+) {
+  const failure =
+    error && typeof error === "object"
+      ? (error as {
+          data?: unknown;
+          message?: unknown;
+          statusCode?: unknown;
+          statusMessage?: unknown;
+        })
+      : {};
+  const statusCode =
+    typeof failure.statusCode === "number" ? failure.statusCode : 500;
+  const existingData =
+    failure.data && typeof failure.data === "object"
+      ? (failure.data as Record<string, unknown>)
+      : {};
+  return createError({
+    statusCode,
+    statusMessage:
+      typeof failure.statusMessage === "string"
+        ? failure.statusMessage
+        : statusCode < 500 && typeof failure.message === "string"
+          ? failure.message
+          : "Design screenshot upload failed",
+    data: { ...existingData, ...cleanupState },
+    cause: error,
+  });
+}
+
+async function assertPersonalPrivateDesignBoard(
+  designId: string,
+  userEmail: string,
+): Promise<void> {
+  const access = await assertAccess("design", designId, "editor", undefined, {
+    skipResourceBody: true,
+  });
+  const resource = access.resource as {
+    ownerEmail?: unknown;
+    orgId?: unknown;
+    visibility?: unknown;
+  };
+  if (
+    typeof resource.ownerEmail !== "string" ||
+    resource.ownerEmail.trim().toLowerCase() !==
+      userEmail.trim().toLowerCase() ||
+    resource.orgId != null ||
+    resource.visibility !== "private"
+  ) {
+    badRequest("A private personal Design board is required", 403);
+  }
+
+  const shares = await getDb()
+    .select({ resourceId: schema.designShares.resourceId })
+    .from(schema.designShares)
+    .where(eq(schema.designShares.resourceId, designId))
+    .limit(1);
+  if (shares.length > 0) {
+    badRequest("A private personal Design board is required", 403);
+  }
 }
 
 async function readBoundedMultipartFormData(
@@ -235,12 +434,16 @@ function parseManifest(value: unknown): Manifest {
 }
 
 export default defineEventHandler(async (event) => {
+  const requestSignal = event.req?.signal;
   const authorization = getHeader(event, "authorization") ?? "";
   const token = /^Bearer\s+(.+)$/i.exec(authorization)?.[1];
   if (!token) badRequest("A signed Analytics user is required", 401);
 
   const caller = await verifyA2AToken(token, event);
   if (!caller.email) badRequest("A signed Analytics user is required", 401);
+  if (caller.orgId?.trim() || caller.orgDomain?.trim()) {
+    badRequest("Storyboard uploads require a personal Design identity", 403);
+  }
 
   const parts = await readBoundedMultipartFormData(event);
   if (!parts) badRequest("Screenshot export payload is missing");
@@ -298,15 +501,130 @@ export default defineEventHandler(async (event) => {
     return data;
   });
 
-  return runWithRequestContext(
+  let createdDesignId: string | undefined;
+  let createdDesignShell: CreatedDesignShell | undefined;
+  const request = runWithRequestContext(
     {
       userEmail: caller.email,
-      ...(caller.orgId ? { orgId: caller.orgId } : {}),
+      orgId: undefined,
+      orgScope: "personal",
     },
     async () => {
-      if (manifest.designId) {
-        await assertAccess("design", manifest.designId, "editor");
+      let storageCredentialOrgId: string | null;
+      try {
+        storageCredentialOrgId = await beforeRequestExpiry(requestSignal, () =>
+          resolveActiveOrgIdForStorageCredential(caller.email!),
+        );
+      } catch {
+        if (requestSignal?.aborted) throw requestDeadlineError();
+        badRequest("Design private screenshot storage is unavailable", 503);
       }
+      throwIfRequestExpired(requestSignal);
+      const withStorageCredentialOrg = <T>(operation: () => T | Promise<T>) =>
+        runWithRequestContext(
+          {
+            userEmail: caller.email!,
+            orgId: undefined,
+            orgScope: "personal",
+            builderStorageCredentialOrgId: storageCredentialOrgId,
+          },
+          operation,
+        );
+
+      const storageReadiness = await beforeRequestExpiry(requestSignal, () =>
+        withStorageCredentialOrg(getPrivateStorageReadinessForRequest),
+      );
+      throwIfRequestExpired(requestSignal);
+      if (storageReadiness.readiness !== "ready") {
+        throw createError({
+          statusCode: 503,
+          statusMessage: "Design private screenshot storage is unavailable",
+          data: { errorCode: "private_storage_unavailable" },
+        });
+      }
+
+      let designId = manifest.designId;
+      if (!designId) {
+        throwIfRequestExpired(requestSignal);
+        const created = await createDesign.run(
+          {
+            title: manifest.title ?? "Session replay storyboard",
+            description: "Private session replay storyboard from Analytics.",
+            projectType: "prototype",
+            designSystemId: null,
+          },
+          {
+            caller: "frontend",
+            actionName: "create-design",
+            userEmail: caller.email!,
+            orgId: null,
+          } satisfies ActionRunContext,
+        );
+        createdDesignId =
+          typeof created.id === "string" && created.id.length > 0
+            ? created.id
+            : undefined;
+        designId = createdDesignId?.trim();
+        if (
+          !designId ||
+          designId.length > 128 ||
+          designId !== createdDesignId
+        ) {
+          badRequest("Design did not confirm a private storyboard", 502);
+        }
+        const [createdShell] = await getDb()
+          .select({
+            title: schema.designs.title,
+            description: schema.designs.description,
+            data: schema.designs.data,
+            dataOperationRevisions: schema.designs.dataOperationRevisions,
+            liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
+            projectType: schema.designs.projectType,
+            designSystemId: schema.designs.designSystemId,
+            createdAt: schema.designs.createdAt,
+            updatedAt: schema.designs.updatedAt,
+            ownerEmail: schema.designs.ownerEmail,
+            orgId: schema.designs.orgId,
+            visibility: schema.designs.visibility,
+          })
+          .from(schema.designs)
+          .where(
+            and(
+              eq(schema.designs.id, designId),
+              eq(schema.designs.ownerEmail, caller.email!),
+              isNull(schema.designs.orgId),
+              eq(schema.designs.visibility, "private"),
+            ),
+          )
+          .limit(1);
+        if (
+          !createdShell ||
+          createdShell.title !==
+            (manifest.title ?? "Session replay storyboard") ||
+          createdShell.description !==
+            "Private session replay storyboard from Analytics." ||
+          createdShell.data !== "{}" ||
+          createdShell.dataOperationRevisions !== "{}" ||
+          createdShell.liveCollaborationEnabled !== false ||
+          createdShell.projectType !== "prototype" ||
+          createdShell.designSystemId !== null ||
+          !createdShell.createdAt ||
+          createdShell.updatedAt !== createdShell.createdAt ||
+          createdShell.ownerEmail.trim().toLowerCase() !==
+            caller.email!.trim().toLowerCase() ||
+          createdShell.orgId !== null ||
+          createdShell.visibility !== "private"
+        ) {
+          badRequest(
+            "Design did not confirm an unchanged private storyboard",
+            502,
+          );
+        }
+        createdDesignShell = createdShell;
+      }
+      throwIfRequestExpired(requestSignal);
+      await assertPersonalPrivateDesignBoard(designId, caller.email!);
+      throwIfRequestExpired(requestSignal);
 
       const refs: string[] = [];
       let cleanupPending = false;
@@ -323,47 +641,64 @@ export default defineEventHandler(async (event) => {
       let actionFailed = false;
       let actionFailure: unknown;
       try {
-        const screenshots = [];
-        for (let index = 0; index < manifest.screenshots.length; index += 1) {
-          const screenshot = manifest.screenshots[index]!;
-          const minted = await mintAttachmentRef({
-            data: screenshotBytes[index]!,
-            filename: `${screenshot.replayId}-${String(screenshot.offsetMs).padStart(8, "0")}.png`,
-            mimeType: "image/png",
-            ownerEmail: caller.email!,
-            orgId: null,
-            metadata: {
-              appId: "analytics",
-              resourceType: "session-replay-screenshot-handoff",
-              resourceId: screenshot.replayId,
-              replayId: screenshot.replayId,
-              offsetMs: screenshot.offsetMs,
-            },
-          });
-          if (minted.status !== "ok") {
-            badRequest("Design private screenshot storage is unavailable", 503);
+        const screenshots: Array<ReplayScreenshot & { attachmentRef: string }> =
+          [];
+        await withStorageCredentialOrg(async () => {
+          for (let index = 0; index < manifest.screenshots.length; index += 1) {
+            throwIfRequestExpired(requestSignal);
+            const screenshot = manifest.screenshots[index]!;
+            const minted = await mintAttachmentRef({
+              data: screenshotBytes[index]!,
+              filename: `${screenshot.replayId}-${String(screenshot.offsetMs).padStart(8, "0")}.png`,
+              mimeType: "image/png",
+              ownerEmail: caller.email!,
+              orgId: null,
+              metadata: {
+                appId: "analytics",
+                resourceType: "session-replay-screenshot-handoff",
+                resourceId: screenshot.replayId,
+                replayId: screenshot.replayId,
+                offsetMs: screenshot.offsetMs,
+              },
+            });
+            if (minted.status === "ok") {
+              refs.push(minted.ref);
+              screenshots.push({ ...screenshot, attachmentRef: minted.ref });
+            }
+            throwIfRequestExpired(requestSignal);
+            if (minted.status !== "ok") {
+              badRequest(
+                "Design private screenshot storage is unavailable",
+                503,
+              );
+            }
           }
-          refs.push(minted.ref);
-          screenshots.push({ ...screenshot, attachmentRef: minted.ref });
-        }
+        });
 
-        const result = await addSessionReplayScreenshotsToBoard.run(
-          {
-            ...(manifest.designId ? { designId: manifest.designId } : {}),
-            ...(manifest.title ? { title: manifest.title } : {}),
-            cohortTotal: manifest.cohortTotal,
-            selectedReplayCount: manifest.selectedReplayCount,
-            screenshots,
-          },
-          {
-            caller: "frontend",
-            actionName: "add-session-replay-screenshots-to-board",
-            userEmail: caller.email!,
-            orgId: caller.orgId ?? null,
-          } satisfies ActionRunContext,
+        throwIfRequestExpired(requestSignal);
+        const result = await withStorageCredentialOrg(() =>
+          addSessionReplayScreenshotsToBoard.run(
+            {
+              designId,
+              ...(manifest.title ? { title: manifest.title } : {}),
+              cohortTotal: manifest.cohortTotal,
+              selectedReplayCount: manifest.selectedReplayCount,
+              screenshots,
+            },
+            {
+              caller: "frontend",
+              actionName: "add-session-replay-screenshots-to-board",
+              userEmail: caller.email!,
+              orgId: null,
+            } satisfies ActionRunContext,
+          ),
         );
         if (!result.boardUrl || !result.designId) {
-          badRequest("Design did not confirm a storyboard", 502);
+          throw createError({
+            statusCode: 502,
+            statusMessage: "Design did not confirm a storyboard",
+            data: { saveOutcomeUnknown: true },
+          });
         }
         response = {
           response: `Added ${screenshots.length} session replay screenshots to Design.`,
@@ -379,10 +714,12 @@ export default defineEventHandler(async (event) => {
       } finally {
         for (const ref of refs) {
           try {
-            const deleted = await deleteAttachment(ref, {
-              ownerEmail: caller.email!,
-              orgId: null,
-            });
+            const deleted = await withStorageCredentialOrg(() =>
+              deleteAttachment(ref, {
+                ownerEmail: caller.email!,
+                orgId: null,
+              }),
+            );
             if (deleted.status === "ok" && deleted.deleted) continue;
             cleanupPending = true;
           } catch {
@@ -462,8 +799,39 @@ export default defineEventHandler(async (event) => {
           cause: actionFailure,
         });
       }
-      if (!response) badRequest("Design did not confirm a storyboard", 502);
+      if (!response) {
+        throw createError({
+          statusCode: 502,
+          statusMessage: "Design did not confirm a storyboard",
+          data: { saveOutcomeUnknown: true },
+        });
+      }
       return { ...response, cleanupPending };
     },
   );
+  return Promise.resolve(request).catch(async (error: unknown) => {
+    if (createdDesignId && !hasUnknownSaveOutcome(error)) {
+      if (!createdDesignShell) {
+        throw includeCleanupState(error, {
+          cleanupPending: true,
+          cleanupUnknown: true,
+        });
+      }
+      const cleanupState = await runWithRequestContext(
+        {
+          userEmail: caller.email!,
+          orgId: undefined,
+          orgScope: "personal",
+        },
+        () =>
+          cleanupCreatedDesign(
+            createdDesignId!,
+            caller.email!,
+            createdDesignShell!,
+          ),
+      );
+      if (cleanupState) throw includeCleanupState(error, cleanupState);
+    }
+    throw error;
+  });
 });

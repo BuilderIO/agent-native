@@ -74,6 +74,7 @@ export interface SaveFileContentArgs {
     content: string,
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
+    deferCollabReconcile?: boolean,
   ) => void;
   /** The server content the file's first unsaved local edit was made from. */
   getPendingBaseContent?: (fileId: string) => string | undefined;
@@ -105,12 +106,14 @@ export interface QueueFileContentSaveArgs {
     content: string,
     baseUpdatedAt?: string | null,
     identityMigrationSourceContent?: string,
+    deferCollabReconcile?: boolean,
   ) => void;
   operationSource: string;
   pendingFileSavesRef: RefObject<Record<string, FileContentSaveRequest>>;
   saveFileContent: (
     pending: FileContentSaveRequest,
     outboxJournalPromise?: Promise<boolean>,
+    onPersistedContent?: (acceptedContent: string) => void,
   ) => Promise<FileContentSaveCompletion | false>;
   setTimer: (callback: () => void, delayMs: number) => number;
   clearTimer: (timerId: number) => void;
@@ -121,6 +124,8 @@ export interface QueueFileContentSaveOptions {
   syncCollab?: boolean;
   immediate?: boolean;
   identityMigrationSourceContent?: string;
+  deferCollabReconcile?: boolean;
+  onPersistedContent?: (acceptedContent: string) => void;
 }
 
 type FileContentSaveKeepaliveAttempt =
@@ -177,6 +182,7 @@ export function runQueueFileContentSave(
       operationRevision,
       expectedVersionHash,
       identityMigrationSourceContent: options.identityMigrationSourceContent,
+      deferCollabReconcile: options.deferCollabReconcile,
     },
     pendingFileSavesRef.current[fileId],
   );
@@ -192,6 +198,7 @@ export function runQueueFileContentSave(
     content,
     undefined,
     options.identityMigrationSourceContent,
+    options.deferCollabReconcile,
   );
   latestFileSaveForUnloadRef.current[fileId] = pending;
 
@@ -208,7 +215,15 @@ export function runQueueFileContentSave(
       delete fileSaveTimersRef.current[fileId];
     }
     delete pendingFileSavesRef.current[fileId];
-    return saveFileContent(pending, outboxJournalPromise);
+    return saveFileContent(
+      pending,
+      outboxJournalPromise,
+      options.onPersistedContent,
+    );
+  }
+
+  if (options.onPersistedContent) {
+    throw new Error("Accepted-content callbacks require an immediate save");
   }
 
   pendingFileSavesRef.current[fileId] = pending;
@@ -318,6 +333,7 @@ export function runSaveFileContent(
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
   outboxJournalPromise?: Promise<boolean>,
+  onPersistedContent?: (acceptedContent: string) => void,
 ): Promise<FileContentSaveCompletion> {
   if (!canEditDesignRef.current) return Promise.resolve("failed");
   markPendingLocalFileContent(
@@ -325,6 +341,7 @@ export function runSaveFileContent(
     pending.content,
     undefined,
     pending.identityMigrationSourceContent,
+    pending.deferCollabReconcile,
   );
   latestFileSaveForUnloadRef.current[pending.id] = pending;
   const queuedOutboxEntry = createFileSaveOutboxEntry(pending);
@@ -380,7 +397,13 @@ export function runSaveFileContent(
     };
     if (latestFileSaveForUnloadRef.current[request.id] === request) {
       latestFileSaveForUnloadRef.current[request.id] = mergedRequest;
-      markPendingLocalFileContent(request.id, merged);
+      markPendingLocalFileContent(
+        request.id,
+        merged,
+        undefined,
+        request.identityMigrationSourceContent,
+        request.deferCollabReconcile,
+      );
       const mergedOutboxEntry = createFileSaveOutboxEntry(mergedRequest);
       if (mergedOutboxEntry) {
         outboxEntryJournaled = await journalOutboxEntry(mergedOutboxEntry);
@@ -516,6 +539,17 @@ export function runSaveFileContent(
           id: `design-save-conflict:${pending.id}`,
           duration: 4000,
         });
+      }
+      if (
+        persistedContentMatches &&
+        onPersistedContent &&
+        latestFileSaveForUnloadRef.current[pending.id] === pending
+      ) {
+        try {
+          onPersistedContent(pending.content);
+        } catch (error) {
+          console.error("Accepted source publication callback failed", error);
+        }
       }
       if (
         shouldClearLatestUnloadSave(

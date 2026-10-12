@@ -1,13 +1,86 @@
 export class ReplayScreenshotAssetError extends Error {
-  constructor() {
+  constructor(
+    readonly reason:
+      | "unsupportedAsset"
+      | "fontReadiness"
+      | "cloneDocument"
+      | "duplicateCloneMarker"
+      | "cloneRoot"
+      | "cloneElement"
+      | "cloneStageFrame"
+      | "clonePseudoElement" = "unsupportedAsset",
+  ) {
     super("Replay contains media or images that cannot be captured safely");
     this.name = "ReplayScreenshotAssetError";
   }
 }
 
+export class ReplayScreenshotCaptureError extends Error {
+  constructor(
+    readonly reason:
+      | "captureSetup"
+      | "replayRender"
+      | "stageRender"
+      | "pngEncode"
+      | "unsupportedColor"
+      | "unsupportedImageFunction"
+      | "unsupportedTransform"
+      | "rendererCloneWindow"
+      | "rendererCloneElement",
+  ) {
+    super("Replay screenshot capture failed");
+    this.name = "ReplayScreenshotCaptureError";
+  }
+}
+
+function rendererFailureReason(
+  error: unknown,
+  fallback: ReplayScreenshotCaptureError["reason"],
+): ReplayScreenshotCaptureError["reason"] {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+  // Only fixed codes leave this boundary; renderer errors can contain replay asset URLs.
+  if (message.startsWith("Attempting to parse an unsupported color function "))
+    return "unsupportedColor";
+  if (message.startsWith("Attempting to parse an unsupported image function "))
+    return "unsupportedImageFunction";
+  if (
+    message.startsWith("Attempting to parse an unsupported transform function ")
+  )
+    return "unsupportedTransform";
+  if (
+    message === "Unable to find iframe window" ||
+    message === "No window assigned for iframe"
+  )
+    return "rendererCloneWindow";
+  if (
+    message === "Unable to find element in cloned iframe" ||
+    /^Error finding the [A-Z]+ in the cloned document$/.test(message)
+  )
+    return "rendererCloneElement";
+  return fallback;
+}
+
 const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
 const REMOTE_IMAGE_PREFLIGHT_CONCURRENCY = 2;
 const REPLAY_FONT_TIMEOUT_MS = 8_000;
+const MAX_REPLAY_FONT_ELEMENTS = 10_000;
+const MAX_REPLAY_FONT_CODE_POINTS = 100_000;
+const MAX_REPLAY_FONT_LOADS = 128;
+const MAX_REPLAY_FONT_FACES = 10_000;
+const REPLAY_TEXT_INPUT_TYPES = new Set([
+  "email",
+  "number",
+  "password",
+  "search",
+  "tel",
+  "text",
+  "url",
+]);
 const MAX_INLINE_IMAGE_PIXELS = 8_000_000;
 const MAX_TOTAL_IMAGE_PIXELS = 16_000_000;
 const MAX_REPLAY_IMAGE_RESOURCES = 128;
@@ -22,7 +95,7 @@ const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
 
 type ReplayImageResource = { document: Document; url: string };
 type ReplayScreenshotAssets = Map<Document, Map<string, string>>;
-type Html2Canvas = typeof import("html2canvas").default;
+type Html2Canvas = typeof import("html2canvas-pro").default;
 
 function readUint32BE(bytes: Uint8Array, offset: number): number {
   return new DataView(
@@ -265,16 +338,38 @@ async function boundedImageBlob(response: Response): Promise<Blob> {
   });
 }
 
-function renderedChildren(node: Node): Node[] {
+function* renderedChildren(
+  node: Node,
+  maxChildren = Number.POSITIVE_INFINITY,
+  signal?: AbortSignal,
+  deadline?: number,
+): Generator<Node> {
   const source =
     node.nodeType === 1 ? ((node as Element).shadowRoot ?? node) : node;
-  return Array.from(source.childNodes).flatMap((child) => {
+  let yielded = 0;
+  for (let index = 0; index < source.childNodes.length; index += 1) {
+    assertReplayFontScanNotCancelled(signal, deadline);
+    const child = source.childNodes[index]!;
     if (child.nodeType === 1 && (child as Element).localName === "slot") {
       const assigned = (child as HTMLSlotElement).assignedNodes();
-      if (assigned.length > 0) return assigned;
+      if (assigned.length > 0) {
+        if (assigned.length > maxChildren - yielded) {
+          throw new ReplayScreenshotAssetError("fontReadiness");
+        }
+        for (const assignedChild of assigned) {
+          assertReplayFontScanNotCancelled(signal, deadline);
+          yield assignedChild;
+          yielded += 1;
+        }
+        continue;
+      }
     }
-    return [child];
-  });
+    if (yielded >= maxChildren) {
+      throw new ReplayScreenshotAssetError("fontReadiness");
+    }
+    yield child;
+    yielded += 1;
+  }
 }
 
 function renderedElements(document: Document): Element[] {
@@ -340,6 +435,28 @@ function isElementRendered(element: Element, document: Document): boolean {
   }
 
   return true;
+}
+
+function isReplayFontElementInViewport(
+  element: Element,
+  document: Document,
+): boolean {
+  const view = document.defaultView;
+  if (!view || typeof element.getBoundingClientRect !== "function") return true;
+  const bounds = element.getBoundingClientRect();
+  const viewportWidth = view.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight =
+    view.innerHeight || document.documentElement.clientHeight;
+  return !(
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    viewportWidth > 0 &&
+    viewportHeight > 0 &&
+    (bounds.right <= 0 ||
+      bounds.bottom <= 0 ||
+      bounds.left >= viewportWidth ||
+      bounds.top >= viewportHeight)
+  );
 }
 
 function replayDocuments(document: Document): Document[] {
@@ -715,6 +832,7 @@ export function crossOriginImageUrls(document: Document): string[] {
 export async function assertRemoteImagesCapturable(
   document: Document,
   signal?: AbortSignal,
+  credentials: RequestCredentials = "same-origin",
 ): Promise<ReplayScreenshotAssets> {
   const documents = replayDocuments(document);
   const resources = imageResourcesInDocuments(documents);
@@ -753,7 +871,7 @@ export async function assertRemoteImagesCapturable(
           throw new ReplayScreenshotAssetError();
         }
         const response = await fetch(resource.url, {
-          credentials: "same-origin",
+          credentials,
           mode: "cors",
           signal: controller.signal,
         });
@@ -914,7 +1032,7 @@ export function inlineReplayAssets(
   const originalDocuments = [originalDocument];
   const clonedDocuments = markedReplayDocuments(clonedDocument, captureId);
   if (clonedDocuments.length !== 1) {
-    throw new ReplayScreenshotAssetError();
+    throw new ReplayScreenshotAssetError("cloneDocument");
   }
 
   const clonesByMarker = new Map<string, Element>();
@@ -922,7 +1040,9 @@ export function inlineReplayAssets(
     for (const element of renderedElements(cloned)) {
       const marker = element.getAttribute(REPLAY_SCREENSHOT_MARKER);
       if (!marker?.startsWith(`${captureId}-`)) continue;
-      if (clonesByMarker.has(marker)) throw new ReplayScreenshotAssetError();
+      if (clonesByMarker.has(marker)) {
+        throw new ReplayScreenshotAssetError("duplicateCloneMarker");
+      }
       clonesByMarker.set(marker, element);
     }
   }
@@ -948,7 +1068,7 @@ export function inlineReplayAssets(
         rootMarker,
     );
     if (!cloned || rootMarker !== `${captureId}-${documentIndex}-0`) {
-      throw new ReplayScreenshotAssetError();
+      throw new ReplayScreenshotAssetError("cloneRoot");
     }
     const documentAssets = assets.get(original) ?? new Map();
 
@@ -966,7 +1086,7 @@ export function inlineReplayAssets(
           originalElement.tagName !== clonedElement.tagName &&
           !originalElement.localName.includes("-"))
       ) {
-        throw new ReplayScreenshotAssetError();
+        throw new ReplayScreenshotAssetError("cloneElement");
       }
       if (originalElement instanceof view.HTMLIFrameElement) {
         const screenshot = iframeScreenshots.get(originalElement);
@@ -1059,7 +1179,9 @@ export function inlineReplayAssets(
             : "___html2canvas___pseudoelement_after";
         if (!clonedElement.classList.contains(generatedClass)) continue;
         const pseudoElement = pseudoElements[pseudoElementIndex++];
-        if (!pseudoElement) throw new ReplayScreenshotAssetError();
+        if (!pseudoElement) {
+          throw new ReplayScreenshotAssetError("clonePseudoElement");
+        }
         if (
           pseudoStyles.display === "none" ||
           pseudoStyles.visibility === "hidden" ||
@@ -1109,23 +1231,573 @@ export function inlineReplayAssets(
   }
 }
 
-async function assertDocumentFontsReady(document: Document): Promise<void> {
-  const fontSet = document.fonts;
-  if (!fontSet?.ready) return;
+function replayPseudoText(
+  content: string,
+  signal?: AbortSignal,
+  deadline?: number,
+): string | null {
+  if (content.length > MAX_REPLAY_FONT_CODE_POINTS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  if (/\b(?:attr|counter|counters)\s*\(/i.test(content)) return null;
 
-  let timeoutId: number | undefined;
+  const urls = cssImageUrlTokens(content);
+  let text = "";
+  let urlIndex = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    assertReplayFontScanNotCancelled(signal, deadline);
+    const url = urls[urlIndex];
+    if (url?.start === index) {
+      urlIndex += 1;
+      index = url.end - 1;
+      continue;
+    }
+    const char = content[index]!;
+    if (char === "/") break;
+    if (char === "'" || char === '"') {
+      let end = index + 1;
+      let escaped = false;
+      while (end < content.length) {
+        const current = content[end]!;
+        if (escaped) escaped = false;
+        else if (current === "\\") escaped = true;
+        else if (current === char) break;
+        end += 1;
+      }
+      if (end >= content.length)
+        throw new ReplayScreenshotAssetError("fontReadiness");
+      text += decodeCssUrl(content.slice(index + 1, end));
+      index = end;
+    }
+    if (text.length > MAX_REPLAY_FONT_CODE_POINTS) {
+      throw new ReplayScreenshotAssetError("fontReadiness");
+    }
+  }
+  if (
+    /\b(open-quote|close-quote|no-open-quote|no-close-quote)\b/.test(content)
+  ) {
+    text += "“”‘’";
+  }
+  return text;
+}
+
+function replayFontDescriptor(
+  styles: CSSStyleDeclaration,
+  family = styles.fontFamily.trim(),
+): string {
+  const style = styles.fontStyle.trim() || "normal";
+  const weight = styles.fontWeight.trim() || "normal";
+  const size = styles.fontSize.trim();
+  if (!size || !family) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+
+  const supports =
+    typeof CSS === "undefined" ? undefined : CSS.supports.bind(CSS);
+  const core = `${style} ${weight} ${size} ${family}`;
+  if (supports && !supports("font", core)) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+
+  const stretch = styles.fontStretch.trim();
+  const withStretch = `${style} ${weight} ${stretch} ${size} ${family}`;
+  return stretch &&
+    supports?.("font-stretch", stretch) &&
+    supports("font", withStretch)
+    ? withStretch
+    : core;
+}
+
+function replayFontFamilies(
+  value: string,
+  signal?: AbortSignal,
+  deadline?: number,
+): string[] {
+  if (value.length > MAX_REPLAY_FONT_CODE_POINTS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  assertReplayFontScanNotCancelled(signal, deadline);
+  const parts = value.match(
+    /(?:\\[\s\S]|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^,])+/g,
+  );
+  if (!parts || parts.length > MAX_REPLAY_FONT_LOADS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  const families = parts.map((part) => {
+    const trimmed = part.trim();
+    const quoted = /^(['"])([\s\S]*)\1$/.exec(trimmed);
+    const name = quoted?.[2] ?? trimmed;
+    const decoded = decodeCssUrl(name).trim();
+    if (!decoded) throw new ReplayScreenshotAssetError("fontReadiness");
+    return decoded;
+  });
+  if (families.length > MAX_REPLAY_FONT_LOADS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  return families;
+}
+
+function replayFontFamilyKey(family: string): string {
+  return family.trim().toLowerCase();
+}
+
+function replayQuotedFontFamily(family: string): string {
+  const escaped = Array.from(family, (character) => {
+    const codePoint = character.codePointAt(0)!;
+    if (character === "\\" || character === '"') return `\\${character}`;
+    if (codePoint <= 0x1f || codePoint === 0x7f) {
+      return `\\${codePoint.toString(16)} `;
+    }
+    return character;
+  }).join("");
+  return `"${escaped}"`;
+}
+
+function replayFontFaceSample(
+  face: FontFace,
+  signal?: AbortSignal,
+  deadline?: number,
+): string | null {
+  const unicodeRange = face.unicodeRange.trim() || "U+0-10FFFF";
+  if (unicodeRange.length > MAX_REPLAY_FONT_CODE_POINTS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  const tokens = unicodeRange.split(",");
+  if (tokens.length > MAX_REPLAY_FONT_FACES) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  for (const token of tokens) {
+    assertReplayFontScanNotCancelled(signal, deadline);
+    const match = /^U\+([\da-f?]{1,6})(?:-([\da-f]{1,6}))?$/i.exec(
+      token.trim(),
+    );
+    if (!match) throw new ReplayScreenshotAssetError("fontReadiness");
+    const pattern = match[1]!;
+    const wildcard = pattern.indexOf("?");
+    let start: number;
+    let end: number;
+    if (wildcard >= 0) {
+      if (!/^\?+$/.test(pattern.slice(wildcard))) {
+        throw new ReplayScreenshotAssetError("fontReadiness");
+      }
+      start = Number.parseInt(pattern.replace(/\?/g, "0"), 16);
+      end = Number.parseInt(pattern.replace(/\?/g, "F"), 16);
+    } else {
+      start = Number.parseInt(pattern, 16);
+      end = match[2] ? Number.parseInt(match[2], 16) : start;
+    }
+    if (start > end || end > 0x10ffff) {
+      throw new ReplayScreenshotAssetError("fontReadiness");
+    }
+    let sample = Math.max(start, 0x20);
+    if (sample >= 0xd800 && sample <= 0xdfff) sample = 0xe000;
+    if (sample >= 0x7f && sample <= 0x9f) sample = 0xa0;
+    if (sample <= end && sample <= 0x10ffff) {
+      return String.fromCodePoint(sample);
+    }
+  }
+  return null;
+}
+
+function transformReplayFontText(
+  value: string,
+  transform: string,
+  language?: string,
+  signal?: AbortSignal,
+  deadline?: number,
+): string | null {
+  assertReplayFontScanNotCancelled(signal, deadline);
+  if (value.length > MAX_REPLAY_FONT_CODE_POINTS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+
+  if (!transform || transform === "none") return value;
+  const uppercase = (text: string) => {
+    try {
+      return language ? text.toLocaleUpperCase(language) : text.toUpperCase();
+    } catch {
+      return text.toUpperCase();
+    }
+  };
+  let transformed = value;
+  if (transform === "uppercase") {
+    transformed = uppercase(value);
+  } else if (transform === "lowercase") {
+    try {
+      transformed = language
+        ? value.toLocaleLowerCase(language)
+        : value.toLowerCase();
+    } catch {
+      transformed = value.toLowerCase();
+    }
+  } else {
+    return null;
+  }
+
+  if (transformed.length > MAX_REPLAY_FONT_CODE_POINTS) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  assertReplayFontScanNotCancelled(signal, deadline);
+  return transformed;
+}
+
+function assertReplayFontScanNotCancelled(
+  signal?: AbortSignal,
+  deadline?: number,
+): void {
+  if (signal?.aborted) throw new Error("Replay screenshot was cancelled");
+  if (deadline !== undefined && performance.now() >= deadline) {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+}
+
+function collectReplayFontLoads(
+  document: Document,
+  fontSet: FontFaceSet,
+  signal?: AbortSignal,
+  deadline?: number,
+): Promise<void>[] {
+  const view = document.defaultView;
+  const root = document.documentElement;
+  if (!view || !root) return [];
+
+  const pendingLoads: Promise<void>[] = [];
+  const textByFont = new Map<
+    string,
+    {
+      familyDescriptors: Map<string, string>;
+      text: string;
+    }
+  >();
+  const startedLoads = new Set<string>();
+  let scannedNodes = 1;
+  let scannedCodePoints = 0;
+
+  const addText = (
+    font: string,
+    styles: CSSStyleDeclaration,
+    value: string | null,
+    transform = "none",
+    language?: string,
+  ) => {
+    if (value === "") return;
+    const descriptor = font.trim();
+    if (!descriptor) throw new ReplayScreenshotAssetError("fontReadiness");
+    let request = textByFont.get(descriptor);
+    if (!request) {
+      if (textByFont.size >= MAX_REPLAY_FONT_LOADS) {
+        throw new ReplayScreenshotAssetError("fontReadiness");
+      }
+      request = {
+        familyDescriptors: new Map(),
+        text: "",
+      };
+      textByFont.set(descriptor, request);
+    }
+    const transformed =
+      value === null
+        ? null
+        : transformReplayFontText(value, transform, language, signal, deadline);
+    if (transformed === null) {
+      for (const family of replayFontFamilies(
+        styles.fontFamily,
+        signal,
+        deadline,
+      )) {
+        const familyKey = replayFontFamilyKey(family);
+        if (!request.familyDescriptors.has(familyKey)) {
+          request.familyDescriptors.set(
+            familyKey,
+            replayFontDescriptor(styles, replayQuotedFontFamily(family)),
+          );
+        }
+      }
+    }
+
+    const sampledText = transformed ?? value ?? "";
+    for (const _codePoint of sampledText) {
+      assertReplayFontScanNotCancelled(signal, deadline);
+      scannedCodePoints += 1;
+      if (scannedCodePoints > MAX_REPLAY_FONT_CODE_POINTS) {
+        throw new ReplayScreenshotAssetError("fontReadiness");
+      }
+    }
+    if (transformed !== null) request.text += transformed;
+  };
+
+  const startLoad = (font: string, text: string) => {
+    const key = `${font}\u0000${text}`;
+    if (startedLoads.has(key)) return;
+    if (pendingLoads.length >= MAX_REPLAY_FONT_LOADS) {
+      throw new ReplayScreenshotAssetError("fontReadiness");
+    }
+    startedLoads.add(key);
+    try {
+      pendingLoads.push(
+        fontSet.load(font, text).then(
+          () => {},
+          () => {
+            throw new ReplayScreenshotAssetError("fontReadiness");
+          },
+        ),
+      );
+    } catch {
+      throw new ReplayScreenshotAssetError("fontReadiness");
+    }
+  };
+
   try {
-    await Promise.race([
-      fontSet.ready,
-      new Promise<never>((_resolve, reject) => {
-        timeoutId = window.setTimeout(
-          () => reject(new ReplayScreenshotAssetError()),
-          REPLAY_FONT_TIMEOUT_MS,
+    const stack: Array<{
+      element: Element;
+      language?: string;
+      blockedByAncestor: boolean;
+    }> = [{ element: root, blockedByAncestor: false }];
+    while (stack.length > 0) {
+      assertReplayFontScanNotCancelled(signal, deadline);
+      const {
+        element,
+        language: inheritedLanguage,
+        blockedByAncestor,
+      } = stack.pop()!;
+      const styles = view.getComputedStyle(element);
+      const blocksDescendants =
+        blockedByAncestor ||
+        styles.display === "none" ||
+        styles.contentVisibility === "hidden" ||
+        (styles.opacity !== "" && Number(styles.opacity) === 0);
+      if (blocksDescendants) continue;
+
+      const withinViewport = isReplayFontElementInViewport(element, document);
+      const paintsElementText =
+        withinViewport &&
+        styles.visibility !== "hidden" &&
+        styles.visibility !== "collapse";
+      const font = paintsElementText ? replayFontDescriptor(styles) : "";
+      const language =
+        element.getAttribute("lang")?.trim() || inheritedLanguage;
+      const elementTextTransform = styles.textTransform;
+
+      if (paintsElementText && element instanceof view.HTMLInputElement) {
+        if (REPLAY_TEXT_INPUT_TYPES.has(element.type)) {
+          if (element.value) {
+            addText(
+              font,
+              styles,
+              element.type === "password" ? "•" : element.value,
+              elementTextTransform,
+              language,
+            );
+          } else if (element.placeholder) {
+            const placeholderStyles = view.getComputedStyle(
+              element,
+              "::placeholder",
+            );
+            addText(
+              replayFontDescriptor(placeholderStyles),
+              placeholderStyles,
+              element.placeholder,
+              placeholderStyles.textTransform,
+              language,
+            );
+          }
+        } else if (["button", "reset", "submit"].includes(element.type)) {
+          addText(font, styles, element.value, elementTextTransform, language);
+        }
+      } else if (
+        paintsElementText &&
+        element instanceof view.HTMLTextAreaElement
+      ) {
+        if (element.value) {
+          addText(font, styles, element.value, elementTextTransform, language);
+        } else if (element.placeholder) {
+          const placeholderStyles = view.getComputedStyle(
+            element,
+            "::placeholder",
+          );
+          addText(
+            replayFontDescriptor(placeholderStyles),
+            placeholderStyles,
+            element.placeholder,
+            placeholderStyles.textTransform,
+            language,
+          );
+        }
+      } else if (
+        paintsElementText &&
+        element instanceof view.HTMLSelectElement
+      ) {
+        for (const option of element.selectedOptions) {
+          addText(font, styles, option.label, elementTextTransform, language);
+        }
+      }
+
+      for (const pseudo of ["::before", "::after", "::marker"]) {
+        const pseudoStyles = view.getComputedStyle(element, pseudo);
+        if (
+          !withinViewport ||
+          pseudoStyles.display === "none" ||
+          pseudoStyles.visibility === "hidden" ||
+          pseudoStyles.visibility === "collapse" ||
+          (pseudoStyles.opacity !== "" && Number(pseudoStyles.opacity) === 0) ||
+          pseudoStyles.content === "none"
+        ) {
+          continue;
+        }
+        let pseudoText: string | null;
+        if (pseudo === "::marker" && pseudoStyles.content === "normal") {
+          const listStyleType = styles.listStyleType.trim();
+          if (listStyleType === "none") continue;
+          pseudoText = /^(['"])[\s\S]*\1$/.test(listStyleType)
+            ? replayPseudoText(listStyleType, signal, deadline)
+            : null;
+        } else {
+          if (pseudoStyles.content === "normal") continue;
+          pseudoText = replayPseudoText(pseudoStyles.content, signal, deadline);
+        }
+        addText(
+          replayFontDescriptor(pseudoStyles),
+          pseudoStyles,
+          pseudoText,
+          pseudoStyles.textTransform,
+          language,
         );
-      }),
-    ]);
+      }
+
+      const isControl =
+        element instanceof view.HTMLInputElement ||
+        element instanceof view.HTMLTextAreaElement ||
+        element instanceof view.HTMLSelectElement;
+      if (!isControl) {
+        const remainingNodes = MAX_REPLAY_FONT_ELEMENTS - scannedNodes;
+        for (const child of renderedChildren(
+          element,
+          remainingNodes,
+          signal,
+          deadline,
+        )) {
+          scannedNodes += 1;
+          if (scannedNodes > MAX_REPLAY_FONT_ELEMENTS) {
+            throw new ReplayScreenshotAssetError("fontReadiness");
+          }
+          if (child.nodeType === Node.TEXT_NODE) {
+            if (paintsElementText) {
+              addText(
+                font,
+                styles,
+                child.nodeValue ?? "",
+                elementTextTransform,
+                language,
+              );
+            }
+          } else if (child.nodeType === Node.ELEMENT_NODE) {
+            stack.push({
+              element: child as Element,
+              language,
+              blockedByAncestor: blocksDescendants,
+            });
+          }
+        }
+      }
+    }
+
+    const requiresFamilyFallback = [...textByFont.values()].some(
+      (request) => request.familyDescriptors.size > 0,
+    );
+    const facesByFamily = new Map<string, FontFace[]>();
+    if (requiresFamilyFallback) {
+      let scannedFaces = 0;
+      for (const face of fontSet) {
+        assertReplayFontScanNotCancelled(signal, deadline);
+        scannedFaces += 1;
+        if (scannedFaces > MAX_REPLAY_FONT_FACES) {
+          throw new ReplayScreenshotAssetError("fontReadiness");
+        }
+        const faceFamilies = replayFontFamilies(face.family, signal, deadline);
+        if (faceFamilies.length !== 1) {
+          throw new ReplayScreenshotAssetError("fontReadiness");
+        }
+        const familyKey = replayFontFamilyKey(faceFamilies[0]!);
+        if (!familyKey) continue;
+        const faces = facesByFamily.get(familyKey) ?? [];
+        faces.push(face);
+        facesByFamily.set(familyKey, faces);
+      }
+    }
+
+    for (const [font, request] of textByFont) {
+      if (request.text) startLoad(font, request.text);
+      for (const [familyKey, familyFont] of request.familyDescriptors) {
+        for (const face of facesByFamily.get(familyKey) ?? []) {
+          assertReplayFontScanNotCancelled(signal, deadline);
+          const sample = replayFontFaceSample(face, signal, deadline);
+          if (sample) startLoad(familyFont, sample);
+        }
+      }
+    }
+    return pendingLoads;
+  } catch (error) {
+    void Promise.all(pendingLoads).catch(() => {});
+    throw error;
+  }
+}
+
+async function waitForReplayFontWork(
+  work: Promise<unknown>,
+  signal?: AbortSignal,
+  deadline?: number,
+): Promise<void> {
+  assertReplayFontScanNotCancelled(signal, deadline);
+  let timeoutId: number | undefined;
+  let abortListener: (() => void) | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new ReplayScreenshotAssetError("fontReadiness")),
+      deadline === undefined
+        ? REPLAY_FONT_TIMEOUT_MS
+        : Math.max(0, deadline - performance.now()),
+    );
+  });
+  const abort = new Promise<never>((_resolve, reject) => {
+    abortListener = () => reject(new Error("Replay screenshot was cancelled"));
+    if (signal?.aborted) abortListener();
+    else signal?.addEventListener("abort", abortListener, { once: true });
+  });
+
+  try {
+    await Promise.race([work, timeout, abort]);
+  } catch (error) {
+    if (signal?.aborted) throw new Error("Replay screenshot was cancelled");
+    if (error instanceof ReplayScreenshotAssetError) throw error;
+    throw new ReplayScreenshotAssetError("fontReadiness");
   } finally {
     if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    if (abortListener) signal?.removeEventListener("abort", abortListener);
+  }
+}
+
+async function assertDocumentFontsReady(
+  document: Document,
+  signal?: AbortSignal,
+): Promise<void> {
+  assertReplayFontScanNotCancelled(signal);
+  try {
+    // rrweb rebuilds with document.open(); close it before forcing layout.
+    if (document.readyState === "loading") document.close();
+  } catch {
+    throw new ReplayScreenshotAssetError("fontReadiness");
+  }
+  const fontSet = document.fonts;
+  if (!fontSet) return;
+  const deadline = performance.now() + REPLAY_FONT_TIMEOUT_MS;
+
+  if (typeof fontSet.load === "function" && document.defaultView) {
+    const loads = collectReplayFontLoads(document, fontSet, signal, deadline);
+    await waitForReplayFontWork(Promise.all(loads), signal, deadline);
+    return;
+  }
+
+  if (fontSet.ready) {
+    await waitForReplayFontWork(fontSet.ready, signal, deadline);
   }
 }
 
@@ -1133,25 +1805,11 @@ export async function assertReplayFontsReady(
   document: Document,
   signal?: AbortSignal,
 ): Promise<void> {
-  let rejectAbort: (reason?: unknown) => void = () => {};
-  const onAbort = () =>
-    rejectAbort(new Error("Replay screenshot was cancelled"));
-  const abort = new Promise<never>((_resolve, reject) => {
-    rejectAbort = reject;
-    if (signal?.aborted) {
-      reject(new Error("Replay screenshot was cancelled"));
-      return;
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-  try {
-    await Promise.race([
-      Promise.all(replayDocuments(document).map(assertDocumentFontsReady)),
-      abort,
-    ]);
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-  }
+  await Promise.all(
+    replayDocuments(document).map((current) =>
+      assertDocumentFontsReady(current, signal),
+    ),
+  );
 }
 
 function waitForReplayPaint(signal?: AbortSignal): Promise<void> {
@@ -1260,6 +1918,7 @@ export async function captureReplayScreenshot(
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
   signal?: AbortSignal,
+  options: { assetCredentials?: RequestCredentials } = {},
 ): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
@@ -1291,12 +1950,18 @@ export async function captureReplayScreenshot(
     REPLAY_SCREENSHOT_MARKER,
   );
   const stageFrameMarker = `${captureId}-stage-frame`;
+  let failureReason:
+    | "captureSetup"
+    | "replayRender"
+    | "stageRender"
+    | "pngEncode" = "captureSetup";
   try {
     await assertReplayFontsReady(replayDocument, signal);
     assertCaptureAvailable();
     const replayAssets = await assertRemoteImagesCapturable(
       replayDocument,
       signal,
+      options.assetCredentials,
     );
     assertCaptureAvailable();
     await waitForReplayPaint(signal);
@@ -1307,8 +1972,9 @@ export async function captureReplayScreenshot(
     assertScreenshotDimensions(width, height);
 
     iframe.setAttribute(REPLAY_SCREENSHOT_MARKER, stageFrameMarker);
-    const { default: html2canvas } = await import("html2canvas");
+    const { default: html2canvas } = await import("html2canvas-pro");
     assertCaptureAvailable();
+    failureReason = "replayRender";
     const replayImageUrl = await captureReplayDocument(
       replayDocument,
       replayAssets,
@@ -1320,6 +1986,7 @@ export async function captureReplayScreenshot(
     );
     assertCaptureAvailable();
 
+    failureReason = "stageRender";
     const canvas = await html2canvas(stageRoot, {
       allowTaint: false,
       backgroundColor:
@@ -1339,7 +2006,9 @@ export async function captureReplayScreenshot(
         const clonedFrame = clonedStageRoot.querySelector(
           `iframe[${REPLAY_SCREENSHOT_MARKER}="${stageFrameMarker}"]`,
         );
-        if (!clonedFrame) throw new ReplayScreenshotAssetError();
+        if (!clonedFrame) {
+          throw new ReplayScreenshotAssetError("cloneStageFrame");
+        }
         const image = clonedStageRoot.ownerDocument.createElement("img");
         image.alt = "";
         image.src = replayImageUrl;
@@ -1366,9 +2035,15 @@ export async function captureReplayScreenshot(
     });
     assertCaptureAvailable();
     assertScreenshotDimensions(canvas.width, canvas.height);
+    failureReason = "pngEncode";
     const blob = await canvasToBlob(canvas);
     assertCaptureAvailable();
     return blob;
+  } catch (error) {
+    if (error instanceof ReplayScreenshotAssetError) throw error;
+    throw new ReplayScreenshotCaptureError(
+      rendererFailureReason(error, failureReason),
+    );
   } finally {
     if (previousStageFrameMarker === null) {
       iframe.removeAttribute(REPLAY_SCREENSHOT_MARKER);

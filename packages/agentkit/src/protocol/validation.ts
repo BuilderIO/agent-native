@@ -90,6 +90,7 @@ export class AgentProtocolValidationError extends Error {
 export const MAX_AGENT_REQUEST_ATTACHMENTS = 20;
 export const MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS = 6_000_000;
 const MAX_AGENT_REQUEST_ATTACHMENT_DATA_URL_CHARS = 3_000_000;
+const MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE = 256;
 
 function record(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -455,7 +456,21 @@ function validateMessagePart(value: unknown, path: string): void {
           "inline file data cannot be persisted in a queue",
         );
       }
-      if (part.url === undefined && part.fileId === undefined) {
+      if (
+        part.omitted !== undefined &&
+        part.omitted !== "inline-bytes" &&
+        part.omitted !== "unsafe-url"
+      ) {
+        throw new AgentProtocolValidationError(
+          `${path}.omitted`,
+          "unsupported omission marker",
+        );
+      }
+      if (
+        part.url === undefined &&
+        part.fileId === undefined &&
+        part.omitted === undefined
+      ) {
         throw new AgentProtocolValidationError(
           path,
           "a file part requires either url or fileId",
@@ -1409,6 +1424,10 @@ export function parseAgentThreadSnapshot(
           `must be contiguous within each run; expected ${expectedSequence}`,
         );
       }
+      const sequenceEnd = agentEventSequenceEnd(
+        parsed,
+        `${path}.events[${index}]`,
+      );
       if (eventIds.has(parsed.id)) {
         throw new AgentProtocolValidationError(
           `${path}.events[${index}].id`,
@@ -1416,7 +1435,7 @@ export function parseAgentThreadSnapshot(
         );
       }
       eventIds.add(parsed.id);
-      lastSequenceByRun.set(parsed.runId, parsed.sequence);
+      lastSequenceByRun.set(parsed.runId, sequenceEnd);
     });
   }
   const runIds = new Set<string>();
@@ -2161,6 +2180,31 @@ export function parseAgentEvent(value: unknown, path = "event"): AgentEvent {
   optionalMetadata(event.metadata, `${path}.metadata`);
   validateEventPayload(event, path);
   return value as AgentEvent;
+}
+
+export function agentEventSequenceEnd(
+  event: AgentEvent,
+  path = "event",
+): number {
+  if (event.type !== "x-agent-native.persisted-event-omission-range") {
+    return event.sequence;
+  }
+  const payload = record(event.payload, `${path}.payload`);
+  const sequenceEnd = nonNegativeSafeInteger(
+    payload.lastSequence,
+    `${path}.payload.lastSequence`,
+  );
+  if (
+    sequenceEnd < event.sequence ||
+    sequenceEnd - event.sequence >=
+      MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE
+  ) {
+    throw new AgentProtocolValidationError(
+      `${path}.payload.lastSequence`,
+      `must cover at most ${MAX_AGENT_NATIVE_PERSISTED_EVENT_OMISSION_RANGE} event sequences`,
+    );
+  }
+  return sequenceEnd;
 }
 
 export interface ParseAgentEventSequenceOptions {

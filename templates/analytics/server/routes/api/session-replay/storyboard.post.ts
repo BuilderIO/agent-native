@@ -5,14 +5,17 @@ import {
   canonicalA2AAudience,
   invokeAgentAction,
   resolveA2ACallerAuth,
-  resolveAgentInvocationTarget,
   workspacePrivateOrigins,
 } from "@agent-native/core/a2a";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import { resolveVercelDeploymentProtectionHeaders } from "@agent-native/core/server";
+import {
+  resolveVercelDeploymentProtectionHeaders,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { createError, defineEventHandler, readMultipartFormData } from "h3";
 
 import { runApiHandlerWithContext } from "../../../lib/credentials";
+import { resolveReplayStoryboardDesignTarget } from "../../../lib/replay-storyboard-design-target.js";
 import { getSessionReplaySummary } from "../../../lib/session-replay";
 
 const MAX_SCREENSHOTS = 9;
@@ -802,6 +805,15 @@ export default defineEventHandler(async (event) =>
     let cleanupPending = false;
     let cleanupFailed = false;
     let cleanupUnknown = false;
+    let failurePhase:
+      | "requestInput"
+      | "replayValidation"
+      | "designDiscovery"
+      | "designAuthentication"
+      | "designRead"
+      | "designUpload"
+      | "designResponse"
+      | "designConfirmation" = "requestInput";
     try {
       const parts = await readBoundedMultipartFormData(
         event,
@@ -838,6 +850,7 @@ export default defineEventHandler(async (event) =>
         badRequest("Screenshot export parts do not match the manifest");
       }
 
+      failurePhase = "replayValidation";
       const recordings = new Map<
         string,
         Awaited<ReturnType<typeof getSessionReplaySummary>>
@@ -905,20 +918,39 @@ export default defineEventHandler(async (event) =>
         });
       }
 
-      const designTarget = await resolveAgentInvocationTarget("design", {
-        selfAppId: "analytics",
-      });
-      const caller = await resolveA2ACallerAuth({
-        audience: canonicalA2AAudience(designTarget.url),
-        userIdentityOnly: true,
-      });
+      failurePhase = "designDiscovery";
+      const designTarget = await beforeRequestDeadline(
+        () => resolveReplayStoryboardDesignTarget(),
+        designRequestDeadlineAt,
+        "Design target resolution exceeded its request deadline",
+      );
+      if (designTarget.code !== "ready") {
+        badRequest(
+          "Analytics could not securely resolve the Design target",
+          503,
+        );
+      }
+      failurePhase = "designAuthentication";
+      const caller = await runWithRequestContext(
+        {
+          userEmail: ctx.userEmail,
+          orgId: undefined,
+          orgScope: "personal",
+        },
+        () =>
+          resolveA2ACallerAuth({
+            audience: canonicalA2AAudience(designTarget.url),
+            userIdentityOnly: true,
+          }),
+      );
       const uploadToken = caller.apiKey;
       if (!caller.userEmail || !uploadToken) {
         badRequest("Analytics could not authenticate the Design upload", 503);
       }
       let previousBoardContent = "";
-      let designTargetUrl = designTarget.url;
+      const designTargetUrl = designTarget.url;
       if (manifest.designId) {
+        failurePhase = "designRead";
         const previous = await readDesignStoryboard(
           designTarget.url,
           manifest.designId,
@@ -932,7 +964,6 @@ export default defineEventHandler(async (event) =>
             502,
           );
         }
-        designTargetUrl = previous.targetUrl;
         previousBoardContent = previous.content;
       }
       const designManifest = {
@@ -942,6 +973,7 @@ export default defineEventHandler(async (event) =>
         selectedReplayCount: manifest.selectedReplayCount,
         screenshots: handoffScreenshots,
       };
+      failurePhase = "designUpload";
       const uploadUrl = designScreenshotUploadUrl(designTargetUrl);
       assertCredentialedA2AUrl(uploadUrl, true);
       const allowedPrivateOrigins = workspacePrivateOrigins();
@@ -953,6 +985,20 @@ export default defineEventHandler(async (event) =>
         designManifest,
         screenshotBytes,
       );
+      const forwardingTarget = await beforeRequestDeadline(
+        () => resolveReplayStoryboardDesignTarget(),
+        designRequestDeadlineAt,
+        "Design target resolution exceeded its request deadline",
+      );
+      if (
+        forwardingTarget.code !== "ready" ||
+        forwardingTarget.url !== designTargetUrl
+      ) {
+        badRequest(
+          "Analytics could not securely resolve the Design target",
+          503,
+        );
+      }
       const uploadTimeoutMs = remainingDesignRequestTimeout(
         designRequestDeadlineAt,
       );
@@ -990,6 +1036,7 @@ export default defineEventHandler(async (event) =>
               },
             );
             uploadResponse = response;
+            failurePhase = "designResponse";
             try {
               return {
                 response,
@@ -1092,6 +1139,7 @@ export default defineEventHandler(async (event) =>
           "Design may have saved the storyboard, but its ID could not be recovered. Check Design before retrying.",
         );
       }
+      failurePhase = "designConfirmation";
       let confirmation: Awaited<ReturnType<typeof readDesignStoryboard>>;
       try {
         confirmation = await readDesignStoryboard(
@@ -1129,6 +1177,7 @@ export default defineEventHandler(async (event) =>
         cleanupPending: uploadResult.cleanupPending ?? false,
       };
     } catch (error) {
+      console.warn("Replay storyboard export rejected", failurePhase);
       const errorDetails =
         error && typeof error === "object"
           ? (error as {
@@ -1173,10 +1222,7 @@ export default defineEventHandler(async (event) =>
       }
       throw createError({
         statusCode: 502,
-        statusMessage:
-          error instanceof Error
-            ? `Design screenshot upload failed: ${error.message}`
-            : "Design screenshot upload failed",
+        statusMessage: "Design screenshot upload failed",
         ...(cleanupPending || cleanupFailed || cleanupUnknown
           ? {
               data: {
@@ -1187,7 +1233,6 @@ export default defineEventHandler(async (event) =>
               },
             }
           : {}),
-        cause: error,
       });
     }
     if (!responseBody) {

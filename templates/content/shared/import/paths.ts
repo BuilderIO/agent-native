@@ -1,3 +1,5 @@
+import { decodeHtmlEntities } from "./html-fragment";
+
 const SCHEME_RE = /^([a-z][a-z0-9+.-]*):/i;
 const SAFE_LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
 const MARKDOWN_FILE_RE = /\.(md|markdown|mdx)$/i;
@@ -20,6 +22,21 @@ export function classifyImportReference(
   sourcePath: string,
   reference: string,
 ): ImportReference {
+  const classified = classifyWrittenReference(sourcePath, reference);
+  // Content Markdown keeps character references in a link as written, and an
+  // HTML page decodes them, so `java&#x09;script:` would run as `javascript:`.
+  const decoded = decodeHtmlEntities(reference);
+  if (decoded === reference) return classified;
+  const decodedKind = classifyWrittenReference(sourcePath, decoded).kind;
+  return decodedKind === "unsupported" || decodedKind === "data-url"
+    ? { kind: "unsupported", reference: reference.trim() }
+    : classified;
+}
+
+function classifyWrittenReference(
+  sourcePath: string,
+  reference: string,
+): ImportReference {
   const trimmed = reference.trim();
   // Browsers drop tabs, newlines, and leading control characters from a URL,
   // so `java\tscript:` would run as `javascript:` while reading as a path.
@@ -34,8 +51,12 @@ export function classifyImportReference(
   const scheme = SCHEME_RE.exec(trimmed)?.[1]?.toLowerCase();
   if (scheme) {
     if (scheme === "data") {
-      const mediaType =
-        /^data:([^;,]+)/i.exec(trimmed)?.[1]?.toLowerCase() ?? "";
+      // Without the comma there is no payload, only a header.
+      const header = /^data:([^,]*),/i.exec(trimmed)?.[1];
+      if (header === undefined) {
+        return { kind: "unsupported", reference: trimmed };
+      }
+      const mediaType = header.split(";")[0]!.trim().toLowerCase();
       return { kind: "data-url", mediaType, url: trimmed };
     }
     // A Windows drive path (C:\notes\a.png) parses as a one-letter scheme.

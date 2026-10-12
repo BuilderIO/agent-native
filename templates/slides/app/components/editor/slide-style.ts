@@ -42,6 +42,31 @@ export interface SlideStyleSnapshot {
   mixedTextStyles?: InlineTextStyleKey[];
 }
 
+export function haveSameSlideStyleControls(
+  current: SlideStyleSnapshot | null,
+  next: SlideStyleSnapshot,
+): boolean {
+  if (!current) return false;
+  const currentKeys = Object.keys(current) as (keyof SlideStyleSnapshot)[];
+  const nextKeys = Object.keys(next) as (keyof SlideStyleSnapshot)[];
+  if (currentKeys.length !== nextKeys.length) return false;
+
+  return currentKeys.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) return false;
+    // Text preview is published with the selection; the toolbar only needs style changes.
+    if (key === "textPreview") return true;
+    if (key === "mixedTextStyles") {
+      const previous = current.mixedTextStyles;
+      const upcoming = next.mixedTextStyles;
+      return previous === undefined
+        ? upcoming === undefined
+        : previous.length === upcoming?.length &&
+            previous.every((style, index) => style === upcoming[index]);
+    }
+    return Object.is(current[key], next[key]);
+  });
+}
+
 export type SlideStylePatch = Partial<{
   color: string;
   fontFamily: string;

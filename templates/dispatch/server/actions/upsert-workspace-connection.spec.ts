@@ -158,4 +158,64 @@ describe("upsert-workspace-connection action cards", () => {
       },
     });
   });
+
+  it("returns typed validation errors for provider configuration", async () => {
+    mocks.getProvider.mockReturnValue({
+      id: "example",
+      label: "Example",
+      credentialKeys: [],
+      configurationFields: [{ key: "accountId", required: true }],
+    });
+
+    await expect(
+      action.run(
+        {
+          provider: "example",
+          status: "connected",
+          scopes: [],
+          config: { unexpected: "value" },
+          allowedApps: [],
+          credentialRefs: [],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "workspace_connection_config_unknown_field",
+      statusCode: 400,
+    });
+
+    await expect(
+      action.run(
+        {
+          provider: "example",
+          status: "connected",
+          scopes: [],
+          config: {},
+          allowedApps: [],
+          credentialRefs: [],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "workspace_connection_config_missing",
+      statusCode: 400,
+    });
+
+    await expect(
+      action.run(
+        {
+          provider: "example",
+          status: "connected",
+          scopes: [],
+          config: { accountId: 42 },
+          allowedApps: [],
+          credentialRefs: [],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "workspace_connection_config_invalid",
+      statusCode: 400,
+    });
+  });
 });

@@ -132,9 +132,10 @@ export async function enableFeatureFlag(
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
-const E2E_BASE_URL = process.env.E2E_BASE_URL;
+const E2E_BASE_URL =
+  process.env.E2E_BASE_URL ??
+  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
 const E2E_BASE_PATH = (() => {
-  if (!E2E_BASE_URL) return "";
   try {
     return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
   } catch {
@@ -144,14 +145,11 @@ const E2E_BASE_PATH = (() => {
 
 export function appPath(path: string): string {
   const route = new URL(path, "http://agent-native.local");
-  if (E2E_BASE_URL && E2E_BASE_PATH) {
-    const url = new URL(E2E_BASE_URL);
-    url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
-    url.search = route.search;
-    url.hash = route.hash;
-    return url.toString();
-  }
-  return `${route.pathname}${route.search}${route.hash}`;
+  const url = new URL(E2E_BASE_URL);
+  url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
+  url.search = route.search;
+  url.hash = route.hash;
+  return url.toString();
 }
 
 function activeScreenTargetFromUrl(page: Page): string | undefined {
@@ -484,11 +482,19 @@ export async function enterInteractView(
     .locator(DESIGN_PREVIEW_IFRAME_SELECTOR)
     .first();
   await expect(previewIframe).toBeVisible();
-  const previewIframeHandle = await previewIframe.elementHandle();
-  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
+  // The frame's "Focus screen" button only selects the Screen and fits the
+  // camera to it; Interact is entered from the top bar for that focused Screen.
   await fullView.evaluate((element) => {
     (element as HTMLButtonElement).click();
   });
+  // Focusing may swap the preview for the Screen's live editor, so the
+  // iframe that must survive is the one on screen when Interact is pressed.
+  await expect(previewIframe).toBeVisible();
+  const previewIframeHandle = await previewIframe.elementHandle();
+  if (!previewIframeHandle) throw new Error("screen preview iframe is missing");
+  await page
+    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .click();
   await expect(screenShell).toHaveAttribute(
     "data-screen-interact-mode",
     "true",
@@ -574,7 +580,7 @@ export async function selectByText(
   const screenId = options?.screenId ?? activeScreenTargetFromUrl(page);
   await enterDirectMode(page, {
     screenId,
-    waitForBridgeReady: options?.clearPreviousSelection,
+    waitForBridgeReady: true,
   });
   await installBridge(page);
   if (options?.clearPreviousSelection) {

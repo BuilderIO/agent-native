@@ -21,6 +21,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 const props: CodeWorkbenchProps = {
   designId: "design-1",
   canEdit: true,
+  active: true,
   localhostConnections: [
     {
       connectionId: "connection-1",

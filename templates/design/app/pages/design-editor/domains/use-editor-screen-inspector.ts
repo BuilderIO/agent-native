@@ -35,6 +35,10 @@ import {
 } from "../code-layer-state";
 import { runInvalidateVisualEditSnapshotPublication } from "../commands/publish-visual-edit-snapshot";
 import {
+  canPublishAcceptedSource,
+  queueServerFirstSourcePublication,
+} from "../commands/queue-server-first-source-publication";
+import {
   restoreSelectionColorPreview,
   runSelectionColorChange,
   type SelectionColorPreviewHistoryEntry,
@@ -58,6 +62,7 @@ import { getFreshActiveFileContent } from "../editor-state";
 import { type ContentHistoryChange } from "../history";
 import {
   screenRootFrameRenderingOptions,
+  getBodyInlineStyles,
   setScreenRootDefaultHeightMode,
   setBodyInlineStyles,
   setScreenRootFrameRenderingStyles,
@@ -136,6 +141,7 @@ export function useEditorScreenInspector({
     setLiveRoutePathsByScreenId,
     liveRoutePathsByScreenIdRef,
     setActiveFileId,
+    activeFileIdRef,
   } = editorCore;
   const {
     builderPreviewUrl,
@@ -155,6 +161,7 @@ export function useEditorScreenInspector({
     visualEditSnapshotPublicationState,
     canEditPublicLiveScreenUrl,
     canEditDesignRef,
+    clearPendingLocalFileContent,
     updateScreenSourceMutation,
   } = editorGenerationAndAccess;
   const {
@@ -190,10 +197,16 @@ export function useEditorScreenInspector({
     activeContent,
     getScreenContent,
     getProjectionContentForScreen,
+    currentYDocRef,
   } = editorCanvasAndScreens;
+  const getScreenContentRef = useRef(getScreenContent);
+  getScreenContentRef.current = getScreenContent;
   const { selectedStateId, handleDesignStateSelect, canEditLiveScreen } =
     editorLiveEditsAndPresence;
   const { applyFileContentUpdate } = editorContentAndComponents;
+  const applyFileContentUpdateRef = useRef(applyFileContentUpdate);
+  applyFileContentUpdateRef.current = applyFileContentUpdate;
+  const { queueFileContentSave } = editorFilesAndSaving;
   const { canvasBackgroundRef } = editorToolsAndVectors;
   const { getCodeLayerProjectionForScreen } = editorSelectionAndStyles;
   const { handleZoomToSelectionFit } = editorClipboard;
@@ -394,6 +407,68 @@ export function useEditorScreenInspector({
   const screenStylePreviewRef = useRef<
     Map<string, { before: string; after: string }>
   >(new Map());
+  const queueAcceptedSourcePublication = useCallback(
+    (
+      fileId: string,
+      sourceContent: string,
+      baseContent: string,
+      onPublished?: (acceptedContent: string) => void,
+    ) => {
+      const activeFileIdAtQueue = activeFileIdRef.current ?? null;
+      const targetWasActive = activeFileIdAtQueue === fileId;
+      const targetDoc = targetWasActive ? currentYDocRef.current : null;
+      const targetYText = targetDoc?.getText("content").toJSON();
+      const targetLatestContent = targetWasActive
+        ? latestActiveContentRef.current
+        : null;
+      const targetLastLocalContent = targetWasActive
+        ? lastLocalContentRef.current
+        : null;
+      queueServerFirstSourcePublication(
+        {
+          applyFileContentUpdate: (targetFileId, acceptedContent, options) =>
+            applyFileContentUpdateRef.current(
+              targetFileId,
+              acceptedContent,
+              options,
+            ),
+          isActiveFile: (targetFileId) =>
+            activeFileIdRef.current === targetFileId,
+          clearPendingLocalFileContent,
+          shouldPublish: (targetFileId, acceptedContent) =>
+            canPublishAcceptedSource({
+              activeFileId: activeFileIdRef.current ?? null,
+              capturedActiveFileId: activeFileIdAtQueue,
+              baseContent,
+              currentContent: getScreenContentRef.current(targetFileId),
+              acceptedContent,
+              targetWasActive,
+              targetDocumentMatches: currentYDocRef.current === targetDoc,
+              targetYTextMatches:
+                !targetDoc ||
+                targetDoc.getText("content").toJSON() === targetYText,
+              latestActiveContentMatches:
+                latestActiveContentRef.current === targetLatestContent,
+              lastLocalContentMatches:
+                lastLocalContentRef.current === targetLastLocalContent,
+            }),
+          queueFileContentSave,
+        },
+        fileId,
+        sourceContent,
+        baseContent,
+        onPublished,
+      );
+    },
+    [
+      activeFileIdRef,
+      clearPendingLocalFileContent,
+      currentYDocRef,
+      lastLocalContentRef,
+      latestActiveContentRef,
+      queueFileContentSave,
+    ],
+  );
   const commitSelectedScreenStyles = useCallback(
     (
       screenId: string,
@@ -401,9 +476,56 @@ export function useEditorScreenInspector({
       meta?: StyleChangeMeta,
     ) => {
       if (!screenId || !canEditDesignRef.current) return;
-      const previewOnly = meta?.phase === "preview";
+      const isCancel = meta?.phase === "cancel";
+      const previewOnly = meta?.phase === "preview" || isCancel;
       const content = getScreenContent(screenId);
       if (!content || externalPreviewUrlForContent(content) !== null) return;
+      if (meta?.requirePersistedSourceAcceptance && !previewOnly) {
+        const nextBodyStyles = setBodyInlineStyles(content, patch);
+        if (nextBodyStyles === null) return;
+        const screenMetadata = getDesignDataRecord(
+          getDesignDataRecord(designDataJsonRef.current, "screenMetadata"),
+          screenId,
+        );
+        const rootStyles = {
+          ...screenRootComputedStylesByIdRef.current[screenId],
+          ...patch,
+        };
+        if (patch.borderRadius !== undefined) {
+          rootStyles.borderTopLeftRadius = patch.borderRadius;
+          rootStyles.borderTopRightRadius = patch.borderRadius;
+          rootStyles.borderBottomRightRadius = patch.borderRadius;
+          rootStyles.borderBottomLeftRadius = patch.borderRadius;
+        }
+        const next = setScreenRootFrameRenderingStyles(
+          nextBodyStyles,
+          screenRootFrameRenderingOptions(
+            rootStyles,
+            screenMetadata.heightPinned === true,
+          ),
+        );
+        queueAcceptedSourcePublication(
+          screenId,
+          next,
+          content,
+          (acceptedContent) => {
+            const acceptedBodyStyles = Object.fromEntries(
+              Object.entries(getBodyInlineStyles(acceptedContent)).filter(
+                ([, value]) => value !== "",
+              ),
+            );
+            setScreenRootComputedStylesById((current) => ({
+              ...current,
+              [screenId]: {
+                ...current[screenId],
+                ...acceptedBodyStyles,
+              },
+            }));
+            screenStylePreviewRef.current.delete(screenId);
+          },
+        );
+        return;
+      }
       const preview = screenStylePreviewRef.current.get(screenId);
       if (preview && preview.after !== content) {
         screenStylePreviewRef.current.delete(screenId);
@@ -437,12 +559,13 @@ export function useEditorScreenInspector({
       );
       const historyBeforeContent =
         screenStylePreviewRef.current.get(screenId)?.before;
+      if (isCancel) screenStylePreviewRef.current.delete(screenId);
       if (
         next === content &&
         (previewOnly || historyBeforeContent === undefined)
       )
         return;
-      if (previewOnly) {
+      if (previewOnly && !isCancel) {
         screenStylePreviewRef.current.set(screenId, {
           before: historyBeforeContent ?? content,
           after: next,
@@ -453,11 +576,19 @@ export function useEditorScreenInspector({
       applyFileContentUpdate(screenId, next, {
         immediateSave: !previewOnly,
         persist: !previewOnly,
+        previewOnly,
         recordHistory: !previewOnly,
         historyBeforeContent: previewOnly ? undefined : historyBeforeContent,
       });
     },
-    [applyFileContentUpdate, getScreenContent],
+    [
+      applyFileContentUpdate,
+      designDataJsonRef,
+      getScreenContent,
+      queueAcceptedSourcePublication,
+      screenRootComputedStylesByIdRef,
+      setScreenRootComputedStylesById,
+    ],
   );
   const commitSelectedScreenStylesRef = useRef(commitSelectedScreenStyles);
   commitSelectedScreenStylesRef.current = commitSelectedScreenStyles;
@@ -1008,13 +1139,22 @@ export function useEditorScreenInspector({
   const handleGroupFillStylesChange = useCallback(
     (styles: Record<string, string>, meta?: StyleChangeMeta) => {
       if (!canEditDesign) return false;
-      for (const [fileId, session] of selectionColorPickerSessionRef.current) {
-        selectionColorPickerSessionRef.current.set(fileId, {
-          ...session,
-          invalidated: true,
-        });
-        if (selectionColorPreviewHistoryRef.current.get(fileId)?.from) {
-          selectionColorPreviewHistoryRef.current.delete(fileId);
+      const serverFirst =
+        meta?.requirePersistedSourceAcceptance === true &&
+        meta.phase !== "preview" &&
+        meta.phase !== "cancel";
+      if (!serverFirst) {
+        for (const [
+          fileId,
+          session,
+        ] of selectionColorPickerSessionRef.current) {
+          selectionColorPickerSessionRef.current.set(fileId, {
+            ...session,
+            invalidated: true,
+          });
+          if (selectionColorPreviewHistoryRef.current.get(fileId)?.from) {
+            selectionColorPreviewHistoryRef.current.delete(fileId);
+          }
         }
       }
       if (meta?.phase === "cancel") {
@@ -1048,7 +1188,23 @@ export function useEditorScreenInspector({
         }
         return restored;
       }
-      const currentScopes = getFreshSelectionColorScopes();
+      const currentScopes = serverFirst
+        ? (meta.capturedSelectionColorScopeIdentities ?? []).flatMap(
+            (identity) => {
+              const content = getScreenContent(identity.fileId);
+              if (!content || externalPreviewUrlForContent(content) !== null) {
+                return [];
+              }
+              return [
+                {
+                  ...identity,
+                  content,
+                  source: codeLayerSourceForScreen(identity.fileId),
+                },
+              ];
+            },
+          )
+        : getFreshSelectionColorScopes();
       const result = rewriteSelectionFillStyles(currentScopes, styles);
       if (result.status !== "applied") {
         toast.error(t("designEditor.toasts.groupFillApplyFailed"), {
@@ -1064,6 +1220,32 @@ export function useEditorScreenInspector({
           (scope) => scope.fileId === update.fileId,
         )?.content;
         if (beforeContent === undefined) continue;
+        if (serverFirst) {
+          const pickerSessionAtQueue =
+            selectionColorPickerSessionRef.current.get(update.fileId);
+          const previewHistoryAtQueue =
+            selectionColorPreviewHistoryRef.current.get(update.fileId);
+          queueAcceptedSourcePublication(
+            update.fileId,
+            update.content,
+            beforeContent,
+            () => {
+              if (
+                selectionColorPickerSessionRef.current.get(update.fileId) ===
+                pickerSessionAtQueue
+              ) {
+                selectionColorPickerSessionRef.current.delete(update.fileId);
+              }
+              if (
+                selectionColorPreviewHistoryRef.current.get(update.fileId) ===
+                previewHistoryAtQueue
+              ) {
+                selectionColorPreviewHistoryRef.current.delete(update.fileId);
+              }
+            },
+          );
+          continue;
+        }
 
         const previousPreview = selectionColorPreviewHistoryRef.current.get(
           update.fileId,
@@ -1114,7 +1296,10 @@ export function useEditorScreenInspector({
       activeFile?.id,
       applyFileContentUpdate,
       canEditDesign,
+      codeLayerSourceForScreen,
       getFreshSelectionColorScopes,
+      getScreenContent,
+      queueAcceptedSourcePublication,
       t,
     ],
   );

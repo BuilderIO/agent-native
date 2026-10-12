@@ -62,6 +62,7 @@ const processMemberships = createTtlCache<unknown[]>({
   ttlMs: MEMBER_ORGS_TTL_MS,
   maxEntries: 2_048,
 });
+let membershipGeneration = 0;
 
 export async function cachedMemberships<T>(
   email: string,
@@ -70,16 +71,55 @@ export async function cachedMemberships<T>(
   const key = email.trim().toLowerCase();
   const hit = processMemberships.get(key);
   if (hit) return hit as T[];
+  const generation = membershipGeneration;
   const rows = await load();
-  if (rows !== null && rows.length > 0) {
+  if (generation === membershipGeneration && rows !== null && rows.length > 0) {
     processMemberships.set(key, rows as unknown[]);
   }
   return rows;
 }
 
+/**
+ * Workspace-app access facts re-read by every guarded `/_agent-native/*` and
+ * `/api/*` request: the `workspace_apps` row, the caller's org member row, the
+ * org's allowed domain, the local app-enabled flag, and the dispatch registry
+ * answer. They share the membership TTL and `invalidateMemberOrgCaches`, so a
+ * change on this instance clears them. A change made on another instance, or
+ * by the dispatch service, is honored within the TTL.
+ *
+ * Store only successful reads, and take the generation before the load: a read
+ * that raced an invalidation must not re-cache the answer it was replacing.
+ */
+const processWorkspaceAccess = createTtlCache<unknown>({
+  ttlMs: MEMBER_ORGS_TTL_MS,
+  maxEntries: 4_096,
+});
+let workspaceAccessGeneration = 0;
+
+export function workspaceAccessGenerationNow(): number {
+  return workspaceAccessGeneration;
+}
+
+export function getCachedWorkspaceAccess<T>(key: string): T | undefined {
+  return processWorkspaceAccess.get(key) as T | undefined;
+}
+
+export function rememberWorkspaceAccess(
+  key: string,
+  value: unknown,
+  generation: number,
+): void {
+  if (generation === workspaceAccessGeneration) {
+    processWorkspaceAccess.set(key, value);
+  }
+}
+
 export function invalidateMemberOrgCaches(): void {
   cacheForRequest(false)?.clear();
+  membershipGeneration += 1;
   processMemberships.clear();
+  workspaceAccessGeneration += 1;
+  processWorkspaceAccess.clear();
 }
 
 export const ACTIVE_ORG_SETTING_KEY = "active-org-id";
@@ -158,4 +198,5 @@ export function invalidateActiveOrgSettingCache(): void {
 export function __resetProcessMemberOrgCacheForTests(): void {
   processMemberships.clear();
   processActiveOrgSettings.clear();
+  processWorkspaceAccess.clear();
 }

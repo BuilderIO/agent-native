@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { H3Event } from "h3";
 import { getMethod, getHeader } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
 import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import {
@@ -12,6 +11,7 @@ import {
   type LocaleCode,
 } from "../localization/shared.js";
 import { getOrgDomain } from "../org/context.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   getSession,
   getConfiguredLoginHtml,
@@ -23,14 +23,19 @@ import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
-  MCP_CONNECT_MCP_URL_TEMPLATE,
+  buildMcpInstallLink,
+  derivedMcpServerBaseName,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  mcpConnectServerName,
   resolveMcpConnectGuideId,
   type McpConnectGuide,
   type McpConnectGuideId,
+  type McpConnectIdentity,
 } from "../shared/mcp-connect-content.js";
+import { deviceFlowClients, trackAgentConnected } from "./agent-connected.js";
+import { connectAppLabel, connectEnvironment } from "./connect-app-label.js";
 import {
   ensureConnectTables,
   recordMintedToken,
@@ -73,6 +78,8 @@ export interface McpConnectRouteOptions {
   appId?: string;
   appName?: string;
   serverName?: string;
+  /** False when only the identity route is mounted (`mcp.connect: false`). */
+  connect?: boolean;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -133,41 +140,36 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
-}
-
 function joinAppPath(basePath: string, path: string): string {
   if (!basePath) return path;
   if (path === "/") return basePath;
   return `${basePath}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-function appLabel(origin: string, options: McpConnectRouteOptions): string {
-  const app = getAppConfig().app;
-  const declared = options.appId ?? app.id ?? app.template ?? app.slug;
-  if (declared) return declared;
-  try {
-    const h = new URL(origin).hostname;
-    return h.split(".")[0] || h;
-  } catch {
-    return options.appName || "app";
-  }
-}
-
-function serverName(origin: string, options: McpConnectRouteOptions): string {
-  const explicit = options.serverName?.trim();
-  if (explicit) return explicit;
-  return `agent-native-${appLabel(origin, options)}`;
+/**
+ * The one name and URL every connect surface hands to an MCP client: this
+ * page, the device-flow payload, the settings tab, share dialogs (through the
+ * `/identity` subroute) and the `connect` CLI.
+ */
+export function resolveMcpConnectIdentity(
+  appUrl: string,
+  options: McpConnectRouteOptions,
+): McpConnectIdentity {
+  const environment = connectEnvironment();
+  const baseName =
+    options.serverName?.trim() ||
+    derivedMcpServerBaseName(
+      connectAppLabel(appUrl, options, environment),
+      environment,
+    );
+  return {
+    serverName: mcpConnectServerName(baseName, environment),
+    appName: options.appName || connectAppLabel(appUrl, options, environment),
+    appUrl,
+    mcpUrl: mcpResourceUrl(appUrl),
+    environment,
+    connect: options.connect !== false,
+  };
 }
 
 function canUseDevOpenConnect(event: H3Event): boolean {
@@ -282,6 +284,7 @@ async function signConnectToken(params: {
     scope: MCP_OAUTH_DEFAULT_SCOPE,
     resource: mcpResourceUrl(params.issuer),
     issuer: params.issuer,
+    grantCreatedAtMs: Date.now(),
     jti: params.jti,
     expiresIn: params.expiresIn,
     ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
@@ -382,16 +385,14 @@ export async function mintOrgServiceToken(params: {
 }
 
 function mcpResultPayload(
-  appUrl: string,
-  options: McpConnectRouteOptions,
+  identity: McpConnectIdentity,
   auth: {
     token?: string;
     ownerEmail?: string;
     catalogScope?: "full" | null;
   },
 ) {
-  const mcpUrl = mcpResourceUrl(appUrl);
-  const name = serverName(appUrl, options);
+  const { appUrl, mcpUrl, serverName } = identity;
   const headers: Record<string, string> = {};
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
@@ -403,7 +404,7 @@ function mcpResultPayload(
   return {
     token: auth.token ?? "",
     mcpUrl,
-    serverName: name,
+    serverName,
     mcpServerEntry: {
       type: "http" as const,
       url: mcpUrl,
@@ -445,7 +446,20 @@ function renderConnectGuide(
   copyLabel: string,
 ): string {
   const guideId = escapeHtml(guide.id);
+  const installLinks = (guide.install ?? []).map((option) => {
+    const link = buildMcpInstallLink(option.client, {
+      serverName: values.serverId,
+      mcpUrl: values.mcpUrl,
+    });
+    const target = link.opensWebPage
+      ? ` target="_blank" rel="noopener noreferrer"`
+      : "";
+    return `<a class="primary-link compact" href="${escapeHtml(link.href)}"${target}>${escapeHtml(option.label)}</a>`;
+  });
   const content = [
+    installLinks.length
+      ? `<div class="install-links">${installLinks.join("")}</div>`
+      : "",
     guide.steps?.length
       ? `<ol>${guide.steps
           .map(
@@ -479,9 +493,7 @@ function renderConnectGuide(
 function renderConnectPage(params: {
   connectBasePath: string;
   email: string;
-  appName: string;
-  appUrl: string;
-  serverId: string;
+  identity: McpConnectIdentity;
   userCode: string | null;
   catalogScope: "full" | null;
   locale: LocaleCode;
@@ -492,9 +504,7 @@ function renderConnectPage(params: {
   const {
     connectBasePath,
     email,
-    appName,
-    appUrl,
-    serverId,
+    identity,
     userCode,
     catalogScope,
     locale,
@@ -508,12 +518,7 @@ function renderConnectPage(params: {
   const guides = getMcpConnectGuides(locale);
   const staticTokenFallback = getMcpStaticTokenFallback(locale);
   const safeEmail = escapeHtml(email);
-  const mcpUrl = interpolateMcpConnectTemplate(MCP_CONNECT_MCP_URL_TEMPLATE, {
-    appName,
-    appUrl,
-    mcpUrl: "",
-    serverId,
-  });
+  const { appName, appUrl, mcpUrl, serverName: serverId } = identity;
   const safeMcpUrl = escapeHtml(mcpUrl);
   const connectTemplateValues = { appName, appUrl, mcpUrl, serverId };
   const localize = (message: string) =>
@@ -943,6 +948,13 @@ function renderConnectPage(params: {
     background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.2);
   }
   .primary-link.compact { min-width: 0; }
+  .primary-link:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px;
+  }
+  .install-links {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.6rem;
+  }
+  .install-links .primary-link { margin: 0; }
   .copy-flash {
     color: var(--ok) !important;
     border-color: var(--ok-border) !important;
@@ -1380,7 +1392,8 @@ function renderConnectPage(params: {
         var ttlEl = document.getElementById("ttl");
         var label = labelEl ? labelEl.value || undefined : undefined;
         var ttlDays = ttlEl ? parseInt(ttlEl.value, 10) || undefined : undefined;
-        var m = await postJson("/token", { label: label, ttlDays: ttlDays });
+        var activeGuide = document.querySelector('[data-tab].is-active');
+        var m = await postJson("/token", { label: label, ttlDays: ttlDays, client: activeGuide ? activeGuide.getAttribute("data-tab") : undefined });
         if (!m.ok) {
           resetButtonLoading(btn);
           showMsg(COPY.couldNotCreate);
@@ -1410,11 +1423,16 @@ export async function handleMcpConnect(
 ): Promise<Response> {
   const method = getMethod(event);
   const origin = deriveOrigin(event);
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   const appUrl = `${origin}${basePath}`;
-  // Tokens bind to an audience verifyAuth accepts. Reached through an alias of
-  // a configured public URL, that differs from the appUrl this page displays.
-  const tokenIssuer = getMcpOAuthIssuer(event) ?? appUrl;
+  // Tokens bind to an audience verifyAuth accepts, and clients installed from
+  // the identity sign in through OAuth discovery, so both use its issuer.
+  // Reached through an alias of a configured public URL, that is not appUrl.
+  const issuer = getMcpOAuthIssuer(event) ?? appUrl;
+  // Only subroutes that publish the identity resolve it, before minting
+  // anything: a refused name must neither leave a token no response returned
+  // nor block listing and revoking existing tokens.
+  const resolveIdentity = () => resolveMcpConnectIdentity(issuer, options);
   let requestUrl: URL | null = null;
   try {
     requestUrl = new URL(
@@ -1440,6 +1458,7 @@ export async function handleMcpConnect(
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
+    const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) {
       const loginPage = getConfiguredLoginHtml(event);
@@ -1448,9 +1467,7 @@ export async function handleMcpConnect(
         renderConnectPage({
           connectBasePath: basePath,
           email: "(no auth configured)",
-          appName: options.appName || appLabel(appUrl, options),
-          appUrl,
-          serverId: serverName(appUrl, options),
+          identity,
           userCode: null,
           catalogScope: null,
           locale,
@@ -1479,9 +1496,7 @@ export async function handleMcpConnect(
       renderConnectPage({
         connectBasePath: basePath,
         email: session.email,
-        appName: options.appName || appLabel(appUrl, options),
-        appUrl,
-        serverId: serverName(appUrl, options),
+        identity,
         userCode,
         catalogScope,
         locale,
@@ -1492,22 +1507,29 @@ export async function handleMcpConnect(
     );
   }
 
+  if (sub === "/identity") {
+    if (method !== "GET" && method !== "HEAD") {
+      return json({ error: "Method not allowed" }, 405);
+    }
+    return json(resolveIdentity());
+  }
+
   if (sub === "/token") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
+    const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
     if (
       !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
       canUseDevOpenConnect(event)
     ) {
-      return json(
-        mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
-      );
+      return json(mcpResultPayload(identity, { ownerEmail: session.email }));
     }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       label?: unknown;
       ttlDays?: unknown;
       fullCatalog?: unknown;
+      client?: unknown;
     };
     const label =
       typeof body.label === "string" && body.label.trim()
@@ -1528,11 +1550,18 @@ export async function handleMcpConnect(
         orgId: defaultOrganizationId,
         label,
         ttlDays,
-        issuer: tokenIssuer,
+        issuer,
         requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
       });
-      return json(mcpResultPayload(appUrl, options, { token }));
+      await trackAgentConnected({
+        email: session.email,
+        origin: issuer,
+        appId: options.appId,
+        client: typeof body.client === "string" ? body.client : null,
+        method: "mcp",
+      });
+      return json(mcpResultPayload(identity, { token }));
     } catch (err) {
       if (err instanceof McpCredentialIssuanceError)
         return issuanceErrorResponse(err);
@@ -1555,17 +1584,40 @@ export async function handleMcpConnect(
       ) {
         return json({ error: "Invalid request body." }, 400);
       }
-      const body = (parsedBody ?? {}) as { fullCatalog?: unknown };
+      const body = (parsedBody ?? {}) as {
+        fullCatalog?: unknown;
+        client?: unknown;
+        purpose?: unknown;
+      };
       if (
         body.fullCatalog !== undefined &&
         typeof body.fullCatalog !== "boolean"
       ) {
         return json({ error: "fullCatalog must be a boolean." }, 400);
       }
+      if (
+        body.client !== undefined &&
+        (typeof body.client !== "string" || body.client.length > 500)
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      if (
+        body.purpose !== undefined &&
+        body.purpose !== "agent" &&
+        body.purpose !== "credential"
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
       const row = await createDeviceCode(
         body.fullCatalog === true ? "full" : null,
+        {
+          ...(typeof body.client === "string" ? { client: body.client } : {}),
+          ...(body.purpose === "agent" || body.purpose === "credential"
+            ? { purpose: body.purpose }
+            : {}),
+        },
       );
-      const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
+      const verificationUri = `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
         user_code: row.userCode,
@@ -1640,6 +1692,7 @@ export async function handleMcpConnect(
 
   if (sub === "/device/poll") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
+    const identity = resolveIdentity();
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       device_code?: unknown;
     };
@@ -1669,7 +1722,8 @@ export async function handleMcpConnect(
         canUseDevOpenConnect(event);
       const orgDomain = await resolveOrgDomain(row.orgId ?? undefined);
       await prepareConnectIssuance();
-      return await withMcpCredentialIssuance(
+      let connected = false;
+      const response = await withMcpCredentialIssuance(
         {
           email: row.ownerEmail,
           orgId: row.orgId,
@@ -1700,7 +1754,7 @@ export async function handleMcpConnect(
           if (devOpen) {
             return json({
               status: "approved",
-              ...mcpResultPayload(appUrl, options, {
+              ...mcpResultPayload(identity, {
                 ownerEmail: row.ownerEmail!,
                 catalogScope: claimed.catalogScope,
               }),
@@ -1710,7 +1764,7 @@ export async function handleMcpConnect(
             ownerEmail: claimed.ownerEmail!,
             orgId: claimed.orgId,
             orgDomain,
-            issuer: tokenIssuer,
+            issuer,
             expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
             jti,
             ...(claimed.catalogScope
@@ -1729,12 +1783,23 @@ export async function handleMcpConnect(
           if (!(await finishDeviceCodeMint(deviceCode, jti, tx))) {
             throw new McpCredentialIssuanceError("unavailable");
           }
+          connected = true;
           return json({
             status: "approved",
-            ...mcpResultPayload(appUrl, options, { token }),
+            ...mcpResultPayload(identity, { token }),
           });
         },
       );
+      if (connected && row.purpose !== "credential") {
+        await trackAgentConnected({
+          email: row.ownerEmail,
+          origin: issuer,
+          appId: options.appId,
+          client: deviceFlowClients(row.client ?? null),
+          method: "mcp",
+        });
+      }
+      return response;
     } catch (err) {
       if (err instanceof McpCredentialIssuanceError)
         return issuanceErrorResponse(err);

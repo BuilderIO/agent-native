@@ -6,8 +6,12 @@ import { runPublishAgentSelectionContext } from "./publish-agent-selection-conte
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  getBrowserTabId: vi.fn(() => "tab-123"),
   setClientAppState: vi.fn(() => Promise.resolve()),
 }));
+
+import { setClientAppState } from "@agent-native/core/client/hooks";
+import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
 
@@ -83,5 +87,63 @@ describe("runPublishAgentSelectionContext layout grid", () => {
     ).not.toThrow();
     expect(publishedSelection().layoutGrid).toBeNull();
     expect(publishedSelection().activeFileId).toBeNull();
+  });
+});
+
+describe("runPublishAgentSelectionContext published image data", () => {
+  beforeEach(() => {
+    vi.mocked(setClientAppState).mockClear();
+    delete (window as unknown as { __designSelection?: unknown })
+      .__designSelection;
+  });
+
+  it("sanitizes only persisted tab and global selection values", () => {
+    const inlineImage = "data:image/gif;base64,R0lGODlhAQABAIAA";
+    const inlineSvg =
+      "DATA:image/svg+xml;charset=utf-8,%3Csvg%20aria-label%3D%22caf%C3%A9%22%3E";
+    const selectedElement = {
+      tagName: "img",
+      id: "hero-image",
+      sourceId: "node-source-7",
+      selector: "#hero-image",
+      path: [0, 2, 1],
+      sourceLayerIdentity: { screenId: "screen-1", nodeId: "node-source-7" },
+      imageSource: inlineImage,
+      htmlContent: `<img src="${inlineImage}">`,
+      computedStyles: {
+        backgroundImage: `url('${inlineSvg}')`,
+        objectFit: "cover",
+      },
+      referenceUrl: "https://cdn.example.test/hero.png",
+    } as unknown as Args["selectedElement"];
+
+    runPublishAgentSelectionContext(argsFor({ selectedElement }));
+
+    expect(publishedSelection().selectedElement).toBe(selectedElement);
+    expect(selectedElement?.imageSource).toBe(inlineImage);
+    expect(setClientAppState).toHaveBeenCalledTimes(2);
+
+    const writes = vi.mocked(setClientAppState).mock.calls;
+    expect(writes.map(([key]) => key)).toEqual([
+      "design-selection:tab-123",
+      "design-selection",
+    ]);
+    const [tabValue, globalValue] = writes.map(([, value]) => value as any);
+    expect(tabValue).toEqual(globalValue);
+    expect(tabValue.selectedElement).toMatchObject({
+      id: "hero-image",
+      sourceId: "node-source-7",
+      selector: "#hero-image",
+      path: [0, 2, 1],
+      sourceLayerIdentity: { screenId: "screen-1", nodeId: "node-source-7" },
+      imageSource: "[inline image/gif data omitted]",
+      computedStyles: {
+        backgroundImage: "url('[inline image/svg+xml data omitted]')",
+        objectFit: "cover",
+      },
+      referenceUrl: "https://cdn.example.test/hero.png",
+    });
+    expect(JSON.stringify(tabValue)).not.toMatch(/data:image|base64,/i);
+    expect(() => assertNoInlineImageBytes(tabValue)).not.toThrow();
   });
 });

@@ -149,7 +149,12 @@ export interface PasteSelectionArgs {
   pendingLocalFileContentsRef: RefObject<
     Map<
       string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+      {
+        content: string;
+        startedAt: number;
+        baseUpdatedAt?: string | null;
+        deferCollabReconcile?: boolean;
+      }
     >
   >;
   publishAuthoritativeClipboardMutation: (args: {
@@ -289,8 +294,11 @@ export async function runPasteSelection(
     });
     return;
   }
-  const pendingBase =
-    pendingLocalFileContentsRef.current.get(targetFileId)?.content;
+  const pendingBaseEntry =
+    pendingLocalFileContentsRef.current.get(targetFileId);
+  const pendingBase = pendingBaseEntry?.deferCollabReconcile
+    ? undefined
+    : pendingBaseEntry?.content;
   const lineageBase =
     latestClipboardMutationContentRef.current.get(targetFileId)?.content;
   const baseContent =

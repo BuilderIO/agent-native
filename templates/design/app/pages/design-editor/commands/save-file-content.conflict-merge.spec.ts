@@ -30,6 +30,14 @@ function conflict(): Error {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function setup(options: {
   mutate: (input: {
     content: string;
@@ -106,8 +114,11 @@ describe("runSaveFileContent concurrent edit merge", () => {
           return { updated: true, versionHash: sourceContentHash(MERGED) };
         },
       });
+    const onPersistedContent = vi.fn();
 
-    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+    await expect(
+      runSaveFileContent(args, pending, undefined, onPersistedContent),
+    ).resolves.toBe("persisted");
 
     expect(mutateAsync).toHaveBeenCalledTimes(2);
     expect(mutateAsync.mock.calls[1]![0]).toMatchObject({
@@ -120,7 +131,13 @@ describe("runSaveFileContent concurrent edit merge", () => {
     expect(args.markPendingLocalFileContent).toHaveBeenCalledWith(
       pending.id,
       MERGED,
+      undefined,
+      undefined,
+      undefined,
     );
+    expect(MERGED).not.toBe(pending.content);
+    expect(onPersistedContent).toHaveBeenCalledOnce();
+    expect(onPersistedContent).toHaveBeenCalledWith(MERGED);
     expect(rollbackPendingLocalFileContent).not.toHaveBeenCalled();
     expect(errorToast).not.toHaveBeenCalled();
     expect(args.latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
@@ -148,6 +165,54 @@ describe("runSaveFileContent concurrent edit merge", () => {
       "designEditor.toasts.saveConflict",
       expect.objectContaining({ id: `design-save-conflict:${pending.id}` }),
     );
+  });
+
+  it("does not publish content rejected as a stale collaboration mirror", async () => {
+    const { args, pending, rollbackPendingLocalFileContent } = setup({
+      mutate: async () => ({
+        updated: true,
+        skippedStaleMirror: true,
+        versionHash: sourceContentHash(THEIRS),
+      }),
+    });
+    const onPersistedContent = vi.fn();
+
+    await expect(
+      runSaveFileContent(args, pending, undefined, onPersistedContent),
+    ).resolves.toBe("conflict");
+
+    expect(onPersistedContent).not.toHaveBeenCalled();
+    expect(rollbackPendingLocalFileContent).toHaveBeenCalledWith(
+      pending.id,
+      pending.content,
+    );
+  });
+
+  it("does not publish an accepted request after a newer save supersedes it", async () => {
+    const mutation = deferred<unknown>();
+    const { args, pending, latestFileSaveForUnloadRef } = setup({
+      mutate: () => mutation.promise,
+    });
+    const onPersistedContent = vi.fn();
+    const saving = runSaveFileContent(
+      args,
+      pending,
+      undefined,
+      onPersistedContent,
+    );
+    latestFileSaveForUnloadRef.current[pending.id] = {
+      ...pending,
+      content: "<main>newer local source</main>",
+      expectedVersionHash: sourceContentHash(MINE),
+      operationRevision: pending.operationRevision + 1,
+    };
+    mutation.resolve({
+      updated: true,
+      versionHash: sourceContentHash(MINE),
+    });
+
+    await expect(saving).resolves.toBe("persisted");
+    expect(onPersistedContent).not.toHaveBeenCalled();
   });
 
   it("keeps the conflict loud when the base content is unknown", async () => {

@@ -1,4 +1,10 @@
-import { table, text, integer, ownableColumns } from "../../db/schema.js";
+import {
+  table,
+  text,
+  integer,
+  bigint,
+  ownableColumns,
+} from "../../db/schema.js";
 
 export const observationalMemory = table("observational_memory", {
   id: text("id").primaryKey(),
@@ -9,7 +15,7 @@ export const observationalMemory = table("observational_memory", {
   sourceStartIndex: integer("source_start_index"),
   sourceEndIndex: integer("source_end_index"),
   sourceMessageCount: integer("source_message_count").notNull().default(0),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   ...ownableColumns(),
 });

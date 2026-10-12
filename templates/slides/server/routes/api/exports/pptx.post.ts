@@ -6,6 +6,7 @@ import { defineEventHandler, setResponseStatus } from "h3";
 
 import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
+import { asGoogleSlidesBuildStep } from "../../../lib/deck-export-tracking.js";
 
 const PPTX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -25,6 +26,7 @@ export default defineEventHandler(async (event) => {
   const body = (await readBody(event)) as {
     deckId?: string;
     includeNotes?: boolean;
+    exportPurpose?: unknown;
   };
 
   if (!body?.deckId) {
@@ -34,15 +36,19 @@ export default defineEventHandler(async (event) => {
 
   const deckId = body.deckId;
   const includeNotes = body.includeNotes ?? true;
+  const runExport = async () =>
+    exportPptxAction.run({
+      deckId,
+      includeNotes,
+    });
 
   try {
     const result = await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
       () =>
-        exportPptxAction.run({
-          deckId,
-          includeNotes,
-        }),
+        body.exportPurpose === "google_slides"
+          ? asGoogleSlidesBuildStep(runExport)
+          : runExport(),
     );
 
     const bytes = new Uint8Array(result.buffer);

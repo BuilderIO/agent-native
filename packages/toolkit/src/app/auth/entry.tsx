@@ -185,6 +185,7 @@ export function authSessionReplayOptions(
   hostname: string,
   search = "",
   hash = "",
+  trackingApp = "",
 ): SessionReplayOptions | null {
   const publicKey =
     typeof config?.agentNativeAnalyticsPublicKey === "string"
@@ -232,6 +233,13 @@ export function authSessionReplayOptions(
     extraProperties: {
       capture_context: "pre_auth",
       pre_auth_base_path: normalizeBasePath(appBasePath),
+      ...(trackingApp.trim()
+        ? {
+            app: trackingApp.trim(),
+            app_name: trackingApp.trim(),
+            template_name: trackingApp.trim(),
+          }
+        : {}),
     },
     shouldStart: () =>
       isAuthSessionReplayPathname(window.location.pathname, appBasePath) &&
@@ -241,7 +249,10 @@ export function authSessionReplayOptions(
 
 export function startAuthSessionReplay(
   config: AnalyticsBrowserConfig | undefined,
-  props: Pick<AuthPageProps, "appBasePath" | "workspaceRuntime">,
+  props: Pick<
+    AuthPageProps,
+    "appBasePath" | "trackingApp" | "workspaceRuntime"
+  >,
 ): void {
   const appBasePath = resolveAuthPageBasePath(
     props.appBasePath,
@@ -255,6 +266,7 @@ export function startAuthSessionReplay(
     window.location.hostname,
     window.location.search,
     window.location.hash,
+    props.trackingApp,
   );
   if (!options) return;
 

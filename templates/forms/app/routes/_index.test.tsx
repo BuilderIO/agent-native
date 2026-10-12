@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const agentChatSurfaceMock = vi.hoisted(() => vi.fn());
@@ -99,7 +100,11 @@ describe("Forms ask page", () => {
     root = createRoot(container);
 
     act(() => {
-      root.render(<AskPage />);
+      root.render(
+        <MemoryRouter>
+          <AskPage />
+        </MemoryRouter>,
+      );
     });
 
     expect(agentChatSurfaceMock).toHaveBeenCalledWith(
@@ -114,6 +119,9 @@ describe("Forms ask page", () => {
       "restoreActiveThread",
       false,
     );
+    expect(
+      agentChatSurfaceMock.mock.calls[0]?.[0]?.threadUrlSync,
+    ).toMatchObject({ routeThreadId: null });
     expect(container.textContent).toContain("What should this form do?");
     expect(container.textContent).not.toContain(
       "Build, publish, and analyze forms with an agent.",
@@ -123,13 +131,37 @@ describe("Forms ask page", () => {
     ).not.toBeNull();
   });
 
+  it("binds the chat to the thread route and builds thread URLs", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <MemoryRouter>
+          <AskPage threadId="thread-123" />
+        </MemoryRouter>,
+      );
+    });
+
+    const threadUrlSync =
+      agentChatSurfaceMock.mock.calls[0]?.[0]?.threadUrlSync;
+    expect(threadUrlSync.routeThreadId).toBe("thread-123");
+    expect(threadUrlSync.getPath("thread-123")).toBe("/ask/thread-123");
+    expect(threadUrlSync.getPath(null)).toBe("/ask");
+  });
+
   it("prefills the shared composer when a suggestion chip is clicked", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
 
     act(() => {
-      root.render(<AskPage />);
+      root.render(
+        <MemoryRouter>
+          <AskPage />
+        </MemoryRouter>,
+      );
     });
 
     const analyticsChip = Array.from(container.querySelectorAll("button")).find(

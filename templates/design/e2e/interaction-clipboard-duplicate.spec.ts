@@ -685,6 +685,7 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
 
       await page.locator("[data-frame-label]").first().click({ force: true });
       await page.waitForTimeout(300);
+      before = await readFrameRects();
       await page.keyboard.press("ControlOrMeta+d");
 
       let after: typeof before = {};
@@ -692,11 +693,19 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
         .poll(
           async () => {
             after = await readFrameRects();
-            return Object.keys(after).length;
+            return {
+              count: Object.keys(after).length,
+              original: after[fileIds[0]!],
+              occupied: after[fileIds[1]!],
+            };
           },
           { timeout: 10_000 },
         )
-        .toBe(3);
+        .toEqual({
+          count: 3,
+          original: before[fileIds[0]!],
+          occupied: before[fileIds[1]!],
+        });
       expect(Object.keys(after)).toHaveLength(3);
       const originalId = fileIds[0]!;
       const occupiedId = fileIds[1]!;
@@ -731,7 +740,7 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
       BOARD_OBJECT_HTML,
       2,
     );
-    const designGap = 56; // Design's board-wide Screen gap remains distinct from standard's.
+    const designGap = 56; // Design's board-wide Screen gap.
 
     const readFrames = async () => {
       const response = await request.get(

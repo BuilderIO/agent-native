@@ -1,6 +1,6 @@
 ---
 title: "Agent UX Kit"
-description: "Composer, model picker, context chips, approvals, run recovery, progress, and the runs tray."
+description: "Composer, chat history, model picker, context chips, approvals, run recovery, progress, and notifications."
 ---
 
 # Agent UX Kit
@@ -30,6 +30,21 @@ run recovery, and the runs tray.
 | `<RunsTray>`                      | User-visible background run progress and recovery.                                 |
 | Run recovery                      | Hydrates dropped/stale foreground and background runs back into the UI.            |
 
+## Chat History {#chat-history}
+
+@agent-native/toolkit/chat-history exports ChatHistoryList, ChatHistoryRail, and useChatHistoryRailController. The list supports selection, search, pinning, rename/delete actions, loading/error/empty states, and custom row actions. The rail adds a New chat action and a show more/less control.
+
+<WireframeBlock id="doc-block-toolkit-chat-history">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:410px;box-sizing:border-box;padding:20px;display:grid;grid-template-columns:260px 1fr;gap:14px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><button class='primary'><span data-icon='plus'></span> New chat</button><div class='wf-box' style='display:flex;align-items:center;gap:8px'><span data-icon='search'></span><span class='wf-muted'>Search chats</span></div><small class='wf-muted'>RECENT</small><div class='wf-box' style='background:var(--wf-accent-soft)'><strong>Launch plan</strong><br/><small class='wf-muted'>Updated just now</small></div><div class='wf-box'>Q3 forecast review</div><div class='wf-box'>Website refresh</div><div style='flex:1'></div><button>Show more</button></aside><main class='wf-card' style='display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px'><span data-icon='message'></span><strong>Launch plan</strong><small class='wf-muted'>The app loads and saves this conversation.</small></main></div>"
+    }
+  />
+</WireframeBlock>
+
+The app supplies chat items, the active id, labels, and callbacks. These Toolkit components do not query, authorize, persist, or route conversations. Keep those responsibilities in the app or framework adapter; use the lower-level controller when the app needs a different rail view.
+
 ## Wiring The Header {#wiring}
 
 `PromptComposer` and `RunsTray` are the two pieces most apps wire by hand
@@ -48,7 +63,7 @@ import {
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
-import { RunsTray } from "@agent-native/core/client/progress";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
 
 export function AgentDock() {
   return (

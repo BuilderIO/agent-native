@@ -77,6 +77,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (value: Date, options?: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat("en-US", options).format(value),
+  }),
 }));
 vi.mock("@agent-native/core/client/labs", () => ({
   useLabState: () => ({

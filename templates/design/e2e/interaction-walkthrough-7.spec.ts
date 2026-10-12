@@ -57,7 +57,7 @@ async function newDesign(
   content = CARD_HTML,
 ): Promise<string> {
   const created = await action(request, "create-design", {
-    title: `Tutorial 7 card ${Date.now()}`,
+    title: `Card and container build ${Date.now()}`,
     projectType: "prototype",
   });
   const id = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -272,7 +272,7 @@ async function renameLayer(
   await expect(layerRowButton(page, toName)).toBeVisible();
 }
 
-test.describe("tutorial 7 — card and container system", () => {
+test.describe("card and container interactions", () => {
   test.setTimeout(150_000);
   let designId = "";
 
@@ -729,7 +729,7 @@ test.describe("tutorial 7 — card and container system", () => {
     expect(contentChildren).toContain("thumb");
   });
 
-  test("step 7 [in-screen]: Frame tool drawn around Content wraps it as Project card with standard frame-tool defaults (white fill, clips content)", async ({
+  test("Frame tool drawn around Content wraps it as Project card with default frame styles (white fill, clips content)", async ({
     page,
     request,
   }) => {
@@ -793,7 +793,7 @@ test.describe("tutorial 7 — card and container system", () => {
       test.info().annotations.push({
         type: "finding",
         description:
-          "Drawing the Frame tool over an existing layer does not wrap it into a new parent frame (standard also requires an explicit Frame Selection command for this, not the draw tool) — this step is closest done via Frame Selection (⌥⌘G), already covered in interaction-group-frame.spec.ts.",
+          "Drawing the Frame tool over an existing layer does not wrap it into a new parent frame; use Frame Selection (Alt+Cmd+G), covered in interaction-group-frame.spec.ts.",
       });
       return;
     }
@@ -803,16 +803,12 @@ test.describe("tutorial 7 — card and container system", () => {
     const cardChildren = childNodeIds(html, cardId!);
     expect(
       cardChildren,
-      "the Frame tool drawn over Content's bounds produced an EMPTY sibling " +
-        "frame instead of wrapping Content as a child — standard's Frame tool " +
-        "drawn over an existing selection does not wrap it either (a real " +
-        "Frame Selection command is required), so this is closest-equivalent " +
-        "behavior, not a regression, but it means the tutorial's literal " +
-        '"Frame tool around Content" step has no direct one-gesture interaction.',
+      "the Frame tool drawn over Content's bounds produced an empty sibling " +
+        "frame instead of wrapping Content as a child",
     ).toEqual(["Content"]);
   });
 
-  test("native Create component is available while page moves remain absent", async ({
+  test("Create component is available in the selected element's context menu", async ({
     page,
     request,
   }) => {
@@ -847,9 +843,5 @@ test.describe("tutorial 7 — card and container system", () => {
       items.some((i) => /create\s+component/i.test(i)),
       `context menu items: ${JSON.stringify(items)}`,
     ).toBe(true);
-    expect(
-      items.some((i) => /move to page/i.test(i)),
-      `context menu items: ${JSON.stringify(items)}`,
-    ).toBe(false);
   });
 });

@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "en attente",
   "agent.completed": "a terminé",
   "agent.failed": "nécessite une attention particulière",
+  "agent.failureReason.failed": "Impossible de terminer",
+  "agent.failureReason.setup": "Configuration requise",
+  "agent.failureReason.auth": "Accès refusé",
+  "agent.failureReason.timeout": "Délai dépassé",
+  "agent.failureReason.budget": "Temps écoulé",
+  "agent.failureReason.response": "Résultat inutilisable",
   "agent.closed": "a fermé",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":
@@ -88,6 +94,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Texte facultatif à rechercher dans la réponse…",
   "observability.promoteMustContainLabel":
     "Texte à vérifier dans la réponse de l’évaluation promue",
+  "observability.promoteReviewedPromptLabel":
+    "Prompt vérifié manuellement (jamais copié depuis la production)",
   "observability.promoteNeedsContains":
     "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir.",
   "observability.viewDetails": "Afficher les détails",
@@ -129,7 +137,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Ignorer pour l’instant",
   "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
   "onboarding.builderCreateAccount": "Utiliser Builder.io",
-  "onboarding.builderSignInWithAccount": "Utiliser Builder.io",
+  "onboarding.builderSignInWithAccount":
+    "Se connecter avec un compte Builder.io",
   "onboarding.builderActivateDescription":
     "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
   "onboarding.builderActiveCredits":
@@ -149,8 +158,17 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Connectez-vous pour utiliser votre compte.",
+  "onboarding.builderActivationChecking":
+    "Vérification de la disponibilité de la création de compte.",
+  "onboarding.builderActivationUnavailable":
+    "La création de compte n’est pas activée pour cette application. Vous pouvez connecter un compte existant.",
+  "onboarding.builderActivationUnavailableInMode":
+    "L’activation d’un nouveau compte n’est pas disponible dans ce mode. Vous pouvez toujours connecter un compte existant.",
+  "onboarding.builderActivationCheckFailed":
+    "Impossible de vérifier si cette application peut créer de nouveaux comptes.",
+
   "onboarding.builderActivationDescription":
-    "Créez ou connectez un compte Builder.io en un clic pour obtenir des crédits gratuits.",
+    "Créez un compte pour activer les crédits gratuits, ou continuez avec un compte existant.",
   "onboarding.builderOrgActivationDescription":
     "Nous créerons votre compte Builder.io en un clic afin que votre organisation puisse l’utiliser.",
   "onboarding.builderCreateAndActivate": "Créer et activer",
@@ -159,12 +177,13 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Conditions d’utilisation",
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
-  "onboarding.builderExistingAccount": "Utiliser Builder.io",
+  "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
   "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
   "onboarding.builderConnecting":
     "Configuration des crédits gratuits de Builder.io",
   "onboarding.builderProvisioningDescription":
     "Création de votre compte Builder.io et activation des crédits gratuits.",
+  "onboarding.builderCancelPending": "Vérification de l’état de la connexion…",
   "onboarding.builderConnectionDescription":
     "Terminez la connexion en un clic dans la nouvelle fenêtre.",
   "onboarding.builderReadyWithCodeChanges":
@@ -823,6 +842,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Échec de la copie",
   "recovery.continueUnavailable":
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
+  "errorMessages.invalidAttachmentNamed":
+    "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
   "recovery.deferredSubmissionFailed":
@@ -893,6 +915,13 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.usePersonalKey": "Utiliser une clé personnelle à la place",
   "selection.attached": "{{formattedCount}} caractères de la sélection joints",
   "selection.clear": "Effacer le contexte de la sélection",
+  "setup.addKeyInSettings": "Ajouter une clé dans les paramètres",
+  "setup.addKeyInSettingsDescription":
+    "Pour votre compte ou votre organisation.",
+  "setup.setEnvironmentVariable": "Définir une variable d’environnement",
+  "setup.setEnvironmentVariableDescription":
+    "Une clé de fournisseur pour tous les utilisateurs de cette application.",
+
   "setup.addOwnKeys": "Ajouter vos propres clés",
   "setup.builderCredits":
     "Builder.io inclut des crédits gratuits, mais vous pouvez aussi utiliser votre propre clé API.",
@@ -1153,11 +1182,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Télécharger",
   "composer.uploadFailed": "Impossible de télécharger le fichier sélectionné.",
   "composer.fileTooLarge":
-    "Ce fichier dépasse la taille maximale autorisée pour l’envoi.",
+    "Ce fichier dépasse la limite d’envoi de {{size}} Mo.",
   "composer.sessionExpired":
-    "Votre session a expiré. Actualisez la page et réessayez.",
+    "Votre session a expiré. Reconnectez-vous, puis renvoyez votre message.",
   "composer.unsupportedFileType":
     "Ce type de fichier n'est pas pris en charge.",
+  "composer.uploadUnavailable":
+    "L’envoi de fichiers est indisponible pour le moment. Réessayez dans un instant.",
+  "composer.uploadOffline":
+    "L’envoi n’a pas pu joindre le serveur. Vérifiez votre connexion et réessayez.",
+  "composer.submissionNotReady":
+    "Le chat n’est pas encore prêt à envoyer. Patientez un instant, puis renvoyez.",
+  "composer.submissionScopeChanged":
+    "Ce chat a changé avant l’envoi de votre message. Renvoyez-le.",
+  "composer.attachmentNotSaved": "Non enregistré avec ce chat",
   "composer.useAttachedContext": "Utilisez le contexte ci-joint.",
   "mentions.commands": "Commandes",
   "mentions.learnMore": "En savoir plus",

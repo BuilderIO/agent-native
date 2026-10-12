@@ -465,11 +465,23 @@ export function flattenRows(
   rows: FlatLayerRow[] = [],
 ) {
   const displayOrder = [...nodes].reverse();
-  displayOrder.forEach((node, index) => {
+  const siblingCounts = new Map<string, number>();
+  for (const node of nodes) {
+    siblingCounts.set(node.id, (siblingCounts.get(node.id) ?? 0) + 1);
+  }
+  const duplicateSiblingIndexes = new Map<string, number>();
+  displayOrder.forEach((node) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0 || node.childrenPending === true;
     const canAcceptChildren = CONTAINER_TYPES.has(node.type);
-    const rowKey = `${parentKey}/${node.id}:${index}`;
+    const duplicateIndex =
+      siblingCounts.get(node.id) === 1
+        ? null
+        : (duplicateSiblingIndexes.get(node.id) ?? 0) + 1;
+    if (duplicateIndex !== null) {
+      duplicateSiblingIndexes.set(node.id, duplicateIndex);
+    }
+    const rowKey = `${parentKey}/${node.id}${duplicateIndex ? `#${duplicateIndex}` : ""}`;
     rows.push({
       node,
       rowKey,
@@ -969,6 +981,10 @@ function LayersPanelImpl(
         .map((node) => node.id),
     [visibleRows],
   );
+  const selectableVisibleIdsRef = useRef(selectableVisibleIds);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  selectableVisibleIdsRef.current = selectableVisibleIds;
+  onSelectionChangeRef.current = onSelectionChange;
 
   visibleRowsRef.current = visibleRows;
   rootsRef.current = roots;
@@ -1048,29 +1064,34 @@ function LayersPanelImpl(
         range: options.range,
         currentSelectedIds,
         anchor: lastSelectionAnchorRef.current,
-        selectableVisibleIds,
+        selectableVisibleIds: selectableVisibleIdsRef.current,
         visibleRows: visibleRowsRef.current,
-        anchorFallbackSelectedIds: selectedIds,
+        anchorFallbackSelectedIds: selectedIdsRef.current,
       });
       lastSelectionAnchorRef.current = nextAnchor;
       lastPanelSelectionSignatureRef.current = nextIds.join("\0");
-      onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
+      onSelectionChangeRef.current(nextIds, {
+        id,
+        selectedIds: nextIds,
+        ...options,
+      });
     },
-    [onSelectionChange, selectableVisibleIds, selectedIds],
+    [],
   );
 
-  const commitRename = useCallback(
-    (id: string) => {
-      const nextName = renameDraft.trim();
-      if (nextName) {
-        onRename?.(id, nextName);
-      }
-      setRenamingId(null);
-      setRenameDraft("");
-      renameOriginalNameRef.current = "";
-    },
-    [onRename, renameDraft],
-  );
+  const renameDraftRef = useRef(renameDraft);
+  const onRenameRef = useRef(onRename);
+  renameDraftRef.current = renameDraft;
+  onRenameRef.current = onRename;
+  const commitRename = useCallback((id: string) => {
+    const nextName = renameDraftRef.current.trim();
+    if (nextName) {
+      onRenameRef.current?.(id, nextName);
+    }
+    setRenamingId(null);
+    setRenameDraft("");
+    renameOriginalNameRef.current = "";
+  }, []);
 
   const pendingRenameFocusIdRef = useRef<string | null>(null);
 

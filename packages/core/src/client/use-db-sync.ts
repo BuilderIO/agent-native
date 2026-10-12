@@ -17,6 +17,7 @@ import {
   isHostSurfaceHidden,
   isSurfaceHidden,
 } from "../shared/surface-visibility.js";
+import { actionQueryAffectedByResources } from "./action-query-scope.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { isTerminalAuthFailure } from "./create-query-client.js";
@@ -410,6 +411,24 @@ function normalizeEventPayload(payload: unknown): SyncEvent[] {
 
 function hasTerminalAuthFailure(query: Query): boolean {
   return isTerminalAuthFailure(query.state?.error);
+}
+
+/**
+ * The resource types the batch's action events changed. `undefined` when one
+ * event names none: its affected queries are unknown, so the batch refreshes
+ * every action query, as an event without a resource always has.
+ */
+function changedActionResourceTypes(
+  actionEvents: readonly SyncEvent[],
+): ReadonlySet<string> | undefined {
+  const types = new Set<string>();
+  for (const evt of actionEvents) {
+    if (typeof evt.resourceType !== "string" || !evt.resourceType) {
+      return undefined;
+    }
+    types.add(evt.resourceType);
+  }
+  return types;
 }
 
 const INTERACTION_CRITICAL_APP_STATE_KEYS = [
@@ -1627,14 +1646,26 @@ export function useDbSync(
             );
           }
         };
-        const hasActionEvent = invalidating.some(
+        const actionEvents = invalidating.filter(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
+        const hasActionEvent = actionEvents.length > 0;
         if (hasActionEvent) {
           const appPredicate = actionInvalidatePredicateRef.current;
-          const predicate = appPredicate
-            ? (query: Query) => appPredicate(query, invalidating)
+          // Narrowing is only sound when nothing else in the batch changed data:
+          // a db or collab change in the same batch has an unknown affected set.
+          const changedResources = invalidating.every(
+            (evt) => evt.source === "action" || evt.source === "app-state",
+          )
+            ? changedActionResourceTypes(actionEvents)
             : undefined;
+          const predicate =
+            appPredicate || changedResources
+              ? (query: Query) =>
+                  (!appPredicate || appPredicate(query, invalidating)) &&
+                  (changedResources === undefined ||
+                    actionQueryAffectedByResources(query, changedResources))
+              : undefined;
           invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
           );

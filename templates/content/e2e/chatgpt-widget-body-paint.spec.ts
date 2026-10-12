@@ -143,6 +143,7 @@ test("a scoped read-only Content widget body paints in a nested frame", async ({
     ownerEmail: reviewerEmail,
     targetPath: `/page/${encodeURIComponent(documentId)}`,
     scope,
+    revocationAnchorCreatedAtMs: Date.now(),
   });
   const embedStartUrl = new URL(
     buildEmbedStartPath(ticket.ticket),

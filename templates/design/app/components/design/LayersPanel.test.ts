@@ -507,6 +507,45 @@ describe("LayersPanel row order convention (L5)", () => {
   });
 });
 
+describe("LayersPanel row keys", () => {
+  it("keeps sibling paths stable and disambiguates duplicate ids only within their parent", () => {
+    const nodes: LayersPanelNode[] = [
+      {
+        id: "left",
+        name: "Left",
+        children: [{ id: "shared", name: "Left shared" }],
+      },
+      {
+        id: "right",
+        name: "Right",
+        children: [
+          { id: "shared", name: "Right first" },
+          { id: "shared", name: "Right second" },
+        ],
+      },
+    ];
+    const rowKeysByName = (roots: LayersPanelNode[]) =>
+      new Map(
+        flattenRows(roots, new Set(["left", "right"]), false).map(
+          ({ node, rowKey }) => [node.name, rowKey],
+        ),
+      );
+    const originalKeys = rowKeysByName(nodes);
+
+    expect(originalKeys.get("Left shared")).toBe("root/left/shared");
+    expect(originalKeys.get("Right second")).toBe("root/right/shared#1");
+    expect(originalKeys.get("Right first")).toBe("root/right/shared#2");
+
+    const keysAfterUnrelatedInsert = rowKeysByName([
+      ...nodes,
+      { id: "unrelated", name: "Unrelated" },
+    ]);
+    for (const [name, key] of originalKeys) {
+      expect(keysAfterUnrelatedInsert.get(name)).toBe(key);
+    }
+  });
+});
+
 describe("LayersPanel drop placement zones (L10)", () => {
   function fakeDragOverEvent(offsetFromTopPx: number, rowHeightPx = 32) {
     return {

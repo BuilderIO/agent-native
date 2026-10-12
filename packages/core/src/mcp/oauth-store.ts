@@ -10,6 +10,7 @@ import { randomBytes, randomUUID, createHash } from "node:crypto";
 
 import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -65,7 +66,7 @@ export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createClientsSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
           client_id TEXT PRIMARY KEY,
@@ -122,6 +123,11 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
       );
       await ensureTableExists("mcp_oauth_codes", createCodesSql);
+      await ensureColumnExists(
+        "mcp_oauth_codes",
+        "client_name",
+        `ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS client_name TEXT`,
+      );
       // Legacy owners may already have been transferred; leave their bindings unset.
       await ensureColumnExists(
         "mcp_oauth_codes",
@@ -141,6 +147,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -159,6 +166,7 @@ export interface OAuthClientRow {
 }
 
 export interface OAuthCodeRow {
+  clientName: string | null;
   code: string;
   clientId: string;
   redirectUri: string;
@@ -185,7 +193,7 @@ export interface OAuthRefreshTokenRow {
   orgDomain: string | null;
   scope: string;
   resource: string;
-  createdAt: number | null;
+  grantCreatedAtMs: number | null;
   expiresAt: number | null;
   lastUsedAt: number | null;
   revokedAt: number | null;
@@ -269,6 +277,7 @@ function mapClientRow(row: any): OAuthClientRow {
 
 function mapCodeRow(row: any): OAuthCodeRow {
   return {
+    clientName: row.client_name ?? row.clientName ?? null,
     code: row.code,
     clientId: row.client_id ?? row.clientId,
     redirectUri: row.redirect_uri ?? row.redirectUri,
@@ -297,7 +306,7 @@ function mapRefreshRow(row: any): OAuthRefreshTokenRow {
     orgDomain: row.org_domain ?? row.orgDomain ?? null,
     scope: row.scope,
     resource: row.resource,
-    createdAt: numOrNull(row.created_at ?? row.createdAt),
+    grantCreatedAtMs: numOrNull(row.created_at ?? row.createdAt),
     expiresAt: refreshTokenExpiryFromRow(row),
     lastUsedAt: numOrNull(row.last_used_at ?? row.lastUsedAt),
     revokedAt: numOrNull(row.revoked_at ?? row.revokedAt),
@@ -395,6 +404,7 @@ export async function getOAuthClient(
 export async function createOAuthCode(
   params: {
     clientId: string;
+    clientName?: string | null;
     redirectUri: string;
     codeChallenge: string;
     codeChallengeMethod: string;
@@ -412,7 +422,7 @@ export async function createOAuthCode(
   const now = Date.now();
   const expiresAt = now + MCP_OAUTH_CODE_TTL_MS;
   const result = await client.execute({
-    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at, client_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       code,
       params.clientId,
@@ -428,6 +438,7 @@ export async function createOAuthCode(
       now,
       expiresAt,
       null,
+      params.clientName ?? null,
     ],
   });
   if (result.rowsAffected !== 1) {
@@ -437,6 +448,7 @@ export async function createOAuthCode(
   }
   return {
     code,
+    clientName: params.clientName ?? null,
     clientId: params.clientId,
     redirectUri: params.redirectUri,
     codeChallenge: params.codeChallenge,
@@ -515,12 +527,12 @@ export async function createOAuthRefreshToken(
     orgDomain?: string | null;
     scope: string;
     resource: string;
+    grantCreatedAtMs: number | null;
   },
   db?: DbExec,
 ): Promise<OAuthRefreshTokenRow> {
   if (!db) await ensureTable();
   const client = db ?? getDbExec();
-  const now = Date.now();
   const row: OAuthRefreshTokenRow = {
     id: randomUUID(),
     tokenHash: hashOAuthToken(params.refreshToken),
@@ -531,7 +543,8 @@ export async function createOAuthRefreshToken(
     orgDomain: params.orgDomain ?? null,
     scope: params.scope,
     resource: params.resource,
-    createdAt: now,
+    // This is the authorization grant's immutable timestamp, not row-creation time.
+    grantCreatedAtMs: params.grantCreatedAtMs,
     expiresAt: null,
     lastUsedAt: null,
     revokedAt: null,
@@ -549,7 +562,7 @@ export async function createOAuthRefreshToken(
       row.orgDomain,
       row.scope,
       row.resource,
-      row.createdAt,
+      row.grantCreatedAtMs,
       row.expiresAt,
       row.lastUsedAt,
       row.revokedAt,
@@ -600,7 +613,6 @@ export async function rotateOAuthRefreshToken(
     ...old,
     id: randomUUID(),
     tokenHash: newHash,
-    createdAt: now,
     expiresAt: null,
     lastUsedAt: null,
     revokedAt: null,
@@ -618,7 +630,7 @@ export async function rotateOAuthRefreshToken(
       next.orgDomain,
       next.scope,
       next.resource,
-      next.createdAt,
+      next.grantCreatedAtMs,
       next.expiresAt,
       next.lastUsedAt,
       next.revokedAt,

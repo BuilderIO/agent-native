@@ -117,6 +117,7 @@ export function useEditorCanvasAndScreens({
     t,
     id,
     session,
+    widgetEmbed,
     isSignedIn,
     initialSearchParams,
     queryClient,
@@ -200,6 +201,7 @@ export function useEditorCanvasAndScreens({
     liveFrameGeometryRef,
     boardFileId,
     overviewScreens,
+    designSourceType,
     handleScreenRuntimeLayerSnapshot,
   } = editorFilesAndSaving;
   const {
@@ -443,12 +445,23 @@ export function useEditorCanvasAndScreens({
       return runDuplicateScreen(
         {
           canEditDesign,
+          widgetEmbed,
           createFileAsync,
           deleteFileAsync: deleteFileMutation.mutateAsync,
           designDataJsonRef,
           duplicateRecoveryRef,
           displayedCanvasFrameGeometryById,
           files,
+          getCurrentScreenContentForDuplicate: (targetScreenId) => {
+            const sourceType = resolveOverviewScreenSourceType(
+              overviewScreens.find((screen) => screen.id === targetScreenId),
+              designSourceType,
+            );
+            if (sourceType !== "inline") {
+              return files.find((file) => file.id === targetScreenId)?.content;
+            }
+            return historySourceReaderRef.current(targetScreenId);
+          },
           focusCreatedScreen,
           id,
           liveFrameGeometryRef,
@@ -469,9 +482,11 @@ export function useEditorCanvasAndScreens({
     },
     [
       canEditDesign,
+      widgetEmbed,
       createFileAsync,
       deleteFileMutation,
       displayedCanvasFrameGeometryById,
+      designSourceType,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -595,6 +610,8 @@ export function useEditorCanvasAndScreens({
       requestSource: TAB_ID,
       user: currentUser,
     });
+  const currentYDocRef = useRef(ydoc);
+  currentYDocRef.current = ydoc;
 
   const overviewPresenceFileId =
     viewMode === "overview"
@@ -649,7 +666,11 @@ export function useEditorCanvasAndScreens({
       )
         continue;
       const pending = pendingLocalFileContentsRef.current.get(file.id);
-      if (pending && pending.identityMigrationSourceContent === undefined)
+      if (
+        pending &&
+        pending.identityMigrationSourceContent === undefined &&
+        !pending.deferCollabReconcile
+      )
         continue;
       if (
         pending?.identityMigrationSourceContent !== undefined &&
@@ -1036,9 +1057,12 @@ export function useEditorCanvasAndScreens({
 
   const activeCollabFileReady =
     viewMode === "single" && activeFileId === prevActiveFileIdRef.current;
-  const pendingActiveFileContent = activeFile?.id
-    ? pendingLocalFileContentsSnapshot.get(activeFile.id)?.content
+  const pendingActiveFile = activeFile?.id
+    ? pendingLocalFileContentsSnapshot.get(activeFile.id)
     : undefined;
+  const pendingActiveFileContent = pendingActiveFile?.deferCollabReconcile
+    ? undefined
+    : pendingActiveFile?.content;
   const activeContentSource =
     pendingActiveFileContent ??
     (activeCollabFileReady &&
@@ -1077,17 +1101,29 @@ export function useEditorCanvasAndScreens({
           freshActiveContent: getFreshActiveFileContent({
             activeContent,
             pendingContent: activeFile?.id
-              ? (latestFileSaveForUnloadRef.current[activeFile.id]?.content ??
-                pendingLocalFileContentsRef.current.get(activeFile.id)?.content)
+              ? (() => {
+                  const latest =
+                    latestFileSaveForUnloadRef.current[activeFile.id];
+                  const local = pendingLocalFileContentsRef.current.get(
+                    activeFile.id,
+                  );
+                  return latest?.deferCollabReconcile ||
+                    local?.deferCollabReconcile
+                    ? null
+                    : (latest?.content ?? local?.content ?? null);
+                })()
               : null,
             latestContent: latestActiveContentRef.current,
             lastLocalContent: lastLocalContentRef.current,
           }),
           fileContentById,
-          pendingContent:
-            latestFileSaveForUnloadRef.current[screenId]?.content ??
-            pendingLocalFileContentsRef.current.get(screenId)?.content ??
-            null,
+          pendingContent: (() => {
+            const latest = latestFileSaveForUnloadRef.current[screenId];
+            const local = pendingLocalFileContentsRef.current.get(screenId);
+            return latest?.deferCollabReconcile || local?.deferCollabReconcile
+              ? null
+              : (latest?.content ?? local?.content ?? null);
+          })(),
         }),
         {
           fileId: screenId,
@@ -1113,9 +1149,22 @@ export function useEditorCanvasAndScreens({
     [getUnprojectedScreenContent, id],
   );
   const getProjectionContentForScreen = useCallback(
-    (screenId: string) =>
-      liveScreenSnapshotsById[screenId]?.html ?? getScreenContent(screenId),
-    [getScreenContent, liveScreenSnapshotsById],
+    (screenId: string) => {
+      const sourceType = resolveOverviewScreenSourceType(
+        overviewScreens.find((screen) => screen.id === screenId),
+        designSourceType,
+      );
+      return sourceType === "inline"
+        ? getScreenContent(screenId)
+        : (liveScreenSnapshotsById[screenId]?.html ??
+            getScreenContent(screenId));
+    },
+    [
+      designSourceType,
+      getScreenContent,
+      liveScreenSnapshotsById,
+      overviewScreens,
+    ],
   );
 
   historySourceReaderRef.current = getProjectionContentForScreen;
@@ -1549,6 +1598,7 @@ export function useEditorCanvasAndScreens({
     handleCreateScreenFrame,
     handleCreateScreenFromPreset,
     ydoc,
+    currentYDocRef,
     awareness,
     isSynced,
     activeUsers,

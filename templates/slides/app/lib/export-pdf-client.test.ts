@@ -18,6 +18,11 @@ const mocks = vi.hoisted(() => ({
   link: vi.fn(),
   setFontSize: vi.fn(),
   text: vi.fn(),
+  track: vi.fn(async () => undefined),
+}));
+
+vi.mock("@agent-native/core/client/analytics", () => ({
+  track: mocks.track,
 }));
 
 vi.mock("jspdf", () => ({
@@ -120,6 +125,65 @@ describe("findSlideExportSource", () => {
 });
 
 describe("exportDeckAsPdf", () => {
+  it("reports a completed export for the deck it was given", async () => {
+    mocks.track.mockClear();
+    renderSlide("s1");
+
+    await exportDeckAsPdf(
+      "Q3 review",
+      [{ id: "s1", content: "<div></div>" }],
+      undefined,
+      { analytics: { deckId: "deck-1", generationAttemptId: "attempt-1" } },
+    );
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledWith("deck_exported", {
+      output_id: "deck-1",
+      output_type: "deck",
+      export_format: "pdf",
+      render_location: "browser",
+      status: "completed",
+      slide_count: 1,
+      generation_attempt_id: "attempt-1",
+      app_name: "slides",
+      template_name: "slides",
+    });
+  });
+
+  it("reports a cancelled export as failed and rethrows", async () => {
+    mocks.track.mockClear();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      exportDeckAsPdf(
+        "Q3 review",
+        [{ id: "s1", content: "<div></div>" }],
+        undefined,
+        { signal: controller.signal, analytics: { deckId: "deck-1" } },
+      ),
+    ).rejects.toThrow();
+
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+    expect(mocks.track.mock.calls[0]).toEqual([
+      "deck_exported",
+      expect.objectContaining({
+        export_format: "pdf",
+        status: "failed",
+        error_type: "cancelled",
+      }),
+    ]);
+  });
+
+  it("reports nothing when the caller gives no deck analytics", async () => {
+    mocks.track.mockClear();
+    renderSlide("s1");
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     document.body.innerHTML = "";
     mocks.addImage.mockClear();

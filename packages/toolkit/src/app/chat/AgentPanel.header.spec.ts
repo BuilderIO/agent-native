@@ -308,6 +308,18 @@ describe("AgentPanel header tab visibility", () => {
     ).toBe(true);
   });
 
+  it("keeps page chrome visible while a persisted thread is restoring", () => {
+    expect(shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0)).toBe(
+      false,
+    );
+    expect(
+      shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, false, true),
+    ).toBe(true);
+    expect(
+      shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0, true),
+    ).toBe(true);
+  });
+
   it("can keep the page history menu visible for an empty chat", () => {
     expect(
       shouldShowAgentPanelPageHeader([chatTab("main")], "main", 0, true),
@@ -1126,18 +1138,6 @@ describe("AgentPanel header overflow actions", () => {
 });
 
 describe("AgentSidebar wide drawer layout", () => {
-  it("can disable the panel without unmounting the app surface", () => {
-    const source = readSource("src/app/chat/AgentSidebar.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("enabled?: boolean");
-    expect(source).toContain("enabled &&");
-    expect(source).toMatch(
-      /const shouldRenderPanel =\s+enabled &&\s+\(sidebarAnimationEnabled \? renderAnimatedPanel : shouldMountPanel\)/,
-    );
-  });
-
   it("does not reserve the drawer placeholder after the panel closes", () => {
     const source = readSource("src/app/chat/AgentSidebar.tsx", {
       encoding: "utf8",

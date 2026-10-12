@@ -1,5 +1,6 @@
-import { execFileSync } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 import {
@@ -335,18 +336,23 @@ export async function runWorkspaceDeploy(
     `[workspace-deploy] Building ${apps.length} app(s) for preset=${preset}`,
   );
 
-  const execFile = opts.execFile ?? execFileSync;
-  const sweepCrons: Array<{ path: string; schedule: string }> = [];
-  for (const app of apps) {
+  const concurrency = workspaceBuildConcurrency();
+  const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
+  await runWithConcurrency(apps, concurrency, (app) =>
     buildOneApp(
       workspaceRoot,
       appsDir,
       app,
       preset,
-      execFile,
+      runBuild,
       workspaceApps,
       workspaceAuthMode,
-    );
+      concurrency > 1 ? "pipe" : "inherit",
+    ),
+  );
+  // Copy in app order after all builds so shared outputs stay deterministic.
+  const sweepCrons: Array<{ path: string; schedule: string }> = [];
+  for (const app of apps) {
     moveAppBuildIntoWorkspaceOutput(
       workspaceRoot,
       appsDir,
@@ -409,15 +415,16 @@ export async function runWorkspaceDeploy(
   );
 }
 
-function buildOneApp(
+async function buildOneApp(
   workspaceRoot: string,
   appsDir: string,
   app: string,
   preset: WorkspaceDeployPreset,
-  execFile: typeof execFileSync,
+  runBuild: BuildRunner,
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
-): void {
+  stdio: "inherit" | "pipe",
+): Promise<void> {
   const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
@@ -497,10 +504,93 @@ function buildOneApp(
 
   cleanAppBuildOutputs(appDir);
 
-  execFile("pnpm", ["--filter", app, "build"], {
+  const startedAt = Date.now();
+  await runBuild("pnpm", ["--filter", app, "build"], {
     cwd: workspaceRoot,
     env,
-    stdio: "inherit",
+    stdio,
+  });
+  console.log(
+    `[workspace-deploy] Built ${app} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+  );
+}
+
+type BuildRunner = (
+  cmd: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
+) => unknown;
+
+function workspaceBuildConcurrency(): number {
+  const raw = process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
+  if (raw) {
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new Error(
+        `AGENT_NATIVE_DEPLOY_CONCURRENCY must be a positive integer, got "${raw}"`,
+      );
+    }
+    return parsed;
+  }
+  // Each app build can use 1-2 GB, so stay well under typical CI memory limits.
+  return Math.min(3, os.availableParallelism());
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const errors: unknown[] = [];
+  const worker = async () => {
+    while (errors.length === 0 && next < items.length) {
+      try {
+        await fn(items[next++]);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  };
+  // Let in-flight builds finish so none are orphaned when the CLI exits and
+  // every failure gets reported, not just the first.
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new Error(
+      errors
+        .map((error) =>
+          error instanceof Error ? error.message : String(error),
+        )
+        .join("\n"),
+    );
+  }
+}
+
+function spawnBuild(
+  cmd: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, options);
+    // Buffered so parallel builds print as whole blocks instead of interleaving.
+    const chunks: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (chunks.length) process.stdout.write(Buffer.concat(chunks));
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(
+            `Command failed: ${cmd} ${args.join(" ")} (${signal ?? `exit code ${code}`})`,
+          ),
+        );
+    });
   });
 }
 

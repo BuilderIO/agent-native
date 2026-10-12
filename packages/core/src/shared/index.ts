@@ -66,6 +66,8 @@ export {
   type ParsedBase64DataUrl,
   type ParsedDataUrl,
 } from "./data-url.js";
+export { stripInlineAttachmentPayloads } from "./attachments.js";
+export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
 export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,

@@ -15,6 +15,11 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
   >()),
   useSession: () => useSessionMock(),
 }));
+vi.mock("@agent-native/core/client/action-query-cache", () => ({
+  ActionQueryCacheGate: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="action-query-cache-gate">{children}</div>
+  ),
+}));
 vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   Toaster: (props: {
     richColors?: boolean;
@@ -504,6 +509,27 @@ describe("AppProviders session gate", () => {
     ).toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the cache gate mounted for a signed-out visitor so it can clear stored results", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({});
+
+    expect(
+      container.querySelector('[data-testid="action-query-cache-gate"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+  });
+
+  it("never mounts the cache gate on token-authenticated surfaces", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ sessionBypass: true });
+
+    expect(
+      container.querySelector('[data-testid="action-query-cache-gate"]'),
+    ).toBeNull();
   });
 
   it("keeps the session gate when a route skips first-run onboarding", () => {

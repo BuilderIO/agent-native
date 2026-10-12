@@ -40,11 +40,18 @@ import {
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
+
 import type {
   DocumentUpdateConflictResponse,
   DocumentUpdateSupersededResponse,
 } from "../../actions/update-document";
 import type { ContentTrashPurgePlanResponse } from "../../shared/content-trash";
+import type {
+  ImportContentArgs,
+  ImportContentResult,
+  UndoContentImportResult,
+} from "../../shared/import/api";
 import {
   documentQueryFilter,
   documentQueryKey,
@@ -1222,7 +1229,7 @@ function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
   reconcile();
 }
 
-export function useUpdateDocument() {
+export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
   const queryClient = useQueryClient();
   const t = useT();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -1233,6 +1240,8 @@ export function useUpdateDocument() {
     "update-document",
     {
       mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      headers: (payload) =>
+        contentSaveTelemetryHeaders(payload, options?.saveOrigin),
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
         // This tab's own saves never come back through sync.
@@ -1718,6 +1727,44 @@ export function useRollbackCreatedSlashDocument() {
       documentQueryFilter(id),
       ["action", "list-documents"],
       ["action", "get-content-database"],
+      ...TRASH_LIST_QUERY_KEYS,
+    ],
+  });
+}
+
+export function useImportContent() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<ImportContentResult, ImportContentArgs>(
+    "import-content",
+    {
+      invalidates: (result, { parentId }) =>
+        result.dryRun
+          ? []
+          : [
+              ...contentPlacementTargets(queryClient, {
+                documentIds: result.pages.flatMap((page) =>
+                  page.id ? [page.id] : [],
+                ),
+                parentIds: [parentId ?? null],
+              }),
+              ["action", "list-documents"],
+              ["action", "search-documents"],
+            ],
+    },
+  );
+}
+
+export function useUndoContentImport() {
+  const queryClient = useQueryClient();
+  return useContentActionMutation<
+    UndoContentImportResult,
+    { importId: string }
+  >("undo-content-import", {
+    invalidates: ({ trashedIds }) => [
+      ...contentPlacementTargets(queryClient, { documentIds: trashedIds }),
+      ...trashedIds.map((id) => documentQueryFilter(id)),
+      ["action", "list-documents"],
+      ["action", "search-documents"],
       ...TRASH_LIST_QUERY_KEYS,
     ],
   });

@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockRun = vi.hoisted(() => vi.fn());
+const mockReadBody = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => ({ deckId: "deck-1" })),
+);
 
 vi.mock("@agent-native/core", () => ({
   isActionContractError: (error: unknown) =>
@@ -13,13 +16,15 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),
-  readBody: vi.fn(async () => ({ deckId: "deck-1" })),
+  readBody: () => mockReadBody(),
 }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
+
+import { inGoogleSlidesBuildStep } from "../../../lib/deck-export-tracking.js";
 
 vi.mock("../../../../actions/export-pptx.js", () => ({
   default: { run: (...args: unknown[]) => mockRun(...args) },
@@ -115,6 +120,35 @@ describe("slides pptx export route", () => {
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 404);
     expect(result).toEqual({ error: "Deck not found" });
+  });
+
+  it("marks only a Google Slides build step, without passing it to the action", async () => {
+    const buildSteps: boolean[] = [];
+    mockRun.mockImplementation(async () => {
+      buildSteps.push(inGoogleSlidesBuildStep());
+      return { buffer: Buffer.from([1]), filename: "deck.pptx" };
+    });
+
+    mockReadBody.mockResolvedValueOnce({
+      deckId: "deck-1",
+      exportPurpose: "google_slides",
+    });
+    await handler();
+    mockReadBody.mockResolvedValueOnce({
+      deckId: "deck-1",
+      exportPurpose: "other",
+    });
+    await handler();
+
+    expect(buildSteps).toEqual([true, false]);
+    expect(mockRun.mock.calls[0][0]).toEqual({
+      deckId: "deck-1",
+      includeNotes: true,
+    });
+    expect(mockRun.mock.calls[1][0]).toEqual({
+      deckId: "deck-1",
+      includeNotes: true,
+    });
   });
 
   it("keeps an unexpected failure a generic 500 without an errorCode", async () => {

@@ -6,7 +6,7 @@ import { appPath, enterDirectMode, gotoEditor } from "./helpers";
 
 const SVG_FIXTURE = path.resolve(
   import.meta.dirname,
-  "fixtures/sonora-play-button.svg",
+  "fixtures/play-button-icon.svg",
 );
 const SCREEN_HTML = `<!doctype html><html><body style="margin:0"><main style="position:relative;width:640px;height:480px"></main></body></html>`;
 

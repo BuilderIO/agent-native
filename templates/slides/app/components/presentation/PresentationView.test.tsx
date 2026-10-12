@@ -19,7 +19,10 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
     slide.id === "video-slide" ? (
       <video data-testid="presentation-video" controls />
     ) : (
-      <div data-testid={`rendered-${slide.id}`} />
+      <div
+        data-testid={`rendered-${slide.id}`}
+        dangerouslySetInnerHTML={{ __html: slide.content }}
+      />
     ),
 }));
 
@@ -77,6 +80,42 @@ describe("PresentationView keyboard shortcuts", () => {
 
     expect(presentationKey.defaultPrevented).toBe(true);
     expect(screen.getByText("2 / 2")).toBeTruthy();
+  });
+
+  it("steps once for a held key, ignoring its auto-repeat keydowns", () => {
+    // Three slides: a double step must be visible, not clamped at the last one.
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        repeat: true,
+        bubbles: true,
+      }),
+    );
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "ArrowRight",
+        repeat: true,
+        bubbles: true,
+      }),
+    );
+
+    expect(screen.getByText("2 / 3")).toBeTruthy();
   });
 
   it("keeps fullscreen, presenter, and exit shortcuts available to focused video", () => {
@@ -142,5 +181,73 @@ describe("PresentationView keyboard shortcuts", () => {
         Reflect.deleteProperty(document.documentElement, "requestFullscreen");
       }
     }
+  });
+});
+
+describe("PresentationView paragraph animations", () => {
+  it("reveals and reverses mixed list-item text and paragraph steps", () => {
+    const slide = {
+      id: "wrapped-list-slide",
+      content: `<div class="fmd-slide"><div><ul>
+        <li>Intro<div>Section intro<p>First</p><p>Second</p></div></li>
+      </ul></div></div>`,
+      layout: "content",
+      animations: [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath: [0, 0, 0],
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ],
+    } as unknown as Slide;
+    render(
+      <MemoryRouter>
+        <PresentationView slides={[slide]} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    const rendered = screen.getByTestId("rendered-wrapped-list-slide");
+    const steps = rendered.querySelectorAll("[data-pstep]");
+    expect(Array.from(steps).map((step) => step.textContent)).toEqual([
+      "IntroSection introFirstSecond",
+      "Section introFirstSecond",
+      "First",
+      "Second",
+    ]);
+    const revealed = () =>
+      Array.from(rendered.querySelectorAll("[data-pstep]")).map(
+        (step) => step.getAttribute("data-pstep-state") !== "hidden",
+      );
+    const previous = screen.getByRole("button", {
+      name: "presentation.previousSlide",
+    }) as HTMLButtonElement;
+    const next = () =>
+      screen.getByRole("button", {
+        name: "presentation.nextSlide",
+      }) as HTMLButtonElement;
+    expect(revealed()).toEqual([false, false, false, false]);
+    expect(previous.disabled).toBe(true);
+
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, false, false, false]);
+
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, true, false, false]);
+    expect(next().disabled).toBe(false);
+
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, true, true, false]);
+    expect(previous.disabled).toBe(false);
+
+    fireEvent.click(next());
+    expect(revealed()).toEqual([true, true, true, true]);
+
+    fireEvent.click(previous);
+    expect(revealed()).toEqual([true, true, true, false]);
+
+    fireEvent.click(previous);
+    expect(revealed()).toEqual([true, true, false, false]);
   });
 });

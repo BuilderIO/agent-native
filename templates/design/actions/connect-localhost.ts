@@ -91,6 +91,9 @@ function stableConnectionId(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_DOMAIN =
+  "agent-native-design-public-preview-v1\0";
+const DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX = "design-public-preview-v1";
 const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
 const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
   "agent-native-live-edit-registration-v1\0";
@@ -102,6 +105,19 @@ export function derivePreviewToken(bridgeToken: string): string {
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
     .digest("hex");
+}
+
+export function deriveDesignScopedReadOnlyPreviewToken(
+  bridgeToken: string,
+  designId: string,
+): string {
+  const encodedDesignId = Buffer.from(designId, "utf8").toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", bridgeToken)
+    .update(DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_DOMAIN)
+    .update(designId)
+    .digest("hex");
+  return `${DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX}.${encodedDesignId}.${signature}`;
 }
 
 export function deriveLiveEditCapability(

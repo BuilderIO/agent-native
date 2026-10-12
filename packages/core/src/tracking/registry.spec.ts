@@ -140,6 +140,54 @@ describe("tracking registry", () => {
     expect(events[1]?.properties).not.toHaveProperty("auth_user_id");
   });
 
+  it("keeps an explicitly absent session distinct from the ambient session", async () => {
+    const events = captureEvents();
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "completion-session",
+      },
+      () =>
+        track(
+          "generation_completed",
+          {},
+          { userId: "alice@example.com", sessionId: null },
+        ),
+    );
+
+    expect(events[0]?.sessionId).toBeUndefined();
+    expect(events[0]?.properties).not.toHaveProperty("session_id");
+  });
+
+  it("keeps an action source while pinning its session as absent", async () => {
+    const events = captureEvents();
+    const source = {
+      caller: "frontend" as const,
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+      sessionId: null,
+    };
+
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        authUserId: "better-auth-user-1",
+        browserSessionId: "completion-session",
+      },
+      () => track("generation_completed", {}, source),
+    );
+
+    expect(events[0]?.sessionId).toBeUndefined();
+    expect(events[0]?.properties).not.toHaveProperty("session_id");
+    expect(events[0]?.properties).toMatchObject({
+      user_email: "alice@example.com",
+      workspace_id: "org-1",
+      auth_user_id: "better-auth-user-1",
+    });
+  });
+
   it("does not attach ambient identity or session to explicit anonymous events", async () => {
     const events = captureEvents();
 

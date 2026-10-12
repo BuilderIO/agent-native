@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "wartet",
   "agent.completed": "hat die Arbeit abgeschlossen",
   "agent.failed": "braucht Aufmerksamkeit",
+  "agent.failureReason.failed": "Nicht abgeschlossen",
+  "agent.failureReason.setup": "Einrichtung nötig",
+  "agent.failureReason.auth": "Zugriff abgelehnt",
+  "agent.failureReason.timeout": "Zeitüberschreitung",
+  "agent.failureReason.budget": "Zeit abgelaufen",
+  "agent.failureReason.response": "Kein brauchbares Ergebnis",
   "agent.closed": "wurde geschlossen",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
@@ -87,6 +93,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
     "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteReviewedPromptLabel":
+    "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
@@ -130,7 +138,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
-  "onboarding.builderSignInWithAccount": "Builder.io verwenden",
+  "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -152,8 +160,17 @@ const messages: ToolkitAgentChatTranslation = {
     "Du hast bereits ein Builder.io-Konto",
   "onboarding.builderAccountExistsDescription":
     "Melde dich an, um dein Konto zu nutzen.",
+  "onboarding.builderActivationChecking":
+    "Es wird geprüft, ob die Erstellung eines neuen Kontos verfügbar ist.",
+  "onboarding.builderActivationUnavailable":
+    "Die Erstellung neuer Konten ist für diese App nicht aktiviert. Du kannst ein bestehendes Konto verbinden.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Die Aktivierung eines neuen Kontos ist in diesem Modus nicht verfügbar. Du kannst weiterhin ein bestehendes Konto verbinden.",
+  "onboarding.builderActivationCheckFailed":
+    "Es konnte nicht geprüft werden, ob diese App neue Konten erstellen kann.",
+
   "onboarding.builderActivationDescription":
-    "Erstelle oder verbinde ein Builder.io-Konto mit einem Klick und erhalte kostenlose Credits.",
+    "Erstelle ein neues Konto, um kostenlose Credits zu aktivieren, oder fahre mit einem bestehenden Konto fort.",
   "onboarding.builderOrgActivationDescription":
     "Wir erstellen dein Builder.io-Konto mit einem Klick, damit deine Organisation es nutzen kann.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
@@ -162,11 +179,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "Nutzungsbedingungen",
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
-  "onboarding.builderExistingAccount": "Builder.io verwenden",
+  "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
     "Dein Builder.io-Konto wird erstellt und die kostenlosen Credits werden aktiviert.",
+  "onboarding.builderCancelPending": "Verbindungsstatus wird überprüft…",
   "onboarding.builderConnectionDescription":
     "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
   "onboarding.builderReadyWithCodeChanges":
@@ -821,6 +839,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
   "recovery.continueUnavailable":
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
+  "errorMessages.invalidAttachmentNamed":
+    "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
   "recovery.deferredSubmissionFailed":
@@ -894,6 +915,13 @@ const messages: ToolkitAgentChatTranslation = {
     "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
+  "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
+  "setup.addKeyInSettingsDescription":
+    "Für dein Konto oder deine Organisation.",
+  "setup.setEnvironmentVariable": "Eine Umgebungsvariable festlegen",
+  "setup.setEnvironmentVariableDescription":
+    "Ein Anbieterschlüssel für alle in dieser App.",
+
   "setup.addOwnKeys": "Eigene Schlüssel hinzufügen",
   "setup.builderCredits":
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
@@ -1151,10 +1179,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
   "composer.fileTooLarge":
-    "Diese Datei überschreitet die zulässige Uploadgröße.",
+    "Diese Datei ist größer als das Upload-Limit von {{size}} MB.",
   "composer.sessionExpired":
-    "Deine Sitzung ist abgelaufen. Aktualisiere die Seite und versuche es erneut.",
+    "Deine Sitzung ist abgelaufen. Melde dich erneut an und sende deine Nachricht dann noch einmal.",
   "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
+  "composer.uploadUnavailable":
+    "Datei-Uploads sind gerade nicht verfügbar. Versuche es gleich noch einmal.",
+  "composer.uploadOffline":
+    "Der Upload hat den Server nicht erreicht. Prüfe deine Verbindung und versuche es erneut.",
+  "composer.submissionNotReady":
+    "Der Chat ist noch nicht sendebereit. Warte einen Moment und sende dann erneut.",
+  "composer.submissionScopeChanged":
+    "Dieser Chat hat sich geändert, bevor deine Nachricht gesendet wurde. Sende sie erneut.",
+  "composer.attachmentNotSaved": "Nicht mit diesem Chat gespeichert",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
   "mentions.learnMore": "Mehr erfahren",

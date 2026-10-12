@@ -670,10 +670,7 @@ export function OrgSwitcher({
   );
 
   const selectOrg = (orgId: string) => {
-    if (orgId === org.orgId) {
-      setOpen(false);
-      return;
-    }
+    if (switchOrg.isPending) return;
     switchOrg.mutate(orgId, { onSuccess: () => setOpen(false) });
   };
   const isSwitchingTo = (orgId: string) =>
@@ -722,9 +719,8 @@ export function OrgSwitcher({
             <DropdownMenuItem
               key={o.orgId}
               className={ITEM_CLASS}
-              disabled={switchOrg.isPending && !current}
+              disabled={switchOrg.isPending}
               onSelect={(event) => {
-                if (current) return;
                 event.preventDefault();
                 selectOrg(o.orgId);
               }}

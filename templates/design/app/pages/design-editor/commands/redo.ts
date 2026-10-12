@@ -257,7 +257,12 @@ export interface RedoArgs {
   pendingLocalFileContentsRef: RefObject<
     Map<
       string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
+      {
+        content: string;
+        startedAt: number;
+        baseUpdatedAt?: string | null;
+        deferCollabReconcile?: boolean;
+      }
     >
   >;
   pendingStructureRedoReplayRef: RefObject<
@@ -916,9 +921,13 @@ export function runRedo({
         clipboardPasteRedoStackRef.current.length - 1
       ];
     if (!clipboardPasteRedo) return false;
+    const pendingPasteContent = pendingLocalFileContentsRef.current.get(
+      clipboardPasteRedo.fileId,
+    );
     const currentContent =
-      pendingLocalFileContentsRef.current.get(clipboardPasteRedo.fileId)
-        ?.content ??
+      (pendingPasteContent?.deferCollabReconcile
+        ? undefined
+        : pendingPasteContent?.content) ??
       (clipboardPasteRedo.fileId === activeFile?.id
         ? getFreshActiveContent()
         : (getScreenContent(clipboardPasteRedo.fileId) ?? ""));

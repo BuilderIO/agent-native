@@ -110,7 +110,9 @@ export async function runCopySelection({
             Boolean(entry),
           )
       : [];
-  if (entries.length === 0 && screens.length === 0) return false;
+  if (entries.length === 0 && screens.length === 0) {
+    return { copied: false, written: false };
+  }
   const copiedHtml =
     entries.length > 0
       ? entries.map((entry) => entry.html).join("\n")
@@ -137,10 +139,12 @@ export async function runCopySelection({
   pasteCascadeRef.current = 0;
   setHasCanvasClipboard(true);
   const writePromise = writeDesignClipboard({ plainText, html: clipboardHtml });
+  let written = false;
   try {
     await writePromise;
+    written = true;
   } catch {
     toast.error(t("designEditor.toasts.clipboardBlocked"));
   }
-  return true;
+  return { copied: true, written };
 }

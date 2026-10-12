@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDbExec } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
+import { retainRequestDbPoolScope } from "../../db/request-pool-context.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -34,7 +35,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureSlotTables(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       await client.execute(EXTENSION_SLOTS_CREATE_SQL);
       await client.execute(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
@@ -47,6 +48,7 @@ export async function ensureSlotTables(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

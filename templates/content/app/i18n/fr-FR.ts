@@ -824,6 +824,7 @@ const editor = {
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
     openInNotion: "Ouvrir dans Notion",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     orgCanFindAndView:
       "Tout le monde dans votre organisation peut trouver et consulter",
     orgLinkCanView:
@@ -1139,6 +1140,8 @@ const exactEnglish = {
       openInClaude: "Ouvrir dans Claude",
       openInClaudeCode: "Ouvrir dans Claude Code",
       openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
       agentCopyAccessNote:
         "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
       temporaryAgentLink: "Lien temporaire pour agent",
@@ -1484,6 +1487,9 @@ const overrides = {
     aiUndo: "Annuler",
     aiDone: "Terminé",
     aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
     aiUndoUnavailable:
       "Le texte supprimé ne peut pas être rétabli automatiquement",
     aiUndoFailed: "Impossible d’annuler la modification",

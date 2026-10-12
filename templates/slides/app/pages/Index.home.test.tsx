@@ -17,7 +17,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { renderToString } from "react-dom/server";
-import { Link, MemoryRouter, useMatch } from "react-router";
+import {
+  Link,
+  MemoryRouter,
+  useLocation,
+  useMatch,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type PromptPopover from "@/components/editor/PromptDialog";
@@ -30,6 +36,21 @@ const systemFlag = vi.hoisted(() => ({
 }));
 const suggestionQuery = vi.hoisted(() => ({
   enabled: undefined as boolean | undefined,
+  pending: false,
+  retrying: false,
+  unavailable: false,
+  cachedReady: false,
+  profileRole: "design",
+  profileFetching: false,
+  profileError: false,
+  profileScope: null as readonly unknown[] | null,
+  options: null as {
+    queryKeyScope?: readonly unknown[];
+    staleTime?: unknown;
+    refetchOnMount?: unknown;
+    refetchOnWindowFocus?: unknown;
+    refetchOnReconnect?: unknown;
+  } | null,
 }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
@@ -147,6 +168,16 @@ const {
         label: "Build a pitch",
         prompt: "Create a pitch deck for a new product.",
       },
+      {
+        id: "suggestion-2",
+        label: "Plan a roadmap",
+        prompt: "Create a roadmap presentation for a product team.",
+      },
+      {
+        id: "suggestion-3",
+        label: "Review the quarter",
+        prompt: "Create a clear quarterly business review deck.",
+      },
     ],
   },
 }));
@@ -229,16 +260,84 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (
     name: string,
     _args: unknown,
-    options?: { enabled?: boolean },
+    options?: {
+      enabled?: boolean;
+      queryKeyScope?: readonly unknown[];
+      staleTime?: unknown;
+      refetchOnMount?: unknown;
+      refetchOnWindowFocus?: unknown;
+      refetchOnReconnect?: unknown;
+    },
   ) => {
+    if (name === "get-user-profile") {
+      suggestionQuery.profileScope = options?.queryKeyScope ?? null;
+      const enabled = options?.enabled !== false;
+      return {
+        data:
+          enabled && !suggestionQuery.profileError
+            ? { onboardingRole: suggestionQuery.profileRole }
+            : undefined,
+        isLoading: enabled && suggestionQuery.profileFetching,
+        isFetching: enabled && suggestionQuery.profileFetching,
+        isSuccess:
+          enabled &&
+          !suggestionQuery.profileError &&
+          !suggestionQuery.profileFetching,
+        isError: enabled && suggestionQuery.profileError,
+      };
+    }
     if (name === "generate-home-suggestions") {
       suggestionQuery.enabled = options?.enabled;
+      suggestionQuery.options = options ?? null;
+      if (suggestionQuery.retrying && options?.enabled !== false) {
+        return {
+          data: { status: "unavailable", suggestions: [] },
+          isLoading: false,
+          isFetching: true,
+          isError: true,
+        };
+      }
+      if (suggestionQuery.pending && options?.enabled !== false) {
+        return {
+          data: undefined,
+          isLoading: true,
+          isFetching: true,
+          isError: false,
+        };
+      }
+      if (suggestionQuery.unavailable && options?.enabled !== false) {
+        return {
+          data: {
+            status: "unavailable",
+            reason: "timeout",
+            suggestions: [],
+          },
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+        };
+      }
+      if (options?.enabled === false && !suggestionQuery.cachedReady) {
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+        };
+      }
       return {
         data:
           options?.enabled === false
-            ? undefined
+            ? {
+                status: "ready",
+                suggestions: homeSuggestions.value.map((suggestion) => ({
+                  ...suggestion,
+                  label: `Cached ${suggestion.label}`,
+                })),
+              }
             : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
+        isFetching: false,
         isError: false,
       };
     }
@@ -247,7 +346,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "home-test",
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
-    session: signedIn.value ? { user: { email: "home@example.test" } } : null,
+    session: signedIn.value
+      ? {
+          authUserId: "viewer-a",
+          userId: "viewer-a",
+          email: "home@example.test",
+          orgId: "org-a",
+          user: { email: "home@example.test" },
+        }
+      : null,
     status: signedIn.unreachable
       ? "unavailable"
       : signedIn.value
@@ -424,6 +531,20 @@ function ActiveIndex() {
   return <Index active={useMatch("/home") !== null} />;
 }
 
+function HistoryControls() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <div data-testid="history-path">{location.pathname}</div>
+      <div data-testid="history-state">{JSON.stringify(location.state)}</div>
+      <button type="button" onClick={() => navigate(-1)}>
+        Browser back
+      </button>
+    </>
+  );
+}
+
 const ownDeck = {
   id: "own",
   title: "My presentation",
@@ -459,6 +580,7 @@ function renderHome(
         <Link to="/templates">Open templates</Link>
         <Link to="/home">Back home</Link>
       </nav>
+      <HistoryControls />
       <TooltipProvider>
         <ActiveIndex />
       </TooltipProvider>
@@ -477,6 +599,15 @@ beforeEach(() => {
   systemFlag.enabled = true;
   systemFlag.status = "ready";
   suggestionQuery.enabled = undefined;
+  suggestionQuery.pending = false;
+  suggestionQuery.retrying = false;
+  suggestionQuery.unavailable = false;
+  suggestionQuery.cachedReady = false;
+  suggestionQuery.profileRole = "design";
+  suggestionQuery.profileFetching = false;
+  suggestionQuery.profileError = false;
+  suggestionQuery.profileScope = null;
+  suggestionQuery.options = null;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
   defaultDesignSystems.systems = [];
@@ -494,6 +625,16 @@ beforeEach(() => {
       id: "suggestion-1",
       label: "Build a pitch",
       prompt: "Create a pitch deck for a new product.",
+    },
+    {
+      id: "suggestion-2",
+      label: "Plan a roadmap",
+      prompt: "Create a roadmap presentation for a product team.",
+    },
+    {
+      id: "suggestion-3",
+      label: "Review the quarter",
+      prompt: "Create a clear quarterly business review deck.",
     },
   ];
   headerActions.current = null;
@@ -682,6 +823,7 @@ describe("Slides prompt-led home", () => {
     });
     await screen.findByRole("textbox", { name: "Presentation prompt" });
     const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
+    const onLocalSubmit = vi.fn();
 
     await act(async () => {
       expect(
@@ -692,11 +834,13 @@ describe("Slides prompt-led home", () => {
           {
             slidesContext: { designSystemId: null, references: [] },
             contextItems: [],
+            onLocalSubmit,
           },
         ),
       ).toBe("retain");
     });
 
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(updateDeck).toHaveBeenCalledWith(
@@ -709,6 +853,79 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("returns home without refilling the submitted prompt after generation", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    const submittedPrompt = "Create a product overview";
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        submittedPrompt,
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toBe(
+        "/deck/new-deck",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("history-path").textContent).toBe("/home"),
+    );
+    expect(screen.getByTestId("history-state").textContent).toBe("null");
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Presentation prompt",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).not.toBe(submittedPrompt);
+  });
+
+  it("includes optional media-search fallback in the submitted agent context", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onSubmit(
+        "Create a product overview",
+        [],
+        { commit: vi.fn(), discard: vi.fn(), attachments: [] },
+        {
+          slidesContext: { designSystemId: null, references: [] },
+          contextItems: [],
+        },
+      );
+    });
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const submittedContext = agentSubmit.mock.calls[0][1] as string;
+    expect(submittedContext).toContain(
+      "Image and logo lookup with search-images or search-logos is optional enrichment.",
+    );
+    expect(submittedContext).toContain(
+      "If a provider is unconfigured or unavailable, the search returns no matches, or the action fails, continue with a useful deck",
+    );
+    expect(submittedContext).toContain(
+      "Do not stop generation or retry the lookup in a loop.",
+    );
   });
 
   it("gives an explicitly selected target system priority over a reference deck's linked system", async () => {
@@ -981,7 +1198,7 @@ describe("Slides prompt-led home", () => {
       "Do not restore a workspace default",
     );
     expect(agentSubmit.mock.calls[0][1]).toContain(
-      "For a requested slide count, compare the slideCount returned by every add-slide result",
+      "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent)",
     );
     expect(agentSubmit.mock.calls[0][1]).toContain(
       "If add-slide returns errorCode target_slide_count_reached, re-read get-deck once",
@@ -1496,6 +1713,18 @@ describe("Slides prompt-led home", () => {
     expect(markup).not.toContain("agent-prompt-home-library");
   });
 
+  it("renders ready suggestions before effects snapshot them", () => {
+    const markup = renderToString(
+      <MemoryRouter initialEntries={["/home"]}>
+        <TooltipProvider>
+          <ActiveIndex />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="home.suggestedPrompts"');
+  });
+
   it("shows both tabs and defaults to Templates without accessible decks", () => {
     const home = renderHome({ decks: [ownDeck] });
     expect(
@@ -1653,10 +1882,262 @@ describe("Slides prompt-led home", () => {
     expect(createDeck).not.toHaveBeenCalled();
   });
 
-  it("pauses home suggestions while the retained Home route is inactive", async () => {
+  it("holds the suggestion slot while loading and keeps the first result", async () => {
+    suggestionQuery.pending = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    suggestionQuery.pending = false;
+    rerenderHome();
+    await screen.findByRole("button", { name: "Build a pitch" });
+    expect(suggestionQuery.enabled).toBe(false);
+
+    homeSuggestions.value = [
+      {
+        id: "suggestion-2",
+        label: "Changed after load",
+        prompt: "Create a different deck.",
+      },
+    ];
+    rerenderHome();
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Changed after load" }),
+    ).toBeNull();
+  });
+
+  it("loads suggestions after the profile lookup fails", async () => {
+    suggestionQuery.profileError = true;
+    suggestionQuery.pending = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(suggestionQuery.enabled).toBe(true);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", null]),
+    ]);
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    suggestionQuery.pending = false;
+    rerenderHome();
+
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+
+    suggestionQuery.profileError = false;
+    suggestionQuery.profileRole = "product";
+    homeSuggestions.value = [
+      {
+        id: "recovered-product-suggestion",
+        label: "Plan a product launch",
+        prompt: "Create a launch plan for a new product feature.",
+      },
+    ];
+    rerenderHome();
+
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Plan a product launch" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("keeps suggestions stable during profile refreshes and role changes", async () => {
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("button", { name: "Build a pitch" });
+
+    expect(suggestionQuery.profileScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a"]),
+    ]);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "design"]),
+    ]);
+
+    suggestionQuery.profileFetching = true;
+    rerenderHome();
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.getByLabelText("home.suggestedPrompts").getAttribute("aria-busy"),
+    ).not.toBe("true");
+
+    homeSuggestions.value = [
+      {
+        id: "product-suggestion-1",
+        label: "Plan a product launch",
+        prompt: "Create a launch plan for a new product feature.",
+      },
+      {
+        id: "product-suggestion-2",
+        label: "Map the customer journey",
+        prompt: "Create a customer journey map for product onboarding.",
+      },
+      {
+        id: "product-suggestion-3",
+        label: "Review product metrics",
+        prompt: "Create a product metrics review for the leadership team.",
+      },
+    ];
+    suggestionQuery.profileRole = "product";
+    suggestionQuery.profileFetching = false;
+    rerenderHome();
+
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Plan a product launch" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "product"]),
+    ]);
+  });
+
+  it("keeps the suggestion slot while readiness recovers", async () => {
+    agentEngine.state = "unavailable";
+    agentEngine.missing = false;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen
+        .getByLabelText("home.suggestedPrompts")
+        .querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(suggestionQuery.enabled).toBe(false);
+
+    agentEngine.state = "configured";
+    rerenderHome();
+
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("keeps unavailable suggestions stable until the next home load", async () => {
+    suggestionQuery.unavailable = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(suggestionQuery.enabled).toBe(false);
+
+    const staleTime = suggestionQuery.options?.staleTime as (
+      query: never,
+    ) => number;
+    const refetchOnMount = suggestionQuery.options?.refetchOnMount as (
+      query: never,
+    ) => boolean;
+    const refetchOnWindowFocus = suggestionQuery.options
+      ?.refetchOnWindowFocus as (query: never) => boolean;
+    const refetchOnReconnect = suggestionQuery.options?.refetchOnReconnect as (
+      query: never,
+    ) => boolean;
+    const unavailable = {
+      state: { data: { status: "unavailable", suggestions: [] } },
+    } as never;
+    const ready = {
+      state: {
+        data: {
+          status: "ready",
+          suggestions: [
+            { id: "one", label: "One", prompt: "One" },
+            { id: "two", label: "Two", prompt: "Two" },
+            { id: "three", label: "Three", prompt: "Three" },
+          ],
+        },
+      },
+    } as never;
+    expect(staleTime(unavailable)).toBe(0);
+    expect(refetchOnMount(unavailable)).toBe(true);
+    expect(refetchOnWindowFocus(unavailable)).toBe(true);
+    expect(refetchOnReconnect(unavailable)).toBe(true);
+    expect(staleTime(ready)).toBe(Number.POSITIVE_INFINITY);
+    expect(refetchOnMount(ready)).toBe(false);
+    expect(refetchOnWindowFocus(ready)).toBe(false);
+    expect(refetchOnReconnect(ready)).toBe(false);
+
+    suggestionQuery.unavailable = false;
+    rerenderHome();
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(suggestionQuery.enabled).toBe(false);
+
+    // A fresh home load retries unavailable data and can choose a new sample.
+    cleanup();
+    renderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+  });
+
+  it("shows the skeleton while retrying a cached unavailable result", async () => {
+    suggestionQuery.retrying = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+
+    suggestionQuery.retrying = false;
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+  });
+
+  it("waits for readiness before snapshotting cached generated suggestions", async () => {
+    agentEngine.state = "unknown";
+    suggestionQuery.cachedReady = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      screen.queryByRole("button", { name: "Cached Build a pitch" }),
+    ).toBeNull();
+
+    suggestionQuery.cachedReady = false;
+    agentEngine.state = "configured";
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Cached Build a pitch" }),
+    ).toBeNull();
+  });
+
+  it("keeps the home suggestion sample when the retained route becomes inactive", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
-    expect(suggestionQuery.enabled).toBe(true);
+    expect(suggestionQuery.enabled).toBe(false);
     expect(systemFlag.query).toHaveBeenLastCalledWith(true);
     expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(true);
     expect(inactiveHomeQueries.templateLibraryEnabled).toBe(true);
@@ -1674,7 +2155,7 @@ describe("Slides prompt-led home", () => {
     expect(promptProps.mock.lastCall![0].active).toBe(false);
 
     fireEvent.click(screen.getByRole("link", { name: "Back home" }));
-    await waitFor(() => expect(suggestionQuery.enabled).toBe(true));
+    await waitFor(() => expect(suggestionQuery.enabled).toBe(false));
     expect(systemFlag.query).toHaveBeenLastCalledWith(true);
     expect(inactiveHomeQueries.workspaceDefaultsEnabled).toBe(true);
     expect(inactiveHomeQueries.templateLibraryEnabled).toBe(true);
@@ -1733,7 +2214,7 @@ describe("Slides prompt-led home", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "shows fallback suggestions while gating model controls for $state (missing=$missing)",
+    "reserves suggestions while gating model controls for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       agentEngine.state = state;
       agentEngine.missing = missing;
@@ -1748,16 +2229,28 @@ describe("Slides prompt-led home", () => {
       });
       expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
       expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
-      expect(screen.queryByLabelText("home.suggestedPrompts")).toBeTruthy();
+      const suggestionBar = screen.queryByLabelText("home.suggestedPrompts");
+      const loading = !ready;
+      expect(Boolean(suggestionBar)).toBe(true);
+      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
+        loading ? "true" : null,
+      );
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
       ).toBe(ready);
       expect(
-        screen.getByRole<HTMLButtonElement>("button", {
-          name: ready ? "Build a pitch" : "Create a product pitch deck",
-        }).disabled,
-      ).toBe(!ready);
-      expect(suggestionQuery.enabled).toBe(ready);
+        screen.queryByRole("button", {
+          name: "Create a product pitch deck",
+        }),
+      ).toBeNull();
+      if (ready) {
+        expect(
+          screen.getByRole<HTMLButtonElement>("button", {
+            name: "Build a pitch",
+          }).disabled,
+        ).toBe(false);
+      }
+      expect(suggestionQuery.enabled).toBe(false);
     },
   );
 

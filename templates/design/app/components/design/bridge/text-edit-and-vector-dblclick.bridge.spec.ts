@@ -35,6 +35,10 @@ function hydratedBridge(): string {
 type BridgeMessage = {
   type?: string;
   key?: string;
+  intent?: { source?: string };
+  trustedPointer?: boolean;
+  focusSafe?: boolean;
+  requestId?: number;
   payload?: { computedStyles?: Record<string, string> };
 };
 
@@ -78,6 +82,64 @@ const OPEN_PATH = `<svg data-agent-native-node-id="v1" data-an-primitive="path"
     stroke-width="4" style="fill: rgb(0, 0, 0); stroke: none"></path></svg>`;
 
 describe("clip regressions: text caret and vector double-click", () => {
+  it("marks the selection that begins text editing as unsafe for host focus transfer", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await install(page, TEXT);
+      const start = await centerOf(page, "t1", 0.2);
+      await page.mouse.dblclick(start.x, start.y);
+      await page.waitForSelector(
+        '[data-agent-native-node-id="t1"][contenteditable="true"]',
+      );
+
+      const selection = await page.evaluate(() => {
+        const selections = (
+          window as Window & { __messages?: BridgeMessage[] }
+        ).__messages?.filter((message) => message.type === "element-select");
+        return selections?.[selections.length - 1];
+      });
+      expect(selection).toMatchObject({
+        intent: { source: "pointer" },
+        trustedPointer: true,
+        focusSafe: false,
+      });
+      expect(
+        await page.evaluate(
+          () =>
+            document.activeElement?.getAttribute("data-agent-native-node-id") ??
+            null,
+        ),
+      ).toBe("t1");
+
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "agent-native:canvas-focus-state-probe",
+            requestId: 41,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        (window as Window & { __messages?: BridgeMessage[] }).__messages?.some(
+          (message) =>
+            message.type === "agent-native:canvas-focus-state" &&
+            message.requestId === 41,
+        ),
+      );
+      expect(
+        (await messages(page)).find(
+          (message) =>
+            message.type === "agent-native:canvas-focus-state" &&
+            message.requestId === 41,
+        ),
+      ).toMatchObject({ focusSafe: false, requestId: 41 });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("keeps a text edit live when a click inside the text follows the host's mode replay", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

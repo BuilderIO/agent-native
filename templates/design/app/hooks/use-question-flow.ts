@@ -15,6 +15,7 @@ import {
 import {
   designCanvasIntentDirectives,
   loadDesignSystemGenerationContext,
+  variantContentDirective,
 } from "@/pages/design-editor/generation-prompt-directives";
 
 export interface QuestionFlowModelSelection {
@@ -89,6 +90,19 @@ function existingDesignContinuationContext(
 const SETTLED_ANSWERS_INSTRUCTION =
   "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
 
+function continueDesignInstruction(
+  designId: string | undefined,
+  brief: QuestionFlowGenerationBrief | null | undefined,
+): string {
+  if (!designId) {
+    return "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.";
+  }
+  return (
+    `Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions. ${variantContentDirective(brief?.prompt, brief?.designSystemId, brief?.images?.length)}` +
+    ' Wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
+  );
+}
+
 export function useQuestionFlow(
   designId: string | undefined,
   {
@@ -117,9 +131,7 @@ export function useQuestionFlow(
         "Answers:",
         formattedAnswers,
         "",
-        designId
-          ? 'Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions using label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens - wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
-          : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
+        continueDesignInstruction(designId, getGenerationBrief?.()),
       ]
         .filter(Boolean)
         .join("\n"),
@@ -197,16 +209,20 @@ export function useQuestionFlow(
         "Answers:",
         formattedAnswers,
         "",
-        designId
-          ? 'Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions using label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens - wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
-          : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
+        continueDesignInstruction(designId, getGenerationBrief?.()),
       ]
         .filter(Boolean)
         .join("\n");
 
       void sendContinuation("Here are my answers — go ahead.", context);
     },
-    [designId, flow.isSubmissionBlocked, flow.questions, sendContinuation],
+    [
+      designId,
+      flow.isSubmissionBlocked,
+      flow.questions,
+      getGenerationBrief,
+      sendContinuation,
+    ],
   );
 
   const handleSkip = useCallback(() => {

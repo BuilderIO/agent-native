@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { invalidateAgentEngineStatusCache } from "../server/agent-engine-status-cache.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
@@ -33,7 +34,7 @@ let _initPromise: Promise<void> | undefined;
 
 export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = APP_SECRETS_CREATE_SQL.replace(
         /\bINTEGER\b/g,
         "BIGINT",
@@ -59,6 +60,7 @@ export async function ensureTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }
@@ -460,6 +462,15 @@ export interface SecretMeta {
   urlAllowlist: string[] | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export async function hasAppSecret(ref: SecretRef): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    args: [ref.scope, ref.scopeId, ref.key],
+  });
+  return rows.length > 0;
 }
 
 export async function readAppSecretMeta(

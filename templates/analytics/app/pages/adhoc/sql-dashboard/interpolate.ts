@@ -183,18 +183,29 @@ export function interpolate(
     },
   );
 
-  return withConditionals.replace(/\{\{(\w+)\}\}/g, (_match, name) => {
-    const value = vars[name];
-    if (
-      options.failClosedTimeVariables &&
-      isTimeVariable(name) &&
-      (value == null || value.length === 0)
-    ) {
-      return "__missing_dashboard_time_filter__";
-    }
-    if (value == null) return "";
-    return options.googleSqlValues
-      ? escapeGoogleSqlValue(String(value))
-      : escapeSqlValue(String(value));
-  });
+  const escapeValue = options.googleSqlValues
+    ? escapeGoogleSqlValue
+    : escapeSqlValue;
+  // One pass, so a value that itself contains "{{x}}" is never re-expanded.
+  return withConditionals.replace(
+    /\{\{(\w+)(:list)?\}\}/g,
+    (_match, name, list) => {
+      const value = vars[name];
+      if (list) {
+        // Multi-select values are comma-joined in the URL, so an option value containing "," splits into two items.
+        const items = (value ?? "").split(",").filter(Boolean);
+        if (items.length === 0) return "__empty_list_filter__";
+        return items.map((item) => `'${escapeValue(item)}'`).join(", ");
+      }
+      if (
+        options.failClosedTimeVariables &&
+        isTimeVariable(name) &&
+        (value == null || value.length === 0)
+      ) {
+        return "__missing_dashboard_time_filter__";
+      }
+      if (value == null) return "";
+      return escapeValue(String(value));
+    },
+  );
 }

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.205.0",
+  "version": "0.207.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -40,6 +40,11 @@
       "development": "./dist/app/agentkit/index.js",
       "import": "./dist/app/agentkit/index.js",
       "default": "./dist/app/agentkit/index.js"
+    },
+    "./app/chat/agent-sidebar-events": {
+      "types": "./dist/app/chat/agent-sidebar-events.d.ts",
+      "import": "./dist/app/chat/agent-sidebar-events.js",
+      "default": "./dist/app/chat/agent-sidebar-events.js"
     },
     "./app/chat": {
       "types": "./dist/app/chat/index.d.ts",

@@ -352,14 +352,17 @@ Os trechos são concluídos com o status OK/ERROR e registram uma mensagem fixa 
 
 O core também registra métricas assim que o host registra um provedor de medidores com `registerObservabilityProvider()` de `@agent-native/core/server`. As métricas são registradas para cada requisição e execução, sem amostragem:
 
-| Instrumento                             | Atributos                                                                                    |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| Instrumento                                 | Atributos                                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` tem os mesmos atributos e buckets que `http.server.request.duration`, mas termina quando o hook de resposta devolve a resposta ao runtime, e não quando o hook começa. Quando seus percentis se afastam dos de `http.server.request.duration`, respostas já prontas estão sendo retidas, por exemplo por um flush de telemetria inline. A diferença é um sinal, não a espera de uma requisição específica, já que os dois percentis podem vir de requisições diferentes. Sem `waitUntil`, o core registra a amostra depois desse flush, então ela chega ao back end com o próximo.
 
 Nas métricas, `gen_ai.tool.name` é o nome de uma ação do framework ou `other`, e `gen_ai.request.model` é o ID do modelo apenas quando o engine o lista como suportado; caso contrário, `_OTHER`. Assim, ferramentas definidas pelo app e IDs de modelo fornecidos por quem chama não podem criar séries ilimitadas; os spans mantêm os valores exatos.
 
@@ -403,9 +406,11 @@ Uma chamada posterior substitui o provedor anterior. A função retornada cancel
 
 ### Flush em serverless {#otel-flush}
 
-Funções serverless congelam entre invocações, então o timer de exportação de um SDK pode nunca disparar. Quando um provedor registrado implementa `forceFlush()`, o core o chama a partir do hook de resposta após cada requisição e aguarda sua conclusão. Cada flush disputa um único timeout compartilhado de 2 segundos, então a telemetria nunca segura uma resposta por mais tempo que isso.
+Funções serverless congelam entre invocações, então o timer de exportação de um SDK pode nunca disparar. Quando um provedor registrado implementa `forceFlush()`, o core o chama a partir do hook de resposta após cada requisição e aguarda sua conclusão. Cada flush disputa um único timeout compartilhado de 2 segundos, então a telemetria nunca segura uma resposta por mais tempo que isso. Quando a plataforma oferece `waitUntil` (Cloudflare ou o contexto de invocação da Netlify), o core entrega o flush a ele e envia a resposta primeiro, em vez de esperar.
 
-Quando um flush falha ou estoura o tempo, o core para de esperá-lo e soma 1 a `agent_native.telemetry.flush_failures`, que o próximo flush exporta. Uma exportação que estourou o tempo continua em andamento e ainda pode chegar, a menos que o runtime congele o processo antes. O `error.type` da falha é `timeout`, `suspended` quando o runtime congelou o processo no meio do flush, ou o nome do erro.
+O core chama `forceFlush()` de um provedor de métricas no máximo uma vez a cada 10 segundos por processo e o ignora nas requisições intermediárias. Cada exportação de métricas reenvia todas as séries do processo, então isso evita que o volume de upload cresça com a taxa de requisições. Pontos ignorados não se perdem: a próxima exportação os leva, a menos que a instância não atenda outra requisição. Um provedor de traces é esvaziado a cada requisição.
+
+Quando um flush falha ou estoura o tempo, o core para de esperá-lo e soma 1 a `agent_native.telemetry.flush_failures`, que o próximo flush exporta. Uma exportação que estourou o tempo continua em andamento e ainda pode chegar, a menos que o runtime congele o processo antes. O `error.type` da falha é `timeout`, `suspended` quando o runtime congelou o processo no meio do flush, ou o nome do erro. Como um coletor que continua estourando o tempo nunca recebe esse contador, o core também grava uma linha `agent-native.telemetry_flush_failed` no log da função por sinal e tipo de erro em cada processo.
 
 Em um servidor de longa duração, um flush após cada resposta significa uma exportação por requisição. Registre os provedores ali sem `forceFlush()` e deixe os próprios timers do SDK exportarem. `isServerlessRuntime()` de `@agent-native/core/server` distingue os dois casos. Ele é true no Netlify, Vercel, AWS Lambda e Cloudflare.
 

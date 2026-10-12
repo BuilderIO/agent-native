@@ -318,10 +318,13 @@ export function applyCrossScreenPathFrameDropTarget(args: {
 }
 
 export function getCrossScreenSourceGeometry(args: {
+  dragStartGeometry?: FrameGeometry;
   renderedGeometry?: FrameGeometry;
   persistedGeometry?: FrameGeometry;
 }): FrameGeometry | undefined {
-  return args.renderedGeometry ?? args.persistedGeometry;
+  return (
+    args.dragStartGeometry ?? args.renderedGeometry ?? args.persistedGeometry
+  );
 }
 
 export function getBoardDropRoute(args: {

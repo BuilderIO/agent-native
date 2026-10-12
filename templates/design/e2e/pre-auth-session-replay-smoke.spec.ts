@@ -90,10 +90,15 @@ function watchPage(page: Page, baseURL: string) {
   });
   page.on("requestfailed", (request) => {
     const { origin, pathname } = new URL(request.url());
+    const errorText = request.failure()?.errorText ?? "unknown failure";
     if (origin === appOrigin) {
-      requestFailures.push(
-        `${pathname} ${request.failure()?.errorText ?? "unknown failure"}`,
-      );
+      if (
+        pathname.startsWith("/.vite/deps/") &&
+        errorText === "net::ERR_ABORTED"
+      ) {
+        return;
+      }
+      requestFailures.push(`${pathname} ${errorText}`);
     }
   });
   return {

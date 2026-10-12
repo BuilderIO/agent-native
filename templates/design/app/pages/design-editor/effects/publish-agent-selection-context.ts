@@ -1,4 +1,5 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
+import { stripInlineBytes } from "@agent-native/core/shared";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { RefObject } from "react";
 
@@ -166,7 +167,7 @@ export function runPublishAgentSelectionContext({
     zoom: selection.zoom,
     screens: selection.screens,
     selectedScreenIds: selection.selectedScreenIds,
-    selectedElement: selection.selectedElement,
+    selectedElement: stripInlineBytes(selection.selectedElement, "placeholder"),
     mode: selection.mode,
     activeTool: selection.activeTool,
     inspectorTab: selection.inspectorTab,

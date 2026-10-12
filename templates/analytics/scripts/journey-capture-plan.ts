@@ -5,6 +5,12 @@
  */
 import path from "node:path";
 
+import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "../shared/session-replay-agent-access.js";
+import {
+  MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+} from "../shared/session-replay-capture.js";
+
 export const DEFAULT_APP_URL = "https://analytics.agent-native.com";
 
 export interface TreeExample {
@@ -95,6 +101,7 @@ export interface PlanItem {
   recordingId: string;
   offsetMs: number;
   viewport: { width: number; height: number } | null;
+  sourceEventAt: string | null;
 }
 
 export interface SkippedExample {
@@ -150,6 +157,7 @@ export function planCapture(
         recordingId: example.recordingId,
         offsetMs: Math.round(example.offsetMs),
         viewport: example.viewport,
+        sourceEventAt: example.ts || null,
       });
     });
   }
@@ -208,6 +216,9 @@ export interface ManifestFrame {
   height: number;
   localPath: string;
   capturedAt: string;
+  assetStatus: "not_fetched" | "preflighted";
+  sourceEventAt: string | null;
+  replayAt: string | null;
   route?: string;
   attachmentRef?: string;
 }
@@ -218,12 +229,74 @@ export interface ManifestFailure {
   recordingId: string;
   offsetMs: number;
   reason: string;
+  sourceEventAt: string | null;
+  replayAt: string | null;
+  assetStatus?: "preflight_failed";
+  code?:
+    | "replay_iframe_content_unavailable"
+    | "replay_iframe_visibility_unverifiable";
+  diagnostics?: {
+    visibleIframeCount: number;
+    unavailableIframeCount: number;
+    unverifiableIframeCount?: number;
+  };
+}
+
+export function replayAtFromRecordingStart(
+  recordingStartedAtMs: number,
+  offsetMs: number,
+): string | null {
+  const timestamp = recordingStartedAtMs + offsetMs;
+  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > 8.64e15) return null;
+  return new Date(timestamp).toISOString();
+}
+
+export function replayIframeParentIdsAt(
+  events: readonly unknown[],
+  throughTimestamp: number,
+): Set<number> {
+  if (!Number.isFinite(throughTimestamp)) {
+    throw new Error("replay_iframe_timestamp_invalid");
+  }
+  const parentIds = new Set<number>();
+  for (const value of events) {
+    const event = asRecord(value);
+    if (
+      !event ||
+      event.type !== 3 ||
+      typeof event.timestamp !== "number" ||
+      !Number.isFinite(event.timestamp) ||
+      event.timestamp > throughTimestamp
+    ) {
+      continue;
+    }
+    const data = asRecord(event.data);
+    if (data?.isAttachIframe !== true || !Array.isArray(data.adds)) continue;
+    for (const value of data.adds) {
+      const addition = asRecord(value);
+      const node = asRecord(addition?.node);
+      const parentId = addition?.parentId;
+      if (node?.type === 0 && Number.isSafeInteger(parentId)) {
+        parentIds.add(parentId as number);
+      }
+    }
+  }
+  return parentIds;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export interface CaptureManifest {
   generatedAt: string;
   appUrl: string;
-  remoteAssets: "not-fetched";
+  captureMode: "offline" | "browser";
+  remoteAssets: "not-fetched" | "browser-preflight-per-frame";
+  promptProvenancePath?: string;
+  promptProvenanceError?: "sidecar_write_failed";
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -250,12 +323,17 @@ export function unattemptedFailures(
       recordingId: item.recordingId,
       offsetMs: item.offsetMs,
       reason,
+      sourceEventAt: item.sourceEventAt,
+      replayAt: null,
     }));
 }
 
 export function buildManifest(input: {
   generatedAt: string;
   appUrl: string;
+  captureMode: "offline" | "browser";
+  promptProvenancePath?: string;
+  promptProvenanceError?: "sidecar_write_failed";
   frames: ManifestFrame[];
   failures: ManifestFailure[];
   skipped: SkippedExample[];
@@ -270,7 +348,17 @@ export function buildManifest(input: {
   return {
     generatedAt: input.generatedAt,
     appUrl: input.appUrl,
-    remoteAssets: "not-fetched",
+    captureMode: input.captureMode,
+    remoteAssets:
+      input.captureMode === "browser"
+        ? "browser-preflight-per-frame"
+        : "not-fetched",
+    ...(input.promptProvenancePath
+      ? { promptProvenancePath: input.promptProvenancePath }
+      : {}),
+    ...(input.promptProvenanceError
+      ? { promptProvenanceError: input.promptProvenanceError }
+      : {}),
     frames: [...input.frames]
       .map((frame) => ({
         ...frame,
@@ -282,11 +370,29 @@ export function buildManifest(input: {
   };
 }
 
+export async function writeCaptureOutputs<TManifest>(
+  writeSidecar: () => Promise<void>,
+  writeManifest: (sidecarWriteFailed: boolean) => Promise<TManifest>,
+): Promise<{ manifest: TManifest; sidecarWriteFailed: boolean }> {
+  let sidecarWriteFailed = false;
+  try {
+    await writeSidecar();
+  } catch {
+    sidecarWriteFailed = true;
+  }
+  const manifest = await writeManifest(sidecarWriteFailed);
+  return { manifest, sidecarWriteFailed };
+}
+
 /** The exit code: failing every frame is an error; a partial run is reported, not fatal. */
 export function exitCodeFor(
-  manifest: Pick<CaptureManifest, "frames" | "failures">,
+  manifest: Pick<CaptureManifest, "frames" | "failures"> &
+    Partial<Pick<CaptureManifest, "promptProvenanceError">>,
 ): number {
-  return manifest.frames.length === 0 && manifest.failures.length > 0 ? 1 : 0;
+  return manifest.promptProvenanceError ||
+    (manifest.frames.length === 0 && manifest.failures.length > 0)
+    ? 1
+    : 0;
 }
 
 export function normalizeAppUrl(raw: string): string {
@@ -304,6 +410,43 @@ export function normalizeAppUrl(raw: string): string {
     );
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+}
+
+export function replayFrameUrlFromAgentLink(
+  pageUrl: string,
+  appUrl: string,
+  recordingId: string,
+  captureThroughOffsetMs: number,
+): string {
+  let link: URL;
+  try {
+    link = new URL(pageUrl);
+  } catch {
+    throw new Error("replay_link_invalid");
+  }
+  const app = new URL(appUrl);
+  const basePath = app.pathname.replace(/\/+$/, "");
+  const expectedPath = `${basePath}/sessions/${encodeURIComponent(recordingId)}`;
+  if (
+    !Number.isSafeInteger(captureThroughOffsetMs) ||
+    captureThroughOffsetMs < 0 ||
+    captureThroughOffsetMs > MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS ||
+    link.username ||
+    link.password ||
+    link.hash ||
+    link.origin !== app.origin ||
+    link.pathname !== expectedPath ||
+    !link.searchParams.get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ||
+    link.searchParams.size !== 1
+  ) {
+    throw new Error("replay_link_invalid");
+  }
+  link.searchParams.set("frame", "1");
+  link.searchParams.set(
+    SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+    String(captureThroughOffsetMs),
+  );
+  return link.toString();
 }
 
 export function isLoopbackHost(hostname: string): boolean {

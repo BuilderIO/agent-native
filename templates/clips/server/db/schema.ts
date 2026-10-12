@@ -8,6 +8,7 @@ import {
   createSharesTable,
   uniqueIndex,
   index,
+  sql,
 } from "@agent-native/core/db/schema";
 import { boolean } from "drizzle-orm/pg-core";
 
@@ -624,6 +625,62 @@ export const recordingEvents = table("recording_events", {
   payload: text("payload").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+// Earlier screen time attached to a recording. The window is metadata: the
+// footage lives in `mediaRecordingId`, and the clip's own video is untouched.
+// Access inherits from the recording.
+export const recordingContextItems = table(
+  "recording_context_items",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    kind: text("kind").notNull().default("screen_history"),
+    label: text("label"),
+    requestedSeconds: integer("requested_seconds").notNull(),
+    // The window as first requested. It bounds every later trim.
+    originalStartedAt: text("original_started_at").notNull(),
+    originalEndedAt: text("original_ended_at").notNull(),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "ready", "failed", "removed"],
+    }).notNull(),
+    mediaRecordingId: text("media_recording_id"),
+    // The footage the current 'processing' claim reserved. 'ready' must name
+    // it, so a worker whose claim was replaced cannot land its footage.
+    pendingMediaRecordingId: text("pending_media_recording_id"),
+    // The desktop device that captured the Clip. NULL (web-requested or
+    // pre-dating device scoping) is claimable by every device.
+    capturedDeviceId: text("captured_device_id"),
+    durationMs: integer("duration_ms"),
+    width: integer("width"),
+    height: integer("height"),
+    error: text("error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (item) => ({
+    // One non-removed item per recording. The database enforces it, so a
+    // retried or concurrent request cannot create a second active item.
+    recordingContextItemsActiveRecordingUnique: uniqueIndex(
+      "recording_context_items_active_recording_unique_idx",
+    )
+      .on(item.recordingId)
+      .where(sql`${item.status} <> 'removed'`),
+    recordingContextItemsPendingIdx: index(
+      "recording_context_items_pending_idx",
+    )
+      .on(item.createdAt)
+      .where(sql`${item.status} = 'pending'`),
+    // The in-use check looks items up by either footage column.
+    recordingContextItemsMediaRecordingIdx: index(
+      "recording_context_items_media_recording_idx",
+    ).on(item.mediaRecordingId),
+    recordingContextItemsPendingMediaRecordingIdx: index(
+      "recording_context_items_pending_media_recording_idx",
+    ).on(item.pendingMediaRecordingId),
+  }),
+);
 
 export const transactionalEmailJobs = table(
   "clips_transactional_email_jobs",

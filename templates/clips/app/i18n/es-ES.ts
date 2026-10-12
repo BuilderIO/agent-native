@@ -2,6 +2,68 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
+  lookbackContext: {
+    includeLast: "Incluir los últimos",
+    whatIsThis: "¿Qué es esto?",
+    off: "Desactivado",
+    custom: "Personalizado…",
+    customLabel: "Duración personalizada",
+    customAmount: "Duración",
+    customUnit: "Unidad",
+    unitSeconds: "segundos",
+    unitMinutes: "minutos",
+    customSave: "Usar duración",
+    customErrorEmpty: "Introduce una duración.",
+    customErrorInvalid: "Introduce un número entero de segundos o minutos.",
+    customErrorTooLong: "Usa 5 min o menos.",
+    turnOnRewind: "Activar Rewind",
+    rewindOffTitle: "Activar Rewind",
+    rewindOffBody:
+      "Rewind guarda un historial local de tu pantalla para que puedas incluir los últimos minutos antes de una grabación. El material solo se sube cuando lo incluyes o lo apruebas.",
+    requestFailed:
+      "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
+    localOnlyUnavailable:
+      "El tiempo de pantalla anterior no se guarda en grabaciones solo locales.",
+    saving: "Guardando {{window}} antes…",
+    ready: "Con {{window}} antes",
+    failed: "No se pudo guardar el tiempo de pantalla anterior",
+    unreadable: "No se pudo comprobar el tiempo de pantalla anterior",
+    edit: "Editar",
+    editTitle: "Tiempo de pantalla anterior",
+    editSave: "Guardar",
+    editFailed: "No se pudo guardar el intervalo. Inténtalo de nuevo.",
+    previewPreparing: "Preparando la vista previa…",
+    previewFailed: "No se pudo preparar la vista previa.",
+    previewLabel: "Vista previa del tiempo de pantalla anterior",
+    retry: "Reintentar",
+    playSelection: "Reproducir selección",
+    removeFailed:
+      "No se pudo eliminar el tiempo de pantalla anterior de la grabación descartada.",
+    removeFailedAction:
+      "No se pudo eliminar el tiempo de pantalla anterior. Inténtalo de nuevo.",
+    removeAction: "Eliminar tiempo de pantalla anterior",
+    removeConfirmTitle: "¿Eliminar tiempo de pantalla anterior?",
+    removeConfirmBody:
+      "El material se mueve a la papelera y el clip deja de incluirlo.",
+    removeConfirm: "Eliminar",
+    removed: "Tiempo de pantalla anterior eliminado",
+    scrubberFromBefore: "Desde {{offset}} antes",
+    scrubberFromStart: "Desde el inicio de la grabación",
+    scrubberToBefore: "Hasta {{offset}} antes",
+    scrubberToStart: "Hasta el inicio de la grabación",
+    scrubberLength: "Duración",
+    scrubberStartHandle: "Inicio del intervalo",
+    scrubberEndHandle: "Fin del intervalo",
+    tab: "Contexto",
+    label: "Pantalla antes de grabar",
+    window: "{{start}}–{{end}} antes de la grabación",
+    savingEarlierTime: "Guardando el tiempo de pantalla anterior…",
+    loadFailed: "No se pudo cargar el tiempo de pantalla anterior.",
+    empty: "Este clip no tiene tiempo de pantalla anterior adjunto.",
+    larger: "Ampliar",
+    editHint: "Edita el intervalo en Clips Desktop.",
+    waitingOtherDevice: "Esperando al dispositivo que grabó este clip",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Usar Builder.io",
@@ -350,7 +412,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clip legible por el agente",
     agentInstructions:
-      "Obtenga agentContextUrl para la transcripción y el marco JPEG URLs. Busque el cuadro URLs para VER la pantalla, no solo leer la transcripción.",
+      "Abre primero agentContextUrl. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo.",
     untitledClip: "Clip sin título",
     incorrectPassword: "Contraseña incorrecta",
     passwordProtected: "Este clip está protegido con contraseña.",
@@ -615,7 +677,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:
@@ -775,6 +837,8 @@ const messages = {
     switchToNightly: "Cambiar a compilaciones Nightly",
     switchToStable: "Cambiar a compilaciones estables",
     retry: "Intentar de nuevo",
+    mountError:
+      "Clips no pudo encontrar su ruta en este espacio de trabajo. Pide al administrador del espacio que revise la configuración de la ruta de la aplicación.",
     heroDescription:
       "Una grabadora de barra de menú para pantalla, cámara y pantalla + cámara. Inicio con un clic, burbuja de cámara que se puede arrastrar, enlace para compartir instantáneamente cuando se detiene.",
     versionReleased: "Versión {{version}} - lanzada {{date}}",
@@ -838,6 +902,9 @@ const messages = {
     labWisprFlow: "Dictado por voz",
     labWisprFlowDescription:
       "Muestra u oculta el dictado por voz en Clips Desktop.",
+    labLookbackContext: "Incluir tiempo de pantalla anterior",
+    labLookbackContextDescription:
+      "Adjunta hasta cinco minutos de tiempo de pantalla anteriores a una grabación como contexto pasivo.",
     uploadWorkspaceTitle: "Espacio activo",
     uploadWorkspaceDescription:
       "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",
@@ -2199,22 +2266,6 @@ const messages = {
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
-  },
-  rewindExtension: {
-    title: "Añadir lo que ocurrió antes",
-    description:
-      "Elige un intervalo del Rewind local y añádelo al inicio de este clip. No se añade nada automáticamente.",
-    progressLabel: "Progreso del procesamiento del historial de Rewind",
-    privateFirstTitle: "Haz privado este clip primero",
-    privateFirstDescription:
-      "El historial local de Rewind puede incluir contexto anterior al inicio de la grabación. Esto hará privado el clip. Si alguien aún tiene acceso directo, Clips se detendrá para que lo elimines primero en Compartir.",
-    makePrivateContinue: "Hacer privado y continuar",
-    add30Seconds: "Añadir los 30 segundos anteriores",
-    add5Minutes: "Añadir los 5 minutos anteriores",
-    add5MinutesDescription:
-      "Útil para recuperar el inicio de una explicación más larga.",
-    privateReady:
-      "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
   },
   browserDiagnostics: {
     debug: "Depuración",

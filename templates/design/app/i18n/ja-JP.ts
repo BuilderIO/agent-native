@@ -22,6 +22,8 @@ export default {
       "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
     screenshotMissing: "スクリーンショット未取得",
     recordingUnavailable: "利用不可",
+    recordingGap: "記録の空白",
+    recordingGapDuration: "記録の空白 · {duration}",
     eventTime: "イベント時刻（UTC）",
     generationCompletedEvent: "generation_completed イベント（UTC）",
     replayObservation: "リプレイ観測",
@@ -65,6 +67,10 @@ export default {
       "{from} から {to} · アプリごとの別コホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
+    otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
+    otherBranchDetailsUnavailable:
+      "このジャーニーツリーには分岐の詳細がありません",
+    otherBranchSourceKey: "元のステップキー: {key}",
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
@@ -223,7 +229,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "デザイン",
+    home: "ホーム",
     templates: "テンプレート",
     designSystems: "デザインシステム",
     setupDesignSystem: "デザインシステムを設定",
@@ -246,6 +252,9 @@ export default {
     labDesignReviewTools: "デザインレビュー ツール",
     labDesignReviewToolsDescription:
       "デザインのアクセシビリティ上の問題を確認し、視覚的な変更を比較します。",
+    labMotion: "モーション",
+    labMotionDescription:
+      "デザイン要素のキーフレームアニメーションを作成・編集します。",
     mcpAbout:
       "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
@@ -772,13 +781,16 @@ export default {
       needsConnectedApp: "ソースへのジャンプには接続済みアプリが必要です",
     },
     leftRail: {
-      file: "ファイル",
+      layers: "レイヤー",
       agent: "エージェント",
       assets: "アセット",
       import: "インポート",
       tools: "ツール",
       tokens: "トークン",
       label: "デザインワークスペース",
+      account: "アカウント",
+      collapse: "サイドバーを折りたたむ",
+      expand: "サイドバーを展開",
     },
     breakpointBar: {
       base: "ベース",
@@ -814,6 +826,7 @@ export default {
       exit: "レスポンシブプレビューを終了",
     },
     motion: {
+      openDock: "モーション",
       dockLabel: "モーションドック",
       collapseDock: "モーションドックを閉じる",
       play: "再生",
@@ -870,12 +883,10 @@ export default {
       "{{path}} は開いた後にディスク上で変更されています。画面を再読み込みしてもう一度お試しください。",
     applyToSourceError: "ソースへの保存に失敗しました: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "トークンをインポート",
       importTitle: "トークンをインポート",
       importHint:
@@ -887,6 +898,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "貼り付けたトークンをインポート",
       importedCount: "{{count}} 個のトークンをインポートしました",
+      count: "{{count}} 個のトークン",
+      search: "トークンを検索",
+      noMatches: "一致するトークンがありません",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -934,6 +948,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
+      figmaPasteUploadImage: "画像をアップロード",
+      figmaPasteUploadImageFor: "「{{name}}」をアップロード",
+      figmaPasteImageFallbackName: "画像 {{index}}",
+      figmaPasteUploadImageSuccess: "画像を埋めました",
+      figmaPasteUploadImageInvalid:
+        "SVG、PNG、JPG などの画像ファイルを選択してください。",
+      figmaPasteUploadImageError: "その画像を埋められませんでした",
       figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
       figmaHydrationDialogDescription:
         "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
@@ -1070,7 +1091,7 @@ export default {
     fileMenu: {
       pendingEditsBlocked:
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
-      designs: "デザイン",
+      allDesigns: "すべてのデザイン",
       rename: "名前を変更",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
@@ -1614,6 +1635,13 @@ export default {
       permissionPromptSettingsInstructions:
         "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
+      previewCredentialsUnavailableTitle:
+        "ローカルプレビューの認証情報を利用できません",
+      previewCredentialsUnavailableDescription:
+        "インスペクターでこの画面の localhost 接続を再接続してから、もう一度お試しください。",
+      publicPreviewUnavailableDescription:
+        "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
+      previewCredentialsRetry: "認証情報を再取得",
     },
   },
   multiScreenCanvas: {
@@ -1624,6 +1652,7 @@ export default {
     fork: "分岐",
     fullView: "全体表示",
     preview: "プレビュー",
+    focusScreen: "画面にフォーカス",
     openAndDuplicate:
       "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
     openAndPreview:
@@ -1699,9 +1728,11 @@ export default {
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
     imageAttachmentUnavailable:
-      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
+      "この画像をアップロード用に準備できませんでした。JPG、PNG、GIF、WebP 画像をお試しください。",
+    imageAttachmentTooLarge:
+      "画像は1枚あたり最大{{perFile}} MB、合計{{total}} MBまで添付できます。",
     attachmentsTooLarge:
-      "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
+      "画像は自動で最適化されます。最適化後の画像とその他のファイルの合計は{{max}} MB以内にしてください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",
     skipPrompt: "プロンプトをスキップ",
     startBlankCanvas: "空白のキャンバスから始める",
@@ -1861,7 +1892,7 @@ export default {
     browseAllTemplates: "すべて見る",
     connectBuilderIo: "Builder.io を使う",
     connectingBuilder: "Builder.io を設定中…",
-    pageTitle: "Design",
+    pageTitle: "ホーム",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",
     newDesignLower: "新しいデザイン",

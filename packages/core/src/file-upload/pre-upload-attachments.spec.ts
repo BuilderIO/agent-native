@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import type { AgentChatAttachment } from "../agent/types.js";
+import { createOwnedAttachmentHydrationBudget } from "./owned-attachment.js";
 import { MAX_OWNED_INLINE_IMAGE_BYTES } from "./owned-attachment.js";
 import {
   preUploadAttachments,
@@ -130,6 +131,29 @@ describe("preUploadAttachments", () => {
     expect(att.data).toBe(`data:image/jpeg;base64,${JPEG_BASE64}`);
     expect(att.contentType).toBe("image/jpeg");
     expect(att.uploadProvider).toBe("test-storage");
+  });
+
+  it("uses the caller's shared hydration candidate budget", async () => {
+    const hydrationBudget = createOwnedAttachmentHydrationBudget();
+    hydrationBudget.remainingCandidates = 0;
+    const att = makeImageAtt({
+      data: undefined,
+      url: "https://cdn.example.com/photo.png",
+    });
+
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      hydrationBudget,
+    });
+
+    expect(result.readFailures).toContainEqual({
+      name: "additional images",
+      code: "request-candidate-limit",
+      attachmentType: "image",
+    });
+    expect(findOwnedProviderMock).not.toHaveBeenCalled();
+    expect(hydrationBudget.remainingCandidates).toBe(0);
   });
 
   it("caps image URL hydration candidates while preserving every original URL", async () => {

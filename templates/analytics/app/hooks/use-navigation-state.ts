@@ -1,4 +1,5 @@
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import { isAnalyticsAskPath } from "@shared/ask-route";
 import { useLocation } from "react-router";
 
 import { rememberLastOpened } from "@/lib/last-opened";
@@ -32,7 +33,7 @@ export function useNavigationState() {
 
       if (pathname === "/" || pathname === "" || pathname === "/overview") {
         state.view = "ask";
-      } else if (pathname === "/ask") {
+      } else if (isAnalyticsAskPath(pathname)) {
         state.view = "ask";
       } else if (
         pathname.startsWith("/dashboards/") ||
@@ -105,8 +106,8 @@ export function useNavigationState() {
         }
       } else if (pathname === "/data-sources") {
         state.view = "data-sources";
-      } else if (pathname === "/data-dictionary") {
-        state.view = "data-dictionary";
+      } else if (pathname === "/semantic-layer") {
+        state.view = "semantic-layer";
       } else if (
         pathname === "/settings" ||
         pathname.startsWith("/settings/")
@@ -166,7 +167,10 @@ function commandPathForNavigation(cmd: NavigationState): string {
     return qs ? `/monitoring?${qs}` : "/monitoring";
   }
   if (cmd.view === "data-sources") return "/data-sources";
-  if (cmd.view === "data-dictionary") return "/data-dictionary";
+  // Old view names stay valid for agent calls made before the rename.
+  if (cmd.view === "source-status") return "/data-sources";
+  if (cmd.view === "semantic-layer" || cmd.view === "data-dictionary")
+    return "/semantic-layer";
   if (cmd.view === "ask") return "/ask";
   if (cmd.view === "settings") return "/settings";
   if (cmd.view === "overview" || cmd.view === "home") return "/ask";

@@ -132,6 +132,7 @@ export function runApplyLocalContentUpdate(
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
     persist?: boolean;
+    previewOnly?: boolean;
     recordHistory?: boolean;
     historyBeforeContent?: string;
     sourceBaseContent?: string;
@@ -141,6 +142,7 @@ export function runApplyLocalContentUpdate(
     clipboardMutation?: ClipboardContentMutationPublication;
     awaitSave?: boolean;
     selectionBefore?: YjsUndoSelectionSnapshot;
+    serverAccepted?: boolean;
   } = {},
 ): ApplyLocalContentUpdateResult {
   if (!activeFile || !canEditDesignRef.current) return { status: "refused" };
@@ -171,6 +173,10 @@ export function runApplyLocalContentUpdate(
     return { status: "refused" };
   }
   const nextContent = prepared.content;
+  const previewOnly =
+    options.previewOnly === true &&
+    options.persist === false &&
+    options.recordHistory === false;
   const needsIdentityMigration = Boolean(options.updatedAt && prepared.changed);
   const identityMigrationSourceContent =
     options.identityMigrationSourceContent ??
@@ -187,11 +193,13 @@ export function runApplyLocalContentUpdate(
   const shouldRecordHistory =
     options.recordHistory !== false && !options.updatedAt;
 
-  acknowledgeAuthoritativeClipboardMutation({
-    fileId: activeFile.id,
-    nextContent,
-    publication: options.clipboardMutation,
-  });
+  if (!previewOnly) {
+    acknowledgeAuthoritativeClipboardMutation({
+      fileId: activeFile.id,
+      nextContent,
+      publication: options.clipboardMutation,
+    });
+  }
   const writeLiveDoc =
     !needsIdentityMigration &&
     canWriteCollabText(ydoc, isSynced, previousContent);
@@ -294,7 +302,7 @@ export function runApplyLocalContentUpdate(
   if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
-  if (ydoc && writeLiveDoc) {
+  if (ydoc && writeLiveDoc && !previewOnly) {
     const ytext = ydoc.getText("content");
     if (ytext.toJSON() !== nextContent) {
       if (!yjsHistoryAvailable) {
@@ -309,20 +317,22 @@ export function runApplyLocalContentUpdate(
     }
   }
   let saveCompletion: Promise<FileContentSaveCompletion> | undefined;
-  if (options.persist === false && !needsIdentityMigration) {
-    cancelQueuedFileContentSave(activeFile.id);
-  } else {
-    const completion = queueFileContentSave(activeFile.id, nextContent, {
-      expectedVersionHash: sourceContentHash(
-        needsIdentityMigration
-          ? inputContent
-          : (options.sourceBaseContent ?? previousContent),
-      ),
-      syncCollab: !writeLiveDoc,
-      immediate: needsIdentityMigration ? true : options.immediateSave,
-      identityMigrationSourceContent,
-    });
-    if (completion instanceof Promise) saveCompletion = completion;
+  if (!options.serverAccepted) {
+    if (options.persist === false && !needsIdentityMigration) {
+      cancelQueuedFileContentSave(activeFile.id);
+    } else {
+      const completion = queueFileContentSave(activeFile.id, nextContent, {
+        expectedVersionHash: sourceContentHash(
+          needsIdentityMigration
+            ? inputContent
+            : (options.sourceBaseContent ?? previousContent),
+        ),
+        syncCollab: !writeLiveDoc,
+        immediate: needsIdentityMigration ? true : options.immediateSave,
+        identityMigrationSourceContent,
+      });
+      if (completion instanceof Promise) saveCompletion = completion;
+    }
   }
   return {
     status: "accepted",

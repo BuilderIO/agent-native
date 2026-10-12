@@ -159,6 +159,55 @@ describe("job file writes that lose frontmatter fields", () => {
     }
   });
 
+  it.each([true, false])(
+    "records transactional conditional field loss only after commit (commit=%s)",
+    async (commit) => {
+      const store = await import("./store.js");
+      const owner = store.organizationResourceOwner("org-1");
+      const path = `jobs/factories/f-${Date.now()}/transaction-${commit}.md`;
+      const interrupted = new Error("admission interrupted");
+      try {
+        const current = await store.resourcePut(owner, path, factoryJob);
+        const admission = sharedClient.transaction!(async (tx) => {
+          const written = await store.resourcePutIfCurrentInTransaction(
+            {
+              owner,
+              path,
+              content: rewrittenJob,
+              expectedId: current.id,
+              expectedUpdatedAt: current.updatedAt,
+              expectedContent: current.content,
+            },
+            tx,
+          );
+          expect(written).not.toBeNull();
+          expect(recordMock).not.toHaveBeenCalled();
+          if (!commit) throw interrupted;
+          return written!;
+        });
+        if (commit) {
+          const written = await admission;
+          expect(recordMock).not.toHaveBeenCalled();
+          await written.notify();
+          expect(recordMock).toHaveBeenCalledTimes(1);
+          expect(recordMock.mock.calls[0][0].args.writer).toBe(
+            "resourcePutIfCurrent",
+          );
+        } else {
+          await expect(admission).rejects.toBe(interrupted);
+          expect(recordMock).not.toHaveBeenCalled();
+        }
+        await expect(
+          store.resourceGetByPath(owner, path),
+        ).resolves.toMatchObject({
+          content: commit ? rewrittenJob : factoryJob,
+        });
+      } finally {
+        await store.resourceDeleteByPath(owner, path);
+      }
+    },
+  );
+
   it("records a rewrite through resourcePutIfSnapshot", async () => {
     const {
       organizationResourceOwner,

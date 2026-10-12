@@ -21,10 +21,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getIdToken } from "@/lib/auth";
+import { useStoryboardDesignTargetPreflight } from "@/lib/storyboard-design-target";
 
 import {
   captureReplayScreenshot,
   ReplayScreenshotAssetError,
+  ReplayScreenshotCaptureError,
 } from "./session-replay-screenshot";
 
 const MAX_REPLAYS = 3;
@@ -70,6 +72,7 @@ export function SessionReplayStoryboardExportDialog({
   cohortTotal,
 }: Props) {
   const t = useT();
+  const designTargetPreflight = useStoryboardDesignTargetPreflight(open);
   const [timestampInputs, setTimestampInputs] = useState<
     Record<string, string>
   >({});
@@ -185,7 +188,12 @@ export function SessionReplayStoryboardExportDialog({
 
   function captureErrorMessage(error: unknown): string {
     if (error instanceof ReplayScreenshotAssetError) {
+      console.warn("Replay screenshot capture rejected", error.reason);
       return t("sessions.screenshotUnsupportedAssets");
+    }
+    if (error instanceof ReplayScreenshotCaptureError) {
+      console.warn("Replay screenshot capture rejected", error.reason);
+      return t("sessions.storyboardCaptureFailed");
     }
     return error instanceof Error
       ? error.message
@@ -211,6 +219,10 @@ export function SessionReplayStoryboardExportDialog({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    if (!designTargetPreflight.ready) {
+      setError(t("sessions.storyboardCaptureFailed"));
+      return;
+    }
 
     let targets: Array<{ recording: Recording; offsets: number[] }>;
     try {
@@ -364,7 +376,10 @@ export function SessionReplayStoryboardExportDialog({
             if (controller.signal.aborted) {
               throw new Error(t("sessions.storyboardCanceled"));
             }
-            if (captureError instanceof ReplayScreenshotAssetError) {
+            if (
+              captureError instanceof ReplayScreenshotAssetError ||
+              captureError instanceof ReplayScreenshotCaptureError
+            ) {
               throw captureError;
             }
             throw new Error(t("sessions.storyboardCaptureFailed"));
@@ -651,9 +666,9 @@ export function SessionReplayStoryboardExportDialog({
                 {progress}
               </p>
             ) : null}
-            {error ? (
+            {error || designTargetPreflight.unavailable ? (
               <p className="text-sm text-destructive" role="alert">
-                {error}
+                {error || t("sessions.storyboardCaptureFailed")}
               </p>
             ) : null}
             {warning ? (
@@ -693,7 +708,15 @@ export function SessionReplayStoryboardExportDialog({
                   >
                     {t("common.cancel")}
                   </Button>
-                  <Button type="submit" disabled={recordings.length === 0}>
+                  <Button
+                    type="submit"
+                    disabled={
+                      recordings.length === 0 || !designTargetPreflight.ready
+                    }
+                    data-target-code={designTargetPreflight.code}
+                    data-target-failure-code={designTargetPreflight.failureCode}
+                    data-target-class={designTargetPreflight.targetClass}
+                  >
                     <IconPhoto />
                     {t("sessions.captureToDesign")}
                   </Button>

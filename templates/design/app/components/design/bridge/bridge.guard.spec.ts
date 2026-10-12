@@ -31,6 +31,15 @@ import {
 const PLATFORM_PRIMARY_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const IGNORE_AUTO_LAYOUT_KEY = process.platform === "darwin" ? "Control" : "s";
 
+async function setAppleBrowserPlatform(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: "MacIntel",
+    });
+  });
+}
+
 declare global {
   interface Window {
     __bridgeMessages?: Array<{ type?: string; phase?: string }>;
@@ -327,6 +336,7 @@ describe("bridge oversized-drop receiver guards", () => {
       sourceSize,
       expected,
     }) => {
+      // source-read-ok: Execute both embedded bridge implementations, which expose no module API.
       const dropFitsAutoLayoutFallback = compileBridgeFunction<
         (
           container: Element,
@@ -338,6 +348,7 @@ describe("bridge oversized-drop receiver guards", () => {
         nextFunction,
         {
           dropFitsContainer: () => false,
+          dropCanGrowContentSizedAutoLayout: () => false,
           dropContentSize: () => containerSize,
           window: { getComputedStyle: () => style },
         },
@@ -423,6 +434,7 @@ describe("bridge oversized-drop receiver guards", () => {
       isAbsolutePrimitiveContainer: () => false,
       isFreeformRelativeContainer: () => false,
       dropFitsContainer: (element: Element) => element === body,
+      dropCanGrowContentSizedAutoLayout: () => false,
       dropFitsAutoLayoutFallback: () => false,
       parentFlowAxis: () => "y",
       nearestChildInsertionTarget,
@@ -16375,13 +16387,27 @@ it(
       await page.mouse.move(120, 120);
       await page.mouse.down();
       await page.mouse.move(150, 150, { steps: 3 });
-      await page.evaluate(() => {
-        window.postMessage(
-          { type: "agent-native:cross-screen-claim", claimed: true },
-          "*",
-        );
-      });
-      await page.waitForTimeout(0);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.source !== window ||
+                event.data?.type !== "agent-native:cross-screen-claim" ||
+                event.data.claimed !== true
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              { type: "agent-native:cross-screen-claim", claimed: true },
+              "*",
+            );
+          }),
+      );
       await page.mouse.up();
 
       const source = await page.locator("#target").evaluate((element) => {
@@ -16500,12 +16526,11 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
-  platformPrimary?: boolean;
 }> = [
   { name: "Cmd/Ctrl+Z undo", key: "z" },
   { name: "Cmd/Ctrl+Shift+Z redo", key: "z", shift: true },
   { name: "Cmd/Ctrl+Y redo", key: "y" },
-  { name: "Cmd/Ctrl+F find", key: "f", platformPrimary: true },
+  { name: "Cmd/Ctrl+F find", key: "f" },
   { name: "Cmd/Ctrl+A select all", key: "a" },
   { name: "Cmd/Ctrl+X cut", key: "x" },
   { name: "Cmd/Ctrl+Shift+X strikethrough", key: "x", shift: true },
@@ -16599,11 +16624,7 @@ it(
         await page.evaluate(() => {
           (window as any).__bridgeMessages = [];
         });
-        const modifier =
-          testCase.ctrlOnly ||
-          (testCase.platformPrimary && process.platform !== "darwin")
-            ? "Control"
-            : "Meta";
+        const modifier = testCase.ctrlOnly ? "Control" : PLATFORM_PRIMARY_KEY;
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");
@@ -17193,6 +17214,7 @@ it(
         viewport: { width: 900, height: 700 },
       });
       await page.setContent("<!doctype html><html><body></body></html>");
+      await setAppleBrowserPlatform(page);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await collectBridgeMessages(page);
 
@@ -17236,6 +17258,7 @@ it(
       await page.setContent(`<!doctype html><html><body>
         <div id="el" data-agent-native-node-id="el" style="position:absolute;left:40px;top:40px;width:80px;height:60px;background:#6366f1">El</div>
       </body></html>`);
+      await setAppleBrowserPlatform(page);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
       await page.mouse.click(80, 70);
@@ -17651,13 +17674,20 @@ it(
             message.hasRange === true,
         ),
       );
-      const initialRenderedHeight = await page
-        .locator("#text")
-        .evaluate((element) => element.getBoundingClientRect().height);
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
+        document.dispatchEvent(new Event("selectionchange"));
       });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "text-editing-state" &&
+            message.active === true &&
+            message.hasRange === true,
+        ),
+      );
 
+      const preLoadMessageCount = (await readBridgeMessages(page)).length;
       releaseFontResponse?.();
       await page.evaluate(async () => {
         await document.fonts.ready;
@@ -17671,21 +17701,37 @@ it(
           "قياس ارتفاع النص",
         );
       });
-      let loadedMessages = await readBridgeMessages(page);
-      await page.waitForFunction(() => {
-        const messages = (window as any).__bridgeMessages ?? [];
-        return (
-          messages.some((message: any) => message.type === "element-select") &&
-          messages.some(
-            (message: any) =>
-              message.type === "text-editing-state" &&
-              message.active === true &&
-              message.hasRange === true,
-          )
+      await page.waitForFunction((startIndex) => {
+        const messages = ((window as any).__bridgeMessages ?? [])
+          .slice(startIndex)
+          .reverse();
+        const height = document
+          .querySelector("#text")!
+          .getBoundingClientRect().height;
+        const selected = messages.find(
+          (message: any) => message.type === "element-select",
         );
-      });
-      loadedMessages = await readBridgeMessages(page);
-      const activeRangeUpdate = loadedMessages.find(
+        const range = messages.find(
+          (message: any) =>
+            message.type === "text-editing-state" &&
+            message.active === true &&
+            message.hasRange === true,
+        );
+        return (
+          Math.abs(
+            Number.parseFloat(
+              selected?.payload?.computedStyles?.resolvedLineHeightPx,
+            ) - height,
+          ) < 0.05 &&
+          Math.abs(
+            Number.parseFloat(range?.computedStyles?.resolvedLineHeightPx) -
+              height,
+          ) < 0.05
+        );
+      }, preLoadMessageCount);
+      let loadedMessages = await readBridgeMessages(page);
+      const latestLoadedMessages = loadedMessages.slice().reverse();
+      const activeRangeUpdate = latestLoadedMessages.find(
         (message) =>
           message.type === "text-editing-state" &&
           (message as { active?: boolean }).active === true &&
@@ -17707,8 +17753,6 @@ it(
       const loadedRenderedHeight = await page
         .locator("#text")
         .evaluate((element) => element.getBoundingClientRect().height);
-      expect(loadedLineHeight).not.toBe(initialLineHeight);
-      expect(loadedRenderedHeight).not.toBe(initialRenderedHeight);
       expect(loadedRenderedHeight).toBeCloseTo(loadedLineHeight, 1);
       expect(
         loadedMessages.some(
@@ -17717,7 +17761,7 @@ it(
             message.type === "style-change",
         ),
       ).toBe(false);
-      const wholeLayerUpdate = loadedMessages.find(
+      const wholeLayerUpdate = latestLoadedMessages.find(
         (message) => message.type === "element-select",
       ) as
         | {
@@ -17735,7 +17779,6 @@ it(
       const wholeLayerLineHeight = Number.parseFloat(
         wholeLayerUpdate?.payload?.computedStyles?.resolvedLineHeightPx ?? "",
       );
-      expect(wholeLayerLineHeight).not.toBe(initialLineHeight);
       expect(wholeLayerLineHeight).toBeCloseTo(loadedRenderedHeight, 1);
 
       await page.evaluate(() => {

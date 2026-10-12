@@ -12,6 +12,8 @@ import type { SourceNodeProvenance } from "@shared/preview-source-provenance";
 import type { VectorEndpointStyle } from "@shared/vector-endpoints";
 import type { ReactNode, RefObject } from "react";
 
+import type { TextCommitStatus } from "@/pages/design-editor/command-types";
+
 import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
@@ -220,6 +222,7 @@ export interface MultiScreenCanvasProps {
     id: string,
     selectionToggle?: { screenId: string; selected: boolean },
   ) => void;
+  onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
@@ -495,7 +498,7 @@ export interface MultiScreenCanvasProps {
     value: string,
     info?: ElementInfo,
     details?: { html?: string },
-  ) => void;
+  ) => TextCommitStatus | void;
   vectorEdit?: VectorEditOverlayState | null;
   gradientEditTarget?: GradientEditOverlayTarget | null;
   onDropFiles?: (
@@ -504,6 +507,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   cameraCommand?: {
     fitBounds: FrameBounds;
+    canvasZoom?: number;
     paddingScreenPx?: number;
     nonce: number;
   } | null;
@@ -516,7 +520,8 @@ export interface MultiScreenCanvasProps {
   deferLineupZoomChange?: boolean;
   /**
    * Omitted: the first layout fits every screen. Set (a screen id, or null for
-   * the first screen): it fits that one screen to the pane width instead.
+   * the first screen): it focuses that screen. By default it fits the pane
+   * width; `fitFocusedViewport` fits both axes and centers it.
    */
   initialFitScreenId?: string | null;
   /**
@@ -524,6 +529,8 @@ export interface MultiScreenCanvasProps {
    * pane so it reflows into the pane instead of leaving empty canvas below it.
    */
   fillFocusedViewport?: boolean;
+  /** With `initialFitScreenId` set: center the full screen inside the pane. */
+  fitFocusedViewport?: boolean;
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
   visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
@@ -614,6 +621,7 @@ export type MultiScreenCanvasCameraProps = Pick<
   | "onZoomChange"
   | "initialFitScreenId"
   | "fillFocusedViewport"
+  | "fitFocusedViewport"
 >;
 
 export type MultiScreenCanvasCreationProps = Pick<
@@ -899,6 +907,7 @@ export interface PanDragState {
   type: "pan";
   originClient: Point;
   originPan: Point;
+  originZoom: number;
 }
 
 export interface DraftMoveDragState {

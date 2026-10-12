@@ -156,6 +156,37 @@ describe("browser session store", () => {
     ).resolves.toMatchObject({ status: "completed" });
   });
 
+  it("expires claimed requests when a session disconnects", async () => {
+    const {
+      claimBrowserSessionRequest,
+      createBrowserSessionRequest,
+      disconnectBrowserSession,
+      getBrowserSessionRequest,
+      registerBrowserSession,
+    } = await import("./store.js");
+
+    await registerBrowserSession("alice@example.com", {
+      session: { id: "tab-disconnect" },
+    });
+    const request = await createBrowserSessionRequest(
+      "alice@example.com",
+      "tab-disconnect",
+      { type: "command", command: "refreshData" },
+    );
+    await expect(
+      claimBrowserSessionRequest("alice@example.com", "tab-disconnect"),
+    ).resolves.toMatchObject({ id: request.id, status: "claimed" });
+
+    await disconnectBrowserSession("alice@example.com", "tab-disconnect");
+
+    await expect(
+      getBrowserSessionRequest("alice@example.com", request.id),
+    ).resolves.toMatchObject({
+      status: "expired",
+      error: "Browser session disconnected",
+    });
+  });
+
   it("keeps WebMCP descriptors separate from client actions", async () => {
     const {
       claimBrowserSessionRequest,

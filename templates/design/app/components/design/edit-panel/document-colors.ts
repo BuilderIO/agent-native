@@ -9,7 +9,12 @@ import {
   type CodeLayerNode,
   wrapBareTextLeavesInHtml,
 } from "@shared/code-layer";
-import { parseCssColor, rgbaToCss, rgbaToHex } from "@shared/color-utils";
+import {
+  parseCssColor,
+  parseCssColorExtended,
+  rgbaToCss,
+  rgbaToHex,
+} from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   readGradientFillOpacity,
@@ -984,7 +989,7 @@ function cssColorTokens(value: string): string[] {
 }
 
 function colorKey(value: string): string {
-  const parsed = parseCssColor(value);
+  const parsed = parseCssColorExtended(value);
   return parsed
     ? rgbaToHex(parsed, true).toUpperCase()
     : value.trim().toLowerCase();

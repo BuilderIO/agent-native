@@ -29,11 +29,13 @@ vi.mock("../application-state/store.js", () => ({
 }));
 
 import { markVerifiedServiceIdentityForEvent } from "../server/request-context.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { setActiveOrgId } from "./active-org.js";
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
   resolveOrgIdForEmail,
+  resolveActiveOrgIdForStorageCredential,
   resolveOrgIdForEmailViaEvent,
   createOrganization,
   bootstrapAdminOrganization,
@@ -1199,6 +1201,62 @@ describe("resolveOrgIdForEmail", () => {
     await expect(resolveOrgIdForEmail("a@b.com")).rejects.toThrow(
       "db query timed out",
     );
+  });
+});
+
+describe("resolveActiveOrgIdForStorageCredential", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [{ orgId: "active-org" }] });
+    mockGetUserSetting.mockResolvedValue({ orgId: "active-org" });
+  });
+
+  it("requires a fresh active selection backed by a current membership", async () => {
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgScope: "personal" },
+      async () => {
+        await expect(
+          resolveActiveOrgIdForStorageCredential("Alice@Example.com"),
+        ).resolves.toBe("active-org");
+      },
+    );
+
+    expect(mockExecute.mock.calls[0][0].sql).toContain(
+      "federation_removal_pending_at IS NULL",
+    );
+    expect(mockExecute.mock.calls[0][0].args).toEqual(["alice@example.com"]);
+    expect(mockGetUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      "active-org-id",
+      { bypassCache: true },
+    );
+  });
+
+  it.each([
+    ["no membership", [], { orgId: "active-org" }],
+    ["explicit Personal", [{ orgId: "active-org" }], { orgId: null }],
+    ["missing selection", [{ orgId: "active-org" }], null],
+    ["stale selection", [{ orgId: "other-org" }], { orgId: "active-org" }],
+  ])("returns no org for %s", async (_case, rows, setting) => {
+    mockExecute.mockResolvedValue({ rows });
+    mockGetUserSetting.mockResolvedValue(setting);
+
+    await expect(
+      resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).resolves.toBeNull();
+  });
+
+  it("propagates membership and active-selection read failures", async () => {
+    mockExecute.mockRejectedValueOnce(new Error("membership read failed"));
+    await expect(
+      resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).rejects.toThrow("membership read failed");
+
+    mockExecute.mockResolvedValueOnce({ rows: [{ orgId: "active-org" }] });
+    mockGetUserSetting.mockRejectedValueOnce(new Error("setting read failed"));
+    await expect(
+      resolveActiveOrgIdForStorageCredential("alice@example.com"),
+    ).rejects.toThrow("setting read failed");
   });
 });
 

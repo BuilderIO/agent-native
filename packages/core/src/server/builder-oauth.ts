@@ -151,14 +151,20 @@ function userOwnerOptions(ownerEmail: string) {
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
-  { forUse = false }: { forUse?: boolean } = {},
+  {
+    forUse = false,
+    orgOnly = false,
+  }: { forUse?: boolean; orgOnly?: boolean } = {},
 ) {
   const email = normalizeOwnerEmail(ownerEmail);
   const userOptions = userOwnerOptions(email);
   const resolvedOrgId =
-    orgId === undefined
-      ? await resolveOrgIdForEmail(email)
-      : orgId?.trim() || null;
+    orgOnly && orgId === undefined
+      ? null
+      : orgId === undefined
+        ? await resolveOrgIdForEmail(email)
+        : orgId?.trim() || null;
+  if (orgOnly) return resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
   const personalAllowed =
     !forUse ||
     (await isPersonalBuilderGrantAllowed({
@@ -404,11 +410,12 @@ export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
   requiredScope?: BuilderOAuthPermissionScope,
-  access: { forceRefresh?: boolean } = {},
+  access: { forceRefresh?: boolean; orgOnly?: boolean } = {},
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
+    orgOnly: access.orgOnly,
   })) {
     const stored = await getOAuthTokens(
       "mcp",
@@ -451,9 +458,11 @@ export class BuilderOAuthScopeError extends Error {
 export async function hasBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
+  access: { orgOnly?: boolean } = {},
 ): Promise<boolean> {
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
+    orgOnly: access.orgOnly,
   })) {
     const stored = await getOAuthTokens(
       "mcp",

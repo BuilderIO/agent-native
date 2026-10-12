@@ -22,6 +22,8 @@ import {
   parseResumeRunInput,
   parseAgentThreadSnapshot,
   parseStartRunInput,
+  persistableFilePart,
+  isPersistableAttachmentUrl,
 } from "./index.js";
 
 const event = {
@@ -597,6 +599,162 @@ describe("AgentKit protocol validation", () => {
     ).toThrow("submitFeedback.messageSeq");
   });
 
+  it("stores inline file bytes only as a named omission marker", () => {
+    const marker = persistableFilePart({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      url: "data:image/png;base64,SGVsbG8=",
+    });
+    expect(marker).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "data:image/png;base64,SGVsbG8=",
+        fileId: "file-1",
+      }),
+    ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
+    for (const fileId of [
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      "_9j_4AAQSkZJRgABAQAAAQABAAD",
+      "AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYx",
+      "77u/PHN2Zy8+",
+    ]) {
+      expect(
+        persistableFilePart({
+          type: "file",
+          name: "photo.png",
+          mediaType: "image/png",
+          fileId,
+        }),
+      ).toEqual({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        omitted: "inline-bytes",
+      });
+    }
+    for (const fileId of [
+      "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+      "AbCDef0123456789_-AbCDef0123456789",
+    ]) {
+      expect(
+        persistableFilePart({ type: "file", name: "photo.png", fileId }),
+      ).toEqual({ type: "file", name: "photo.png", fileId });
+    }
+    const durable = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "https://storage.example.test/photo.png",
+    };
+    expect(persistableFilePart(durable)).toEqual(durable);
+    expect(
+      persistableFilePart({
+        ...durable,
+        data: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toEqual(durable);
+
+    expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
+    expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    const localS3 = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "http://minio.example.test:9000/bucket/photo.png",
+    };
+    expect(persistableFilePart(localS3)).toEqual(localS3);
+    const signedReference = {
+      ...durable,
+      url: "https://storage.example.test/photo.png?signature=fake-signature",
+    };
+    expect(persistableFilePart(signedReference)).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        url: "AQID",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "https://storage.example.test/photo.png?token=secret",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+
+    const snapshot = {
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [{ id: "message-1", role: "user", parts: [marker] }],
+    };
+    expect(parseAgentThreadSnapshot(snapshot).messages[0]?.parts).toEqual([
+      marker,
+    ]);
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [
+              persistableFilePart({
+                type: "file",
+                name: "photo.png",
+                url: "AQID",
+              }),
+            ],
+          },
+        ],
+      }).messages[0]?.parts,
+    ).toEqual([{ type: "file", name: "photo.png", omitted: "unsafe-url" }]);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ ...marker, omitted: "everything" }],
+          },
+        ],
+      }),
+    ).toThrow("unsupported omission marker");
+  });
+
   it("validates rich snapshots as one internally consistent projection", () => {
     const snapshot = {
       id: "thread-1",
@@ -626,6 +784,43 @@ describe("AgentKit protocol validation", () => {
     expect(parseAgentThreadSnapshot(snapshot)).toMatchObject({
       activeRunIds: ["run-1"],
     });
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        runs: [{ ...snapshot.runs[0], lastSequence: 4 }],
+        events: [
+          { ...event, type: "run.started" },
+          {
+            ...event,
+            id: "event-omitted-range",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 3 },
+          },
+          {
+            ...event,
+            id: "event-completed",
+            sequence: 4,
+            type: "run.completed",
+          },
+        ],
+      }).events,
+    ).toHaveLength(3);
+    expect(() =>
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        events: [
+          { ...event, type: "run.started" },
+          {
+            ...event,
+            id: "event-omitted-range",
+            sequence: 2,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 259 },
+          },
+        ],
+      }),
+    ).toThrow("must cover at most 256 event sequences");
     expect(() =>
       parseAgentThreadSnapshot({
         ...snapshot,

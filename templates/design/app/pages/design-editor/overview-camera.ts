@@ -240,6 +240,20 @@ export function getOverviewCanvasZoom(
   return displayZoom / scale;
 }
 
+export function getOverviewCanvasZoomForFrame(args: {
+  displayZoom: number;
+  frameWidth: number | null | undefined;
+  sourceWidth: number | null | undefined;
+}) {
+  return getOverviewCanvasZoom(
+    args.displayZoom,
+    getOverviewZoomScale({
+      frameWidth: args.frameWidth,
+      sourceWidth: args.sourceWidth,
+    }),
+  );
+}
+
 export function getDefaultOverviewCanvasZoom(overviewZoomScale: number) {
   return getOverviewCanvasZoom(DEFAULT_OVERVIEW_ZOOM, overviewZoomScale);
 }

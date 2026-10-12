@@ -350,14 +350,17 @@ export default defineAppConfig({
 
 जब होस्ट `@agent-native/core/server` से `registerObservabilityProvider()` के साथ एक मीटर प्रोवाइडर रजिस्टर करता है, तो Core मेट्रिक्स भी रिकॉर्ड करता है। मेट्रिक्स हर अनुरोध और हर रन के लिए, बिना सैंपलिंग के, रिकॉर्ड किए जाते हैं:
 
-| इंस्ट्रूमेंट                            | एट्रिब्यूट्स                                                                                 |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| इंस्ट्रूमेंट                                | एट्रिब्यूट्स                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration` में `http.server.request.duration` जैसे ही attributes और buckets हैं, लेकिन यह hook शुरू होने पर नहीं, बल्कि तब खत्म होता है जब response hook response को runtime को वापस सौंपता है। जब इसके percentiles `http.server.request.duration` के percentiles से दूर होने लगें, तो पूरे हो चुके responses रोके जा रहे हैं, जैसे inline telemetry flush से। यह अंतर एक संकेत है, किसी एक अनुरोध का इंतज़ार नहीं, क्योंकि दोनों percentiles अलग-अलग अनुरोधों से आ सकते हैं। `waitUntil` के बिना core यह sample उस flush के बाद record करता है, इसलिए यह अगले flush के साथ back end तक पहुँचता है।
 
 मेट्रिक्स में, `gen_ai.tool.name` किसी फ़्रेमवर्क एक्शन का नाम या `other` होता है, और `gen_ai.request.model` मॉडल ID तभी होता है जब इंजन उसे समर्थित के रूप में सूचीबद्ध करता है, अन्यथा `_OTHER`। इसलिए ऐप-परिभाषित टूल और कॉलर द्वारा दिए गए मॉडल ID असीमित सीरीज़ नहीं बना सकते; स्पैन सटीक मान रखते हैं।
 
@@ -401,9 +404,11 @@ interface ObservabilityMeterProvider {
 
 ### सर्वरलेस पर फ़्लश करना {#otel-flush}
 
-सर्वरलेस फ़ंक्शन दो कॉल के बीच फ़्रीज़ हो जाते हैं, इसलिए SDK का एक्सपोर्ट टाइमर शायद कभी न चले। जब कोई रजिस्टर्ड प्रोवाइडर `forceFlush()` लागू करता है, तो Core हर अनुरोध के बाद रिस्पॉन्स हुक से उसे कॉल करता है और उसके पूरा होने की प्रतीक्षा करता है। हर फ़्लश एक साझा 2-सेकंड टाइमआउट से होड़ करता है, इसलिए टेलीमेट्री किसी रिस्पॉन्स को इससे ज़्यादा नहीं रोकती।
+सर्वरलेस फ़ंक्शन दो कॉल के बीच फ़्रीज़ हो जाते हैं, इसलिए SDK का एक्सपोर्ट टाइमर शायद कभी न चले। जब कोई रजिस्टर्ड प्रोवाइडर `forceFlush()` लागू करता है, तो Core हर अनुरोध के बाद रिस्पॉन्स हुक से उसे कॉल करता है और उसके पूरा होने की प्रतीक्षा करता है। हर फ़्लश एक साझा 2-सेकंड टाइमआउट से होड़ करता है, इसलिए टेलीमेट्री किसी रिस्पॉन्स को इससे ज़्यादा नहीं रोकती। जब प्लेटफ़ॉर्म `waitUntil` देता है (Cloudflare, या Netlify का इनवोकेशन कॉन्टेक्स्ट), तो Core फ़्लश उसे सौंप देता है और इंतज़ार करने के बजाय पहले रिस्पॉन्स भेज देता है।
 
-जब कोई फ़्लश विफल होता है या टाइमआउट हो जाता है, तो Core उसका इंतज़ार करना बंद कर देता है और `agent_native.telemetry.flush_failures` में 1 जोड़ता है, जिसे अगला फ़्लश एक्सपोर्ट करता है। टाइमआउट हुआ एक्सपोर्ट चलता रहता है और फिर भी पहुँच सकता है, जब तक कि रनटाइम उससे पहले प्रोसेस को फ़्रीज़ न कर दे। विफलता का `error.type` `timeout` होता है, जब रनटाइम ने फ़्लश के बीच प्रोसेस को फ़्रीज़ किया हो तब `suspended`, वरना त्रुटि का नाम।
+Core मीटर प्रोवाइडर का `forceFlush()` हर प्रोसेस में अधिकतम हर 10 सेकंड में एक बार कॉल करता है और बीच के अनुरोधों पर इसे छोड़ देता है। हर मेट्रिक एक्सपोर्ट प्रोसेस की सभी series दोबारा भेजता है, इसलिए इससे अपलोड वॉल्यूम अनुरोध दर के साथ नहीं बढ़ता। छोड़े गए पॉइंट खोते नहीं हैं: अगला एक्सपोर्ट उन्हें ले जाता है, जब तक कि इंस्टेंस कोई और अनुरोध न संभाले। ट्रेसर प्रोवाइडर हर अनुरोध पर फ़्लश होता है।
+
+जब कोई फ़्लश विफल होता है या टाइमआउट हो जाता है, तो Core उसका इंतज़ार करना बंद कर देता है और `agent_native.telemetry.flush_failures` में 1 जोड़ता है, जिसे अगला फ़्लश एक्सपोर्ट करता है। टाइमआउट हुआ एक्सपोर्ट चलता रहता है और फिर भी पहुँच सकता है, जब तक कि रनटाइम उससे पहले प्रोसेस को फ़्रीज़ न कर दे। विफलता का `error.type` `timeout` होता है, जब रनटाइम ने फ़्लश के बीच प्रोसेस को फ़्रीज़ किया हो तब `suspended`, वरना त्रुटि का नाम। क्योंकि बार-बार टाइमआउट होने वाले कलेक्टर तक यह काउंटर कभी नहीं पहुँचता, इसलिए Core हर प्रोसेस में हर सिग्नल और एरर टाइप के लिए फ़ंक्शन लॉग में एक `agent-native.telemetry_flush_failed` लाइन भी लिखता है।
 
 लंबे समय तक चलने वाले सर्वर पर हर रिस्पॉन्स के बाद फ़्लश का मतलब है हर अनुरोध पर एक एक्सपोर्ट। वहाँ प्रोवाइडर को `forceFlush()` के बिना रजिस्टर करें और एक्सपोर्ट SDK के अपने टाइमर पर छोड़ दें। `@agent-native/core/server` से `isServerlessRuntime()` दोनों स्थितियों में अंतर करता है। यह Netlify, Vercel, AWS Lambda और Cloudflare पर true होता है।
 

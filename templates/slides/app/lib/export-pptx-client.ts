@@ -14,6 +14,11 @@ import {
   retargetPptxForGoogleSlides,
   WRAP_MARK,
 } from "./pptx-google-slides";
+import {
+  browserExportErrorType,
+  trackBrowserDeckExported,
+  type BrowserDeckExportFacts,
+} from "./slides-relay-tracking";
 
 interface PptxExportSlide {
   id: string;
@@ -2263,12 +2268,29 @@ export async function exportDeckAsPptx(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
+  analytics?: BrowserDeckExportFacts,
 ): Promise<{ blankShapes: number }> {
-  const { blankShapes, blob, filename } = await buildDeckPptxBlob(
-    deckTitle,
-    slides,
-    aspectRatio,
-  );
-  triggerBlobDownload(blob, filename);
-  return { blankShapes };
+  let built: Awaited<ReturnType<typeof buildDeckPptxBlob>>;
+  try {
+    built = await buildDeckPptxBlob(deckTitle, slides, aspectRatio);
+    triggerBlobDownload(built.blob, built.filename);
+  } catch (error) {
+    if (analytics) {
+      trackBrowserDeckExported("pptx", {
+        ...analytics,
+        slideCount: slides.length,
+        status: "failed",
+        errorType: browserExportErrorType(error),
+      });
+    }
+    throw error;
+  }
+  if (analytics) {
+    trackBrowserDeckExported("pptx", {
+      ...analytics,
+      slideCount: slides.length,
+      status: "completed",
+    });
+  }
+  return { blankShapes: built.blankShapes };
 }

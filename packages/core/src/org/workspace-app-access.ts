@@ -12,6 +12,12 @@ import {
 } from "../server/deployment-protection.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { isMissingOrganizationTableError } from "./membership.js";
+import {
+  getCachedWorkspaceAccess,
+  invalidateMemberOrgCaches,
+  rememberWorkspaceAccess,
+  workspaceAccessGenerationNow,
+} from "./request-org-cache.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APP_CLAIM_ACTION_PATH =
@@ -270,6 +276,17 @@ async function hostedWorkspaceAppAccess(
   }
 }
 
+async function cachedOrgDomain(orgId: string): Promise<string | null> {
+  const key = `domain:${orgId}`;
+  const cached = getCachedWorkspaceAccess<string | null>(key);
+  if (cached !== undefined) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const { getOrgDomain } = await import("./context.js");
+  const domain = await getOrgDomain(orgId);
+  rememberWorkspaceAccess(key, domain, generation);
+  return domain;
+}
+
 async function resolveHostedWorkspaceAppAuth(
   configuredDirectory: string,
   context: WorkspaceAppAccessContext,
@@ -280,11 +297,7 @@ async function resolveHostedWorkspaceAppAuth(
 
   const orgId = context.orgId?.trim() || null;
   try {
-    const orgDomain = orgId
-      ? await import("./context.js").then(({ getOrgDomain }) =>
-          getOrgDomain(orgId),
-        )
-      : null;
+    const orgDomain = orgId ? await cachedOrgDomain(orgId) : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
     if (orgId && !normalizedOrgDomain) return null;
     const signingSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
@@ -346,10 +359,24 @@ function waitForRegistryResult(
 function getHostedWorkspaceAppRegistry(
   auth: HostedWorkspaceAppAuth,
 ): Promise<WorkspaceAppRegistryResult> {
+  const registryKey = `registry:${auth.requestKey}`;
+  const cached =
+    getCachedWorkspaceAccess<WorkspaceAppRegistryResult>(registryKey);
+  if (cached) return Promise.resolve(cached);
+
   const pending = inFlightWorkspaceAppRegistryReads.get(auth.requestKey);
   if (pending) return pending;
 
-  const request = fetchHostedWorkspaceAppRegistry(auth);
+  // Keyed by the HMAC over the caller, org, and directory, so one caller's
+  // registry never answers another. Only a successful read is held: an
+  // unavailable registry must be re-asked on the next request.
+  const generation = workspaceAccessGenerationNow();
+  const request = fetchHostedWorkspaceAppRegistry(auth).then((registry) => {
+    if (registry.status === "available") {
+      rememberWorkspaceAccess(registryKey, registry, generation);
+    }
+    return registry;
+  });
   inFlightWorkspaceAppRegistryReads.set(auth.requestKey, request);
   const removeSettledRequest = () => {
     if (inFlightWorkspaceAppRegistryReads.get(auth.requestKey) === request) {
@@ -426,6 +453,8 @@ async function claimHostedWorkspaceApp(
       return WORKSPACE_APP_ACCESS_UNAVAILABLE;
     }
     if (!claim.allowed) return false;
+    // A cached registry predates this claim and would keep requesting one.
+    invalidateMemberOrgCaches();
 
     const refreshedResponse = await fetch(auth.url, {
       headers: auth.headers,
@@ -455,6 +484,10 @@ async function localOrganizationAppEnabled(
   orgId: string | null,
 ): Promise<boolean | null> {
   if (!orgId) return null;
+  const key = `local-app:${appId}:${orgId}`;
+  const cached = getCachedWorkspaceAccess<boolean>(key);
+  if (cached !== undefined) return cached;
+  const generation = workspaceAccessGenerationNow();
   try {
     const result = await getDbExec().execute({
       sql: `SELECT org_enabled FROM workspace_apps
@@ -465,12 +498,14 @@ async function localOrganizationAppEnabled(
       ? (result.rows[0] as { org_enabled?: unknown } | undefined)
       : undefined;
     if (!row) return null;
-    return !(
+    const enabled = !(
       row.org_enabled === false ||
       row.org_enabled === 0 ||
       row.org_enabled === "false" ||
       row.org_enabled === "0"
     );
+    rememberWorkspaceAccess(key, enabled, generation);
+    return enabled;
   } catch (error) {
     if (!isMissingOrganizationTableError(error)) {
       console.error(
@@ -480,6 +515,45 @@ async function localOrganizationAppEnabled(
     }
     return null;
   }
+}
+
+type WorkspaceAppRow = {
+  owner_email?: unknown;
+  org_id?: unknown;
+  visibility?: unknown;
+  org_enabled?: unknown;
+};
+
+async function cachedWorkspaceAppRow(
+  db: DbExec,
+  appId: string,
+): Promise<WorkspaceAppRow | undefined> {
+  const key = `app:${appId}`;
+  const cached = getCachedWorkspaceAccess<WorkspaceAppRow>(key);
+  if (cached) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const appResult = await db.execute({
+    sql: `SELECT owner_email, org_id, visibility, org_enabled
+          FROM workspace_apps WHERE id = ? LIMIT 1`,
+    args: [appId],
+  });
+  const app = appResult.rows[0] as WorkspaceAppRow | undefined;
+  if (app) rememberWorkspaceAccess(key, app, generation);
+  return app;
+}
+
+async function cachedWorkspaceOrgMember(
+  db: DbExec,
+  orgId: string,
+  email: string,
+): Promise<WorkspaceOrgMember | null> {
+  const key = `member:${orgId}:${email}`;
+  const cached = getCachedWorkspaceAccess<WorkspaceOrgMember>(key);
+  if (cached) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const member = await loadWorkspaceOrgMember(db, orgId, email);
+  if (member) rememberWorkspaceAccess(key, member, generation);
+  return member;
 }
 
 async function loadWorkspaceOrgMember(
@@ -573,6 +647,7 @@ async function claimWorkspaceAppOrganization(
           RETURNING org_id`,
     args: [orgId, appId],
   });
+  invalidateMemberOrgCaches();
   if (claim.rows.length > 0) return true;
 
   const current = await db.execute({
@@ -612,7 +687,7 @@ async function isDispatchWorkspaceAppAccessAllowed(
   if (!orgId) return true;
 
   try {
-    const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
+    const member = await cachedWorkspaceOrgMember(getDbExec(), orgId, email);
     return Boolean(
       member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
     );
@@ -661,19 +736,7 @@ export async function isWorkspaceAppAccessAllowed(
 
   try {
     const db = getDbExec();
-    const appResult = await db.execute({
-      sql: `SELECT owner_email, org_id, visibility, org_enabled
-            FROM workspace_apps WHERE id = ? LIMIT 1`,
-      args: [normalizedAppId],
-    });
-    const app = appResult.rows[0] as
-      | {
-          owner_email?: unknown;
-          org_id?: unknown;
-          visibility?: unknown;
-          org_enabled?: unknown;
-        }
-      | undefined;
+    const app = await cachedWorkspaceAppRow(db, normalizedAppId);
     if (!app) {
       const orgId = context.orgId?.trim() || null;
       if (!orgId) return false;
@@ -706,7 +769,7 @@ export async function isWorkspaceAppAccessAllowed(
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
 
-    const member = await loadWorkspaceOrgMember(db, orgId, email);
+    const member = await cachedWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }

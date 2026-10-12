@@ -1,3 +1,11 @@
+import type { RevealUnresolvedReason } from "../app/lib/slide-animation-elements";
+import {
+  normalizeSlideTransition,
+  SLIDE_TRANSITION_INPUTS,
+  SLIDE_TRANSITION_SPEED,
+  type SlideTransitionType,
+} from "./slide-transitions";
+
 export interface DemoResponse {
   message: string;
 }
@@ -73,20 +81,14 @@ export interface SharedDeckResponse {
   designSystem?: DesignSystemData;
 }
 
-export type SharedSlideTransition =
-  | "instant"
-  | "none"
-  | "fade"
-  | "slide"
-  | "zoom";
-
 export type SharedAnimationType = "appear" | "fade" | "slide-up" | "zoom";
 
 export type SharedAnimationIssueCode =
   | "invalid-shape"
   | "invalid-element-path"
   | "missing-target"
-  | "unsupported-type";
+  | "unsupported-type"
+  | RevealUnresolvedReason;
 
 export interface SharedSlideAnimationIssue {
   index: number;
@@ -108,7 +110,8 @@ export interface SharedDeckSlide {
   notes: string;
   layout: string;
   background?: string;
-  transition?: SharedSlideTransition;
+  transition?: SlideTransitionType;
+  transitionSpeed?: number;
   animations?: SharedSlideAnimation[];
   animationIssues?: SharedSlideAnimationIssue[];
   splitByParagraph?: boolean;
@@ -116,15 +119,13 @@ export interface SharedDeckSlide {
 
 export interface SharedDeckSlideOptions {
   includeNotes?: boolean;
+  /**
+   * Reveal resolution issues for this slide, computed on the server by
+   * slideRevealIssues. Resolving needs the parsed .fmd-slide, which this
+   * module does not parse, so the caller passes the result in.
+   */
+  revealIssues?: SharedSlideAnimationIssue[];
 }
-
-const SHARED_SLIDE_TRANSITIONS = new Set<SharedSlideTransition>([
-  "instant",
-  "none",
-  "fade",
-  "slide",
-  "zoom",
-]);
 
 const SHARED_ANIMATION_TYPES = new Set<SharedAnimationType>([
   "appear",
@@ -200,6 +201,32 @@ function normalizeSlideAnimation(
   };
 }
 
+export interface NormalizedSharedSlideAnimations {
+  animations: SharedSlideAnimation[];
+  /** The stored position of each kept animation, parallel to `animations`. */
+  storedIndices: number[];
+  /** Structural rejects only; reveal resolution is a separate pass. */
+  issues: SharedSlideAnimationIssue[];
+}
+
+export function normalizeSharedSlideAnimations(
+  values: readonly unknown[],
+): NormalizedSharedSlideAnimations {
+  const animations: SharedSlideAnimation[] = [];
+  const storedIndices: number[] = [];
+  const issues: SharedSlideAnimationIssue[] = [];
+  values.forEach((value, storedIndex) => {
+    const result = normalizeSlideAnimation(value, storedIndex);
+    if ("animation" in result) {
+      animations.push(result.animation);
+      storedIndices.push(storedIndex);
+    } else {
+      issues.push(result.issue);
+    }
+  });
+  return { animations, storedIndices, issues };
+}
+
 export function toSharedDeckSlide(
   value: unknown,
   index: number,
@@ -217,8 +244,22 @@ export function toSharedDeckSlide(
     shared.background = slide.background;
   }
 
-  if (SHARED_SLIDE_TRANSITIONS.has(slide.transition as SharedSlideTransition)) {
-    shared.transition = slide.transition as SharedSlideTransition;
+  // Membership gates the value before normalizing. A key lookup in the legacy
+  // map alone would also accept inherited names such as "toString".
+  if (
+    (SLIDE_TRANSITION_INPUTS as readonly unknown[]).includes(slide.transition)
+  ) {
+    shared.transition = normalizeSlideTransition(slide.transition);
+  }
+
+  const transitionSpeed = slide.transitionSpeed;
+  if (
+    typeof transitionSpeed === "number" &&
+    Number.isInteger(transitionSpeed) &&
+    transitionSpeed >= SLIDE_TRANSITION_SPEED.min &&
+    transitionSpeed <= SLIDE_TRANSITION_SPEED.max
+  ) {
+    shared.transitionSpeed = transitionSpeed;
   }
 
   if (typeof slide.splitByParagraph === "boolean") {
@@ -226,21 +267,17 @@ export function toSharedDeckSlide(
   }
 
   if (Array.isArray(slide.animations)) {
-    const normalizedAnimations = slide.animations.map(
-      (animation, animationIndex) =>
-        normalizeSlideAnimation(animation, animationIndex),
+    const { animations, issues } = normalizeSharedSlideAnimations(
+      slide.animations,
     );
-    const animations = normalizedAnimations.flatMap((result) =>
-      "animation" in result ? [result.animation] : [],
-    );
-    const animationIssues = normalizedAnimations.flatMap((result) =>
-      "issue" in result ? [result.issue] : [],
-    );
-    if (animations.length > 0) {
-      shared.animations = animations;
-    }
+    if (animations.length > 0) shared.animations = animations;
+    // Unresolved reveals stay in `animations`; their reasons arrive as
+    // options.revealIssues, keyed by stored position.
+    const animationIssues = [...issues, ...(options.revealIssues ?? [])];
     if (animationIssues.length > 0) {
-      shared.animationIssues = animationIssues;
+      shared.animationIssues = animationIssues.sort(
+        (a, b) => a.index - b.index,
+      );
     }
   }
 

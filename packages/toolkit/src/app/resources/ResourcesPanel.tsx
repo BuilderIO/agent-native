@@ -89,6 +89,7 @@ import React, {
   useMemo,
 } from "react";
 
+import { uploadedSkillSlug } from "../../skill-upload.js";
 import {
   FileStorageSetupPopover,
   type FileStorageSetupCloseReason,
@@ -437,6 +438,7 @@ function CreateMenu({
     content: string,
     mimeType?: string,
     opts?: {
+      uniqueSkillPath?: boolean;
       onSuccess?: (resource: ResourceMeta) => void;
       onError?: (err: unknown) => void;
     },
@@ -577,10 +579,7 @@ function CreateMenu({
     if (!files || files.length === 0) return;
     const file = files[0];
     const text = await file.text();
-    const baseName = file.name.replace(/\.[^./]+$/, "");
-    const slug = slugifyName(
-      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-    );
+    const slug = uploadedSkillSlug(file.name, text);
     setSkillUploadSlug(slug);
     setSkillUploadContent(text);
     setSkillUploadFileName(file.name);
@@ -604,6 +603,7 @@ function CreateMenu({
             : "Failed to save skill file";
         showToast?.("err", msg);
       },
+      uniqueSkillPath: true,
     });
     setOpen(false);
     onCreated?.();
@@ -1726,12 +1726,19 @@ export function ResourcesPanel({
       content: string,
       mimeType?: string,
       opts?: {
+        uniqueSkillPath?: boolean;
         onSuccess?: (resource: ResourceMeta) => void;
         onError?: (err: unknown) => void;
       },
     ) => {
       createResource.mutate(
-        { path, content, mimeType, shared: targetScope === "shared" },
+        {
+          path,
+          content,
+          mimeType,
+          shared: targetScope === "shared",
+          uniqueSkillPath: opts?.uniqueSkillPath,
+        },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);

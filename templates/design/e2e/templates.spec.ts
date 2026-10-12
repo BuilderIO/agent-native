@@ -198,11 +198,40 @@ test("built-in template preserves its dimensions and locks and can be saved agai
       copiedScreen.content.match(/data-agent-native-locked="true"/g),
     ).toHaveLength(2);
 
-    const savedTemplate = await postAction(request, "save-design-as-template", {
+    await page.getByRole("button", { name: "More", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Save as template…", exact: true })
+      .click();
+
+    const saveDialog = page.getByRole("dialog", {
+      name: "Save as template…",
+      exact: true,
+    });
+    await saveDialog
+      .getByRole("textbox", { name: "Template name" })
+      .fill(savedTitle);
+    await saveDialog.getByRole("combobox").click();
+    await page.getByRole("option", { name: "Social", exact: true }).click();
+
+    const saveTemplateResponse = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .endsWith("/_agent-native/actions/save-design-as-template") &&
+        response.request().method() === "POST",
+    );
+    await saveDialog
+      .getByRole("button", { name: "Save template", exact: true })
+      .click();
+    const saveTemplateResponseResult = await saveTemplateResponse;
+    expect(saveTemplateResponseResult.ok()).toBe(true);
+    expect(saveTemplateResponseResult.request().postDataJSON()).toMatchObject({
       designId: createdDesignId,
       title: savedTitle,
       category: "social",
     });
+
+    const savedTemplate = await saveTemplateResponseResult.json();
     savedTemplateId = savedTemplate.id ?? savedTemplate.data?.id;
     expect(savedTemplateId).toBeTruthy();
     expect(savedTemplate).toMatchObject({
@@ -212,10 +241,58 @@ test("built-in template preserves its dimensions and locks and can be saved agai
     });
     expect(savedTemplate.fileCount).toBeGreaterThanOrEqual(1);
 
-    await page.goto(
-      appPath(`/templates?search=${encodeURIComponent(savedTitle)}`),
-      { waitUntil: "domcontentloaded" },
+    const persistedDesign = await getAction(request, "get-design", {
+      id: createdDesignId!,
+    });
+    const persistedScreen = persistedDesign.files.find(
+      (file: { filename?: string }) => file.filename === "event-story.html",
     );
+    expect(persistedScreen).toBeTruthy();
+    expect(persistedScreen.content).toContain(
+      'data-agent-native-layer-name="Background"',
+    );
+    expect(persistedScreen.content).toContain(
+      'data-agent-native-layer-name="Logo"',
+    );
+    expect(
+      persistedScreen.content.match(/data-agent-native-locked="true"/g),
+    ).toHaveLength(2);
+
+    const persistedTemplate = await getAction(request, "get-design-template", {
+      templateId: savedTemplateId!,
+    });
+    expect(persistedTemplate).toMatchObject({
+      templateId: savedTemplateId,
+      title: savedTitle,
+      category: "social",
+      fileCount: savedTemplate.fileCount,
+    });
+    const persistedTemplateScreen = persistedTemplate.files.find(
+      (file: { filename?: string }) => file.filename === "event-story.html",
+    );
+    expect(persistedTemplateScreen).toMatchObject({
+      width: 1080,
+      height: 1920,
+    });
+    expect(persistedTemplateScreen.lockedLayers).toHaveLength(2);
+
+    await page.goto(appPath(`/templates?templateId=${savedTemplateId}`), {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForLoadState("load");
+    await expect(page).toHaveURL(/\/templates\?templateId=/);
+    const selectedTemplatePreview = page.getByRole("dialog", {
+      name: savedTitle,
+      exact: true,
+    });
+    await expect(selectedTemplatePreview).toBeVisible({ timeout: 15_000 });
+    await expect(selectedTemplatePreview).toContainText(savedTitle);
+    await page.keyboard.press("Escape");
+    await expect(selectedTemplatePreview).toBeHidden({ timeout: 15_000 });
+    await expect(page).not.toHaveURL(/(?:\?|&)templateId=/);
+    await page
+      .getByRole("textbox", { name: "Search templates...", exact: true })
+      .fill(savedTitle);
     await expect(
       page.getByRole("button", { name: savedTitle, exact: true }),
     ).toBeVisible();

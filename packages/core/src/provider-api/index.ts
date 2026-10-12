@@ -71,6 +71,7 @@ export const PROVIDER_API_IDS = [
   "clay",
   "commonroom",
   "dataforseo",
+  "dbt",
   "ga4",
   "gcloud",
   "github",
@@ -92,6 +93,7 @@ export const PROVIDER_API_IDS = [
   "prometheus",
   "pylon",
   "sentry",
+  "sigma",
   "slack",
   "stripe",
   "twitter",
@@ -335,6 +337,13 @@ export type ProviderApiAuthKind =
       workspaceProvider?: string;
     }
   | {
+      type: "oauth-client-credentials";
+      clientIdKey: string;
+      clientSecretKey: string;
+      tokenPath: string;
+      workspaceProvider: string;
+    }
+  | {
       type: "oauth-bearer-or-api-key-header";
       oauthProvider: string;
       tokenLabel: string;
@@ -369,11 +378,14 @@ export interface ProviderApiConfig {
   defaultBaseUrl: string;
   requiresConnectionId?: boolean;
   baseUrlCredentialKey?: string;
+  baseUrlConnectionConfigKey?: string;
+  baseUrlMustMatchAllowedHost?: boolean;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
   docsUrls: readonly string[];
   specUrls?: readonly string[];
   allowedHostSuffixes?: readonly string[];
+  requireHttps?: boolean;
   defaultHeaders?: Record<string, string>;
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
@@ -613,6 +625,55 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
   },
+  sigma: {
+    id: "sigma",
+    label: "Sigma REST API",
+    defaultBaseUrl: "https://aws-api.sigmacomputing.com",
+    baseUrlCredentialKey: "SIGMA_BASE_URL",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "oauth-client-credentials",
+      clientIdKey: "SIGMA_CLIENT_ID",
+      clientSecretKey: "SIGMA_CLIENT_SECRET",
+      tokenPath: "/v2/auth/token",
+      workspaceProvider: "sigma",
+    },
+    credentialKeys: [
+      "SIGMA_CLIENT_ID",
+      "SIGMA_CLIENT_SECRET",
+      "SIGMA_BASE_URL",
+    ],
+    docsUrls: [
+      "https://help.sigmacomputing.com/reference/get-started-sigma-api",
+      "https://help.sigmacomputing.com/reference/post-token",
+      "https://help.sigmacomputing.com/reference/list-workbooks",
+      "https://help.sigmacomputing.com/reference/list-workbook-elements",
+      "https://help.sigmacomputing.com/reference/list-workbook-queries",
+    ],
+    specUrls: [
+      "https://help.sigmacomputing.com/openapi/openapi/sigma-rest-api.json",
+    ],
+    allowedHostSuffixes: ["sigmacomputing.com"],
+    templateUses: ["analytics"],
+    examples: [
+      { label: "List workbooks", method: "GET", path: "/v2/workbooks" },
+      {
+        label: "List workbook elements",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/elements",
+      },
+      {
+        label: "List workbook queries",
+        method: "GET",
+        path: "/v2/workbooks/{workbookId}/queries",
+      },
+    ],
+    notes: [
+      "Uses OAuth client-credentials exchange through a Sigma workspace connection. Sigma is optional; use it for reviewed examples, and use dbt as the canonical schema and grain source.",
+    ],
+  },
   apollo: {
     id: "apollo",
     label: "Apollo",
@@ -758,6 +819,38 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
           { keyword: "builder.io", location_code: 2840, language_code: "en" },
         ],
       },
+    ],
+  },
+  dbt: {
+    id: "dbt",
+    label: "dbt Semantic Layer",
+    defaultBaseUrl: "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
+    baseUrlConnectionConfigKey: "semanticLayerBaseUrl",
+    baseUrlMustMatchAllowedHost: true,
+    requiresConnectionId: true,
+    requireHttps: true,
+    auth: {
+      type: "bearer",
+      keys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+      workspaceProvider: "dbt",
+    },
+    credentialKeys: ["DBT_SEMANTIC_LAYER_TOKEN"],
+    docsUrls: ["https://docs.getdbt.com/docs/dbt-apis/sl-graphql"],
+    allowedHostSuffixes: ["dbt.com", "getdbt.com"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "List metric metadata",
+        method: "POST",
+        path: "/api/graphql",
+        body: {
+          query:
+            "query Metrics($environmentId: BigInt!, $search: String) { metricsPaginated(environmentId: $environmentId, search: $search, pageNum: 1, pageSize: 20) { items { name description type dimensions { name description type } queryableGranularities } totalItems totalPages } }",
+        },
+      },
+    ],
+    notes: [
+      "Use the Semantic Layer only for owner-defined dbt metrics. Sigma and Amplitude are examples and cross-checks, not metric definitions.",
     ],
   },
   ga4: {
@@ -1858,7 +1951,7 @@ export async function executeProviderApiRequest(
   const auth =
     args.auth === "none"
       ? emptyAuth()
-      : await resolveAuth(config, runtime, ctx, args);
+      : await resolveAuth(config, runtime, ctx, args, endpoint);
   if (endpoint.owner) {
     for (const credential of auth.credentialSources) {
       assertCredentialCanReachEndpoint(
@@ -3346,6 +3439,9 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "api-key-header") return `api-key-header:${auth.header}`;
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
+  if (auth.type === "oauth-client-credentials") {
+    return `oauth-client-credentials:${auth.workspaceProvider}`;
+  }
   if (auth.type === "oauth-bearer-or-api-key-header") {
     return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
@@ -3383,15 +3479,62 @@ async function resolveBaseUrl(
     args,
   );
   if (oauthEndpoint) return oauthEndpoint;
+  if (config.baseUrlConnectionConfigKey) {
+    const auth = config.auth;
+    const workspaceProvider =
+      "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
+    if (!workspaceProvider) {
+      throw new Error(
+        `${config.label} connection URL configuration requires a workspace provider.`,
+      );
+    }
+    const resolved = await resolveWorkspaceConnectionForApp({
+      appId: runtime.appId,
+      provider: workspaceProvider,
+      connectionId: args.connectionId ?? undefined,
+      requireConnected: true,
+    });
+    if (!resolved.available || !resolved.connection) {
+      throw new Error(
+        `${config.label} requires an available workspace connection.`,
+      );
+    }
+    const configured =
+      resolved.connection.config[config.baseUrlConnectionConfigKey];
+    const value =
+      typeof configured === "string" && configured.trim()
+        ? configured.trim()
+        : config.defaultBaseUrl;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error(`${config.label} connection URL is invalid.`);
+    }
+    if (
+      (config.requireHttps && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/api/graphql" ||
+      (config.baseUrlMustMatchAllowedHost &&
+        !isAllowedProviderHost(url.hostname, config))
+    ) {
+      throw new Error(
+        `${config.label} requests must use the HTTPS /api/graphql endpoint on a registered provider host suffix.`,
+      );
+    }
+    return {
+      url: value.replace(/\/+$/, ""),
+      owner: workspaceConnectionEndpointOwner(resolved.connection),
+    };
+  }
   if (!config.baseUrlCredentialKey) return { url: config.defaultBaseUrl };
   const auth = config.auth;
   const workspaceProvider =
-    auth.type === "oauth-bearer" ||
-    auth.type === "oauth-bearer-or-api-key-header" ||
-    auth.type === "oauth-bearer-or-bearer-key" ||
-    auth.type === "oauth-bearer-or-basic"
-      ? auth.workspaceProvider
-      : undefined;
+    "workspaceProvider" in auth ? auth.workspaceProvider : undefined;
   const configured = await resolveCredentialResult({
     config,
     runtime,
@@ -3400,8 +3543,17 @@ async function resolveBaseUrl(
     args,
     workspaceProvider,
   });
+  const url = (configured?.value || config.defaultBaseUrl).replace(/\/+$/, "");
+  if (
+    config.baseUrlMustMatchAllowedHost &&
+    !isAllowedProviderHost(new URL(url).hostname, config)
+  ) {
+    throw new Error(
+      `${config.label} API requests must stay on the configured provider host or registered provider host suffix.`,
+    );
+  }
   return {
-    url: (configured?.value || config.defaultBaseUrl).replace(/\/+$/, ""),
+    url,
     ...(configured
       ? {
           owner: {
@@ -3622,8 +3774,17 @@ function isAllowedProviderUrl(
   config: ProviderApiConfig,
 ): boolean {
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-  if (url.origin === base.origin) return true;
-  const host = url.hostname.toLowerCase();
+  if (config.requireHttps && url.protocol !== "https:") return false;
+  return (
+    url.origin === base.origin || isAllowedProviderHost(url.hostname, config)
+  );
+}
+
+function isAllowedProviderHost(
+  hostname: string,
+  config: ProviderApiConfig,
+): boolean {
+  const host = hostname.toLowerCase();
   return (config.allowedHostSuffixes ?? []).some((suffix) => {
     const normalized = suffix.toLowerCase().replace(/^\./, "");
     return host === normalized || host.endsWith(`.${normalized}`);
@@ -3654,6 +3815,7 @@ async function resolveAuth(
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
+  endpoint: ResolvedProviderEndpoint,
 ): Promise<ResolvedAuth> {
   const auth = config.auth;
   if (auth.type === "none") return emptyAuth();
@@ -3735,6 +3897,73 @@ async function resolveAuth(
       headers: { [auth.header]: credential.value },
       credentialSources: [omitCredentialValue(credential)],
       secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-client-credentials") {
+    const clientId = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientIdKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const clientSecret = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.clientSecretKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    if (endpoint.owner) {
+      assertCredentialCanReachEndpoint(endpoint.owner, clientId, clientId.key);
+      assertCredentialCanReachEndpoint(
+        endpoint.owner,
+        clientSecret,
+        clientSecret.key,
+      );
+    }
+    const tokenUrl = buildProviderUrl({
+      config,
+      baseUrl: endpoint.url,
+      rawPath: auth.tokenPath,
+      query: undefined,
+    });
+    if (await isBlockedExtensionUrlWithDns(tokenUrl.href)) {
+      throw new Error(
+        `Blocked private/internal provider URL: ${tokenUrl.href}`,
+      );
+    }
+    const tokenResponse = await fetchWithTimeout(tokenUrl.href, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: clientId.value,
+        client_secret: clientSecret.value,
+      }),
+      timeoutMs: clampTimeout(args.timeoutMs),
+      signal: args.signal,
+      maxBytes: 16_384,
+      secretValues: [clientId.value, clientSecret.value],
+    });
+    if (!tokenResponse.ok) {
+      throw new Error(
+        `${config.label} client-credentials exchange failed (HTTP ${tokenResponse.status}).`,
+      );
+    }
+    const accessToken = asRecord(tokenResponse.json).access_token;
+    if (typeof accessToken !== "string" || !accessToken.trim()) {
+      throw new Error(`${config.label} did not return an access token.`);
+    }
+    return {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentialSources: [
+        omitCredentialValue(clientId),
+        omitCredentialValue(clientSecret),
+      ],
+      secretValues: [clientId.value, clientSecret.value, accessToken],
     };
   }
   if (auth.type === "google-service-account") {

@@ -332,7 +332,7 @@ describe("server-authored follow-up snapshot", () => {
             id: current.runId,
             threadId: current.threadId,
             status: "running",
-            lastSequence: 2,
+            lastSequence: 0,
             startedAt: new Date(current.startedAt).toISOString(),
           },
         ],
@@ -341,7 +341,7 @@ describe("server-authored follow-up snapshot", () => {
       },
     };
     const saved = complete(submitted, current);
-    expect(saved.agentKit.runs[0].lastSequence).toBe(3);
+    expect(saved.agentKit.runs[0].lastSequence).toBe(0);
     const merged = mergeThreadDataForClientSave(saved, stale);
     const restored = await coldLoad(merged);
     expect(restored.suggestions.map((suggestion) => suggestion.runId)).toEqual([
@@ -349,6 +349,53 @@ describe("server-authored follow-up snapshot", () => {
     ]);
     expect(restored.thread.runs[current.runId].status).toBe("completed");
     expect(restored.thread.activeRunIds).toEqual([]);
+  });
+
+  it("ignores a stale completed snapshot while the saved run is still active", async () => {
+    const current = run("run-1");
+    const submitted = submit({ messages: [] }, current);
+    const saved = {
+      ...submitted,
+      agentKit: {
+        runs: [
+          {
+            id: current.runId,
+            threadId: current.threadId,
+            status: "running",
+            lastSequence: 43,
+            startedAt: new Date(current.startedAt).toISOString(),
+          },
+        ],
+        activeRunIds: [current.runId],
+        suggestions: [],
+      },
+    };
+    const stale = {
+      ...submitted,
+      agentKit: {
+        runs: [
+          {
+            ...saved.agentKit.runs[0],
+            status: "completed",
+            lastSequence: 2,
+            completedAt: new Date(current.startedAt + 1_000).toISOString(),
+          },
+        ],
+        activeRunIds: [],
+        suggestions:
+          current.events[2].event.type === "suggestions"
+            ? current.events[2].event.suggestions
+            : [],
+      },
+    };
+
+    const merged = mergeThreadDataForClientSave(saved, stale);
+    expect(merged.agentKit.runs[0]).toMatchObject({
+      status: "running",
+      lastSequence: 43,
+    });
+    expect(merged.agentKit.activeRunIds).toEqual([current.runId]);
+    expect(merged.agentKit.suggestions).toEqual([]);
   });
 
   it("clears chips when a client saves a new user message before the run is prepared", async () => {

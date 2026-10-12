@@ -99,7 +99,6 @@ export function renderOverviewCanvas({
   const {
     overviewInteractScreenId,
     widgetEmbed,
-    readOnlyWidget,
     activeFileId,
     mode,
     hoveredElement,
@@ -184,6 +183,7 @@ export function renderOverviewCanvas({
     handleUpdatePenPath,
     handleBoardDrawPrimitive,
     handleOverviewScreenPick,
+    handleOverviewScreenGestureSelect,
   } = editorToolsAndVectors;
   const { handleIframeContextMenu } = editorSelectionAndStyles;
   const {
@@ -282,7 +282,7 @@ export function renderOverviewCanvas({
             ? (findDesignFileByScreenTarget(files, initialRouteScreenTarget)
                 ?.id ?? null)
             : undefined,
-          fillFocusedViewport: readOnlyWidget,
+          fitFocusedViewport: widgetEmbed,
           chromeInsetLeft,
           chromeInsetRight,
           visibleCanvasRectRef,
@@ -481,6 +481,7 @@ export function renderOverviewCanvas({
         onDeleteSelection={handleDeleteOverviewSelection}
         screenRootComputedStylesById={screenRootComputedStylesById}
         onPick={handleOverviewScreenPick}
+        onSelectForGesture={handleOverviewScreenGestureSelect}
         onEdit={handleOverviewFrameAction}
         onDuplicate={handleDuplicateScreen}
         renderScreenContent={renderScreenContent}

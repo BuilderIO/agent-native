@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { firstPartyAppUrl, isBetaDocsDeployment } from "./deployment-links";
+import {
+  firstPartyAppUrl,
+  isBetaDocsBuild,
+  isBetaDocsDeployment,
+} from "./deployment-links";
 
 describe("deployment links", () => {
   it("rewrites known first-party apps for beta docs", () => {
@@ -28,5 +32,11 @@ describe("deployment links", () => {
     expect(isBetaDocsDeployment("www.agent-native.com", "production")).toBe(
       false,
     );
+  });
+
+  it("treats only a beta build as a beta build, whatever the host", () => {
+    expect(isBetaDocsBuild("beta")).toBe(true);
+    expect(isBetaDocsBuild("production")).toBe(false);
+    expect(isBetaDocsBuild(undefined)).toBe(false);
   });
 });

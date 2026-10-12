@@ -8,6 +8,7 @@ import {
   mutateSetting,
   putSetting,
   deleteSettingIfValue,
+  type StoreReadOptions,
   type StoreWriteOptions,
 } from "./store.js";
 
@@ -29,11 +30,16 @@ function afterUserSettingWrite(key: string): void {
 export async function getUserSetting(
   email: string,
   key: string,
+  options?: Pick<StoreReadOptions, "bypassCache">,
 ): Promise<Record<string, unknown> | null> {
-  const normalized = await getSetting(userKey(email, key));
+  const normalizedKey = userKey(email, key);
+  const normalized = options
+    ? await getSetting(normalizedKey, options)
+    : await getSetting(normalizedKey);
   if (normalized !== null) return normalized;
   const legacy = legacyUserKey(email, key);
-  return legacy === userKey(email, key) ? null : getSetting(legacy);
+  if (legacy === normalizedKey) return null;
+  return options ? getSetting(legacy, options) : getSetting(legacy);
 }
 
 export async function getUserSettings(

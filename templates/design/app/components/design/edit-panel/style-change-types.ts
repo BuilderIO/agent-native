@@ -20,6 +20,13 @@ export interface CapturedStyleTarget {
   lowerBoundPx: number | null;
 }
 
+export interface CapturedSelectionColorScopeIdentity {
+  fileId: string;
+  sourceId?: string;
+  selector?: string;
+  wholeDocument?: boolean;
+}
+
 /**
  * PF12: gesture-lifecycle metadata threaded alongside a style commit.
  *
@@ -65,6 +72,7 @@ export interface CapturedStyleTarget {
  */
 export interface StyleChangeMeta {
   phase?: "preview" | "commit" | "cancel";
+  requirePersistedSourceAcceptance?: boolean;
   runtimeApplied?: boolean;
   routePath?: string;
   relativeDelta?: number;
@@ -73,6 +81,7 @@ export interface StyleChangeMeta {
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
   capturedStyleTargets?: CapturedStyleTarget[];
+  capturedSelectionColorScopeIdentities?: CapturedSelectionColorScopeIdentity[];
 }
 
 export type StyleChangeHandler = (

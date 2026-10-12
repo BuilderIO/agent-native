@@ -165,6 +165,12 @@ export function tryNormalizeAgentActionScope(
 export type AgentChatStructuredContentPart =
   | { type: "text"; text: string }
   | {
+      type: "image-reference";
+      url: string;
+      mediaType?: string;
+      name?: string;
+    }
+  | {
       type: "tool-call";
       id?: string;
       toolCallId?: string;
@@ -288,6 +294,7 @@ export interface AgentChatRequest {
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
+  loadedSkillSlugs?: string[];
   references?: AgentChatReference[];
   threadId?: string;
   parentId?: string | null;
@@ -392,16 +399,26 @@ export type AgentChatEvent =
         | "stop_sequence"
         | "error";
     }
-  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
+  | {
+      type: "tool_start";
+      tool: string;
+      id?: string;
+      input: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
+    }
   | {
       type: "tool_done";
       tool: string;
       id?: string;
       input?: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
       result: string;
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      outcomeUnknown?: true;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;
       artifacts?: ArtifactReceipt[];

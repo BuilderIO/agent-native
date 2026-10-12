@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "排隊中",
   "agent.completed": "已完成",
   "agent.failed": "需要注意",
+  "agent.failureReason.failed": "未能完成",
+  "agent.failureReason.setup": "需要先完成設定",
+  "agent.failureReason.auth": "存取遭拒",
+  "agent.failureReason.timeout": "回應逾時",
+  "agent.failureReason.budget": "已超出時限",
+  "agent.failureReason.response": "沒有可用的結果",
   "agent.closed": "已關閉",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
@@ -80,6 +86,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "回覆必須包含…",
   "observability.promoteMustContainOptional": "回覆中要檢查的選填文字…",
   "observability.promoteMustContainLabel": "在升級後的評估回覆中檢查的文字",
+  "observability.promoteReviewedPromptLabel":
+    "手動審核的提示（不會從正式環境自動複製）",
   "observability.promoteNeedsContains":
     "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再進行升級。",
   "observability.viewDetails": "查看詳細資料",
@@ -120,7 +128,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.skipForNow": "暫時略過",
   "onboarding.saveRoleError": "無法儲存你的角色。",
   "onboarding.builderCreateAccount": "使用 Builder.io",
-  "onboarding.builderSignInWithAccount": "使用 Builder.io",
+  "onboarding.builderSignInWithAccount": "使用 Builder.io 帳戶登入",
   "onboarding.builderActivateDescription":
     "只要按一下即可建立或重新使用您的 Builder.io 帳戶，並啟用免費額度。",
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
@@ -138,8 +146,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActivateTitle": "啟用免費額度",
   "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
   "onboarding.builderAccountExistsDescription": "登入以使用您的帳戶。",
+  "onboarding.builderActivationChecking": "正在確認是否可以建立新帳戶。",
+  "onboarding.builderActivationUnavailable":
+    "此應用程式未啟用新帳戶建立功能。你仍可連結現有帳戶。",
+  "onboarding.builderActivationUnavailableInMode":
+    "此模式無法啟用新帳戶。你仍可連結現有帳戶。",
+  "onboarding.builderActivationCheckFailed":
+    "無法確認此應用程式是否可以建立新帳戶。",
+
   "onboarding.builderActivationDescription":
-    "按一下即可建立或連接 Builder.io 帳戶，取得免費額度。",
+    "建立新帳戶以啟用免費點數，或使用現有帳戶繼續。",
   "onboarding.builderOrgActivationDescription":
     "我們會一鍵建立您的 Builder.io 帳戶，讓您的組織可以使用。",
   "onboarding.builderCreateAndActivate": "建立並啟用",
@@ -147,11 +163,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "服務條款",
   "onboarding.builderPrivacy": "隱私權政策",
   "onboarding.builderConsentAnd": "和",
-  "onboarding.builderExistingAccount": "使用 Builder.io",
+  "onboarding.builderExistingAccount": "我有 Builder.io 帳戶",
   "onboarding.builderActivating": "正在啟用 Builder.io 免費額度",
   "onboarding.builderConnecting": "正在設定 Builder.io 免費額度",
   "onboarding.builderProvisioningDescription":
     "正在建立您的 Builder.io 帳戶並啟用免費額度。",
+  "onboarding.builderCancelPending": "正在檢查連線狀態…",
   "onboarding.builderConnectionDescription": "在新視窗中按一下即可完成連線。",
   "onboarding.builderReadyWithCodeChanges":
     "AI 點數與雲端程式碼變更已準備就緒。",
@@ -479,9 +496,14 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "上傳技能檔案",
   "composer.upload": "上傳",
   "composer.uploadFailed": "無法上傳所選檔案。",
-  "composer.fileTooLarge": "此檔案超出上傳大小限制。",
-  "composer.sessionExpired": "工作階段已逾期。請重新整理頁面後再試一次。",
+  "composer.fileTooLarge": "此檔案超過 {{size}} MB 的上傳大小限制。",
+  "composer.sessionExpired": "工作階段已逾期。請重新登入，然後再傳送訊息。",
   "composer.unsupportedFileType": "不支援此檔案類型。",
+  "composer.uploadUnavailable": "目前無法上傳檔案。請稍後再試。",
+  "composer.uploadOffline": "上傳無法連線至伺服器。請檢查網路連線後再試一次。",
+  "composer.submissionNotReady": "聊天尚未準備好傳送。請稍候片刻再傳送。",
+  "composer.submissionScopeChanged": "此聊天在訊息傳送前已變更。請重新傳送。",
+  "composer.attachmentNotSaved": "未隨此聊天儲存",
   "composer.useAttachedContext": "使用附加的上下文。",
   "mentions.commands": "命令",
   "mentions.learnMore": "深入瞭解",
@@ -1079,6 +1101,9 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
+  "errorMessages.invalidAttachmentNamed":
+    "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
   "recovery.deferredSubmissionFailed":
@@ -1144,6 +1169,12 @@ const messages: ToolkitAgentChatTranslation = {
   "selection.attached": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.attached_other": "已附加所選內容的 {{formattedCount}} 個字元",
   "selection.clear": "清除所選內容的上下文",
+  "setup.addKeyInSettings": "在設定中新增金鑰",
+  "setup.addKeyInSettingsDescription": "供你的個人帳戶或組織使用。",
+  "setup.setEnvironmentVariable": "設定環境變數",
+  "setup.setEnvironmentVariableDescription":
+    "此應用程式的所有使用者共用一個供應商金鑰。",
+
   "setup.addOwnKeys": "加入您自己的金鑰",
   "setup.builderCredits":
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",

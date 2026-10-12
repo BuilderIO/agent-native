@@ -32,7 +32,10 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
 ]);
 
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
+  "find-data",
+  "list-data-dictionary",
   "search-analytics-query-catalog",
+  "search-bigquery-schema",
   "search-dashboard-references",
 ]);
 

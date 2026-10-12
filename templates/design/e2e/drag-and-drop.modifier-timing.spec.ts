@@ -199,9 +199,20 @@ async function htmlNodeCount(html: string, name: string): Promise<number> {
   ).length;
 }
 
-test("literal Control after pointerdown removes a flow child from flow and it returns cleanly", async ({
+async function ignoreAutoLayoutKey(page: Page): Promise<"Control" | "s"> {
+  return page.evaluate(() => {
+    const nav = navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    };
+    const platform = nav.platform || nav.userAgentData?.platform || "";
+    return /Mac|iPhone|iPad|iPod/i.test(platform) ? "Control" : "s";
+  });
+}
+
+test("the platform modifier after pointerdown removes a flow child from flow and it returns cleanly", async ({
   page,
 }) => {
+  const modifierKey = await ignoreAutoLayoutKey(page);
   const designId = await newDesign(page, CONTROL_FIXTURE);
   try {
     await openEditor(page, designId);
@@ -224,7 +235,7 @@ test("literal Control after pointerdown removes a flow child from flow and it re
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.mouse.move(start.x + 5, start.y + 4, { steps: 2 });
-    await page.keyboard.down("Control");
+    await page.keyboard.down(modifierKey);
     await page.mouse.move(target.x, target.y, { steps: 18 });
     await expect.poll(() => visibleInsertionGuides(page)).not.toHaveLength(0);
 
@@ -245,7 +256,7 @@ test("literal Control after pointerdown removes a flow child from flow and it re
     expect(guidesHeld).not.toHaveLength(0);
 
     await page.mouse.up();
-    await page.keyboard.up("Control");
+    await page.keyboard.up(modifierKey);
     await expect
       .poll(() => indexHtml(page, designId))
       .toMatch(

@@ -11,6 +11,7 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { AgentMark } from "@agent-native/toolkit/app/shared";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
@@ -20,7 +21,6 @@ import {
   IconBrain,
   IconPalette,
   IconPlus,
-  IconSparkles,
 } from "@tabler/icons-react";
 import {
   lazy,
@@ -65,12 +65,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  isSupportedChatImageType,
   isVisualImageAttachment,
   MissingVisualImagePayloadError,
 } from "@/lib/chat-image-attachments";
 import { createDesignPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
+import { preparePromptImageAttachment } from "@/lib/prompt-image-optimization";
+import {
+  MAX_IMAGE_ATTACHMENT_BYTES,
+  MAX_IMAGE_ATTACHMENT_MB,
+  MAX_TOTAL_IMAGE_ATTACHMENT_BYTES,
+  MAX_TOTAL_IMAGE_ATTACHMENT_MB,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES_PER_REQUEST,
+  MAX_UPLOAD_MB,
+} from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 export interface UploadedFile {
@@ -84,14 +92,52 @@ export interface UploadedFile {
   dataUrl?: string;
 }
 
-const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
+function promptAttachmentSizeLimit(
+  files: readonly File[],
+): "images" | "attachments" | null {
+  const images = files.filter(isVisualImageAttachment);
+  if (
+    images.some((file) => file.size > MAX_IMAGE_ATTACHMENT_BYTES) ||
+    images.reduce((sum, file) => sum + file.size, 0) >
+      MAX_TOTAL_IMAGE_ATTACHMENT_BYTES
+  ) {
+    return "images";
+  }
+  if (
+    files
+      .filter((file) => !isVisualImageAttachment(file))
+      .reduce((sum, file) => sum + file.size, 0) > MAX_UPLOAD_BYTES
+  ) {
+    return "attachments";
+  }
+  return null;
+}
+
+function splitUploadBatches<T extends { file: File }>(
+  files: readonly T[],
+): T[][] {
+  const batches: T[][] = [];
+  let batch: T[] = [];
+  let batchBytes = 0;
+  for (const item of files) {
+    if (
+      batch.length > 0 &&
+      (batch.length >= MAX_UPLOAD_FILES_PER_REQUEST ||
+        batchBytes + item.file.size > MAX_UPLOAD_BYTES)
+    ) {
+      batches.push(batch);
+      batch = [];
+      batchBytes = 0;
+    }
+    batch.push(item);
+    batchBytes += item.file.size;
+  }
+  if (batch.length > 0) batches.push(batch);
+  return batches;
+}
+
 const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
 const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
-const IMAGE_COMPRESSION_PASSES = [
-  { maxDimension: 1400, jpegQuality: 0.76 },
-  { maxDimension: 1024, jpegQuality: 0.7 },
-  { maxDimension: 768, jpegQuality: 0.65 },
-];
 
 const loadPromptComposer = () =>
   import("@agent-native/toolkit/composer").then(({ PromptComposer }) => ({
@@ -100,94 +146,6 @@ const loadPromptComposer = () =>
 const LazyPromptComposer = lazy(loadPromptComposer);
 export function preloadPromptComposer() {
   void loadPromptComposer().catch(() => {});
-}
-
-function dataUrlBytes(dataUrl: string): number {
-  return new TextEncoder().encode(dataUrl).byteLength;
-}
-
-function readFileDataUrl(file: File): Promise<string | null> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () =>
-      resolve(typeof reader.result === "string" ? reader.result : null);
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
-  });
-}
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to decode image"));
-    img.src = url;
-  });
-}
-
-async function compressImageAttachment(
-  file: File,
-  maxDimension: number,
-  jpegQuality: number,
-): Promise<string | null> {
-  if (typeof document === "undefined" || typeof Image === "undefined") {
-    return null;
-  }
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await loadImage(objectUrl);
-    const ratio = Math.min(
-      maxDimension / image.naturalWidth,
-      maxDimension / image.naturalHeight,
-      1,
-    );
-    const width = Math.max(1, Math.round(image.naturalWidth * ratio));
-    const height = Math.max(1, Math.round(image.naturalHeight * ratio));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", jpegQuality);
-  } catch {
-    return null;
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-async function readChatImageAttachment(
-  file: File,
-  maxDataUrlBytes = DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
-): Promise<string | null> {
-  if (!isVisualImageAttachment(file)) return null;
-
-  if (
-    isSupportedChatImageType(file.type) &&
-    file.size <= RAW_CHAT_IMAGE_ATTACHMENT_BYTES
-  ) {
-    const raw = await readFileDataUrl(file);
-    if (raw && dataUrlBytes(raw) <= maxDataUrlBytes) return raw;
-  }
-
-  let fallback: string | null = null;
-  for (const pass of IMAGE_COMPRESSION_PASSES) {
-    const compressed = await compressImageAttachment(
-      file,
-      pass.maxDimension,
-      pass.jpegQuality,
-    );
-    if (!compressed) continue;
-    fallback = compressed;
-    if (dataUrlBytes(compressed) <= maxDataUrlBytes) {
-      return compressed;
-    }
-  }
-  return fallback && dataUrlBytes(fallback) <= maxDataUrlBytes
-    ? fallback
-    : null;
 }
 
 export type PromptCreationMode = "design" | "app";
@@ -219,6 +177,7 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
+  showInlineSkip?: boolean;
   offerStartChoice?: boolean;
   onSubmit: (
     prompt: string,
@@ -315,6 +274,7 @@ export default function PromptPopover({
   placeholder,
   onSkip,
   skipLabel,
+  showInlineSkip = false,
   offerStartChoice = false,
   onSubmit,
   onBeforeSubmit,
@@ -344,9 +304,20 @@ export default function PromptPopover({
   const attachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
     max: MAX_UPLOAD_MB,
   });
+  const imageAttachmentLimitMessage = t(
+    "promptDialog.imageAttachmentTooLarge",
+    {
+      perFile: MAX_IMAGE_ATTACHMENT_MB,
+      total: MAX_TOTAL_IMAGE_ATTACHMENT_MB,
+    },
+  );
   const attachmentAdapter = useMemo(
-    () => createDesignPromptAttachmentAdapter(attachmentLimitMessage),
-    [attachmentLimitMessage],
+    () =>
+      createDesignPromptAttachmentAdapter(
+        attachmentLimitMessage,
+        imageAttachmentLimitMessage,
+      ),
+    [attachmentLimitMessage, imageAttachmentLimitMessage],
   );
   const onOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -432,64 +403,6 @@ export default function PromptPopover({
     setRestoredPrompt(undefined);
   }, [open]);
 
-  const uploadFilesToServer = useCallback(
-    async (files: File[]): Promise<UploadedFile[]> => {
-      if (files.length === 0) return [];
-      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-      if (totalBytes > MAX_UPLOAD_BYTES) {
-        throw new Error(
-          t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
-        );
-      }
-      const imageFileCount = files.filter(isVisualImageAttachment).length || 1;
-      const maxImageDataUrlBytes = Math.min(
-        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
-        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
-      );
-      const visualAttachments = await Promise.all(
-        files.map((file) =>
-          isVisualImageAttachment(file)
-            ? readChatImageAttachment(file, maxImageDataUrlBytes)
-            : Promise.resolve(null),
-        ),
-      );
-      if (
-        files.some(
-          (file, index) =>
-            isVisualImageAttachment(file) && !visualAttachments[index],
-        )
-      ) {
-        throw new MissingVisualImagePayloadError();
-      }
-      const formData = new FormData();
-      files.forEach((f) => formData.append("files", f));
-      const res = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
-        const body = await res.json().catch(() => null);
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : `Upload failed (${res.status})`,
-        );
-      }
-      const uploaded = (await res.json()) as UploadedFile[];
-      if (!Array.isArray(uploaded) || uploaded.length !== files.length) {
-        throw new Error(t("promptDialog.failedToUploadFile"));
-      }
-      return uploaded.map((uploadedFile, index) => ({
-        ...uploadedFile,
-        ...(files[index]?.type ? { type: files[index].type } : {}),
-        ...(visualAttachments[index]
-          ? { dataUrl: visualAttachments[index] }
-          : {}),
-      }));
-    },
-    [t],
-  );
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
     const response = await fetch(`${appBasePath()}/api/uploads`, {
       method: "DELETE",
@@ -501,6 +414,104 @@ export default function PromptPopover({
       throw new Error(`Upload cleanup failed (${response.status})`);
     }
   }, []);
+  const uploadFilesToServer = useCallback(
+    async (files: File[]): Promise<UploadedFile[]> => {
+      if (files.length === 0) return [];
+      const sizeLimit = promptAttachmentSizeLimit(files);
+      if (sizeLimit === "images") throw new Error(imageAttachmentLimitMessage);
+      if (sizeLimit === "attachments") throw new Error(attachmentLimitMessage);
+      const imageFiles = files.filter(isVisualImageAttachment);
+      const imageFileCount = imageFiles.length || 1;
+      const maxImageDataUrlBytes = Math.min(
+        DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+        Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+      );
+      const preparedFiles: Array<{
+        sourceIndex: number;
+        file: File;
+        dataUrl: string | null;
+      }> = [];
+      for (const [sourceIndex, file] of files.entries()) {
+        if (!isVisualImageAttachment(file)) {
+          preparedFiles.push({ sourceIndex, file, dataUrl: null });
+          continue;
+        }
+        const prepared = await preparePromptImageAttachment(
+          file,
+          maxImageDataUrlBytes,
+        );
+        if (!prepared) throw new MissingVisualImagePayloadError();
+        preparedFiles.push({
+          sourceIndex,
+          file: prepared.file,
+          dataUrl: prepared.dataUrl,
+        });
+      }
+      if (preparedFiles.some(({ file }) => file.size > MAX_UPLOAD_BYTES)) {
+        throw new Error(attachmentLimitMessage);
+      }
+      const uploadedFiles: UploadedFile[] = [];
+      try {
+        for (const batch of splitUploadBatches(preparedFiles)) {
+          const formData = new FormData();
+          batch.forEach(({ file }) => formData.append("files", file));
+          const res = await fetch(`${appBasePath()}/api/uploads`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok) {
+            // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
+            const body = await res.json().catch(() => null);
+            throw new Error(
+              typeof body?.error === "string"
+                ? body.error
+                : `Upload failed (${res.status})`,
+            );
+          }
+          const uploaded = (await res.json()) as UploadedFile[];
+          if (!Array.isArray(uploaded) || uploaded.length !== batch.length) {
+            throw new Error(t("promptDialog.failedToUploadFile"));
+          }
+          uploadedFiles.push(
+            ...uploaded.map((uploadedFile, batchIndex) => {
+              const prepared = batch[batchIndex]!;
+              const originalFile = files[prepared.sourceIndex];
+              return {
+                ...uploadedFile,
+                ...(originalFile?.type
+                  ? {
+                      type: prepared.file.type || originalFile.type,
+                    }
+                  : {}),
+                ...(prepared.file !== originalFile && originalFile
+                  ? { originalName: originalFile.name }
+                  : {}),
+                ...(prepared.dataUrl ? { dataUrl: prepared.dataUrl } : {}),
+              };
+            }),
+          );
+        }
+        return uploadedFiles;
+      } catch (error) {
+        const cleanupResults = await Promise.allSettled(
+          uploadedFiles.map(deleteUploadedFile),
+        );
+        if (cleanupResults.some((result) => result.status === "rejected")) {
+          console.error(
+            "Prompt attachment upload cleanup failed",
+            cleanupResults,
+          );
+        }
+        throw error;
+      }
+    },
+    [
+      attachmentLimitMessage,
+      deleteUploadedFile,
+      imageAttachmentLimitMessage,
+      t,
+    ],
+  );
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {
       if (!submittingRef.current) discard();
@@ -532,17 +543,8 @@ export default function PromptPopover({
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
       syncFiles(files);
-      void uploadFiles(files).catch((error) => {
-        toast.error(
-          error instanceof MissingVisualImagePayloadError
-            ? t("promptDialog.imageAttachmentUnavailable")
-            : error instanceof Error
-              ? error.message
-              : t("promptDialog.failedToUploadFile"),
-        );
-      });
     },
-    [syncFiles, t, uploadFiles],
+    [syncFiles],
   );
 
   const handleSubmit = useCallback(
@@ -561,7 +563,10 @@ export default function PromptPopover({
       let uploaded: UploadedFile[];
       let submissionOptions = options;
       try {
-        if (files.reduce((sum, file) => sum + file.size, 0) > MAX_UPLOAD_BYTES)
+        const sizeLimit = promptAttachmentSizeLimit(files);
+        if (sizeLimit === "images")
+          throw new Error(imageAttachmentLimitMessage);
+        if (sizeLimit === "attachments")
           throw new Error(attachmentLimitMessage);
         if (beforeSubmitContext)
           submissionOptions = {
@@ -569,9 +574,20 @@ export default function PromptPopover({
             contextItems: await beforeSubmitContext(options.contextItems),
           };
         uploaded = await uploadFiles(files);
+        if (
+          uploaded.some(
+            (file) => !Number.isSafeInteger(file.size) || file.size < 0,
+          )
+        ) {
+          throw new Error(t("promptDialog.failedToUploadFile"));
+        }
+        if (uploaded.some((file) => file.size > MAX_UPLOAD_BYTES)) {
+          throw new Error(attachmentLimitMessage);
+        }
         if (draftScopeRef.current !== submissionScope)
           throw new Error(t("promptDialog.failedToSubmitPrompt"));
       } catch (error) {
+        discardFiles(files);
         setSubmitting(false);
         submittingRef.current = false;
         onOpenChange(true);
@@ -619,6 +635,7 @@ export default function PromptPopover({
       onSubmitError,
       beforeSubmitContext,
       attachmentLimitMessage,
+      imageAttachmentLimitMessage,
       recoveryScope,
       inline,
       retainFiles,
@@ -678,7 +695,12 @@ export default function PromptPopover({
       attachmentAdapter={attachmentAdapter}
       inlineTextAttachments={false}
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-      disabled={disabled || loading || submitting}
+      disabled={
+        disabled ||
+        loading ||
+        submitting ||
+        (inline && scopeDraftsToOrg && orgPending)
+      }
       submissionDisabled={submissionDisabled}
       submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
@@ -751,7 +773,7 @@ export default function PromptPopover({
             }}
             className="flex cursor-pointer flex-col gap-1.5 rounded-lg border border-transparent bg-[var(--design-editor-accent-color)] px-3 py-3 text-left text-[color:var(--design-editor-accent-contrast-color)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <IconSparkles className="size-5 shrink-0" />
+            <AgentMark className="size-5 shrink-0" />
             <span className="text-sm font-medium">
               {t("promptDialog.startWithAi")}
             </span>
@@ -925,32 +947,35 @@ export default function PromptPopover({
 
       {/* The chooser already offers the blank path as a peer, so the corner
             link would be a second, quieter way to do the same thing. */}
-      {onSkip && skipLabel && !inline && !offerStartChoice && (
-        <div className="flex justify-end border-t border-border px-3.5 py-2">
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            disabled={loading || skipInFlight}
-            onClick={() => {
-              if (loading || skipInFlightRef.current) return;
-              skipInFlightRef.current = true;
-              setSkipInFlight(true);
-              void (async () => {
-                try {
-                  const shouldClose = await onSkip();
-                  if (shouldClose !== false) onOpenChange(false);
-                } catch {
-                  skipInFlightRef.current = false;
-                  setSkipInFlight(false);
-                }
-              })();
-            }}
-          >
-            {skipLabel}
-          </Button>
-        </div>
-      )}
+      {onSkip &&
+        skipLabel &&
+        (!inline || showInlineSkip) &&
+        !offerStartChoice && (
+          <div className="flex justify-end border-t border-border px-3.5 py-2">
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              disabled={loading || skipInFlight}
+              onClick={() => {
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    const shouldClose = await onSkip();
+                    if (shouldClose !== false) onOpenChange(false);
+                  } catch {
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
+              }}
+            >
+              {skipLabel}
+            </Button>
+          </div>
+        )}
     </>
   );
 

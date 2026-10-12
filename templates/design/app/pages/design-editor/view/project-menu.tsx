@@ -8,6 +8,7 @@ import {
   IconPin,
   IconKeyboard,
   IconRocket,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
@@ -67,11 +68,16 @@ export function renderProjectMenu({
   id: string;
 }) {
   const { t, viewMode, shortcut, selectedElement, isSignedIn } = editorCore;
-  const { canUndo, canRedo, overviewSelectedScreenIds, selectedLayerIdsState } =
-    editorHistory;
+  const {
+    canUndo,
+    canRedo,
+    overviewSelectedScreenIds,
+    selectedLayerIdsState,
+    setMotionDockOpenAnimated,
+  } = editorHistory;
   const { canEditDesign, canCommentDesign, pinMode } =
     editorGenerationAndAccess;
-  const { files, overviewScreens } = editorFilesAndSaving;
+  const { files } = editorFilesAndSaving;
   const { activeFile, handleZoomOut, handleZoomIn, handleOpenMakeReal } =
     editorActiveScreenAndGeometry;
   const { setSaveTemplateOpen } = editorLiveEditsAndPresence;
@@ -181,9 +187,7 @@ export function renderProjectMenu({
                       selectedElement,
                       selectedLayerIds: selectedLayerIdsState,
                       fileIds: files.map((file) => file.id),
-                    }) &&
-                    (overviewScreens.length <= 1 ||
-                      overviewSelectedScreenIds.length === 0)
+                    }) && overviewSelectedScreenIds.length === 0
                   : !selectedElement && !activeFile
               }
             >
@@ -212,6 +216,15 @@ export function renderProjectMenu({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        {editorLiveEditsAndPresence.motionLabEnabled ? (
+          <DropdownMenuItem
+            onClick={() => setMotionDockOpenAnimated(true)}
+            disabled={!activeFile}
+          >
+            <IconPlayerPlay className="h-4 w-4" />
+            {t("designEditor.motion.openDock")}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem
           onClick={handlePinToolToggle}
           disabled={!activeFile || !canCommentDesign}

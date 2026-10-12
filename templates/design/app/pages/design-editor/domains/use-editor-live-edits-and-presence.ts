@@ -21,7 +21,11 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { readFusionApp } from "@shared/full-app";
-import { DESIGN_REVIEW_TOOLS_LAB, FULL_APP_BUILDING_LAB } from "@shared/labs";
+import {
+  DESIGN_MOTION_LAB,
+  DESIGN_REVIEW_TOOLS_LAB,
+  FULL_APP_BUILDING_LAB,
+} from "@shared/labs";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
@@ -220,7 +224,8 @@ export function useEditorLiveEditsAndPresence({
     : undefined;
   const activeReconcileFile =
     activePendingSource &&
-    activePendingSource.identityMigrationSourceContent === undefined
+    activePendingSource.identityMigrationSourceContent === undefined &&
+    !activePendingSource.deferCollabReconcile
       ? activeFile
       : (rawServerFilesByIdRef.current.get(activeFile?.id ?? "") ?? activeFile);
   const zoom = viewMode === "overview" ? overviewZoom : screenZoom;
@@ -1045,6 +1050,7 @@ export function useEditorLiveEditsAndPresence({
 
   const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
   const designReviewPanelEnabled = useLab(DESIGN_REVIEW_TOOLS_LAB);
+  const motionLabEnabled = useLab(DESIGN_MOTION_LAB);
 
   useEffect(() => {
     if (!tweaksEnabled && activeInspectorTab === "tweaks") {
@@ -1376,6 +1382,7 @@ export function useEditorLiveEditsAndPresence({
     fusionApp,
     fullAppBuildingEnabled,
     designReviewPanelEnabled,
+    motionLabEnabled,
     designFusionUrl,
     handleActiveRuntimeLayerSnapshot,
     handleActiveRuntimeVerificationSnapshot,

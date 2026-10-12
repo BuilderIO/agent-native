@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import type { StyleChangeMeta } from "../edit-panel/style-change-types";
 import {
   GlslShaderPanel,
   type GlslShaderPanelContext,
@@ -149,7 +150,8 @@ export interface DesignColorPickerProps {
   onChangeComplete?: (value: string) => void;
   onChangeCancel?: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
-  onImageFillChange?: (value: ImageFillValue) => void;
+  onImageFillChange?: (value: ImageFillValue, meta?: StyleChangeMeta) => void;
+  uploadTargetKey?: string;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundRepeat?: string;
@@ -446,6 +448,7 @@ export function DesignColorPicker({
   onChangeCancel,
   onPaintValueChange,
   onImageFillChange,
+  uploadTargetKey,
   backgroundImage,
   backgroundSize,
   backgroundRepeat,
@@ -535,6 +538,16 @@ export function DesignColorPicker({
   const [imageFill, setImageFill] = useState<ImageFillValue>(
     () => parsedImageFill ?? { url: "", fit: "fill" },
   );
+  const mountedRef = useRef(true);
+  const currentUploadTargetKeyRef = useRef(uploadTargetKey);
+  currentUploadTargetKeyRef.current = uploadTargetKey;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const isPaintTypeSupported = (type: DesignPaintType) =>
     (type !== "shader" || glslShaderContext !== undefined) &&
@@ -736,10 +749,15 @@ export function DesignColorPicker({
     else emitColorFromHsv(next);
   };
 
-  const emitImageFill = (next: ImageFillValue) => {
-    setImageFill(next);
+  const emitImageFill = (next: ImageFillValue, meta?: StyleChangeMeta) => {
+    if (
+      mountedRef.current &&
+      currentUploadTargetKeyRef.current === uploadTargetKey
+    ) {
+      setImageFill(next);
+    }
     if (onImageFillChange) {
-      onImageFillChange(next);
+      onImageFillChange(next, meta);
       return;
     }
     emitPaintValue(imageFillToCss(next));
@@ -1149,8 +1167,10 @@ export function DesignColorPicker({
                 {effectivePaintType === "image" && (
                   <div>
                     <ImageFillControls
+                      key={uploadTargetKey}
                       value={imageFill}
                       disabled={disabled}
+                      uploadTargetKey={uploadTargetKey}
                       onChange={emitImageFill}
                     />
                   </div>

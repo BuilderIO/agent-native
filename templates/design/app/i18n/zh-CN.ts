@@ -21,6 +21,8 @@ export default {
       "{label}，来源示例 {source}，画廊位置 {current}/{total}，截图日期 {date}",
     screenshotMissing: "未捕获截图",
     recordingUnavailable: "不可用",
+    recordingGap: "录制空档",
+    recordingGapDuration: "录制空档 · {duration}",
     eventTime: "事件时间（UTC）",
     generationCompletedEvent: "generation_completed 事件（UTC）",
     replayObservation: "回放观察",
@@ -62,6 +64,9 @@ export default {
     journeyTitleAppBandsSummary: "{from} 至 {to} · 各应用独立队列{partial}",
     sessionCount: "{count} 个会话",
     otherPaths: "其他路径",
+    otherBranchesShown: "已显示 {shown}/{total} 个分支",
+    otherBranchDetailsUnavailable: "此旅程树未提供分支详情",
+    otherBranchSourceKey: "来源步骤键：{key}",
     htmlLanguage: "zh-CN",
   },
   composer: { menu: { integrations: "集成" } },
@@ -209,7 +214,7 @@ export default {
   },
   navigation: {
     brand: "Design",
-    designs: "设计",
+    home: "首页",
     templates: "模板",
     designSystems: "设计系统",
     setupDesignSystem: "设置设计系统",
@@ -230,6 +235,8 @@ export default {
       "试用 Builder，根据你的设计构建可运行的应用。",
     labDesignReviewTools: "设计审查工具",
     labDesignReviewToolsDescription: "检查设计中的无障碍问题并比较视觉变化。",
+    labMotion: "动效",
+    labMotionDescription: "创建和编辑设计元素的关键帧动画。",
     mcpAbout:
       "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
@@ -747,13 +754,16 @@ export default {
       needsConnectedApp: "源代码跳转需要连接应用",
     },
     leftRail: {
-      file: "文件",
+      layers: "图层",
       agent: "代理",
       assets: "资源",
       import: "导入",
       tools: "工具",
       tokens: "设计令牌",
       label: "设计工作区",
+      account: "账户",
+      collapse: "收起侧边栏",
+      expand: "展开侧边栏",
     },
     breakpointBar: {
       base: "基础",
@@ -789,6 +799,7 @@ export default {
       exit: "退出响应式预览",
     },
     motion: {
+      openDock: "动效",
       dockLabel: "运动面板",
       collapseDock: "收起运动面板",
       play: "播放",
@@ -842,12 +853,10 @@ export default {
       "{{path}} 自打开后已在磁盘上发生变化。请重新加载页面后重试。",
     applyToSourceError: "无法保存到源文件：{{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "导入设计令牌",
       importTitle: "导入设计令牌",
       importHint: "先使用 design.md、CSS、主题文件或当前设计，再手动添加令牌。",
@@ -858,6 +867,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "导入粘贴的令牌",
       importedCount: "已导入 {{count}} 个令牌",
+      count: "{{count}} 个令牌",
+      search: "搜索令牌",
+      noMatches: "没有匹配的令牌",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -901,6 +913,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
       figmaPasteImagesDontShowAgain: "不再显示",
+      figmaPasteUploadImage: "上传图片",
+      figmaPasteUploadImageFor: "上传“{{name}}”",
+      figmaPasteImageFallbackName: "图片 {{index}}",
+      figmaPasteUploadImageSuccess: "已填充图片",
+      figmaPasteUploadImageInvalid: "请选择图片文件，例如 SVG、PNG 或 JPG。",
+      figmaPasteUploadImageError: "无法填充该图片",
       figmaHydrationDialogTitle: "连接 Figma 以加载图片",
       figmaHydrationDialogDescription:
         "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
@@ -1026,7 +1044,7 @@ export default {
     templateSaveFailed: "无法保存此模板",
     fileMenu: {
       pendingEditsBlocked: "复制前，请先应用或放弃待处理的可视化编辑。",
-      designs: "设计",
+      allDesigns: "所有设计",
       rename: "重命名",
       duplicate: "复制",
       versionHistory: "版本历史",
@@ -1540,6 +1558,12 @@ export default {
       permissionPromptSettingsInstructions:
         "点击地址栏左侧的站点控制图标，打开网站设置，然后将本地网络设为“允许”。",
       permissionPromptRetry: "重试连接",
+      previewCredentialsUnavailableTitle: "本地预览凭据不可用",
+      previewCredentialsUnavailableDescription:
+        "请在检查器中重新连接此屏幕的 localhost 连接，然后重试。",
+      publicPreviewUnavailableDescription:
+        "localhost 预览不会与公开访问者共享。请以协作者身份打开此设计以查看此屏幕。",
+      previewCredentialsRetry: "重试获取凭据",
     },
   },
   multiScreenCanvas: {
@@ -1549,6 +1573,7 @@ export default {
     fork: "分支",
     fullView: "完整视图",
     preview: "预览",
+    focusScreen: "聚焦屏幕",
     openAndDuplicate: "选择 {{display}}。使用互动模式进行聚焦滚动。",
     openAndPreview: "选择 {{display}}。使用互动模式进行聚焦滚动。",
     doubleClickToEdit: "使用互动模式进行聚焦滚动",
@@ -1620,9 +1645,11 @@ export default {
     assetsNoImageUrl: "Assets 未返回图片 URL。",
     failedToUploadFile: "上传文件失败",
     imageAttachmentUnavailable:
-      "无法将此图片准备为视觉输入。请附加较小的 PNG、JPG、GIF 或 WebP 文件。",
+      "无法准备此图片以供上传。请尝试使用 JPG、PNG、GIF 或 WebP 图片。",
+    imageAttachmentTooLarge:
+      "每张图片最大 {{perFile}} MB，所有图片合计最大 {{total}} MB。",
     attachmentsTooLarge:
-      "这些附件太大。上传总大小上限为 {{max}} MB — 请减少文件数量或使用更小的文件。",
+      "图片会自动优化。优化后的图片和其他文件总大小不得超过 {{max}} MB。",
     failedToSubmitPrompt: "无法提交提示",
     skipPrompt: "跳过提示",
     startBlankCanvas: "从空白画布开始",
@@ -1778,7 +1805,7 @@ export default {
     browseAllTemplates: "浏览全部",
     connectBuilderIo: "使用 Builder.io",
     connectingBuilder: "正在设置 Builder.io…",
-    pageTitle: "Design",
+    pageTitle: "首页",
     searchPlaceholder: "搜索设计...",
     newDesign: "新Design",
     newDesignLower: "新设计",

@@ -340,8 +340,12 @@ describe("ProviderDialog", () => {
           outcome: "accepted",
         }),
       );
+      expect(button("Add provider").disabled).toBe(false);
     });
 
+    await vi.waitFor(() => {
+      expect(button("Add provider").disabled).toBe(false);
+    });
     await act(async () => button("Add provider").click());
     await vi.waitFor(() => {
       expect(setupTelemetryMock).toHaveBeenCalledWith(

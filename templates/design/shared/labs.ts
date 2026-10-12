@@ -26,8 +26,17 @@ export const DESIGN_REVIEW_TOOLS_LAB = defineLab({
   keywords: "review accessibility visual changes compare",
 });
 
+export const DESIGN_MOTION_LAB = defineLab({
+  key: "design-motion",
+  defaultEnabled: false,
+  displayName: "Motion",
+  description: "Create and edit motion tracks on your designs.",
+  keywords: "motion animation timeline keyframes",
+});
+
 export const DESIGN_LABS = defineLabs([
   DESIGN_TWEAKS,
   FULL_APP_BUILDING_LAB,
   DESIGN_REVIEW_TOOLS_LAB,
+  DESIGN_MOTION_LAB,
 ]);

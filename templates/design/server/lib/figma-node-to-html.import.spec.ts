@@ -162,11 +162,11 @@ describe("linear gradient stop remapping (bug: partial-span handles stretched to
 });
 
 describe("rotation unit conversion (bug: REST rotation is radians, not degrees)", () => {
-  it("converts a real captured radian rotation value to the correct CSS degrees", () => {
+  it("converts a radian rotation input to the corresponding CSS degrees", () => {
     const node: FigmaNode = {
       id: "rotated",
       type: "RECTANGLE",
-      rotation: -0.26179940325453416, // captured verbatim from the real corpus
+      rotation: -Math.PI / 12, // 15 degrees in radians
       absoluteBoundingBox: box(0, 0, 120, 80),
     };
     const root: FigmaNode = {
@@ -187,8 +187,13 @@ describe("rotated-box AABB un-rotation (bug: CSS rotate() applied on top of the 
     const node: FigmaNode = {
       id: "rotatedFrame",
       type: "FRAME",
-      rotation: -0.26179940325453416, // same captured 15deg (in radians)
-      absoluteBoundingBox: box(100, 0, 136.61663055419922, 108.3323585987091),
+      rotation: -Math.PI / 12, // 15 degrees in radians
+      absoluteBoundingBox: box(
+        100,
+        0,
+        120 * Math.cos(Math.PI / 12) + 80 * Math.sin(Math.PI / 12),
+        120 * Math.sin(Math.PI / 12) + 80 * Math.cos(Math.PI / 12),
+      ),
       children: [],
     };
     const root: FigmaNode = {
