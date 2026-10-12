@@ -178,11 +178,13 @@ export function followsNameCharacter(text: string, at: number): boolean {
 }
 
 // `//` starts a URL with or without its scheme, as in `//x.com/@Sam`. A bare
-// domain, as in `github.com/@Sam`, counts where a URL starts: at the run's
-// start or as a Markdown link's destination, `[site](x.com/@Sam)`. Anchoring
-// it there keeps it linear; tried at every dot, its backtracking would be
-// quadratic in a run like `a.a.a.a`.
-const URL_START = /\/\/|\bwww\.|(?:^[("'<[]*|\]\()(?:[a-z\d-]+\.)+[a-z]{2,}\//i;
+// domain followed by a path, query, or fragment, as in `github.com/@Sam` or
+// `x.com?u=@Sam`, counts where a URL starts: at the run's start or as a
+// Markdown link's destination, `[site](x.com/@Sam)` or `[site](<x.com#@Sam>)`.
+// Anchoring it there keeps it linear; tried at every dot, its backtracking
+// would be quadratic in a run like `a.a.a.a`.
+const URL_START =
+  /\/\/|\bwww\.|(?:^[("'<[]*|\]\(<?)(?:[a-z\d-]+\.)+[a-z]{2,}[/?#]/i;
 
 /**
  * Where URLs run in the text, as in `https://x.com/@Sam`: from just past a URL
