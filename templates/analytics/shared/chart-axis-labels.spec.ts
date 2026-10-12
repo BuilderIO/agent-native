@@ -65,10 +65,16 @@ describe("isDateAxis", () => {
     expect(axisDirection(["Q1 2025", "2025-Q4"])).toBe("ascending");
   });
 
-  it("knows no direction for month names or mixed values", () => {
+  it("knows no direction for month names, mixed or out-of-order values", () => {
     expect(axisDirection(["Oct 04", "Sep 09"])).toBeNull();
     expect(axisDirection(["2026-10-04", 3])).toBeNull();
     expect(axisDirection([])).toBeNull();
+    expect(
+      axisDirection(["2026-09-01", "2026-10-09", "2026-09-20", "2026-10-04"]),
+    ).toBeNull();
+    expect(axisDirection(["2026-09-01", "2026-09-01", "2026-09-02"])).toBe(
+      "ascending",
+    );
   });
 
   it("treats any named value as a category", () => {

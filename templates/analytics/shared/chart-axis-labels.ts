@@ -107,20 +107,33 @@ function sortableAxisValue(value: unknown): number | string | null {
 }
 
 /**
- * Which way an axis runs, from its first and last values; null when they
- * cannot be compared (month names, mixed types), so no end is known to be
- * the newest.
+ * Which way an axis runs; null when its values cannot all be compared (month
+ * names, mixed types) or are out of order (a query sorted by count), so no end
+ * is known to be the newest.
  */
 export function axisDirection(
   values: readonly unknown[],
 ): "ascending" | "descending" | null {
-  const present = values.filter((value) => !isBlank(value));
-  const first = sortableAxisValue(present[0]);
-  const last = sortableAxisValue(present[present.length - 1]);
-  if (first === null || last === null || typeof first !== typeof last) {
+  const sortable = values
+    .filter((value) => !isBlank(value))
+    .map(sortableAxisValue);
+  const kind = typeof sortable[0];
+  if (
+    sortable.length === 0 ||
+    sortable.some((value) => value === null || typeof value !== kind)
+  ) {
     return null;
   }
-  return first > last ? "descending" : "ascending";
+  let rises = false;
+  let falls = false;
+  for (let index = 1; index < sortable.length; index++) {
+    const previous = sortable[index - 1] as number | string;
+    const current = sortable[index] as number | string;
+    if (current > previous) rises = true;
+    if (current < previous) falls = true;
+  }
+  if (rises && falls) return null;
+  return falls ? "descending" : "ascending";
 }
 
 export interface CategoryAxisPlan {

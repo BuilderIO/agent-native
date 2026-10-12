@@ -1002,6 +1002,17 @@ describe("chart point limit", () => {
     expect(limitChartRows(days, "bar", "day")[0]).toEqual(days[0]);
   });
 
+  it("keeps the first points of a bar chart over dates sorted by value", () => {
+    const busiest = Array.from({ length: 450 }, (_, index) => ({
+      date: new Date(Date.UTC(2025, 0, 1 + ((index * 7) % 450)))
+        .toISOString()
+        .slice(0, 10),
+      count: 450 - index,
+    }));
+    expect(chartPointLimit(busiest, "bar", "date")?.keeps).toBe("first");
+    expect(limitChartRows(busiest, "bar", "date")[0]).toEqual(busiest[0]);
+  });
+
   it("keeps the first points of a bar chart over numeric ids", () => {
     const accounts = Array.from({ length: 500 }, (_, index) => ({
       account_id: 9000 - index,

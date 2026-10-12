@@ -534,9 +534,9 @@ in the same `set({...})` call.
   reports, and the chart's other series (`unknown`, `docs`) are gray. Leave
   `config.colors` off panels split by app, or it replaces those colors.
 - A chart draws at most 400 points and says so under the chart: the newest for
-  line, area, combo, heatmap and bar charts over dates, the first for bars over
-  categories, ids or buckets and the rest. Aggregate or limit the SQL instead of
-  returning more.
+  line, area, combo, heatmap and bar charts over dates in date order, the first
+  for bars over categories, ids, buckets or dates sorted another way. Aggregate
+  or limit the SQL instead of returning more.
 - Config keys the renderer does not honor are ignored. `mutate-dashboard`
   rejects them on the panels you change and lists the honored keys; read that
   error instead of retrying the same key.
