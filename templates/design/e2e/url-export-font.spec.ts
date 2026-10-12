@@ -166,7 +166,7 @@ async function downloadPng(page: Page) {
   await openAppMenuSubmenu(page, "File");
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
-  await exportMenu.press("ArrowRight");
+  await exportMenu.click();
   const pngMenuItem = page.getByRole("menuitem", { name: "Download PNG" });
   await expect(pngMenuItem).toBeVisible();
   return downloadBytes(page, () => pngMenuItem.click());

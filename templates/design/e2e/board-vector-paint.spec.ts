@@ -760,7 +760,7 @@ test("vector fill gradient renders in the inspector, source, SVG and PNG exports
     await openAppMenuSubmenu(page, "File");
     const exportMenu = page.getByRole("menuitem", { name: "Export" });
     await expect(exportMenu).toBeVisible();
-    await exportMenu.press("ArrowRight");
+    await exportMenu.click();
     await expect(
       page.getByRole("menuitem", { name: "Download for Figma (SVG)" }),
     ).toBeVisible();
