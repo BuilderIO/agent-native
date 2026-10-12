@@ -10,8 +10,10 @@ import {
   assertMentionsInText,
   submittedCommentMentions,
 } from "../server/lib/comment-mention-input.js";
+import { notifyEditedCommentMentions } from "../server/lib/comment-notifications.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
+  personMentions,
   readStoredCommentMentions,
   serializeStoredCommentMentions,
 } from "../shared/comment-mentions.js";
@@ -28,7 +30,7 @@ export default defineAction({
       .union([z.string(), z.array(z.unknown())])
       .optional()
       .describe(
-        'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}. A malformed list, or an entry no @name in the final text reaches, is rejected with a 400.',
+        'JSON-encoded mentions, one per @name in the final text in text order; omitted, the stored mentions must still match it. People: {"email","name"}; agents: {"kind":"agent","model","name"}. A malformed list, or an entry no @name in the final text reaches, is rejected with a 400. People the edit newly mentions are emailed.',
       ),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
@@ -49,6 +51,8 @@ export default defineAction({
         documentId: schema.documentComments.documentId,
         threadId: schema.documentComments.threadId,
         authorEmail: schema.documentComments.authorEmail,
+        authorName: schema.documentComments.authorName,
+        submissionSource: schema.documentComments.submissionSource,
         content: schema.documentComments.content,
         mentionsJson: schema.documentComments.mentionsJson,
       })
@@ -68,23 +72,34 @@ export default defineAction({
       typeof userEmail === "string" &&
       comment.authorEmail.trim().toLowerCase() ===
         userEmail.trim().toLowerCase();
-    if (args.resolved === true || args.resolved === false || !isAuthor) {
-      await assertAccess("document", comment.documentId, "editor");
-    } else {
-      await assertAccess("document", comment.documentId, "commenter");
-    }
+    const access = await assertAccess(
+      "document",
+      comment.documentId,
+      args.resolved === true || args.resolved === false || !isAuthor
+        ? "editor"
+        : "commenter",
+    );
 
     const updatedAt = new Date().toISOString();
     const mentions =
       args.mentions === undefined
         ? undefined
         : submittedCommentMentions(args.mentions);
+    const storedMentions = readStoredCommentMentions(comment.mentionsJson);
     if (args.content !== undefined || mentions !== undefined) {
       assertMentionsInText(
         args.content ?? comment.content,
-        mentions ?? readStoredCommentMentions(comment.mentionsJson),
+        mentions ?? storedMentions,
       );
     }
+    const alreadyMentioned = new Set(
+      personMentions(storedMentions).map((mention) =>
+        mention.email.trim().toLowerCase(),
+      ),
+    );
+    const addedMentions = personMentions(mentions ?? []).filter(
+      (mention) => !alreadyMentioned.has(mention.email.trim().toLowerCase()),
+    );
     const contentUpdates: Partial<typeof schema.documentComments.$inferInsert> =
       {
         updatedAt,
@@ -130,26 +145,40 @@ export default defineAction({
             ),
           );
       });
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ok: true,
-        resolved: args.resolved,
-        documentId: comment.documentId,
-      };
+    } else {
+      await db
+        .update(schema.documentComments)
+        .set(contentUpdates)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.id),
+            eq(schema.documentComments.documentId, comment.documentId),
+          ),
+        );
     }
 
-    await db
-      .update(schema.documentComments)
-      .set(contentUpdates)
-      .where(
-        and(
-          eq(schema.documentComments.id, args.id),
-          eq(schema.documentComments.documentId, comment.documentId),
-        ),
-      );
-
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true, documentId: comment.documentId };
+    const notified = addedMentions.length
+      ? await notifyEditedCommentMentions({
+          documentId: comment.documentId,
+          documentTitle: (access.resource.title as string | null) ?? "",
+          orgId: (access.resource.orgId as string | null) ?? null,
+          threadId: comment.threadId,
+          ownerEmail: access.resource.ownerEmail as string,
+          authorEmail: comment.authorEmail,
+          authorName: comment.authorName,
+          submissionSource: comment.submissionSource,
+          content: args.content ?? comment.content,
+          mentions: addedMentions,
+          isReply: comment.threadId !== args.id,
+        })
+      : undefined;
+    return {
+      ok: true,
+      ...(args.resolved !== undefined ? { resolved: args.resolved } : {}),
+      documentId: comment.documentId,
+      ...(notified ? { notified } : {}),
+    };
   },
   changeResource: (input, result) =>
     documentChangeResource(input.documentId ?? result.documentId),

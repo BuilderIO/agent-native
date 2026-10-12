@@ -157,7 +157,7 @@ describe("comment mentions", () => {
       name: "Sam",
     };
     const text =
-      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), [site](example.com/@Sam), [site](example.com?user=@Sam), x.com#@Sam, [site](<x.com/@Sam>), [@Sam](https://x.com), or www.example.com/@Sam. A lone ` leaves @Sam";
+      "Ask @Sam, not `@Sam`, ``a `@Sam` b``, https://medium.com/@Sam, //cdn.example.com/@Sam, github.com/@Sam, (x.com/@Sam), [site](example.com/@Sam), [site](example.com?user=@Sam), x.com#@Sam, [site](<x.com/@Sam>), [@Sam](https://x.com), [@Sam](https://x.com/Sam_(name)), or www.example.com/@Sam. A lone ` leaves @Sam";
 
     expect(findCommentMentions(text, [sam]).map(({ start }) => start)).toEqual([
       4,
@@ -169,13 +169,13 @@ describe("comment mentions", () => {
     ).toBeUndefined();
   });
 
-  it("reads a long run of @s in a URL or code without rescanning it", () => {
+  it("reads a long run of @s in a URL, code, or unclosed links without rescanning it", () => {
     const sam = {
       kind: "person" as const,
       email: "sam@example.com",
       name: "Sam",
     };
-    const text = `https://x.com/${"@".repeat(100_000)} ${"`@` ".repeat(30_000)}@Sam`;
+    const text = `https://x.com/${"@".repeat(100_000)} ${"`@` ".repeat(30_000)}${"[@](@(@".repeat(30_000)}\n@Sam`;
 
     const started = performance.now();
     const starts = findCommentMentions(text, [sam]).map(({ start }) => start);

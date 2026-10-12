@@ -164,7 +164,7 @@ describe("sent comment mentions", () => {
 
   it("leaves an @name in a Markdown link's label as the link", () => {
     const pills = render(
-      "See [@Sam](https://x.com/profile) and ask @Sam",
+      "See [@Sam](https://x.com/profile), [@Sam](https://x.com/Sam_(name)), and ask @Sam",
       JSON.stringify([
         { kind: "person", email: "sam@example.com", name: "Sam" },
       ]),
@@ -172,10 +172,10 @@ describe("sent comment mentions", () => {
 
     expect(pills.map((pill) => spokenText(pill))).toEqual(["@Sam"]);
     expect(
-      [...host.querySelectorAll("a[href='https://x.com/profile']")].map(
+      [...host.querySelectorAll("a[href^='https://x.com/']")].map(
         (link) => link.textContent,
       ),
-    ).toEqual(["@Sam"]);
+    ).toEqual(["@Sam", "@Sam"]);
     expect(host.textContent).not.toContain("](");
   });
 

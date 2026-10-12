@@ -186,14 +186,17 @@ const URL_START = /\/\/|\bwww\.|^[("'<[]*(?:[a-z\d-]+\.)+[a-z]{2,}[/?#]/i;
 
 /**
  * Markdown's inline links, label and destination: `[@Sam](x.com/@Sam)`. A
- * label holds no brackets and neither part spans a line, so no two scans
- * cover the same text and the search stays linear.
+ * label holds no brackets, a destination nests parentheses one deep as in
+ * `x.com/Sam_(name)`, and neither spans a line, so a failed scan stops at the
+ * second `(` it meets and the search stays linear.
  */
 function linkSpans(text: string): { start: number; end: number }[] {
-  return [...text.matchAll(/\[[^[\]\n]*\]\([^()\n]*\)/g)].map((link) => ({
-    start: link.index,
-    end: link.index + link[0].length,
-  }));
+  return [...text.matchAll(/\[[^[\]\n]*\]\((?:[^()\n]|\([^()\n]*\))*\)/g)].map(
+    (link) => ({
+      start: link.index,
+      end: link.index + link[0].length,
+    }),
+  );
 }
 
 /**

@@ -34,6 +34,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
 }));
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({ data: [] }),
+}));
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => (
@@ -322,6 +325,33 @@ it("names the agent, keeps the exact model in its badge, and keeps the time comp
   // The time truncates before a short author name does.
   expect(time?.className).toContain("truncate");
   expect(time?.className).toContain("whitespace-nowrap");
+});
+
+it("gives a comment another app's agent wrote the agent's card", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "a2a",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+  const name = container.querySelector<HTMLElement>(
+    "[data-comment-author-name]",
+  )!;
+  await act(async () => name.click());
+
+  expect(name.textContent).toContain("GPT");
+  expect(
+    document
+      .querySelector("[data-comment-identity-card]")
+      ?.getAttribute("data-comment-identity-card"),
+  ).toBe("agent");
 });
 
 it("lets a long author shrink while keeping thread actions inline after the menu", async () => {

@@ -139,8 +139,7 @@ export function CommentEntry({
   const pending = comment.mutation?.status === "pending";
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
-  const aiSource = getAiCommentSource(comment.submission_source);
-  const aiAuthored = Boolean(aiSource && comment.author_model);
+  const aiAuthored = comment.actorKind === "agent" && !!comment.author_model;
   const visibleAuthor = aiAuthored
     ? agentDisplayName(comment.author_model)
     : (comment.author_name ?? comment.author_email.split("@")[0]);

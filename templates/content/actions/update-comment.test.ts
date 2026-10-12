@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({ rows: [] as Row[], locked: [] as string[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockNotifyMentions = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
@@ -27,6 +28,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("../server/lib/comment-notifications.js", () => ({
+  notifyEditedCommentMentions: (...args: unknown[]) =>
+    mockNotifyMentions(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -121,6 +127,14 @@ function run(args: {
 beforeEach(() => {
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
+  mockAssertAccess.mockResolvedValue({
+    resource: { title: "Plan", ownerEmail: "owner@example.com", orgId: null },
+  });
+  mockNotifyMentions.mockResolvedValue({
+    status: "sent",
+    sent: [],
+    failed: [],
+  });
   state.locked = [];
   state.rows = [
     {
@@ -308,6 +322,43 @@ describe("update-comment (action) — reopen permission", () => {
 
     await run({ id: "c-1", content: "Hello", mentions: "[]" });
     expect(state.rows[0].mentionsJson).toBeNull();
+  });
+
+  it("notifies only the people an edit newly mentions", async () => {
+    state.rows[0].content = "Hi @Sam";
+    state.rows[0].mentionsJson = JSON.stringify([
+      { email: "sam@example.com", name: "Sam" },
+    ]);
+
+    await run({
+      id: "c-1",
+      content: "Hi @Sam, @Lee, and @Claude",
+      mentions: JSON.stringify([
+        { email: "SAM@example.com", name: "Sam" },
+        { email: "lee@example.com", name: "Lee" },
+        { kind: "agent", model: "claude-sonnet-4-6", name: "Claude" },
+      ]),
+    });
+    await run({
+      id: "c-1",
+      content: "Hi @Sam and @Lee",
+      mentions: JSON.stringify([
+        { email: "sam@example.com", name: "Sam" },
+        { email: "lee@example.com", name: "Lee" },
+      ]),
+    });
+
+    expect(mockNotifyMentions).toHaveBeenCalledTimes(1);
+    expect(mockNotifyMentions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: "doc-1",
+        documentTitle: "Plan",
+        ownerEmail: "owner@example.com",
+        authorEmail: "author@example.com",
+        content: "Hi @Sam, @Lee, and @Claude",
+        mentions: [{ kind: "person", email: "lee@example.com", name: "Lee" }],
+      }),
+    );
   });
 
   it("rejects malformed mention metadata instead of silently clearing it", async () => {
