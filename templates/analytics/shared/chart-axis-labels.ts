@@ -96,12 +96,33 @@ export function isDateAxis(values: readonly unknown[]): boolean {
   return present.length > 0 && present.every(isDateValue);
 }
 
+// A timestamp with no offset reads as UTC, so the dashboard in any time zone and
+// the emailed report agree on which end of an axis is newest.
+const TIME_ZONE_SUFFIX = /(z|utc|[+-]\d{2}:?\d{2})$/i;
+
+/** One UTC instant for every date format, so `20260930` sorts before `2026-10-01`. */
+function sortableDate(text: string): string | null {
+  const iso = COMPACT_DATE_VALUE.test(text)
+    ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6)}`
+    : text;
+  const time = Date.parse(
+    iso.length > 10 && !TIME_ZONE_SUFFIX.test(iso)
+      ? `${iso.replace(" ", "T")}Z`
+      : iso,
+  );
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
 function sortableAxisValue(value: unknown): number | string | null {
-  if (value instanceof Date) return value.getTime();
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string") return null;
   const text = value.trim();
-  if (ISO_DATE_VALUE.test(text) || COMPACT_DATE_VALUE.test(text)) return text;
+  if (ISO_DATE_VALUE.test(text) || COMPACT_DATE_VALUE.test(text)) {
+    return sortableDate(text);
+  }
   const yearFirst = /^(\d{4})-?[WQ](\d{1,2})$/i.exec(text);
   if (yearFirst) return Number(yearFirst[1]) * 100 + Number(yearFirst[2]);
   const quarterFirst = /^Q([1-4])[ -](\d{4})$/i.exec(text);

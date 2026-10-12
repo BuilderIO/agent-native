@@ -75,6 +75,18 @@ describe("isDateAxis", () => {
       axisDirection([new Date("2026-10-04"), new Date("2026-09-09")]),
     ).toBe("descending");
     expect(axisDirection(["20260909", "20261004"])).toBe("ascending");
+    expect(axisDirection(["20260930", "2026-10-01"])).toBe("ascending");
+    expect(axisDirection([new Date("2026-09-30"), "2026-10-01"])).toBe(
+      "ascending",
+    );
+    // 20:00 UTC, then 22:00 UTC, though the text sorts the other way.
+    expect(
+      axisDirection(["2026-10-02T01:00:00+05:00", "2026-10-01T22:00:00Z"]),
+    ).toBe("ascending");
+    expect(axisDirection(["2026-10-01 23:00", "2026-10-02T00:30:00Z"])).toBe(
+      "ascending",
+    );
+    expect(axisDirection(["2026-13-45", "2026-10-01"])).toBeNull();
     expect(axisDirection(["2026-09-09", "2026-09-09"])).toBe("ascending");
   });
 
