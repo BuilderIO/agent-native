@@ -33,6 +33,22 @@ describe("design navigate action", () => {
     expect(result).toContain("(comment tool)");
   });
 
+  it("sends the legacy comments inspector tab to the Threads panel", async () => {
+    const result = await action.run({
+      view: "editor",
+      designId: "design-123",
+      inspectorTab: "comments",
+    });
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "editor",
+      designId: "design-123",
+      leftPanel: "threads",
+    });
+    expect(result).toContain("(threads panel)");
+    expect(result).not.toContain("inspector");
+  });
+
   it("rejects an empty navigation command", async () => {
     await expect(action.run({})).rejects.toThrow(
       "At least --view or --path is required.",

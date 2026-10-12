@@ -243,14 +243,14 @@ test("comments toolbar opens an anchored composer", async ({
   await expect(
     reopenedPopover.getByRole("button", { name: "Resolve", exact: true }),
   ).toBeVisible();
-  const reloadedCommentsResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/list-review-comments") &&
-      response.request().method() === "GET" &&
-      response.ok(),
-  );
   await page.reload({ waitUntil: "domcontentloaded" });
-  const reloadedResponse = await reloadedCommentsResponse;
+  const reloadedResponse = await page.request.get(
+    `/_agent-native/actions/list-review-comments?resourceType=design&resourceId=${designId}&includeResolved=true&newestFirst=true&limit=500`,
+  );
+  expect(
+    reloadedResponse.ok(),
+    `list-review-comments returned ${reloadedResponse.status()}`,
+  ).toBe(true);
   const reloadedComments = (await reloadedResponse.json()) as {
     comments?: Array<{
       id?: string;

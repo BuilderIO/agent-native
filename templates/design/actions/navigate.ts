@@ -22,6 +22,7 @@ const designEditorToolSchema = z.enum([
 const designLeftPanelSchema = z.enum([
   "file",
   "agent",
+  "threads",
   "assets",
   "import",
   "tools",
@@ -31,7 +32,7 @@ const designLeftPanelSchema = z.enum([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, templates, editor, design-systems, present, settings. Use --templateId with templates, --designId with editor/present views, and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=design|comments|tweaks to focus the inspector, or leftPanel=file|agent|assets|import|tools|tokens|code to focus the left rail (file is the panel labeled Layers, with screens and the layer tree), including Import and the wide Code workspace. Legacy inspectorTab=extensions opens Tools. Use tool to activate a design editor tool.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, design-systems, present, settings. Use --templateId with templates, --designId with editor/present views, and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=design|tweaks to focus the inspector, or leftPanel=file|agent|threads|assets|import|tools|tokens|code to focus the left rail (file is the panel labeled Layers, with screens and the layer tree), including Import and the wide Code workspace. Legacy inspectorTab=extensions opens Tools, and legacy inspectorTab=comments opens Threads. Use tool to activate a design editor tool.",
   schema: z
     .object({
       view: z
@@ -133,9 +134,15 @@ export default defineAction({
     if (args.designId) nav.designId = args.designId;
     const editorView = args.editorView ?? args.viewMode;
     if (editorView) nav.editorView = editorView;
-    const inspectorTab = args.inspectorTab ?? args.inspector;
+    const requestedInspectorTab = args.inspectorTab ?? args.inspector;
+    // Comments moved from the inspector to the Threads panel in the left rail.
+    const inspectorTab =
+      requestedInspectorTab === "comments" ? undefined : requestedInspectorTab;
     if (inspectorTab) nav.inspectorTab = inspectorTab;
-    const leftPanel = args.leftPanel ?? args.panel;
+    const leftPanel =
+      args.leftPanel ??
+      args.panel ??
+      (requestedInspectorTab === "comments" ? "threads" : undefined);
     if (leftPanel) nav.leftPanel = leftPanel;
     if (args.fileId) nav.fileId = args.fileId;
     if (args.screenId) nav.screenId = args.screenId;
