@@ -258,6 +258,15 @@ describe("resolveAppAdditionalActions", () => {
               type: "object",
               properties: { a: { $ref: "https://example.com/a.json" } },
             }),
+            "schema-ref-to-unknown-key": schemaEntry({
+              type: "object",
+              properties: { a: { $ref: "#/x" } },
+              x: { type: "string", pattern: "^(a+)+$" },
+            }),
+            "schema-anchor-ref": schemaEntry({
+              type: "object",
+              properties: { a: { $ref: "#a" } },
+            }),
             "schema-property-names": schemaEntry({
               type: "object",
               properties: {
@@ -274,6 +283,66 @@ describe("resolveAppAdditionalActions", () => {
       );
 
       expect(Object.keys(added)).toEqual(["schema-property-names"]);
+    });
+
+    it("bounds the whole registry, not just each schema", async () => {
+      const many = Object.fromEntries(
+        Array.from({ length: 130 }, (_, i) => [`many-${i}`, entry("x")]),
+      );
+      const counted = await resolveAppAdditionalActions(
+        config({ resolver: () => many }),
+        alice,
+        {},
+      );
+      expect(Object.keys(counted)).toHaveLength(128);
+      expect(counted["many-128"]).toBeUndefined();
+
+      const large = (i: number) =>
+        entry("x", {
+          tool: {
+            description: "x",
+            parameters: {
+              type: "object",
+              properties: {
+                [`p${i}`]: { type: "string", description: "y".repeat(60_000) },
+              },
+            },
+          },
+        });
+      const budgeted = await resolveAppAdditionalActions(
+        config({
+          resolver: () =>
+            Object.fromEntries(
+              Array.from({ length: 10 }, (_, i) => [`large-${i}`, large(i)]),
+            ),
+        }),
+        alice,
+        {},
+      );
+      expect(Object.keys(budgeted)).toHaveLength(8);
+    });
+
+    it("keeps a bounded record of reported skips", async () => {
+      const warn = vi.mocked(console.warn);
+      const resolve = (names: string[]) =>
+        resolveAppAdditionalActions(
+          config({
+            resolver: () =>
+              Object.fromEntries(names.map((name) => [name, null])),
+          }),
+          alice,
+          {},
+        );
+      const first = "evicted skip";
+      await resolve([first]);
+      for (let batch = 0; batch < 8; batch += 1) {
+        await resolve(
+          Array.from({ length: 128 }, (_, i) => `skip ${batch} ${i}`),
+        );
+      }
+      warn.mockClear();
+      await resolve([first]);
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
     it("compiles a freshly built schema on every request", async () => {

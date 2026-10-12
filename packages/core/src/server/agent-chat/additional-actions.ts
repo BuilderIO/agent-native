@@ -53,6 +53,11 @@ const MAX_TITLE_CHARS = 120;
 const MAX_DESCRIPTION_CHARS = 2_000;
 const MAX_SCHEMA_JSON_CHARS = 64_000;
 const MAX_SCHEMA_DEPTH = 24;
+// Every entry is compiled on every request, so the whole registry is bounded,
+// not just each schema.
+const MAX_ADDITIONAL_ACTIONS = 128;
+const MAX_TOTAL_SCHEMA_JSON_CHARS = 512_000;
+const MAX_REPORTED_SKIPS = 1_000;
 // C0/C1 controls other than tab and newline, zero-width characters, and bidi
 // overrides: invisible in logs and tool lists, but read by the model.
 const HIDDEN_TEXT_PATTERN = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F​-‏‪-‮⁠-⁩﻿]/g;
@@ -116,6 +121,7 @@ const FORBIDDEN_SCHEMA_KEYWORDS = [
   "$recursiveRef",
 ];
 
+// Insertion-ordered, so the oldest key is evicted first once the cap is hit.
 const reportedSkips = new Set<string>();
 
 export function normalizeAdditionalActionSurfaces(
@@ -180,15 +186,29 @@ export async function resolveAppAdditionalActions(
       "resolveAdditionalActions must return an object of action entries",
     );
   }
+  const names = Object.keys(entries);
+  for (const name of names.slice(MAX_ADDITIONAL_ACTIONS)) {
+    reportSkip(
+      name,
+      `is past the first ${MAX_ADDITIONAL_ACTIONS} entries the resolver returned`,
+    );
+  }
   const added: Record<string, ActionEntry> = {};
-  for (const [name, entry] of Object.entries(entries)) {
+  const schemaBudget = { remaining: MAX_TOTAL_SCHEMA_JSON_CHARS };
+  for (const name of names.slice(0, MAX_ADDITIONAL_ACTIONS)) {
+    const entry: unknown = entries[name];
     const rejection =
       rejectActionName(name, config, registered) ?? rejectActionEntry(entry);
     if (rejection) {
       reportSkip(name, rejection);
       continue;
     }
-    const prepared = prepareActionEntry(name, entry as ActionEntry, principal);
+    const prepared = prepareActionEntry(
+      name,
+      entry as ActionEntry,
+      principal,
+      schemaBudget,
+    );
     if (typeof prepared === "string") {
       reportSkip(name, prepared);
       continue;
@@ -229,6 +249,7 @@ function prepareActionEntry(
   name: string,
   entry: ActionEntry,
   principal: { ownerEmail: string; orgId: string | null },
+  schemaBudget: { remaining: number },
 ): ActionEntry | string {
   const description = cleanText(entry.tool.description, MAX_DESCRIPTION_CHARS);
   if (!description) return "has an empty tool description";
@@ -241,7 +262,7 @@ function prepareActionEntry(
   if (parameters === undefined) {
     validate = validateAnyObject;
   } else {
-    const rejection = rejectParameterSchema(parameters);
+    const rejection = rejectParameterSchema(parameters, schemaBudget);
     if (rejection) return rejection;
     try {
       validate = compileStrict(parameters);
@@ -316,7 +337,10 @@ function assertBoundCaller(
   return { userEmail, orgId };
 }
 
-function rejectParameterSchema(parameters: unknown): string | null {
+function rejectParameterSchema(
+  parameters: unknown,
+  schemaBudget: { remaining: number },
+): string | null {
   if (!isPlainRecord(parameters))
     return "has a tool schema that is not an object";
   if (parameters.type !== "object") {
@@ -328,35 +352,85 @@ function rejectParameterSchema(parameters: unknown): string | null {
   ) {
     return "has a tool schema whose properties are not an object";
   }
-  let json: string;
-  try {
-    json = JSON.stringify(parameters);
-  } catch {
-    return "has a tool schema that is not JSON";
-  }
-  if (json.length > MAX_SCHEMA_JSON_CHARS) {
-    return `has a tool schema larger than ${MAX_SCHEMA_JSON_CHARS} characters`;
-  }
-  if (schemaDepth(parameters) > MAX_SCHEMA_DEPTH) {
+  const limit = Math.min(MAX_SCHEMA_JSON_CHARS, schemaBudget.remaining);
+  const size = measureSchema(parameters, limit);
+  if (size === "not-json") return "has a tool schema that is not JSON";
+  if (size === "too-deep") {
     return `has a tool schema nested deeper than ${MAX_SCHEMA_DEPTH} levels`;
   }
-  return rejectSchemaKeywords(parameters);
+  if (size === "too-large") {
+    return limit < MAX_SCHEMA_JSON_CHARS
+      ? `has a tool schema that exceeds the ${MAX_TOTAL_SCHEMA_JSON_CHARS}-character budget shared by this request's schemas`
+      : `has a tool schema larger than ${MAX_SCHEMA_JSON_CHARS} characters`;
+  }
+  const rejection = rejectSchemaKeywords(parameters, parameters, new Set());
+  if (rejection) return rejection;
+  schemaBudget.remaining -= size;
+  return null;
 }
 
-function rejectSchemaKeywords(schema: unknown): string | null {
-  if (!isPlainRecord(schema)) return null;
+/**
+ * Approximates the schema's JSON length without serializing it, and stops as
+ * soon as it passes `limit` or `MAX_SCHEMA_DEPTH`, so an oversized or cyclic
+ * schema costs no more than the budget it is rejected for.
+ */
+function measureSchema(
+  value: unknown,
+  limit: number,
+): number | "too-large" | "too-deep" | "not-json" {
+  let size = 0;
+  const visit = (
+    node: unknown,
+    depth: number,
+  ): "too-large" | "too-deep" | "not-json" | null => {
+    if (depth > MAX_SCHEMA_DEPTH) return "too-deep";
+    if (node === null || typeof node === "boolean") size += 5;
+    else if (typeof node === "number") size += 24;
+    else if (typeof node === "string") size += node.length + 2;
+    else if (typeof node !== "object") return "not-json";
+    else {
+      size += 2;
+      const isArray = Array.isArray(node);
+      for (const key in node) {
+        if (!Object.hasOwn(node, key)) continue;
+        const child = (node as Record<string, unknown>)[key];
+        if (child === undefined && !isArray) continue;
+        size += (isArray ? 0 : key.length + 3) + 1;
+        if (size > limit) return "too-large";
+        const failure = visit(child, depth + 1);
+        if (failure) return failure;
+      }
+    }
+    return size > limit ? "too-large" : null;
+  };
+  return visit(value, 0) ?? size;
+}
+
+/**
+ * Walks every location Ajv may evaluate as a schema: the subschema keywords
+ * and the target of each local `$ref`, which can point anywhere in the
+ * document, including under keys no keyword names.
+ */
+function rejectSchemaKeywords(
+  schema: unknown,
+  root: Record<string, unknown>,
+  visited: Set<object>,
+): string | null {
+  if (!isPlainRecord(schema) || visited.has(schema)) return null;
+  visited.add(schema);
   for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
     if (Object.hasOwn(schema, keyword)) {
       return `has a tool schema that uses "${keyword}", which app actions may not use`;
     }
   }
-  if (
-    Object.hasOwn(schema, "$ref") &&
-    !(typeof schema.$ref === "string" && schema.$ref.startsWith("#"))
-  ) {
-    return "has a tool schema with a $ref outside the schema";
-  }
   const children: unknown[] = [];
+  if (Object.hasOwn(schema, "$ref")) {
+    const target = resolveLocalRef(root, schema.$ref);
+    if (target === undefined) {
+      return "has a tool schema with a $ref that does not point inside the schema";
+    }
+    children.push(target);
+  }
   for (const keyword of SUBSCHEMA_KEYWORDS) children.push(schema[keyword]);
   for (const keyword of SUBSCHEMA_LIST_KEYWORDS) {
     if (Array.isArray(schema[keyword])) children.push(...schema[keyword]);
@@ -367,10 +441,33 @@ function rejectSchemaKeywords(schema: unknown): string | null {
     }
   }
   for (const child of children) {
-    const rejection = rejectSchemaKeywords(child);
+    const rejection = rejectSchemaKeywords(child, root, visited);
     if (rejection) return rejection;
   }
   return null;
+}
+
+function resolveLocalRef(root: Record<string, unknown>, ref: unknown): unknown {
+  if (ref === "#") return root;
+  if (typeof ref !== "string" || !ref.startsWith("#/")) return undefined;
+  let target: unknown = root;
+  for (const raw of ref.slice(2).split("/")) {
+    let segment: string;
+    try {
+      segment = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
+    } catch {
+      return undefined;
+    }
+    if (
+      !target ||
+      typeof target !== "object" ||
+      !Object.hasOwn(target, segment)
+    ) {
+      return undefined;
+    }
+    target = (target as Record<string, unknown>)[segment];
+  }
+  return target;
 }
 
 function compileStrict(schema: object): ValidateFunction {
@@ -390,17 +487,6 @@ function compileStrict(schema: object): ValidateFunction {
   }
 }
 
-function schemaDepth(value: unknown, depth = 0): number {
-  if (depth > MAX_SCHEMA_DEPTH) return depth;
-  if (!value || typeof value !== "object") return depth;
-  let max = depth;
-  for (const child of Object.values(value)) {
-    max = Math.max(max, schemaDepth(child, depth + 1));
-    if (max > MAX_SCHEMA_DEPTH) break;
-  }
-  return max;
-}
-
 function cleanText(value: string, maxChars: number): string {
   const cleaned = value.replace(HIDDEN_TEXT_PATTERN, "").trim();
   return cleaned.length > maxChars
@@ -413,10 +499,14 @@ function isPlainRecord(value: unknown): value is Record<string, any> {
 }
 
 function reportSkip(name: string, reason: string): void {
-  const key = `${name}\u0000${reason}`;
+  const shown = JSON.stringify(name.slice(0, 80));
+  const key = `${shown}\u0000${reason.slice(0, 200)}`;
   if (reportedSkips.has(key)) return;
+  if (reportedSkips.size >= MAX_REPORTED_SKIPS) {
+    reportedSkips.delete(reportedSkips.values().next().value as string);
+  }
   reportedSkips.add(key);
   console.warn(
-    `[agent-chat] resolveAdditionalActions returned ${JSON.stringify(name.slice(0, 80))}, which ${reason}; ignoring the app entry.`,
+    `[agent-chat] resolveAdditionalActions returned ${shown}, which ${reason}; ignoring the app entry.`,
   );
 }
