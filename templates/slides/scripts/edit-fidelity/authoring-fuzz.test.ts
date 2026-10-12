@@ -6,6 +6,7 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
   authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
@@ -1018,6 +1019,29 @@ it("isolates authoring fuzz from the unrelated browser-session service", () => {
   ).toEqual({
     ok: false,
     error: "Browser-session registration omitted its id",
+  });
+});
+
+it("mirrors browser-session CORS for fuzz-only responses and preflights", () => {
+  expect(
+    authoringFuzzBrowserSessionCorsHeaders("http://localhost:5173"),
+  ).toEqual({
+    "Access-Control-Allow-Origin": "http://localhost:5173",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,X-Agent-Native-CSRF",
+    "Access-Control-Allow-Credentials": "true",
+    Vary: "Origin",
+  });
+  expect(authoringFuzzBrowserSessionCorsHeaders()).toEqual({
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,X-Agent-Native-CSRF",
+  });
+  expect(authoringFuzzBrowserSessionCorsHeaders("null")).toEqual({
+    "Access-Control-Allow-Origin": "null",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,X-Agent-Native-CSRF",
+    Vary: "Origin",
   });
 });
 

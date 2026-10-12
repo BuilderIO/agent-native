@@ -173,6 +173,20 @@ export function authoringFuzzBrowserSessionResponse(
   return null;
 }
 
+export function authoringFuzzBrowserSessionCorsHeaders(
+  origin?: string,
+): Record<string, string> {
+  return {
+    "Access-Control-Allow-Origin": origin ?? "*",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,X-Agent-Native-CSRF",
+    ...(origin ? { Vary: "Origin" } : {}),
+    ...(origin && origin !== "null"
+      ? { "Access-Control-Allow-Credentials": "true" }
+      : {}),
+  };
+}
+
 export function recordCleanupRequestOutcome(
   finishedAt: WeakMap<object, number>,
   request: object,

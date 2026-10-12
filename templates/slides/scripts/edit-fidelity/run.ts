@@ -22,6 +22,7 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  authoringFuzzBrowserSessionCorsHeaders,
   authoringFuzzBrowserSessionResponse,
   authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
@@ -7335,6 +7336,13 @@ async function main() {
         "**/_agent-native/browser-sessions**",
         async (route: any) => {
           const request = route.request();
+          const corsHeaders = authoringFuzzBrowserSessionCorsHeaders(
+            request.headers().origin,
+          );
+          if (request.method() === "OPTIONS") {
+            await route.fulfill({ status: 204, headers: corsHeaders });
+            return;
+          }
           const requestBody =
             request.method() === "POST" && request.postData()
               ? request.postDataJSON()
@@ -7347,6 +7355,7 @@ async function main() {
           await route.fulfill({
             status: response ? (response.ok ? 200 : 400) : 501,
             contentType: "application/json",
+            headers: corsHeaders,
             body: JSON.stringify(
               response ?? {
                 ok: false,
