@@ -105,6 +105,7 @@ import type {
   ReviewBoardGeometry,
 } from "../../../shared/review-anchor";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
+import { hydrateInitialSourceTokens } from "./bridge/source-token-hydration";
 import { isCanvasOverlayInteractionTarget } from "./canvas-interactions/review-overlay-interaction";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
@@ -1099,10 +1100,6 @@ function originFromUrl(value: string | undefined): string | null {
   }
 }
 
-function inlineScriptJson(value: string): string {
-  return JSON.stringify(value).replace(/</g, "\\u003c");
-}
-
 function buildEditorChromeBridgeScript(args: {
   readOnly: boolean;
   editMode: boolean;
@@ -1114,49 +1111,112 @@ function buildEditorChromeBridgeScript(args: {
   contentOffsetY: number;
   runtimeLayerSnapshotEnabled: boolean;
   initialSourceHead: string;
+  initialSourceOwnership: string;
 }) {
   return (
     createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-    EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-      "__READ_ONLY__",
-      args.readOnly ? "true" : "false",
+    hydrateInitialSourceTokens(
+      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+        "__READ_ONLY__",
+        args.readOnly ? "true" : "false",
+      )
+        .replace("__TEXT_EDITING_ENABLED__", args.editMode ? "true" : "false")
+        .replace("__EDITOR_CHROME_SCALE_X__", String(args.editorChromeScaleX))
+        .replace("__EDITOR_CHROME_SCALE_Y__", String(args.editorChromeScaleY))
+        .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(args.screenId))
+        .replace(
+          "__DESIGN_CANVAS_BOARD_SURFACE__",
+          args.boardSurface ? "true" : "false",
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+          String(Math.round(args.contentOffsetX)),
+        )
+        .replace(
+          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+          String(Math.round(args.contentOffsetY)),
+        )
+        .replace(
+          "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
+          args.runtimeLayerSnapshotEnabled ? "true" : "false",
+        )
+        .replace(
+          "__LIVE_REFLOW_ENABLED__",
+          LIVE_REFLOW_ENABLED ? "true" : "false",
+        )
+        .replace(
+          "__SELECTED_LAYER_DRAG_PRIORITY__",
+          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+        ),
+      args.initialSourceHead,
+      args.initialSourceOwnership,
     )
-      .replace("__TEXT_EDITING_ENABLED__", args.editMode ? "true" : "false")
-      .replace("__EDITOR_CHROME_SCALE_X__", String(args.editorChromeScaleX))
-      .replace("__EDITOR_CHROME_SCALE_Y__", String(args.editorChromeScaleY))
-      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(args.screenId))
-      .replace(
-        "__DESIGN_CANVAS_BOARD_SURFACE__",
-        args.boardSurface ? "true" : "false",
-      )
-      .replace(
-        "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-        String(Math.round(args.contentOffsetX)),
-      )
-      .replace(
-        "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-        String(Math.round(args.contentOffsetY)),
-      )
-      .replace(
-        "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
-        args.runtimeLayerSnapshotEnabled ? "true" : "false",
-      )
-      .replace(
-        "__LIVE_REFLOW_ENABLED__",
-        LIVE_REFLOW_ENABLED ? "true" : "false",
-      )
-      .replace(
-        "__SELECTED_LAYER_DRAG_PRIORITY__",
-        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-      )
-      .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-        inlineScriptJson(args.initialSourceHead),
-      )
   );
 }
 
 function sourceHeadInnerHtml(html: string): string {
   return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
+}
+
+function initialSourceOwnershipJson(html: string): string {
+  if (typeof DOMParser === "undefined") return "";
+  try {
+    const body = new DOMParser().parseFromString(html, "text/html").body;
+    const sourceNodeIds = new Map<string, number>();
+    const keyedNodes = new Map<
+      string,
+      {
+        tagName: string;
+        meta: { attrs: string[]; className: string; style: string };
+      }
+    >();
+    const sourceElements: Element[] = [];
+    const collectSourceElements = (node: Node) => {
+      if (node.nodeType !== 1) return;
+      const element = node as Element;
+      sourceElements.push(element);
+      const templateContent =
+        element.tagName === "TEMPLATE"
+          ? (element as HTMLTemplateElement).content
+          : null;
+      const children = templateContent?.childNodes ?? element.childNodes;
+      Array.from(children).forEach(collectSourceElements);
+    };
+    collectSourceElements(body);
+    sourceElements.forEach((element) => {
+      const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
+      if (!nodeId) return;
+      sourceNodeIds.set(nodeId, (sourceNodeIds.get(nodeId) ?? 0) + 1);
+    });
+    sourceElements.forEach((element) => {
+      const nodeId = element.getAttribute("data-agent-native-node-id") ?? "";
+      if (!nodeId || element === body || sourceNodeIds.get(nodeId) !== 1)
+        return;
+      keyedNodes.set(nodeId, {
+        tagName: element.tagName.toLowerCase(),
+        meta: {
+          attrs: Array.from(element.attributes, (attribute) => attribute.name),
+          className: element.getAttribute("class") ?? "",
+          style: element.getAttribute("style") ?? "",
+        },
+      });
+    });
+    const bodyMeta = {
+      attrs: Array.from(body.attributes, (attribute) => attribute.name),
+      className: body.getAttribute("class") ?? "",
+      style: body.getAttribute("style") ?? "",
+    };
+    return JSON.stringify({
+      body: bodyMeta,
+      sourceNodeIds: Array.from(sourceNodeIds.keys()),
+      nodes: Array.from(keyedNodes, ([nodeId, node]) => ({
+        nodeId,
+        ...node,
+      })),
+    });
+  } catch {
+    return "";
+  }
 }
 
 const NO_SELECTORS = Object.freeze([]) as unknown as string[];
@@ -2204,6 +2264,7 @@ export function DesignCanvas({
             contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
             runtimeLayerSnapshotEnabled,
             initialSourceHead: "",
+            initialSourceOwnership: "",
           })
         : "",
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3361,49 +3422,58 @@ export function DesignCanvas({
   const srcdoc = useMemo(() => {
     if (rawExternalPreviewUrl) return undefined;
     const localizedContent = withLocalRuntimes(iframeRenderContent);
+    const frameContent = getEmbeddedFrameDocumentContent({
+      content: localizedContent,
+      embeddedFrameBackground,
+      transparentBackground,
+      contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+      contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+      fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
+    });
     const editorChromeBridge =
       createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-      EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-        "__READ_ONLY__",
-        readOnly ? "true" : "false",
-      )
-        .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
-        .replace(
-          "__EDITOR_CHROME_SCALE_X__",
-          String(effectiveEditorChromeScaleX),
+      hydrateInitialSourceTokens(
+        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+          "__READ_ONLY__",
+          readOnly ? "true" : "false",
         )
-        .replace(
-          "__EDITOR_CHROME_SCALE_Y__",
-          String(effectiveEditorChromeScaleY),
-        )
-        .replace(
-          "__DESIGN_CANVAS_SCREEN_ID__",
-          JSON.stringify(screenId ?? contentKey ?? ""),
-        )
-        .replace(
-          "__DESIGN_CANVAS_BOARD_SURFACE__",
-          boardSurface ? "true" : "false",
-        )
-        .replace(
-          "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
-          String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
-        )
-        .replace(
-          "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
-          String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
-        )
-        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-        .replace(
-          "__LIVE_REFLOW_ENABLED__",
-          LIVE_REFLOW_ENABLED ? "true" : "false",
-        )
-        .replace(
-          "__SELECTED_LAYER_DRAG_PRIORITY__",
-          SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
-        )
-        .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
-          inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
-        );
+          .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+          .replace(
+            "__EDITOR_CHROME_SCALE_X__",
+            String(effectiveEditorChromeScaleX),
+          )
+          .replace(
+            "__EDITOR_CHROME_SCALE_Y__",
+            String(effectiveEditorChromeScaleY),
+          )
+          .replace(
+            "__DESIGN_CANVAS_SCREEN_ID__",
+            JSON.stringify(screenId ?? contentKey ?? ""),
+          )
+          .replace(
+            "__DESIGN_CANVAS_BOARD_SURFACE__",
+            boardSurface ? "true" : "false",
+          )
+          .replace(
+            "__DESIGN_CANVAS_CONTENT_OFFSET_X__",
+            String(Math.round(embeddedFrame?.contentOffsetX ?? 0)),
+          )
+          .replace(
+            "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
+            String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
+          )
+          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+          .replace(
+            "__LIVE_REFLOW_ENABLED__",
+            LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+          ),
+        sourceHeadInnerHtml(localizedContent),
+        initialSourceOwnershipJson(frameContent),
+      );
     const imageDiagBridge = "";
     const bridgeToInject =
       sourceProvenanceBootstrap(iframeSourceProvenance) +
@@ -3416,14 +3486,6 @@ export function DesignCanvas({
       embeddedGestureBridgeForSrcdoc +
       editorChromeBridge +
       imageDiagBridge;
-    const frameContent = getEmbeddedFrameDocumentContent({
-      content: localizedContent,
-      embeddedFrameBackground,
-      transparentBackground,
-      contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
-      contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
-      fitBodyToFrame: fitRootBodyToFrame ?? !boardSurface,
-    });
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
       frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);

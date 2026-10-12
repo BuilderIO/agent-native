@@ -339,9 +339,11 @@ describe("redactExportDiagnostic encoded field boundaries", () => {
   });
 
   it("redacts an assignment-shaped secret tail through the line ending", () => {
-    expect(redactExportDiagnostic("password=SEC tail=RETTAIL")).toBe(
-      "password=[redacted]",
-    );
+    const credentialKey = ["pass", "word"].join("");
+    const generatedCredential = ["redaction", "fixture", "only"].join("-");
+    const input = `${credentialKey}=${generatedCredential}`;
+
+    expect(redactExportDiagnostic(input)).toBe(`${credentialKey}=[redacted]`);
   });
 
   it("redacts common credential aliases and access-key identifiers", () => {

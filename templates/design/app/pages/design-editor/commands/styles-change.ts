@@ -254,11 +254,12 @@ export function runStylesChange(
     commitStylesToSelectedLayers(Object.fromEntries(entries), meta?.phase)
   )
     return;
-  commitVisualStyles(
-    target,
-    Object.fromEntries(entries),
-    meta?.requirePersistedSourceAcceptance
-      ? { requirePersistedSourceAcceptance: true }
-      : undefined,
-  );
+  const stylePatch = Object.fromEntries(entries);
+  if (meta?.requirePersistedSourceAcceptance) {
+    commitVisualStyles(target, stylePatch, {
+      requirePersistedSourceAcceptance: true,
+    });
+  } else {
+    commitVisualStyles(target, stylePatch);
+  }
 }

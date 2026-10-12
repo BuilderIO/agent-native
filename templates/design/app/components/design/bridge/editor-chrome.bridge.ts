@@ -42,6 +42,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
 declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 declare var __INITIAL_SOURCE_HEAD__: string;
+declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
 (function () {
   var readOnly = __READ_ONLY__;
@@ -8533,6 +8534,49 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     style: string;
   }
 
+  interface InitialSourceOwnership {
+    body: SourceMeta;
+    sourceNodeIds: string[];
+    nodes: Array<{
+      nodeId: string;
+      tagName: string;
+      meta: SourceMeta;
+    }>;
+  }
+
+  function readInitialSourceOwnership(): InitialSourceOwnership | null {
+    try {
+      var serialized =
+        typeof __INITIAL_SOURCE_OWNERSHIP__ === "string"
+          ? __INITIAL_SOURCE_OWNERSHIP__
+          : "";
+      if (!serialized) return null;
+      var snapshot = JSON.parse(serialized) as InitialSourceOwnership;
+      if (
+        !snapshot ||
+        !snapshot.body ||
+        !Array.isArray(snapshot.body.attrs) ||
+        typeof snapshot.body.className !== "string" ||
+        typeof snapshot.body.style !== "string" ||
+        !Array.isArray(snapshot.sourceNodeIds) ||
+        !Array.isArray(snapshot.nodes)
+      ) {
+        return null;
+      }
+      return snapshot;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function copySourceMeta(meta: SourceMeta): SourceMeta {
+    return {
+      attrs: meta.attrs.slice(),
+      className: meta.className,
+      style: meta.style,
+    };
+  }
+
   function sourceMetaFor(element: Element): SourceMeta | undefined {
     return (element as Element & { __anSourceMeta?: SourceMeta })
       .__anSourceMeta;
@@ -8651,7 +8695,83 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function captureInitialSourceOwnership(): void {
-    if (document.body) recordSourceSubtree(document.body);
+    var body = document.body;
+    if (!body) return;
+    recordSourceSubtree(body);
+
+    var snapshot = readInitialSourceOwnership();
+    if (!snapshot) return;
+
+    if (isSourceOwned(body)) {
+      (body as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta =
+        copySourceMeta(snapshot.body);
+    }
+
+    var sourceNodeIds = new Set(snapshot.sourceNodeIds);
+    var sourceNodes = new Map<string, { tagName: string; meta: SourceMeta }>();
+    snapshot.nodes.forEach(function (entry) {
+      if (
+        entry &&
+        typeof entry.nodeId === "string" &&
+        typeof entry.tagName === "string" &&
+        entry.meta &&
+        Array.isArray(entry.meta.attrs) &&
+        typeof entry.meta.className === "string" &&
+        typeof entry.meta.style === "string" &&
+        !sourceNodes.has(entry.nodeId)
+      ) {
+        sourceNodes.set(entry.nodeId, {
+          tagName: entry.tagName,
+          meta: entry.meta,
+        });
+      }
+    });
+
+    var liveNodes = new Map<string, Element[]>();
+    function collectLiveSourceElements(root: Node): void {
+      if (root.nodeType !== 1) return;
+      var element = root as Element;
+      if (isTemplateCloneElement(element)) return;
+      var nodeId = element.getAttribute("data-agent-native-node-id");
+      if (nodeId) {
+        var matches = liveNodes.get(nodeId);
+        if (matches) matches.push(element);
+        else liveNodes.set(nodeId, [element]);
+      }
+      var template = templateContentOf(element);
+      var children = template ? template.childNodes : element.childNodes;
+      for (var i = 0; i < children.length; i += 1) {
+        collectLiveSourceElements(children[i]!);
+      }
+    }
+    collectLiveSourceElements(body);
+
+    liveNodes.forEach(function (elements, nodeId) {
+      if (sourceNodeIds.has(nodeId)) return;
+      elements.forEach(function (element) {
+        var owner = element as Element & {
+          __anSource?: boolean;
+          __anSourceMeta?: SourceMeta;
+        };
+        delete owner.__anSource;
+        delete owner.__anSourceMeta;
+      });
+    });
+
+    sourceNodes.forEach(function (entry, nodeId) {
+      var matches = liveNodes.get(nodeId);
+      if (!matches || matches.length !== 1) return;
+      var element = matches[0]!;
+      if (
+        !isSourceOwned(element) ||
+        isTemplateCloneElement(element) ||
+        element.tagName.toLowerCase() !== entry.tagName
+      ) {
+        return;
+      }
+      (element as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta =
+        copySourceMeta(entry.meta);
+    });
   }
 
   function classTokens(value: string): string[] {

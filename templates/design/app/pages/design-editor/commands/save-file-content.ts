@@ -482,13 +482,7 @@ export function runSaveFileContent(
         pending.identityMigrationSourceContent !== undefined &&
         latestFileSaveForUnloadRef.current[pending.id] === pending
       ) {
-        markPendingLocalFileContent(
-          pending.id,
-          pending.content,
-          undefined,
-          pending.identityMigrationSourceContent,
-          pending.deferCollabReconcile,
-        );
+        markPendingLocalFileContent(pending.id, pending.content);
       }
       if (persistedContentMatches && outboxEntry)
         void acknowledgeOutboxEntry(outboxEntry).catch(() => {});

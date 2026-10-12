@@ -6969,6 +6969,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
+    function readInitialSourceOwnership() {
+      try {
+        var serialized = typeof __INITIAL_SOURCE_OWNERSHIP__ === "string" ? __INITIAL_SOURCE_OWNERSHIP__ : "";
+        if (!serialized) return null;
+        var snapshot = JSON.parse(serialized);
+        if (!snapshot || !snapshot.body || !Array.isArray(snapshot.body.attrs) || typeof snapshot.body.className !== "string" || typeof snapshot.body.style !== "string" || !Array.isArray(snapshot.sourceNodeIds) || !Array.isArray(snapshot.nodes)) {
+          return null;
+        }
+        return snapshot;
+      } catch (_error) {
+        return null;
+      }
+    }
+    function copySourceMeta(meta) {
+      return {
+        attrs: meta.attrs.slice(),
+        className: meta.className,
+        style: meta.style
+      };
+    }
     function sourceMetaFor(element) {
       return element.__anSourceMeta;
     }
@@ -7057,7 +7077,59 @@ export const editorChromeBridgeScript: string = `"use strict";
       return { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() };
     }
     function captureInitialSourceOwnership() {
-      if (document.body) recordSourceSubtree(document.body);
+      var body = document.body;
+      if (!body) return;
+      recordSourceSubtree(body);
+      var snapshot = readInitialSourceOwnership();
+      if (!snapshot) return;
+      if (isSourceOwned(body)) {
+        body.__anSourceMeta = copySourceMeta(snapshot.body);
+      }
+      var sourceNodeIds = new Set(snapshot.sourceNodeIds);
+      var sourceNodes = /* @__PURE__ */ new Map();
+      snapshot.nodes.forEach(function(entry) {
+        if (entry && typeof entry.nodeId === "string" && typeof entry.tagName === "string" && entry.meta && Array.isArray(entry.meta.attrs) && typeof entry.meta.className === "string" && typeof entry.meta.style === "string" && !sourceNodes.has(entry.nodeId)) {
+          sourceNodes.set(entry.nodeId, {
+            tagName: entry.tagName,
+            meta: entry.meta
+          });
+        }
+      });
+      var liveNodes = /* @__PURE__ */ new Map();
+      function collectLiveSourceElements(root) {
+        if (root.nodeType !== 1) return;
+        var element = root;
+        if (isTemplateCloneElement(element)) return;
+        var nodeId = element.getAttribute("data-agent-native-node-id");
+        if (nodeId) {
+          var matches = liveNodes.get(nodeId);
+          if (matches) matches.push(element);
+          else liveNodes.set(nodeId, [element]);
+        }
+        var template = templateContentOf(element);
+        var children = template ? template.childNodes : element.childNodes;
+        for (var i = 0; i < children.length; i += 1) {
+          collectLiveSourceElements(children[i]);
+        }
+      }
+      collectLiveSourceElements(body);
+      liveNodes.forEach(function(elements, nodeId) {
+        if (sourceNodeIds.has(nodeId)) return;
+        elements.forEach(function(element) {
+          var owner = element;
+          delete owner.__anSource;
+          delete owner.__anSourceMeta;
+        });
+      });
+      sourceNodes.forEach(function(entry, nodeId) {
+        var matches = liveNodes.get(nodeId);
+        if (!matches || matches.length !== 1) return;
+        var element = matches[0];
+        if (!isSourceOwned(element) || isTemplateCloneElement(element) || element.tagName.toLowerCase() !== entry.tagName) {
+          return;
+        }
+        element.__anSourceMeta = copySourceMeta(entry.meta);
+      });
     }
     function classTokens(value) {
       return value.split(/\\s+/).filter(function(token) {

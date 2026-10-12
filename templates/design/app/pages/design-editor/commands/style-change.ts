@@ -250,11 +250,12 @@ export function runStyleChange(
     commitStylesToSelectedLayers({ [property]: value }, meta?.phase)
   )
     return;
-  commitVisualStyles(
-    target,
-    { [property]: value },
-    meta?.requirePersistedSourceAcceptance
-      ? { requirePersistedSourceAcceptance: true }
-      : undefined,
-  );
+  const styles = { [property]: value };
+  if (meta?.requirePersistedSourceAcceptance) {
+    commitVisualStyles(target, styles, {
+      requirePersistedSourceAcceptance: true,
+    });
+  } else {
+    commitVisualStyles(target, styles);
+  }
 }
