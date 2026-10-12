@@ -252,7 +252,7 @@ describe("request-recording-context", () => {
     ).rejects.toThrow(/unique/i);
   });
 
-  it("refuses an endedAt far from the Clip's start, before it changes the Clip", async () => {
+  it("refuses an endedAt outside the allowed range before it changes the Clip", async () => {
     await seedRecording(client, { id: "rec_org", visibility: "org" });
     mocks.roles = { rec_org: "owner" };
 
@@ -263,6 +263,8 @@ describe("request-recording-context", () => {
         endedAt: "2026-10-01T11:00:00.000Z",
       }),
     ).rejects.toMatchObject({
+      message:
+        "The requested screen history must end between 2 minutes before and 10 minutes after this Clip was created.",
       errorCode: "recording_context_invalid_window",
       statusCode: 400,
     });

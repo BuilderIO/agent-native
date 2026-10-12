@@ -71,10 +71,13 @@ export default defineAction({
       startOffsetMs < -CLIENT_CLOCK_SKEW_TOLERANCE_MS ||
       startOffsetMs > MAX_STARTUP_DELAY_MS
     ) {
-      fail("The screen history must end when this Clip started.", {
-        errorCode: "recording_context_invalid_window",
-        statusCode: 400,
-      });
+      fail(
+        "The requested screen history must end between 2 minutes before and 10 minutes after this Clip was created.",
+        {
+          errorCode: "recording_context_invalid_window",
+          statusCode: 400,
+        },
+      );
     }
     if (isPrivateClip(recording.visibility)) {
       await assertNoDirectRecordingShares(recordingId);
