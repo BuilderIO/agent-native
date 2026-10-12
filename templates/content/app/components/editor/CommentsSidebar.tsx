@@ -35,10 +35,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
-import {
-  commentMentionsForText,
-  type CommentAgentMention,
-} from "@shared/comment-mentions";
+import { commentMentionsForText } from "@shared/comment-mentions";
 import { suggestionDiffParts } from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
@@ -66,20 +63,21 @@ import {
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
 
-import { modelDisplayName } from "./agent-identity";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
+  draftMention,
   useCommentDraft,
   useCommentDraftContext,
   useCommentPanelSession,
   type CommentDraft,
+  type MentionEntry,
 } from "./comment-drafts";
 import type { CommentAiSelection } from "./CommentAiRecipient";
 import {
+  aiRecipientMention,
   CommentComposer,
   type CommentAiDraft,
   type CommentAiSubmitPayload,
-  type MentionEntry,
 } from "./CommentComposer";
 import { CommentEntry } from "./CommentEntry";
 import {
@@ -135,29 +133,25 @@ function renderSuggestionText(
 }
 
 /**
- * The people and the agent a comment mentions, for storage. The agent is the
- * one the comment was sent to, named the way its composer chip reads.
+ * Who a comment mentions, in the text order of its chips, for storage. An
+ * agent chip stands for the agent the comment was sent to, so a comment sent
+ * to none mentions none.
  */
 function mentionsJsonFor(
   text: string,
-  people: MentionEntry[],
+  mentions: readonly MentionEntry[],
   agent?: CommentAiSelection,
 ): string | undefined {
-  const agentMention: CommentAgentMention[] = agent
-    ? [
-        {
-          kind: "agent",
-          model: agent.model,
-          engine: agent.engine,
-          provider: agent.provider,
-          name: modelDisplayName(agent.model),
-        },
-      ]
-    : [];
-  return commentMentionsForText(text, [
-    ...people.map((person) => ({ kind: "person" as const, ...person })),
-    ...agentMention,
-  ]);
+  return commentMentionsForText(
+    text,
+    mentions.flatMap((entry) =>
+      entry.kind !== "agent"
+        ? [draftMention(entry)]
+        : agent
+          ? [aiRecipientMention(agent)]
+          : [],
+    ),
+  );
 }
 
 function isAmbiguousCommentCreateError(error: unknown) {
@@ -2926,12 +2920,11 @@ function SuggestionThreadView({
             replyDrafts.isSubmitting(suggestion.threadId)
           )
             return;
-          const replyMentions = mentions
-            .filter((mention) => draft.includes(`@${mention.name}`))
-            .map((mention) => ({
-              email: mention.email,
-              label: mention.name,
-            }));
+          const replyMentions = mentions.flatMap((mention) =>
+            mention.kind !== "agent" && draft.includes(`@${mention.name}`)
+              ? [{ email: mention.email, label: mention.name }]
+              : [],
+          );
           const payload = JSON.stringify({
             commentId: root.id,
             body: draft.trim(),

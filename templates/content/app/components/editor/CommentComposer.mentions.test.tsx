@@ -12,7 +12,8 @@ import {
   setRichEditorValue,
   typeRichEditorText,
 } from "./comment-composer-test-utils";
-import { CommentComposer, type MentionEntry } from "./CommentComposer";
+import type { MentionEntry } from "./comment-drafts";
+import { CommentComposer } from "./CommentComposer";
 
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({
@@ -128,6 +129,31 @@ describe("CommentComposer people who share a name", () => {
         }
       ).editor.commands.focus(position);
     });
+
+  it("gives a person and an agent who share a name each their own chip, in text order", async () => {
+    const agent = {
+      kind: "agent" as const,
+      model: "claude",
+      name: "Claude",
+    };
+    const person = { email: "claude@example.test", name: "Claude" };
+    await act(async () =>
+      root.render(
+        <Owner value="@Claude asked @Claude" mentions={[agent, person]} />,
+      ),
+    );
+    await settle();
+
+    expect(
+      [...editor().querySelectorAll("[data-mention-ref-type]")].map((chip) =>
+        chip.getAttribute("data-mention-ref-type"),
+      ),
+    ).toEqual(["content-comment-agent", "content-comment-member"]);
+    expect(saved).toEqual({
+      value: "@Claude asked @Claude",
+      mentions: [agent, person],
+    });
+  });
 
   it("keeps a word typed after a restored draft's last chip apart from it", async () => {
     await act(async () =>

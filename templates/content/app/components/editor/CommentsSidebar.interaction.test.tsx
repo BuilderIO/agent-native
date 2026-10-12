@@ -2,6 +2,7 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { CommentAiRequest } from "@shared/comment-ai";
+import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -488,15 +489,8 @@ describe("comment review interactions", () => {
     expect(dismissResolution).toHaveBeenCalledWith("one");
   });
 
-  const sendAiReply = async (
-    start: CommentAiController["start"],
-    { removeFails = false } = {},
-  ) => {
-    actions.modelsReady = true;
-    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
-    if (removeFails) actions.remove.mockRejectedValue(new Error("lost"));
-    else actions.remove.mockResolvedValue(undefined);
-    const commentAi = {
+  const commentAiWith = (start: CommentAiController["start"]) =>
+    ({
       requests: [],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
@@ -511,8 +505,25 @@ describe("comment review interactions", () => {
       undo: vi.fn(),
       freshResolutions: new Map(),
       dismissResolution: vi.fn(),
-    } satisfies CommentAiController;
-    render("one", undefined, "inline", { commentAi });
+    }) satisfies CommentAiController;
+  const clickAiSend = () =>
+    act(async () =>
+      (
+        container.querySelector(
+          '[aria-label="comments.aiSend"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+
+  const sendAiReply = async (
+    start: CommentAiController["start"],
+    { removeFails = false } = {},
+  ) => {
+    actions.modelsReady = true;
+    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
+    if (removeFails) actions.remove.mockRejectedValue(new Error("lost"));
+    else actions.remove.mockResolvedValue(undefined);
+    render("one", undefined, "inline", { commentAi: commentAiWith(start) });
     await type("actually, make it Thursday");
     act(() =>
       replyDraft.setAiDraft({
@@ -524,13 +535,7 @@ describe("comment review interactions", () => {
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     const sent = replyDraft.draft.text;
     expect(sent).toContain("actually, make it Thursday");
-    await act(async () =>
-      (
-        container.querySelector(
-          '[aria-label="comments.aiSend"]',
-        ) as HTMLButtonElement
-      ).click(),
-    );
+    await clickAiSend();
     expect(actions.create).toHaveBeenCalledOnce();
     expect(start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -540,6 +545,34 @@ describe("comment review interactions", () => {
     );
     return sent;
   };
+
+  it("stores an AI reply's mentions in text order when a person shares the agent's name", async () => {
+    const selection = { model: "Ada", engine: "engine", provider: "provider" };
+    const agent = { kind: "agent" as const, ...selection, name: "Ada" };
+    const person = { email: "ada@example.test", name: "Ada" };
+    actions.modelsReady = true;
+    actions.create.mockResolvedValue({ id: "reply-1", threadId: "one" });
+    render("one", undefined, "inline", {
+      commentAi: commentAiWith(vi.fn().mockResolvedValue("confirmed-start")),
+    });
+    act(() => {
+      replyDraft.setText("@Ada asked @Ada");
+      replyDraft.setMentions([agent, person]);
+      replyDraft.setAiDraft({ mode: "suggest", selection });
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await clickAiSend();
+
+    expect(actions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "@Ada asked @Ada",
+        mentions: serializeStoredCommentMentions([
+          agent,
+          { kind: "person", ...person },
+        ]),
+      }),
+    );
+  });
 
   it("takes back an AI reply and restores its draft when AI is already busy", async () => {
     const sent = await sendAiReply(vi.fn().mockResolvedValue("busy"));

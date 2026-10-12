@@ -1,9 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
-import {
-  commentMentionsForText,
-  personMentions,
-} from "@shared/comment-mentions";
+import { commentMentionsForText } from "@shared/comment-mentions";
 import { IconDots, IconExternalLink } from "@tabler/icons-react";
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -28,7 +25,7 @@ import {
   agentDisplayName,
   modelDisplayName,
 } from "./agent-identity";
-import { useCommentDraft } from "./comment-drafts";
+import { draftMention, useCommentDraft } from "./comment-drafts";
 import { CommentComposer } from "./CommentComposer";
 import type { CommentIdentity } from "./CommentIdentity";
 import { AddReactionButton, CommentReactionChips } from "./CommentReactions";
@@ -133,10 +130,7 @@ export function CommentEntry({
   const [editing, setEditing] = useState(false);
   const initialDraft = {
     text: comment.content,
-    mentions: personMentions(comment.mentions).map(({ email, name }) => ({
-      email,
-      name,
-    })),
+    mentions: comment.mentions,
     aiDraft: null,
   };
   const draft = useCommentDraft(`edit:${comment.id}`, initialDraft);
@@ -252,18 +246,11 @@ export function CommentEntry({
             id: comment.id,
             documentId,
             content: submitted.text.trim(),
-            // The draft holds people; an agent mention stays while its
-            // name is still in the text.
             mentions:
-              commentMentionsForText(submitted.text, [
-                ...submitted.mentions.map((mention) => ({
-                  kind: "person" as const,
-                  ...mention,
-                })),
-                ...comment.mentions.filter(
-                  (mention) => mention.kind === "agent",
-                ),
-              ]) ?? "[]",
+              commentMentionsForText(
+                submitted.text,
+                submitted.mentions.map(draftMention),
+              ) ?? "[]",
           },
           {
             onSuccess: close,

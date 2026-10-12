@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -59,13 +60,17 @@ vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
     onChange,
+    onSubmit,
     onCancel,
     ariaLabel,
+    submitLabel,
   }: {
     value: string;
     onChange: (value: string) => void;
+    onSubmit: () => void;
     onCancel?: () => void;
     ariaLabel: string;
+    submitLabel?: string;
   }) => (
     <>
       <textarea
@@ -73,6 +78,7 @@ vi.mock("./CommentComposer", () => ({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      {submitLabel ? <button onClick={onSubmit}>{submitLabel}</button> : null}
       {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
     </>
   ),
@@ -187,6 +193,41 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   localStorage.clear();
+});
+
+it("saves an edit's mentions in text order when a person and an agent share a name", async () => {
+  const agent = {
+    kind: "agent" as const,
+    model: "claude",
+    name: "Claude",
+  };
+  const person = {
+    kind: "person" as const,
+    email: "claude@example.test",
+    name: "Claude",
+  };
+  mutateAsync.mockResolvedValue(undefined);
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          content: "@Claude asked @Claude",
+          mentions: [agent, person],
+        }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledWith(
+    expect.objectContaining({
+      content: "@Claude asked @Claude",
+      mentions: serializeStoredCommentMentions([agent, person]),
+    }),
+    expect.anything(),
+  );
 });
 
 it("keeps an edit draft when its row unmounts and reopens", async () => {
