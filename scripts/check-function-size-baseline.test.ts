@@ -134,6 +134,11 @@ describe("serverless function size baseline", () => {
     emitFunction(functionsDir, "server", 7 * MB);
     const libs = path.join(functionsDir, "server", "_libs");
     mkdirSync(libs);
+    mkdirSync(path.join(libs, "nested"));
+    writeFileSync(
+      path.join(libs, "nested", "module.mjs"),
+      "PRIVATE_NESTED_CONTENT",
+    );
     for (let i = 0; i < 513; i++)
       writeFileSync(path.join(libs, `lib-${i}.mjs`), "x");
     const checked = runGuard(functionsDir, baselineFile, [], "chat");
@@ -141,6 +146,12 @@ describe("serverless function size baseline", () => {
     assert.match(checked.output, /"scanned":512/);
     assert.match(checked.output, /"scannedBytes":512/);
     assert.match(checked.output, /"scanTruncated":true/);
+    assert.match(checked.output, /"nestedEntriesOmitted":true/);
+    assert.match(
+      checked.output,
+      /"selection":"largest-within-name-ordered-sample"/,
+    );
+    assert.doesNotMatch(checked.output, /PRIVATE_NESTED_CONTENT/);
   });
   it("counts a deploy-gated payload in the size it compares", () => {
     const root = workspace();

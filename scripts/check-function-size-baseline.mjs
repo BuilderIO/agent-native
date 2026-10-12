@@ -215,13 +215,20 @@ function reportGeneratedChunkInventory(functionDir) {
   const files = [];
   const missingDirectories = [];
   let scanTruncated = false;
+  let nestedEntriesOmitted = false;
   for (const directory of ["_chunks", "_libs"]) {
     const fullDirectory = path.join(functionDir, directory);
     if (!existsSync(fullDirectory)) {
       missingDirectories.push(directory);
       continue;
     }
-    const entries = readdirSync(fullDirectory, { withFileTypes: true })
+    const directoryEntries = readdirSync(fullDirectory, {
+      withFileTypes: true,
+    });
+    nestedEntriesOmitted ||= directoryEntries.some((entry) =>
+      entry.isDirectory(),
+    );
+    const entries = directoryEntries
       .filter(
         (entry) => entry.isFile() && /^[a-zA-Z0-9_.-]+\.mjs$/.test(entry.name),
       )
@@ -240,7 +247,7 @@ function reportGeneratedChunkInventory(functionDir) {
   );
   const reported = files.slice(0, 20);
   console.error(
-    `[chunk-inventory] ${JSON.stringify({ scanned: files.length, scannedBytes: files.reduce((total, file) => total + file.bytes, 0), reported: reported.length, truncated: scanTruncated || files.length > reported.length, scanTruncated, missingDirectories })}`,
+    `[chunk-inventory] ${JSON.stringify({ scanned: files.length, scannedBytes: files.reduce((total, file) => total + file.bytes, 0), reported: reported.length, selection: "largest-within-name-ordered-sample", nestedEntriesOmitted, truncated: nestedEntriesOmitted || scanTruncated || files.length > reported.length, scanTruncated, missingDirectories })}`,
   );
   for (const file of reported)
     console.error(`[chunk-inventory] ${JSON.stringify(file)}`);
