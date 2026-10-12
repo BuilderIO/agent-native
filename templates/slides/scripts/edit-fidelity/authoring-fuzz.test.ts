@@ -25,6 +25,8 @@ import {
   isCaretScrollOnlyChange,
   isExpectedCleanupBrowserSessionHeartbeatConsoleError,
   isExpectedSaveReloadBrowserSessionConsoleError,
+  isExpectedSaveReloadRetiredBrowserSessionCorsError,
+  isExpectedSaveReloadRetiredBrowserSessionPollWarning,
   isExpectedSaveReloadWatchedRequestAbort as isExpectedSaveReloadAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
@@ -1743,6 +1745,126 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
       heartbeatWarning,
       "save/reload",
       [{ ...registrationCandidate, ageMs: 9_000 }],
+    ),
+  ).toBe(false);
+});
+
+it("correlates WebKit's retired browser-session claim error to the reload window", () => {
+  const origin = "http://localhost:65362";
+  const sessionId = "4ffee127-e336-48bf-b3e8-e9ca9f5640e8";
+  const navigationStartedAt = 1_000;
+  const error = `Fetch API cannot load ${origin}/_agent-native/browser-sessions/${sessionId}/requests/claim due to access control checks.`;
+  const pollWarning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      "another-session",
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error.replace(origin, "http://other.localhost:65362"),
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "step 17",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      null,
+      1_017,
+      false,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      1_017,
+      true,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionCorsError(
+      error,
+      "save/reload",
+      sessionId,
+      origin,
+      navigationStartedAt,
+      2_000,
+      false,
+    ),
+  ).toBe(false);
+
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      1_024,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      pollWarning,
+      "save/reload",
+      1_017,
+      1_268,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      pollWarning,
+      "step 17",
+      1_017,
+      1_024,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+      "another poll failure",
+      "save/reload",
+      1_017,
+      1_024,
     ),
   ).toBe(false);
 });

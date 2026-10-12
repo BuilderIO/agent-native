@@ -275,6 +275,12 @@ function isBrowserSessionClaimRequest(method: string, pathname: string) {
   return matchesPath && browserSessionClaimRequestRule.method === method;
 }
 
+function browserSessionClaimId(pathname: string) {
+  return /^\/_agent-native\/browser-sessions\/([^/]+)\/requests\/claim$/.exec(
+    pathname,
+  )?.[1];
+}
+
 type SaveReloadRequestAbortRule = {
   path: string | RegExp;
   method?: string;
@@ -285,6 +291,7 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 const reloadNavigationConsoleGraceMs = 1_000;
+const retiredBrowserSessionPollConsoleGraceMs = 250;
 const reloadNavigationSuccessfulClaimGraceMs = 250;
 
 const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
@@ -515,6 +522,59 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
       isPollFailure,
     ) ||
       (isPollFailure && completedClaimCount === 1 && claimCandidateCount === 1))
+  );
+}
+
+export function isExpectedSaveReloadRetiredBrowserSessionCorsError(
+  message: string,
+  activePhase: string,
+  sessionIdAtNavigation: string | null,
+  authoringPageOrigin: string,
+  navigationStartedAt: number | null,
+  now: number,
+  competingClaimStartedAfterNavigation: boolean,
+) {
+  if (
+    activePhase !== "save/reload" ||
+    !sessionIdAtNavigation ||
+    navigationStartedAt === null ||
+    competingClaimStartedAfterNavigation ||
+    now < navigationStartedAt ||
+    now - navigationStartedAt >= reloadNavigationConsoleGraceMs
+  ) {
+    return false;
+  }
+
+  const match =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.$/.exec(
+      message,
+    );
+  if (!match) return false;
+
+  try {
+    const url = new URL(match[1]);
+    return (
+      url.origin === authoringPageOrigin &&
+      browserSessionClaimId(url.pathname) === sessionIdAtNavigation
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+  message: string,
+  activePhase: string,
+  correlatedPageErrorAt: number | null,
+  now: number,
+) {
+  return (
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    activePhase === "save/reload" &&
+    correlatedPageErrorAt !== null &&
+    now >= correlatedPageErrorAt &&
+    now - correlatedPageErrorAt <= retiredBrowserSessionPollConsoleGraceMs
   );
 }
 
@@ -1263,6 +1323,9 @@ export async function runAuthoringFuzz(
   let reloadNavigationStartedAt: number | null = null;
   // Keep the latest start after openSlide returns to correlate late poll errors.
   let lastReloadStartedAt: number | null = null;
+  let currentBrowserSessionId: string | null = null;
+  let browserSessionIdAtReload: string | null = null;
+  let correlatedRetiredSessionPageErrorAt: number | null = null;
   const hasCompetingClaimStartedAfterNavigation = (request: any) => {
     const url = new URL(request.url());
     if (!isBrowserSessionClaimRequest(request.method(), url.pathname))
@@ -1284,6 +1347,16 @@ export async function runAuthoringFuzz(
       },
     );
   };
+  const hasTrackedClaimStartedAfterNavigation = (sessionId: string | null) =>
+    Boolean(
+      sessionId &&
+      [...reloadNavigationRequests.entries()].some(
+        ([request, candidate]) =>
+          (candidate.requestStartedDuringNavigation ||
+            candidate.requestStartedAfterNavigation) &&
+          browserSessionClaimId(new URL(request.url()).pathname) === sessionId,
+      ),
+    );
   const pendingSaveConflicts: Promise<void>[] = [];
   const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
@@ -1396,6 +1469,17 @@ export async function runAuthoringFuzz(
     };
     const recordUnlessExpected = (text: string) => {
       if (
+        isExpectedSaveReloadRetiredBrowserSessionPollWarning(
+          text,
+          consolePhase,
+          correlatedRetiredSessionPageErrorAt,
+          now,
+        )
+      ) {
+        correlatedRetiredSessionPageErrorAt = null;
+        return;
+      }
+      if (
         isExpectedSaveReloadBrowserSessionConsoleError(
           text,
           consolePhase,
@@ -1427,6 +1511,31 @@ export async function runAuthoringFuzz(
     pendingConsoleInspections.add(inspection);
   };
   const onPageError = (error: Error) => {
+    const now = Date.now();
+    // WebKit keeps the failed fetch URL on the stack's first line, not Error.message.
+    const pageErrorText = (error.stack ?? error.message).split("\n", 1)[0];
+    const competingClaim = hasTrackedClaimStartedAfterNavigation(
+      browserSessionIdAtReload,
+    );
+    const expectedRetiredSessionError =
+      isExpectedSaveReloadRetiredBrowserSessionCorsError(
+        pageErrorText,
+        activePhase,
+        browserSessionIdAtReload,
+        authoringPageOrigin,
+        reloadNavigationStartedAt,
+        now,
+        competingClaim,
+      );
+    if (expectedRetiredSessionError) {
+      correlatedRetiredSessionPageErrorAt = now;
+      if (traceEnabled) {
+        console.log(
+          `[edit-fidelity] ignored WebKit page error from the retired browser-session claim during reload (${browserSessionIdAtReload})`,
+        );
+      }
+      return;
+    }
     if (traceEnabled) {
       console.log(
         `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
@@ -1492,6 +1601,10 @@ export async function runAuthoringFuzz(
     const requestUrl = new URL(request.url());
     const startedAt = Date.now();
     if (isBrowserSessionClaimRequest(request.method(), requestUrl.pathname)) {
+      if (reloadNavigationStartedAt === null) {
+        currentBrowserSessionId =
+          browserSessionClaimId(requestUrl.pathname) ?? null;
+      }
       inFlightBrowserSessionClaims.set(request, {
         startedAt,
         responseStatus: null,
@@ -5327,6 +5440,8 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
+      browserSessionIdAtReload = currentBrowserSessionId;
+      correlatedRetiredSessionPageErrorAt = null;
       reloadNavigationStartedAt = Date.now();
       lastReloadStartedAt = reloadNavigationStartedAt;
       for (const [request, startedAt] of watchedRequests.entries()) {
@@ -5373,6 +5488,7 @@ export async function runAuthoringFuzz(
       recentlyCompletedBrowserSessionClaims.clear();
     });
     reloadNavigationStartedAt = null;
+    browserSessionIdAtReload = null;
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [
