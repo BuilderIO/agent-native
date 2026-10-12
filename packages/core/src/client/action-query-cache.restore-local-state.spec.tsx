@@ -52,7 +52,9 @@ it("does not authorize local success when a fetch-state update races equal-time 
   expect(localQuery?.state.dataUpdatedAt).toBe(updatedAt);
 
   try {
-    const binding = cache.bindActionQueryCache(client, scope);
+    const binding = cache.bindActionQueryCache(client, scope, {
+      trustPrebindResults: true,
+    });
     await readStarted.promise;
     const stateBeforeLocalTransition = localQuery!.state;
     client.setQueryData(

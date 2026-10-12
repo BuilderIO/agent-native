@@ -1166,14 +1166,28 @@ export function useActionQuery<
       const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
       let browserPersist = false;
-      const result = await actionFetch<R>(actionName, "GET", params, {
-        signal,
-        onResponse: (response) => {
-          browserPersist =
-            response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
-            ACTION_BROWSER_PERSIST_ALLOW;
-        },
-      });
+      let result: R;
+      try {
+        result = await actionFetch<R>(actionName, "GET", params, {
+          signal,
+          onResponse: (response) => {
+            browserPersist =
+              response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
+              ACTION_BROWSER_PERSIST_ALLOW;
+          },
+        });
+      } catch (error) {
+        const status = actionErrorStatus(error);
+        if (
+          query &&
+          !signal.aborted &&
+          (status === 401 || status === 403 || status === 404)
+        ) {
+          revokeBrowserPersistableActionQuery(query);
+          query.setState({ data: undefined, dataUpdatedAt: 0 });
+        }
+        throw error;
+      }
       resetActionFailureCircuit(key);
       if (query && !signal.aborted) {
         if (browserPersist) {

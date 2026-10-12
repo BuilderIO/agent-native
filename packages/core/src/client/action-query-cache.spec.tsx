@@ -30,6 +30,7 @@ const sessionMocks = vi.hoisted(() => {
 vi.mock("./use-session.js", async () => {
   const { useSyncExternalStore } = await import("react");
   return {
+    isSessionFromFirstRead: () => false,
     useSession: () => {
       const session = useSyncExternalStore(
         (listener) => {
@@ -482,7 +483,9 @@ describe("ActionQueryCacheGate", () => {
     });
     expect(requestCount()).toBe(1);
 
-    await bindActionQueryCache(client, ALICE_SCOPE);
+    await bindActionQueryCache(client, ALICE_SCOPE, {
+      trustPrebindResults: true,
+    });
 
     expect(client.getQueryData<Designs>(key)?.designs[0]?.title).toBe(
       "preloaded",

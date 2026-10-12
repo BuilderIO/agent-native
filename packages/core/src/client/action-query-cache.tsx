@@ -17,7 +17,7 @@ import {
   keys as listKeys,
   set as setEntry,
 } from "idb-keyval";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
@@ -28,7 +28,7 @@ import {
   revokeBrowserPersistableActionQuery,
   setActionQueryCacheBindingToken,
 } from "./use-action.js";
-import { useSession } from "./use-session.js";
+import { isSessionFromFirstRead, useSession } from "./use-session.js";
 
 // Bump when a cached result's shape or meaning changes. A record stored under
 // another buster is discarded on restore instead of being hydrated.
@@ -283,7 +283,17 @@ function closeBinding(): void {
   if (!closing) return;
   closing.persister.close();
   closing.unsubscribe();
-  closing.client.removeQueries({ queryKey: ACTION_QUERY_KEY });
+  // Keep access-denied errors as evidence for the next bind. A cached success
+  // for the same key must not be restored after a 401/403/404 was observed.
+  for (const query of closing.client
+    .getQueryCache()
+    .findAll({ queryKey: ACTION_QUERY_KEY })) {
+    if (isAccessDeniedActionQuery(query)) {
+      clearAccessDeniedActionQueryData(query);
+    } else {
+      closing.client.removeQueries({ queryKey: query.queryKey, exact: true });
+    }
+  }
 }
 
 async function waitForRestore(restored: Promise<void>): Promise<void> {
@@ -315,9 +325,26 @@ async function waitForRestore(restored: Promise<void>): Promise<void> {
 export async function bindActionQueryCache(
   client: QueryClient,
   scope: string,
+  options: { trustPrebindResults?: boolean } = {},
 ): Promise<void> {
+  const trustPrebindResults = options.trustPrebindResults === true;
+  const alreadyBoundClient = binding?.client === client;
+  const deniedBeforeBind = client
+    .getQueryCache()
+    .getAll()
+    .filter(isAccessDeniedActionQuery);
   const earlierDeletes = [...inFlightStorageDeletes];
   closeBinding();
+  // An unverified result fetched before the first scope was known must not be
+  // consumed by the newly authenticated tree. Trusted first-read preloads stay
+  // in memory, but their fetch-start token remains absent, so they are never
+  // adopted into this scope's persisted record.
+  if (!alreadyBoundClient && !trustPrebindResults) {
+    client.removeQueries({
+      queryKey: ACTION_QUERY_KEY,
+      predicate: (query) => !isAccessDeniedActionQuery(query),
+    });
+  }
   const generation = bindingGeneration;
   const persister = scopedPersister(scope);
   const token = {};
@@ -350,10 +377,6 @@ export async function bindActionQueryCache(
     }
   });
 
-  const deniedBeforeBind = client
-    .getQueryCache()
-    .getAll()
-    .filter(isAccessDeniedActionQuery);
   if (deniedBeforeBind.length > 0) {
     persister.discard();
     for (const query of deniedBeforeBind) {
@@ -542,7 +565,13 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
   const scope = session
     ? actionQueryCacheScope(session, clientBuildId())
     : null;
-  const [restoredScope, setRestoredScope] = useState<string | null>(null);
+  const trustPrebindResults =
+    scope !== null && status === "authenticated" && isSessionFromFirstRead();
+  const bindAttempt = useMemo(
+    () => ({}),
+    [queryClient, scope, status, trustPrebindResults],
+  );
+  const [settledAttempt, setSettledAttempt] = useState<object | null>(null);
 
   useEffect(() => {
     // "loading", "unavailable" and "signing-out" are not an ended session:
@@ -551,26 +580,39 @@ export function ActionQueryCacheGate({ children }: { children: ReactNode }) {
       clearActionQueryCache().catch((error) =>
         console.warn("Unable to clear cached action results", error),
       );
+      setSettledAttempt(bindAttempt);
       return;
     }
-    if (!scope) return;
+    if (!scope) {
+      setSettledAttempt(bindAttempt);
+      return;
+    }
     let current = true;
-    setRestoredScope(null);
     const finish = () => {
-      if (current) setRestoredScope(scope);
+      if (current) setSettledAttempt(bindAttempt);
     };
-    bindActionQueryCache(queryClient, scope).then(finish, (error) => {
-      console.warn("Unable to use cached action results", error);
-      finish();
-    });
+    bindActionQueryCache(queryClient, scope, { trustPrebindResults }).then(
+      finish,
+      (error) => {
+        console.warn("Unable to use cached action results", error);
+        finish();
+      },
+    );
     return () => {
       current = false;
       closeBinding();
     };
-  }, [queryClient, scope, status]);
+  }, [bindAttempt, queryClient, scope, status, trustPrebindResults]);
 
-  const restoring = scope !== null && restoredScope !== scope;
+  const restoring = scope !== null && settledAttempt !== bindAttempt;
+  // Keep an unverified pre-session tree out of view until its queries have
+  // been removed and the verified scope has finished restoring. A first-read
+  // preload remains mounted so the verified fast path does not fetch twice.
+  const holdUntrustedChildren =
+    scope !== null && !trustPrebindResults && restoring;
   return (
-    <IsRestoringProvider value={restoring}>{children}</IsRestoringProvider>
+    <IsRestoringProvider value={restoring}>
+      {holdUntrustedChildren ? null : children}
+    </IsRestoringProvider>
   );
 }

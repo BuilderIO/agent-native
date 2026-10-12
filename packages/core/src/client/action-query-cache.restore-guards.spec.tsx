@@ -141,7 +141,7 @@ it("does not reauthorize existing local state when hydration skips an equal time
       updatedAt: sharedTimestamp,
     },
   );
-  await bindActionQueryCache(client, scope);
+  await bindActionQueryCache(client, scope, { trustPrebindResults: true });
 
   const query = client.getQueryCache().find({ queryKey });
   expect(query?.state.data).toEqual({ private: "local-unallowlisted" });

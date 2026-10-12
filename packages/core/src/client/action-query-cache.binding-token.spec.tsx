@@ -28,6 +28,7 @@ const sessionState = vi.hoisted(() => {
 vi.mock("./use-session.js", async () => {
   const react = await import("react");
   return {
+    isSessionFromFirstRead: () => true,
     useSession: () => {
       const session = react.useSyncExternalStore(
         sessionState.subscribe,
@@ -256,7 +257,7 @@ it("does not authorize an unknown pre-bind request that resolves after B binds",
 
   await mount(client, true, false);
   await requestStarted.promise;
-  await bindActionQueryCache(client, SCOPE_B);
+  await bindActionQueryCache(client, SCOPE_B, { trustPrebindResults: true });
   await expect.poll(() => reads.includes(SCOPE_B)).toBe(true);
 
   requestResponse.resolve(response("request-user-a"));

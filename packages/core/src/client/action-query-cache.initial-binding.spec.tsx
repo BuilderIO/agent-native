@@ -323,7 +323,9 @@ it.each([401, 403, 404])(
     });
     await fetchStarted.promise;
 
-    const binding = bindActionQueryCache(client, SCOPE_A);
+    const binding = bindActionQueryCache(client, SCOPE_A, {
+      trustPrebindResults: true,
+    });
     await keysStarted.promise;
     const deniedQuery = client.getQueryCache().find({ queryKey: ACTION_KEY });
     try {

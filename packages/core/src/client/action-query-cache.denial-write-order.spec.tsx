@@ -227,14 +227,25 @@ it("deletes a storage write that was already in flight when access was denied", 
     clear: async () => records.clear(),
   };
   setActionQueryCacheStorage(storage);
-  const actionCalls = new Map<string, number>();
+  let denialEnabled = false;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
       const action = url.split("/").at(-1) ?? "";
-      const callCount = (actionCalls.get(action) ?? 0) + 1;
-      actionCalls.set(action, callCount);
-      if (action === "probe-revoked" && callCount > 1) {
+      if (action === "get-actions-batch") {
+        const body = JSON.parse(String(init?.body)) as {
+          requests: Array<{ action: string }>;
+        };
+        return new Response(
+          JSON.stringify({
+            results: body.requests.map(({ action: name }) =>
+              allowed(`${name}-result`),
+            ),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (action === "probe-revoked" && denialEnabled) {
         return new Response(JSON.stringify({ error: "denied" }), {
           status: 403,
           headers: { "Content-Type": "application/json" },
@@ -263,6 +274,7 @@ it("deletes a storage write that was already in flight when access was denied", 
     .toEqual({ value: "probe-retained-result" });
 
   await writeStarted.promise;
+  denialEnabled = true;
   await act(async () => {
     await client.refetchQueries({ queryKey: revokedKey, exact: true });
   });
