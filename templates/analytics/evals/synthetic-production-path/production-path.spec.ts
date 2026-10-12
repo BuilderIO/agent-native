@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type {
   AgentEngine,
@@ -15,7 +17,8 @@ import {
   type EvalProductionIdentity,
   type Scorer,
 } from "@agent-native/core/eval";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { generateActionRegistryForProject } from "@agent-native/core/vite";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const syntheticData = vi.hoisted(() => {
   const generatedAt = "2026-10-12T00:00:00.000Z";
@@ -137,6 +140,10 @@ vi.mock("@agent-native/core/embeddings", async (importOriginal) => ({
 const FIXTURE_REVISION =
   "dbt-schema-000d5e351b5be91166610a4acf1b10fea565fcff-fixture-v1";
 const ACTION_ALLOWLIST = ["find-data"] as const;
+const ANALYTICS_PROJECT_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 const IDENTITY: EvalProductionIdentity = {
   ownerEmail: syntheticData.ownerEmail,
   orgId: syntheticData.orgId,
@@ -569,6 +576,10 @@ async function makeRows(
 }
 
 describe("Analytics synthetic production-path retrieval harness", () => {
+  beforeAll(() => {
+    generateActionRegistryForProject(ANALYTICS_PROJECT_ROOT);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
